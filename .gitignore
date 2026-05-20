@@ -60,3 +60,7 @@ dist
 /opencode.json
 /opencode.json.bak
 # END Ruler Generated Files
+
+# worktrees and build artifacts
+.agents/
+report/

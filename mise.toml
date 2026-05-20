@@ -7,6 +7,12 @@ run = "bun run vitest run"
 [tasks.typecheck]
 run = "bun run tsc --noEmit"
 
+[tasks.lint]
+run = "bun run check"
+
+[tasks.format]
+run = "bun run fix"
+
 [tasks.build]
 run = "bun run mastra build"
 

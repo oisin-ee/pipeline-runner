@@ -1,23 +1,4 @@
 {
-  "name": "oisin-pipeline",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "dev": "mastra dev",
-    "build": "mastra build",
-    "start": "mastra start"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
-  "engines": {
-    "node": ">=22.13.0",
-    "bun": ">=1.1.0"
-  },
   "dependencies": {
     "@mastra/core": "^1.35.0",
     "@mastra/libsql": "^1.11.0",
@@ -26,10 +7,33 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.15",
     "@types/node": "^25.9.1",
     "jscpd": "^4.0.5",
     "mastra": "^1.9.3",
     "typescript": "^6.0.3",
+    "ultracite": "7.7.0",
     "vitest": "^3.2.0"
+  },
+  "name": "oisin-pipeline",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "mastra start",
+    "check": "ultracite check",
+    "fix": "ultracite fix"
+  },
+  "type": "module",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=22.13.0",
+    "bun": ">=1.1.0"
   }
 }
