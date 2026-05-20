@@ -367,3 +367,37 @@ describe("runLearn", () => {
     expect(content).toContain("FAIL");
   });
 });
+
+// ─── workflow chain ──────────────────────────────────────────────────────────
+
+describe("pipelineWorkflow", () => {
+  it("exports a committed workflow with id ralph-loop", async () => {
+    const { pipelineWorkflow } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+    expect(pipelineWorkflow.id).toBe("ralph-loop");
+    expect(pipelineWorkflow.committed).toBe(true);
+  });
+
+  it("has all required step ids", async () => {
+    const { pipelineWorkflow } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+    const stepIds = Object.keys(pipelineWorkflow.steps);
+    expect(stepIds).toContain("knowledge-inject");
+    expect(stepIds).toContain("research");
+    expect(stepIds).toContain("red");
+    expect(stepIds).toContain("green");
+    expect(stepIds).toContain("verify");
+    expect(stepIds).toContain("learn");
+  });
+
+  it("workflow inputSchema is defined with expected shape", async () => {
+    const { pipelineWorkflow } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+    expect(pipelineWorkflow.inputSchema).toBeDefined();
+    // inputSchema is a Zod schema wrapped as StandardSchemaWithJSON
+    expect(typeof pipelineWorkflow.inputSchema).toBe("object");
+  });
+});

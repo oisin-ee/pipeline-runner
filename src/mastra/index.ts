@@ -1,5 +1,6 @@
+import { Mastra } from "@mastra/core/mastra";
+import { pipelineWorkflow } from "./workflows/pipeline.js";
 
-import { Mastra } from '@mastra/core/mastra';
-
-export const mastra = new Mastra()
-        
+export const mastra = new Mastra({
+  workflows: { pipelineWorkflow },
+});
