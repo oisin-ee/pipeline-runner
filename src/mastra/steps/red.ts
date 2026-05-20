@@ -21,10 +21,16 @@ export async function runRed(opts: RedOptions): Promise<RedResult> {
   const { worktreePath, prompt, contextFile, harness, maxRetries = 3 } = opts;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const testWritePrompt = [
+      "You are a test-writer. Your ONLY job is to write FAILING unit tests.",
+      "Rules: (1) Create a test file (e.g. src/math.test.ts). (2) Tests MUST fail — do NOT implement the code. (3) Use vitest syntax with describe/it/expect.",
+      "",
+      `Task: ${prompt}`,
+    ].join("\n");
     await spawnAgent(
       harness,
       "test-writer",
-      prompt,
+      testWritePrompt,
       contextFile,
       worktreePath
     ).catch(() => ({ stdout: "", exitCode: 1 }));

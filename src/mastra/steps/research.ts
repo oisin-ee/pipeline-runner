@@ -23,10 +23,16 @@ export async function runResearch(
   let lastResult: ResearchResult = { exitCode: 1, output: "" };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const researchPrompt = [
+      "You are a researcher. Explore the codebase and understand what exists.",
+      "Rules: (1) Read existing files. (2) Understand project structure. (3) Write a research.json summary.",
+      "",
+      `Task to research: ${prompt}`,
+    ].join("\n");
     const result = await spawnAgent(
       harness,
       "researcher",
-      prompt,
+      researchPrompt,
       contextFile,
       worktreePath
     ).catch((err: { stdout?: string; exitCode?: number }) => ({
