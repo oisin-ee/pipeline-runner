@@ -1,0 +1,369 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mock execa and fs first, before imports
+vi.mock("execa", () => ({
+  execa: vi.fn(),
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...real,
+    existsSync: vi.fn(real.existsSync),
+    readFileSync: vi.fn(real.readFileSync),
+    readdirSync: vi.fn(real.readdirSync),
+    writeFileSync: vi.fn(),
+    mkdirSync: vi.fn(),
+  };
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...real,
+    readFile: vi.fn(),
+    writeFile: vi.fn(),
+    mkdir: vi.fn(),
+    readdir: vi.fn(),
+  };
+});
+
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { execa } from "execa";
+
+const TRIVIAL_RE = /trivial/i;
+
+const mockExeca = vi.mocked(execa);
+const mockExistsSync = vi.mocked(existsSync);
+const mockReadFileSync = vi.mocked(readFileSync);
+const mockReaddirSync = vi.mocked(readdirSync);
+const mockWriteFile = vi.mocked(writeFile);
+const mockMkdir = vi.mocked(mkdir);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockMkdir.mockResolvedValue(undefined);
+  mockWriteFile.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// ─── knowledge-inject ────────────────────────────────────────────────────────
+
+describe("knowledgeInjectStep", () => {
+  it("builds context string from rules and knowledge files", async () => {
+    const { buildKnowledgeContext } = await import(
+      "../src/mastra/steps/knowledge-inject.js"
+    );
+
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue([
+      { name: "rule.md", isDirectory: () => false } as any,
+    ]);
+    mockReadFileSync.mockReturnValue("# Rule content");
+
+    const ctx = buildKnowledgeContext("/fake/worktree");
+    expect(typeof ctx).toBe("string");
+    expect(ctx.length).toBeGreaterThan(0);
+  });
+
+  it("returns empty string when no rules or knowledge dir exists", async () => {
+    const { buildKnowledgeContext } = await import(
+      "../src/mastra/steps/knowledge-inject.js"
+    );
+
+    mockExistsSync.mockReturnValue(false);
+
+    const ctx = buildKnowledgeContext("/fake/worktree");
+    expect(ctx).toBe("");
+  });
+});
+
+// ─── research step ───────────────────────────────────────────────────────────
+
+describe("runResearch", () => {
+  it("runs researcher agent and returns output", async () => {
+    const { runResearch } = await import("../src/mastra/steps/research.js");
+
+    mockExeca.mockResolvedValueOnce({
+      stdout: "research findings",
+      exitCode: 0,
+    } as any);
+    mockWriteFile.mockResolvedValue(undefined);
+
+    const result = await runResearch({
+      worktreePath: "/fake/worktree",
+      prompt: "research this",
+      contextFile: null,
+      harness: "claude",
+    });
+
+    expect(result.output).toBe("research findings");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("retries up to maxRetries on failure and returns last result", async () => {
+    const { runResearch } = await import("../src/mastra/steps/research.js");
+
+    mockExeca
+      .mockRejectedValueOnce(
+        Object.assign(new Error("fail"), {
+          exitCode: 1,
+          stdout: "err1",
+          stderr: "",
+        })
+      )
+      .mockResolvedValueOnce({ stdout: "success", exitCode: 0 } as any);
+    mockWriteFile.mockResolvedValue(undefined);
+
+    const result = await runResearch({
+      worktreePath: "/fake/worktree",
+      prompt: "research",
+      contextFile: null,
+      harness: "claude",
+      maxRetries: 2,
+    });
+
+    expect(result.exitCode).toBe(0);
+  });
+});
+
+// ─── red step (test-write) ───────────────────────────────────────────────────
+
+describe("runRed", () => {
+  it("rejects trivially-green tests (exit 0 means RED gate failed)", async () => {
+    const { runRed } = await import("../src/mastra/steps/red.js");
+
+    // Agent runs, then test runner exits 0 — RED gate FAILS (tests should fail)
+    mockExeca
+      .mockResolvedValueOnce({ stdout: "wrote tests", exitCode: 0 } as any) // agent
+      .mockResolvedValueOnce({
+        stdout: "All tests passed",
+        exitCode: 0,
+      } as any); // vitest
+
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { test: "vitest run" } });
+      }
+      return "";
+    });
+
+    const result = await runRed({
+      worktreePath: "/fake/worktree",
+      prompt: "write failing tests",
+      contextFile: null,
+      harness: "claude",
+      maxRetries: 1,
+    });
+
+    // After maxRetries exhausted on trivial pass, returns TRIVIAL_GREEN failure
+    expect(result.redGatePassed).toBe(false);
+    expect(result.reason).toMatch(TRIVIAL_RE);
+  });
+
+  it("passes RED gate when tests fail (exit code 1)", async () => {
+    const { runRed } = await import("../src/mastra/steps/red.js");
+
+    mockExeca
+      .mockResolvedValueOnce({ stdout: "wrote tests", exitCode: 0 } as any) // agent
+      .mockRejectedValueOnce(
+        Object.assign(new Error("tests fail"), {
+          exitCode: 1,
+          stdout: "✗ sum should work",
+          stderr: "",
+        })
+      ); // vitest
+
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { test: "vitest run" } });
+      }
+      return "";
+    });
+
+    const result = await runRed({
+      worktreePath: "/fake/worktree",
+      prompt: "write failing tests",
+      contextFile: null,
+      harness: "claude",
+    });
+
+    expect(result.redGatePassed).toBe(true);
+    expect(result.failingTests).toContain("sum should work");
+  });
+});
+
+// ─── green step (implement) ──────────────────────────────────────────────────
+
+describe("runGreen", () => {
+  it("passes when tests and typecheck both exit 0", async () => {
+    const { runGreen } = await import("../src/mastra/steps/green.js");
+
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { test: "vitest run" } });
+      }
+      return "";
+    });
+    mockExistsSync.mockReturnValue(true);
+
+    mockExeca
+      .mockResolvedValueOnce({ stdout: "implemented", exitCode: 0 } as any) // agent
+      .mockResolvedValueOnce({ stdout: "all pass", exitCode: 0 } as any) // vitest
+      .mockResolvedValueOnce({ stdout: "", exitCode: 0 } as any); // tsc
+
+    const result = await runGreen({
+      worktreePath: "/fake/worktree",
+      prompt: "implement sum",
+      contextFile: null,
+      harness: "claude",
+    });
+
+    expect(result.greenGatePassed).toBe(true);
+  });
+
+  it("retries when tests fail and returns failure after maxRetries", async () => {
+    const { runGreen } = await import("../src/mastra/steps/green.js");
+
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { test: "vitest run" } });
+      }
+      return "";
+    });
+    mockExistsSync.mockReturnValue(false); // no tsconfig → typecheck skipped
+
+    // agent always "succeeds" but tests keep failing
+    mockExeca.mockImplementation((cmd: string | URL) => {
+      if (String(cmd) === "claude") {
+        return Promise.resolve({ stdout: "implemented", exitCode: 0 }) as any;
+      }
+      return Promise.reject(
+        Object.assign(new Error("tests fail"), {
+          exitCode: 1,
+          stdout: "✗ sum broken",
+          stderr: "",
+        })
+      );
+    });
+
+    const result = await runGreen({
+      worktreePath: "/fake/worktree",
+      prompt: "implement sum",
+      contextFile: null,
+      harness: "claude",
+      maxRetries: 2,
+    });
+
+    expect(result.greenGatePassed).toBe(false);
+  });
+});
+
+// ─── verify step ─────────────────────────────────────────────────────────────
+
+describe("runVerify", () => {
+  it("passes when static gates have no violations and LLM returns PASS", async () => {
+    const { runVerify } = await import("../src/mastra/steps/verify.js");
+
+    mockExistsSync.mockReturnValue(false); // no src/ files → no style violations
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ duplicates: [] }),
+        exitCode: 0,
+      } as any) // jscpd
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ verdict: "PASS", evidence: [] }),
+        exitCode: 0,
+      } as any); // verifier agent
+
+    const result = await runVerify({
+      worktreePath: "/fake/worktree",
+      prompt: "verify implementation",
+      contextFile: null,
+      harness: "claude",
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("fails when jscpd finds duplicates", async () => {
+    const { runVerify } = await import("../src/mastra/steps/verify.js");
+
+    mockExistsSync.mockReturnValue(false);
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          duplicates: [
+            {
+              firstFile: { name: "src/a.ts", start: 1 },
+              secondFile: { name: "src/b.ts" },
+            },
+          ],
+        }),
+        exitCode: 0,
+      } as any) // jscpd
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ verdict: "PASS", evidence: [] }),
+        exitCode: 0,
+      } as any); // verifier
+
+    const result = await runVerify({
+      worktreePath: "/fake/worktree",
+      prompt: "verify",
+      contextFile: null,
+      harness: "claude",
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── learn step ──────────────────────────────────────────────────────────────
+
+describe("runLearn", () => {
+  it("writes a knowledge file with task outcome", async () => {
+    const { runLearn } = await import("../src/mastra/steps/learn.js");
+
+    mockMkdir.mockResolvedValue(undefined);
+    mockWriteFile.mockResolvedValue(undefined);
+
+    await runLearn({
+      worktreePath: "/fake/worktree",
+      taskDescription: "add sum function",
+      outcome: "PASS",
+      violations: [],
+      testOutput: "20 tests passed",
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    const [filePath, content] = mockWriteFile.mock.calls[0];
+    expect(String(filePath)).toContain(".pipeline/knowledge/");
+    expect(String(content)).toContain("add sum function");
+    expect(String(content)).toContain("PASS");
+  });
+
+  it("includes violations in the knowledge file when present", async () => {
+    const { runLearn } = await import("../src/mastra/steps/learn.js");
+
+    mockMkdir.mockResolvedValue(undefined);
+    mockWriteFile.mockResolvedValue(undefined);
+
+    await runLearn({
+      worktreePath: "/fake/worktree",
+      taskDescription: "add feature",
+      outcome: "FAIL",
+      violations: [{ file: "src/a.ts", message: "inline style detected" }],
+      testOutput: "1 test failed",
+    });
+
+    const content = String(mockWriteFile.mock.calls[0][1]);
+    expect(content).toContain("inline style detected");
+    expect(content).toContain("FAIL");
+  });
+});
