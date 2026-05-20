@@ -33,13 +33,11 @@ describe("spawnAgent — claude harness", () => {
       "/tmp/wt"
     );
 
-    expect(mockExeca).toHaveBeenCalledWith("claude", [
-      "--print",
-      "-p",
-      "do the thing",
-      "--cwd",
-      "/tmp/wt",
-    ]);
+    expect(mockExeca).toHaveBeenCalledWith(
+      "claude",
+      ["--print", "-p", "do the thing"],
+      expect.objectContaining({ cwd: "/tmp/wt" })
+    );
     expect(result).toEqual({ stdout: "claude output", exitCode: 0 });
   });
 

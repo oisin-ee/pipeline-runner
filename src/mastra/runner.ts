@@ -27,13 +27,9 @@ async function spawnClaude(
 ): Promise<AgentResult> {
   const context = await loadContext(contextFile);
   const fullPrompt = context ? `${context}\n${prompt}` : prompt;
-  const result = await execa("claude", [
-    "--print",
-    "-p",
-    fullPrompt,
-    "--cwd",
-    worktreePath,
-  ]);
+  const result = await execa("claude", ["--print", "-p", fullPrompt], {
+    cwd: worktreePath,
+  });
   return { stdout: result.stdout, exitCode: result.exitCode ?? 0 };
 }
 
