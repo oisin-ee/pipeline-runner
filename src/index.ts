@@ -26,7 +26,8 @@ export async function workNext(description: string): Promise<void> {
     inputData: { task: description, harness, worktreePath },
   });
 
-  const outcome = (result as { outcome?: string })?.outcome ?? "FAIL";
+  // Log result shape for debugging
+  const outcome = (result as { result?: { outcome?: string } }).result?.outcome ?? "FAIL";
   await markPhase(`${parentId}-L`, "Done");
   console.log(`Pipeline complete: ${outcome}`);
 }
