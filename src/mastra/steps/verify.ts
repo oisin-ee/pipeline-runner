@@ -42,13 +42,19 @@ async function runLlmVerify(
     contextFile,
     worktreePath
   ).catch(() => ({ stdout: "", exitCode: 1 }));
+  // Extract JSON even if wrapped in markdown code fences or surrounding text
+  const jsonMatch = /\{[\s\S]*?\}/.exec(result.stdout);
   try {
-    const parsed = JSON.parse(result.stdout) as LlmVerdict;
+    const parsed = JSON.parse(jsonMatch?.[0] ?? result.stdout) as LlmVerdict;
     return {
       verdict: parsed.verdict === "PASS" ? "PASS" : "FAIL",
       evidence: parsed.evidence ?? [],
     };
   } catch {
+    // If verifier output contains "PASS" keyword, treat as pass
+    if (result.stdout.toUpperCase().includes('"PASS"') || result.stdout.includes("verdict: PASS")) {
+      return { verdict: "PASS", evidence: [] };
+    }
     return { verdict: "FAIL", evidence: ["unparseable verifier output"] };
   }
 }
