@@ -28,10 +28,17 @@ async function runLlmVerify(
   contextFile: string | null,
   worktreePath: string
 ): Promise<{ verdict: "PASS" | "FAIL"; evidence: string[] }> {
+  const verifyPrompt = [
+    "You are a code verifier. Review the implementation and output ONLY valid JSON.",
+    'Output format: {"verdict": "PASS", "evidence": []} or {"verdict": "FAIL", "evidence": ["reason"]}',
+    "Check: (1) Implementation matches the task. (2) No obvious bugs. (3) Code is clean.",
+    "",
+    `Task: ${prompt}`,
+  ].join("\n");
   const result = await spawnAgent(
     harness,
     "verifier",
-    prompt,
+    verifyPrompt,
     contextFile,
     worktreePath
   ).catch(() => ({ stdout: "", exitCode: 1 }));
