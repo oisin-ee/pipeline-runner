@@ -1,7 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockRunStart = vi.hoisted(() => vi.fn());
+const mockCreateRun = vi.hoisted(() => vi.fn());
+const mockGetWorkflow = vi.hoisted(() => vi.fn());
 
 vi.mock("execa", () => ({
   execa: vi.fn(),
+}));
+
+vi.mock("../src/mastra/index.js", () => ({
+  mastra: {
+    getWorkflow: mockGetWorkflow,
+  },
 }));
 
 vi.mock("@mastra/core/workflows", async (importOriginal) => {
@@ -16,7 +26,50 @@ const DESCRIPTION_RE = /description/i;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCreateRun.mockResolvedValue({ start: mockRunStart });
+  mockGetWorkflow.mockReturnValue({ createRun: mockCreateRun });
 });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function statusUpdates(): [string, string][] {
+  return mockExeca.mock.calls
+    .filter(([cmd, args]) => {
+      const backlogArgs = args as string[] | undefined;
+      return (
+        cmd === "backlog" &&
+        backlogArgs?.[0] === "task" &&
+        backlogArgs?.[1] === "edit" &&
+        backlogArgs.includes("--status")
+      );
+    })
+    .map(([, args]) => {
+      const backlogArgs = args as string[];
+      return [backlogArgs[2], backlogArgs[backlogArgs.indexOf("--status") + 1]];
+    });
+}
+
+function noteUpdates(): [string, string][] {
+  return mockExeca.mock.calls
+    .filter(([cmd, args]) => {
+      const backlogArgs = args as string[] | undefined;
+      return (
+        cmd === "backlog" &&
+        backlogArgs?.[0] === "task" &&
+        backlogArgs?.[1] === "edit" &&
+        backlogArgs.includes("--append-notes")
+      );
+    })
+    .map(([, args]) => {
+      const backlogArgs = args as string[];
+      return [
+        backlogArgs[2],
+        backlogArgs[backlogArgs.indexOf("--append-notes") + 1],
+      ];
+    });
+}
 
 // ─── backlog.ts ───────────────────────────────────────────────────────────────
 
@@ -75,34 +128,55 @@ describe("markPhase", () => {
   });
 });
 
-describe("findReadyPhase", () => {
-  it("returns null when no unblocked To Do tasks exist", async () => {
-    const { findReadyPhase } = await import("../src/mastra/backlog.js");
+describe("planPhaseLifecycle", () => {
+  it("plans each phase In Progress then Done for a successful run", async () => {
+    const { planPhaseLifecycle } = await import("../src/mastra/backlog.js");
 
-    mockExeca.mockResolvedValue({
-      stdout: JSON.stringify({ tasks: [] }),
-      exitCode: 0,
-    } as any);
+    const result = planPhaseLifecycle("PIPE-99", {
+      outcome: "PASS",
+      failureDetails: [],
+    });
 
-    const result = await findReadyPhase("PIPE-99");
-    expect(result).toBeNull();
+    expect(result.statusUpdates).toEqual([
+      { taskId: "PIPE-99-R", status: "In Progress" },
+      { taskId: "PIPE-99-R", status: "Done" },
+      { taskId: "PIPE-99-TW", status: "In Progress" },
+      { taskId: "PIPE-99-TW", status: "Done" },
+      { taskId: "PIPE-99-CW", status: "In Progress" },
+      { taskId: "PIPE-99-CW", status: "Done" },
+      { taskId: "PIPE-99-V", status: "In Progress" },
+      { taskId: "PIPE-99-V", status: "Done" },
+      { taskId: "PIPE-99-L", status: "In Progress" },
+      { taskId: "PIPE-99-L", status: "Done" },
+    ]);
+    expect(result.failureNote).toBeUndefined();
   });
 
-  it("returns the first unblocked task id", async () => {
-    const { findReadyPhase } = await import("../src/mastra/backlog.js");
+  it("stops at the gate failure phase and records failure context", async () => {
+    const { planPhaseLifecycle } = await import("../src/mastra/backlog.js");
 
-    mockExeca.mockResolvedValue({
-      stdout: JSON.stringify({
-        tasks: [
-          { id: "PIPE-99-R", status: "To Do", dependencies: [] },
-          { id: "PIPE-99-TW", status: "To Do", dependencies: ["PIPE-99-R"] },
-        ],
-      }),
-      exitCode: 0,
-    } as any);
+    const result = planPhaseLifecycle("PIPE-99", {
+      outcome: "FAIL",
+      failureDetails: [
+        {
+          gate: "GREEN",
+          reason: "tests failed",
+          evidence: ["expected 2 received 1"],
+        },
+      ],
+    });
 
-    const result = await findReadyPhase("PIPE-99");
-    expect(result).toBe("PIPE-99-R");
+    expect(result.statusUpdates).toEqual([
+      { taskId: "PIPE-99-R", status: "In Progress" },
+      { taskId: "PIPE-99-R", status: "Done" },
+      { taskId: "PIPE-99-TW", status: "In Progress" },
+      { taskId: "PIPE-99-TW", status: "Done" },
+      { taskId: "PIPE-99-CW", status: "In Progress" },
+    ]);
+    expect(result.failureNote).toEqual({
+      taskId: "PIPE-99-CW",
+      note: "GREEN gate failed: tests failed\n\nEvidence:\n- expected 2 received 1",
+    });
   });
 });
 
@@ -117,5 +191,102 @@ describe("workNext", () => {
   it("throws if no description provided", async () => {
     const { workNext } = await import("../src/index.js");
     await expect(workNext("")).rejects.toThrow(DESCRIPTION_RE);
+  });
+
+  it("marks every phase In Progress then Done when the pipeline passes", async () => {
+    const { workNext } = await import("../src/index.js");
+
+    vi.spyOn(Date, "now").mockReturnValue(99);
+    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+    mockRunStart.mockResolvedValue({
+      result: { outcome: "PASS", failureDetails: [] },
+    });
+
+    await workNext("ship it");
+
+    expect(statusUpdates()).toEqual([
+      ["TASK-99-R", "In Progress"],
+      ["TASK-99-R", "Done"],
+      ["TASK-99-TW", "In Progress"],
+      ["TASK-99-TW", "Done"],
+      ["TASK-99-CW", "In Progress"],
+      ["TASK-99-CW", "Done"],
+      ["TASK-99-V", "In Progress"],
+      ["TASK-99-V", "Done"],
+      ["TASK-99-L", "In Progress"],
+      ["TASK-99-L", "Done"],
+    ]);
+    expect(noteUpdates()).toEqual([]);
+  });
+
+  it.each([
+    {
+      gate: "RED" as const,
+      reason: "tests passed too early",
+      evidence: ["All tests passed"],
+      failedTask: "TASK-99-TW",
+      expectedStatuses: [
+        ["TASK-99-R", "In Progress"],
+        ["TASK-99-R", "Done"],
+        ["TASK-99-TW", "In Progress"],
+      ],
+    },
+    {
+      gate: "GREEN" as const,
+      reason: "tests failed",
+      evidence: ["expected 2 received 1"],
+      failedTask: "TASK-99-CW",
+      expectedStatuses: [
+        ["TASK-99-R", "In Progress"],
+        ["TASK-99-R", "Done"],
+        ["TASK-99-TW", "In Progress"],
+        ["TASK-99-TW", "Done"],
+        ["TASK-99-CW", "In Progress"],
+      ],
+    },
+    {
+      gate: "VERIFY" as const,
+      reason: "verification failed",
+      evidence: ["missing edge case"],
+      failedTask: "TASK-99-V",
+      expectedStatuses: [
+        ["TASK-99-R", "In Progress"],
+        ["TASK-99-R", "Done"],
+        ["TASK-99-TW", "In Progress"],
+        ["TASK-99-TW", "Done"],
+        ["TASK-99-CW", "In Progress"],
+        ["TASK-99-CW", "Done"],
+        ["TASK-99-V", "In Progress"],
+      ],
+    },
+  ])("keeps later phases To Do and records notes when the $gate gate fails", async ({
+    gate,
+    reason,
+    evidence,
+    failedTask,
+    expectedStatuses,
+  }) => {
+    const { workNext } = await import("../src/index.js");
+
+    vi.spyOn(Date, "now").mockReturnValue(99);
+    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+    mockRunStart.mockResolvedValue({
+      result: {
+        outcome: "FAIL",
+        failureDetails: [{ gate, reason, evidence }],
+      },
+    });
+
+    await workNext("ship it");
+
+    expect(statusUpdates()).toEqual(expectedStatuses);
+    expect(noteUpdates()).toEqual([
+      [
+        failedTask,
+        `${gate} gate failed: ${reason}\n\nEvidence:\n- ${evidence[0]}`,
+      ],
+    ]);
+    expect(statusUpdates()).not.toContainEqual([failedTask, "Done"]);
+    expect(statusUpdates()).not.toContainEqual(["TASK-99-L", "Done"]);
   });
 });
