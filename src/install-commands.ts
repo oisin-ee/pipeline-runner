@@ -85,12 +85,13 @@ function claudeDefinition(): CommandDefinition {
   const args = "$ARGUMENTS";
   return {
     content: [
-      header("claude"),
       "---",
       "description: Run the oisin pipeline for a task",
       'argument-hint: "<ticket id or task description>"',
       "allowed-tools: Bash(./node_modules/.bin/work-next:*), Bash(bunx @oisincoveney/pipeline:*)",
       "---",
+      "",
+      header("claude").trimEnd(),
       "",
       sharedInstructions(args),
       "",
@@ -107,11 +108,12 @@ function opencodeDefinition(): CommandDefinition {
   const args = "$ARGUMENTS";
   return {
     content: [
-      header("opencode"),
       "---",
       "description: Run the oisin pipeline for a task",
       "agent: build",
       "---",
+      "",
+      header("opencode").trimEnd(),
       "",
       sharedInstructions(args),
       "",
@@ -127,7 +129,7 @@ function opencodeDefinition(): CommandDefinition {
 function piDefinition(): CommandDefinition {
   const args = "$ARGUMENTS";
   return {
-    content: `${header("pi")}---\ndescription: Run the oisin pipeline for a task\nargument-hint: "<ticket id or task description>"\n---\n\n${sharedInstructions(args)}\n\n!${pipelineCommand(args)}\n`,
+    content: `---\ndescription: Run the oisin pipeline for a task\nargument-hint: "<ticket id or task description>"\n---\n\n${header("pi")}${sharedInstructions(args)}\n\n!${pipelineCommand(args)}\n`,
     host: "pi",
     invocation: "/work-next <ticket id or task description>",
     path: ".pi/prompts/work-next.md",
