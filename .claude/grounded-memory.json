@@ -25,6 +25,321 @@
       "preview": "Bash({\"command\":\"bun run typecheck 2>&1\",\"description\":\"Verify ty)",
       "count": 1,
       "lastSeen": 1779315414321
+    },
+    "76f40b17": {
+      "preview": "Bash({\"command\":\"git init && git add -A && git commit -m \\\"feat(P)",
+      "count": 1,
+      "lastSeen": 1779315418009
+    },
+    "6290285a": {
+      "preview": "Bash({\"command\":\"git branch -m master main && git log --oneline\",)",
+      "count": 1,
+      "lastSeen": 1779315441589
+    },
+    "b8924fa5": {
+      "preview": "Bash({\"command\":\"mkdir -p .agents/worktrees && git worktree add .)",
+      "count": 1,
+      "lastSeen": 1779315447058
+    },
+    "9157b1d4": {
+      "preview": "Bash({\"command\":\"backlog init 2>&1 || true && backlog task list 2)",
+      "count": 1,
+      "lastSeen": 1779315466750
+    },
+    "d7909ad": {
+      "preview": "Bash({\"command\":\"backlog init --name \\\"oisin-pipeline\\\" 2>&1 | he)",
+      "count": 1,
+      "lastSeen": 1779315471453
+    },
+    "b854952b": {
+      "preview": "Bash({\"command\":\"echo \\\"oisin-pipeline\\\" | backlog init 2>&1\",\"de)",
+      "count": 1,
+      "lastSeen": 1779315474518
+    },
+    "ae9c3dc7": {
+      "preview": "Bash({\"command\":\"ls /Users/oisin/dev/oisin-dev/backlog/ 2>/dev/nu)",
+      "count": 1,
+      "lastSeen": 1779315481121
+    },
+    "72d5b878": {
+      "preview": "Bash({\"command\":\"backlog help 2>&1 | head -30\",\"description\":\"Che)",
+      "count": 1,
+      "lastSeen": 1779315483737
+    },
+    "c5f8ffa4": {
+      "preview": "Bash({\"command\":\"backlog init --help 2>&1\",\"description\":\"Check i)",
+      "count": 1,
+      "lastSeen": 1779315486346
+    },
+    "96da615e": {
+      "preview": "Bash({\"command\":\"backlog init \\\"oisin-pipeline\\\" --defaults --tas)",
+      "count": 1,
+      "lastSeen": 1779315489488
+    },
+    "68e85ca8": {
+      "preview": "Bash({\"command\":\"ls /Users/oisin/dev/oisin-pipeline/backlog/ 2>/d)",
+      "count": 1,
+      "lastSeen": 1779315495207
+    },
+    "98a33792": {
+      "preview": "Bash({\"command\":\"pwd && ls /Users/oisin/dev/oisin-pipeline/backlo)",
+      "count": 1,
+      "lastSeen": 1779315500310
+    },
+    "56de4fc9": {
+      "preview": "Bash({\"command\":\"backlog task create \\\"PIPE-1: project setup\\\" --)",
+      "count": 1,
+      "lastSeen": 1779315504698
+    },
+    "95f42709": {
+      "preview": "Bash({\"command\":\"backlog task create \\\"PIPE-2: runner-dispatcher\\)",
+      "count": 1,
+      "lastSeen": 1779315511845
+    },
+    "ceeefefb": {
+      "preview": "Bash({\"command\":\"backlog task list 2>&1\",\"description\":\"List all )",
+      "count": 1,
+      "lastSeen": 1779315525870
+    },
+    "fd4098ad": {
+      "preview": "Bash({\"command\":\"backlog task edit PIPE-2 --depends PIPE-1 2>&1 |)",
+      "count": 1,
+      "lastSeen": 1779315534667
+    },
+    "64930a73": {
+      "preview": "Bash({\"command\":\"backlog task edit PIPE-2 --depends-on PIPE-1 2>&)",
+      "count": 1,
+      "lastSeen": 1779315540614
+    },
+    "473a3c94": {
+      "preview": "Bash({\"command\":\"backlog sequence list --plain 2>&1\",\"description)",
+      "count": 1,
+      "lastSeen": 1779315547019
+    },
+    "33c46923": {
+      "preview": "Bash({\"command\":\"backlog task edit PIPE-2 --status \\\"In Progress\\)",
+      "count": 1,
+      "lastSeen": 1779315552225
+    },
+    "dcc193d4": {
+      "preview": "Read({\"file_path\":\"/Users/oisin/dev/oisin-pipeline/.agents/worktr)",
+      "count": 1,
+      "lastSeen": 1779315583416
+    },
+    "743a16ad": {
+      "preview": "Read({\"file_path\":\"/Users/oisin/dev/oisin-pipeline/.agents/worktr)",
+      "count": 1,
+      "lastSeen": 1779315583904
+    },
+    "1345eb4e": {
+      "preview": "Read({\"file_path\":\"/Users/oisin/dev/oisin-pipeline/.agents/worktr)",
+      "count": 1,
+      "lastSeen": 1779315584252
+    },
+    "603da61a": {
+      "preview": "Bash({\"command\":\"ls /Users/oisin/dev/oisin-pipeline/.agents/workt)",
+      "count": 1,
+      "lastSeen": 1779315588266
+    },
+    "d8e5e1b9": {
+      "preview": "Bash({\"command\":\"mkdir -p /Users/oisin/dev/oisin-pipeline/.agents)",
+      "count": 1,
+      "lastSeen": 1779315591181
+    },
+    "1269e99d": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline/.agents/workt)",
+      "count": 1,
+      "lastSeen": 1779315604590
+    },
+    "aa455455": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline/.agents/workt)",
+      "count": 1,
+      "lastSeen": 1779315605051
+    },
+    "4c4d4cd5": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline/.agents/workt)",
+      "count": 1,
+      "lastSeen": 1779315605862
+    },
+    "12b08398": {
+      "preview": "Bash({\"command\":\"mkdir -p /Users/oisin/dev/oisin-pipeline/.agents)",
+      "count": 1,
+      "lastSeen": 1779315611601
+    },
+    "137eb3bc": {
+      "preview": "Bash({\"command\":\"cat > /Users/oisin/dev/oisin-pipeline/.agents/wo)",
+      "count": 1,
+      "lastSeen": 1779315614787
+    },
+    "4f54268c": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline/.agents/workt)",
+      "count": 1,
+      "lastSeen": 1779315620910
+    },
+    "91d20943": {
+      "preview": "Bash({\"command\":\"cat > /Users/oisin/dev/oisin-pipeline/.agents/wo)",
+      "count": 1,
+      "lastSeen": 1779315635994
+    },
+    "1d74cc74": {
+      "preview": "Bash({\"command\":\"cat /Users/oisin/dev/oisin-pipeline/.agents/work)",
+      "count": 1,
+      "lastSeen": 1779315642120
+    },
+    "33c9853e": {
+      "preview": "Bash({\"command\":\"ls /Users/oisin/dev/oisin-pipeline/.agents/workt)",
+      "count": 1,
+      "lastSeen": 1779315645706
+    },
+    "59e05275": {
+      "preview": "Bash({\"command\":\"cat > /Users/oisin/dev/oisin-pipeline/.agents/wo)",
+      "count": 1,
+      "lastSeen": 1779315646204
+    },
+    "3fa5988b": {
+      "preview": "Bash({\"command\":\"mkdir -p /Users/oisin/dev/oisin-pipeline/.agents)",
+      "count": 1,
+      "lastSeen": 1779315648354
+    },
+    "2a395933": {
+      "preview": "Read({\"file_path\":\"/Users/oisin/dev/oisin-pipeline/.agents/worktr)",
+      "count": 1,
+      "lastSeen": 1779315655047
+    },
+    "3dde1641": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline && bun run vi)",
+      "count": 1,
+      "lastSeen": 1779318038294
+    },
+    "560413e2": {
+      "preview": "Bash({\"command\":\"git add src/mastra/runner.ts tests/runner.test.t)",
+      "count": 1,
+      "lastSeen": 1779318043965
+    },
+    "4213935d": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline && bun run vi)",
+      "count": 1,
+      "lastSeen": 1779318191565
+    },
+    "aabe186e": {
+      "preview": "Bash({\"command\":\"git add src/mastra/steps/verify.ts && git commit)",
+      "count": 1,
+      "lastSeen": 1779318196414
+    },
+    "b2ecb415": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline && bun run vi)",
+      "count": 1,
+      "lastSeen": 1779318551800
+    },
+    "1791941f": {
+      "preview": "Bash({\"command\":\"git add src/index.ts && git commit -m \\\"$(cat <<)",
+      "count": 1,
+      "lastSeen": 1779318556104
+    },
+    "4389605c": {
+      "preview": "Bash({\"command\":\"python3 -c \\\"\\nimport shutil, os, json, subproce)",
+      "count": 1,
+      "lastSeen": 1779318562781
+    },
+    "f962e062": {
+      "preview": "Bash({\"command\":\"PIPELINE_HARNESS=claude PIPELINE_TARGET_PATH=/tm)",
+      "count": 1,
+      "lastSeen": 1779318652504
+    },
+    "3bcbf520": {
+      "preview": "Bash({\"command\":\"cat /tmp/tracer-test/.pipeline/knowledge/*.md 2>)",
+      "count": 1,
+      "lastSeen": 1779318656248
+    },
+    "8dd9675c": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline && bun run vi)",
+      "count": 1,
+      "lastSeen": 1779318686236
+    },
+    "bc02fd15": {
+      "preview": "Bash({\"command\":\"git add src/mastra/steps/verify.ts && git commit)",
+      "count": 1,
+      "lastSeen": 1779318690603
+    },
+    "94565fd0": {
+      "preview": "Bash({\"command\":\"python3 -c \\\"\\nimport shutil, os, json, subproce)",
+      "count": 1,
+      "lastSeen": 1779318698072
+    },
+    "cb491e58": {
+      "preview": "Bash({\"command\":\"PIPELINE_HARNESS=claude PIPELINE_TARGET_PATH=/tm)",
+      "count": 1,
+      "lastSeen": 1779318792887
+    },
+    "8cabf293": {
+      "preview": "Bash({\"command\":\"cd /Users/oisin/dev/oisin-pipeline && backlog ta)",
+      "count": 1,
+      "lastSeen": 1779318812359
+    },
+    "b25d6660": {
+      "preview": "Bash({\"command\":\"backlog task edit PIPE-9 --status Done 2>&1 && b)",
+      "count": 1,
+      "lastSeen": 1779318815471
+    },
+    "b123e400": {
+      "preview": "Bash({\"command\":\"git log --oneline -12 2>&1\",\"description\":\"Show )",
+      "count": 1,
+      "lastSeen": 1779318819402
+    },
+    "82d646a6": {
+      "preview": "ScheduleWakeup({\"delaySeconds\":1200,\"reason\":\"Loop complete — all PIPE task)",
+      "count": 1,
+      "lastSeen": 1779318831028
+    },
+    "cb7f0247": {
+      "preview": "Bash({\"command\":\"backlog task list 2>&1 && echo \\\"===\\\" && git lo)",
+      "count": 1,
+      "lastSeen": 1779320056832
+    },
+    "35dc0a44": {
+      "preview": "Bash({\"command\":\"ls /Users/oisin/dev/oisin-pipeline/backlog/tasks)",
+      "count": 1,
+      "lastSeen": 1779345397631
+    },
+    "dce49cbe": {
+      "preview": "Bash({\"command\":\"cat \\\"/Users/oisin/dev/oisin-pipeline/backlog/ta)",
+      "count": 1,
+      "lastSeen": 1779345398760
+    },
+    "6ce62ccd": {
+      "preview": "Bash({\"command\":\"cat \\\"/Users/oisin/dev/oisin-dev/backlog/tasks/d)",
+      "count": 1,
+      "lastSeen": 1779345408383
+    },
+    "5f1e6e84": {
+      "preview": "Bash({\"command\":\"git -C /Users/oisin/dev/oisin-pipeline log --one)",
+      "count": 1,
+      "lastSeen": 1779345408928
+    },
+    "b4b266ef": {
+      "preview": "Bash({\"command\":\"git -C /Users/oisin/dev/oisin-dev show 8aece41 -)",
+      "count": 1,
+      "lastSeen": 1779345420040
+    },
+    "3e01970": {
+      "preview": "Bash({\"command\":\"cat /Users/oisin/dev/oisin-dev/.claude/commands/)",
+      "count": 1,
+      "lastSeen": 1779345423979
+    },
+    "3a6b9171": {
+      "preview": "Bash({\"command\":\"cat \\\"/Users/oisin/dev/oisin-dev/backlog/tasks/d)",
+      "count": 1,
+      "lastSeen": 1779345823068
+    },
+    "fa9fe479": {
+      "preview": "Bash({\"command\":\"cat \\\"/Users/oisin/dev/oisin-dev/backlog/tasks/d)",
+      "count": 1,
+      "lastSeen": 1779345823938
+    },
+    "1cc4289e": {
+      "preview": "Bash({\"command\":\"cat /Users/oisin/dev/oisin-dev/.agents/skills/qu)",
+      "count": 1,
+      "lastSeen": 1779345827762
     }
   },
   "editErrors": {}
