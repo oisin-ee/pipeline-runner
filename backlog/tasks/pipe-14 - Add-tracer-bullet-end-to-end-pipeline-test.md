@@ -1,11 +1,11 @@
 ---
 id: PIPE-14
 title: Add tracer-bullet end-to-end pipeline test
-status: In Progress
+status: Done
 assignee:
   - Codex
 created_date: '2026-05-21 09:20'
-updated_date: '2026-05-21 09:55'
+updated_date: '2026-05-21 10:02'
 labels:
   - e2e
   - tracer-bullet
@@ -17,6 +17,8 @@ references:
   - src/index.ts
   - src/mastra/workflows/pipeline.ts
   - tests/
+modified_files:
+  - tests/tracer-bullet.test.ts
 priority: high
 ordinal: 14000
 ---
@@ -29,11 +31,11 @@ Add a deterministic end-to-end tracer bullet that proves the pipeline can run th
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A fake or fixture harness can simulate researcher, test-writer, code-writer, and verifier behavior deterministically.
-- [ ] #2 The tracer-bullet run exercises knowledge injection, RED, GREEN, VERIFY, LEARN, and backlog phase creation/status updates.
-- [ ] #3 The test asserts final PASS and validates the expected research or knowledge artifacts are written.
-- [ ] #4 A failure-path tracer proves the run reports FAIL and leaves phase status evidence correctly.
-- [ ] #5 The tracer-bullet test runs in CI/local verification without requiring Claude, Codex, OpenCode, Pi, or network access.
+- [x] #1 A fake or fixture harness can simulate researcher, test-writer, code-writer, and verifier behavior deterministically.
+- [x] #2 The tracer-bullet run exercises knowledge injection, RED, GREEN, VERIFY, LEARN, and backlog phase creation/status updates.
+- [x] #3 The test asserts final PASS and validates the expected research or knowledge artifacts are written.
+- [x] #4 A failure-path tracer proves the run reports FAIL and leaves phase status evidence correctly.
+- [x] #5 The tracer-bullet test runs in CI/local verification without requiring Claude, Codex, OpenCode, Pi, or network access.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -46,3 +48,9 @@ Implementation plan:
 4. Cover both PASS and FAIL paths, including expected artifacts and phase status evidence.
 5. Run `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`; commit scoped branch changes before handoff.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added deterministic tracer-bullet E2E coverage using a fake execa-backed harness, with no real AI CLI or network requirements. The tracer covers PASS and VERIFY-failure paths through `workNext`, knowledge context and research artifacts, learned outcome artifacts, backlog phase creation/status updates, and failure notes. Verification passed on main: `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`. Merged implementation commit: b67c820.
+<!-- SECTION:FINAL_SUMMARY:END -->
