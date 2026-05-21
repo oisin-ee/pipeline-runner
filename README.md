@@ -96,8 +96,9 @@ Use the CLI when you are outside an agent host, when automation needs a shell
 entrypoint, or when you explicitly want harness CLIs launched as subprocesses.
 
 The slash-command adapter contract for Claude Code, Codex, OpenCode, and Pi is
-documented in `docs/slash-command-adapter-contract.md`. This repository also
-ships a Claude Code template at `.claude/commands/work-next.md`.
+documented in `docs/slash-command-adapter-contract.md`. The command files are
+generated into each target repository by the installer rather than shipped as
+static package templates.
 
 ## Running The CLI
 

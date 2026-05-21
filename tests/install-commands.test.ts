@@ -57,6 +57,13 @@ describe("installCommands", () => {
     expect(readFileSync(join(dir, ".pi/prompts/work-next.md"), "utf8")).toMatch(
       COMMAND_FRONTMATTER_RE
     );
+    for (const item of result.items) {
+      const content = readFileSync(join(dir, item.path), "utf8");
+      expect(content).toContain(
+        `<!-- @oisincoveney/pipeline:host=${item.host} -->`
+      );
+      expect(content).not.toContain("version=");
+    }
   });
 
   it("is idempotent and check passes after install", async () => {
