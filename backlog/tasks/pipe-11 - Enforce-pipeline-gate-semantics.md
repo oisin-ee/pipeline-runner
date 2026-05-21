@@ -1,11 +1,11 @@
 ---
 id: PIPE-11
 title: Enforce pipeline gate semantics
-status: In Progress
+status: Done
 assignee:
   - Codex
 created_date: '2026-05-21 09:19'
-updated_date: '2026-05-21 09:39'
+updated_date: '2026-05-21 09:45'
 labels:
   - workflow
   - gates
@@ -16,6 +16,11 @@ references:
   - src/mastra/steps/red.ts
   - src/mastra/steps/green.ts
   - src/mastra/steps/verify.ts
+  - tests/pipeline.test.ts
+modified_files:
+  - README.md
+  - src/mastra/steps/red.ts
+  - src/mastra/workflows/pipeline.ts
   - tests/pipeline.test.ts
 priority: high
 ordinal: 11000
@@ -29,11 +34,11 @@ Make the workflow treat gate outcomes as control-flow decisions instead of passi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A failed RED gate prevents the run from being reported as PASS.
-- [ ] #2 The final workflow outcome requires RED, GREEN, and VERIFY to have passed.
-- [ ] #3 Failure results include the reason and relevant test or verification evidence needed to diagnose the gate failure.
-- [ ] #4 Unit tests cover RED failure, GREEN failure, VERIFY failure, and full PASS paths.
-- [ ] #5 Mastra workflow output remains stable and documented for CLI consumers.
+- [x] #1 A failed RED gate prevents the run from being reported as PASS.
+- [x] #2 The final workflow outcome requires RED, GREEN, and VERIFY to have passed.
+- [x] #3 Failure results include the reason and relevant test or verification evidence needed to diagnose the gate failure.
+- [x] #4 Unit tests cover RED failure, GREEN failure, VERIFY failure, and full PASS paths.
+- [x] #5 Mastra workflow output remains stable and documented for CLI consumers.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -46,3 +51,9 @@ Implementation plan:
 4. Add or update unit tests for RED failure, GREEN failure, VERIFY failure, and full PASS paths.
 5. Run `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`; commit the scoped branch changes before handoff.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Enforced gate result semantics so final PASS requires RED, GREEN, and VERIFY to pass. Workflow output keeps `outcome` and adds `failureDetails` with gate, reason, and evidence. Added tests for RED, GREEN, VERIFY failure paths and full PASS. Verification passed on main: `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`. Merged implementation commit: 3210414.
+<!-- SECTION:FINAL_SUMMARY:END -->
