@@ -1,9 +1,11 @@
 ---
 id: PIPE-12
 title: Propagate knowledge context to agents
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - Codex
 created_date: '2026-05-21 09:19'
+updated_date: '2026-05-21 09:39'
 labels:
   - knowledge
   - agents
@@ -32,3 +34,14 @@ Make the rules and learned knowledge produced by the knowledge-inject step actua
 - [ ] #4 Tests prove that the built context is passed into each step or written to a file consumed by each step.
 - [ ] #5 The implementation preserves the existing `rules/` and `.pipeline/knowledge` conventions.
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Implementation plan:
+1. Work in dedicated `wt` branch/worktree `pipe-12-knowledge-context` based on updated `main`.
+2. Make the context produced from `rules/` and `.pipeline/knowledge` actually reach research, test-write, code-write, and verify roles.
+3. Use the existing harness abstraction; do not introduce provider SDKs or API-token handling.
+4. Handle missing or large context predictably and preserve the existing rules/knowledge directory conventions.
+5. Add tests proving context is delivered to each relevant step or consumed through a context file, then run `bun run test`, `bun run typecheck`, and `bun run check`; run `bun run build` if workflow exports change; commit scoped branch changes before handoff.
+<!-- SECTION:PLAN:END -->
