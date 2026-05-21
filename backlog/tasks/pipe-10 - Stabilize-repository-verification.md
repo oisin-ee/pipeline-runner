@@ -1,11 +1,11 @@
 ---
 id: PIPE-10
 title: Stabilize repository verification
-status: In Progress
+status: Done
 assignee:
   - Codex
 created_date: '2026-05-21 09:19'
-updated_date: '2026-05-21 09:34'
+updated_date: '2026-05-21 09:39'
 labels:
   - stabilization
   - verification
@@ -15,6 +15,12 @@ references:
   - src/mastra/steps/verify.ts
   - package.json
   - README.md
+modified_files:
+  - README.md
+  - biome.jsonc
+  - src/index.ts
+  - src/mastra/steps/verify.ts
+  - vitest.config.ts
 priority: high
 ordinal: 10000
 ---
@@ -27,11 +33,11 @@ Bring the current pipeline repository to a clean verification baseline so future
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `bun run test` passes on a clean checkout.
-- [ ] #2 `bun run typecheck` passes on a clean checkout.
-- [ ] #3 `bun run build` passes on a clean checkout.
-- [ ] #4 `bun run check` passes on a clean checkout.
-- [ ] #5 Project documentation clearly states the supported test command and avoids implying that Bun's native test runner is the intended suite runner.
+- [x] #1 `bun run test` passes on a clean checkout.
+- [x] #2 `bun run typecheck` passes on a clean checkout.
+- [x] #3 `bun run build` passes on a clean checkout.
+- [x] #4 `bun run check` passes on a clean checkout.
+- [x] #5 Project documentation clearly states the supported test command and avoids implying that Bun's native test runner is the intended suite runner.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -44,3 +50,9 @@ Implementation plan:
 4. Run and require all acceptance checks: `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`.
 5. Commit the scoped changes in the worktree, merge back to `main`, rerun verification on `main`, then check off acceptance criteria and mark the ticket Done.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Stabilized the verification baseline. `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build` pass on main. README now documents `bun run test` as the supported Vitest runner and avoids implying Bun native `bun test` is the suite runner. Merged implementation commit: 02109db.
+<!-- SECTION:FINAL_SUMMARY:END -->
