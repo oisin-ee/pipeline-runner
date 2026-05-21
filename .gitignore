@@ -62,5 +62,5 @@ dist
 # END Ruler Generated Files
 
 # worktrees and build artifacts
-.agents/
+.agents/worktrees/
 report/
