@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -8,20 +9,28 @@ import {
 } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("execa", () => ({
-  execa: vi.fn(),
-}));
-
-import { execa } from "execa";
 import { workNext } from "../src/index.js";
 
-const mockExeca = vi.mocked(execa);
+interface LoggedCommand {
+  args?: string[];
+  cwd?: string;
+  prompt?: string;
+  type: string;
+}
 
-interface TracerScenario {
-  verifierVerdict: "PASS" | "FAIL";
+interface TracerEnvironment {
+  binPath: string;
+  logPath: string;
+  statePath: string;
+  worktreePath: string;
+}
+
+function writeExecutable(binPath: string, name: string, source: string): void {
+  const scriptPath = join(binPath, name);
+  writeFileSync(scriptPath, source);
+  chmodSync(scriptPath, 0o755);
 }
 
 function writeFixtureWorktree(worktreePath: string): void {
@@ -44,159 +53,177 @@ function writeFixtureWorktree(worktreePath: string): void {
   );
 }
 
-function installFakeHarness(
-  worktreePath: string,
-  scenario: TracerScenario
-): { rolePrompts: string[] } {
-  let testRunCount = 0;
-  const rolePrompts: string[] = [];
+function writeFakeExecutables(env: TracerEnvironment): void {
+  mkdirSync(env.binPath, { recursive: true });
 
-  mockExeca.mockImplementation((cmd: string | URL, argsOrOptions?: unknown) => {
-    const command = String(cmd);
-    const args = Array.isArray(argsOrOptions) ? argsOrOptions : undefined;
-    if (command === "backlog") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 }) as any;
-    }
+  writeExecutable(
+    env.binPath,
+    "backlog",
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.appendFileSync(
+  process.env.PIPELINE_TRACER_LOG,
+  JSON.stringify({ type: "backlog", args: process.argv.slice(2), cwd: process.cwd() }) + "\\n"
+);
+`
+  );
 
-    if (command === "claude") {
-      const prompt = args?.[2] ?? "";
-      rolePrompts.push(prompt);
+  writeExecutable(
+    env.binPath,
+    "claude",
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
 
-      if (prompt.includes("You are a researcher")) {
-        return Promise.resolve({
-          stdout: "researched deterministic integrated pipeline behavior",
-          stderr: "",
-          exitCode: 0,
-        }) as any;
-      }
-
-      if (prompt.includes("You are a test-writer")) {
-        writeFileSync(
-          join(worktreePath, "pipeline-feature.test.ts"),
-          "import { expect, it } from 'vitest';\nit('starts red', () => expect(false).toBe(true));\n"
-        );
-        return Promise.resolve({
-          stdout: "wrote failing tracer test",
-          stderr: "",
-          exitCode: 0,
-        }) as any;
-      }
-
-      if (prompt.includes("You are a code-writer")) {
-        writeFileSync(
-          join(worktreePath, "pipeline-feature.ts"),
-          "export const tracerBullet = 'green';\n"
-        );
-        return Promise.resolve({
-          stdout: "implemented tracer feature",
-          stderr: "",
-          exitCode: 0,
-        }) as any;
-      }
-
-      if (prompt.includes("You are a code verifier")) {
-        const evidence =
-          scenario.verifierVerdict === "PASS"
-            ? ["implementation matches tracer task"]
-            : ["verifier found missing edge-case evidence"];
-        return Promise.resolve({
-          stdout: JSON.stringify({
-            verdict: scenario.verifierVerdict,
-            evidence,
-          }),
-          stderr: "",
-          exitCode: 0,
-        }) as any;
-      }
-    }
-
-    if (command === "bunx" && args?.[0] === "vitest") {
-      testRunCount += 1;
-      if (testRunCount === 1) {
-        return Promise.reject(
-          Object.assign(new Error("red test failure"), {
-            exitCode: 1,
-            stdout: "✗ tracer feature should start red",
-            stderr: "",
-          })
-        ) as any;
-      }
-      return Promise.resolve({
-        stdout: "✓ tracer feature should pass after implementation",
-        stderr: "",
-        exitCode: 0,
-      }) as any;
-    }
-
-    if (command === "bunx" && args?.[0] === "jscpd") {
-      return Promise.resolve({
-        stdout: JSON.stringify({ duplicates: [] }),
-        stderr: "",
-        exitCode: 0,
-      }) as any;
-    }
-
-    if (command === "tsc") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 }) as any;
-    }
-
-    throw new Error(`Unexpected command: ${command} ${args?.join(" ") ?? ""}`);
-  });
-
-  return { rolePrompts };
+function log(entry) {
+  fs.appendFileSync(
+    process.env.PIPELINE_TRACER_LOG,
+    JSON.stringify(entry) + "\\n"
+  );
 }
 
-function backlogStatusUpdates(): [string, string][] {
-  return mockExeca.mock.calls
-    .filter(([cmd, args]) => {
-      const backlogArgs = args as string[] | undefined;
-      return (
-        cmd === "backlog" &&
-        backlogArgs?.[0] === "task" &&
-        backlogArgs?.[1] === "edit" &&
-        backlogArgs.includes("--status")
-      );
-    })
-    .map(([, args]) => {
-      const backlogArgs = args as string[];
-      return [backlogArgs[2], backlogArgs[backlogArgs.indexOf("--status") + 1]];
-    });
+const args = process.argv.slice(2);
+const prompt = args[args.indexOf("-p") + 1] || "";
+log({ type: "role", args, prompt, cwd: process.cwd() });
+
+if (prompt.includes("You are a researcher")) {
+  process.stdout.write("researched deterministic integrated pipeline behavior");
+  process.exit(0);
 }
 
-function backlogCreateTaskIds(): string[] {
-  return mockExeca.mock.calls
-    .filter(([cmd, args]) => {
-      const backlogArgs = args as string[] | undefined;
-      return (
-        cmd === "backlog" &&
-        backlogArgs?.[0] === "task" &&
-        backlogArgs?.[1] === "create"
-      );
-    })
-    .map(([, args]) => {
-      const backlogArgs = args as string[];
-      return backlogArgs[2];
-    });
+if (prompt.includes("You are a test-writer")) {
+  fs.writeFileSync(
+    path.join(process.cwd(), "pipeline-feature.test.ts"),
+    "import { expect, it } from 'vitest';\\nit('starts red', () => expect(false).toBe(true));\\n"
+  );
+  process.stdout.write("wrote failing tracer test");
+  process.exit(0);
 }
 
-function backlogNoteUpdates(): [string, string][] {
-  return mockExeca.mock.calls
-    .filter(([cmd, args]) => {
-      const backlogArgs = args as string[] | undefined;
-      return (
-        cmd === "backlog" &&
-        backlogArgs?.[0] === "task" &&
-        backlogArgs?.[1] === "edit" &&
-        backlogArgs.includes("--append-notes")
-      );
-    })
-    .map(([, args]) => {
-      const backlogArgs = args as string[];
-      return [
-        backlogArgs[2],
-        backlogArgs[backlogArgs.indexOf("--append-notes") + 1],
-      ];
-    });
+if (prompt.includes("You are a code-writer")) {
+  fs.writeFileSync(
+    path.join(process.cwd(), "pipeline-feature.ts"),
+    "export const tracerBullet = 'green';\\n"
+  );
+  process.stdout.write("implemented tracer feature");
+  process.exit(0);
+}
+
+if (prompt.includes("You are a code verifier")) {
+  const verdict = process.env.PIPELINE_TRACER_VERDICT || "PASS";
+  const evidence =
+    verdict === "PASS"
+      ? ["implementation matches tracer task"]
+      : ["verifier found missing edge-case evidence"];
+  process.stdout.write(JSON.stringify({ verdict, evidence }));
+  process.exit(0);
+}
+
+process.stderr.write("Unknown claude prompt");
+process.exit(1);
+`
+  );
+
+  writeExecutable(
+    env.binPath,
+    "bunx",
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+
+function log(entry) {
+  fs.appendFileSync(
+    process.env.PIPELINE_TRACER_LOG,
+    JSON.stringify(entry) + "\\n"
+  );
+}
+
+const args = process.argv.slice(2);
+log({ type: "command", command: "bunx", args, cwd: process.cwd() });
+
+if (args[0] === "vitest") {
+  const statePath = process.env.PIPELINE_TRACER_STATE;
+  const state = fs.existsSync(statePath)
+    ? JSON.parse(fs.readFileSync(statePath, "utf8"))
+    : { vitestRuns: 0 };
+  state.vitestRuns += 1;
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  if (state.vitestRuns === 1) {
+    process.stdout.write("✗ tracer feature should start red");
+    process.exit(1);
+  }
+  process.stdout.write("✓ tracer feature should pass after implementation");
+  process.exit(0);
+}
+
+if (args[0] === "jscpd") {
+  process.stdout.write(JSON.stringify({ duplicates: [] }));
+  process.exit(0);
+}
+
+process.stderr.write("Unexpected bunx command: " + args.join(" "));
+process.exit(1);
+`
+  );
+
+  writeExecutable(
+    env.binPath,
+    "tsc",
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.appendFileSync(
+  process.env.PIPELINE_TRACER_LOG,
+  JSON.stringify({ type: "command", command: "tsc", args: process.argv.slice(2), cwd: process.cwd() }) + "\\n"
+);
+`
+  );
+}
+
+function readCommandLog(logPath: string): LoggedCommand[] {
+  return readFileSync(logPath, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as LoggedCommand);
+}
+
+function backlogStatusUpdates(logPath: string): [string, string][] {
+  return readCommandLog(logPath)
+    .filter(
+      (entry) =>
+        entry.type === "backlog" &&
+        entry.args?.[0] === "task" &&
+        entry.args?.[1] === "edit" &&
+        entry.args.includes("--status")
+    )
+    .map((entry) => [
+      entry.args?.[2] ?? "",
+      entry.args?.[entry.args.indexOf("--status") + 1] ?? "",
+    ]);
+}
+
+function backlogCreateTaskIds(logPath: string): string[] {
+  return readCommandLog(logPath)
+    .filter(
+      (entry) =>
+        entry.type === "backlog" &&
+        entry.args?.[0] === "task" &&
+        entry.args?.[1] === "create"
+    )
+    .map((entry) => entry.args?.[2] ?? "");
+}
+
+function backlogNoteUpdates(logPath: string): [string, string][] {
+  return readCommandLog(logPath)
+    .filter(
+      (entry) =>
+        entry.type === "backlog" &&
+        entry.args?.[0] === "task" &&
+        entry.args?.[1] === "edit" &&
+        entry.args.includes("--append-notes")
+    )
+    .map((entry) => [
+      entry.args?.[2] ?? "",
+      entry.args?.[entry.args.indexOf("--append-notes") + 1] ?? "",
+    ]);
 }
 
 async function learnedOutcome(worktreePath: string): Promise<string> {
@@ -211,19 +238,41 @@ async function learnedOutcome(worktreePath: string): Promise<string> {
 }
 
 describe("PIPE-14 tracer-bullet pipeline", () => {
-  let worktreePath: string;
+  let env: TracerEnvironment;
   let originalHarness: string | undefined;
+  let originalPath: string | undefined;
   let originalTargetPath: string | undefined;
+  let originalTracerLog: string | undefined;
+  let originalTracerState: string | undefined;
+  let originalTracerVerdict: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    worktreePath = mkdtempSync(join(tmpdir(), "pipe-14-tracer-"));
-    writeFixtureWorktree(worktreePath);
+    const root = mkdtempSync(join(tmpdir(), "pipe-14-tracer-"));
+    env = {
+      binPath: join(root, "bin"),
+      logPath: join(root, "commands.jsonl"),
+      statePath: join(root, "state.json"),
+      worktreePath: join(root, "worktree"),
+    };
+    mkdirSync(env.worktreePath);
+    writeFixtureWorktree(env.worktreePath);
+    writeFakeExecutables(env);
+    writeFileSync(env.logPath, "");
+
     originalHarness = process.env.PIPELINE_HARNESS;
+    originalPath = process.env.PATH;
     originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    originalTracerLog = process.env.PIPELINE_TRACER_LOG;
+    originalTracerState = process.env.PIPELINE_TRACER_STATE;
+    originalTracerVerdict = process.env.PIPELINE_TRACER_VERDICT;
+
+    process.env.PATH = `${env.binPath}${delimiter}${process.env.PATH ?? ""}`;
     process.env.PIPELINE_HARNESS = "claude";
-    process.env.PIPELINE_TARGET_PATH = worktreePath;
+    process.env.PIPELINE_TARGET_PATH = env.worktreePath;
+    process.env.PIPELINE_TRACER_LOG = env.logPath;
+    process.env.PIPELINE_TRACER_STATE = env.statePath;
+
     vi.spyOn(Date, "now").mockReturnValue(14);
     consoleLogSpy = vi
       .spyOn(console, "log")
@@ -236,26 +285,52 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     } else {
       process.env.PIPELINE_HARNESS = originalHarness;
     }
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
     if (originalTargetPath === undefined) {
       delete process.env.PIPELINE_TARGET_PATH;
     } else {
       process.env.PIPELINE_TARGET_PATH = originalTargetPath;
     }
+    if (originalTracerLog === undefined) {
+      delete process.env.PIPELINE_TRACER_LOG;
+    } else {
+      process.env.PIPELINE_TRACER_LOG = originalTracerLog;
+    }
+    if (originalTracerState === undefined) {
+      delete process.env.PIPELINE_TRACER_STATE;
+    } else {
+      process.env.PIPELINE_TRACER_STATE = originalTracerState;
+    }
+    if (originalTracerVerdict === undefined) {
+      delete process.env.PIPELINE_TRACER_VERDICT;
+    } else {
+      process.env.PIPELINE_TRACER_VERDICT = originalTracerVerdict;
+    }
+
     consoleLogSpy.mockRestore();
     vi.restoreAllMocks();
-    rmSync(worktreePath, { force: true, recursive: true });
+    rmSync(join(env.binPath, ".."), { force: true, recursive: true });
   });
 
-  it("runs the integrated tracer to PASS and writes knowledge artifacts", async () => {
-    const { rolePrompts } = installFakeHarness(worktreePath, {
-      verifierVerdict: "PASS",
-    });
+  it("runs the integrated tracer to PASS through real child-process commands", async () => {
+    process.env.PIPELINE_TRACER_VERDICT = "PASS";
 
     await workNext("PIPE-14 tracer bullet");
 
-    const contextPath = join(worktreePath, ".pipeline", "knowledge-context.md");
-    const researchPath = join(worktreePath, ".pipeline", "research.json");
-    const learned = await learnedOutcome(worktreePath);
+    const contextPath = join(
+      env.worktreePath,
+      ".pipeline",
+      "knowledge-context.md"
+    );
+    const researchPath = join(env.worktreePath, ".pipeline", "research.json");
+    const learned = await learnedOutcome(env.worktreePath);
+    const rolePrompts = readCommandLog(env.logPath)
+      .filter((entry) => entry.type === "role")
+      .map((entry) => entry.prompt ?? "");
 
     expect(consoleLogSpy).toHaveBeenCalledWith("Pipeline complete: PASS");
     expect(existsSync(contextPath)).toBe(true);
@@ -283,14 +358,14 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(rolePrompts.some((prompt) => prompt.includes("code verifier"))).toBe(
       true
     );
-    expect(backlogCreateTaskIds()).toEqual([
+    expect(backlogCreateTaskIds(env.logPath)).toEqual([
       "TASK-14-R",
       "TASK-14-TW",
       "TASK-14-CW",
       "TASK-14-V",
       "TASK-14-L",
     ]);
-    expect(backlogStatusUpdates()).toEqual([
+    expect(backlogStatusUpdates(env.logPath)).toEqual([
       ["TASK-14-R", "In Progress"],
       ["TASK-14-R", "Done"],
       ["TASK-14-TW", "In Progress"],
@@ -302,21 +377,21 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
       ["TASK-14-L", "In Progress"],
       ["TASK-14-L", "Done"],
     ]);
-    expect(backlogNoteUpdates()).toEqual([]);
+    expect(backlogNoteUpdates(env.logPath)).toEqual([]);
   });
 
   it("runs the integrated tracer to FAIL and preserves failed phase evidence", async () => {
-    installFakeHarness(worktreePath, { verifierVerdict: "FAIL" });
+    process.env.PIPELINE_TRACER_VERDICT = "FAIL";
 
     await workNext("PIPE-14 tracer bullet");
 
-    const learned = await learnedOutcome(worktreePath);
-    const notes = backlogNoteUpdates();
+    const learned = await learnedOutcome(env.worktreePath);
+    const notes = backlogNoteUpdates(env.logPath);
 
     expect(consoleLogSpy).toHaveBeenCalledWith("Pipeline complete: FAIL");
     expect(learned).toContain("## Outcome: FAIL");
     expect(learned).toContain("tracer feature should pass");
-    expect(backlogStatusUpdates()).toEqual([
+    expect(backlogStatusUpdates(env.logPath)).toEqual([
       ["TASK-14-R", "In Progress"],
       ["TASK-14-R", "Done"],
       ["TASK-14-TW", "In Progress"],
@@ -325,8 +400,11 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
       ["TASK-14-CW", "Done"],
       ["TASK-14-V", "In Progress"],
     ]);
-    expect(backlogStatusUpdates()).not.toContainEqual(["TASK-14-V", "Done"]);
-    expect(backlogStatusUpdates()).not.toContainEqual([
+    expect(backlogStatusUpdates(env.logPath)).not.toContainEqual([
+      "TASK-14-V",
+      "Done",
+    ]);
+    expect(backlogStatusUpdates(env.logPath)).not.toContainEqual([
       "TASK-14-L",
       "In Progress",
     ]);

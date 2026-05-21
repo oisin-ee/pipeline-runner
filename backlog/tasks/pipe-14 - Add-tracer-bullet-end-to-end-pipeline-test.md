@@ -5,7 +5,7 @@ status: Done
 assignee:
   - Codex
 created_date: '2026-05-21 09:20'
-updated_date: '2026-05-21 10:02'
+updated_date: '2026-05-21 10:23'
 labels:
   - e2e
   - tracer-bullet
@@ -52,5 +52,5 @@ Implementation plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Added deterministic tracer-bullet E2E coverage using a fake execa-backed harness, with no real AI CLI or network requirements. The tracer covers PASS and VERIFY-failure paths through `workNext`, knowledge context and research artifacts, learned outcome artifacts, backlog phase creation/status updates, and failure notes. Verification passed on main: `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`. Merged implementation commit: b67c820.
+Added deterministic tracer-bullet E2E coverage using real child-process execution with temporary fake executables on PATH for `claude`, `backlog`, `bunx`, and `tsc`; no real AI CLI or network access is required. The tracer covers PASS and VERIFY-failure paths through `workNext`, knowledge context and research artifacts, learned outcome artifacts, backlog phase creation/status updates, and failure notes. Strengthened after review to avoid mocking `execa`, proving the actual runner subprocess path. Verification passed on main: `bunx vitest run tests/tracer-bullet.test.ts`, `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`.
 <!-- SECTION:FINAL_SUMMARY:END -->
