@@ -1,9 +1,11 @@
 ---
 id: PIPE-13
 title: Track backlog phase status accurately
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - Codex
 created_date: '2026-05-21 09:19'
+updated_date: '2026-05-21 09:46'
 labels:
   - backlog
   - workflow
@@ -32,3 +34,14 @@ Wire the pipeline phase tasks to the actual run lifecycle. The CLI currently cre
 - [ ] #4 The implementation either uses `findReadyPhase` meaningfully or removes/replaces it with tested lifecycle logic.
 - [ ] #5 Tests cover phase status updates for successful and failing pipeline runs.
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Implementation plan:
+1. Work in dedicated `wt` branch/worktree `pipe-13-backlog-phase-status` based on current `main`.
+2. Wire phase status updates to actual lifecycle progression for research, test-write/RED, implement/GREEN, verify, and learn.
+3. Mark each phase In Progress when it starts and Done only when it succeeds; on failure, use a Backlog-supported non-Done status for the failed/current phase and do not mark later phases Done.
+4. Either integrate `findReadyPhase` into the lifecycle meaningfully or remove/replace it with tested lifecycle logic.
+5. Add tests for successful and failing pipeline runs, then run `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`; commit scoped branch changes before handoff.
+<!-- SECTION:PLAN:END -->
