@@ -163,6 +163,7 @@ describe("runRed", () => {
     // After maxRetries exhausted on trivial pass, returns TRIVIAL_GREEN failure
     expect(result.redGatePassed).toBe(false);
     expect(result.reason).toMatch(TRIVIAL_RE);
+    expect(result.output).toContain("All tests passed");
   });
 
   it("passes RED gate when tests fail (exit code 1)", async () => {
@@ -399,5 +400,121 @@ describe("pipelineWorkflow", () => {
     expect(pipelineWorkflow.inputSchema).toBeDefined();
     // inputSchema is a Zod schema wrapped as StandardSchemaWithJSON
     expect(typeof pipelineWorkflow.inputSchema).toBe("object");
+  });
+});
+
+describe("evaluatePipelineOutcome", () => {
+  const passingGateInput = {
+    task: "add sum",
+    harness: "claude" as const,
+    worktreePath: "/fake/worktree",
+    context: "",
+    researchOutput: "research",
+    redGatePassed: true,
+    redGateReason: "RED gate passed: tests are failing as expected",
+    redTestOutput: "1 failing test",
+    failingTests: ["sum should work"],
+    greenGatePassed: true,
+    testOutput: "20 tests passed",
+    typecheckOutput: "typecheck passed",
+    verifyPassed: true,
+    llmVerdict: "PASS" as const,
+    llmEvidence: [],
+    violations: [],
+  };
+
+  it("fails when RED gate fails and includes test evidence", async () => {
+    const { evaluatePipelineOutcome } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+
+    const result = evaluatePipelineOutcome({
+      ...passingGateInput,
+      redGatePassed: false,
+      redGateReason:
+        "trivial green: tests pass without implementation after all retries",
+      redTestOutput: "All tests passed",
+      failingTests: [],
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.failureDetails).toEqual([
+      {
+        gate: "RED",
+        reason:
+          "trivial green: tests pass without implementation after all retries",
+        evidence: ["All tests passed"],
+      },
+    ]);
+  });
+
+  it("fails when GREEN gate fails and includes test/typecheck evidence", async () => {
+    const { evaluatePipelineOutcome } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+
+    const result = evaluatePipelineOutcome({
+      ...passingGateInput,
+      greenGatePassed: false,
+      failingTests: ["sum should work"],
+      testOutput: "expected 2 received 1",
+      typecheckOutput: "src/sum.ts:1: Type error",
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.failureDetails).toEqual([
+      {
+        gate: "GREEN",
+        reason: "GREEN gate failed: tests or typecheck did not pass",
+        evidence: [
+          "Failing tests: sum should work",
+          "expected 2 received 1",
+          "src/sum.ts:1: Type error",
+        ],
+      },
+    ]);
+  });
+
+  it("fails when VERIFY gate fails and includes verification evidence", async () => {
+    const { evaluatePipelineOutcome } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+
+    const result = evaluatePipelineOutcome({
+      ...passingGateInput,
+      verifyPassed: false,
+      llmVerdict: "FAIL",
+      llmEvidence: ["missing edge case coverage"],
+      violations: [
+        {
+          file: "src/sum.ts",
+          line: 12,
+          message: "duplicate implementation detected",
+        },
+      ],
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.failureDetails).toEqual([
+      {
+        gate: "VERIFY",
+        reason: "VERIFY gate failed: verification checks did not pass",
+        evidence: [
+          "src/sum.ts:12: duplicate implementation detected",
+          "LLM verifier verdict: FAIL",
+          "missing edge case coverage",
+        ],
+      },
+    ]);
+  });
+
+  it("passes only when RED, GREEN, and VERIFY gates all pass", async () => {
+    const { evaluatePipelineOutcome } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+
+    const result = evaluatePipelineOutcome(passingGateInput);
+
+    expect(result).toEqual({ outcome: "PASS", failureDetails: [] });
   });
 });

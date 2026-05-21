@@ -19,6 +19,7 @@ interface RedResult {
 
 export async function runRed(opts: RedOptions): Promise<RedResult> {
   const { worktreePath, prompt, contextFile, harness, maxRetries = 3 } = opts;
+  let lastTestOutput = "";
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const testWritePrompt = [
@@ -36,6 +37,7 @@ export async function runRed(opts: RedOptions): Promise<RedResult> {
     ).catch(() => ({ stdout: "", exitCode: 1 }));
 
     const testResult = await runTests(worktreePath);
+    lastTestOutput = testResult.output;
 
     if (testResult.exitCode !== 0) {
       return {
@@ -52,6 +54,6 @@ export async function runRed(opts: RedOptions): Promise<RedResult> {
     failingTests: [],
     reason:
       "trivial green: tests pass without implementation after all retries",
-    output: "",
+    output: lastTestOutput,
   };
 }

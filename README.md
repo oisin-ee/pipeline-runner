@@ -24,6 +24,24 @@ bun run dev
 
 Open <http://localhost:4111> to inspect and run the Mastra application.
 
+## Workflow output
+
+CLI consumers can rely on the workflow result retaining an `outcome` field:
+
+```ts
+{
+  outcome: "PASS" | "FAIL";
+  failureDetails: Array<{
+    gate: "RED" | "GREEN" | "VERIFY";
+    reason: string;
+    evidence: string[];
+  }>;
+}
+```
+
+`failureDetails` is empty for a full pass. On failure, it lists the gate or
+gates that prevented the pass with diagnostic test or verification evidence.
+
 ## Verification
 
 Use the package scripts for repository verification:
