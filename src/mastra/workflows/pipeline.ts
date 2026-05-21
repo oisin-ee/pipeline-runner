@@ -1,7 +1,7 @@
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { z } from "zod";
 import { runGreen } from "../steps/green.js";
-import { buildKnowledgeContext } from "../steps/knowledge-inject.js";
+import { writeKnowledgeContextFile } from "../steps/knowledge-inject.js";
 import { runLearn } from "../steps/learn.js";
 import { runRed } from "../steps/red.js";
 import { runResearch } from "../steps/research.js";
@@ -13,7 +13,10 @@ const pipelineInput = z.object({
   worktreePath: z.string(),
 });
 
-const withContext = pipelineInput.extend({ context: z.string() });
+const withContext = pipelineInput.extend({
+  context: z.string(),
+  contextFile: z.string(),
+});
 const withResearch = withContext.extend({ researchOutput: z.string() });
 const withRed = withResearch.extend({
   redGatePassed: z.boolean(),
@@ -137,10 +140,12 @@ const knowledgeInjectStep = createStep({
   id: "knowledge-inject",
   inputSchema: pipelineInput,
   outputSchema: withContext,
-  execute: async ({ inputData }) => ({
-    ...inputData,
-    context: buildKnowledgeContext(inputData.worktreePath),
-  }),
+  execute: async ({ inputData }) => {
+    const { context, contextFile } = await writeKnowledgeContextFile(
+      inputData.worktreePath
+    );
+    return { ...inputData, context, contextFile };
+  },
 });
 
 const researchStep = createStep({
@@ -151,7 +156,7 @@ const researchStep = createStep({
     const result = await runResearch({
       worktreePath: inputData.worktreePath,
       prompt: inputData.task,
-      contextFile: null,
+      contextFile: inputData.contextFile,
       harness: inputData.harness,
     });
     return { ...inputData, researchOutput: result.output };
@@ -166,7 +171,7 @@ const redStep = createStep({
     const result = await runRed({
       worktreePath: inputData.worktreePath,
       prompt: inputData.task,
-      contextFile: null,
+      contextFile: inputData.contextFile,
       harness: inputData.harness,
     });
     return {
@@ -187,7 +192,7 @@ const greenStep = createStep({
     const result = await runGreen({
       worktreePath: inputData.worktreePath,
       prompt: inputData.task,
-      contextFile: null,
+      contextFile: inputData.contextFile,
       harness: inputData.harness,
     });
     return {
@@ -208,7 +213,7 @@ const verifyStep = createStep({
     const result = await runVerify({
       worktreePath: inputData.worktreePath,
       prompt: inputData.task,
-      contextFile: null,
+      contextFile: inputData.contextFile,
       harness: inputData.harness,
     });
     return {

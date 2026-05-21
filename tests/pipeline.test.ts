@@ -41,6 +41,8 @@ const mockReaddirSync = vi.mocked(readdirSync);
 const mockWriteFile = vi.mocked(writeFile);
 const mockMkdir = vi.mocked(mkdir);
 
+const CONTEXT_FILE = "/fake/worktree/.pipeline/knowledge-context.md";
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockMkdir.mockResolvedValue(undefined);
@@ -68,6 +70,56 @@ describe("knowledgeInjectStep", () => {
     const ctx = buildKnowledgeContext("/fake/worktree");
     expect(typeof ctx).toBe("string");
     expect(ctx.length).toBeGreaterThan(0);
+  });
+
+  it("writes generated context to a stable .pipeline file", async () => {
+    const { writeKnowledgeContextFile } = await import(
+      "../src/mastra/steps/knowledge-inject.js"
+    );
+
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockImplementation((dir: any) => {
+      if (String(dir).endsWith("rules")) {
+        return [{ name: "test-first.md", isDirectory: () => false }] as any;
+      }
+      return [
+        { name: "2026-01-01.md", isDirectory: () => false },
+        { name: "2026-01-02.md", isDirectory: () => false },
+      ] as any;
+    });
+    mockReadFileSync.mockImplementation((path: any) => {
+      if (String(path).includes("test-first.md")) {
+        return "# Write failing tests first";
+      }
+      return "# Learned knowledge";
+    });
+
+    const result = await writeKnowledgeContextFile("/fake/worktree");
+
+    expect(result.contextFile).toBe(CONTEXT_FILE);
+    expect(result.context).toContain("Current Rules");
+    expect(result.context).toContain("Recent Learned Knowledge");
+    expect(mockMkdir).toHaveBeenCalledWith("/fake/worktree/.pipeline", {
+      recursive: true,
+    });
+    expect(mockWriteFile).toHaveBeenCalledWith(CONTEXT_FILE, result.context);
+  });
+
+  it("truncates oversized context predictably", async () => {
+    const { buildKnowledgeContext } = await import(
+      "../src/mastra/steps/knowledge-inject.js"
+    );
+
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue([
+      { name: "large.md", isDirectory: () => false } as any,
+    ]);
+    mockReadFileSync.mockReturnValue("x".repeat(200));
+
+    const ctx = buildKnowledgeContext("/fake/worktree", { maxChars: 120 });
+
+    expect(ctx.length).toBe(120);
+    expect(ctx).toContain("Knowledge context truncated");
   });
 
   it("returns empty string when no rules or knowledge dir exists", async () => {
@@ -401,6 +453,97 @@ describe("pipelineWorkflow", () => {
     // inputSchema is a Zod schema wrapped as StandardSchemaWithJSON
     expect(typeof pipelineWorkflow.inputSchema).toBe("object");
   });
+
+  it("passes the generated context file to research, test-write, code-write, and verify roles", async () => {
+    const { pipelineWorkflow } = await import(
+      "../src/mastra/workflows/pipeline.js"
+    );
+    const inputData = {
+      context: "built context",
+      contextFile: CONTEXT_FILE,
+      harness: "opencode" as const,
+      task: "implement feature",
+      worktreePath: "/fake/worktree",
+    };
+
+    mockExeca.mockResolvedValue({ stdout: "research", exitCode: 0 } as any);
+    await pipelineWorkflow.steps.research.execute({ inputData } as any);
+    expect(mockExeca).toHaveBeenCalledWith(
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE])
+    );
+
+    mockExeca.mockReset();
+    mockReadFileSync.mockImplementation((path: any) => {
+      if (String(path).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { test: "vitest run" } });
+      }
+      return "";
+    });
+    mockExeca
+      .mockResolvedValueOnce({ stdout: "tests written", exitCode: 0 } as any)
+      .mockRejectedValueOnce(
+        Object.assign(new Error("tests fail"), {
+          exitCode: 1,
+          stdout: "✗ expected failure",
+          stderr: "",
+        })
+      );
+    await pipelineWorkflow.steps.red.execute({ inputData } as any);
+    expect(mockExeca.mock.calls[0]).toEqual([
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE]),
+    ]);
+
+    mockExeca.mockReset();
+    mockExistsSync.mockReturnValue(false);
+    mockExeca.mockImplementation((cmd: string | URL) => {
+      if (String(cmd) === "opencode") {
+        return Promise.resolve({ stdout: "implemented", exitCode: 0 }) as any;
+      }
+      return Promise.resolve({ stdout: "all pass", exitCode: 0 }) as any;
+    });
+    await pipelineWorkflow.steps.green.execute({ inputData } as any);
+    const greenAgentCall = mockExeca.mock.calls.find(
+      ([cmd]) => String(cmd) === "opencode"
+    );
+    expect(greenAgentCall).toEqual([
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE]),
+    ]);
+
+    mockExeca.mockReset();
+    mockExistsSync.mockReturnValue(false);
+    mockExeca.mockImplementation((cmd: string | URL) => {
+      if (String(cmd) === "opencode") {
+        return Promise.resolve({
+          stdout: JSON.stringify({ verdict: "PASS", evidence: [] }),
+          exitCode: 0,
+        }) as any;
+      }
+      return Promise.resolve({
+        stdout: JSON.stringify({ duplicates: [] }),
+        exitCode: 0,
+      }) as any;
+    });
+    await pipelineWorkflow.steps.verify.execute({
+      inputData: {
+        ...inputData,
+        failingTests: [],
+        greenGatePassed: true,
+        redGatePassed: true,
+        researchOutput: "research",
+        testOutput: "all pass",
+      },
+    } as any);
+    const verifyAgentCall = mockExeca.mock.calls.find(
+      ([cmd]) => String(cmd) === "opencode"
+    );
+    expect(verifyAgentCall).toEqual([
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE]),
+    ]);
+  });
 });
 
 describe("evaluatePipelineOutcome", () => {
@@ -409,6 +552,7 @@ describe("evaluatePipelineOutcome", () => {
     harness: "claude" as const,
     worktreePath: "/fake/worktree",
     context: "",
+    contextFile: CONTEXT_FILE,
     researchOutput: "research",
     redGatePassed: true,
     redGateReason: "RED gate passed: tests are failing as expected",
