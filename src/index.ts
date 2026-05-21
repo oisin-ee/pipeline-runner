@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import {
   applyPhaseLifecycle,
   createSwarmTasks,
@@ -11,6 +13,7 @@ import {
 import { subprocessAgentAdapter } from "./mastra/runner.js";
 
 const SUPPORTED_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
+const PATH_SEPARATOR_RE = /[\\/]/;
 
 type PipelineHarness = (typeof SUPPORTED_HARNESSES)[number];
 
@@ -76,9 +79,23 @@ export async function workNext(
   console.log(`Pipeline complete: ${pipelineResult.outcome}`);
 }
 
-const args = process.argv.slice(2);
-if (args[0] === "work-next") {
-  const description = args.slice(1).join(" ");
+function scriptName(argv: string[]): string {
+  return argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
+}
+
+export function descriptionFromCliArgs(argv: string[]): string | null {
+  const args = argv.slice(2);
+  if (scriptName(argv) === "work-next") {
+    return args.join(" ");
+  }
+  if (args[0] === "work-next") {
+    return args.slice(1).join(" ");
+  }
+  return null;
+}
+
+const description = descriptionFromCliArgs(process.argv);
+if (description !== null) {
   workNext(description).catch((err: unknown) => {
     console.error(err);
     process.exit(1);

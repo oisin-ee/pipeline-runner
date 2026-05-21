@@ -34,6 +34,38 @@ bun install --frozen-lockfile
 The selected harness must already be authenticated and configured in the local
 environment. Any provider-specific API keys are managed by that harness.
 
+## Installing In Another Repository
+
+Install the package as a normal dependency, then run the installed binary:
+
+```shell
+bun add oisin-pipeline
+work-next "Implement PIPE-123 user-facing behavior"
+```
+
+The package-level binary is also available:
+
+```shell
+oisin-pipeline work-next "Implement PIPE-123 user-facing behavior"
+```
+
+Slash-command adapters can import the primitive and adapter types from package
+subpaths:
+
+```ts
+import { runPipelinePrimitive } from "oisin-pipeline/pipeline-primitive";
+import type { AgentAdapter } from "oisin-pipeline/runner";
+```
+
+For local unpublished validation, install from a packed tarball instead of
+linking:
+
+```shell
+bun pm pack
+bun add /path/to/oisin-pipeline-1.0.0.tgz
+work-next "Implement PIPE-123 user-facing behavior"
+```
+
 ## Invocation Modes
 
 Use a slash command when you are already inside Claude Code, Codex, OpenCode, or

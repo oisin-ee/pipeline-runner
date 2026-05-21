@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRunStart = vi.hoisted(() => vi.fn());
@@ -193,6 +195,63 @@ describe("workNext", () => {
   it("exports a workNext function", async () => {
     const mod = await import("../src/index.js");
     expect(typeof mod.workNext).toBe("function");
+  });
+
+  it("parses package and direct work-next CLI invocations", async () => {
+    const { descriptionFromCliArgs } = await import("../src/index.js");
+
+    expect(
+      descriptionFromCliArgs([
+        "node",
+        "/repo/dist/index.js",
+        "work-next",
+        "ship it",
+      ])
+    ).toBe("ship it");
+    expect(
+      descriptionFromCliArgs([
+        "node",
+        "/repo/node_modules/.bin/work-next",
+        "ship it",
+      ])
+    ).toBe("ship it");
+    expect(
+      descriptionFromCliArgs([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "work-next",
+        "ship it",
+      ])
+    ).toBe("ship it");
+    expect(
+      descriptionFromCliArgs(["node", "/repo/dist/index.js", "noop"])
+    ).toBeNull();
+  });
+
+  it("declares installable binaries and typed subpath exports", () => {
+    const pkg = JSON.parse(
+      readFileSync(join(process.cwd(), "package.json"), "utf8")
+    ) as {
+      bin?: Record<string, string>;
+      exports?: Record<string, unknown>;
+    };
+
+    expect(pkg.bin).toEqual({
+      "oisin-pipeline": "dist/index.js",
+      "work-next": "dist/index.js",
+    });
+    expect(pkg.exports?.["."]).toEqual({
+      import: "./dist/index.js",
+      types: "./dist/index.d.ts",
+    });
+    expect(pkg.exports?.["./pipeline-primitive"]).toEqual({
+      import: "./dist/mastra/pipeline-primitive.js",
+      types: "./dist/mastra/pipeline-primitive.d.ts",
+    });
+    expect(pkg.exports?.["./runner"]).toEqual({
+      import: "./dist/mastra/runner.js",
+      types: "./dist/mastra/runner.d.ts",
+    });
   });
 
   it("throws if no description provided", async () => {

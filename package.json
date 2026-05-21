@@ -16,15 +16,41 @@
     "vitest": "^3.2.0"
   },
   "name": "oisin-pipeline",
+  "bin": {
+    "oisin-pipeline": "dist/index.js",
+    "work-next": "dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./pipeline-primitive": {
+      "types": "./dist/mastra/pipeline-primitive.d.ts",
+      "import": "./dist/mastra/pipeline-primitive.js"
+    },
+    "./runner": {
+      "types": "./dist/mastra/runner.d.ts",
+      "import": "./dist/mastra/runner.js"
+    }
+  },
+  "files": [
+    ".claude/commands",
+    "dist",
+    "docs",
+    "README.md"
+  ],
   "scripts": {
+    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/pipeline-primitive.ts --outfile dist/mastra/pipeline-primitive.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && tsc -p tsconfig.types.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "work-next": "bun src/index.ts work-next",
     "dev": "mastra dev",
-    "build": "mastra build",
+    "build": "bun run build:cli && mastra build",
     "start": "mastra start",
     "check": "ultracite check",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "prepack": "bun run build:cli"
   },
   "type": "module",
   "version": "1.0.0",
