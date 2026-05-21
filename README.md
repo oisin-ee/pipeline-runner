@@ -1,4 +1,4 @@
-# oisin-pipeline
+# @oisincoveney/pipeline
 
 Mastra workflow and CLI for running repository work through a fixed pipeline:
 collect project knowledge, research the task, write failing tests, implement the
@@ -39,7 +39,7 @@ environment. Any provider-specific API keys are managed by that harness.
 Install the package as a normal dependency, then run the installed binary:
 
 ```shell
-bun add oisin-pipeline
+bun add -D @oisincoveney/pipeline
 work-next "Implement PIPE-123 user-facing behavior"
 ```
 
@@ -53,16 +53,35 @@ Slash-command adapters can import the primitive and adapter types from package
 subpaths:
 
 ```ts
-import { runPipelinePrimitive } from "oisin-pipeline/pipeline-primitive";
-import type { AgentAdapter } from "oisin-pipeline/runner";
+import { runPipelinePrimitive } from "@oisincoveney/pipeline/pipeline-primitive";
+import type { AgentAdapter } from "@oisincoveney/pipeline/runner";
 ```
+
+Install all generated command adapters into the current repository:
+
+```shell
+bunx @oisincoveney/pipeline install-commands --host all
+```
+
+This creates or updates the supported host files:
+
+| Host | File | Invocation |
+| --- | --- | --- |
+| Claude Code | `.claude/commands/work-next.md` | `/work-next "Implement PIPE-123"` |
+| OpenCode | `.opencode/commands/work-next.md` | `/work-next "Implement PIPE-123"` |
+| Pi | `.pi/prompts/work-next.md` | `/work-next "Implement PIPE-123"` |
+| Codex | `.agents/skills/work-next/SKILL.md` | `/use work-next "Implement PIPE-123"` |
+
+Re-run the installer after package updates. It updates generated files it owns,
+refuses to overwrite manual edits, supports `--check`, `--dry-run`, and
+requires `--force` to overwrite a manually edited command file.
 
 For local unpublished validation, install from a packed tarball instead of
 linking:
 
 ```shell
 bun pm pack
-bun add /path/to/oisin-pipeline-1.0.0.tgz
+bun add /path/to/oisincoveney-pipeline-1.0.0.tgz
 work-next "Implement PIPE-123 user-facing behavior"
 ```
 

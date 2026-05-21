@@ -197,35 +197,19 @@ describe("workNext", () => {
     expect(typeof mod.workNext).toBe("function");
   });
 
-  it("parses package and direct work-next CLI invocations", async () => {
-    const { descriptionFromCliArgs } = await import("../src/index.js");
+  it("uses Commander for package and direct work-next CLI invocations", async () => {
+    const { runCli } = await import("../src/index.js");
 
-    expect(
-      descriptionFromCliArgs([
-        "node",
-        "/repo/dist/index.js",
-        "work-next",
-        "ship it",
-      ])
-    ).toBe("ship it");
-    expect(
-      descriptionFromCliArgs([
-        "node",
-        "/repo/node_modules/.bin/work-next",
-        "ship it",
-      ])
-    ).toBe("ship it");
-    expect(
-      descriptionFromCliArgs([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "work-next",
-        "ship it",
-      ])
-    ).toBe("ship it");
-    expect(
-      descriptionFromCliArgs(["node", "/repo/dist/index.js", "noop"])
-    ).toBeNull();
+    vi.spyOn(Date, "now").mockReturnValue(123);
+    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+    process.env.PIPELINE_HARNESS = "bogus";
+
+    await expect(
+      runCli(["node", "/repo/dist/index.js", "work-next", "ship it"])
+    ).rejects.toThrow("Unsupported PIPELINE_HARNESS");
+    await expect(
+      runCli(["node", "/repo/node_modules/.bin/work-next", "ship it"])
+    ).rejects.toThrow("Unsupported PIPELINE_HARNESS");
   });
 
   it("declares installable binaries and typed subpath exports", () => {
@@ -236,6 +220,10 @@ describe("workNext", () => {
       exports?: Record<string, unknown>;
     };
 
+    expect(pkg).toMatchObject({
+      name: "@oisincoveney/pipeline",
+      publishConfig: { access: "public" },
+    });
     expect(pkg.bin).toEqual({
       "oisin-pipeline": "dist/index.js",
       "work-next": "dist/index.js",

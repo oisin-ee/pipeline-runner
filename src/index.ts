@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+import { fileURLToPath } from "node:url";
+import { Command, Option } from "commander";
+import {
+  type CommandHostSelection,
+  formatInstallCommandsResult,
+  installCommands,
+  parseCommandHost,
+} from "./install-commands.js";
 import {
   applyPhaseLifecycle,
   createSwarmTasks,
@@ -14,7 +22,6 @@ import { subprocessAgentAdapter } from "./mastra/runner.js";
 
 const SUPPORTED_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 const PATH_SEPARATOR_RE = /[\\/]/;
-
 type PipelineHarness = (typeof SUPPORTED_HARNESSES)[number];
 
 function parsePipelineHarness(value: string | undefined): PipelineHarness {
@@ -79,24 +86,84 @@ export async function workNext(
   console.log(`Pipeline complete: ${pipelineResult.outcome}`);
 }
 
+interface InstallCommandFlags {
+  check?: boolean;
+  dryRun?: boolean;
+  force?: boolean;
+  host?: CommandHostSelection;
+}
+
+export function createCliProgram(): Command {
+  const program = new Command();
+  program
+    .name("@oisincoveney/pipeline")
+    .description("Run and install the oisin pipeline")
+    .exitOverride();
+
+  program
+    .command("work-next")
+    .description("Run the pipeline for a task")
+    .argument("<description...>", "ticket id or task description")
+    .action(async (descriptionParts: string[]) => {
+      await workNext(descriptionParts.join(" "));
+    });
+
+  program
+    .command("install-commands")
+    .description(
+      "Install generated slash-command adapters into this repository"
+    )
+    .addOption(
+      new Option("--host <host>", "host command set to install")
+        .choices(["all", "claude", "opencode", "codex", "pi"])
+        .default("all")
+        .argParser(parseCommandHost)
+    )
+    .option("--dry-run", "show planned changes without writing files")
+    .option("--check", "fail if generated command files are missing or stale")
+    .option("--force", "overwrite manually edited command files")
+    .action(async (flags: InstallCommandFlags) => {
+      const result = await installCommands(flags);
+      console.log(formatInstallCommandsResult(result));
+    });
+
+  return program;
+}
+
+export async function runCli(argv: string[]): Promise<void> {
+  const program = createCliProgram();
+  if (argv[1]?.endsWith("/work-next") || argv[1]?.endsWith("\\work-next")) {
+    await program.parseAsync(
+      [
+        argv[0] ?? "node",
+        argv[1] ?? "work-next",
+        "work-next",
+        ...argv.slice(2),
+      ],
+      {
+        from: "node",
+      }
+    );
+    return;
+  }
+  await program.parseAsync(argv, { from: "node" });
+}
+
 function scriptName(argv: string[]): string {
   return argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
 }
 
-export function descriptionFromCliArgs(argv: string[]): string | null {
-  const args = argv.slice(2);
-  if (scriptName(argv) === "work-next") {
-    return args.join(" ");
-  }
-  if (args[0] === "work-next") {
-    return args.slice(1).join(" ");
-  }
-  return null;
+function isCliEntrypoint(argv: string[]): boolean {
+  const name = scriptName(argv);
+  return (
+    argv[1] === fileURLToPath(import.meta.url) ||
+    name === "work-next" ||
+    name === "oisin-pipeline"
+  );
 }
 
-const description = descriptionFromCliArgs(process.argv);
-if (description !== null) {
-  workNext(description).catch((err: unknown) => {
+if (isCliEntrypoint(process.argv)) {
+  runCli(process.argv).catch((err: unknown) => {
     console.error(err);
     process.exit(1);
   });

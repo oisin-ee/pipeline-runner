@@ -3,6 +3,7 @@
     "@mastra/core": "^1.35.0",
     "@mastra/libsql": "^1.11.0",
     "@mastra/memory": "^1.18.2",
+    "commander": "^14.0.3",
     "execa": "^9.5.2",
     "zod": "^4.4.3"
   },
@@ -15,7 +16,10 @@
     "ultracite": "7.7.0",
     "vitest": "^3.2.0"
   },
-  "name": "oisin-pipeline",
+  "name": "@oisincoveney/pipeline",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "oisin-pipeline": "dist/index.js",
     "work-next": "dist/index.js"

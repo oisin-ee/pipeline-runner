@@ -5,6 +5,17 @@ The reusable primitive is `runPipelinePrimitive(input, adapters)` from
 an in-process `AgentAdapter`; the shell CLI calls the same primitive with the
 subprocess adapter from `src/mastra/runner.ts`.
 
+For normal project installation, run:
+
+```sh
+bunx @oisincoveney/pipeline install-commands --host all
+```
+
+The installer writes generated command files into the current repository. Re-run
+it after package updates. It is idempotent, supports `--dry-run`, supports
+`--check`, and refuses to overwrite manually edited files unless `--force` is
+passed.
+
 ## Primitive Input
 
 Slash commands must supply:
@@ -37,10 +48,16 @@ the host's native execution mechanism.
 
 | Host | Task input | Target path | Agent execution | Phase reporting |
 | --- | --- | --- | --- | --- |
-| Claude Code | `$ARGUMENTS` from `.claude/commands/work-next.md` | current project directory | `Task` tool/subagent invocation for each requested role | command transcript plus optional `PipelinePhaseReporter` messages |
-| Codex | slash prompt arguments | current workspace root | in-session delegated agent/tool call implementing `AgentAdapter.run` | command transcript plus optional `PipelinePhaseReporter` messages |
-| OpenCode | command arguments | active project directory | OpenCode native agent/session call for the requested role | host run log plus optional `PipelinePhaseReporter` messages |
-| Pi | command arguments | active project directory | Pi RPC session message per role using the adapter request payload | RPC events plus optional `PipelinePhaseReporter` messages |
+| Host | Generated file | Invocation |
+| --- | --- | --- |
+| Claude Code | `.claude/commands/work-next.md` | `/work-next <ticket id or task description>` |
+| OpenCode | `.opencode/commands/work-next.md` | `/work-next <ticket id or task description>` |
+| Pi | `.pi/prompts/work-next.md` | `/work-next <ticket id or task description>` |
+| Codex | `.agents/skills/work-next/SKILL.md` | `/use work-next <ticket id or task description>` |
+
+Codex currently does not support project-defined custom slash commands in the
+same way as Claude Code and OpenCode, so the installer generates a project skill
+instead of pretending that `/work-next` is available.
 
 ## Phase Reporter
 

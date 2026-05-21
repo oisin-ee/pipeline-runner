@@ -4,7 +4,7 @@ title: Make package installable from tarball
 status: Done
 assignee: []
 created_date: '2026-05-21 16:20'
-updated_date: '2026-05-21 16:21'
+updated_date: '2026-05-21 16:42'
 labels:
   - packaging
   - cli
@@ -28,5 +28,5 @@ ordinal: 17000
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Added installable package binaries for work-next and oisin-pipeline, built CLI/runtime bundles during prepack, and exposed typed subpath exports for pipeline-primitive and runner. Verified from a packed tarball installed into /tmp/oisin-pipeline-consumer without linking: both binaries resolve and run to harness validation, runtime imports work, TypeScript subpath imports typecheck, and slash-command/docs templates are included. Full repo tests, typecheck, Ultracite check, and Mastra build passed.
+Renamed the installable package to @oisincoveney/pipeline, added public publish metadata, installable work-next and oisin-pipeline binaries, CLI/runtime bundles during prepack, and typed subpath exports for pipeline-primitive and runner. Verified from a packed tarball installed into /tmp/oisin-pipeline-consumer without linking: both binaries resolve, runtime imports work, TypeScript subpath imports typecheck, and command/docs templates are included. Full repo tests, typecheck, Ultracite check, build, and npm publish dry-run passed.
 <!-- SECTION:FINAL_SUMMARY:END -->
