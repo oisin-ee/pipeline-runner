@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
-import { Command, Option } from "commander";
+import { Command, CommanderError, Option } from "commander";
 import {
   type CommandHostSelection,
   formatInstallCommandsResult,
@@ -164,7 +164,14 @@ function isCliEntrypoint(argv: string[]): boolean {
 
 if (isCliEntrypoint(process.argv)) {
   runCli(process.argv).catch((err: unknown) => {
-    console.error(err);
+    if (err instanceof CommanderError) {
+      process.exit(err.exitCode);
+    }
+    if (err instanceof Error) {
+      console.error(err.message);
+      process.exit(1);
+    }
+    console.error(String(err));
     process.exit(1);
   });
 }

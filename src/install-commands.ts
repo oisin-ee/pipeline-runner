@@ -136,7 +136,7 @@ function piDefinition(): CommandDefinition {
 
 function codexDefinition(): CommandDefinition {
   return {
-    content: `${header("codex")}---\ndescription: Run the installed oisin pipeline CLI for a task. Use when the user asks to run work-next or the oisin pipeline.\n---\n\nCodex currently does not support project-defined custom slash commands. Use this skill with:\n\n\`\`\`\n/use work-next <ticket id or task description>\n\`\`\`\n\nWhen invoked, run this command from the repository root, replacing the argument text with the requested task:\n\n\`\`\`sh\n${pipelineCommand("<ticket id or task description>")}\n\`\`\`\n\nReport the pipeline outcome and any failure evidence.\n`,
+    content: `---\ndescription: Run the installed oisin pipeline CLI for a task. Use when the user asks to run work-next or the oisin pipeline.\n---\n\n${header("codex")}Codex currently does not support project-defined custom slash commands. Use this skill with:\n\n\`\`\`\n/use work-next <ticket id or task description>\n\`\`\`\n\nWhen invoked, run this command from the repository root, replacing the argument text with the requested task:\n\n\`\`\`sh\n${pipelineCommand("<ticket id or task description>")}\n\`\`\`\n\nReport the pipeline outcome and any failure evidence.\n`,
     host: "codex",
     invocation: "/use work-next <ticket id or task description>",
     path: ".agents/skills/work-next/SKILL.md",
