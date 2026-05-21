@@ -23,15 +23,22 @@ import { execa } from "execa";
 
 const mockExeca = vi.mocked(execa);
 const DESCRIPTION_RE = /description/i;
+const ORIGINAL_PIPELINE_HARNESS = process.env.PIPELINE_HARNESS;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.PIPELINE_HARNESS;
   mockCreateRun.mockResolvedValue({ start: mockRunStart });
   mockGetWorkflow.mockReturnValue({ createRun: mockCreateRun });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  if (ORIGINAL_PIPELINE_HARNESS === undefined) {
+    delete process.env.PIPELINE_HARNESS;
+  } else {
+    process.env.PIPELINE_HARNESS = ORIGINAL_PIPELINE_HARNESS;
+  }
 });
 
 function statusUpdates(): [string, string][] {
@@ -191,6 +198,20 @@ describe("workNext", () => {
   it("throws if no description provided", async () => {
     const { workNext } = await import("../src/index.js");
     await expect(workNext("")).rejects.toThrow(DESCRIPTION_RE);
+  });
+
+  it("rejects unsupported PIPELINE_HARNESS values before starting work", async () => {
+    const { workNext } = await import("../src/index.js");
+
+    process.env.PIPELINE_HARNESS = "bogus";
+
+    await expect(workNext("ship it")).rejects.toThrow(
+      'Unsupported PIPELINE_HARNESS "bogus". Supported values: claude, codex, opencode, pi.'
+    );
+    expect(mockExeca).not.toHaveBeenCalled();
+    expect(mockGetWorkflow).not.toHaveBeenCalled();
+    expect(mockCreateRun).not.toHaveBeenCalled();
+    expect(mockRunStart).not.toHaveBeenCalled();
   });
 
   it("marks every phase In Progress then Done when the pipeline passes", async () => {

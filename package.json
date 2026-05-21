@@ -19,6 +19,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "work-next": "bun src/index.ts work-next",
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",

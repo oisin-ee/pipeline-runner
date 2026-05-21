@@ -6,6 +6,23 @@ import {
 } from "./mastra/backlog.js";
 import { mastra } from "./mastra/index.js";
 
+const SUPPORTED_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
+
+type PipelineHarness = (typeof SUPPORTED_HARNESSES)[number];
+
+function parsePipelineHarness(value: string | undefined): PipelineHarness {
+  const harness = value ?? "claude";
+  if (SUPPORTED_HARNESSES.includes(harness as PipelineHarness)) {
+    return harness as PipelineHarness;
+  }
+
+  throw new Error(
+    `Unsupported PIPELINE_HARNESS "${harness}". Supported values: ${SUPPORTED_HARNESSES.join(
+      ", "
+    )}.`
+  );
+}
+
 function normalizePipelineResult(result: unknown): PipelineLifecycleResult {
   const output = (result as { result?: Partial<PipelineLifecycleResult> })
     .result;
@@ -22,11 +39,7 @@ export async function workNext(description: string): Promise<void> {
     throw new Error("Task description is required");
   }
 
-  const harness = (process.env.PIPELINE_HARNESS ?? "claude") as
-    | "claude"
-    | "codex"
-    | "opencode"
-    | "pi";
+  const harness = parsePipelineHarness(process.env.PIPELINE_HARNESS);
   const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const parentId = `TASK-${Date.now()}`;
 
