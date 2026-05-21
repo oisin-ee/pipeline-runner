@@ -1,30 +1,40 @@
 # oisin-pipeline
 
-Welcome to your new [Mastra](https://mastra.ai/) project! We're excited to see what you'll build.
+Mastra-based pipeline for coordinating repository work through research, red,
+green, verification, and learning phases.
 
-## Getting Started
+## Requirements
 
-Start the development server:
+- Bun 1.1 or newer
+- Node.js 22.13 or newer
+
+Install dependencies with:
 
 ```shell
-npm run dev
+bun install --frozen-lockfile
 ```
 
-Open [http://localhost:4111](http://localhost:4111) in your browser to access [Mastra Studio](https://mastra.ai/docs/studio/overview). It provides an interactive UI for building and testing your agents, along with a REST API that exposes your Mastra application as a local service. This lets you start building without worrying about integration right away.
+## Development
 
-You can start editing files inside the `src/mastra` directory. The development server will automatically reload whenever you make changes.
+Start Mastra Studio locally:
 
-## Learn more
+```shell
+bun run dev
+```
 
-To learn more about Mastra, visit our [documentation](https://mastra.ai/docs/). Your bootstrapped project includes example code for [agents](https://mastra.ai/docs/agents/overview), [tools](https://mastra.ai/docs/agents/using-tools), [workflows](https://mastra.ai/docs/workflows/overview), [scorers](https://mastra.ai/docs/evals/overview), and [observability](https://mastra.ai/docs/observability/overview).
+Open <http://localhost:4111> to inspect and run the Mastra application.
 
-If you're new to AI agents, check out our [course](https://mastra.ai/learn) and [YouTube videos](https://youtube.com/@mastra-ai). You can also join our [Discord](https://discord.gg/BTYqqHKUrf) community to get help and share your projects.
+## Verification
 
-## Deploy to the Mastra platform
+Use the package scripts for repository verification:
 
-The [Mastra platform](https://projects.mastra.ai) provides two products for deploying and managing AI applications built with the Mastra framework:
+```shell
+bun run test
+bun run typecheck
+bun run check
+bun run build
+```
 
-- **Studio**: A hosted visual environment for testing agents, running workflows, and inspecting traces
-- **Server**: A production deployment target that runs your Mastra application as an API server
-
-Learn more in the [Mastra platform documentation](https://mastra.ai/docs/mastra-platform/overview).
+`bun run test` is the supported test command for this project. It runs the
+Vitest suite configured in `package.json`; Bun's native test runner is not the
+project suite runner.

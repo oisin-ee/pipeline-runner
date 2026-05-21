@@ -22,6 +22,8 @@ interface LlmVerdict {
   verdict?: string;
 }
 
+const JSON_OBJECT_PATTERN = /\{[\s\S]*?\}/;
+
 async function runLlmVerify(
   harness: Harness,
   prompt: string,
@@ -43,7 +45,7 @@ async function runLlmVerify(
     worktreePath
   ).catch(() => ({ stdout: "", exitCode: 1 }));
   // Extract JSON even if wrapped in markdown code fences or surrounding text
-  const jsonMatch = /\{[\s\S]*?\}/.exec(result.stdout);
+  const jsonMatch = JSON_OBJECT_PATTERN.exec(result.stdout);
   try {
     const parsed = JSON.parse(jsonMatch?.[0] ?? result.stdout) as LlmVerdict;
     return {
@@ -52,7 +54,10 @@ async function runLlmVerify(
     };
   } catch {
     // If verifier output contains "PASS" keyword, treat as pass
-    if (result.stdout.toUpperCase().includes('"PASS"') || result.stdout.includes("verdict: PASS")) {
+    if (
+      result.stdout.toUpperCase().includes('"PASS"') ||
+      result.stdout.includes("verdict: PASS")
+    ) {
       return { verdict: "PASS", evidence: [] };
     }
     return { verdict: "FAIL", evidence: ["unparseable verifier output"] };
