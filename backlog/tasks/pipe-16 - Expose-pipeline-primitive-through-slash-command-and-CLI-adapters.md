@@ -4,7 +4,7 @@ title: Expose pipeline primitive through slash-command and CLI adapters
 status: Done
 assignee: []
 created_date: '2026-05-21 10:43'
-updated_date: '2026-05-21 15:42'
+updated_date: '2026-05-21 22:05'
 labels:
   - architecture
   - cli
@@ -37,8 +37,14 @@ Refactor the current CLI-centric pipeline into a reusable pipeline primitive tha
 - [x] #6 README documents both invocation modes and clearly explains when to use slash commands versus the CLI.
 <!-- AC:END -->
 
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Completed native-agent resource repair on 2026-05-22. The CLI path still uses runPipelinePrimitive with the subprocess adapter for direct harness CLI calls. The generated host path now uses each host's own resource mechanics: Claude Code command plus project agents, OpenCode command plus primary/subagent definitions, Codex skill plus .codex agent definitions with $work-next invocation, and Pi project extension that registers /work-next and dispatches pi-subagents /chain. The prior local commit that replaced mechanics with prompt-only claims was removed before implementation. Generated resources are dogfooded in this repository and installer --check is stable.
+<!-- SECTION:NOTES:END -->
+
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Refactored the pipeline into runPipelinePrimitive with injectable AgentAdapter and optional PipelinePhaseReporter. The CLI now calls the primitive with the subprocess adapter while tests can use an in-process fake adapter. Added a Claude slash-command template plus a slash-command adapter contract covering Claude Code, Codex, OpenCode, and Pi. Updated README to explain slash-command versus CLI usage. Verified with full tests, typecheck, Ultracite check, and Mastra build.
+Refactored generated host command installation around a shared pipeline spec and real host agent resources instead of CLI shell wrappers or prose-only fake native claims. Added Claude project agents, OpenCode primary/subagent resources, Codex skill plus Codex agent definitions, and a Pi extension that registers /work-next and dispatches a pi-subagents /chain. Updated README and slash-command contract docs to describe the actual invocation mechanics, including Codex $work-next instead of unsupported custom slash commands. Added installer tests that verify generated resources configure host agents and do not shell out to work-next. Verified with full tests, typecheck, Ultracite check, build, install-commands --check, npm pack dry-run, and host discovery checks for Claude, Codex, OpenCode, and Pi.
 <!-- SECTION:FINAL_SUMMARY:END -->

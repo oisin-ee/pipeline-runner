@@ -1,74 +1,62 @@
 # Slash Command Adapter Contract
 
 The reusable primitive is `runPipelinePrimitive(input, adapters)` from
-`src/mastra/pipeline-primitive.ts`. Slash-command hosts call that primitive with
-an in-process `AgentAdapter`; the shell CLI calls the same primitive with the
+`src/mastra/pipeline-primitive.ts`. The shell CLI calls that primitive with the
 subprocess adapter from `src/mastra/runner.ts`.
 
-For normal project installation, run:
+Generated host resources do not shell out to `work-next`. They encode the same
+pipeline lifecycle for the host interface and use the host's native command,
+skill, agent, subagent, extension, or session mechanics.
+
+Install the generated resources in a repository with:
 
 ```sh
 bunx @oisincoveney/pipeline install-commands --host all
 ```
 
-The installer writes generated command files into the current repository. Re-run
-it after package updates. It is idempotent, supports `--dry-run`, supports
-`--check`, and refuses to overwrite manually edited files unless `--force` is
-passed.
-
-## Primitive Input
-
-Slash commands must supply:
-
-- `task`: the command arguments or selected ticket text.
-- `worktreePath`: the repository root or task worktree the host is currently
-  editing.
-- `harness`: the host name, one of `claude`, `codex`, `opencode`, or `pi`.
-
-## Agent Adapter
-
-The host adapter implements:
-
-```ts
-interface AgentAdapter {
-  run(request: {
-    contextFile: string | null;
-    harness: "claude" | "codex" | "opencode" | "pi";
-    prompt: string;
-    role: "researcher" | "test-writer" | "code-writer" | "verifier";
-    worktreePath: string;
-  }): Promise<{ exitCode: number; stdout: string }>;
-}
-```
-
-The primitive owns the phase order and gates. The adapter only maps each role to
-the host's native execution mechanism.
+The installer is idempotent, supports `--dry-run`, supports `--check`, and
+refuses to overwrite manually edited files unless `--force` is passed.
 
 ## Host Mappings
 
-| Host | Task input | Target path | Agent execution | Phase reporting |
-| --- | --- | --- | --- | --- |
-| Host | Generated file | Invocation |
-| --- | --- | --- |
-| Claude Code | `.claude/commands/work-next.md` | `/work-next <ticket id or task description>` |
-| OpenCode | `.opencode/commands/work-next.md` | `/work-next <ticket id or task description>` |
-| Pi | `.pi/prompts/work-next.md` | `/work-next <ticket id or task description>` |
-| Codex | `.agents/skills/work-next/SKILL.md` | `/use work-next <ticket id or task description>` |
+| Host | Generated resources | Invocation | Mechanical path |
+| --- | --- | --- | --- |
+| Claude Code | `.claude/commands/work-next.md`, `.claude/agents/pipeline-*.md` | `/work-next <task>` | Project command orchestrates named Claude Code project agents. |
+| OpenCode | `.opencode/commands/work-next.md`, `.opencode/agents/pipeline-*.md` | `/work-next <task>` | Project command runs `pipeline-orchestrator`, which delegates to OpenCode subagents. |
+| Pi | `.pi/extensions/work-next.ts`, `.pi/prompts/work-next.md` | `/work-next <task>` | Project extension registers the command and requires `pi-subagents` before sending the phase prompt. |
+| Codex | `.agents/skills/work-next/SKILL.md`, `.codex/agents/pipeline-*.toml` | `$work-next <task>` or `/skills` | Project skill instructs Codex to spawn the generated Codex agents for phase work. |
 
-Codex currently does not support project-defined custom slash commands in the
-same way as Claude Code and OpenCode, so the installer generates a project skill
-instead of pretending that `/work-next` is available.
+Codex currently does not expose project-defined custom slash commands in the
+same way as Claude Code and OpenCode. The installer therefore generates a Codex
+skill and Codex agent definitions rather than pretending that `/work-next`
+exists in Codex.
 
-## Phase Reporter
+## Pipeline Contract
 
-Slash hosts may pass:
+Every generated host resource uses the shared pipeline spec from
+`src/pipeline-spec.ts`:
 
-```ts
-interface PipelinePhaseReporter {
-  started?(phase: "research" | "red" | "green" | "verify" | "learn"): void | Promise<void>;
-  completed?(phase: "research" | "red" | "green" | "verify" | "learn"): void | Promise<void>;
-}
-```
+1. Build `.pipeline/knowledge-context.md`.
+2. Run research with `pipeline-researcher`.
+3. Run RED with `pipeline-test-writer`; the new tests must fail for the right
+   reason.
+4. Run GREEN with `pipeline-code-writer`; tests and typecheck must pass.
+5. Run VERIFY with `pipeline-verifier`; quality checks and implementation
+   review must pass.
+6. Write `.pipeline/knowledge/<timestamp>.md`.
 
-Use this for native UI updates. The primitive returns the same
-`{ outcome, failureDetails }` shape used by the CLI.
+The host resource is responsible for keeping the command or skill invocation as
+the orchestrator, delegating phase work to the configured agents, and stopping
+with evidence when a gate fails.
+
+## CLI Adapter
+
+The CLI remains the shell automation path. It supplies:
+
+- `task`: the command argument.
+- `worktreePath`: `PIPELINE_TARGET_PATH` or the current directory.
+- `harness`: `PIPELINE_HARNESS` or `claude`.
+- `agentAdapter`: the subprocess adapter that calls the configured harness CLI.
+
+The CLI is the only path that intentionally starts `claude`, `codex`,
+`opencode`, or `pi` as subprocesses.

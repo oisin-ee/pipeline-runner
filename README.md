@@ -6,8 +6,9 @@ fix, verify the result, and record learnings for future runs.
 
 The reusable primitive is `runPipelinePrimitive()`. It is intended to run from
 an isolated worktree for one Backlog.md ticket or task description at a time.
-Slash commands call it with a host-native in-process agent adapter; the CLI
-calls it with the subprocess adapter.
+The CLI calls it with the subprocess adapter. Generated host resources run the
+same lifecycle through each host's native command, skill, agent, subagent,
+extension, or session mechanics.
 
 ## Requirements
 
@@ -49,7 +50,7 @@ The package-level binary is also available:
 oisin-pipeline work-next "Implement PIPE-123 user-facing behavior"
 ```
 
-Slash-command adapters can import the primitive and adapter types from package
+Programmatic consumers can import the primitive and adapter types from package
 subpaths:
 
 ```ts
@@ -67,10 +68,10 @@ This creates or updates the supported host files:
 
 | Host | File | Invocation |
 | --- | --- | --- |
-| Claude Code | `.claude/commands/work-next.md` | `/work-next "Implement PIPE-123"` |
-| OpenCode | `.opencode/commands/work-next.md` | `/work-next "Implement PIPE-123"` |
-| Pi | `.pi/prompts/work-next.md` | `/work-next "Implement PIPE-123"` |
-| Codex | `.agents/skills/work-next/SKILL.md` | `/use work-next "Implement PIPE-123"` |
+| Claude Code | `.claude/commands/work-next.md`, `.claude/agents/pipeline-*.md` | `/work-next "Implement PIPE-123"` |
+| OpenCode | `.opencode/commands/work-next.md`, `.opencode/agents/pipeline-*.md` | `/work-next "Implement PIPE-123"` |
+| Pi | `.pi/extensions/work-next.ts`, `.pi/prompts/work-next.md` | `/work-next "Implement PIPE-123"` |
+| Codex | `.agents/skills/work-next/SKILL.md`, `.codex/agents/pipeline-*.toml` | `$work-next "Implement PIPE-123"` or `/skills` |
 
 Re-run the installer after package updates. It updates generated files it owns,
 refuses to overwrite manual edits, supports `--check`, `--dry-run`, and
@@ -88,9 +89,11 @@ work-next "Implement PIPE-123 user-facing behavior"
 ## Invocation Modes
 
 Use a slash command when you are already inside Claude Code, Codex, OpenCode, or
-Pi and want the host interface to execute the phase agents with its native
-subagent/session mechanism. The slash command supplies the task text, target
-path, in-process agent adapter, and phase reporter to the primitive.
+Pi and want that host to execute the phase work with its native agent,
+subagent, extension, or session mechanism. Claude Code and OpenCode expose
+`/work-next`. Pi exposes `/work-next` through a project extension and requires
+`pi-subagents` to be installed. Codex does not expose project-defined custom
+slash commands, so use `$work-next` or select the skill from `/skills`.
 
 Use the CLI when you are outside an agent host, when automation needs a shell
 entrypoint, or when you explicitly want harness CLIs launched as subprocesses.
@@ -122,10 +125,10 @@ The direct entrypoint is also available:
 bun src/index.ts work-next "Implement PIPE-123 user-facing behavior"
 ```
 
-The CLI path uses the same primitive as slash commands, but passes the
-subprocess adapter from `src/mastra/runner.ts`. Environment variables are only
-needed for the CLI adapter; slash commands should supply those values through
-their host adapter contract.
+The CLI path uses `runPipelinePrimitive()` with the subprocess adapter from
+`src/mastra/runner.ts`. Environment variables are only needed for the CLI
+adapter; generated host resources use the current host session and repository
+context.
 
 ## Pipeline Lifecycle
 

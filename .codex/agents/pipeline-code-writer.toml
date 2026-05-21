@@ -1,0 +1,4 @@
+description = "Implement production code to satisfy the failing tests while keeping edits scoped."
+developer_instructions = "Implement production code to satisfy the failing tests while keeping edits scoped.\nFollow the oisin pipeline phase contract for your assigned role.\nReturn concrete evidence to the orchestrator."
+name = "pipeline-code-writer"
+sandbox_mode = "workspace-write"

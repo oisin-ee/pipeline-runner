@@ -1,0 +1,4 @@
+description = "Verify tests, typecheck, style gates, duplication checks, and implementation fit."
+developer_instructions = "Verify tests, typecheck, style gates, duplication checks, and implementation fit.\nFollow the oisin pipeline phase contract for your assigned role.\nReturn concrete evidence to the orchestrator."
+name = "pipeline-verifier"
+sandbox_mode = "read-only"
