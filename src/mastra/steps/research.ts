@@ -1,9 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Harness } from "../runner.js";
-import { spawnAgent } from "../runner.js";
+import {
+  type AgentAdapter,
+  type Harness,
+  subprocessAgentAdapter,
+} from "../runner.js";
 
 interface ResearchOptions {
+  agentAdapter?: AgentAdapter;
   contextFile: string | null;
   harness: Harness;
   maxRetries?: number;
@@ -19,7 +23,14 @@ interface ResearchResult {
 export async function runResearch(
   opts: ResearchOptions
 ): Promise<ResearchResult> {
-  const { worktreePath, prompt, contextFile, harness, maxRetries = 2 } = opts;
+  const {
+    worktreePath,
+    prompt,
+    contextFile,
+    harness,
+    agentAdapter = subprocessAgentAdapter,
+    maxRetries = 2,
+  } = opts;
   let lastResult: ResearchResult = { exitCode: 1, output: "" };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -29,16 +40,18 @@ export async function runResearch(
       "",
       `Task to research: ${prompt}`,
     ].join("\n");
-    const result = await spawnAgent(
-      harness,
-      "researcher",
-      researchPrompt,
-      contextFile,
-      worktreePath
-    ).catch((err: { stdout?: string; exitCode?: number }) => ({
-      stdout: err.stdout ?? "",
-      exitCode: err.exitCode ?? 1,
-    }));
+    const result = await agentAdapter
+      .run({
+        contextFile,
+        harness,
+        prompt: researchPrompt,
+        role: "researcher",
+        worktreePath,
+      })
+      .catch((err: { stdout?: string; exitCode?: number }) => ({
+        stdout: err.stdout ?? "",
+        exitCode: err.exitCode ?? 1,
+      }));
     lastResult = { exitCode: result.exitCode, output: result.stdout };
     if (result.exitCode === 0) {
       break;

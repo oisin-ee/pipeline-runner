@@ -4,7 +4,11 @@ import {
   markPhase,
   type PipelineLifecycleResult,
 } from "./mastra/backlog.js";
-import { mastra } from "./mastra/index.js";
+import {
+  type PipelinePrimitiveInput,
+  runPipelinePrimitive,
+} from "./mastra/pipeline-primitive.js";
+import { subprocessAgentAdapter } from "./mastra/runner.js";
 
 const SUPPORTED_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 
@@ -23,18 +27,16 @@ function parsePipelineHarness(value: string | undefined): PipelineHarness {
   );
 }
 
-function normalizePipelineResult(result: unknown): PipelineLifecycleResult {
-  const output = (result as { result?: Partial<PipelineLifecycleResult> })
-    .result;
-  return {
-    outcome: output?.outcome === "PASS" ? "PASS" : "FAIL",
-    failureDetails: Array.isArray(output?.failureDetails)
-      ? output.failureDetails
-      : [],
-  };
+interface WorkNextOptions {
+  pipelineRunner?: (
+    input: PipelinePrimitiveInput
+  ) => Promise<PipelineLifecycleResult>;
 }
 
-export async function workNext(description: string): Promise<void> {
+export async function workNext(
+  description: string,
+  options: WorkNextOptions = {}
+): Promise<void> {
   if (!description.trim()) {
     throw new Error("Task description is required");
   }
@@ -42,19 +44,22 @@ export async function workNext(description: string): Promise<void> {
   const harness = parsePipelineHarness(process.env.PIPELINE_HARNESS);
   const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const parentId = `TASK-${Date.now()}`;
+  const pipelineRunner =
+    options.pipelineRunner ??
+    ((input: PipelinePrimitiveInput) =>
+      runPipelinePrimitive(input, { agentAdapter: subprocessAgentAdapter }));
 
   await createSwarmTasks(parentId, worktreePath);
-
-  const workflow = mastra.getWorkflow("pipelineWorkflow");
-  const run = await workflow.createRun();
 
   console.log(`Starting pipeline for: ${description}`);
   await markPhase(`${parentId}-R`, "In Progress");
 
-  let result: unknown;
+  let pipelineResult: PipelineLifecycleResult;
   try {
-    result = await run.start({
-      inputData: { task: description, harness, worktreePath },
+    pipelineResult = await pipelineRunner({
+      harness,
+      task: description,
+      worktreePath,
     });
   } catch (err) {
     await applyPhaseLifecycle(
@@ -65,7 +70,6 @@ export async function workNext(description: string): Promise<void> {
     throw err;
   }
 
-  const pipelineResult = normalizePipelineResult(result);
   await applyPhaseLifecycle(parentId, pipelineResult, {
     alreadyStarted: ["R"],
   });

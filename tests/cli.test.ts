@@ -219,12 +219,18 @@ describe("workNext", () => {
 
     vi.spyOn(Date, "now").mockReturnValue(99);
     mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
-    mockRunStart.mockResolvedValue({
-      result: { outcome: "PASS", failureDetails: [] },
+    const pipelineRunner = vi.fn().mockResolvedValue({
+      outcome: "PASS",
+      failureDetails: [],
     });
 
-    await workNext("ship it");
+    await workNext("ship it", { pipelineRunner });
 
+    expect(pipelineRunner).toHaveBeenCalledWith({
+      harness: "claude",
+      task: "ship it",
+      worktreePath: process.cwd(),
+    });
     expect(statusUpdates()).toEqual([
       ["TASK-99-R", "In Progress"],
       ["TASK-99-R", "Done"],
@@ -291,14 +297,12 @@ describe("workNext", () => {
 
     vi.spyOn(Date, "now").mockReturnValue(99);
     mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
-    mockRunStart.mockResolvedValue({
-      result: {
-        outcome: "FAIL",
-        failureDetails: [{ gate, reason, evidence }],
-      },
+    const pipelineRunner = vi.fn().mockResolvedValue({
+      outcome: "FAIL",
+      failureDetails: [{ gate, reason, evidence }],
     });
 
-    await workNext("ship it");
+    await workNext("ship it", { pipelineRunner });
 
     expect(statusUpdates()).toEqual(expectedStatuses);
     expect(noteUpdates()).toEqual([

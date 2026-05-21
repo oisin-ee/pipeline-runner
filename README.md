@@ -4,8 +4,10 @@ Mastra workflow and CLI for running repository work through a fixed pipeline:
 collect project knowledge, research the task, write failing tests, implement the
 fix, verify the result, and record learnings for future runs.
 
-The CLI entrypoint is `work-next`. It is intended to run from an isolated
-worktree for one Backlog.md ticket or task description at a time.
+The reusable primitive is `runPipelinePrimitive()`. It is intended to run from
+an isolated worktree for one Backlog.md ticket or task description at a time.
+Slash commands call it with a host-native in-process agent adapter; the CLI
+calls it with the subprocess adapter.
 
 ## Requirements
 
@@ -32,6 +34,20 @@ bun install --frozen-lockfile
 The selected harness must already be authenticated and configured in the local
 environment. Any provider-specific API keys are managed by that harness.
 
+## Invocation Modes
+
+Use a slash command when you are already inside Claude Code, Codex, OpenCode, or
+Pi and want the host interface to execute the phase agents with its native
+subagent/session mechanism. The slash command supplies the task text, target
+path, in-process agent adapter, and phase reporter to the primitive.
+
+Use the CLI when you are outside an agent host, when automation needs a shell
+entrypoint, or when you explicitly want harness CLIs launched as subprocesses.
+
+The slash-command adapter contract for Claude Code, Codex, OpenCode, and Pi is
+documented in `docs/slash-command-adapter-contract.md`. This repository also
+ships a Claude Code template at `.claude/commands/work-next.md`.
+
 ## Running The CLI
 
 Use the package script to start a pipeline run with a task description:
@@ -53,6 +69,11 @@ The direct entrypoint is also available:
 ```shell
 bun src/index.ts work-next "Implement PIPE-123 user-facing behavior"
 ```
+
+The CLI path uses the same primitive as slash commands, but passes the
+subprocess adapter from `src/mastra/runner.ts`. Environment variables are only
+needed for the CLI adapter; slash commands should supply those values through
+their host adapter contract.
 
 ## Pipeline Lifecycle
 

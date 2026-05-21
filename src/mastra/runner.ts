@@ -8,9 +8,21 @@ export type AgentRole =
   | "code-writer"
   | "verifier";
 
-interface AgentResult {
+export interface AgentResult {
   exitCode: number;
   stdout: string;
+}
+
+export interface AgentRunRequest {
+  contextFile: string | null;
+  harness: Harness;
+  prompt: string;
+  role: AgentRole;
+  worktreePath: string;
+}
+
+export interface AgentAdapter {
+  run(request: AgentRunRequest): Promise<AgentResult>;
 }
 
 async function loadContext(contextFile: string | null): Promise<string> {
@@ -105,18 +117,35 @@ export function spawnAgent(
   contextFile: string | null,
   worktreePath: string
 ): Promise<AgentResult> {
-  switch (harness) {
-    case "claude":
-      return spawnClaude(prompt, contextFile, worktreePath);
-    case "codex":
-      return spawnCodex(prompt, contextFile, worktreePath);
-    case "opencode":
-      return spawnOpencode(prompt, contextFile, worktreePath);
-    case "pi":
-      return spawnPi(prompt, contextFile, worktreePath);
-    default: {
-      const _exhaustive: never = harness;
-      throw new Error(`Unknown harness: ${String(_exhaustive)}`);
-    }
-  }
+  return subprocessAgentAdapter.run({
+    contextFile,
+    harness,
+    prompt,
+    role: _role,
+    worktreePath,
+  });
 }
+
+export const subprocessAgentAdapter: AgentAdapter = {
+  run({
+    contextFile,
+    harness,
+    prompt,
+    worktreePath,
+  }: AgentRunRequest): Promise<AgentResult> {
+    switch (harness) {
+      case "claude":
+        return spawnClaude(prompt, contextFile, worktreePath);
+      case "codex":
+        return spawnCodex(prompt, contextFile, worktreePath);
+      case "opencode":
+        return spawnOpencode(prompt, contextFile, worktreePath);
+      case "pi":
+        return spawnPi(prompt, contextFile, worktreePath);
+      default: {
+        const _exhaustive: never = harness;
+        throw new Error(`Unknown harness: ${String(_exhaustive)}`);
+      }
+    }
+  },
+};

@@ -1,8 +1,12 @@
 import { runTests } from "../gates.js";
-import type { Harness } from "../runner.js";
-import { spawnAgent } from "../runner.js";
+import {
+  type AgentAdapter,
+  type Harness,
+  subprocessAgentAdapter,
+} from "../runner.js";
 
 interface RedOptions {
+  agentAdapter?: AgentAdapter;
   contextFile: string | null;
   harness: Harness;
   maxRetries?: number;
@@ -18,7 +22,14 @@ interface RedResult {
 }
 
 export async function runRed(opts: RedOptions): Promise<RedResult> {
-  const { worktreePath, prompt, contextFile, harness, maxRetries = 3 } = opts;
+  const {
+    worktreePath,
+    prompt,
+    contextFile,
+    harness,
+    agentAdapter = subprocessAgentAdapter,
+    maxRetries = 3,
+  } = opts;
   let lastTestOutput = "";
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -28,13 +39,15 @@ export async function runRed(opts: RedOptions): Promise<RedResult> {
       "",
       `Task: ${prompt}`,
     ].join("\n");
-    await spawnAgent(
-      harness,
-      "test-writer",
-      testWritePrompt,
-      contextFile,
-      worktreePath
-    ).catch(() => ({ stdout: "", exitCode: 1 }));
+    await agentAdapter
+      .run({
+        contextFile,
+        harness,
+        prompt: testWritePrompt,
+        role: "test-writer",
+        worktreePath,
+      })
+      .catch(() => ({ stdout: "", exitCode: 1 }));
 
     const testResult = await runTests(worktreePath);
     lastTestOutput = testResult.output;

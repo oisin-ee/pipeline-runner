@@ -1,9 +1,10 @@
 ---
 id: PIPE-16
 title: Expose pipeline primitive through slash-command and CLI adapters
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-21 10:43'
+updated_date: '2026-05-21 15:42'
 labels:
   - architecture
   - cli
@@ -28,10 +29,16 @@ Refactor the current CLI-centric pipeline into a reusable pipeline primitive tha
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A reusable pipeline primitive can run the research, RED, GREEN, VERIFY, and LEARN lifecycle without depending directly on shell-specific harness subprocesses.
-- [ ] #2 The existing CLI entrypoint uses a subprocess-based adapter and continues to support the documented `work-next` behavior.
-- [ ] #3 A slash-command adapter contract is documented for Claude Code, Codex, OpenCode, and Pi, including how each host supplies task input, target path, agent execution, and phase reporting.
-- [ ] #4 At least one repository slash-command definition or template is added that invokes the pipeline primitive without requiring users to assemble environment-variable commands manually.
-- [ ] #5 Tests prove the pipeline primitive works with an in-process fake agent adapter and that the CLI adapter still uses real subprocess execution for the existing tracer path.
-- [ ] #6 README documents both invocation modes and clearly explains when to use slash commands versus the CLI.
+- [x] #1 A reusable pipeline primitive can run the research, RED, GREEN, VERIFY, and LEARN lifecycle without depending directly on shell-specific harness subprocesses.
+- [x] #2 The existing CLI entrypoint uses a subprocess-based adapter and continues to support the documented `work-next` behavior.
+- [x] #3 A slash-command adapter contract is documented for Claude Code, Codex, OpenCode, and Pi, including how each host supplies task input, target path, agent execution, and phase reporting.
+- [x] #4 At least one repository slash-command definition or template is added that invokes the pipeline primitive without requiring users to assemble environment-variable commands manually.
+- [x] #5 Tests prove the pipeline primitive works with an in-process fake agent adapter and that the CLI adapter still uses real subprocess execution for the existing tracer path.
+- [x] #6 README documents both invocation modes and clearly explains when to use slash commands versus the CLI.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Refactored the pipeline into runPipelinePrimitive with injectable AgentAdapter and optional PipelinePhaseReporter. The CLI now calls the primitive with the subprocess adapter while tests can use an in-process fake adapter. Added a Claude slash-command template plus a slash-command adapter contract covering Claude Code, Codex, OpenCode, and Pi. Updated README to explain slash-command versus CLI usage. Verified with full tests, typecheck, Ultracite check, and Mastra build.
+<!-- SECTION:FINAL_SUMMARY:END -->

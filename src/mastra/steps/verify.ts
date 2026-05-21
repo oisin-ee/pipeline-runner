@@ -1,9 +1,13 @@
 import type { GateViolation } from "../gates.js";
 import { runJscpd, runStyleGates } from "../gates.js";
-import type { Harness } from "../runner.js";
-import { spawnAgent } from "../runner.js";
+import {
+  type AgentAdapter,
+  type Harness,
+  subprocessAgentAdapter,
+} from "../runner.js";
 
 interface VerifyOptions {
+  agentAdapter?: AgentAdapter;
   contextFile: string | null;
   harness: Harness;
   prompt: string;
@@ -28,7 +32,8 @@ async function runLlmVerify(
   harness: Harness,
   prompt: string,
   contextFile: string | null,
-  worktreePath: string
+  worktreePath: string,
+  agentAdapter: AgentAdapter
 ): Promise<{ verdict: "PASS" | "FAIL"; evidence: string[] }> {
   const verifyPrompt = [
     "You are a code verifier. Review the implementation and output ONLY valid JSON.",
@@ -37,13 +42,15 @@ async function runLlmVerify(
     "",
     `Task: ${prompt}`,
   ].join("\n");
-  const result = await spawnAgent(
-    harness,
-    "verifier",
-    verifyPrompt,
-    contextFile,
-    worktreePath
-  ).catch(() => ({ stdout: "", exitCode: 1 }));
+  const result = await agentAdapter
+    .run({
+      contextFile,
+      harness,
+      prompt: verifyPrompt,
+      role: "verifier",
+      worktreePath,
+    })
+    .catch(() => ({ stdout: "", exitCode: 1 }));
   // Extract JSON even if wrapped in markdown code fences or surrounding text
   const jsonMatch = JSON_OBJECT_PATTERN.exec(result.stdout);
   try {
@@ -65,12 +72,18 @@ async function runLlmVerify(
 }
 
 export async function runVerify(opts: VerifyOptions): Promise<VerifyResult> {
-  const { worktreePath, prompt, contextFile, harness } = opts;
+  const {
+    worktreePath,
+    prompt,
+    contextFile,
+    harness,
+    agentAdapter = subprocessAgentAdapter,
+  } = opts;
 
   const [jscpdResult, styleResult, llmResult] = await Promise.all([
     runJscpd(worktreePath),
     Promise.resolve(runStyleGates(worktreePath)),
-    runLlmVerify(harness, prompt, contextFile, worktreePath),
+    runLlmVerify(harness, prompt, contextFile, worktreePath, agentAdapter),
   ]);
 
   const violations = [...jscpdResult.violations, ...styleResult.violations];

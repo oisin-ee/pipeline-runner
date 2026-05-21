@@ -1,8 +1,12 @@
 import { runTests, runTypecheck } from "../gates.js";
-import type { Harness } from "../runner.js";
-import { spawnAgent } from "../runner.js";
+import {
+  type AgentAdapter,
+  type Harness,
+  subprocessAgentAdapter,
+} from "../runner.js";
 
 interface GreenOptions {
+  agentAdapter?: AgentAdapter;
   contextFile: string | null;
   harness: Harness;
   maxRetries?: number;
@@ -18,7 +22,14 @@ interface GreenResult {
 }
 
 export async function runGreen(opts: GreenOptions): Promise<GreenResult> {
-  const { worktreePath, prompt, contextFile, harness, maxRetries = 3 } = opts;
+  const {
+    worktreePath,
+    prompt,
+    contextFile,
+    harness,
+    agentAdapter = subprocessAgentAdapter,
+    maxRetries = 3,
+  } = opts;
   let lastResult: GreenResult = {
     greenGatePassed: false,
     testOutput: "",
@@ -33,13 +44,15 @@ export async function runGreen(opts: GreenOptions): Promise<GreenResult> {
       "",
       `Task: ${prompt}`,
     ].join("\n");
-    await spawnAgent(
-      harness,
-      "code-writer",
-      codeWritePrompt,
-      contextFile,
-      worktreePath
-    ).catch(() => ({ stdout: "", exitCode: 1 }));
+    await agentAdapter
+      .run({
+        contextFile,
+        harness,
+        prompt: codeWritePrompt,
+        role: "code-writer",
+        worktreePath,
+      })
+      .catch(() => ({ stdout: "", exitCode: 1 }));
 
     const [testResult, typecheckResult] = await Promise.all([
       runTests(worktreePath),
