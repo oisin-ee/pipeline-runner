@@ -11,7 +11,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { workNext } from "../src/index.js";
+import { pipe } from "../src/index.js";
 
 interface LoggedCommand {
   args?: string[];
@@ -51,20 +51,96 @@ function writeFixtureWorktree(worktreePath: string): void {
     join(worktreePath, ".pipeline", "knowledge", "2026-01-01.md"),
     "# Existing knowledge\n\nPrefer deterministic tracer fixtures."
   );
+  // The strict-mode resolver requires either a default per phase or a ticket
+  // frontmatter override. The tracer test invokes pipe with a free-form
+  // description that does have a ticket id (PIPE-14) but no backlog file to
+  // read frontmatter from, so declare defaults here.
+  writeFileSync(
+    join(worktreePath, ".pipeline", "config.toml"),
+    `[phases.research]
+candidates = ["researcher"]
+default = "researcher"
+
+[phases.red]
+candidates = ["frontend", "backend"]
+default = "backend"
+
+[phases.green]
+candidates = ["frontend", "backend"]
+default = "backend"
+
+[phases.verify]
+candidates = ["verifier"]
+default = "verifier"
+
+[phases.learn]
+candidates = ["researcher"]
+default = "researcher"
+`
+  );
 }
 
 function writeFakeExecutables(env: TracerEnvironment): void {
   mkdirSync(env.binPath, { recursive: true });
 
+  // Fake profile launchers. Strict mode invokes `<profile> <harness> [...args]`.
+  // The fake launcher logs the invocation and forwards to the harness directly,
+  // so the test stays sandboxed (no real rulesync invocation).
+  const profileLauncherSource = `#!/usr/bin/env node
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+fs.appendFileSync(
+  process.env.PIPELINE_TRACER_LOG,
+  JSON.stringify({ type: "profile", profile: process.argv[1].split("/").pop(), args, cwd: process.cwd() }) + "\\n"
+);
+const [harness, ...rest] = args;
+const result = spawnSync(harness, rest, { cwd: process.cwd(), stdio: "inherit" });
+process.exit(result.status ?? 1);
+`;
+  for (const profile of ["researcher", "frontend", "backend", "verifier"]) {
+    writeExecutable(env.binPath, profile, profileLauncherSource);
+  }
+
+  // Fake backlog: logs every invocation and, for "task create" calls, emits
+  // a minimal stdout that mimics real backlog so createSwarmTasks can parse
+  // the assigned task id. We assign sequential ids per process: TASK-1 for
+  // the parent, then TASK-1.1..TASK-1.5 for the children.
   writeExecutable(
     env.binPath,
     "backlog",
     `#!/usr/bin/env node
 const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
 fs.appendFileSync(
   process.env.PIPELINE_TRACER_LOG,
-  JSON.stringify({ type: "backlog", args: process.argv.slice(2), cwd: process.cwd() }) + "\\n"
+  JSON.stringify({ type: "backlog", args, cwd: process.cwd() }) + "\\n"
 );
+if (args[0] === "task" && args[1] === "create") {
+  const counterPath = path.join(process.env.PIPELINE_TRACER_STATE || "/tmp/state.json").replace(/state\\.json$/, "backlog-counter.json");
+  let counter;
+  try {
+    counter = JSON.parse(fs.readFileSync(counterPath, "utf8"));
+  } catch {
+    counter = { next: 1 };
+  }
+  const isChild = args.includes("--parent");
+  let id;
+  if (isChild) {
+    counter.childOf = counter.childOf ?? counter.next - 1;
+    counter.childIdx = (counter.childIdx ?? 0) + 1;
+    id = "TASK-" + counter.childOf + "." + counter.childIdx;
+  } else {
+    id = "TASK-" + counter.next;
+    counter.next += 1;
+    counter.childOf = counter.next - 1;
+    counter.childIdx = 0;
+  }
+  fs.writeFileSync(counterPath, JSON.stringify(counter));
+  const titleArg = args[2] ?? "task";
+  process.stdout.write("File: backlog/tasks/" + id.toLowerCase() + " - x.md\\n\\nTask " + id + " - " + titleArg + "\\n");
+}
 `
   );
 
@@ -239,7 +315,6 @@ async function learnedOutcome(worktreePath: string): Promise<string> {
 
 describe("PIPE-14 tracer-bullet pipeline", () => {
   let env: TracerEnvironment;
-  let originalHarness: string | undefined;
   let originalPath: string | undefined;
   let originalTargetPath: string | undefined;
   let originalTracerLog: string | undefined;
@@ -260,7 +335,6 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     writeFakeExecutables(env);
     writeFileSync(env.logPath, "");
 
-    originalHarness = process.env.PIPELINE_HARNESS;
     originalPath = process.env.PATH;
     originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     originalTracerLog = process.env.PIPELINE_TRACER_LOG;
@@ -268,7 +342,6 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     originalTracerVerdict = process.env.PIPELINE_TRACER_VERDICT;
 
     process.env.PATH = `${env.binPath}${delimiter}${process.env.PATH ?? ""}`;
-    process.env.PIPELINE_HARNESS = "claude";
     process.env.PIPELINE_TARGET_PATH = env.worktreePath;
     process.env.PIPELINE_TRACER_LOG = env.logPath;
     process.env.PIPELINE_TRACER_STATE = env.statePath;
@@ -280,11 +353,6 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   });
 
   afterEach(() => {
-    if (originalHarness === undefined) {
-      delete process.env.PIPELINE_HARNESS;
-    } else {
-      process.env.PIPELINE_HARNESS = originalHarness;
-    }
     if (originalPath === undefined) {
       delete process.env.PATH;
     } else {
@@ -319,7 +387,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   it("runs the integrated tracer to PASS through real child-process commands", async () => {
     process.env.PIPELINE_TRACER_VERDICT = "PASS";
 
-    await workNext("PIPE-14 tracer bullet");
+    await pipe("PIPE-14 tracer bullet", { strict: true, harness: "claude" });
 
     const contextPath = join(
       env.worktreePath,
@@ -358,24 +426,30 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(rolePrompts.some((prompt) => prompt.includes("code verifier"))).toBe(
       true
     );
+    // createSwarmTasks now creates a real parent + 5 children. `args[2]` of
+    // `backlog task create` is the title, not the id (backlog auto-assigns
+    // ids). The fake backlog binary issues TASK-1 (parent) then
+    // TASK-1.1..TASK-1.5 (children); assertion on the assigned ids happens
+    // indirectly via the status-updates assertion below.
     expect(backlogCreateTaskIds(env.logPath)).toEqual([
-      "TASK-14-R",
-      "TASK-14-TW",
-      "TASK-14-CW",
-      "TASK-14-V",
-      "TASK-14-L",
+      "PIPE-14 tracer bullet",
+      "PIPE-14 tracer bullet — research",
+      "PIPE-14 tracer bullet — test-write",
+      "PIPE-14 tracer bullet — implement",
+      "PIPE-14 tracer bullet — verify",
+      "PIPE-14 tracer bullet — learn",
     ]);
     expect(backlogStatusUpdates(env.logPath)).toEqual([
-      ["TASK-14-R", "In Progress"],
-      ["TASK-14-R", "Done"],
-      ["TASK-14-TW", "In Progress"],
-      ["TASK-14-TW", "Done"],
-      ["TASK-14-CW", "In Progress"],
-      ["TASK-14-CW", "Done"],
-      ["TASK-14-V", "In Progress"],
-      ["TASK-14-V", "Done"],
-      ["TASK-14-L", "In Progress"],
-      ["TASK-14-L", "Done"],
+      ["TASK-1.1", "In Progress"],
+      ["TASK-1.1", "Done"],
+      ["TASK-1.2", "In Progress"],
+      ["TASK-1.2", "Done"],
+      ["TASK-1.3", "In Progress"],
+      ["TASK-1.3", "Done"],
+      ["TASK-1.4", "In Progress"],
+      ["TASK-1.4", "Done"],
+      ["TASK-1.5", "In Progress"],
+      ["TASK-1.5", "Done"],
     ]);
     expect(backlogNoteUpdates(env.logPath)).toEqual([]);
   });
@@ -383,7 +457,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   it("runs the integrated tracer to FAIL and preserves failed phase evidence", async () => {
     process.env.PIPELINE_TRACER_VERDICT = "FAIL";
 
-    await workNext("PIPE-14 tracer bullet");
+    await pipe("PIPE-14 tracer bullet", { strict: true, harness: "claude" });
 
     const learned = await learnedOutcome(env.worktreePath);
     const notes = backlogNoteUpdates(env.logPath);
@@ -392,25 +466,25 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(learned).toContain("## Outcome: FAIL");
     expect(learned).toContain("tracer feature should pass");
     expect(backlogStatusUpdates(env.logPath)).toEqual([
-      ["TASK-14-R", "In Progress"],
-      ["TASK-14-R", "Done"],
-      ["TASK-14-TW", "In Progress"],
-      ["TASK-14-TW", "Done"],
-      ["TASK-14-CW", "In Progress"],
-      ["TASK-14-CW", "Done"],
-      ["TASK-14-V", "In Progress"],
+      ["TASK-1.1", "In Progress"],
+      ["TASK-1.1", "Done"],
+      ["TASK-1.2", "In Progress"],
+      ["TASK-1.2", "Done"],
+      ["TASK-1.3", "In Progress"],
+      ["TASK-1.3", "Done"],
+      ["TASK-1.4", "In Progress"],
     ]);
     expect(backlogStatusUpdates(env.logPath)).not.toContainEqual([
-      "TASK-14-V",
+      "TASK-1.4",
       "Done",
     ]);
     expect(backlogStatusUpdates(env.logPath)).not.toContainEqual([
-      "TASK-14-L",
+      "TASK-1.5",
       "In Progress",
     ]);
     expect(notes).toEqual([
       [
-        "TASK-14-V",
+        "TASK-1.4",
         "VERIFY gate failed: VERIFY gate failed: verification checks did not pass\n\nEvidence:\n- LLM verifier verdict: FAIL\n- verifier found missing edge-case evidence",
       ],
     ]);

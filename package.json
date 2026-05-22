@@ -33,7 +33,7 @@
   },
   "bin": {
     "oisin-pipeline": "dist/index.js",
-    "work-next": "dist/index.js"
+    "pipe": "dist/index.js"
   },
   "exports": {
     ".": {
@@ -58,7 +58,7 @@
     "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/pipeline-primitive.ts --outfile dist/mastra/pipeline-primitive.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && tsc -p tsconfig.types.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "work-next": "bun src/index.ts work-next",
+    "pipe": "bun src/index.ts pipe",
     "dev": "mastra dev",
     "build": "bun run build:cli && mastra build",
     "start": "mastra start",

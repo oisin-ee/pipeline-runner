@@ -11,6 +11,7 @@ interface VerifyOptions {
   contextFile: string | null;
   harness: Harness;
   prompt: string;
+  ticketId?: string | null;
   worktreePath: string;
 }
 
@@ -21,18 +22,46 @@ interface VerifyResult {
   violations: GateViolation[];
 }
 
-interface LlmVerdict {
-  evidence?: string[];
-  verdict?: string;
-}
+// Matches every balanced `{...}` block in the input (greedy nesting handled
+// by JSON.parse in `findVerdictJson`). We use `g` to enumerate matches and
+// then scan right-to-left so the LAST `{...}` containing a `"verdict"` key
+// wins — harness JSONL streams (codex/opencode/pi) emit many protocol events
+// where the FIRST `{...}` is e.g. `{"type":"step_start",...}`, never the
+// verdict. Using the first match is what produced false-FAIL verdicts.
+const JSON_OBJECT_PATTERN = /\{[\s\S]*?\}/g;
 
-const JSON_OBJECT_PATTERN = /\{[\s\S]*?\}/;
+/**
+ * Find the rightmost JSON object in `stdout` that has a `verdict` key.
+ * Returns the parsed object, or `null` if none found. Per-line JSON.parse
+ * (rather than balanced-brace parsing) is sufficient because the verifier
+ * is instructed to output a single one-line JSON object — any multi-line
+ * wrapper around it (e.g. codex's `{"type":"item.completed","item":{...}}`
+ * event) is handled by the `verdict`-key filter.
+ */
+function findVerdictJson(stdout: string): {
+  verdict?: string;
+  evidence?: string[];
+} | null {
+  const matches = stdout.match(JSON_OBJECT_PATTERN) ?? [];
+  for (let i = matches.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(matches[i]);
+      if (parsed && typeof parsed === "object" && "verdict" in parsed) {
+        return parsed as { verdict?: string; evidence?: string[] };
+      }
+    } catch {
+      // skip non-JSON candidate
+    }
+  }
+  return null;
+}
 
 async function runLlmVerify(
   harness: Harness,
   prompt: string,
   contextFile: string | null,
   worktreePath: string,
+  ticketId: string | null,
   agentAdapter: AgentAdapter
 ): Promise<{ verdict: "PASS" | "FAIL"; evidence: string[] }> {
   const verifyPrompt = [
@@ -48,27 +77,26 @@ async function runLlmVerify(
       harness,
       prompt: verifyPrompt,
       role: "verifier",
+      ticketId,
       worktreePath,
     })
     .catch(() => ({ stdout: "", exitCode: 1 }));
-  // Extract JSON even if wrapped in markdown code fences or surrounding text
-  const jsonMatch = JSON_OBJECT_PATTERN.exec(result.stdout);
-  try {
-    const parsed = JSON.parse(jsonMatch?.[0] ?? result.stdout) as LlmVerdict;
+  const parsed = findVerdictJson(result.stdout);
+  if (parsed) {
     return {
       verdict: parsed.verdict === "PASS" ? "PASS" : "FAIL",
       evidence: parsed.evidence ?? [],
     };
-  } catch {
-    // If verifier output contains "PASS" keyword, treat as pass
-    if (
-      result.stdout.toUpperCase().includes('"PASS"') ||
-      result.stdout.includes("verdict: PASS")
-    ) {
-      return { verdict: "PASS", evidence: [] };
-    }
-    return { verdict: "FAIL", evidence: ["unparseable verifier output"] };
   }
+  // If verifier output contains "PASS" keyword (e.g. wrapped in prose),
+  // treat as pass.
+  if (
+    result.stdout.toUpperCase().includes('"PASS"') ||
+    result.stdout.includes("verdict: PASS")
+  ) {
+    return { verdict: "PASS", evidence: [] };
+  }
+  return { verdict: "FAIL", evidence: ["unparseable verifier output"] };
 }
 
 export async function runVerify(opts: VerifyOptions): Promise<VerifyResult> {
@@ -77,13 +105,21 @@ export async function runVerify(opts: VerifyOptions): Promise<VerifyResult> {
     prompt,
     contextFile,
     harness,
+    ticketId = null,
     agentAdapter = subprocessAgentAdapter,
   } = opts;
 
   const [jscpdResult, styleResult, llmResult] = await Promise.all([
     runJscpd(worktreePath),
     Promise.resolve(runStyleGates(worktreePath)),
-    runLlmVerify(harness, prompt, contextFile, worktreePath, agentAdapter),
+    runLlmVerify(
+      harness,
+      prompt,
+      contextFile,
+      worktreePath,
+      ticketId,
+      agentAdapter
+    ),
   ]);
 
   const violations = [...jscpdResult.violations, ...styleResult.violations];

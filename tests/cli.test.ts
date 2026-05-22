@@ -25,22 +25,18 @@ import { execa } from "execa";
 
 const mockExeca = vi.mocked(execa);
 const DESCRIPTION_RE = /description/i;
-const ORIGINAL_PIPELINE_HARNESS = process.env.PIPELINE_HARNESS;
+const PIPE_42_RE = /PIPE-42/;
+const PHASE_FLOW_RE = /research → RED → GREEN → VERIFY → LEARN/;
+const UNSUPPORTED_HARNESS_RE = /Unsupported --harness "bogus"|allowed choices/;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  delete process.env.PIPELINE_HARNESS;
   mockCreateRun.mockResolvedValue({ start: mockRunStart });
   mockGetWorkflow.mockReturnValue({ createRun: mockCreateRun });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
-  if (ORIGINAL_PIPELINE_HARNESS === undefined) {
-    delete process.env.PIPELINE_HARNESS;
-  } else {
-    process.env.PIPELINE_HARNESS = ORIGINAL_PIPELINE_HARNESS;
-  }
 });
 
 function statusUpdates(): [string, string][] {
@@ -82,81 +78,147 @@ function noteUpdates(): [string, string][] {
 
 // ─── backlog.ts ───────────────────────────────────────────────────────────────
 
+function backlogCreateOutput(id: string, title: string): string {
+  return `File: /tmp/wt/backlog/tasks/${id.toLowerCase()} - slug.md\n\nTask ${id} - ${title}\n==================================================\n`;
+}
+
 describe("createSwarmTasks", () => {
-  it("creates 5 swarm tasks (R, TW, CW, V, L) via backlog CLI", async () => {
+  it("creates parent + 5 child tasks via backlog and returns the assigned id map", async () => {
     const { createSwarmTasks } = await import("../src/mastra/backlog.js");
 
-    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+    // Sequence of backlog task create stdouts: parent, then R, TW, CW, V, L children
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-10", "pipe task"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-10.1", "research"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-10.2", "test-write"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-10.3", "implement"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-10.4", "verify"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-10.5", "learn"),
+        exitCode: 0,
+      } as any);
 
-    await createSwarmTasks("PIPE-99", "/tmp/wt");
+    const swarm = await createSwarmTasks("pipe task", "/tmp/wt");
 
-    // Should have called backlog task create 5 times
+    expect(swarm).toEqual({
+      parentId: "TASK-10",
+      phases: {
+        R: "TASK-10.1",
+        TW: "TASK-10.2",
+        CW: "TASK-10.3",
+        V: "TASK-10.4",
+        L: "TASK-10.5",
+      },
+    });
+    // 6 calls total: 1 parent + 5 children
     const createCalls = mockExeca.mock.calls.filter((c) => {
       const args = c[1] as string[] | undefined;
       return (
         c[0] === "backlog" && args?.[0] === "task" && args?.[1] === "create"
       );
     });
-    expect(createCalls.length).toBe(5);
+    expect(createCalls.length).toBe(6);
   });
 
-  it("passes --no-git flag to all backlog calls", async () => {
+  it("threads worktree path as cwd into every backlog invocation", async () => {
     const { createSwarmTasks } = await import("../src/mastra/backlog.js");
 
-    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+    mockExeca.mockResolvedValue({
+      stdout: backlogCreateOutput("TASK-1", "x"),
+      exitCode: 0,
+    } as any);
+
+    await createSwarmTasks("x", "/some/wt");
+
+    for (const call of mockExeca.mock.calls) {
+      if (call[0] === "backlog") {
+        expect(
+          (call as unknown as [string, string[], { cwd: string }])[2]
+        ).toMatchObject({ cwd: "/some/wt" });
+      }
+    }
+  });
+
+  it("does not append --no-git to backlog calls (init-only flag in upstream)", async () => {
+    const { createSwarmTasks } = await import("../src/mastra/backlog.js");
+
+    mockExeca.mockResolvedValue({
+      stdout: backlogCreateOutput("TASK-1", "x"),
+      exitCode: 0,
+    } as any);
 
     await createSwarmTasks("PIPE-42", "/tmp/wt");
 
     for (const call of mockExeca.mock.calls) {
       if (call[0] === "backlog") {
-        expect(call[1]).toContain("--no-git");
+        expect(call[1]).not.toContain("--no-git");
       }
     }
   });
 });
 
 describe("markPhase", () => {
-  it("calls backlog task edit with --status", async () => {
+  it("calls backlog task edit with --status against the assigned id", async () => {
     const { markPhase } = await import("../src/mastra/backlog.js");
 
     mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
 
-    await markPhase("PIPE-99-R", "Done");
+    await markPhase("TASK-10.1", "Done", "/tmp/wt");
 
     expect(mockExeca).toHaveBeenCalledWith(
       "backlog",
-      expect.arrayContaining([
-        "task",
-        "edit",
-        "PIPE-99-R",
-        "--status",
-        "Done",
-        "--no-git",
-      ])
+      expect.arrayContaining(["task", "edit", "TASK-10.1", "--status", "Done"]),
+      expect.objectContaining({ cwd: "/tmp/wt" })
     );
   });
 });
 
 describe("planPhaseLifecycle", () => {
+  const SWARM = {
+    parentId: "TASK-99",
+    phases: {
+      R: "TASK-99.1",
+      TW: "TASK-99.2",
+      CW: "TASK-99.3",
+      V: "TASK-99.4",
+      L: "TASK-99.5",
+    },
+  } as const;
+
   it("plans each phase In Progress then Done for a successful run", async () => {
     const { planPhaseLifecycle } = await import("../src/mastra/backlog.js");
 
-    const result = planPhaseLifecycle("PIPE-99", {
+    const result = planPhaseLifecycle(SWARM, {
       outcome: "PASS",
       failureDetails: [],
     });
 
     expect(result.statusUpdates).toEqual([
-      { taskId: "PIPE-99-R", status: "In Progress" },
-      { taskId: "PIPE-99-R", status: "Done" },
-      { taskId: "PIPE-99-TW", status: "In Progress" },
-      { taskId: "PIPE-99-TW", status: "Done" },
-      { taskId: "PIPE-99-CW", status: "In Progress" },
-      { taskId: "PIPE-99-CW", status: "Done" },
-      { taskId: "PIPE-99-V", status: "In Progress" },
-      { taskId: "PIPE-99-V", status: "Done" },
-      { taskId: "PIPE-99-L", status: "In Progress" },
-      { taskId: "PIPE-99-L", status: "Done" },
+      { taskId: "TASK-99.1", status: "In Progress" },
+      { taskId: "TASK-99.1", status: "Done" },
+      { taskId: "TASK-99.2", status: "In Progress" },
+      { taskId: "TASK-99.2", status: "Done" },
+      { taskId: "TASK-99.3", status: "In Progress" },
+      { taskId: "TASK-99.3", status: "Done" },
+      { taskId: "TASK-99.4", status: "In Progress" },
+      { taskId: "TASK-99.4", status: "Done" },
+      { taskId: "TASK-99.5", status: "In Progress" },
+      { taskId: "TASK-99.5", status: "Done" },
     ]);
     expect(result.failureNote).toBeUndefined();
   });
@@ -164,7 +226,7 @@ describe("planPhaseLifecycle", () => {
   it("stops at the gate failure phase and records failure context", async () => {
     const { planPhaseLifecycle } = await import("../src/mastra/backlog.js");
 
-    const result = planPhaseLifecycle("PIPE-99", {
+    const result = planPhaseLifecycle(SWARM, {
       outcome: "FAIL",
       failureDetails: [
         {
@@ -176,14 +238,14 @@ describe("planPhaseLifecycle", () => {
     });
 
     expect(result.statusUpdates).toEqual([
-      { taskId: "PIPE-99-R", status: "In Progress" },
-      { taskId: "PIPE-99-R", status: "Done" },
-      { taskId: "PIPE-99-TW", status: "In Progress" },
-      { taskId: "PIPE-99-TW", status: "Done" },
-      { taskId: "PIPE-99-CW", status: "In Progress" },
+      { taskId: "TASK-99.1", status: "In Progress" },
+      { taskId: "TASK-99.1", status: "Done" },
+      { taskId: "TASK-99.2", status: "In Progress" },
+      { taskId: "TASK-99.2", status: "Done" },
+      { taskId: "TASK-99.3", status: "In Progress" },
     ]);
     expect(result.failureNote).toEqual({
-      taskId: "PIPE-99-CW",
+      taskId: "TASK-99.3",
       note: "GREEN gate failed: tests failed\n\nEvidence:\n- expected 2 received 1",
     });
   });
@@ -191,25 +253,39 @@ describe("planPhaseLifecycle", () => {
 
 // ─── CLI entry ────────────────────────────────────────────────────────────────
 
-describe("workNext", () => {
-  it("exports a workNext function", async () => {
+describe("pipe", () => {
+  it("exports a pipe function", async () => {
     const mod = await import("../src/index.js");
-    expect(typeof mod.workNext).toBe("function");
+    expect(typeof mod.pipe).toBe("function");
   });
 
-  it("uses Commander for package and direct work-next CLI invocations", async () => {
+  it("uses Commander for package and direct pipe CLI invocations", async () => {
     const { runCli } = await import("../src/index.js");
 
     vi.spyOn(Date, "now").mockReturnValue(123);
     mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
-    process.env.PIPELINE_HARNESS = "bogus";
 
     await expect(
-      runCli(["node", "/repo/dist/index.js", "work-next", "ship it"])
-    ).rejects.toThrow("Unsupported PIPELINE_HARNESS");
+      runCli([
+        "node",
+        "/repo/dist/index.js",
+        "pipe",
+        "ship it",
+        "--strict",
+        "--harness",
+        "bogus",
+      ])
+    ).rejects.toThrow(UNSUPPORTED_HARNESS_RE);
     await expect(
-      runCli(["node", "/repo/node_modules/.bin/work-next", "ship it"])
-    ).rejects.toThrow("Unsupported PIPELINE_HARNESS");
+      runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "ship it",
+        "--strict",
+        "--harness",
+        "bogus",
+      ])
+    ).rejects.toThrow(UNSUPPORTED_HARNESS_RE);
   });
 
   it("declares installable binaries and typed subpath exports", () => {
@@ -226,7 +302,7 @@ describe("workNext", () => {
     });
     expect(pkg.bin).toEqual({
       "oisin-pipeline": "dist/index.js",
-      "work-next": "dist/index.js",
+      pipe: "dist/index.js",
     });
     expect(pkg.exports?.["."]).toEqual({
       import: "./dist/index.js",
@@ -243,52 +319,171 @@ describe("workNext", () => {
   });
 
   it("throws if no description provided", async () => {
-    const { workNext } = await import("../src/index.js");
-    await expect(workNext("")).rejects.toThrow(DESCRIPTION_RE);
+    const { pipe } = await import("../src/index.js");
+    await expect(pipe("")).rejects.toThrow(DESCRIPTION_RE);
   });
 
-  it("rejects unsupported PIPELINE_HARNESS values before starting work", async () => {
-    const { workNext } = await import("../src/index.js");
+  it("soft mode (default) spawns orchestrator interactively with an initial pipeline-driving prompt", async () => {
+    const { pipe } = await import("../src/index.js");
 
-    process.env.PIPELINE_HARNESS = "bogus";
+    const spawnInteractive = vi.fn().mockResolvedValue({ exitCode: 0 });
 
-    await expect(workNext("ship it")).rejects.toThrow(
-      'Unsupported PIPELINE_HARNESS "bogus". Supported values: claude, codex, opencode, pi.'
+    await pipe("PIPE-42 trivial NOOP", { spawnInteractive });
+
+    expect(spawnInteractive).toHaveBeenCalledTimes(1);
+    const call = spawnInteractive.mock.calls[0] as [
+      string,
+      string[],
+      { cwd: string },
+    ];
+    const [command, args, opts] = call;
+    expect(command).toBe("orchestrator");
+    expect(args[0]).toBe("codex");
+    expect(args[1]).toMatch(PIPE_42_RE);
+    expect(args[1]).toMatch(PHASE_FLOW_RE);
+    expect(opts.cwd).toBe(process.cwd());
+    // Soft mode does NOT invoke the Mastra runner.
+    expect(mockExeca).not.toHaveBeenCalled();
+  });
+
+  it("strict mode threads ticketId into the pipeline primitive input", async () => {
+    const { pipe } = await import("../src/index.js");
+
+    stageBacklogCreates();
+    const pipelineRunner = vi.fn().mockResolvedValue({
+      outcome: "PASS",
+      failureDetails: [],
+    });
+
+    await pipe("PIPE-42 trivial NOOP", { pipelineRunner, strict: true });
+
+    expect(pipelineRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ticketId: "PIPE-42",
+        task: "PIPE-42 trivial NOOP",
+        harness: "codex",
+      })
     );
+  });
+
+  it("uses codex as the default harness when --harness is not passed", async () => {
+    const { pipe } = await import("../src/index.js");
+
+    stageBacklogCreates();
+    const pipelineRunner = vi.fn().mockResolvedValue({
+      outcome: "PASS",
+      failureDetails: [],
+    });
+
+    await pipe("PIPE-7 noop", { pipelineRunner, strict: true });
+
+    expect(pipelineRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: "codex" })
+    );
+  });
+
+  it("threads explicit --harness option through to the runner", async () => {
+    const { pipe } = await import("../src/index.js");
+
+    stageBacklogCreates();
+    const pipelineRunner = vi.fn().mockResolvedValue({
+      outcome: "PASS",
+      failureDetails: [],
+    });
+
+    await pipe("PIPE-7 noop", {
+      pipelineRunner,
+      strict: true,
+      harness: "claude",
+    });
+
+    expect(pipelineRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: "claude" })
+    );
+  });
+
+  it("rejects unsupported --harness values before starting work", async () => {
+    const { runCli } = await import("../src/index.js");
+
+    await expect(
+      runCli([
+        "node",
+        "/repo/dist/index.js",
+        "pipe",
+        "ship it",
+        "--harness",
+        "bogus",
+      ])
+    ).rejects.toThrow(UNSUPPORTED_HARNESS_RE);
     expect(mockExeca).not.toHaveBeenCalled();
     expect(mockGetWorkflow).not.toHaveBeenCalled();
     expect(mockCreateRun).not.toHaveBeenCalled();
     expect(mockRunStart).not.toHaveBeenCalled();
   });
 
-  it("marks every phase In Progress then Done when the pipeline passes", async () => {
-    const { workNext } = await import("../src/index.js");
+  /**
+   * Stages mockExeca to satisfy `createSwarmTasks`: 6 sequential `backlog task
+   * create` calls, returning TASK-99 (parent) then TASK-99.1..TASK-99.5
+   * (children). Falls through to a default empty-stdout success for everything
+   * after (markPhase, appendPhaseNote).
+   */
+  function stageBacklogCreates(): void {
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-99", "ship it"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-99.1", "research"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-99.2", "test-write"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-99.3", "implement"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-99.4", "verify"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("TASK-99.5", "learn"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+  }
 
-    vi.spyOn(Date, "now").mockReturnValue(99);
-    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+  it("marks every phase In Progress then Done when the pipeline passes", async () => {
+    const { pipe } = await import("../src/index.js");
+
+    stageBacklogCreates();
     const pipelineRunner = vi.fn().mockResolvedValue({
       outcome: "PASS",
       failureDetails: [],
     });
 
-    await workNext("ship it", { pipelineRunner });
+    await pipe("ship it", { pipelineRunner, strict: true });
 
     expect(pipelineRunner).toHaveBeenCalledWith({
-      harness: "claude",
+      harness: "codex",
       task: "ship it",
       worktreePath: process.cwd(),
+      ticketId: null,
     });
     expect(statusUpdates()).toEqual([
-      ["TASK-99-R", "In Progress"],
-      ["TASK-99-R", "Done"],
-      ["TASK-99-TW", "In Progress"],
-      ["TASK-99-TW", "Done"],
-      ["TASK-99-CW", "In Progress"],
-      ["TASK-99-CW", "Done"],
-      ["TASK-99-V", "In Progress"],
-      ["TASK-99-V", "Done"],
-      ["TASK-99-L", "In Progress"],
-      ["TASK-99-L", "Done"],
+      ["TASK-99.1", "In Progress"],
+      ["TASK-99.1", "Done"],
+      ["TASK-99.2", "In Progress"],
+      ["TASK-99.2", "Done"],
+      ["TASK-99.3", "In Progress"],
+      ["TASK-99.3", "Done"],
+      ["TASK-99.4", "In Progress"],
+      ["TASK-99.4", "Done"],
+      ["TASK-99.5", "In Progress"],
+      ["TASK-99.5", "Done"],
     ]);
     expect(noteUpdates()).toEqual([]);
   });
@@ -298,39 +493,39 @@ describe("workNext", () => {
       gate: "RED" as const,
       reason: "tests passed too early",
       evidence: ["All tests passed"],
-      failedTask: "TASK-99-TW",
+      failedTask: "TASK-99.2",
       expectedStatuses: [
-        ["TASK-99-R", "In Progress"],
-        ["TASK-99-R", "Done"],
-        ["TASK-99-TW", "In Progress"],
+        ["TASK-99.1", "In Progress"],
+        ["TASK-99.1", "Done"],
+        ["TASK-99.2", "In Progress"],
       ],
     },
     {
       gate: "GREEN" as const,
       reason: "tests failed",
       evidence: ["expected 2 received 1"],
-      failedTask: "TASK-99-CW",
+      failedTask: "TASK-99.3",
       expectedStatuses: [
-        ["TASK-99-R", "In Progress"],
-        ["TASK-99-R", "Done"],
-        ["TASK-99-TW", "In Progress"],
-        ["TASK-99-TW", "Done"],
-        ["TASK-99-CW", "In Progress"],
+        ["TASK-99.1", "In Progress"],
+        ["TASK-99.1", "Done"],
+        ["TASK-99.2", "In Progress"],
+        ["TASK-99.2", "Done"],
+        ["TASK-99.3", "In Progress"],
       ],
     },
     {
       gate: "VERIFY" as const,
       reason: "verification failed",
       evidence: ["missing edge case"],
-      failedTask: "TASK-99-V",
+      failedTask: "TASK-99.4",
       expectedStatuses: [
-        ["TASK-99-R", "In Progress"],
-        ["TASK-99-R", "Done"],
-        ["TASK-99-TW", "In Progress"],
-        ["TASK-99-TW", "Done"],
-        ["TASK-99-CW", "In Progress"],
-        ["TASK-99-CW", "Done"],
-        ["TASK-99-V", "In Progress"],
+        ["TASK-99.1", "In Progress"],
+        ["TASK-99.1", "Done"],
+        ["TASK-99.2", "In Progress"],
+        ["TASK-99.2", "Done"],
+        ["TASK-99.3", "In Progress"],
+        ["TASK-99.3", "Done"],
+        ["TASK-99.4", "In Progress"],
       ],
     },
   ])("keeps later phases To Do and records notes when the $gate gate fails", async ({
@@ -340,16 +535,15 @@ describe("workNext", () => {
     failedTask,
     expectedStatuses,
   }) => {
-    const { workNext } = await import("../src/index.js");
+    const { pipe } = await import("../src/index.js");
 
-    vi.spyOn(Date, "now").mockReturnValue(99);
-    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
+    stageBacklogCreates();
     const pipelineRunner = vi.fn().mockResolvedValue({
       outcome: "FAIL",
       failureDetails: [{ gate, reason, evidence }],
     });
 
-    await workNext("ship it", { pipelineRunner });
+    await pipe("ship it", { pipelineRunner, strict: true });
 
     expect(statusUpdates()).toEqual(expectedStatuses);
     expect(noteUpdates()).toEqual([
@@ -359,6 +553,6 @@ describe("workNext", () => {
       ],
     ]);
     expect(statusUpdates()).not.toContainEqual([failedTask, "Done"]);
-    expect(statusUpdates()).not.toContainEqual(["TASK-99-L", "Done"]);
+    expect(statusUpdates()).not.toContainEqual(["TASK-99.5", "Done"]);
   });
 });

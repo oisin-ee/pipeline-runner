@@ -35,57 +35,111 @@ export interface PhaseLifecyclePlan {
   statusUpdates: PhaseStatusUpdate[];
 }
 
+/**
+ * Map of phase suffix → real backlog task id assigned by `backlog task create`.
+ * Returned by {@link createSwarmTasks}; consumed by
+ * {@link applyPhaseLifecycle} and {@link planPhaseLifecycle}.
+ */
+export interface SwarmTaskMap {
+  /** ID of the parent task that owns the 5 phase tasks. */
+  parentId: string;
+  /** Real (backlog-assigned) IDs of the per-phase child tasks. */
+  phases: Record<PhaseSuffix, string>;
+}
+
 const GATE_PHASES: Record<GateFailure["gate"], PhaseSuffix> = {
   GREEN: "CW",
   RED: "TW",
   VERIFY: "V",
 };
 
-function backlogArgs(...args: string[]): string[] {
-  return [...args, "--no-git"];
+/**
+ * `backlog task create` (with `--plain`) prints `Task TASK-<id> - <title>` on
+ * the second non-blank line. We match `TASK-<id>` allowing subtask ids like
+ * `TASK-3.1`.
+ */
+const TASK_ID_RE = /^Task\s+(TASK-[\w.]+)\b/m;
+
+function parseTaskId(stdout: string): string | null {
+  const m = TASK_ID_RE.exec(stdout);
+  return m ? m[1] : null;
 }
 
-async function runBacklog(args: string[]): Promise<string> {
+async function runBacklog(args: string[], cwd: string): Promise<string> {
   try {
-    const result = await execa("backlog", backlogArgs(...args));
+    const result = await execa("backlog", args, { cwd });
     return result.stdout;
   } catch (err) {
     return (err as { stdout?: string }).stdout ?? "";
   }
 }
 
+/**
+ * Create a parent task plus one child task per phase via the `backlog` CLI.
+ *
+ * `backlog task create` does NOT accept a positional task id (the positional
+ * is the title; ids are auto-assigned), so we parse the assigned id out of
+ * `backlog`'s stdout and return the resulting map.
+ */
 export async function createSwarmTasks(
-  parentId: string,
-  _worktreePath: string
-): Promise<void> {
-  for (const phase of PHASES) {
-    const id = `${parentId}-${phase.suffix}`;
-    const deps = phase.deps.map((d) => `${parentId}-${d}`);
-    const createArgs = [
-      "task",
-      "create",
-      id,
-      "--title",
-      phase.label,
-      "--label",
-      "swarm",
-    ];
-    if (deps.length > 0) {
-      createArgs.push("--depends-on", deps.join(","));
-    }
-    await runBacklog(createArgs);
+  taskDescription: string,
+  worktreePath: string
+): Promise<SwarmTaskMap> {
+  const parentOut = await runBacklog(
+    ["task", "create", taskDescription, "--labels", "swarm-parent", "--plain"],
+    worktreePath
+  );
+  const parentId = parseTaskId(parentOut);
+  if (!parentId) {
+    throw new Error(
+      `createSwarmTasks: could not parse parent task id from backlog output: ${parentOut.slice(0, 200)}`
+    );
   }
+
+  const phases: Partial<Record<PhaseSuffix, string>> = {};
+  for (const phase of PHASES) {
+    const childOut = await runBacklog(
+      [
+        "task",
+        "create",
+        `${taskDescription} — ${phase.label}`,
+        "--parent",
+        parentId,
+        "--labels",
+        `swarm,phase-${phase.suffix}`,
+        "--plain",
+      ],
+      worktreePath
+    );
+    const childId = parseTaskId(childOut);
+    if (!childId) {
+      throw new Error(
+        `createSwarmTasks: could not parse ${phase.suffix} child task id from backlog output: ${childOut.slice(0, 200)}`
+      );
+    }
+    phases[phase.suffix] = childId;
+  }
+
+  return { parentId, phases: phases as Record<PhaseSuffix, string> };
 }
 
 export async function markPhase(
   taskId: string,
-  status: BacklogStatus
+  status: BacklogStatus,
+  worktreePath: string
 ): Promise<void> {
-  await runBacklog(["task", "edit", taskId, "--status", status]);
+  await runBacklog(["task", "edit", taskId, "--status", status], worktreePath);
 }
 
-async function appendPhaseNote(taskId: string, note: string): Promise<void> {
-  await runBacklog(["task", "edit", taskId, "--append-notes", note]);
+async function appendPhaseNote(
+  taskId: string,
+  note: string,
+  worktreePath: string
+): Promise<void> {
+  await runBacklog(
+    ["task", "edit", taskId, "--append-notes", note],
+    worktreePath
+  );
 }
 
 function formatFailureNote(failure: GateFailure): string {
@@ -103,7 +157,7 @@ function formatFailureNote(failure: GateFailure): string {
 }
 
 export function planPhaseLifecycle(
-  parentId: string,
+  swarm: SwarmTaskMap,
   result: PipelineLifecycleResult
 ): PhaseLifecyclePlan {
   const firstFailure = result.failureDetails[0];
@@ -114,7 +168,7 @@ export function planPhaseLifecycle(
   const statusUpdates: PhaseStatusUpdate[] = [];
 
   for (const phase of PHASES) {
-    const taskId = `${parentId}-${phase.suffix}`;
+    const taskId = swarm.phases[phase.suffix];
     statusUpdates.push({ taskId, status: "In Progress" });
 
     if (phase.suffix === failedPhase) {
@@ -136,22 +190,30 @@ export function planPhaseLifecycle(
 }
 
 export async function applyPhaseLifecycle(
-  parentId: string,
+  swarm: SwarmTaskMap,
   result: PipelineLifecycleResult,
+  worktreePath: string,
   opts: { alreadyStarted?: PhaseSuffix[] } = {}
 ): Promise<void> {
-  const plan = planPhaseLifecycle(parentId, result);
+  const plan = planPhaseLifecycle(swarm, result);
   for (const update of plan.statusUpdates) {
-    const suffix = update.taskId.replace(`${parentId}-`, "") as PhaseSuffix;
+    const suffix = (Object.keys(swarm.phases) as PhaseSuffix[]).find(
+      (s) => swarm.phases[s] === update.taskId
+    );
     if (
       update.status === "In Progress" &&
+      suffix !== undefined &&
       opts.alreadyStarted?.includes(suffix)
     ) {
       continue;
     }
-    await markPhase(update.taskId, update.status);
+    await markPhase(update.taskId, update.status, worktreePath);
   }
   if (plan.failureNote) {
-    await appendPhaseNote(plan.failureNote.taskId, plan.failureNote.note);
+    await appendPhaseNote(
+      plan.failureNote.taskId,
+      plan.failureNote.note,
+      worktreePath
+    );
   }
 }

@@ -22,6 +22,12 @@ export interface PipelinePhaseReporter {
 export interface PipelinePrimitiveInput {
   harness: Harness;
   task: string;
+  /**
+   * Optional ticket id (Backlog.md style, e.g. "PIPE-42") parsed from the
+   * task string. Used by the strict-mode resolver to look up phase-profile
+   * overrides in the parent ticket's frontmatter.
+   */
+  ticketId?: string | null;
   worktreePath: string;
 }
 
@@ -43,7 +49,7 @@ export async function runPipelinePrimitive(
   adapters: PipelinePrimitiveAdapters = {}
 ): Promise<PipelineLifecycleResult> {
   const agentAdapter = adapters.agentAdapter ?? subprocessAgentAdapter;
-  const { harness, task, worktreePath } = input;
+  const { harness, task, worktreePath, ticketId = null } = input;
 
   await report(adapters.phaseReporter, "started", "research");
   const { contextFile } = await writeKnowledgeContextFile(worktreePath);
@@ -52,6 +58,7 @@ export async function runPipelinePrimitive(
     contextFile,
     harness,
     prompt: task,
+    ticketId,
     worktreePath,
   });
   await report(adapters.phaseReporter, "completed", "research");
@@ -62,6 +69,7 @@ export async function runPipelinePrimitive(
     contextFile,
     harness,
     prompt: task,
+    ticketId,
     worktreePath,
   });
   await report(adapters.phaseReporter, "completed", "red");
@@ -72,6 +80,7 @@ export async function runPipelinePrimitive(
     contextFile,
     harness,
     prompt: task,
+    ticketId,
     worktreePath,
   });
   await report(adapters.phaseReporter, "completed", "green");
@@ -82,6 +91,7 @@ export async function runPipelinePrimitive(
     contextFile,
     harness,
     prompt: task,
+    ticketId,
     worktreePath,
   });
   await report(adapters.phaseReporter, "completed", "verify");

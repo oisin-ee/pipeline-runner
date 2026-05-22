@@ -113,12 +113,12 @@ function claudeAgentDefinition(agent: PipelineSpecAgent): CommandDefinition {
         "",
         agent.description,
         "",
-        "Follow the oisin pipeline phase contract. Keep changes scoped to your assigned role and return concrete evidence to the orchestrating `/work-next` command.",
+        "Follow the oisin pipeline phase contract. Keep changes scoped to your assigned role and return concrete evidence to the orchestrating `/pipe` command.",
         "",
       ].join("\n")
     ),
     host: "claude",
-    invocation: "/work-next <ticket id or task description>",
+    invocation: "/pipe <ticket id or task description>",
     path: `.claude/agents/${agent.name}.md`,
   };
 }
@@ -145,8 +145,8 @@ function claudeDefinitions(): CommandDefinition[] {
         ].join("\n")
       ),
       host: "claude",
-      invocation: "/work-next <ticket id or task description>",
-      path: ".claude/commands/work-next.md",
+      invocation: "/pipe <ticket id or task description>",
+      path: ".claude/commands/pipe.md",
     },
     ...PIPELINE_AGENTS.map(claudeAgentDefinition),
   ];
@@ -202,7 +202,7 @@ function opencodeAgentDefinition(
       ].join("\n")
     ),
     host: "opencode",
-    invocation: "/work-next <ticket id or task description>",
+    invocation: "/pipe <ticket id or task description>",
     path: `.opencode/agents/${agent.name}.md`,
   };
 }
@@ -238,8 +238,8 @@ function opencodeDefinitions(): CommandDefinition[] {
         ].join("\n")
       ),
       host: "opencode",
-      invocation: "/work-next <ticket id or task description>",
-      path: ".opencode/commands/work-next.md",
+      invocation: "/pipe <ticket id or task description>",
+      path: ".opencode/commands/pipe.md",
     },
     opencodeAgentDefinition(orchestrator, "primary"),
     ...PIPELINE_AGENTS.map((agent) =>
@@ -293,15 +293,15 @@ function piDefinitions(): CommandDefinition[] {
         [
           header("pi").trimEnd(),
           "",
-          "This prompt is fallback documentation. The mechanical Pi path is `.pi/extensions/work-next.ts`.",
+          "This prompt is fallback documentation. The mechanical Pi path is `.pi/extensions/pipe.ts`.",
           "",
           renderPipelineWorkflow(args),
           "",
         ].join("\n")
       ),
       host: "pi",
-      invocation: "/work-next <ticket id or task description>",
-      path: ".pi/prompts/work-next.md",
+      invocation: "/pipe <ticket id or task description>",
+      path: ".pi/prompts/pipe.md",
     },
     {
       content: [
@@ -355,13 +355,13 @@ function piDefinitions(): CommandDefinition[] {
         '  ].join("");',
         "",
         "export default function pipelineWorkNext(pi: PiExtensionApi): void {",
-        '  pi.registerCommand("work-next", {',
+        '  pi.registerCommand("pipe", {',
         '    description: "Run the oisin pipeline with Pi subagents",',
         "    handler: async (args: string, ctx) => {",
         '      const task = String(args ?? "").trim();',
         "      if (!task) {",
         "        ctx.ui.notify(",
-        '          "Usage: /work-next <ticket id or task description>",',
+        '          "Usage: /pipe <ticket id or task description>",',
         '          "error"',
         "        );",
         "        return;",
@@ -379,7 +379,7 @@ function piDefinitions(): CommandDefinition[] {
         "",
         "      if (!hasPiSubagents) {",
         "        ctx.ui.notify(",
-        '          "Install pi-subagents before running /work-next.",',
+        '          "Install pi-subagents before running /pipe.",',
         '          "error"',
         "        );",
         "        return;",
@@ -392,8 +392,8 @@ function piDefinitions(): CommandDefinition[] {
         "",
       ].join("\n"),
       host: "pi",
-      invocation: "/work-next <ticket id or task description>",
-      path: ".pi/extensions/work-next.ts",
+      invocation: "/pipe <ticket id or task description>",
+      path: ".pi/extensions/pipe.ts",
     },
   ];
 }
@@ -414,7 +414,7 @@ function codexAgentDefinition(agent: PipelineSpecAgent): CommandDefinition {
           : "read-only",
     }).trimEnd()}\n`,
     host: "codex",
-    invocation: "$work-next <ticket id or task description>",
+    invocation: "$pipe <ticket id or task description>",
     path: `.codex/agents/${agent.name}.toml`,
   };
 }
@@ -425,13 +425,13 @@ function codexDefinitions(): CommandDefinition[] {
       content: markdown(
         {
           description:
-            "Run the oisin pipeline with Codex subagents. Use when the user asks to run work-next or the oisin pipeline.",
-          name: "work-next",
+            "Run the oisin pipeline with Codex subagents. Use when the user asks to run pipe or the oisin pipeline.",
+          name: "pipe",
         },
         [
           header("codex").trimEnd(),
           "",
-          "Codex does not expose project-defined custom slash commands. Invoke this skill by typing `$work-next <ticket id or task description>` or by selecting it from `/skills`.",
+          "Codex does not expose project-defined custom slash commands. Invoke this skill by typing `$pipe <ticket id or task description>` or by selecting it from `/skills`.",
           "",
           renderPipelineWorkflow("<ticket id or task description>"),
           "",
@@ -442,8 +442,8 @@ function codexDefinitions(): CommandDefinition[] {
         ].join("\n")
       ),
       host: "codex",
-      invocation: "$work-next <ticket id or task description>",
-      path: ".agents/skills/work-next/SKILL.md",
+      invocation: "$pipe <ticket id or task description>",
+      path: ".agents/skills/pipe/SKILL.md",
     },
     ...PIPELINE_AGENTS.map(codexAgentDefinition),
   ];

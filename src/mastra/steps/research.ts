@@ -12,6 +12,7 @@ interface ResearchOptions {
   harness: Harness;
   maxRetries?: number;
   prompt: string;
+  ticketId?: string | null;
   worktreePath: string;
 }
 
@@ -28,6 +29,7 @@ export async function runResearch(
     prompt,
     contextFile,
     harness,
+    ticketId = null,
     agentAdapter = subprocessAgentAdapter,
     maxRetries = 2,
   } = opts;
@@ -46,6 +48,7 @@ export async function runResearch(
         harness,
         prompt: researchPrompt,
         role: "researcher",
+        ticketId,
         worktreePath,
       })
       .catch((err: { stdout?: string; exitCode?: number }) => ({

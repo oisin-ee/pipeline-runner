@@ -11,6 +11,7 @@ interface GreenOptions {
   harness: Harness;
   maxRetries?: number;
   prompt: string;
+  ticketId?: string | null;
   worktreePath: string;
 }
 
@@ -27,6 +28,7 @@ export async function runGreen(opts: GreenOptions): Promise<GreenResult> {
     prompt,
     contextFile,
     harness,
+    ticketId = null,
     agentAdapter = subprocessAgentAdapter,
     maxRetries = 3,
   } = opts;
@@ -50,6 +52,7 @@ export async function runGreen(opts: GreenOptions): Promise<GreenResult> {
         harness,
         prompt: codeWritePrompt,
         role: "code-writer",
+        ticketId,
         worktreePath,
       })
       .catch(() => ({ stdout: "", exitCode: 1 }));
