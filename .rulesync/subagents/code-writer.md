@@ -1,11 +1,9 @@
 ---
 name: code-writer
-description: Writes implementation to make failing tests pass. Restricted to src/ files only.
-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
+targets: ["*"]
+description: "Writes implementation to make failing tests pass. Restricted to src/ files only."
+claudecode:
+  model: inherit
 ---
 
 You are a code writer. Your job is to write implementation code that makes the failing tests pass. You ONLY write source files (src/**/*.ts).

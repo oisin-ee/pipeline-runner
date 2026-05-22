@@ -1,6 +1,8 @@
 ---
-rule: test-first
-intent: Tests are written before implementation. The RED gate enforces this mechanically.
+root: false
+targets: ["*"]
+description: "Tests are written before implementation. The RED gate enforces this mechanically."
+globs: ["**/*"]
 ---
 
 ## Rule

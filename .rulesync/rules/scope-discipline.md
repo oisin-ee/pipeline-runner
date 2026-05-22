@@ -1,6 +1,8 @@
 ---
-rule: scope-discipline
-intent: Each agent role has a defined file scope. test-writer writes tests, code-writer writes src.
+root: false
+targets: ["*"]
+description: "Each agent role has a defined file scope. test-writer writes tests, code-writer writes src."
+globs: ["**/*"]
 ---
 
 ## Rule

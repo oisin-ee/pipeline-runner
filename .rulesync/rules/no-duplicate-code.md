@@ -1,6 +1,8 @@
 ---
-rule: no-duplicate-code
-intent: No copy-pasted code blocks. jscpd gate enforces this with 50-token minimum.
+root: false
+targets: ["*"]
+description: "No copy-pasted code blocks. jscpd gate enforces this with 50-token minimum."
+globs: ["**/*"]
 ---
 
 ## Rule

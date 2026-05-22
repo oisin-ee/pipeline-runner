@@ -1,6 +1,8 @@
 ---
-rule: no-api-tokens
-intent: All AI interactions go through harness CLIs. Never call Anthropic/OpenAI APIs directly.
+root: false
+targets: ["*"]
+description: "All AI interactions go through harness CLIs. Never call Anthropic/OpenAI APIs directly."
+globs: ["**/*"]
 ---
 
 ## Rule

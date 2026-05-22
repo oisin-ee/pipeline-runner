@@ -1,12 +1,17 @@
+---
+root: true
+targets: ["*"]
+description: "Pipeline project overview, agent roles, and file-scope summary."
+globs: ["**/*"]
+---
+
 # AGENTS.md
 
-Centralised AI agent instructions. Add coding guidelines, style guides, and project context here.
-
-Ruler concatenates all .md files in this directory (and subdirectories), starting with AGENTS.md (if present), then remaining files in sorted order.
+Centralised AI agent instructions for the `oisin-pipeline` repo.
 
 ## Agent Roles
 
-This project defines four specialised agent roles distributed via Ruler:
+This project defines four specialised agent roles, emitted as subagents where supported and inlined elsewhere:
 
 ### researcher
 Read-only. Explores the codebase, reads docs, fetches web resources. Produces `research.json` in the worktree root — its only output artifact. Never writes source or test files.
@@ -22,9 +27,9 @@ Read-only. Reviews diffs against acceptance criteria from `research.json`. Outpu
 
 ## File Scope Summary
 
-| Role        | May write                     | May read       |
-|-------------|-------------------------------|----------------|
-| researcher  | research.json (worktree root) | anything       |
-| test-writer | *.test.ts, *.spec.ts          | anything       |
-| code-writer | src/**/*.ts                   | anything       |
-| verifier    | —                             | anything       |
+| Role        | May write                     | May read |
+|-------------|-------------------------------|----------|
+| researcher  | research.json (worktree root) | anything |
+| test-writer | *.test.ts, *.spec.ts          | anything |
+| code-writer | src/**/*.ts                   | anything |
+| verifier    | —                             | anything |

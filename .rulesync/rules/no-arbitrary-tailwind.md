@@ -1,6 +1,8 @@
 ---
-rule: no-arbitrary-tailwind
-intent: No arbitrary Tailwind values or inline styles. Style gate enforces this.
+root: false
+targets: ["*"]
+description: "No arbitrary Tailwind values or inline styles. Style gate enforces this."
+globs: ["**/*"]
 ---
 
 ## Rule
