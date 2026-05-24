@@ -36,14 +36,16 @@ exists in Codex.
 Every generated host resource uses the shared pipeline spec from
 `src/pipeline-spec.ts`:
 
-1. Build `.pipeline/knowledge-context.md`.
+1. Build `.pipeline/knowledge-context.md` from repository rules and qdrant
+   retrieval.
 2. Run research with `pipeline-researcher`.
 3. Run RED with `pipeline-test-writer`; the new tests must fail for the right
    reason.
 4. Run GREEN with `pipeline-code-writer`; tests and typecheck must pass.
 5. Run VERIFY with `pipeline-verifier`; quality checks and implementation
    review must pass.
-6. Write `.pipeline/knowledge/<timestamp>.md`.
+6. Store durable learnings with `qdrant-store`; do not write local markdown
+   knowledge files.
 
 The host resource is responsible for keeping the command or skill invocation as
 the orchestrator, delegating phase work to the configured agents, and stopping

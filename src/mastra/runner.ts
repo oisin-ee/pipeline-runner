@@ -1,4 +1,6 @@
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { execa } from "execa";
 
 import { resolveProfileForPhase } from "./config.js";
@@ -11,8 +13,12 @@ export type AgentRole =
   | "verifier";
 
 export interface AgentResult {
+  argv?: string[];
   exitCode: number;
+  profile?: string;
+  stderr?: string;
   stdout: string;
+  timedOut?: boolean;
 }
 
 export interface AgentRunRequest {
@@ -36,6 +42,44 @@ async function loadContext(contextFile: string | null): Promise<string> {
   return await readFile(contextFile, "utf8");
 }
 
+const OPENCODE_EXCLUDES = [
+  "node_modules/",
+  ".opencode/node_modules/",
+  ".mastra/",
+  "dist/",
+  "build/",
+  "coverage/",
+];
+const LINE_RE = /\r?\n/;
+
+function ensureOpencodeGitExcludes(worktreePath: string): void {
+  const excludePath = join(worktreePath, ".git", "info", "exclude");
+  if (!existsSync(excludePath)) {
+    return;
+  }
+  const existing = readFileSync(excludePath, "utf8");
+  const missing = OPENCODE_EXCLUDES.filter(
+    (entry) => !existing.split(LINE_RE).includes(entry)
+  );
+  if (missing.length === 0) {
+    return;
+  }
+  mkdirSync(join(worktreePath, ".git", "info"), { recursive: true });
+  appendFileSync(
+    excludePath,
+    `${existing.endsWith("\n") ? "" : "\n"}# oisin-pipeline opencode excludes\n${missing.join("\n")}\n`
+  );
+}
+
+function optionalModelArgs(harness: Harness): string[] {
+  const model =
+    harness === "opencode"
+      ? (process.env.PIPELINE_OPENCODE_MODEL ??
+        "opencode/deepseek-v4-flash-free")
+      : process.env[`PIPELINE_${harness.toUpperCase()}_MODEL`];
+  return model ? ["--model", model] : [];
+}
+
 /**
  * Per-harness argv shape (excluding the leading harness binary name and
  * any stdin/stdio plumbing). Used by `execaProfile` to build the args after
@@ -51,7 +95,7 @@ function harnessArgv(
     case "claude":
       // Claude's --print mode just takes one big prompt; we prepend the
       // context the way spawnClaude used to.
-      return ["--print", "-p", prompt];
+      return ["--print", ...optionalModelArgs(harness), "-p", prompt];
     case "codex":
       // --sandbox workspace-write: codex's default sandbox is read-only, which
       // makes the test-writer / code-writer / learn phases unable to produce
@@ -59,8 +103,11 @@ function harnessArgv(
       return [
         "exec",
         "--json",
+        ...optionalModelArgs(harness),
         "--sandbox",
         "workspace-write",
+        "--config",
+        'approval_policy="never"',
         "--skip-git-repo-check",
         prompt,
         "-C",
@@ -72,13 +119,24 @@ function harnessArgv(
             "run",
             "--format",
             "json",
+            ...optionalModelArgs(harness),
+            "--dangerously-skip-permissions",
             "--dir",
             worktreePath,
             prompt,
             "--file",
             contextFile,
           ]
-        : ["run", "--format", "json", "--dir", worktreePath, prompt];
+        : [
+            "run",
+            "--format",
+            "json",
+            ...optionalModelArgs(harness),
+            "--dangerously-skip-permissions",
+            "--dir",
+            worktreePath,
+            prompt,
+          ];
     default: {
       const _exhaustive: never = harness;
       throw new Error(
@@ -116,6 +174,10 @@ async function execaProfile(
     effectivePrompt = context ? `${context}\n${prompt}` : prompt;
   }
 
+  if (harness === "opencode") {
+    ensureOpencodeGitExcludes(worktreePath);
+  }
+
   // Codex's `exec` reads context via stdin (matches the prior spawnCodex).
   const input =
     harness === "codex" && contextFile
@@ -123,11 +185,37 @@ async function execaProfile(
       : undefined;
 
   const argv = harnessArgv(harness, effectivePrompt, worktreePath, contextFile);
-  const result = await execa(profile, [harness, ...argv], {
-    cwd: worktreePath,
-    ...(input === undefined ? {} : { input }),
-  });
-  return { stdout: result.stdout, exitCode: result.exitCode ?? 0 };
+  const fullArgv = [harness, ...argv];
+  try {
+    const result = await execa(profile, fullArgv, {
+      cwd: worktreePath,
+      stdin: input === undefined ? "ignore" : "pipe",
+      timeout: Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000),
+      ...(input === undefined ? {} : { input }),
+    });
+    return {
+      argv: fullArgv,
+      exitCode: result.exitCode ?? 0,
+      profile,
+      stderr: result.stderr ?? "",
+      stdout: result.stdout,
+    };
+  } catch (err) {
+    const e = err as {
+      exitCode?: number;
+      stderr?: string;
+      stdout?: string;
+      timedOut?: boolean;
+    };
+    return {
+      argv: fullArgv,
+      exitCode: e.exitCode ?? 1,
+      profile,
+      stderr: e.stderr ?? "",
+      stdout: e.stdout ?? "",
+      timedOut: Boolean(e.timedOut),
+    };
+  }
 }
 
 /**
@@ -140,37 +228,46 @@ async function execaProfilePi(
   contextFile: string | null,
   worktreePath: string
 ): Promise<AgentResult> {
-  const subprocess = execa(profile, ["pi", "--mode", "rpc", "--no-session"], {
-    cwd: worktreePath,
-    stdin: "pipe",
-  });
-
-  if (contextFile) {
-    subprocess.stdin.write(
-      `${JSON.stringify({ type: "bash", command: `cat ${contextFile}` })}\n`
-    );
+  const context = await loadContext(contextFile);
+  const effectivePrompt = context ? `${context}\n${prompt}` : prompt;
+  const fullArgv = [
+    "pi",
+    "--print",
+    "--mode",
+    "json",
+    ...optionalModelArgs("pi"),
+    "--no-session",
+    effectivePrompt,
+  ];
+  try {
+    const result = await execa(profile, fullArgv, {
+      cwd: worktreePath,
+      stdin: "ignore",
+      timeout: Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000),
+    });
+    return {
+      argv: fullArgv,
+      exitCode: result.exitCode ?? 0,
+      profile,
+      stderr: result.stderr ?? "",
+      stdout: result.stdout,
+    };
+  } catch (err) {
+    const e = err as {
+      exitCode?: number;
+      stderr?: string;
+      stdout?: string;
+      timedOut?: boolean;
+    };
+    return {
+      argv: fullArgv,
+      exitCode: e.exitCode ?? 1,
+      profile,
+      stderr: e.stderr ?? "",
+      stdout: e.stdout ?? "",
+      timedOut: Boolean(e.timedOut),
+    };
   }
-  subprocess.stdin.write(
-    `${JSON.stringify({ type: "prompt", message: prompt })}\n`
-  );
-
-  const lines: string[] = [];
-  for await (const line of subprocess.stdout) {
-    const lineStr = typeof line === "string" ? line : String(line);
-    lines.push(lineStr);
-    try {
-      const parsed = JSON.parse(lineStr);
-      if (parsed.type === "agent_end") {
-        subprocess.stdin.end();
-        break;
-      }
-    } catch {
-      // non-JSON line, continue
-    }
-  }
-
-  const awaited = await subprocess;
-  return { stdout: lines.join("\n"), exitCode: awaited.exitCode ?? 0 };
 }
 
 /**

@@ -60,7 +60,9 @@ describe("spawnAgent — claude harness", () => {
       ["claude", "--print", "-p", "do the thing"],
       expect.objectContaining({ cwd: "/tmp/wt" })
     );
-    expect(result).toEqual({ stdout: "claude output", exitCode: 0 });
+    expect(result).toEqual(
+      expect.objectContaining({ stdout: "claude output", exitCode: 0 })
+    );
   });
 
   it("prepends loaded context when contextFile is provided (claude argv)", async () => {
@@ -86,7 +88,7 @@ describe("spawnAgent — claude harness", () => {
 });
 
 describe("spawnAgent — codex harness", () => {
-  it("invokes <profile> codex exec --json --sandbox workspace-write --skip-git-repo-check <prompt> -C <worktree>", async () => {
+  it("invokes <profile> codex exec with noninteractive write/approval flags", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("codex output", 0));
 
     const result = await spawnAgent(
@@ -105,14 +107,47 @@ describe("spawnAgent — codex harness", () => {
         "--json",
         "--sandbox",
         "workspace-write",
+        "--config",
+        'approval_policy="never"',
         "--skip-git-repo-check",
         "write tests",
         "-C",
         "/tmp/wt",
       ],
-      expect.objectContaining({ cwd: "/tmp/wt" })
+      expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
     );
-    expect(result).toEqual({ stdout: "codex output", exitCode: 0 });
+    expect(result).toEqual(
+      expect.objectContaining({ stdout: "codex output", exitCode: 0 })
+    );
+  });
+
+  it("returns timeout diagnostics instead of losing subprocess evidence", async () => {
+    mockExeca.mockRejectedValueOnce(
+      Object.assign(new Error("timed out"), {
+        exitCode: undefined,
+        stdout: "partial output",
+        stderr: "permission prompt",
+        timedOut: true,
+      })
+    );
+
+    const result = await spawnAgent(
+      "codex",
+      "test-writer",
+      "write tests",
+      null,
+      "/tmp/wt"
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        exitCode: 1,
+        stderr: "permission prompt",
+        stdout: "partial output",
+        timedOut: true,
+      })
+    );
+    expect(result.argv).toContain('approval_policy="never"');
   });
 });
 
@@ -129,11 +164,14 @@ describe("spawnAgent — opencode harness", () => {
         "run",
         "--format",
         "json",
+        "--model",
+        "opencode/deepseek-v4-flash-free",
+        "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
         "verify things",
       ],
-      expect.objectContaining({ cwd: "/tmp/wt" })
+      expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
     );
   });
 
@@ -155,56 +193,84 @@ describe("spawnAgent — opencode harness", () => {
         "run",
         "--format",
         "json",
+        "--model",
+        "opencode/deepseek-v4-flash-free",
+        "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
         "verify things",
         "--file",
         "/tmp/ctx.md",
       ],
-      expect.objectContaining({ cwd: "/tmp/wt" })
+      expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
     );
+  });
+
+  it("adds git info excludes before opencode runs", async () => {
+    mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
+    const { mkdirSync, readFileSync, rmSync, writeFileSync } = await import(
+      "node:fs"
+    );
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await import("node:fs").then(({ mkdtempSync }) =>
+      mkdtempSync(join(tmpdir(), "runner-opencode-"))
+    );
+
+    try {
+      mkdirSync(join(dir, ".git", "info"), { recursive: true });
+      writeFileSync(join(dir, ".git", "info", "exclude"), "# existing\n");
+
+      await spawnAgent("opencode", "verifier", "verify things", null, dir);
+
+      const exclude = readFileSync(join(dir, ".git", "info", "exclude"), {
+        encoding: "utf8",
+      });
+      expect(exclude).toContain("node_modules/");
+      expect(exclude).toContain(".opencode/node_modules/");
+      expect(exclude).toContain(".mastra/");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
 describe("spawnAgent — pi harness", () => {
-  it("invokes <profile> pi --mode rpc --no-session with stdin:pipe; sends JSONL; reads until agent_end", async () => {
-    const stdoutLines = [
-      '{"type":"thinking","message":"ok"}',
-      '{"type":"agent_end","result":"done"}',
-    ];
-    function* makeAsyncIter() {
-      for (const line of stdoutLines) {
-        yield line;
-      }
+  it("invokes <profile> pi --print --mode json --no-session with context in prompt", async () => {
+    mockExeca.mockReturnValue(makeSimpleResult('{"type":"agent_end"}', 0));
+    const { writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "runner-test-"));
+    const ctx = join(dir, "ctx.md");
+    writeFileSync(ctx, "CONTEXT");
+
+    try {
+      const result = await spawnAgent(
+        "pi",
+        "researcher",
+        "research this",
+        ctx,
+        "/tmp/wt"
+      );
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        "researcher",
+        [
+          "pi",
+          "--print",
+          "--mode",
+          "json",
+          "--no-session",
+          "CONTEXT\nresearch this",
+        ],
+        expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
+      );
+
+      expect(result.stdout).toContain("agent_end");
+      expect(result.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
-    const stdinMock = { write: vi.fn(), end: vi.fn() };
-    const subprocess: any = Object.assign(Promise.resolve({ exitCode: 0 }), {
-      stdin: stdinMock,
-      stdout: makeAsyncIter(),
-    });
-    mockExeca.mockReturnValue(subprocess);
-
-    const result = await spawnAgent(
-      "pi",
-      "researcher",
-      "research this",
-      "/tmp/ctx.md",
-      "/tmp/wt"
-    );
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "researcher",
-      ["pi", "--mode", "rpc", "--no-session"],
-      expect.objectContaining({ cwd: "/tmp/wt", stdin: "pipe" })
-    );
-
-    const writeCalls = stdinMock.write.mock.calls.map((c: any) => c[0]);
-    expect(writeCalls[0]).toContain('"type":"bash"');
-    expect(writeCalls[0]).toContain("cat /tmp/ctx.md");
-    expect(writeCalls[1]).toContain('"type":"prompt"');
-    expect(writeCalls[1]).toContain("research this");
-
-    expect(result.stdout).toContain("agent_end");
-    expect(result.exitCode).toBe(0);
   });
 });

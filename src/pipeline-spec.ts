@@ -51,7 +51,7 @@ export const PIPELINE_AGENTS: PipelineSpecAgent[] = [
   },
   {
     description:
-      "Verify tests, typecheck, style gates, duplication checks, and implementation fit.",
+      "Verify configured checks, duplication checks, and implementation fit.",
     name: "pipeline-verifier",
     role: "verifier",
     tools: ["read", "grep", "glob", "list", "bash"],
@@ -63,7 +63,7 @@ export const PIPELINE_PHASES: PipelineSpecPhase[] = [
     key: "knowledge",
     name: "Knowledge context",
     output:
-      "Build `.pipeline/knowledge-context.md` from rules and recent knowledge.",
+      "Build `.pipeline/knowledge-context.md` from rules and qdrant retrieval.",
   },
   {
     agentRole: "researcher",
@@ -96,8 +96,7 @@ export const PIPELINE_PHASES: PipelineSpecPhase[] = [
   {
     key: "learn",
     name: "LEARN",
-    output:
-      "Write `.pipeline/knowledge/<timestamp>.md` with durable lessons from the run.",
+    output: "Call `qdrant-store` with durable lessons from the run.",
   },
 ];
 

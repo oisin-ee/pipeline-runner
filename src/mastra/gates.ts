@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
+import { resolveCommand } from "package-manager-detector/commands";
+import { detect } from "package-manager-detector/detect";
 
 export interface TestResult {
   exitCode: number;
@@ -25,35 +27,71 @@ function parseFailingTests(output: string): string[] {
   });
 }
 
-function detectRunner(worktreePath: string): string[] {
+interface ProjectCommand {
+  args: string[];
+  command: string;
+  shell?: boolean;
+}
+
+function readPackageScripts(worktreePath: string): Record<string, string> {
   try {
     const pkg = JSON.parse(
       readFileSync(join(worktreePath, "package.json"), "utf-8")
     ) as {
       scripts?: Record<string, string>;
     };
-    const testScript = pkg?.scripts?.test ?? "";
-    if (testScript.includes("vitest")) {
-      return ["bunx", "vitest", "run"];
-    }
-    if (testScript.includes("jest")) {
-      return ["bunx", "jest"];
-    }
-    if (testScript.includes("bun test")) {
-      return ["bun", "test"];
-    }
+    return pkg.scripts ?? {};
   } catch {
-    // fall through to default
+    return {};
   }
-  return ["bunx", "vitest", "run"];
+}
+
+function envCommand(envName: string): ProjectCommand | null {
+  const raw = process.env[envName]?.trim();
+  if (!raw) {
+    return null;
+  }
+  return { command: raw, args: [], shell: true };
+}
+
+async function resolvePackageScript(
+  worktreePath: string,
+  scriptName: string
+): Promise<ProjectCommand | null> {
+  const scripts = readPackageScripts(worktreePath);
+  if (!scripts[scriptName]) {
+    return null;
+  }
+
+  const pm = await detect({ cwd: worktreePath, stopDir: worktreePath });
+  const resolved = resolveCommand(pm?.agent ?? "npm", "run", [scriptName]);
+  if (!resolved) {
+    return null;
+  }
+  return { command: resolved.command, args: resolved.args };
 }
 
 // ─── runTests ─────────────────────────────────────────────────────────────────
 
 export async function runTests(worktreePath: string): Promise<TestResult> {
-  const [cmd, ...args] = detectRunner(worktreePath);
+  const projectCommand =
+    envCommand("PIPELINE_TEST_COMMAND") ??
+    (await resolvePackageScript(worktreePath, "test"));
+
+  if (!projectCommand) {
+    return {
+      exitCode: 1,
+      failingTests: [],
+      output:
+        "No test command found. Set PIPELINE_TEST_COMMAND or define a package test script.",
+    };
+  }
+
   try {
-    const result = await execa(cmd, args, { cwd: worktreePath });
+    const result = await execa(projectCommand.command, projectCommand.args, {
+      cwd: worktreePath,
+      shell: projectCommand.shell,
+    });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
     return { exitCode: result.exitCode ?? 0, output, failingTests: [] };
   } catch (err) {
@@ -72,11 +110,18 @@ export async function runTests(worktreePath: string): Promise<TestResult> {
 export async function runTypecheck(
   worktreePath: string
 ): Promise<{ exitCode: number; output: string }> {
-  if (!existsSync(join(worktreePath, "tsconfig.json"))) {
+  const projectCommand =
+    envCommand("PIPELINE_TYPECHECK_COMMAND") ??
+    (await resolvePackageScript(worktreePath, "typecheck"));
+
+  if (!projectCommand) {
     return { exitCode: 0, output: "skipped" };
   }
   try {
-    const result = await execa("tsc", ["--noEmit"], { cwd: worktreePath });
+    const result = await execa(projectCommand.command, projectCommand.args, {
+      cwd: worktreePath,
+      shell: projectCommand.shell,
+    });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
     return { exitCode: result.exitCode ?? 0, output };
   } catch (err) {
@@ -93,78 +138,6 @@ export function artifactExists(
   filename: string
 ): boolean {
   return existsSync(join(worktreePath, filename));
-}
-
-// ─── runStyleGates ────────────────────────────────────────────────────────────
-
-const SRC_FILE_RE = /\.(ts|tsx|js|jsx)$/;
-
-const STYLE_PATTERNS: Array<{
-  regex: RegExp;
-  message: (file: string, line: number) => string;
-}> = [
-  {
-    regex: /style=\{\{/,
-    message: (file, line) =>
-      `inline style (style={{) detected in ${file}:${line}`,
-  },
-  {
-    regex: /console\.log\s*\(/,
-    message: (file, line) => `console.log detected in ${file}:${line}`,
-  },
-  {
-    regex: /className="[^"]*\[[^\]]+\][^"]*"/,
-    message: (file, line) =>
-      `arbitrary Tailwind value detected in ${file}:${line}`,
-  },
-];
-
-function walkSrcFiles(dir: string): string[] {
-  if (!existsSync(dir)) {
-    return [];
-  }
-  const entries = readdirSync(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...walkSrcFiles(full));
-    } else if (SRC_FILE_RE.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
-export function runStyleGates(worktreePath: string): {
-  violations: GateViolation[];
-} {
-  const files = walkSrcFiles(join(worktreePath, "src"));
-  const violations: GateViolation[] = [];
-
-  for (const file of files) {
-    let content: string;
-    try {
-      content = readFileSync(file, "utf-8");
-    } catch {
-      continue;
-    }
-    const lines = content.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const lineNum = i + 1;
-      for (const { regex, message } of STYLE_PATTERNS) {
-        if (regex.test(lines[i])) {
-          violations.push({
-            file,
-            line: lineNum,
-            message: message(file, lineNum),
-          });
-        }
-      }
-    }
-  }
-
-  return { violations };
 }
 
 // ─── runJscpd ─────────────────────────────────────────────────────────────────

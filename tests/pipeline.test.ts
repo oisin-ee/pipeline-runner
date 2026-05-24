@@ -49,7 +49,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execa } from "execa";
 
 const TRIVIAL_RE = /trivial/i;
@@ -60,6 +60,7 @@ const mockReadFileSync = vi.mocked(readFileSync);
 const mockReaddirSync = vi.mocked(readdirSync);
 const mockWriteFile = vi.mocked(writeFile);
 const mockMkdir = vi.mocked(mkdir);
+const mockReadFile = vi.mocked(readFile);
 
 const CONTEXT_FILE = "/fake/worktree/.pipeline/knowledge-context.md";
 
@@ -76,7 +77,7 @@ afterEach(() => {
 // ─── knowledge-inject ────────────────────────────────────────────────────────
 
 describe("knowledgeInjectStep", () => {
-  it("builds context string from rules and knowledge files", async () => {
+  it("builds context string from repository rules", async () => {
     const { buildKnowledgeContext } = await import(
       "../src/mastra/steps/knowledge-inject.js"
     );
@@ -118,7 +119,7 @@ describe("knowledgeInjectStep", () => {
 
     expect(result.contextFile).toBe(CONTEXT_FILE);
     expect(result.context).toContain("Current Rules");
-    expect(result.context).toContain("Recent Learned Knowledge");
+    expect(result.context).not.toContain("Recent Learned Knowledge");
     expect(mockMkdir).toHaveBeenCalledWith("/fake/worktree/.pipeline", {
       recursive: true,
     });
@@ -142,7 +143,7 @@ describe("knowledgeInjectStep", () => {
     expect(ctx).toContain("Knowledge context truncated");
   });
 
-  it("returns empty string when no rules or knowledge dir exists", async () => {
+  it("returns empty string when no rules exist", async () => {
     const { buildKnowledgeContext } = await import(
       "../src/mastra/steps/knowledge-inject.js"
     );
@@ -164,7 +165,9 @@ describe("runResearch", () => {
       stdout: "research findings",
       exitCode: 0,
     } as any);
-    mockWriteFile.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValueOnce(
+      JSON.stringify({ findings: ["research findings"], ac: ["works"] })
+    );
 
     const result = await runResearch({
       worktreePath: "/fake/worktree",
@@ -173,8 +176,12 @@ describe("runResearch", () => {
       harness: "claude",
     });
 
-    expect(result.output).toBe("research findings");
+    expect(result.output).toContain("research findings");
     expect(result.exitCode).toBe(0);
+    const prompt = String(mockExeca.mock.calls[0]?.[1] ?? "");
+    expect(prompt).toContain("Repository brief");
+    expect(prompt).toContain("inspect additional first-party files");
+    expect(prompt).toContain("Do not traverse dependency");
   });
 
   it("retries up to maxRetries on failure and returns last result", async () => {
@@ -189,7 +196,9 @@ describe("runResearch", () => {
         })
       )
       .mockResolvedValueOnce({ stdout: "success", exitCode: 0 } as any);
-    mockWriteFile.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValueOnce(
+      JSON.stringify({ findings: ["success"], ac: ["works"] })
+    );
 
     const result = await runResearch({
       worktreePath: "/fake/worktree",
@@ -200,6 +209,103 @@ describe("runResearch", () => {
     });
 
     expect(result.exitCode).toBe(0);
+  });
+
+  it("does not retry a timed-out research agent", async () => {
+    const { runResearch } = await import("../src/mastra/steps/research.js");
+
+    mockExeca.mockRejectedValueOnce(
+      Object.assign(new Error("timeout"), {
+        exitCode: 143,
+        stdout: "",
+        stderr: "still running",
+        timedOut: true,
+      })
+    );
+    mockReadFile.mockRejectedValueOnce(new Error("missing"));
+
+    const result = await runResearch({
+      worktreePath: "/fake/worktree",
+      prompt: "research",
+      contextFile: null,
+      harness: "opencode",
+      maxRetries: 3,
+    });
+
+    expect(result.output).toContain("agent timed out");
+    expect(mockExeca).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects stdout-only research and the old output-wrapper artifact", async () => {
+    const { runResearch } = await import("../src/mastra/steps/research.js");
+
+    mockExeca.mockResolvedValueOnce({
+      stdout: "looks like research",
+      exitCode: 0,
+    } as any);
+    mockReadFile.mockResolvedValueOnce(
+      JSON.stringify({ output: "looks like research" })
+    );
+
+    const result = await runResearch({
+      worktreePath: "/fake/worktree",
+      prompt: "research",
+      contextFile: null,
+      harness: "claude",
+      maxRetries: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.reason).toContain("invalid research artifact");
+  });
+
+  it("returns redacted harness diagnostics when the research artifact is missing", async () => {
+    const { runResearch } = await import("../src/mastra/steps/research.js");
+
+    mockExeca.mockResolvedValueOnce({
+      stdout: "raw model output",
+      stderr: "Authorization: Basic secret",
+      exitCode: 1,
+    } as any);
+    mockReadFile.mockRejectedValueOnce(new Error("missing"));
+
+    const result = await runResearch({
+      worktreePath: "/fake/worktree",
+      prompt: "research",
+      contextFile: null,
+      harness: "opencode",
+      maxRetries: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("agent exitCode=1");
+    expect(result.output).toContain("stdout:");
+    expect(result.output).toContain("raw model output");
+    expect(result.output).toContain("Authorization: Basic [REDACTED]");
+    expect(result.output).not.toContain("secret");
+  });
+
+  it("trusts a valid research artifact over a noisy harness exit code", async () => {
+    const { runResearch } = await import("../src/mastra/steps/research.js");
+
+    mockExeca.mockResolvedValueOnce({
+      stdout: "jsonl event stream with tool calls",
+      exitCode: 1,
+    } as any);
+    mockReadFile.mockResolvedValueOnce(
+      JSON.stringify({ findings: ["real finding"], ac: ["real ac"] })
+    );
+
+    const result = await runResearch({
+      worktreePath: "/fake/worktree",
+      prompt: "research",
+      contextFile: null,
+      harness: "opencode",
+      maxRetries: 1,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.findings).toContain("real finding");
   });
 });
 
@@ -395,18 +501,133 @@ describe("runVerify", () => {
     expect(result.passed).toBe(false);
     expect(result.violations.length).toBeGreaterThan(0);
   });
+
+  it("parses verifier verdicts from nested JSONL events with object evidence", async () => {
+    const { runVerify } = await import("../src/mastra/steps/verify.js");
+
+    mockExistsSync.mockReturnValue(false);
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ duplicates: [] }),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: [
+          JSON.stringify({ type: "step_start" }),
+          JSON.stringify({
+            type: "item.completed",
+            item: {
+              payload: {
+                verdict: "PASS",
+                evidence: [{ file: "src/a.ts", ok: true }],
+              },
+            },
+          }),
+        ].join("\n"),
+        exitCode: 0,
+      } as any);
+
+    const result = await runVerify({
+      worktreePath: "/fake/worktree",
+      prompt: "verify",
+      contextFile: null,
+      harness: "codex",
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.llmEvidence[0]).toContain("src/a.ts");
+  });
+
+  it("parses verifier verdicts embedded in harness text events", async () => {
+    const { runVerify } = await import("../src/mastra/steps/verify.js");
+
+    mockExistsSync.mockReturnValue(false);
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ duplicates: [] }),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: [
+          JSON.stringify({ type: "step_start" }),
+          JSON.stringify({
+            part: {
+              text: [
+                "Verification summary:",
+                "",
+                "```json",
+                JSON.stringify({
+                  verdict: "PASS",
+                  evidence: ["configured checks passed"],
+                }),
+                "```",
+              ].join("\n"),
+              type: "text",
+            },
+            type: "text",
+          }),
+        ].join("\n"),
+        exitCode: 0,
+      } as any);
+
+    const result = await runVerify({
+      worktreePath: "/fake/worktree",
+      prompt: "verify",
+      contextFile: null,
+      harness: "opencode",
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.llmEvidence).toContain("configured checks passed");
+  });
+
+  it("does not accept loose PASS prose as verifier success", async () => {
+    const { runVerify } = await import("../src/mastra/steps/verify.js");
+
+    mockExistsSync.mockReturnValue(false);
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({ duplicates: [] }),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: "PASS - looks good",
+        exitCode: 0,
+      } as any);
+
+    const result = await runVerify({
+      worktreePath: "/fake/worktree",
+      prompt: "verify",
+      contextFile: null,
+      harness: "claude",
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.llmEvidence).toContain("unparseable verifier output");
+  });
 });
 
 // ─── learn step ──────────────────────────────────────────────────────────────
 
 describe("runLearn", () => {
-  it("writes a knowledge file with task outcome", async () => {
+  it("requires qdrant-store evidence and does not write a markdown knowledge file", async () => {
     const { runLearn } = await import("../src/mastra/steps/learn.js");
 
     mockMkdir.mockResolvedValue(undefined);
     mockWriteFile.mockResolvedValue(undefined);
 
-    await runLearn({
+    const result = await runLearn({
+      agentAdapter: {
+        run: vi.fn().mockResolvedValue({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            qdrant: { attempted: true, succeeded: true },
+            evidence: ["stored lesson"],
+          }),
+        }),
+      },
+      contextFile: null,
+      harness: "claude",
       worktreePath: "/fake/worktree",
       taskDescription: "add sum function",
       outcome: "PASS",
@@ -414,20 +635,36 @@ describe("runLearn", () => {
       testOutput: "20 tests passed",
     });
 
-    expect(mockWriteFile).toHaveBeenCalledOnce();
-    const [filePath, content] = mockWriteFile.mock.calls[0];
-    expect(String(filePath)).toContain(".pipeline/knowledge/");
-    expect(String(content)).toContain("add sum function");
-    expect(String(content)).toContain("PASS");
+    expect(result.qdrant).toEqual({
+      attempted: true,
+      required: true,
+      succeeded: true,
+    });
+    expect(result.evidence).toContain("stored lesson");
+    expect(mockWriteFile).not.toHaveBeenCalledWith(
+      expect.stringContaining(".pipeline/knowledge/"),
+      expect.anything()
+    );
   });
 
-  it("includes violations in the knowledge file when present", async () => {
+  it("fails LEARN when qdrant-store is missing or failed", async () => {
     const { runLearn } = await import("../src/mastra/steps/learn.js");
 
     mockMkdir.mockResolvedValue(undefined);
     mockWriteFile.mockResolvedValue(undefined);
 
-    await runLearn({
+    const result = await runLearn({
+      agentAdapter: {
+        run: vi.fn().mockResolvedValue({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            qdrant: { attempted: true, succeeded: false },
+            evidence: ["store failed"],
+          }),
+        }),
+      },
+      contextFile: null,
+      harness: "claude",
       worktreePath: "/fake/worktree",
       taskDescription: "add feature",
       outcome: "FAIL",
@@ -435,9 +672,39 @@ describe("runLearn", () => {
       testOutput: "1 test failed",
     });
 
-    const content = String(mockWriteFile.mock.calls[0][1]);
-    expect(content).toContain("inline style detected");
-    expect(content).toContain("FAIL");
+    expect(result.qdrant.required).toBe(true);
+    expect(result.qdrant.succeeded).toBe(false);
+    expect(result.evidence).toContain("store failed");
+  });
+
+  it("only skips qdrant when memory is explicitly disabled", async () => {
+    const { runLearn } = await import("../src/mastra/steps/learn.js");
+    const previous = process.env.PIPELINE_MEMORY;
+    process.env.PIPELINE_MEMORY = "disabled";
+
+    try {
+      const agentAdapter = { run: vi.fn() };
+      const result = await runLearn({
+        agentAdapter,
+        contextFile: null,
+        harness: "claude",
+        worktreePath: "/fake/worktree",
+        taskDescription: "add feature",
+        outcome: "PASS",
+        violations: [],
+        testOutput: "ok",
+      });
+
+      expect(agentAdapter.run).not.toHaveBeenCalled();
+      expect(result.qdrant.required).toBe(false);
+      expect(result.memoryDisabled).toBe(true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PIPELINE_MEMORY;
+      } else {
+        process.env.PIPELINE_MEMORY = previous;
+      }
+    }
   });
 });
 

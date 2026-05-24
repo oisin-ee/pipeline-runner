@@ -266,7 +266,7 @@ function piChainTasks(): Record<string, string> {
     ].join("\n"),
     research: [
       "Research phase for the oisin pipeline.",
-      "Build or read `.pipeline/knowledge-context.md` from repository rules and recent knowledge.",
+      "Build or read `.pipeline/knowledge-context.md` from repository rules and qdrant retrieval.",
       "Research the requested task, relevant files, existing patterns, and risks.",
       "Write `.pipeline/research.json`.",
       "Task: {task}",
@@ -275,7 +275,7 @@ function piChainTasks(): Record<string, string> {
       "VERIFY and LEARN phases for the oisin pipeline.",
       "Use the previous GREEN output as context.",
       "Run repository quality checks and review implementation fit.",
-      "Write `.pipeline/knowledge/<timestamp>.md` with useful durable findings.",
+      "Call `qdrant-store` with useful durable findings.",
       "Return PASS/FAIL with concrete evidence.",
     ].join("\n"),
   };

@@ -13,7 +13,7 @@ export type PhaseSuffix = (typeof PHASES)[number]["suffix"];
 
 export interface GateFailure {
   evidence: string[];
-  gate: "RED" | "GREEN" | "VERIFY";
+  gate: "RESEARCH" | "RED" | "GREEN" | "VERIFY" | "LEARN";
   reason: string;
 }
 
@@ -49,16 +49,18 @@ export interface SwarmTaskMap {
 
 const GATE_PHASES: Record<GateFailure["gate"], PhaseSuffix> = {
   GREEN: "CW",
+  LEARN: "L",
+  RESEARCH: "R",
   RED: "TW",
   VERIFY: "V",
 };
 
 /**
- * `backlog task create` (with `--plain`) prints `Task TASK-<id> - <title>` on
- * the second non-blank line. We match `TASK-<id>` allowing subtask ids like
- * `TASK-3.1`.
+ * `backlog task create` (with `--plain`) prints `Task <PREFIX>-<id> - <title>`
+ * on the second non-blank line. We accept custom all-caps Backlog prefixes and
+ * subtask ids like `PIPE-3.1`.
  */
-const TASK_ID_RE = /^Task\s+(TASK-[\w.]+)\b/m;
+const TASK_ID_RE = /^Task\s+([A-Z]+-[\w.]+)\b/m;
 
 function parseTaskId(stdout: string): string | null {
   const m = TASK_ID_RE.exec(stdout);

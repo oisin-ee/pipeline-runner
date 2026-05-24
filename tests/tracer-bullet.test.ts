@@ -36,7 +36,9 @@ function writeExecutable(binPath: string, name: string, source: string): void {
 function writeFixtureWorktree(worktreePath: string): void {
   writeFileSync(
     join(worktreePath, "package.json"),
-    JSON.stringify({ scripts: { test: "vitest run" } })
+    JSON.stringify({
+      scripts: { test: "project-test", typecheck: "project-typecheck" },
+    })
   );
   writeFileSync(join(worktreePath, "tsconfig.json"), "{}");
   mkdirSync(join(worktreePath, "rules"));
@@ -44,13 +46,7 @@ function writeFixtureWorktree(worktreePath: string): void {
     join(worktreePath, "rules", "test-first.md"),
     "# Test first\n\nWrite the failing test before implementation."
   );
-  mkdirSync(join(worktreePath, ".pipeline", "knowledge"), {
-    recursive: true,
-  });
-  writeFileSync(
-    join(worktreePath, ".pipeline", "knowledge", "2026-01-01.md"),
-    "# Existing knowledge\n\nPrefer deterministic tracer fixtures."
-  );
+  mkdirSync(join(worktreePath, ".pipeline"), { recursive: true });
   // The strict-mode resolver requires either a default per phase or a ticket
   // frontmatter override. The tracer test invokes pipe with a free-form
   // description that does have a ticket id (PIPE-14) but no backlog file to
@@ -162,15 +158,34 @@ const args = process.argv.slice(2);
 const prompt = args[args.indexOf("-p") + 1] || "";
 log({ type: "role", args, prompt, cwd: process.cwd() });
 
-if (prompt.includes("You are a researcher")) {
+if (
+  prompt.includes("You are a researcher") ||
+  prompt.includes("You are a bounded researcher")
+) {
+  fs.mkdirSync(path.join(process.cwd(), ".pipeline"), { recursive: true });
+  fs.writeFileSync(
+    path.join(process.cwd(), ".pipeline", "research.json"),
+    JSON.stringify({
+      findings: ["researched deterministic integrated pipeline behavior"],
+      ac: ["tracer feature passes"]
+    })
+  );
   process.stdout.write("researched deterministic integrated pipeline behavior");
+  process.exit(0);
+}
+
+if (prompt.includes("You are the LEARN phase")) {
+  process.stdout.write(JSON.stringify({
+    qdrant: { attempted: true, succeeded: true },
+    evidence: ["stored tracer lesson"]
+  }));
   process.exit(0);
 }
 
 if (prompt.includes("You are a test-writer")) {
   fs.writeFileSync(
-    path.join(process.cwd(), "pipeline-feature.test.ts"),
-    "import { expect, it } from 'vitest';\\nit('starts red', () => expect(false).toBe(true));\\n"
+    path.join(process.cwd(), "pipeline-feature.test"),
+    "starts red for the configured project test command\\n"
   );
   process.stdout.write("wrote failing tracer test");
   process.exit(0);
@@ -178,8 +193,8 @@ if (prompt.includes("You are a test-writer")) {
 
 if (prompt.includes("You are a code-writer")) {
   fs.writeFileSync(
-    path.join(process.cwd(), "pipeline-feature.ts"),
-    "export const tracerBullet = 'green';\\n"
+    path.join(process.cwd(), "pipeline-feature.impl"),
+    "tracerBullet=green\\n"
   );
   process.stdout.write("implemented tracer feature");
   process.exit(0);
@@ -202,7 +217,7 @@ process.exit(1);
 
   writeExecutable(
     env.binPath,
-    "bunx",
+    "project-test",
     `#!/usr/bin/env node
 const fs = require("node:fs");
 
@@ -214,28 +229,37 @@ function log(entry) {
 }
 
 const args = process.argv.slice(2);
-log({ type: "command", command: "bunx", args, cwd: process.cwd() });
+log({ type: "command", command: "project-test", args, cwd: process.cwd() });
 
-if (args[0] === "vitest") {
-  const statePath = process.env.PIPELINE_TRACER_STATE;
-  const state = fs.existsSync(statePath)
-    ? JSON.parse(fs.readFileSync(statePath, "utf8"))
-    : { vitestRuns: 0 };
-  state.vitestRuns += 1;
-  fs.writeFileSync(statePath, JSON.stringify(state));
-  if (state.vitestRuns === 1) {
-    process.stdout.write("✗ tracer feature should start red");
-    process.exit(1);
-  }
-  process.stdout.write("✓ tracer feature should pass after implementation");
-  process.exit(0);
+const statePath = process.env.PIPELINE_TRACER_STATE;
+const state = fs.existsSync(statePath)
+  ? JSON.parse(fs.readFileSync(statePath, "utf8"))
+  : { testRuns: 0 };
+state.testRuns += 1;
+fs.writeFileSync(statePath, JSON.stringify(state));
+if (state.testRuns === 1) {
+  process.stdout.write("✗ tracer feature should start red");
+  process.exit(1);
 }
+process.stdout.write("✓ tracer feature should pass after implementation");
+process.exit(0);
+`
+  );
 
+  writeExecutable(
+    env.binPath,
+    "bunx",
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(
+  process.env.PIPELINE_TRACER_LOG,
+  JSON.stringify({ type: "command", command: "bunx", args, cwd: process.cwd() }) + "\\n"
+);
 if (args[0] === "jscpd") {
   process.stdout.write(JSON.stringify({ duplicates: [] }));
   process.exit(0);
 }
-
 process.stderr.write("Unexpected bunx command: " + args.join(" "));
 process.exit(1);
 `
@@ -243,12 +267,12 @@ process.exit(1);
 
   writeExecutable(
     env.binPath,
-    "tsc",
+    "project-typecheck",
     `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.appendFileSync(
   process.env.PIPELINE_TRACER_LOG,
-  JSON.stringify({ type: "command", command: "tsc", args: process.argv.slice(2), cwd: process.cwd() }) + "\\n"
+  JSON.stringify({ type: "command", command: "project-typecheck", args: process.argv.slice(2), cwd: process.cwd() }) + "\\n"
 );
 `
   );
@@ -302,15 +326,20 @@ function backlogNoteUpdates(logPath: string): [string, string][] {
     ]);
 }
 
-async function learnedOutcome(worktreePath: string): Promise<string> {
+async function localKnowledgeMarkdown(worktreePath: string): Promise<string> {
   const knowledgeDir = join(worktreePath, ".pipeline", "knowledge");
-  const files = (await readdir(knowledgeDir)).filter((file) =>
-    file.endsWith(".md")
-  );
+  let files: string[];
+  try {
+    files = (await readdir(knowledgeDir)).filter((file) =>
+      file.endsWith(".md")
+    );
+  } catch {
+    return "";
+  }
   const contents = await Promise.all(
     files.map((file) => readFile(join(knowledgeDir, file), "utf8"))
   );
-  return contents.find((content) => content.includes("## Outcome:")) ?? "";
+  return contents.join("\n");
 }
 
 describe("PIPE-14 tracer-bullet pipeline", () => {
@@ -320,6 +349,8 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   let originalTracerLog: string | undefined;
   let originalTracerState: string | undefined;
   let originalTracerVerdict: string | undefined;
+  let originalTestCommand: string | undefined;
+  let originalTypecheckCommand: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -340,11 +371,15 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     originalTracerLog = process.env.PIPELINE_TRACER_LOG;
     originalTracerState = process.env.PIPELINE_TRACER_STATE;
     originalTracerVerdict = process.env.PIPELINE_TRACER_VERDICT;
+    originalTestCommand = process.env.PIPELINE_TEST_COMMAND;
+    originalTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
 
     process.env.PATH = `${env.binPath}${delimiter}${process.env.PATH ?? ""}`;
     process.env.PIPELINE_TARGET_PATH = env.worktreePath;
     process.env.PIPELINE_TRACER_LOG = env.logPath;
     process.env.PIPELINE_TRACER_STATE = env.statePath;
+    process.env.PIPELINE_TEST_COMMAND = "project-test";
+    process.env.PIPELINE_TYPECHECK_COMMAND = "project-typecheck";
 
     vi.spyOn(Date, "now").mockReturnValue(14);
     consoleLogSpy = vi
@@ -378,6 +413,16 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     } else {
       process.env.PIPELINE_TRACER_VERDICT = originalTracerVerdict;
     }
+    if (originalTestCommand === undefined) {
+      delete process.env.PIPELINE_TEST_COMMAND;
+    } else {
+      process.env.PIPELINE_TEST_COMMAND = originalTestCommand;
+    }
+    if (originalTypecheckCommand === undefined) {
+      delete process.env.PIPELINE_TYPECHECK_COMMAND;
+    } else {
+      process.env.PIPELINE_TYPECHECK_COMMAND = originalTypecheckCommand;
+    }
 
     consoleLogSpy.mockRestore();
     vi.restoreAllMocks();
@@ -395,7 +440,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
       "knowledge-context.md"
     );
     const researchPath = join(env.worktreePath, ".pipeline", "research.json");
-    const learned = await learnedOutcome(env.worktreePath);
+    const localKnowledge = await localKnowledgeMarkdown(env.worktreePath);
     const rolePrompts = readCommandLog(env.logPath)
       .filter((entry) => entry.type === "role")
       .map((entry) => entry.prompt ?? "");
@@ -403,14 +448,13 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(consoleLogSpy).toHaveBeenCalledWith("Pipeline complete: PASS");
     expect(existsSync(contextPath)).toBe(true);
     expect(readFileSync(contextPath, "utf8")).toContain("Current Rules");
-    expect(readFileSync(contextPath, "utf8")).toContain(
-      "Recent Learned Knowledge"
+    expect(readFileSync(contextPath, "utf8")).not.toContain(
+      ".pipeline/knowledge"
     );
     expect(readFileSync(researchPath, "utf8")).toContain(
       "researched deterministic integrated pipeline behavior"
     );
-    expect(learned).toContain("## Outcome: PASS");
-    expect(learned).toContain("tracer feature should pass");
+    expect(localKnowledge).toBe("");
     expect(rolePrompts.some((prompt) => prompt.includes("Test first"))).toBe(
       true
     );
@@ -459,12 +503,10 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
 
     await pipe("PIPE-14 tracer bullet", { strict: true, harness: "claude" });
 
-    const learned = await learnedOutcome(env.worktreePath);
     const notes = backlogNoteUpdates(env.logPath);
 
     expect(consoleLogSpy).toHaveBeenCalledWith("Pipeline complete: FAIL");
-    expect(learned).toContain("## Outcome: FAIL");
-    expect(learned).toContain("tracer feature should pass");
+    expect(await localKnowledgeMarkdown(env.worktreePath)).toBe("");
     expect(backlogStatusUpdates(env.logPath)).toEqual([
       ["TASK-1.1", "In Progress"],
       ["TASK-1.1", "Done"],

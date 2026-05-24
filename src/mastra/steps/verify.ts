@@ -1,10 +1,15 @@
+import { z } from "zod";
 import type { GateViolation } from "../gates.js";
-import { runJscpd, runStyleGates } from "../gates.js";
+import { runJscpd } from "../gates.js";
 import {
   type AgentAdapter,
   type Harness,
   subprocessAgentAdapter,
 } from "../runner.js";
+import {
+  evidenceItems,
+  findLastStructuredOutput,
+} from "../structured-output.js";
 
 interface VerifyOptions {
   agentAdapter?: AgentAdapter;
@@ -22,38 +27,13 @@ interface VerifyResult {
   violations: GateViolation[];
 }
 
-// Matches every balanced `{...}` block in the input (greedy nesting handled
-// by JSON.parse in `findVerdictJson`). We use `g` to enumerate matches and
-// then scan right-to-left so the LAST `{...}` containing a `"verdict"` key
-// wins — harness JSONL streams (codex/opencode/pi) emit many protocol events
-// where the FIRST `{...}` is e.g. `{"type":"step_start",...}`, never the
-// verdict. Using the first match is what produced false-FAIL verdicts.
-const JSON_OBJECT_PATTERN = /\{[\s\S]*?\}/g;
+const verdictSchema = z.object({
+  evidence: z.unknown().optional(),
+  verdict: z.enum(["PASS", "FAIL"]),
+});
 
-/**
- * Find the rightmost JSON object in `stdout` that has a `verdict` key.
- * Returns the parsed object, or `null` if none found. Per-line JSON.parse
- * (rather than balanced-brace parsing) is sufficient because the verifier
- * is instructed to output a single one-line JSON object — any multi-line
- * wrapper around it (e.g. codex's `{"type":"item.completed","item":{...}}`
- * event) is handled by the `verdict`-key filter.
- */
-function findVerdictJson(stdout: string): {
-  verdict?: string;
-  evidence?: string[];
-} | null {
-  const matches = stdout.match(JSON_OBJECT_PATTERN) ?? [];
-  for (let i = matches.length - 1; i >= 0; i--) {
-    try {
-      const parsed = JSON.parse(matches[i]);
-      if (parsed && typeof parsed === "object" && "verdict" in parsed) {
-        return parsed as { verdict?: string; evidence?: string[] };
-      }
-    } catch {
-      // skip non-JSON candidate
-    }
-  }
-  return null;
+function findVerdictJson(stdout: string): z.infer<typeof verdictSchema> | null {
+  return findLastStructuredOutput(stdout, verdictSchema, "$..[?(@.verdict)]");
 }
 
 async function runLlmVerify(
@@ -84,17 +64,9 @@ async function runLlmVerify(
   const parsed = findVerdictJson(result.stdout);
   if (parsed) {
     return {
-      verdict: parsed.verdict === "PASS" ? "PASS" : "FAIL",
-      evidence: parsed.evidence ?? [],
+      verdict: parsed.verdict,
+      evidence: evidenceItems(parsed.evidence),
     };
-  }
-  // If verifier output contains "PASS" keyword (e.g. wrapped in prose),
-  // treat as pass.
-  if (
-    result.stdout.toUpperCase().includes('"PASS"') ||
-    result.stdout.includes("verdict: PASS")
-  ) {
-    return { verdict: "PASS", evidence: [] };
   }
   return { verdict: "FAIL", evidence: ["unparseable verifier output"] };
 }
@@ -109,9 +81,8 @@ export async function runVerify(opts: VerifyOptions): Promise<VerifyResult> {
     agentAdapter = subprocessAgentAdapter,
   } = opts;
 
-  const [jscpdResult, styleResult, llmResult] = await Promise.all([
+  const [jscpdResult, llmResult] = await Promise.all([
     runJscpd(worktreePath),
-    Promise.resolve(runStyleGates(worktreePath)),
     runLlmVerify(
       harness,
       prompt,
@@ -122,7 +93,7 @@ export async function runVerify(opts: VerifyOptions): Promise<VerifyResult> {
     ),
   ]);
 
-  const violations = [...jscpdResult.violations, ...styleResult.violations];
+  const violations = jscpdResult.violations;
 
   return {
     passed: violations.length === 0 && llmResult.verdict === "PASS",

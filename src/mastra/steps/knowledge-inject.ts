@@ -79,16 +79,11 @@ export function buildKnowledgeContext(
   options: KnowledgeContextOptions = {}
 ): string {
   const rulesDir = join(worktreePath, "rules");
-  const knowledgeDir = join(worktreePath, ".pipeline", "knowledge");
 
   const rules = readMdFiles(rulesDir);
-  const knowledge = readMdFiles(knowledgeDir, 3);
   const maxChars = options.maxChars ?? MAX_KNOWLEDGE_CONTEXT_CHARS;
 
-  const parts = [
-    renderSection("Current Rules", rules),
-    renderSection("Recent Learned Knowledge", knowledge),
-  ].filter(Boolean);
+  const parts = [renderSection("Current Rules", rules)].filter(Boolean);
 
   return truncateContext(parts.join("\n\n---\n\n"), maxChars);
 }

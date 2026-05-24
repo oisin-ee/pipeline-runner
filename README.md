@@ -134,8 +134,8 @@ context.
 
 Every run follows the same lifecycle:
 
-1. `knowledge-inject` builds the run context from repository rules and recent
-   pipeline knowledge.
+1. `knowledge-inject` builds the run context from repository rules and qdrant
+   retrieval.
 2. `research` asks the selected harness to inspect the codebase and summarize
    the task.
 3. `RED/test-write` asks the harness to add failing tests and requires the RED
@@ -143,7 +143,7 @@ Every run follows the same lifecycle:
 4. `GREEN/code-write` asks the harness to implement the change and requires
    tests and typecheck to pass.
 5. `VERIFY` runs repository quality checks and an LLM verifier.
-6. `LEARN` writes a compact learning artifact for future context injection.
+6. `LEARN` stores durable learning through qdrant.
 
 The workflow output has this shape:
 
@@ -151,7 +151,7 @@ The workflow output has this shape:
 {
   outcome: "PASS" | "FAIL";
   failureDetails: Array<{
-    gate: "RED" | "GREEN" | "VERIFY";
+    gate: "RESEARCH" | "RED" | "GREEN" | "VERIFY" | "LEARN";
     reason: string;
     evidence: string[];
   }>;
@@ -181,10 +181,13 @@ When a gate fails, later phase tasks remain `To Do`, the failing phase remains
 
 Pipeline artifacts are written under the target worktree:
 
-- `.pipeline/knowledge-context.md`: context assembled from `rules/*.md` and
-  recent `.pipeline/knowledge/*.md` files.
+- `.pipeline/knowledge-context.md`: transient context assembled from
+  `rules/*.md` and qdrant retrieval.
 - `.pipeline/research.json`: captured research output from the research phase.
-- `.pipeline/knowledge/*.md`: learning notes created during the LEARN phase.
+
+The pipeline does not maintain a local markdown knowledge base. Durable memory
+is stored with `qdrant-store` during LEARN unless memory is explicitly disabled
+for the run.
 
 The runner also creates Backlog.md phase tasks with ids based on
 `TASK-<timestamp>`.

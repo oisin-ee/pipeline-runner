@@ -43,7 +43,7 @@ const withVerify = withGreen.extend({
 });
 
 const gateFailureSchema = z.object({
-  gate: z.enum(["RED", "GREEN", "VERIFY"]),
+  gate: z.enum(["RESEARCH", "RED", "GREEN", "VERIFY", "LEARN"]),
   reason: z.string(),
   evidence: z.array(z.string()),
 });
@@ -232,13 +232,31 @@ const learnStep = createStep({
   outputSchema: pipelineOutput,
   execute: async ({ inputData }) => {
     const result = evaluatePipelineOutcome(inputData);
-    await runLearn({
+    const learn = await runLearn({
+      contextFile: inputData.contextFile,
+      harness: inputData.harness,
       worktreePath: inputData.worktreePath,
       taskDescription: inputData.task,
       outcome: result.outcome,
       violations: inputData.violations,
       testOutput: inputData.testOutput,
     });
+    if (learn.qdrant.required && !learn.qdrant.succeeded) {
+      return {
+        outcome: "FAIL" as const,
+        failureDetails: [
+          ...result.failureDetails,
+          {
+            gate: "LEARN" as const,
+            reason: "LEARN gate failed: qdrant-store did not succeed",
+            evidence:
+              learn.evidence.length > 0
+                ? learn.evidence
+                : ["qdrant-store was required but did not succeed"],
+          },
+        ],
+      };
+    }
     return result;
   },
 });

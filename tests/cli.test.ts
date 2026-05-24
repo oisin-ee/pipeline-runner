@@ -154,6 +154,29 @@ describe("createSwarmTasks", () => {
     }
   });
 
+  it("accepts custom Backlog task prefixes from real CLI output", async () => {
+    const { createSwarmTasks } = await import("../src/mastra/backlog.js");
+
+    mockExeca
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("PIPE-1", "pipe task"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValueOnce({
+        stdout: backlogCreateOutput("PIPE-1.1", "research"),
+        exitCode: 0,
+      } as any)
+      .mockResolvedValue({
+        stdout: backlogCreateOutput("PIPE-1.2", "phase"),
+        exitCode: 0,
+      } as any);
+
+    const swarm = await createSwarmTasks("pipe task", "/tmp/wt");
+
+    expect(swarm.parentId).toBe("PIPE-1");
+    expect(swarm.phases.R).toBe("PIPE-1.1");
+  });
+
   it("does not append --no-git to backlog calls (init-only flag in upstream)", async () => {
     const { createSwarmTasks } = await import("../src/mastra/backlog.js");
 

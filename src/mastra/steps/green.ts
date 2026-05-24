@@ -42,7 +42,7 @@ export async function runGreen(opts: GreenOptions): Promise<GreenResult> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const codeWritePrompt = [
       "You are a code-writer. Your job is to implement code to make failing tests pass.",
-      "Rules: (1) Read the test files to understand what to implement. (2) Write ONLY source code, never modify test files. (3) Make all tests pass.",
+      "Rules: (1) Read the failing tests and surrounding project conventions to understand what to implement. (2) Modify production implementation only; do not modify tests or test fixtures. (3) Keep the solution scoped to the requested behavior. (4) Make the repository's configured tests and validation commands pass.",
       "",
       `Task: ${prompt}`,
     ].join("\n");

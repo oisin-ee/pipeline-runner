@@ -62,6 +62,18 @@ export async function runPipelinePrimitive(
     worktreePath,
   });
   await report(adapters.phaseReporter, "completed", "research");
+  if (research.exitCode !== 0) {
+    return {
+      outcome: "FAIL",
+      failureDetails: [
+        {
+          gate: "RESEARCH",
+          reason: research.reason ?? "RESEARCH gate failed",
+          evidence: [research.output || research.artifactPath].filter(Boolean),
+        },
+      ],
+    };
+  }
 
   await report(adapters.phaseReporter, "started", "red");
   const red = await runRed({
@@ -118,14 +130,35 @@ export async function runPipelinePrimitive(
   });
 
   await report(adapters.phaseReporter, "started", "learn");
-  await runLearn({
+  const learn = await runLearn({
+    agentAdapter,
+    contextFile,
+    harness,
     outcome: result.outcome,
     taskDescription: task,
     testOutput: green.testOutput,
+    ticketId,
     violations: verify.violations,
     worktreePath,
   });
   await report(adapters.phaseReporter, "completed", "learn");
+
+  if (learn.qdrant.required && !learn.qdrant.succeeded) {
+    return {
+      outcome: "FAIL",
+      failureDetails: [
+        ...result.failureDetails,
+        {
+          gate: "LEARN",
+          reason: "LEARN gate failed: qdrant-store did not succeed",
+          evidence:
+            learn.evidence.length > 0
+              ? learn.evidence
+              : ["qdrant-store was required but did not succeed"],
+        },
+      ],
+    };
+  }
 
   return result;
 }

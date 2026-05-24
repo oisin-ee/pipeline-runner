@@ -15,17 +15,15 @@ vi.mock("node:fs", async (importOriginal) => {
     ...real,
     existsSync: vi.fn(real.existsSync),
     readFileSync: vi.fn(real.readFileSync),
-    readdirSync: vi.fn(real.readdirSync),
   };
 });
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { execa } from "execa";
 
 import {
   artifactExists,
   runJscpd,
-  runStyleGates,
   runTests,
   runTypecheck,
 } from "../src/mastra/gates.js";
@@ -33,20 +31,20 @@ import {
 const mockExeca = vi.mocked(execa);
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
-const mockReaddirSync = vi.mocked(readdirSync);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.PIPELINE_TEST_COMMAND;
+  delete process.env.PIPELINE_TYPECHECK_COMMAND;
 });
 
 // ─── runTests ───────────────────────────────────────────────────────────────
 
 describe("runTests", () => {
-  it("returns exitCode 0 and empty failingTests on success", async () => {
-    // package.json has vitest in scripts
+  it("returns exitCode 0 and empty failingTests on package test success", async () => {
     mockReadFileSync.mockImplementation((p: unknown) => {
       if (String(p).endsWith("package.json")) {
-        return JSON.stringify({ scripts: { test: "vitest run" } });
+        return JSON.stringify({ scripts: { test: "custom-test-runner" } });
       }
       return "";
     });
@@ -60,18 +58,23 @@ describe("runTests", () => {
     expect(result.exitCode).toBe(0);
     expect(result.failingTests).toEqual([]);
     expect(result.output).toContain("All tests passed");
+    expect(mockExeca).toHaveBeenCalledWith(
+      "npm",
+      ["run", "test"],
+      expect.objectContaining({ cwd: "/fake/worktree" })
+    );
   });
 
   it("returns exitCode 1 and parses failing test names", async () => {
     mockReadFileSync.mockImplementation((p: unknown) => {
       if (String(p).endsWith("package.json")) {
-        return JSON.stringify({ scripts: { test: "vitest run" } });
+        return JSON.stringify({ scripts: { test: "custom-test-runner" } });
       }
       return "";
     });
     const fakeOutput = [
       "✗ should do the thing",
-      "FAIL src/foo.test.ts",
+      "FAIL project-test-file",
       "× another failing test",
       " ✓ passing test",
     ].join("\n");
@@ -89,13 +92,45 @@ describe("runTests", () => {
     expect(result.failingTests).toContain("another failing test");
     expect(result.failingTests).not.toContain("passing test");
   });
+
+  it("uses explicit PIPELINE_TEST_COMMAND when provided", async () => {
+    process.env.PIPELINE_TEST_COMMAND = "make test";
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+    } as any);
+
+    const result = await runTests("/fake/worktree");
+
+    expect(result.exitCode).toBe(0);
+    expect(mockExeca).toHaveBeenCalledWith(
+      "make test",
+      [],
+      expect.objectContaining({ cwd: "/fake/worktree", shell: true })
+    );
+  });
+
+  it("fails when no test command can be found", async () => {
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("missing package");
+    });
+
+    const result = await runTests("/fake/worktree");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("No test command found");
+    expect(mockExeca).not.toHaveBeenCalled();
+  });
 });
 
 // ─── runTypecheck ────────────────────────────────────────────────────────────
 
 describe("runTypecheck", () => {
-  it("skips if no tsconfig.json in worktreePath", async () => {
-    mockExistsSync.mockReturnValueOnce(false);
+  it("skips if no typecheck command is configured", async () => {
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("missing package");
+    });
 
     const result = await runTypecheck("/fake/worktree");
     expect(result.exitCode).toBe(0);
@@ -103,8 +138,13 @@ describe("runTypecheck", () => {
     expect(mockExeca).not.toHaveBeenCalled();
   });
 
-  it("runs tsc --noEmit when tsconfig.json exists and returns exit code", async () => {
-    mockExistsSync.mockReturnValueOnce(true);
+  it("runs package typecheck script when present and returns exit code", async () => {
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { typecheck: "custom-typecheck" } });
+      }
+      return "";
+    });
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
       stdout: "",
@@ -114,25 +154,48 @@ describe("runTypecheck", () => {
     const result = await runTypecheck("/fake/worktree");
     expect(result.exitCode).toBe(0);
     expect(mockExeca).toHaveBeenCalledWith(
-      "tsc",
-      ["--noEmit"],
+      "npm",
+      ["run", "typecheck"],
       expect.objectContaining({ cwd: "/fake/worktree" })
     );
   });
 
-  it("returns exitCode 1 when tsc fails", async () => {
-    mockExistsSync.mockReturnValueOnce(true);
+  it("returns exitCode 1 when typecheck command fails", async () => {
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { typecheck: "custom-typecheck" } });
+      }
+      return "";
+    });
     mockExeca.mockRejectedValueOnce(
-      Object.assign(new Error("tsc error"), {
+      Object.assign(new Error("typecheck error"), {
         exitCode: 1,
-        stdout: "error TS2322",
+        stdout: "typecheck failed",
         stderr: "",
       })
     );
 
     const result = await runTypecheck("/fake/worktree");
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain("error TS2322");
+    expect(result.output).toContain("typecheck failed");
+  });
+
+  it("uses explicit PIPELINE_TYPECHECK_COMMAND when provided", async () => {
+    process.env.PIPELINE_TYPECHECK_COMMAND = "make typecheck";
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+    } as any);
+
+    const result = await runTypecheck("/fake/worktree");
+
+    expect(result.exitCode).toBe(0);
+    expect(mockExeca).toHaveBeenCalledWith(
+      "make typecheck",
+      [],
+      expect.objectContaining({ cwd: "/fake/worktree", shell: true })
+    );
   });
 });
 
@@ -158,79 +221,6 @@ describe("artifactExists", () => {
 
   it("returns false when file does not exist", () => {
     expect(artifactExists(tmpDir, "missing.json")).toBe(false);
-  });
-});
-
-// ─── runStyleGates ───────────────────────────────────────────────────────────
-
-describe("runStyleGates", () => {
-  const worktree = "/fake/worktree";
-
-  beforeEach(() => {
-    mockExistsSync.mockImplementation((p: unknown) =>
-      String(p).includes("src")
-    );
-  });
-
-  function makeDirents(names: string[]): any[] {
-    return names.map((name) => ({
-      name,
-      isDirectory: () => false,
-    }));
-  }
-
-  it("detects style={{ inline style violation", async () => {
-    mockReaddirSync.mockReturnValueOnce(makeDirents(["App.tsx"]) as any);
-    mockReadFileSync.mockImplementation((p: unknown) => {
-      if (String(p).endsWith("App.tsx")) {
-        return '<div style={{ color: "red" }}>';
-      }
-      return "";
-    });
-    mockExistsSync.mockReturnValue(true);
-
-    const result = await runStyleGates(worktree);
-    const messages = result.violations.map((v) => v.message);
-    expect(messages.some((m) => m.includes("inline style"))).toBe(true);
-  });
-
-  it("detects console.log in src files", async () => {
-    mockReaddirSync.mockReturnValueOnce(makeDirents(["utils.ts"]) as any);
-    mockReadFileSync.mockImplementation((p: unknown) => {
-      if (String(p).endsWith("utils.ts")) {
-        return 'console.log("debug")';
-      }
-      return "";
-    });
-    mockExistsSync.mockReturnValue(true);
-
-    const result = await runStyleGates(worktree);
-    const messages = result.violations.map((v) => v.message);
-    expect(messages.some((m) => m.includes("console.log"))).toBe(true);
-  });
-
-  it("detects arbitrary Tailwind class values", async () => {
-    mockReaddirSync.mockReturnValueOnce(makeDirents(["Button.tsx"]) as any);
-    mockReadFileSync.mockImplementation((p: unknown) => {
-      if (String(p).endsWith("Button.tsx")) {
-        return 'className="text-[14px] font-bold"';
-      }
-      return "";
-    });
-    mockExistsSync.mockReturnValue(true);
-
-    const result = await runStyleGates(worktree);
-    const messages = result.violations.map((v) => v.message);
-    expect(messages.some((m) => m.includes("arbitrary"))).toBe(true);
-  });
-
-  it("returns empty violations for clean files", async () => {
-    mockReaddirSync.mockReturnValueOnce(makeDirents(["clean.ts"]) as any);
-    mockReadFileSync.mockImplementation(() => "export const x = 1");
-    mockExistsSync.mockReturnValue(true);
-
-    const result = await runStyleGates(worktree);
-    expect(result.violations).toEqual([]);
   });
 });
 
