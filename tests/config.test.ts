@@ -5,12 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   loadPipelineConfig,
   PipelineConfigError,
-  parsePipelineConfigYaml,
+  type PipelineConfigParts,
+  parsePipelineConfigParts,
 } from "../src/mastra/config.js";
 
-const VALID_YAML = `
+const VALID_RUNNERS_YAML = `
 version: 1
-default_workflow: default
 runners:
   codex:
     type: codex
@@ -25,6 +25,10 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
+`;
+
+const VALID_PROFILES_YAML = `
+version: 1
 rules:
   test-first:
     path: rules/test-first.md
@@ -35,23 +39,22 @@ mcp_servers:
   docs:
     command: npx
     args: ["-y", "@example/docs-mcp"]
-orchestrator:
-  runner: codex
-  model: gpt-5-orchestrator
-  instructions:
-    path: .pipeline/prompts/orchestrator.md
-  rules: [test-first]
-  skills: [repo-research]
-  mcp_servers: [docs]
-  tools: [read, list, grep, glob, bash]
-  filesystem:
-    mode: read-only
-    allow: ["**/*"]
-    deny: ["node_modules/**", "dist/**"]
-  network:
-    mode: inherit
-  hooks: [announce-complete]
-agents:
+profiles:
+  orchestrator:
+    runner: codex
+    model: gpt-5-orchestrator
+    instructions:
+      path: .pipeline/prompts/orchestrator.md
+    rules: [test-first]
+    skills: [repo-research]
+    mcp_servers: [docs]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**"]
+    network:
+      mode: inherit
   researcher:
     model: gpt-5-agent
     runner: codex
@@ -76,16 +79,24 @@ agents:
     instructions:
       inline: Write failing tests.
     tools: [read, edit, write, bash]
+`;
+
+const VALID_PIPELINE_YAML = `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+  hooks: [announce-complete]
 workflows:
   default:
     description: Default workflow.
     nodes:
       - id: research
         kind: agent
-        agent: researcher
+        profile: researcher
       - id: red
         kind: agent
-        agent: test-writer
+        profile: test-writer
         needs: [research]
 hooks:
   announce-complete:
@@ -95,7 +106,12 @@ hooks:
     required: false
     timeout_ms: 30000
 `;
-const ORCHESTRATOR_BLOCK_RE = /orchestrator:\n[\s\S]*?\nagents:\n/;
+
+const VALID_PARTS: PipelineConfigParts = {
+  pipeline: VALID_PIPELINE_YAML,
+  profiles: VALID_PROFILES_YAML,
+  runners: VALID_RUNNERS_YAML,
+};
 
 let tempDirs: string[] = [];
 
@@ -106,10 +122,15 @@ afterEach(() => {
   tempDirs = [];
 });
 
-function makeProject(yaml = VALID_YAML, writeReferencedFiles = true): string {
+function makeProject(
+  parts: PipelineConfigParts = VALID_PARTS,
+  writeReferencedFiles = true
+): string {
   const dir = mkdtempSync(join(tmpdir(), "pipeline-config-"));
   tempDirs.push(dir);
-  writeProjectFile(dir, ".pipeline/pipeline.yaml", yaml);
+  writeProjectFile(dir, ".pipeline/pipeline.yaml", parts.pipeline);
+  writeProjectFile(dir, ".pipeline/profiles.yaml", parts.profiles);
+  writeProjectFile(dir, ".pipeline/runners.yaml", parts.runners);
   if (writeReferencedFiles) {
     writeProjectFile(dir, "rules/test-first.md", "# Test first\n");
     writeProjectFile(
@@ -142,6 +163,10 @@ function writeProjectFile(root: string, path: string, content: string): void {
   writeFileSync(fullPath, content);
 }
 
+function parseParts(parts: Partial<PipelineConfigParts>) {
+  return parsePipelineConfigParts({ ...VALID_PARTS, ...parts });
+}
+
 function captureConfigError(action: () => unknown): PipelineConfigError {
   try {
     action();
@@ -155,7 +180,7 @@ function captureConfigError(action: () => unknown): PipelineConfigError {
 }
 
 describe("loadPipelineConfig", () => {
-  it("loads a complete valid config from .pipeline/pipeline.yaml", () => {
+  it("loads a complete valid config from the three required config files", () => {
     const project = makeProject();
 
     const config = loadPipelineConfig(project);
@@ -163,23 +188,27 @@ describe("loadPipelineConfig", () => {
     expect(config.version).toBe(1);
     expect(config.default_workflow).toBe("default");
     expect(config.runners.codex.type).toBe("codex");
-    expect(config.orchestrator.model).toBe("gpt-5-orchestrator");
-    expect(config.agents.researcher.runner).toBe("codex");
+    expect(config.orchestrator.profile).toBe("orchestrator");
+    expect(config.profiles.orchestrator.model).toBe("gpt-5-orchestrator");
+    expect(config.profiles.researcher.runner).toBe("codex");
     expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
       "research",
       "red",
     ]);
   });
 
-  it("rejects missing .pipeline/pipeline.yaml", () => {
+  it("rejects missing required config files", () => {
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-missing-"));
     tempDirs.push(project);
+    writeProjectFile(project, ".pipeline/pipeline.yaml", VALID_PIPELINE_YAML);
 
     const error = captureConfigError(() => loadPipelineConfig(project));
 
     expect(error.code).toBe("PIPELINE_CONFIG_MISSING");
-    expect(error.message).toContain("Missing required pipeline config");
-    expect(error.issues.length).toBeGreaterThan(0);
+    expect(error.message).toContain("Missing required pipeline config files");
+    expect(error.message).toContain(".pipeline/profiles.yaml");
+    expect(error.message).toContain(".pipeline/runners.yaml");
+    expect(error.issues.length).toBe(2);
   });
 
   it("rejects legacy .pipeline/config.toml when YAML is missing", () => {
@@ -195,7 +224,10 @@ describe("loadPipelineConfig", () => {
   });
 
   it("rejects malformed YAML with a parse error", () => {
-    const project = makeProject("version: 1\nrunners: [", false);
+    const project = makeProject(
+      { ...VALID_PARTS, pipeline: "version: 1\nworkflows: [" },
+      false
+    );
 
     const error = captureConfigError(() => loadPipelineConfig(project));
 
@@ -205,10 +237,10 @@ describe("loadPipelineConfig", () => {
   });
 });
 
-describe("parsePipelineConfigYaml", () => {
-  it("rejects unknown top-level keys", () => {
+describe("parsePipelineConfigParts", () => {
+  it("rejects unknown top-level keys in the pipeline file", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(`${VALID_YAML}\nprofiles: {}\n`)
+      parseParts({ pipeline: `${VALID_PIPELINE_YAML}\nprofiles: {}\n` })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -217,59 +249,74 @@ describe("parsePipelineConfigYaml", () => {
 
   it("rejects missing runner references", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(
-        VALID_YAML.replace("runner: codex", "runner: missing-runner")
-      )
+      parseParts({
+        profiles: VALID_PROFILES_YAML.replace(
+          "runner: codex",
+          "runner: missing-runner"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("missing runner 'missing-runner'");
   });
 
-  it("requires a configured orchestrator", () => {
-    const yaml = VALID_YAML.replace(ORCHESTRATOR_BLOCK_RE, "agents:\n");
-
-    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+  it("requires a configured orchestrator profile", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "profile: orchestrator",
+          "profile: missing-orchestrator"
+        ),
+      })
+    );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("orchestrator");
+    expect(error.message).toContain("orchestrator.profile");
   });
 
   it("validates orchestrator references and runner capabilities", () => {
-    const yaml = VALID_YAML.replace(
-      "mcp_servers: [docs]\n  tools: [read, list, grep, glob, bash]\n  filesystem:",
-      "mcp_servers: [missing]\n  tools: [read, write]\n  filesystem:"
-    ).replace(
+    const profiles = VALID_PROFILES_YAML.replace(
+      "mcp_servers: [docs]\n    tools: [read, list, grep, glob, bash]\n    filesystem:",
+      "mcp_servers: [missing]\n    tools: [read, write]\n    filesystem:"
+    );
+    const runners = VALID_RUNNERS_YAML.replace(
       "tools: [read, list, grep, glob, bash, edit, write]",
       "tools: [read]"
     );
 
-    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+    const error = captureConfigError(() => parseParts({ profiles, runners }));
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("orchestrator.mcp_servers");
+    expect(error.message).toContain("profiles.orchestrator.mcp_servers");
     expect(error.message).toContain("missing MCP server 'missing'");
-    expect(error.message).toContain("orchestrator.tools");
+    expect(error.message).toContain("profiles.orchestrator.tools");
     expect(error.message).toContain("does not support tool 'write'");
   });
 
-  it("rejects missing agent references in workflow nodes", () => {
+  it("rejects missing profile references in workflow nodes", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(
-        VALID_YAML.replace("agent: test-writer", "agent: missing-agent")
-      )
+      parseParts({
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "profile: test-writer",
+          "profile: missing-profile"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("missing agent 'missing-agent'");
+    expect(error.message).toContain("missing profile 'missing-profile'");
   });
 
   it("rejects missing rule, skill, and MCP server references", () => {
-    const yaml = VALID_YAML.replace("rules: [test-first]", "rules: [missing]")
+    const profiles = VALID_PROFILES_YAML.replace(
+      "rules: [test-first]",
+      "rules: [missing]"
+    )
       .replace("skills: [repo-research]", "skills: [missing]")
       .replace("mcp_servers: [docs]", "mcp_servers: [missing]");
 
-    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+    const error = captureConfigError(() => parseParts({ profiles }));
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("missing rule 'missing'");
@@ -277,7 +324,9 @@ describe("parsePipelineConfigYaml", () => {
 
   it("rejects duplicate workflow node ids", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(VALID_YAML.replace("id: red", "id: research"))
+      parseParts({
+        pipeline: VALID_PIPELINE_YAML.replace("id: red", "id: research"),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -286,9 +335,12 @@ describe("parsePipelineConfigYaml", () => {
 
   it("rejects invalid needs references", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(
-        VALID_YAML.replace("needs: [research]", "needs: [missing-node]")
-      )
+      parseParts({
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "needs: [research]",
+          "needs: [missing-node]"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -297,7 +349,9 @@ describe("parsePipelineConfigYaml", () => {
 
   it("rejects unsupported node kinds", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(VALID_YAML.replace("kind: agent", "kind: phase"))
+      parseParts({
+        pipeline: VALID_PIPELINE_YAML.replace("kind: agent", "kind: phase"),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -306,9 +360,12 @@ describe("parsePipelineConfigYaml", () => {
 
   it("rejects unsupported hook events", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(
-        VALID_YAML.replace("event: workflow.complete", "event: workflow.done")
-      )
+      parseParts({
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "event: workflow.complete",
+          "event: workflow.done"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -317,12 +374,12 @@ describe("parsePipelineConfigYaml", () => {
 
   it("rejects tool grants outside runner capabilities", () => {
     const error = captureConfigError(() =>
-      parsePipelineConfigYaml(
-        VALID_YAML.replace(
+      parseParts({
+        runners: VALID_RUNNERS_YAML.replace(
           "tools: [read, list, grep, glob, bash, edit, write]",
           "tools: [read]"
-        )
-      )
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -330,7 +387,7 @@ describe("parsePipelineConfigYaml", () => {
   });
 
   it("rejects filesystem, network, and output grants outside runner capabilities", () => {
-    const yaml = VALID_YAML.replace(
+    const runners = VALID_RUNNERS_YAML.replace(
       "filesystem: [read-only, workspace-write]",
       "filesystem: [workspace-write]"
     )
@@ -340,7 +397,7 @@ describe("parsePipelineConfigYaml", () => {
         "output_formats: [text]"
       );
 
-    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+    const error = captureConfigError(() => parseParts({ runners }));
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain(
@@ -349,7 +406,7 @@ describe("parsePipelineConfigYaml", () => {
   });
 
   it("rejects missing instruction and schema files", () => {
-    const project = makeProject(VALID_YAML, false);
+    const project = makeProject(VALID_PARTS, false);
 
     const error = captureConfigError(() => loadPipelineConfig(project));
 

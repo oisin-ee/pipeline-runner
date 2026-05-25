@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { loadPipelineConfig, PIPELINE_CONFIG_PATH } from "./mastra/config.js";
+import {
+  loadPipelineConfig,
+  PIPELINE_CONFIG_PATH,
+  PROFILES_CONFIG_PATH,
+  RUNNERS_CONFIG_PATH,
+} from "./mastra/config.js";
 
 export interface PipelineInitOptions {
   cwd?: string;
@@ -30,6 +35,39 @@ export class PipelineInitError extends Error {
 
 const DEFAULT_PIPELINE_YAML = `version: 1
 default_workflow: default
+
+orchestrator:
+  profile: orchestrator
+  hooks: []
+
+hooks: {}
+
+workflows:
+  default:
+    description: Default research, red, green, verify, learn workflow.
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: red
+        kind: agent
+        profile: pipeline-test-writer
+        needs: [research]
+      - id: green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [red]
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [green]
+      - id: learn
+        kind: agent
+        profile: pipeline-learner
+        needs: [verify]
+`;
+
+const DEFAULT_RUNNERS_YAML = `version: 1
 
 runners:
   codex:
@@ -103,6 +141,9 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit, disabled]
       output_formats: [text, json]
+`;
+
+const DEFAULT_PROFILES_YAML = `version: 1
 
 rules:
   test-first:
@@ -112,23 +153,20 @@ rules:
 
 skills: {}
 mcp_servers: {}
-hooks: {}
 
-orchestrator:
-  runner: codex
-  instructions:
-    path: .pipeline/prompts/orchestrator.md
-  rules: [test-first, verification]
-  tools: [read, list, grep, glob, bash]
-  filesystem:
-    mode: read-only
-    allow: ["**/*"]
-    deny: ["node_modules/**", "dist/**", ".git/**"]
-  network:
-    mode: inherit
-  hooks: []
-
-agents:
+profiles:
+  orchestrator:
+    runner: codex
+    instructions:
+      path: .pipeline/prompts/orchestrator.md
+    rules: [test-first, verification]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
   pipeline-researcher:
     runner: codex
     description: Research the requested task and produce structured findings.
@@ -206,30 +244,6 @@ agents:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/learn.schema.json
-
-workflows:
-  default:
-    description: Default research, red, green, verify, learn workflow.
-    nodes:
-      - id: research
-        kind: agent
-        agent: pipeline-researcher
-      - id: red
-        kind: agent
-        agent: pipeline-test-writer
-        needs: [research]
-      - id: green
-        kind: agent
-        agent: pipeline-code-writer
-        needs: [red]
-      - id: verify
-        kind: agent
-        agent: pipeline-verifier
-        needs: [green]
-      - id: learn
-        kind: agent
-        agent: pipeline-learner
-        needs: [verify]
 `;
 
 const RESEARCH_SCHEMA = JSON.stringify(
@@ -288,10 +302,12 @@ const LEARN_SCHEMA = JSON.stringify(
 
 const SCAFFOLD_FILES: Record<string, string> = {
   [PIPELINE_CONFIG_PATH]: DEFAULT_PIPELINE_YAML,
+  [PROFILES_CONFIG_PATH]: DEFAULT_PROFILES_YAML,
+  [RUNNERS_CONFIG_PATH]: DEFAULT_RUNNERS_YAML,
   ".pipeline/prompts/orchestrator.md": [
     "You are the orchestrator for the pipeline.",
-    "Use `.pipeline/pipeline.yaml` as the source of truth for workflow order, agents, gates, hooks, and artifacts.",
-    "Delegate only to configured agents and enforce configured gates before reporting completion.",
+    "Use `.pipeline/pipeline.yaml` as the source of truth for workflow order, profiles, gates, hooks, and artifacts.",
+    "Delegate only to workflow node profiles and enforce configured gates before reporting completion.",
     "",
   ].join("\n"),
   ".pipeline/prompts/researcher.md": [
@@ -386,7 +402,7 @@ function hostResourceInput(host: string): string {
     `# ${host} Resource Input`,
     "",
     "This file is scaffolded input for host-specific resource projection.",
-    "The source of truth is `.pipeline/pipeline.yaml`; generated host resources must preserve the agents, prompts, rules, tools, filesystem policy, network policy, and output contracts declared there.",
+    "The source of truth is `.pipeline/pipeline.yaml` plus `.pipeline/profiles.yaml` and `.pipeline/runners.yaml`; generated host resources must preserve the profiles, prompts, rules, tools, filesystem policy, network policy, and output contracts declared there.",
     "",
   ].join("\n");
 }

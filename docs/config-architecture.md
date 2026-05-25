@@ -1,17 +1,22 @@
 # YAML Pipeline Architecture
 
-The v1 pipeline is YAML-only. `.pipeline/pipeline.yaml` is loaded, validated,
-compiled into a deterministic DAG, and then executed by `pipe run`. Runtime code
-does not read `.pipeline/config.toml`, phase profiles, or hardcoded prompt
-constants.
+The v1 pipeline is YAML-only and is split into three required files:
+
+- `.pipeline/runners.yaml` declares runner adapters and capabilities.
+- `.pipeline/profiles.yaml` declares reusable profiles, rules, skills, and MCP servers.
+- `.pipeline/pipeline.yaml` declares the orchestrator profile, hooks, workflows, gates, and artifacts.
+
+Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
+prompt constants.
 
 ## Complete Default Shape
 
-`pipe init` writes the default workflow with these top-level registries:
+`pipe init` writes the default workflow with this shape.
+
+`.pipeline/runners.yaml`:
 
 ```yaml
 version: 1
-default_workflow: default
 
 runners:
   codex:
@@ -26,6 +31,12 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
+```
+
+`.pipeline/profiles.yaml`:
+
+```yaml
+version: 1
 
 rules:
   test-first:
@@ -33,21 +44,16 @@ rules:
 
 skills: {}
 mcp_servers: {}
-hooks: {}
 
-orchestrator:
-  runner: codex
-  instructions:
-    path: .pipeline/prompts/orchestrator.md
-  rules: [test-first]
-  tools: [read, list, grep, glob, bash]
-  filesystem:
-    mode: read-only
-  network:
-    mode: inherit
-  hooks: []
-
-agents:
+profiles:
+  orchestrator:
+    runner: codex
+    instructions:
+      path: .pipeline/prompts/orchestrator.md
+    rules: [test-first]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
   pipeline-researcher:
     runner: codex
     instructions:
@@ -59,13 +65,26 @@ agents:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/research.schema.json
+```
+
+`.pipeline/pipeline.yaml`:
+
+```yaml
+version: 1
+default_workflow: default
+
+orchestrator:
+  profile: orchestrator
+  hooks: []
+
+hooks: {}
 
 workflows:
   default:
     nodes:
       - id: research
         kind: agent
-        agent: pipeline-researcher
+        profile: pipeline-researcher
       - id: verify
         kind: builtin
         builtin: test
@@ -74,8 +93,8 @@ workflows:
 
 ## Registries And Grants
 
-Top-level registries declare resources. The required `orchestrator` block and
-each agent receive explicit grants:
+Runner adapters live in `runners.yaml`. Profiles live in `profiles.yaml` and
+receive explicit grants:
 
 - `rules`: named markdown rule files.
 - `skills`: named skill files.
@@ -83,12 +102,15 @@ each agent receive explicit grants:
 - `tools`: allowed host tools only.
 - `filesystem`: read-only or workspace-write plus allow/deny paths.
 - `network`: inherited or disabled.
-- `hooks`: orchestrator or workflow lifecycle hooks.
-- `output`: agent-only text, JSON, JSONL, or JSON Schema output.
+- `output`: text, JSON, JSONL, or JSON Schema output.
 
-Validation fails when the orchestrator or an agent references an undeclared
-registry item or asks a runner for an unsupported capability. Projection never
-silently grants broader access than the YAML requested.
+Hooks live in `pipeline.yaml` and can be attached to the orchestrator, workflow,
+or workflow nodes.
+
+Validation fails when the orchestrator profile or a workflow node profile
+references an undeclared registry item or asks a runner for an unsupported
+capability. Projection never silently grants broader access than the YAML
+requested.
 
 ## Gates, Artifacts, Retries, Hooks
 
@@ -136,8 +158,9 @@ boundary; multi-agent workflows are never collapsed into one prompt.
 ## Troubleshooting
 
 - Missing config: run `pipe init`; `pipe run` requires
-  `.pipeline/pipeline.yaml`.
-- Capability error: reduce the agent grants or choose a runner whose declared
+  `.pipeline/pipeline.yaml`, `.pipeline/profiles.yaml`, and
+  `.pipeline/runners.yaml`.
+- Capability error: reduce the profile grants or choose a runner whose declared
   capabilities include the requested tools, filesystem, network, output, rules,
   skills, or MCP access.
 - Pi native execution error: install and enable `pi-subagents`; generated Pi

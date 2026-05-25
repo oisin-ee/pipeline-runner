@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { PipelineConfig } from "../src/mastra/config.js";
-import { parsePipelineConfigYaml } from "../src/mastra/config.js";
+import { parsePipelineConfigParts } from "../src/mastra/config.js";
 import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 import {
   compileWorkflowPlan,
   WorkflowPlannerError,
 } from "../src/workflow-planner.js";
 
-const DEFAULT_CONFIG = parsePipelineConfigYaml(
-  defaultPipelineScaffoldFiles()[".pipeline/pipeline.yaml"] as string
-);
+const DEFAULT_FILES = defaultPipelineScaffoldFiles();
+const DEFAULT_CONFIG = parsePipelineConfigParts({
+  pipeline: DEFAULT_FILES[".pipeline/pipeline.yaml"] as string,
+  profiles: DEFAULT_FILES[".pipeline/profiles.yaml"] as string,
+  runners: DEFAULT_FILES[".pipeline/runners.yaml"] as string,
+});
 
 function capturePlannerError(action: () => unknown): WorkflowPlannerError {
   try {
@@ -43,10 +46,10 @@ describe("compileWorkflowPlan", () => {
       plan.parallelBatches.map((batch) => batch.map((node) => node.id))
     ).toEqual([["research"], ["red"], ["green"], ["verify"], ["learn"]]);
     expect(plan.topologicalOrder[0]).toMatchObject({
-      agent: "pipeline-researcher",
       dependents: ["red"],
       kind: "agent",
       needs: [],
+      profile: "pipeline-researcher",
     });
   });
 
@@ -55,9 +58,9 @@ describe("compileWorkflowPlan", () => {
     config.workflows.parallel = {
       nodes: [
         {
-          agent: "pipeline-researcher",
           id: "research",
           kind: "agent",
+          profile: "pipeline-researcher",
         },
         {
           command: ["bun", "test"],
@@ -78,10 +81,10 @@ describe("compileWorkflowPlan", () => {
           nodes: ["unit-tests", "typecheck"],
         },
         {
-          agent: "pipeline-verifier",
           id: "verify",
           kind: "agent",
           needs: ["quality"],
+          profile: "pipeline-verifier",
         },
       ],
     };
@@ -126,14 +129,14 @@ describe("compileWorkflowPlan", () => {
     const config = cloneConfig();
     config.workflows.default.nodes = [
       {
-        agent: "pipeline-researcher",
         id: "research",
         kind: "agent",
+        profile: "pipeline-researcher",
       },
       {
-        agent: "pipeline-test-writer",
         id: "research",
         kind: "agent",
+        profile: "pipeline-test-writer",
       },
     ];
 
@@ -147,10 +150,10 @@ describe("compileWorkflowPlan", () => {
   it("rejects orphan dependencies", () => {
     const config = cloneConfig();
     config.workflows.default.nodes[0] = {
-      agent: "pipeline-researcher",
       id: "research",
       kind: "agent",
       needs: ["missing"],
+      profile: "pipeline-researcher",
     };
 
     const error = capturePlannerError(() => compileWorkflowPlan(config));
@@ -164,16 +167,16 @@ describe("compileWorkflowPlan", () => {
     const config = cloneConfig();
     config.workflows.default.nodes = [
       {
-        agent: "pipeline-researcher",
         id: "a",
         kind: "agent",
         needs: ["b"],
+        profile: "pipeline-researcher",
       },
       {
-        agent: "pipeline-test-writer",
         id: "b",
         kind: "agent",
         needs: ["a"],
+        profile: "pipeline-test-writer",
       },
     ];
 

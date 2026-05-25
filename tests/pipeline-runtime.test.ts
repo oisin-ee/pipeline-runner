@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parsePipelineConfigYaml } from "../src/mastra/config.js";
+import { parsePipelineConfigParts } from "../src/mastra/config.js";
 import type { RunnerLaunchPlan } from "../src/mastra/runner.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
 
@@ -34,9 +34,9 @@ function writeProjectFile(root: string, path: string, content: string): void {
 }
 
 function baseConfig(extraWorkflow = "") {
-  return parsePipelineConfigYaml(`
+  return parsePipelineConfigParts({
+    runners: `
 version: 1
-default_workflow: default
 runners:
   codex:
     type: codex
@@ -51,7 +51,14 @@ runners:
     capabilities:
       native_subagents: false
       output_formats: [text, json]
-agents:
+`,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    tools: []
   a:
     runner: codex
     instructions: { inline: Agent A }
@@ -66,22 +73,25 @@ agents:
     output:
       format: json_schema
       schema_path: schema.json
+`,
+    pipeline: `
+version: 1
+default_workflow: default
 orchestrator:
-  runner: codex
-  instructions: { inline: Orchestrate }
-  tools: []
+  profile: orchestrator
 workflows:
 ${extraWorkflow}
   default:
     nodes:
       - id: a
         kind: agent
-        agent: a
+        profile: a
       - id: b
         kind: agent
-        agent: b
+        profile: b
         needs: [a]
-`);
+`,
+  });
 }
 
 function executor(outputs: Record<string, string | string[]>) {
@@ -130,9 +140,9 @@ describe("runPipelineFromConfig", () => {
       ".agents/skills/research/SKILL.md",
       "Use repository research."
     );
-    const config = parsePipelineConfigYaml(`
+    const config = parsePipelineConfigParts({
+      runners: `
 version: 1
-default_workflow: default
 runners:
   codex:
     type: codex
@@ -144,6 +154,9 @@ runners:
       mcp_servers: true
       tools: [read]
       output_formats: [text]
+`,
+      profiles: `
+version: 1
 rules:
   test-first:
     path: rules/test-first.md
@@ -155,14 +168,14 @@ mcp_servers:
     command: node
     args: ["docs-server.js"]
     env: { DOCS_TOKEN: test-token }
-orchestrator:
-  runner: codex
-  instructions: { inline: Orchestrate }
-  rules: [test-first]
-  skills: [research]
-  mcp_servers: [docs]
-  tools: [read]
-agents:
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    rules: [test-first]
+    skills: [research]
+    mcp_servers: [docs]
+    tools: [read]
   a:
     runner: codex
     instructions: { inline: Agent A }
@@ -170,13 +183,20 @@ agents:
     skills: [research]
     mcp_servers: [docs]
     tools: [read]
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
 workflows:
   default:
     nodes:
       - id: a
         kind: agent
-        agent: a
-`);
+        profile: a
+`,
+    });
     const seen: RunnerLaunchPlan[] = [];
 
     const result = await runPipelineFromConfig({
@@ -205,9 +225,9 @@ workflows:
     const config = baseConfig(`
   parallel:
     nodes:
-      - { id: start, kind: agent, agent: a }
-      - { id: left, kind: agent, agent: a, needs: [start] }
-      - { id: right, kind: agent, agent: b, needs: [start] }
+      - { id: start, kind: agent, profile: a }
+      - { id: left, kind: agent, profile: a, needs: [start] }
+      - { id: right, kind: agent, profile: b, needs: [start] }
       - { id: join, kind: group, nodes: [left, right], needs: [left, right] }
 `);
     const started: string[] = [];
@@ -243,12 +263,12 @@ workflows:
     nodes:
       - id: produce
         kind: agent
-        agent: a
+        profile: a
         artifacts:
           - path: out.json
       - id: dependent
         kind: agent
-        agent: b
+        profile: b
         needs: [produce]
 `);
 
@@ -277,7 +297,7 @@ workflows:
     nodes:
       - id: flaky
         kind: agent
-        agent: a
+        profile: a
         retries: { max_attempts: 2 }
         gates:
           - kind: command
@@ -316,7 +336,7 @@ workflows:
     nodes:
       - id: structured
         kind: agent
-        agent: structured
+        profile: structured
 `);
 
     const result = await runPipelineFromConfig({
@@ -336,9 +356,9 @@ workflows:
 
   it("runs hooks with templating and required failure semantics", async () => {
     const project = tempProject();
-    const config = parsePipelineConfigYaml(`
+    const config = parsePipelineConfigParts({
+      runners: `
 version: 1
-default_workflow: default
 runners:
   codex:
     type: codex
@@ -346,6 +366,21 @@ runners:
     capabilities:
       native_subagents: true
       output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    tools: []
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
 hooks:
   required-start:
     event: node.start
@@ -353,21 +388,16 @@ hooks:
     command: [hook-bin, "{{workflow.id}}", "{{node.id}}", "{{task}}"]
     required: true
 orchestrator:
-  runner: codex
-  instructions: { inline: Orchestrate }
-  tools: []
-agents:
-  a:
-    runner: codex
-    instructions: { inline: Agent A }
+  profile: orchestrator
 workflows:
   default:
     hooks: [required-start]
     nodes:
       - id: a
         kind: agent
-        agent: a
-`);
+        profile: a
+`,
+    });
     mockExeca.mockRejectedValueOnce({
       exitCode: 1,
       stdout: "bad hook",

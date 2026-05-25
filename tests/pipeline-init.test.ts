@@ -26,11 +26,15 @@ describe("initPipelineProject", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("creates .pipeline/pipeline.yaml when no config exists", async () => {
+  it("creates the required config files when no config exists", async () => {
     const result = await initPipelineProject({ cwd: dir });
 
     expect(result.files).toContain(".pipeline/pipeline.yaml");
+    expect(result.files).toContain(".pipeline/profiles.yaml");
+    expect(result.files).toContain(".pipeline/runners.yaml");
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
+    expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
+    expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
     expect(loadPipelineConfig(dir).default_workflow).toBe("default");
   });
 
@@ -99,6 +103,7 @@ describe("initPipelineProject", () => {
       ".pipeline/host-resources/opencode.md",
       ".pipeline/host-resources/pi.md",
       ".pipeline/pipeline.yaml",
+      ".pipeline/profiles.yaml",
       ".pipeline/prompts/code-writer.md",
       ".pipeline/prompts/learner.md",
       ".pipeline/prompts/orchestrator.md",
@@ -107,6 +112,7 @@ describe("initPipelineProject", () => {
       ".pipeline/prompts/verifier.md",
       ".pipeline/rules/test-first.md",
       ".pipeline/rules/verification.md",
+      ".pipeline/runners.yaml",
       ".pipeline/schemas/learn.schema.json",
       ".pipeline/schemas/research.schema.json",
       ".pipeline/schemas/verify.schema.json",

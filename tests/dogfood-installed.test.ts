@@ -51,10 +51,9 @@ function writeDogfoodProject(root: string): void {
   );
   writeProjectFile(
     root,
-    ".pipeline/pipeline.yaml",
+    ".pipeline/runners.yaml",
     `
 version: 1
-default_workflow: dogfood-options
 runners:
   artifact-command:
     type: command
@@ -71,6 +70,13 @@ runners:
       output_formats: [text, json, json_schema]
       filesystem: [workspace-write]
       network: [disabled]
+`
+  );
+  writeProjectFile(
+    root,
+    ".pipeline/profiles.yaml",
+    `
+version: 1
 rules:
   orchestrator-rule:
     path: .pipeline/rules/orchestrator.md
@@ -81,6 +87,33 @@ mcp_servers:
   knowledge-base:
     command: node
     args: [kb.js]
+profiles:
+  orchestrator:
+    runner: artifact-command
+    model: dogfood-orchestrator-model
+    instructions: { inline: Coordinate deterministic dogfood. }
+    rules: [orchestrator-rule]
+    skills: [orchestrator-skill]
+    mcp_servers: [knowledge-base]
+    tools: [bash]
+    filesystem: { mode: workspace-write }
+    network: { mode: disabled }
+  artifact-writer:
+    runner: artifact-command
+    instructions: { inline: Write the deterministic artifact. }
+    filesystem: { mode: workspace-write }
+    network: { mode: disabled }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/dogfood.schema.json
+`
+  );
+  writeProjectFile(
+    root,
+    ".pipeline/pipeline.yaml",
+    `
+version: 1
+default_workflow: dogfood-options
 hooks:
   workflow-start:
     event: workflow.start
@@ -98,32 +131,15 @@ hooks:
     command: [node, -e, "process.exit(9)"]
     required: false
 orchestrator:
-  runner: artifact-command
-  model: dogfood-orchestrator-model
-  instructions: { inline: Coordinate deterministic dogfood. }
-  rules: [orchestrator-rule]
-  skills: [orchestrator-skill]
-  mcp_servers: [knowledge-base]
-  tools: [bash]
-  filesystem: { mode: workspace-write }
-  network: { mode: disabled }
+  profile: orchestrator
   hooks: [workflow-start]
-agents:
-  artifact-writer:
-    runner: artifact-command
-    instructions: { inline: Write the deterministic artifact. }
-    filesystem: { mode: workspace-write }
-    network: { mode: disabled }
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/dogfood.schema.json
 workflows:
   dogfood-options:
     hooks: [workflow-start, optional-failure]
     nodes:
       - id: artifact
         kind: agent
-        agent: artifact-writer
+        profile: artifact-writer
         hooks: [node-start]
         artifacts:
           - path: .pipeline/dogfood/artifact.json
@@ -221,12 +237,12 @@ describe("installed dogfood configuration", () => {
       expect(content).toContain("hooks: dogfood-workflow-start");
     }
 
-    for (const agentId of Object.keys(config.agents)) {
+    for (const profileId of workflowProfileIds(config)) {
       for (const path of [
-        `.claude/agents/${agentId}.md`,
-        `.opencode/agents/${agentId}.md`,
-        `.codex/agents/${agentId}.toml`,
-        `.kimi/agents/${agentId}.md`,
+        `.claude/agents/${profileId}.md`,
+        `.opencode/agents/${profileId}.md`,
+        `.codex/agents/${profileId}.toml`,
+        `.kimi/agents/${profileId}.md`,
       ]) {
         expect(readFileSync(join(root, path), "utf8")).toContain(
           "Configured grants:"
@@ -300,14 +316,27 @@ describe("installed dogfood configuration", () => {
   });
 });
 
+function workflowProfileIds(config: ReturnType<typeof loadPipelineConfig>) {
+  return [
+    ...new Set(
+      Object.values(config.workflows).flatMap((workflow) =>
+        workflow.nodes.flatMap((node) =>
+          node.kind === "agent" && node.profile ? [node.profile] : []
+        )
+      )
+    ),
+  ].sort();
+}
+
 function configuredDogfoodOrchestrator(project: string) {
   const config = loadPipelineConfig(project);
+  const profile = config.profiles[config.orchestrator.profile];
   return {
     hooks: config.orchestrator.hooks,
-    mcp_servers: config.orchestrator.mcp_servers,
-    model: config.orchestrator.model,
-    rules: config.orchestrator.rules,
-    skills: config.orchestrator.skills,
-    tools: config.orchestrator.tools,
+    mcp_servers: profile.mcp_servers,
+    model: profile.model,
+    rules: profile.rules,
+    skills: profile.skills,
+    tools: profile.tools,
   };
 }

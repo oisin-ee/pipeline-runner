@@ -283,17 +283,17 @@ async function executeAgentNode(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): Promise<NodeAttemptResult> {
-  if (!node.agent) {
+  if (!node.profile) {
     return {
-      evidence: [`node '${node.id}' has no agent`],
+      evidence: [`node '${node.id}' has no profile`],
       exitCode: 1,
       output: "",
     };
   }
   const prompt = renderAgentPrompt(node, context);
   const plan = createRunnerLaunchPlan(context.config, {
-    agentId: node.agent,
     nodeId: node.id,
+    profileId: node.profile,
     prompt,
     worktreePath: context.worktreePath,
   });
@@ -301,7 +301,7 @@ async function executeAgentNode(
   const result = await context.executor(plan);
   return {
     evidence: [
-      `agent boundary node=${node.id} agent=${node.agent} runner=${plan.runnerId} strategy=${plan.strategy}`,
+      `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId} strategy=${plan.strategy}`,
       ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
       ...(result.timedOut ? ["agent timed out"] : []),
     ],
@@ -314,9 +314,11 @@ function renderAgentPrompt(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): string {
-  const agent = node.agent ? context.config.agents[node.agent] : undefined;
-  const instructions = agent
-    ? readInstructions(context.worktreePath, agent.instructions)
+  const profile = node.profile
+    ? context.config.profiles[node.profile]
+    : undefined;
+  const instructions = profile
+    ? readInstructions(context.worktreePath, profile.instructions)
     : "";
   return [
     instructions.trim(),
@@ -324,26 +326,26 @@ function renderAgentPrompt(
     `Task: ${context.task}`,
     `Workflow: ${context.workflowId}`,
     `Node: ${node.id}`,
-    node.agent ? `Agent: ${node.agent}` : "",
+    node.profile ? `Profile: ${node.profile}` : "",
     "",
     "Declared grants:",
-    `- tools: ${(agent?.tools ?? []).join(", ") || "none"}`,
-    `- rules: ${(agent?.rules ?? []).join(", ") || "none"}`,
-    `- skills: ${(agent?.skills ?? []).join(", ") || "none"}`,
-    `- mcp_servers: ${(agent?.mcp_servers ?? []).join(", ") || "none"}`,
+    `- tools: ${(profile?.tools ?? []).join(", ") || "none"}`,
+    `- rules: ${(profile?.rules ?? []).join(", ") || "none"}`,
+    `- skills: ${(profile?.skills ?? []).join(", ") || "none"}`,
+    `- mcp_servers: ${(profile?.mcp_servers ?? []).join(", ") || "none"}`,
     renderPathReferences(
       "Loaded rules",
-      agent?.rules,
+      profile?.rules,
       context.config.rules,
       context.worktreePath
     ),
     renderPathReferences(
       "Loaded skills",
-      agent?.skills,
+      profile?.skills,
       context.config.skills,
       context.worktreePath
     ),
-    renderMcpReferences(agent?.mcp_servers, context.config.mcp_servers),
+    renderMcpReferences(profile?.mcp_servers, context.config.mcp_servers),
     "",
     "Dependency outputs:",
     ...node.needs.map(
@@ -356,7 +358,7 @@ function renderAgentPrompt(
 
 function readInstructions(
   worktreePath: string,
-  instructions: PipelineConfig["agents"][string]["instructions"]
+  instructions: PipelineConfig["profiles"][string]["instructions"]
 ): string {
   if (instructions.inline) {
     return instructions.inline;
@@ -503,14 +505,16 @@ async function evaluateNodeGates(
       required: artifact.required,
     })
   );
-  const agent = node.agent ? context.config.agents[node.agent] : undefined;
+  const profile = node.profile
+    ? context.config.profiles[node.profile]
+    : undefined;
   const schemaGate: GateSpec[] =
-    agent?.output?.format === "json_schema" && agent.output.schema_path
+    profile?.output?.format === "json_schema" && profile.output.schema_path
       ? [
           {
             id: `output:${node.id}`,
             kind: "json_schema",
-            schema_path: agent.output.schema_path,
+            schema_path: profile.output.schema_path,
             target: "stdout",
           },
         ]

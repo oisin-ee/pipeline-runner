@@ -1,9 +1,10 @@
 # @oisincoveney/pipeline
 
 Config-driven multi-agent pipeline runner for repository work. The source of
-truth is `.pipeline/pipeline.yaml`: runners, agents, workflows, gates, hooks,
-rules, skills, MCP servers, tool grants, filesystem policy, network policy, and
-output contracts all live there.
+truth is three YAML files: `.pipeline/runners.yaml` declares runner adapters,
+`.pipeline/profiles.yaml` declares reusable profiles and their grants, and
+`.pipeline/pipeline.yaml` declares orchestration, workflows, gates, hooks, and
+artifacts.
 
 ## Requirements
 
@@ -55,9 +56,10 @@ target repository.
 
 ## Minimal YAML
 
+`.pipeline/runners.yaml`:
+
 ```yaml
 version: 1
-default_workflow: default
 
 runners:
   codex:
@@ -69,20 +71,24 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
+```
 
-orchestrator:
-  runner: codex
-  model: gpt-5
-  instructions:
-    inline: Coordinate the workflow from this YAML file only.
-  tools: [read, grep, bash]
-  filesystem:
-    mode: read-only
-  network:
-    mode: inherit
-  hooks: []
+`.pipeline/profiles.yaml`:
 
-agents:
+```yaml
+version: 1
+
+profiles:
+  orchestrator:
+    runner: codex
+    model: gpt-5
+    instructions:
+      inline: Coordinate the workflow from this YAML file only.
+    tools: [read, grep, bash]
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
   implementer:
     runner: codex
     model: gpt-5
@@ -93,13 +99,24 @@ agents:
       mode: workspace-write
     output:
       format: text
+```
+
+`.pipeline/pipeline.yaml`:
+
+```yaml
+version: 1
+default_workflow: default
+
+orchestrator:
+  profile: orchestrator
+  hooks: []
 
 workflows:
   default:
     nodes:
       - id: implement
         kind: agent
-        agent: implementer
+        profile: implementer
         gates:
           - kind: builtin
             builtin: test
@@ -119,9 +136,10 @@ Generate native host files from the YAML config:
 pipe install-commands --host all
 ```
 
-Generated resources are projections of `.pipeline/pipeline.yaml`; they are not
-separate profiles. The top-level `orchestrator` block configures the host
-orchestrator surface, while `agents` configure delegated agent boundaries.
+Generated resources are projections of the three config files; they are not
+separate sources of truth. The pipeline `orchestrator.profile` configures the
+host orchestrator surface, while workflow node `profile` values configure
+delegated agent boundaries.
 
 | Host | Generated files | Invocation |
 | --- | --- | --- |
@@ -136,7 +154,8 @@ overwrite manually edited files unless `--force` is supplied.
 
 ## Runtime Guarantees
 
-- `pipe run` fails without `.pipeline/pipeline.yaml`.
+- `pipe run` fails without `.pipeline/pipeline.yaml`,
+  `.pipeline/profiles.yaml`, and `.pipeline/runners.yaml`.
 - Multi-agent workflows execute as separate agent boundaries; nodes are not
   merged into one prompt.
 - Native subagent strategy is preferred when the selected runner can represent

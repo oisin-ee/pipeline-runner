@@ -1,0 +1,191 @@
+version: 1
+
+rules:
+  test-first:
+    path: .pipeline/rules/test-first.md
+  verification:
+    path: .pipeline/rules/verification.md
+
+skills:
+  dogfood-orchestrator:
+    path: .pipeline/skills/dogfood-orchestrator/SKILL.md
+
+mcp_servers:
+  dogfood-knowledge-base:
+    command: node
+    args: ["-e", "process.exit(0)"]
+
+profiles:
+  orchestrator:
+    runner: codex
+    model: gpt-5
+    instructions:
+      path: .pipeline/prompts/orchestrator.md
+    rules: [test-first, verification]
+    skills: [dogfood-orchestrator]
+    mcp_servers: [dogfood-knowledge-base]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+  pipeline-researcher:
+    runner: codex
+    description: Research the requested task and produce structured findings.
+    instructions:
+      path: .pipeline/prompts/researcher.md
+    rules: [test-first]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/research.schema.json
+  pipeline-test-writer:
+    runner: codex
+    description: Add focused failing tests for the requested behavior.
+    instructions:
+      path: .pipeline/prompts/test-writer.md
+    rules: [test-first]
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem:
+      mode: workspace-write
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
+  pipeline-code-writer:
+    runner: codex
+    description: Implement production code until the failing tests pass.
+    instructions:
+      path: .pipeline/prompts/code-writer.md
+    rules: [test-first]
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem:
+      mode: workspace-write
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
+  pipeline-verifier:
+    runner: codex
+    description: Verify checks, implementation fit, and final evidence.
+    instructions:
+      path: .pipeline/prompts/verifier.md
+    rules: [verification]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/verify.schema.json
+  pipeline-learner:
+    runner: codex
+    description: Store durable lessons from the completed run.
+    instructions:
+      path: .pipeline/prompts/learner.md
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/learn.schema.json
+  dogfood-checker:
+    runner: dogfood-command
+    description: Prove the installed YAML runtime can run a separate agent boundary locally.
+    instructions:
+      inline: Emit the dogfood structured result and do not modify files.
+    tools: [bash]
+    filesystem:
+      mode: read-only
+    network:
+      mode: disabled
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/dogfood.schema.json
+  dogfood-artifact-writer:
+    runner: dogfood-artifact-command
+    description: Write a deterministic dogfood artifact for runtime gate coverage.
+    instructions:
+      inline: Write the configured dogfood artifact and do not inspect the repository.
+    tools: [bash]
+    filesystem:
+      mode: workspace-write
+    network:
+      mode: disabled
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/dogfood.schema.json
+  dogfood-codex-live:
+    runner: codex
+    description: Minimal live Codex runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-claude-live:
+    runner: claude
+    description: Minimal live Claude runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-opencode-live:
+    runner: opencode
+    description: Minimal live OpenCode runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-kimi-live:
+    runner: kimi
+    description: Minimal live Kimi runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-pi-live:
+    runner: pi
+    description: Minimal live Pi runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text

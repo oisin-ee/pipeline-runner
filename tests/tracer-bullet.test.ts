@@ -46,9 +46,8 @@ function writeFixtureWorktree(worktreePath: string): void {
   );
   mkdirSync(join(worktreePath, ".pipeline"), { recursive: true });
   writeFileSync(
-    join(worktreePath, ".pipeline", "pipeline.yaml"),
+    join(worktreePath, ".pipeline", "runners.yaml"),
     `version: 1
-default_workflow: default
 runners:
   claude:
     type: claude
@@ -62,15 +61,19 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json]
-orchestrator:
-  runner: claude
-  instructions:
-    inline: Coordinate the tracer pipeline.
-  tools: [read, list, grep, glob, bash]
-  filesystem: { mode: read-only }
-  network: { mode: inherit }
-  hooks: []
-agents:
+`
+  );
+  writeFileSync(
+    join(worktreePath, ".pipeline", "profiles.yaml"),
+    `version: 1
+profiles:
+  orchestrator:
+    runner: claude
+    instructions:
+      inline: Coordinate the tracer pipeline.
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only }
+    network: { mode: inherit }
   researcher:
     runner: claude
     instructions:
@@ -103,17 +106,26 @@ agents:
       inline: You are the LEARN phase for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     output: { format: text }
+`
+  );
+  writeFileSync(
+    join(worktreePath, ".pipeline", "pipeline.yaml"),
+    `version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+  hooks: []
 workflows:
   default:
     nodes:
       - id: research
         kind: agent
-        agent: researcher
+        profile: researcher
         artifacts:
           - path: .pipeline/research.json
       - id: red
         kind: agent
-        agent: test-writer
+        profile: test-writer
         needs: [research]
         gates:
           - kind: command
@@ -121,7 +133,7 @@ workflows:
             expect_exit_code: 1
       - id: green
         kind: agent
-        agent: code-writer
+        profile: code-writer
         needs: [red]
         gates:
           - kind: builtin
@@ -130,11 +142,11 @@ workflows:
             builtin: typecheck
       - id: verify
         kind: agent
-        agent: verifier
+        profile: verifier
         needs: [green]
       - id: learn
         kind: agent
-        agent: learner
+        profile: learner
         needs: [verify]
 `
   );

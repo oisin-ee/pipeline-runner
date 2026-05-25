@@ -277,12 +277,12 @@ function formatWorkflowPlan(
       .join(" -> ")}`
   );
   for (const node of plan.topologicalOrder) {
-    const agent = node.agent ? config.agents[node.agent] : undefined;
+    const profile = node.profile ? config.profiles[node.profile] : undefined;
     const launch =
-      agent && node.agent
+      profile && node.profile
         ? createRunnerLaunchPlan(config, {
-            agentId: node.agent,
             nodeId: node.id,
+            profileId: node.profile,
             prompt: "<task>",
             worktreePath,
           })
@@ -314,6 +314,7 @@ function formatOrchestratorPlan(
   config: PipelineConfig,
   worktreePath: string
 ): string {
+  const orchestrator = config.profiles[config.orchestrator.profile];
   const launch = createOrchestratorLaunchPlan(config, {
     nodeId: "orchestrator",
     prompt: "<task>",
@@ -322,10 +323,10 @@ function formatOrchestratorPlan(
   return [
     `Orchestrator: runner=${launch.runnerId}`,
     `strategy=${launch.strategy}`,
-    config.orchestrator.model ? `model=${config.orchestrator.model}` : "",
-    formatList("rules", config.orchestrator.rules),
-    formatList("skills", config.orchestrator.skills),
-    formatList("mcp_servers", config.orchestrator.mcp_servers),
+    orchestrator.model ? `model=${orchestrator.model}` : "",
+    formatList("rules", orchestrator.rules),
+    formatList("skills", orchestrator.skills),
+    formatList("mcp_servers", orchestrator.mcp_servers),
     formatList("hooks", config.orchestrator.hooks),
   ]
     .filter(Boolean)

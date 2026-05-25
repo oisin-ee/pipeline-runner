@@ -1,122 +1,10 @@
 version: 1
 default_workflow: default
 
-runners:
-  codex:
-    type: codex
-    command: codex
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: true
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json, jsonl, json_schema]
-  claude:
-    type: claude
-    command: claude
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json, json_schema]
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write, task]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json, jsonl, json_schema]
-  kimi:
-    type: kimi
-    command: kimi
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: false
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json]
-  pi:
-    type: pi
-    command: pi
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: false
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json]
-  command:
-    type: command
-    capabilities:
-      native_subagents: false
-      rules: false
-      skills: false
-      mcp_servers: false
-      tools: [bash]
-      filesystem: [read-only, workspace-write]
-      network: [inherit, disabled]
-      output_formats: [text, json]
-  dogfood-command:
-    type: command
-    command: node
-    args:
-      - -e
-      - "console.log(JSON.stringify({ verdict: 'PASS', evidence: ['dogfood command agent boundary ran'] }))"
-    capabilities:
-      native_subagents: false
-      rules: false
-      skills: false
-      mcp_servers: false
-      tools: [bash]
-      filesystem: [read-only]
-      network: [disabled]
-      output_formats: [text, json, json_schema]
-  dogfood-artifact-command:
-    type: command
-    command: node
-    args:
-      - -e
-      - "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); const out={verdict:'PASS',evidence:['artifact written']}; fs.writeFileSync('.pipeline/dogfood/artifact.json', JSON.stringify(out)); console.log(JSON.stringify(out));"
-    capabilities:
-      native_subagents: false
-      rules: false
-      skills: false
-      mcp_servers: false
-      tools: [bash]
-      filesystem: [workspace-write]
-      network: [disabled]
-      output_formats: [text, json, json_schema]
+orchestrator:
+  profile: orchestrator
+  hooks: [dogfood-workflow-start]
 
-rules:
-  test-first:
-    path: .pipeline/rules/test-first.md
-  verification:
-    path: .pipeline/rules/verification.md
-
-skills:
-  dogfood-orchestrator:
-    path: .pipeline/skills/dogfood-orchestrator/SKILL.md
-mcp_servers:
-  dogfood-knowledge-base:
-    command: node
-    args: ["-e", "process.exit(0)"]
 hooks:
   dogfood-workflow-start:
     event: workflow.start
@@ -134,205 +22,28 @@ hooks:
     command: [node, -e, "process.exit(9)"]
     required: false
 
-orchestrator:
-  runner: codex
-  model: gpt-5
-  instructions:
-    path: .pipeline/prompts/orchestrator.md
-  rules: [test-first, verification]
-  skills: [dogfood-orchestrator]
-  mcp_servers: [dogfood-knowledge-base]
-  tools: [read, list, grep, glob, bash]
-  filesystem:
-    mode: read-only
-    allow: ["**/*"]
-    deny: ["node_modules/**", "dist/**", ".git/**"]
-  network:
-    mode: inherit
-  hooks: [dogfood-workflow-start]
-
-agents:
-  pipeline-researcher:
-    runner: codex
-    description: Research the requested task and produce structured findings.
-    instructions:
-      path: .pipeline/prompts/researcher.md
-    rules: [test-first]
-    tools: [read, list, grep, glob, bash]
-    filesystem:
-      mode: read-only
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/research.schema.json
-  pipeline-test-writer:
-    runner: codex
-    description: Add focused failing tests for the requested behavior.
-    instructions:
-      path: .pipeline/prompts/test-writer.md
-    rules: [test-first]
-    tools: [read, list, grep, glob, bash, edit, write]
-    filesystem:
-      mode: workspace-write
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
-    output:
-      format: text
-  pipeline-code-writer:
-    runner: codex
-    description: Implement production code until the failing tests pass.
-    instructions:
-      path: .pipeline/prompts/code-writer.md
-    rules: [test-first]
-    tools: [read, list, grep, glob, bash, edit, write]
-    filesystem:
-      mode: workspace-write
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
-    output:
-      format: text
-  pipeline-verifier:
-    runner: codex
-    description: Verify checks, implementation fit, and final evidence.
-    instructions:
-      path: .pipeline/prompts/verifier.md
-    rules: [verification]
-    tools: [read, list, grep, glob, bash]
-    filesystem:
-      mode: read-only
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/verify.schema.json
-  pipeline-learner:
-    runner: codex
-    description: Store durable lessons from the completed run.
-    instructions:
-      path: .pipeline/prompts/learner.md
-    tools: [read, list, grep, glob, bash]
-    filesystem:
-      mode: read-only
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/learn.schema.json
-  dogfood-checker:
-    runner: dogfood-command
-    description: Prove the installed YAML runtime can run a separate agent boundary locally.
-    instructions:
-      inline: Emit the dogfood structured result and do not modify files.
-    tools: [bash]
-    filesystem:
-      mode: read-only
-    network:
-      mode: disabled
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/dogfood.schema.json
-  dogfood-artifact-writer:
-    runner: dogfood-artifact-command
-    description: Write a deterministic dogfood artifact for runtime gate coverage.
-    instructions:
-      inline: Write the configured dogfood artifact and do not inspect the repository.
-    tools: [bash]
-    filesystem:
-      mode: workspace-write
-    network:
-      mode: disabled
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/dogfood.schema.json
-  dogfood-codex-live:
-    runner: codex
-    description: Minimal live Codex runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-claude-live:
-    runner: claude
-    description: Minimal live Claude runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-opencode-live:
-    runner: opencode
-    description: Minimal live OpenCode runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-kimi-live:
-    runner: kimi
-    description: Minimal live Kimi runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-pi-live:
-    runner: pi
-    description: Minimal live Pi runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-
 workflows:
   default:
     description: Default research, red, green, verify, learn workflow.
     nodes:
       - id: research
         kind: agent
-        agent: pipeline-researcher
+        profile: pipeline-researcher
       - id: red
         kind: agent
-        agent: pipeline-test-writer
+        profile: pipeline-test-writer
         needs: [research]
       - id: green
         kind: agent
-        agent: pipeline-code-writer
+        profile: pipeline-code-writer
         needs: [red]
       - id: verify
         kind: agent
-        agent: pipeline-verifier
+        profile: pipeline-verifier
         needs: [green]
       - id: learn
         kind: agent
-        agent: pipeline-learner
+        profile: pipeline-learner
         needs: [verify]
   dogfood:
     description: Local model-free dogfood workflow for this repository.
@@ -340,7 +51,7 @@ workflows:
     nodes:
       - id: agent-boundary
         kind: agent
-        agent: dogfood-checker
+        profile: dogfood-checker
         hooks: [dogfood-node-start]
         gates:
           - id: expected-failing-command
@@ -365,7 +76,7 @@ workflows:
     nodes:
       - id: artifact
         kind: agent
-        agent: dogfood-artifact-writer
+        profile: dogfood-artifact-writer
         artifacts:
           - path: .pipeline/dogfood/artifact.json
         gates:
@@ -401,16 +112,16 @@ workflows:
     nodes:
       - id: codex-live
         kind: agent
-        agent: dogfood-codex-live
+        profile: dogfood-codex-live
       - id: claude-live
         kind: agent
-        agent: dogfood-claude-live
+        profile: dogfood-claude-live
       - id: opencode-live
         kind: agent
-        agent: dogfood-opencode-live
+        profile: dogfood-opencode-live
       - id: kimi-live
         kind: agent
-        agent: dogfood-kimi-live
+        profile: dogfood-kimi-live
       - id: pi-live
         kind: agent
-        agent: dogfood-pi-live
+        profile: dogfood-pi-live

@@ -166,7 +166,7 @@ describe("installCommands", () => {
       join(dir, ".agents/skills/orchestrator/SKILL.md"),
       "# Orchestrator skill\n"
     );
-    const configPath = join(dir, ".pipeline/pipeline.yaml");
+    const configPath = join(dir, ".pipeline/profiles.yaml");
     const config = readFileSync(configPath, "utf8")
       .replace(
         "skills: {}",
@@ -177,12 +177,12 @@ describe("installCommands", () => {
         "mcp_servers:\n  knowledge-base:\n    command: node\n    args: [kb.js]"
       )
       .replace(
-        "orchestrator:\n  runner: codex",
-        "orchestrator:\n  runner: codex\n  model: gpt-5-orchestrator"
+        "  orchestrator:\n    runner: codex",
+        "  orchestrator:\n    runner: codex\n    model: gpt-5-orchestrator"
       )
       .replace(
-        "  hooks: []",
-        "  skills: [orchestrator]\n  mcp_servers: [knowledge-base]\n  hooks: []"
+        "    tools: [read, list, grep, glob, bash]",
+        "    skills: [orchestrator]\n    mcp_servers: [knowledge-base]\n    tools: [read, list, grep, glob, bash]"
       );
     writeFileSync(configPath, config);
 

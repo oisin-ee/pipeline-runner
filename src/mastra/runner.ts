@@ -44,13 +44,13 @@ export interface AgentAdapter {
 export type RunnerStrategy = "native" | "subprocess";
 
 export interface RunnerLaunchPlan {
-  agentId?: string;
   args: string[];
   command: string;
   cwd: string;
   env: Record<string, string>;
   nodeId: string;
   outputFormat: string;
+  profileId?: string;
   runnerId: string;
   strategy: RunnerStrategy;
   timeoutMs: number;
@@ -58,9 +58,9 @@ export interface RunnerLaunchPlan {
 }
 
 export interface RunnerLaunchInput {
-  agentId?: string;
   contextFile?: string | null;
   nodeId: string;
+  profileId?: string;
   prompt: string;
   worktreePath: string;
 }
@@ -123,9 +123,8 @@ function optionalModelArgs(
   return model ? ["--model", model] : [];
 }
 
-type AgentConfig = PipelineConfig["agents"][string];
-type OrchestratorConfig = PipelineConfig["orchestrator"];
-type ActorConfig = AgentConfig | OrchestratorConfig;
+type ProfileConfig = PipelineConfig["profiles"][string];
+type ActorConfig = ProfileConfig;
 type McpServerConfig = PipelineConfig["mcp_servers"][string];
 
 interface NativeArgOptions {
@@ -356,30 +355,34 @@ export function createRunnerLaunchPlan(
   config: PipelineConfig,
   input: RunnerLaunchInput
 ): RunnerLaunchPlan {
-  const agent = input.agentId ? config.agents[input.agentId] : undefined;
-  if (input.agentId && !agent) {
-    throw new RunnerCapabilityError(`agent '${input.agentId}' is not declared`);
+  const profile = input.profileId
+    ? config.profiles[input.profileId]
+    : undefined;
+  if (input.profileId && !profile) {
+    throw new RunnerCapabilityError(
+      `profile '${input.profileId}' is not declared`
+    );
   }
   return createActorLaunchPlan(
     config,
     input,
-    agent,
-    agent?.runner ?? "command"
+    profile,
+    profile?.runner ?? "command"
   );
 }
 
 export function createOrchestratorLaunchPlan(
   config: PipelineConfig,
-  input: Omit<RunnerLaunchInput, "agentId">
+  input: Omit<RunnerLaunchInput, "profileId">
 ): RunnerLaunchPlan {
   return createActorLaunchPlan(
     config,
     {
       ...input,
-      agentId: undefined,
+      profileId: config.orchestrator.profile,
     },
-    config.orchestrator,
-    config.orchestrator.runner
+    config.profiles[config.orchestrator.profile],
+    config.profiles[config.orchestrator.profile]?.runner ?? "command"
   );
 }
 
@@ -414,11 +417,11 @@ function createActorLaunchPlan(
     input.nodeId
   );
   const base = {
-    agentId: input.agentId,
     cwd: input.worktreePath,
     env,
     nodeId: input.nodeId,
     outputFormat,
+    profileId: input.profileId,
     runnerId,
     timeoutMs,
     type: runner.type,
@@ -649,8 +652,10 @@ function nativeStrategy(
   runnerId: string
 ): RunnerStrategy {
   const runner = config.runners[runnerId];
-  const agent = input.agentId ? config.agents[input.agentId] : undefined;
-  if (!(runner?.capabilities.native_subagents && agent)) {
+  const profile = input.profileId
+    ? config.profiles[input.profileId]
+    : undefined;
+  if (!(runner?.capabilities.native_subagents && profile)) {
     return "subprocess";
   }
   if (runner.type === "command") {

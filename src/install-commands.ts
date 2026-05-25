@@ -49,10 +49,8 @@ interface CommandDefinition {
   path: string;
 }
 
-type AgentEntry = [string, PipelineConfig["agents"][string]];
-type ActorConfig =
-  | PipelineConfig["agents"][string]
-  | PipelineConfig["orchestrator"];
+type ProfileEntry = [string, PipelineConfig["profiles"][string]];
+type ActorConfig = PipelineConfig["profiles"][string] & { hooks?: string[] };
 
 function header(host: CommandHost): string {
   return [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join(
@@ -72,14 +70,37 @@ function markdown(data: Record<string, unknown>, body: string): string {
   return `${matter.stringify(body.trimEnd(), data).trimEnd()}\n`;
 }
 
-function agentEntries(config: PipelineConfig): AgentEntry[] {
-  return Object.entries(config.agents).sort(([a], [b]) => a.localeCompare(b));
+function profileEntries(config: PipelineConfig): ProfileEntry[] {
+  const profileIds = new Set<string>();
+  for (const workflow of Object.values(config.workflows)) {
+    for (const node of workflow.nodes) {
+      if (node.kind === "agent" && node.profile) {
+        profileIds.add(node.profile);
+      }
+    }
+  }
+  return [...profileIds]
+    .sort((a, b) => a.localeCompare(b))
+    .map((id) => [id, config.profiles[id]] as ProfileEntry);
 }
 
-function agentNames(config: PipelineConfig): string {
-  return agentEntries(config)
+function profileNames(config: PipelineConfig): string {
+  return profileEntries(config)
     .map(([name]) => `\`${name}\``)
     .join(", ");
+}
+
+function orchestratorProfile(config: PipelineConfig): ActorConfig {
+  const profile = config.profiles[config.orchestrator.profile];
+  if (!profile) {
+    throw new Error(
+      `Orchestrator profile '${config.orchestrator.profile}' is not declared.`
+    );
+  }
+  return {
+    ...profile,
+    hooks: config.orchestrator.hooks,
+  };
 }
 
 function workflowSummary(config: PipelineConfig): string {
@@ -91,7 +112,7 @@ function workflowSummary(config: PipelineConfig): string {
       const parts = [
         `- ${node.id}`,
         `kind=${node.kind}`,
-        node.agent ? `agent=${node.agent}` : "",
+        node.profile ? `profile=${node.profile}` : "",
         node.needs.length ? `needs=${node.needs.join(",")}` : "needs=none",
       ].filter(Boolean);
       return parts.join(" ");
@@ -118,13 +139,13 @@ function grants(actor: ActorConfig): string {
 function orchestratorBlock(config: PipelineConfig): string {
   return [
     "Configured orchestrator:",
-    grants(config.orchestrator),
+    grants(orchestratorProfile(config)),
     "",
-    instructionsPointer(config.orchestrator),
+    instructionsPointer(orchestratorProfile(config)),
   ].join("\n");
 }
 
-function claudeTools(agent: PipelineConfig["agents"][string]): string {
+function claudeTools(profile: PipelineConfig["profiles"][string]): string {
   const mapped = new Map([
     ["bash", "Bash"],
     ["edit", "Edit"],
@@ -134,7 +155,7 @@ function claudeTools(agent: PipelineConfig["agents"][string]): string {
     ["read", "Read"],
     ["write", "Write"],
   ]);
-  return (agent.tools ?? [])
+  return (profile.tools ?? [])
     .flatMap((tool) => {
       const value = mapped.get(tool);
       return value ? [value] : [];
@@ -157,29 +178,29 @@ function claudeDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           orchestratorBlock(config),
           "",
-          `Delegate work only to configured agents: ${agentNames(config)}.`,
+          `Delegate work only to configured profiles: ${profileNames(config)}.`,
         ].join("\n")
       ),
       host: "claude",
       invocation: "/pipe <task description>",
       path: ".claude/commands/pipe.md",
     },
-    ...agentEntries(config).map(([id, agent]) => ({
+    ...profileEntries(config).map(([id, profile]) => ({
       content: markdown(
         {
-          description: agent.description ?? id,
+          description: profile.description ?? id,
           name: id,
-          tools: claudeTools(agent),
+          tools: claudeTools(profile),
         },
         [
           header("claude").trimEnd(),
           "",
-          agent.description ?? id,
+          profile.description ?? id,
           "",
           "Configured grants:",
-          grants(agent),
+          grants(profile),
           "",
-          instructionsPointer(agent),
+          instructionsPointer(profile),
         ].join("\n")
       ),
       host: "claude" as const,
@@ -219,7 +240,7 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           orchestratorBlock(config),
           "",
-          `Delegate work only to configured agents: ${agentNames(config)}.`,
+          `Delegate work only to configured profiles: ${profileNames(config)}.`,
         ].join("\n")
       ),
       host: "opencode",
@@ -231,7 +252,7 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
         {
           description: "Orchestrate the configured pipeline and enforce gates.",
           mode: "primary",
-          permission: opencodePermission(config.orchestrator),
+          permission: opencodePermission(orchestratorProfile(config)),
         },
         [header("opencode").trimEnd(), "", orchestratorBlock(config)].join("\n")
       ),
@@ -239,22 +260,22 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
       invocation: "/pipe <task description>",
       path: ".opencode/agents/pipeline-orchestrator.md",
     },
-    ...agentEntries(config).map(([id, agent]) => ({
+    ...profileEntries(config).map(([id, profile]) => ({
       content: markdown(
         {
-          description: agent.description ?? id,
+          description: profile.description ?? id,
           mode: "subagent",
-          permission: opencodePermission(agent),
+          permission: opencodePermission(profile),
         },
         [
           header("opencode").trimEnd(),
           "",
-          agent.description ?? id,
+          profile.description ?? id,
           "",
           "Configured grants:",
-          grants(agent),
+          grants(profile),
           "",
-          instructionsPointer(agent),
+          instructionsPointer(profile),
         ].join("\n")
       ),
       host: "opencode" as const,
@@ -282,25 +303,25 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           orchestratorBlock(config),
           "",
-          `Use separate configured agents: ${agentNames(config)}.`,
+          `Use separate configured profiles: ${profileNames(config)}.`,
         ].join("\n")
       ),
       host: "codex",
       invocation: "$pipe <task description>",
       path: ".agents/skills/pipe/SKILL.md",
     },
-    ...agentEntries(config).map(([id, agent]) => ({
+    ...profileEntries(config).map(([id, profile]) => ({
       content: `${stringifyToml({
-        description: agent.description ?? id,
+        description: profile.description ?? id,
         developer_instructions: [
-          agent.description ?? id,
-          instructionsPointer(agent),
+          profile.description ?? id,
+          instructionsPointer(profile),
           "Configured grants:",
-          grants(agent),
+          grants(profile),
         ].join("\n"),
         name: id,
         sandbox_mode:
-          agent.filesystem?.mode === "workspace-write"
+          profile.filesystem?.mode === "workspace-write"
             ? "workspace-write"
             : "read-only",
       }).trimEnd()}\n`,
@@ -325,25 +346,25 @@ function kimiDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           orchestratorBlock(config),
           "",
-          `Use separate configured agents: ${agentNames(config)}.`,
+          `Use separate configured profiles: ${profileNames(config)}.`,
         ].join("\n")
       ),
       host: "kimi",
       invocation: "/pipe <task description>",
       path: ".kimi/commands/pipe.md",
     },
-    ...agentEntries(config).map(([id, agent]) => ({
+    ...profileEntries(config).map(([id, profile]) => ({
       content: markdown(
-        { description: agent.description ?? id, name: id },
+        { description: profile.description ?? id, name: id },
         [
           header("kimi").trimEnd(),
           "",
-          agent.description ?? id,
+          profile.description ?? id,
           "",
           "Configured grants:",
-          grants(agent),
+          grants(profile),
           "",
-          instructionsPointer(agent),
+          instructionsPointer(profile),
         ].join("\n")
       ),
       host: "kimi" as const,
@@ -403,7 +424,7 @@ function piDefinitions(config: PipelineConfig): CommandDefinition[] {
         '  const chain = WORKFLOW_NODES.filter((node) => node.kind === "agent")',
         "    .map((node) => `" +
           "$" +
-          "{String(node.agent)}: " +
+          "{String(node.profile)}: " +
           "$" +
           "{node.id} " +
           "$" +
@@ -455,10 +476,10 @@ function piWorkflowNodesLiteral(config: PipelineConfig): string[] {
     "const WORKFLOW_NODES = [",
     ...plan.topologicalOrder.flatMap((node) => [
       "  {",
-      `    agent: ${JSON.stringify(node.agent ?? null)},`,
       `    id: ${JSON.stringify(node.id)},`,
       `    kind: ${JSON.stringify(node.kind)},`,
       `    needs: ${JSON.stringify(node.needs)},`,
+      `    profile: ${JSON.stringify(node.profile ?? null)},`,
       "  },",
     ]),
     "] as const;",

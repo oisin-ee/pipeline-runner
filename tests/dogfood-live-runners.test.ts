@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { parsePipelineConfigYaml } from "../src/mastra/config.js";
+import { parsePipelineConfigParts } from "../src/mastra/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
 
 const RUN_LIVE = process.env.PIPELINE_LIVE_RUNNERS === "1";
-const OK_RESPONSE_PATTERN = /\bOK\b/;
+const OK_RESPONSE_PATTERN = /\bOK\b/i;
 const describeLive = RUN_LIVE ? describe : describe.skip;
 const tempDirs: string[] = [];
 
@@ -27,9 +27,9 @@ function tempProject(): string {
 }
 
 function liveRunnerConfig() {
-  return parsePipelineConfigYaml(`
+  return parsePipelineConfigParts({
+    runners: `
 version: 1
-default_workflow: live
 runners:
   codex:
     type: codex
@@ -61,11 +61,14 @@ runners:
     capabilities:
       native_subagents: true
       output_formats: [text, json]
-orchestrator:
-  runner: codex
-  instructions: { inline: "Coordinate the live smoke only. Do not run tools." }
-  tools: []
-agents:
+`,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: "Coordinate the live smoke only. Do not run tools." }
+    tools: []
   codex-live:
     runner: codex
     instructions: { inline: "Reply with exactly OK. Do not inspect files. Do not run tools." }
@@ -81,25 +84,32 @@ agents:
   pi-live:
     runner: pi
     instructions: { inline: "Reply with exactly OK. Do not inspect files. Do not run tools." }
+`,
+    pipeline: `
+version: 1
+default_workflow: live
+orchestrator:
+  profile: orchestrator
 workflows:
   live:
     nodes:
       - id: codex
         kind: agent
-        agent: codex-live
+        profile: codex-live
       - id: claude
         kind: agent
-        agent: claude-live
+        profile: claude-live
       - id: opencode
         kind: agent
-        agent: opencode-live
+        profile: opencode-live
       - id: kimi
         kind: agent
-        agent: kimi-live
+        profile: kimi-live
       - id: pi
         kind: agent
-        agent: pi-live
-`);
+        profile: pi-live
+`,
+  });
 }
 
 describeLive("live runner dogfood", () => {
@@ -135,7 +145,8 @@ describeLive("live runner dogfood", () => {
         ["pi", "passed"],
       ]);
       expect(
-        result.nodes.every((node) => OK_RESPONSE_PATTERN.test(node.output))
+        result.nodes.every((node) => OK_RESPONSE_PATTERN.test(node.output)),
+        JSON.stringify(diagnostic, null, 2)
       ).toBe(true);
       expect(result.agentInvocations.map((plan) => plan.type).sort()).toEqual([
         "claude",

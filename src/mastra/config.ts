@@ -4,6 +4,8 @@ import { parseDocument } from "yaml";
 import { z } from "zod";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
+export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
+export const PROFILES_CONFIG_PATH = ".pipeline/profiles.yaml";
 const LEGACY_CONFIG_PATH = ".pipeline/config.toml";
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
@@ -166,7 +168,7 @@ const retriesSchema = z
   })
   .strict();
 
-const agentSchema = z
+const profileSchema = z
   .object({
     description: z.string().optional(),
     filesystem: filesystemSchema.optional(),
@@ -184,16 +186,8 @@ const agentSchema = z
 
 const orchestratorSchema = z
   .object({
-    filesystem: filesystemSchema.optional(),
     hooks: z.array(z.string()).optional(),
-    instructions: instructionsSchema,
-    mcp_servers: z.array(z.string()).optional(),
-    model: z.string().optional(),
-    network: networkSchema.optional(),
-    rules: z.array(z.string()).optional(),
-    runner: z.string(),
-    skills: z.array(z.string()).optional(),
-    tools: z.array(z.enum(TOOL_NAMES)).optional(),
+    profile: z.string(),
   })
   .strict();
 
@@ -210,7 +204,6 @@ const hookSchema = z
 
 const workflowNodeSchema = z
   .object({
-    agent: z.string().optional(),
     artifacts: z.array(artifactSchema).optional(),
     builtin: z.string().optional(),
     command: z.array(z.string()).optional(),
@@ -220,6 +213,7 @@ const workflowNodeSchema = z
     kind: z.enum(NODE_KINDS),
     needs: z.array(z.string()).optional(),
     nodes: z.array(z.string()).optional(),
+    profile: z.string().optional(),
     retries: retriesSchema.optional(),
   })
   .strict();
@@ -232,13 +226,40 @@ const workflowSchema = z
   })
   .strict();
 
+const runnersFileSchema = z
+  .object({
+    runners: strictRecord(runnerSchema).default({}),
+    version: z.literal(1),
+  })
+  .strict();
+
+const profilesFileSchema = z
+  .object({
+    mcp_servers: strictRecord(mcpServerSchema).default({}),
+    profiles: strictRecord(profileSchema).default({}),
+    rules: strictRecord(pathRefSchema).default({}),
+    skills: strictRecord(pathRefSchema).default({}),
+    version: z.literal(1),
+  })
+  .strict();
+
+const pipelineFileSchema = z
+  .object({
+    default_workflow: z.string(),
+    hooks: strictRecord(hookSchema).default({}),
+    orchestrator: orchestratorSchema,
+    workflows: strictRecord(workflowSchema).default({}),
+    version: z.literal(1),
+  })
+  .strict();
+
 const configSchema = z
   .object({
-    agents: strictRecord(agentSchema).default({}),
     default_workflow: z.string(),
     hooks: strictRecord(hookSchema).default({}),
     mcp_servers: strictRecord(mcpServerSchema).default({}),
     orchestrator: orchestratorSchema,
+    profiles: strictRecord(profileSchema).default({}),
     rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
@@ -253,9 +274,20 @@ export type WorkflowNodeKind = (typeof NODE_KINDS)[number];
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 export type GateKind = (typeof GATE_KINDS)[number];
 
+export interface PipelineConfigParts {
+  pipeline: string;
+  profiles: string;
+  runners: string;
+}
+
 export function loadPipelineConfig(projectRoot: string): PipelineConfig {
-  const configPath = join(projectRoot, PIPELINE_CONFIG_PATH);
-  if (!existsSync(configPath)) {
+  const paths = [
+    PIPELINE_CONFIG_PATH,
+    PROFILES_CONFIG_PATH,
+    RUNNERS_CONFIG_PATH,
+  ];
+  const missing = paths.filter((path) => !existsSync(join(projectRoot, path)));
+  if (missing.length > 0) {
     const legacyPath = join(projectRoot, LEGACY_CONFIG_PATH);
     if (existsSync(legacyPath)) {
       throw new PipelineConfigError(
@@ -266,14 +298,17 @@ export function loadPipelineConfig(projectRoot: string): PipelineConfig {
     }
     throw new PipelineConfigError(
       "PIPELINE_CONFIG_MISSING",
-      `Missing required pipeline config: ${PIPELINE_CONFIG_PATH}`,
-      [{ path: PIPELINE_CONFIG_PATH, message: "file does not exist" }]
+      `Missing required pipeline config files: ${missing.join(", ")}`,
+      missing.map((path) => ({ path, message: "file does not exist" }))
     );
   }
 
-  return parsePipelineConfigYaml(
-    readFileSync(configPath, "utf8"),
-    configPath,
+  return parsePipelineConfigParts(
+    {
+      pipeline: readFileSync(join(projectRoot, PIPELINE_CONFIG_PATH), "utf8"),
+      profiles: readFileSync(join(projectRoot, PROFILES_CONFIG_PATH), "utf8"),
+      runners: readFileSync(join(projectRoot, RUNNERS_CONFIG_PATH), "utf8"),
+    },
     projectRoot
   );
 }
@@ -283,6 +318,68 @@ export function parsePipelineConfigYaml(
   sourcePath = PIPELINE_CONFIG_PATH,
   projectRoot?: string
 ): PipelineConfig {
+  return parsePipelineConfigParts(
+    {
+      pipeline: source,
+      profiles: "version: 1\nprofiles: {}\n",
+      runners: "version: 1\nrunners: {}\n",
+    },
+    projectRoot,
+    {
+      pipeline: sourcePath,
+      profiles: PROFILES_CONFIG_PATH,
+      runners: RUNNERS_CONFIG_PATH,
+    }
+  );
+}
+
+export function parsePipelineConfigParts(
+  sources: PipelineConfigParts,
+  projectRoot?: string,
+  sourcePaths: PipelineConfigParts = {
+    pipeline: PIPELINE_CONFIG_PATH,
+    profiles: PROFILES_CONFIG_PATH,
+    runners: RUNNERS_CONFIG_PATH,
+  }
+): PipelineConfig {
+  const runners = parseYamlAs(
+    sources.runners,
+    sourcePaths.runners,
+    runnersFileSchema
+  );
+  const profiles = parseYamlAs(
+    sources.profiles,
+    sourcePaths.profiles,
+    profilesFileSchema
+  );
+  const pipeline = parseYamlAs(
+    sources.pipeline,
+    sourcePaths.pipeline,
+    pipelineFileSchema
+  );
+
+  return validatePipelineConfig(
+    {
+      default_workflow: pipeline.default_workflow,
+      hooks: pipeline.hooks,
+      mcp_servers: profiles.mcp_servers,
+      orchestrator: pipeline.orchestrator,
+      profiles: profiles.profiles,
+      rules: profiles.rules,
+      runners: runners.runners,
+      skills: profiles.skills,
+      version: 1,
+      workflows: pipeline.workflows,
+    },
+    projectRoot
+  );
+}
+
+function parseYamlAs<T extends z.ZodTypeAny>(
+  source: string,
+  sourcePath: string,
+  schema: T
+): z.infer<T> {
   const document = parseDocument(source, {
     prettyErrors: false,
     uniqueKeys: true,
@@ -295,7 +392,7 @@ export function parsePipelineConfigYaml(
     );
   }
 
-  const parsed = configSchema.safeParse(document.toJS());
+  const parsed = schema.safeParse(document.toJS());
   if (!parsed.success) {
     throw validationError(
       parsed.error.issues.map((issue) => ({
@@ -304,8 +401,7 @@ export function parsePipelineConfigYaml(
       }))
     );
   }
-
-  return validatePipelineConfig(parsed.data, projectRoot);
+  return parsed.data;
 }
 
 export function validatePipelineConfig(
@@ -315,7 +411,7 @@ export function validatePipelineConfig(
   const issues: PipelineConfigIssue[] = [];
 
   validateRegistryIds("runners", config.runners, issues);
-  validateRegistryIds("agents", config.agents, issues);
+  validateRegistryIds("profiles", config.profiles, issues);
   validateRegistryIds("rules", config.rules, issues);
   validateRegistryIds("skills", config.skills, issues);
   validateRegistryIds("mcp_servers", config.mcp_servers, issues);
@@ -329,17 +425,8 @@ export function validatePipelineConfig(
     });
   }
 
-  const orchestratorRunner = config.runners[config.orchestrator.runner];
-  if (orchestratorRunner) {
-    validateActor(
-      "orchestrator",
-      "orchestrator",
-      config.orchestrator,
-      orchestratorRunner,
-      config,
-      issues,
-      projectRoot
-    );
+  const orchestratorProfile = config.profiles[config.orchestrator.profile];
+  if (orchestratorProfile) {
     validateReferences(
       "orchestrator.hooks",
       config.orchestrator.hooks,
@@ -349,21 +436,21 @@ export function validatePipelineConfig(
     );
   } else {
     issues.push({
-      path: "orchestrator.runner",
-      message: `orchestrator references missing runner '${config.orchestrator.runner}'`,
+      path: "orchestrator.profile",
+      message: `orchestrator references missing profile '${config.orchestrator.profile}'`,
     });
   }
 
-  for (const [agentId, agent] of Object.entries(config.agents)) {
-    const runner = config.runners[agent.runner];
+  for (const [profileId, profile] of Object.entries(config.profiles)) {
+    const runner = config.runners[profile.runner];
     if (!runner) {
       issues.push({
-        path: `agents.${agentId}.runner`,
-        message: `agent '${agentId}' references missing runner '${agent.runner}'`,
+        path: `profiles.${profileId}.runner`,
+        message: `profile '${profileId}' references missing runner '${profile.runner}'`,
       });
       continue;
     }
-    validateAgent(agentId, agent, runner, config, issues, projectRoot);
+    validateProfile(profileId, profile, runner, config, issues, projectRoot);
   }
 
   for (const [hookId, hook] of Object.entries(config.hooks)) {
@@ -414,40 +501,40 @@ function validateRegistryIds(
   }
 }
 
-function validateAgent(
-  agentId: string,
-  agent: PipelineConfig["agents"][string],
+function validateProfile(
+  profileId: string,
+  profile: PipelineConfig["profiles"][string],
   runner: PipelineConfig["runners"][string],
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
   projectRoot?: string
 ): void {
   validateActor(
-    `agent '${agentId}'`,
-    `agents.${agentId}`,
-    agent,
+    `profile '${profileId}'`,
+    `profiles.${profileId}`,
+    profile,
     runner,
     config,
     issues,
     projectRoot
   );
   validateListCapability(
-    `agents.${agentId}.output.format`,
-    agent.output?.format ? [agent.output.format] : undefined,
+    `profiles.${profileId}.output.format`,
+    profile.output?.format ? [profile.output.format] : undefined,
     runner.capabilities.output_formats,
     "output format",
     issues
   );
 
-  if (agent.output?.format === "json_schema" && !agent.output.schema_path) {
+  if (profile.output?.format === "json_schema" && !profile.output.schema_path) {
     issues.push({
-      path: `agents.${agentId}.output.schema_path`,
-      message: `agent '${agentId}' must declare output.schema_path for json_schema output`,
+      path: `profiles.${profileId}.output.schema_path`,
+      message: `profile '${profileId}' must declare output.schema_path for json_schema output`,
     });
   }
   validatePath(
-    `agents.${agentId}.output.schema_path`,
-    agent.output?.schema_path,
+    `profiles.${profileId}.output.schema_path`,
+    profile.output?.schema_path,
     projectRoot,
     issues
   );
@@ -456,7 +543,7 @@ function validateAgent(
 function validateActor(
   label: string,
   path: string,
-  actor: PipelineConfig["agents"][string] | PipelineConfig["orchestrator"],
+  actor: PipelineConfig["profiles"][string],
   runner: PipelineConfig["runners"][string],
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
@@ -610,16 +697,16 @@ function validateWorkflowNodeKind(
   config: PipelineConfig,
   issues: PipelineConfigIssue[]
 ): void {
-  if (node.kind === "agent" && !node.agent) {
+  if (node.kind === "agent" && !node.profile) {
     issues.push({
-      path: `workflows.${workflowId}.nodes.${node.id}.agent`,
-      message: `agent node '${node.id}' must declare agent`,
+      path: `workflows.${workflowId}.nodes.${node.id}.profile`,
+      message: `agent node '${node.id}' must declare profile`,
     });
   }
-  if (node.agent && !config.agents[node.agent]) {
+  if (node.profile && !config.profiles[node.profile]) {
     issues.push({
-      path: `workflows.${workflowId}.nodes.${node.id}.agent`,
-      message: `node '${node.id}' references missing agent '${node.agent}'`,
+      path: `workflows.${workflowId}.nodes.${node.id}.profile`,
+      message: `node '${node.id}' references missing profile '${node.profile}'`,
     });
   }
   if (node.kind === "command" && !node.command) {

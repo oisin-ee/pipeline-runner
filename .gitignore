@@ -9,7 +9,8 @@ dist
 .netlify
 .vercel
 
-.pipeline/
+.pipeline/worktrees/
+.pipeline/dogfood/
 .claude/grounded-memory.json
 
 

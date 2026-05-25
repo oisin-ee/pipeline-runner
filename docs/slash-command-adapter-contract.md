@@ -1,8 +1,8 @@
 # Host Resource Adapter Contract
 
-Generated host resources are projections of `.pipeline/pipeline.yaml`. They do
-not shell out to a legacy command and do not maintain independent agent
-profiles.
+Generated host resources are projections of `.pipeline/runners.yaml`,
+`.pipeline/profiles.yaml`, and `.pipeline/pipeline.yaml`. They do not shell out
+to a legacy command and do not maintain independent profile definitions.
 
 Install or check generated resources with:
 
@@ -23,7 +23,7 @@ pipe install-commands --host all --check
 
 ## Projection Rules
 
-- Agent names, descriptions, instructions, tools, rules, skills, MCP servers,
+- Profile names, descriptions, instructions, tools, rules, skills, MCP servers,
   filesystem mode, network mode, and output contracts are read from YAML.
 - Host-specific formats can omit unsupported capabilities, but they must not
   grant broader access than requested.

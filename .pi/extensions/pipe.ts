@@ -35,40 +35,40 @@ Instructions: .pipeline/prompts/orchestrator.md
 
 const WORKFLOW_NODES = [
   {
-    agent: "pipeline-researcher",
     id: "research",
     kind: "agent",
     needs: [],
+    profile: "pipeline-researcher",
   },
   {
-    agent: "pipeline-test-writer",
     id: "red",
     kind: "agent",
     needs: ["research"],
+    profile: "pipeline-test-writer",
   },
   {
-    agent: "pipeline-code-writer",
     id: "green",
     kind: "agent",
     needs: ["red"],
+    profile: "pipeline-code-writer",
   },
   {
-    agent: "pipeline-verifier",
     id: "verify",
     kind: "agent",
     needs: ["green"],
+    profile: "pipeline-verifier",
   },
   {
-    agent: "pipeline-learner",
     id: "learn",
     kind: "agent",
     needs: ["verify"],
+    profile: "pipeline-learner",
   },
 ] as const;
 
 function renderSubagentCommand(task: string): string {
   const chain = WORKFLOW_NODES.filter((node) => node.kind === "agent")
-    .map((node) => `${String(node.agent)}: ${node.id} ${task}`)
+    .map((node) => `${String(node.profile)}: ${node.id} ${task}`)
     .join(" -> ");
   return `/chain ${JSON.stringify(chain)}`;
 }

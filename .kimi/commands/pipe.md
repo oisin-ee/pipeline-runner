@@ -6,11 +6,11 @@ description: Run the configured pipeline workflow with Kimi agents
 
 Workflow: default
 
-- research kind=agent agent=pipeline-researcher needs=none
-- red kind=agent agent=pipeline-test-writer needs=research
-- green kind=agent agent=pipeline-code-writer needs=red
-- verify kind=agent agent=pipeline-verifier needs=green
-- learn kind=agent agent=pipeline-learner needs=verify
+- research kind=agent profile=pipeline-researcher needs=none
+- red kind=agent profile=pipeline-test-writer needs=research
+- green kind=agent profile=pipeline-code-writer needs=red
+- verify kind=agent profile=pipeline-verifier needs=green
+- learn kind=agent profile=pipeline-learner needs=verify
 
 Configured orchestrator:
 model: gpt-5
@@ -24,4 +24,4 @@ hooks: dogfood-workflow-start
 
 Instructions: .pipeline/prompts/orchestrator.md
 
-Use separate configured agents: `dogfood-artifact-writer`, `dogfood-checker`, `dogfood-claude-live`, `dogfood-codex-live`, `dogfood-kimi-live`, `dogfood-opencode-live`, `dogfood-pi-live`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.
+Use separate configured profiles: `dogfood-artifact-writer`, `dogfood-checker`, `dogfood-claude-live`, `dogfood-codex-live`, `dogfood-kimi-live`, `dogfood-opencode-live`, `dogfood-pi-live`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.
