@@ -51,6 +51,7 @@ interface CommandDefinition {
 
 type ProfileEntry = [string, PipelineConfig["profiles"][string]];
 type ActorConfig = PipelineConfig["profiles"][string] & { hooks?: string[] };
+type OpencodePermissionOptions = { forceTask?: boolean };
 
 function header(host: CommandHost): string {
   return [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join(
@@ -82,6 +83,12 @@ function profileEntries(config: PipelineConfig): ProfileEntry[] {
   return [...profileIds]
     .sort((a, b) => a.localeCompare(b))
     .map((id) => [id, config.profiles[id]] as ProfileEntry);
+}
+
+function hasAgentWorkflowNodes(config: PipelineConfig): boolean {
+  return compileWorkflowPlan(config).topologicalOrder.some(
+    (node) => node.kind === "agent"
+  );
 }
 
 function profileNames(config: PipelineConfig): string {
@@ -145,6 +152,23 @@ function orchestratorBlock(config: PipelineConfig): string {
   ].join("\n");
 }
 
+function nativeDelegationInstruction(
+  host: CommandHost,
+  config: PipelineConfig
+): string | undefined {
+  if (!hasAgentWorkflowNodes(config)) {
+    return undefined;
+  }
+  if (host === "opencode") {
+    return "Use OpenCode's task tool to delegate each agent workflow node to its configured profile. Do not invoke package scripts or the pipeline CLI to run this workflow.";
+  }
+  return "Use this host's native subagent mechanism for agent workflow nodes. Do not invoke package scripts or the pipeline CLI to run this workflow.";
+}
+
+function compactLines(lines: Array<string | undefined>): string[] {
+  return lines.filter((line): line is string => line !== undefined);
+}
+
 function claudeTools(profile: PipelineConfig["profiles"][string]): string {
   const mapped = new Map([
     ["bash", "Bash"],
@@ -171,15 +195,17 @@ function claudeDefinitions(config: PipelineConfig): CommandDefinition[] {
           "argument-hint": "<task description>",
           description: "Run the configured pipeline workflow",
         },
-        [
+        compactLines([
           header("claude").trimEnd(),
           "",
           workflowSummary(config),
           "",
           orchestratorBlock(config),
           "",
+          nativeDelegationInstruction("claude", config),
+          "",
           `Delegate work only to configured profiles: ${profileNames(config)}.`,
-        ].join("\n")
+        ]).join("\n")
       ),
       host: "claude",
       invocation: "/pipe <task description>",
@@ -210,7 +236,10 @@ function claudeDefinitions(config: PipelineConfig): CommandDefinition[] {
   ];
 }
 
-function opencodePermission(actor: ActorConfig): Record<string, string> {
+function opencodePermission(
+  actor: ActorConfig,
+  options: OpencodePermissionOptions = {}
+): Record<string, string> {
   const allowed = new Set(actor.tools ?? []);
   return {
     bash: allowed.has("bash") ? "allow" : "deny",
@@ -219,7 +248,7 @@ function opencodePermission(actor: ActorConfig): Record<string, string> {
     grep: allowed.has("grep") ? "allow" : "deny",
     list: allowed.has("list") ? "allow" : "deny",
     read: allowed.has("read") ? "allow" : "deny",
-    task: allowed.has("task") ? "allow" : "deny",
+    task: options.forceTask || allowed.has("task") ? "allow" : "deny",
     write: allowed.has("write") ? "allow" : "deny",
   };
 }
@@ -233,15 +262,17 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
           description: "Run the configured pipeline workflow",
           subtask: true,
         },
-        [
+        compactLines([
           header("opencode").trimEnd(),
           "",
           workflowSummary(config),
           "",
           orchestratorBlock(config),
           "",
+          nativeDelegationInstruction("opencode", config),
+          "",
           `Delegate work only to configured profiles: ${profileNames(config)}.`,
-        ].join("\n")
+        ]).join("\n")
       ),
       host: "opencode",
       invocation: "/pipe <task description>",
@@ -252,9 +283,17 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
         {
           description: "Orchestrate the configured pipeline and enforce gates.",
           mode: "primary",
-          permission: opencodePermission(orchestratorProfile(config)),
+          permission: opencodePermission(orchestratorProfile(config), {
+            forceTask: hasAgentWorkflowNodes(config),
+          }),
         },
-        [header("opencode").trimEnd(), "", orchestratorBlock(config)].join("\n")
+        compactLines([
+          header("opencode").trimEnd(),
+          "",
+          orchestratorBlock(config),
+          "",
+          nativeDelegationInstruction("opencode", config),
+        ]).join("\n")
       ),
       host: "opencode",
       invocation: "/pipe <task description>",
@@ -294,7 +333,7 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
             "Run the configured pipeline workflow with Codex subagents.",
           name: "pipe",
         },
-        [
+        compactLines([
           header("codex").trimEnd(),
           "",
           "Invoke this skill with `$pipe <task description>`.",
@@ -303,8 +342,10 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           orchestratorBlock(config),
           "",
+          nativeDelegationInstruction("codex", config),
+          "",
           `Use separate configured profiles: ${profileNames(config)}.`,
-        ].join("\n")
+        ]).join("\n")
       ),
       host: "codex",
       invocation: "$pipe <task description>",
@@ -339,15 +380,17 @@ function kimiDefinitions(config: PipelineConfig): CommandDefinition[] {
         {
           description: "Run the configured pipeline workflow with Kimi agents",
         },
-        [
+        compactLines([
           header("kimi").trimEnd(),
           "",
           workflowSummary(config),
           "",
           orchestratorBlock(config),
           "",
+          nativeDelegationInstruction("kimi", config),
+          "",
           `Use separate configured profiles: ${profileNames(config)}.`,
-        ].join("\n")
+        ]).join("\n")
       ),
       host: "kimi",
       invocation: "/pipe <task description>",
@@ -382,13 +425,15 @@ function piDefinitions(config: PipelineConfig): CommandDefinition[] {
           "argument-hint": "<task description>",
           description: "Run the configured pipeline workflow with Pi subagents",
         },
-        [
+        compactLines([
           header("pi").trimEnd(),
           "",
           workflowSummary(config),
           "",
           orchestratorBlock(config),
-        ].join("\n")
+          "",
+          nativeDelegationInstruction("pi", config),
+        ]).join("\n")
       ),
       host: "pi",
       invocation: "/pipe <task description>",
@@ -487,7 +532,13 @@ function piWorkflowNodesLiteral(config: PipelineConfig): string[] {
 }
 
 function piOrchestratorComment(config: PipelineConfig): string[] {
-  return ["/*", orchestratorBlock(config), "*/"];
+  return compactLines([
+    "/*",
+    orchestratorBlock(config),
+    "",
+    nativeDelegationInstruction("pi", config),
+    "*/",
+  ]);
 }
 
 function instructionsPointer(actor: ActorConfig): string {

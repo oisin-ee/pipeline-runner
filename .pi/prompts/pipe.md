@@ -24,3 +24,5 @@ network: inherit
 hooks: dogfood-workflow-start
 
 Instructions: .pipeline/prompts/orchestrator.md
+
+Use this host's native subagent mechanism for agent workflow nodes. Do not invoke package scripts or the pipeline CLI to run this workflow.

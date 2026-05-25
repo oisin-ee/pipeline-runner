@@ -110,6 +110,10 @@ describe("installCommands", () => {
       join(dir, ".opencode/commands/pipe.md"),
       "utf8"
     );
+    const opencodeOrchestrator = readFileSync(
+      join(dir, ".opencode/agents/pipeline-orchestrator.md"),
+      "utf8"
+    );
     const codexSkill = readFileSync(
       join(dir, ".agents/skills/pipe/SKILL.md"),
       "utf8"
@@ -122,6 +126,8 @@ describe("installCommands", () => {
     expect(claudeCommand).toContain("pipeline-researcher");
     expect(opencodeCommand).toContain("agent: pipeline-orchestrator");
     expect(opencodeCommand).toContain("subtask: true");
+    expect(opencodeOrchestrator).toContain("task: allow");
+    expect(opencodeOrchestrator).toContain("Use OpenCode's task tool");
     expect(codexSkill).toContain("$pipe <task description>");
     expect(piExtension).toContain("export default function pipelineWorkNext");
     expect(piExtension).toContain('pi.registerCommand("pipe", {');
@@ -133,9 +139,11 @@ describe("installCommands", () => {
     for (const content of [
       claudeCommand,
       opencodeCommand,
+      opencodeOrchestrator,
       codexSkill,
       piExtension,
     ]) {
+      expect(content).toContain("Do not invoke package scripts");
       expect(content).not.toContain("bunx @oisincoveney/pipeline");
       expect(content).not.toContain("./node_modules/.bin/pipe");
     }
