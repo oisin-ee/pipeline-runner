@@ -2,7 +2,7 @@
 
 ## Intent
 
-The goal is not to prove that profile dispatch happens. The goal is that:
+The goal is not to prove any legacy profile dispatch path. The goal is that:
 
 ```sh
 pipe --strict --harness <claude|codex|opencode|pi>
@@ -23,8 +23,8 @@ A passing smoke run means every harness can:
 
 ## Why It Is Failing
 
-The current branch verifies only part of the system: profile resolution and
-subprocess dispatch. The four-harness smoke is failing because downstream
+The current branch verifies only part of the system: direct subprocess dispatch
+and gate mechanics. The four-harness smoke is failing because downstream
 contracts are still loose or mismatched.
 
 - `claude` proves agents can write files, but VERIFY is mis-parsing or
@@ -46,13 +46,12 @@ contracts are still loose or mismatched.
 
 - **Runner contracts:** Make each harness invocation explicit, timed, and
   diagnosable. Add timeouts, capture stdout/stderr separately, and report the
-  resolved profile plus argv in failure evidence.
+  harness argv in failure evidence.
 - **Codex write mode:** Launch Codex with noninteractive workspace-write,
   approval-never config, and only use sandbox bypass behind an opt-in smoke env
   flag.
-- **OpenCode stability:** Add `--dangerously-skip-permissions`, run through
-  normal rulesync-applied profile launchers, and fail with timeout evidence
-  instead of hanging indefinitely.
+- **OpenCode stability:** Add `--dangerously-skip-permissions` and fail with
+  timeout evidence instead of hanging indefinitely.
 - **Pi stability:** Replace the custom RPC stdin loop with
   `pi --print --mode json --no-session` and attach context via file/message.
 - **Research gate:** Require valid `.pipeline/research.json` with non-empty
@@ -61,9 +60,9 @@ contracts are still loose or mismatched.
   events, nested event payloads, and object-shaped evidence.
 - **Learn gate:** Return a structured LEARN result with qdrant status; fail
   LEARN if qdrant was required but no store succeeded.
-- **Profile packages:** Publish and fix real profile rules and launcher behavior
-  in `oisin-profiles`, including silent target-only rulesync generation and
-  real phase-specific profiles or explicit mappings.
+- **Config-driven resources:** Generate host resources from
+  `.pipeline/pipeline.yaml`; do not depend on external profile packages or
+  phase-specific profile mappings.
 - **Smoke fixture:** Add a disposable language-agnostic fixture with configured
   project test/typecheck commands instead of using `/Users/oisin/dev/infra` or
   baking any one framework into the smoke target.
@@ -96,5 +95,5 @@ bun run build
 - The smoke target should be deterministic and disposable.
 - Qdrant success is part of LEARN unless memory is explicitly disabled for the
   run.
-- Soft orchestrator subagents and strict subprocess profiles are separate
-  concepts and should not share ambiguous names.
+- Soft orchestrator subagents and strict subprocess agent boundaries are
+  separate concepts and should not share ambiguous names.

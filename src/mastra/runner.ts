@@ -3,8 +3,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
 
-import { resolveProfileForPhase } from "./config.js";
-
 export type Harness = "claude" | "codex" | "opencode" | "pi";
 export type AgentRole =
   | "researcher"
@@ -15,7 +13,6 @@ export type AgentRole =
 export interface AgentResult {
   argv?: string[];
   exitCode: number;
-  profile?: string;
   stderr?: string;
   stdout: string;
   timedOut?: boolean;
@@ -26,7 +23,7 @@ export interface AgentRunRequest {
   harness: Harness;
   prompt: string;
   role: AgentRole;
-  /** Optional ticket id used by the resolver for frontmatter override lookup. */
+  /** Optional ticket id reserved for YAML-driven adapters in the v1 runtime. */
   ticketId?: string | null;
   worktreePath: string;
 }
@@ -81,9 +78,7 @@ function optionalModelArgs(harness: Harness): string[] {
 }
 
 /**
- * Per-harness argv shape (excluding the leading harness binary name and
- * any stdin/stdio plumbing). Used by `execaProfile` to build the args after
- * the profile launcher's own positional `<harness>` argument.
+ * Per-harness argv shape, excluding the leading harness binary name.
  */
 function harnessArgv(
   harness: Exclude<Harness, "pi">,
@@ -147,22 +142,16 @@ function harnessArgv(
 }
 
 /**
- * Spawn a profile launcher (`<profile> <harness> [args...]`) in the given
- * worktree. The launcher applies the profile's rules/MCP/skills/subagents
- * to cwd via `rulesync generate`, then execs the harness.
- *
- * Special-cases `pi` to preserve its stdin RPC protocol: the runner pipes
- * stdin to the launcher, which inherits stdio to pi.
+ * Spawn the selected harness directly for a single agent boundary.
  */
-async function execaProfile(
-  profile: string,
+async function execaHarness(
   harness: Harness,
   prompt: string,
   contextFile: string | null,
   worktreePath: string
 ): Promise<AgentResult> {
   if (harness === "pi") {
-    return execaProfilePi(profile, prompt, contextFile, worktreePath);
+    return execaHarnessPi(prompt, contextFile, worktreePath);
   }
 
   // Claude reads stdin as part of `--print` only when piped; we prepend the
@@ -185,18 +174,16 @@ async function execaProfile(
       : undefined;
 
   const argv = harnessArgv(harness, effectivePrompt, worktreePath, contextFile);
-  const fullArgv = [harness, ...argv];
   try {
-    const result = await execa(profile, fullArgv, {
+    const result = await execa(harness, argv, {
       cwd: worktreePath,
       stdin: input === undefined ? "ignore" : "pipe",
       timeout: Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000),
       ...(input === undefined ? {} : { input }),
     });
     return {
-      argv: fullArgv,
+      argv,
       exitCode: result.exitCode ?? 0,
-      profile,
       stderr: result.stderr ?? "",
       stdout: result.stdout,
     };
@@ -208,9 +195,8 @@ async function execaProfile(
       timedOut?: boolean;
     };
     return {
-      argv: fullArgv,
+      argv,
       exitCode: e.exitCode ?? 1,
-      profile,
       stderr: e.stderr ?? "",
       stdout: e.stdout ?? "",
       timedOut: Boolean(e.timedOut),
@@ -219,19 +205,16 @@ async function execaProfile(
 }
 
 /**
- * Pi-specific path. The launcher's `stdio: 'inherit'` causes pi to inherit
- * the launcher's stdin; we pipe from this process into the launcher.
+ * Pi-specific path.
  */
-async function execaProfilePi(
-  profile: string,
+async function execaHarnessPi(
   prompt: string,
   contextFile: string | null,
   worktreePath: string
 ): Promise<AgentResult> {
   const context = await loadContext(contextFile);
   const effectivePrompt = context ? `${context}\n${prompt}` : prompt;
-  const fullArgv = [
-    "pi",
+  const argv = [
     "--print",
     "--mode",
     "json",
@@ -240,15 +223,14 @@ async function execaProfilePi(
     effectivePrompt,
   ];
   try {
-    const result = await execa(profile, fullArgv, {
+    const result = await execa("pi", argv, {
       cwd: worktreePath,
       stdin: "ignore",
       timeout: Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000),
     });
     return {
-      argv: fullArgv,
+      argv,
       exitCode: result.exitCode ?? 0,
-      profile,
       stderr: result.stderr ?? "",
       stdout: result.stdout,
     };
@@ -260,9 +242,8 @@ async function execaProfilePi(
       timedOut?: boolean;
     };
     return {
-      argv: fullArgv,
+      argv,
       exitCode: e.exitCode ?? 1,
-      profile,
       stderr: e.stderr ?? "",
       stdout: e.stdout ?? "",
       timedOut: Boolean(e.timedOut),
@@ -271,35 +252,16 @@ async function execaProfilePi(
 }
 
 /**
- * Hard adapter (strict mode): resolves a phase-specific specialized profile
- * via `.pipeline/config.toml` + ticket frontmatter, then exec's it.
- *
- * Each phase runs in its own subprocess with its own profile applied to
- * the worktree (rules + MCP + skills + subagents). The Mastra workflow
- * enforces gate semantics between phases.
+ * Strict adapter: each phase runs as its own harness subprocess.
  */
 export const hardAgentAdapter: AgentAdapter = {
-  run({
-    role,
-    harness,
-    prompt,
-    contextFile,
-    worktreePath,
-    ticketId,
-  }: AgentRunRequest): Promise<AgentResult> {
-    const profile = resolveProfileForPhase(
-      role,
-      ticketId ?? null,
-      worktreePath
-    );
-    return execaProfile(profile, harness, prompt, contextFile, worktreePath);
+  run({ harness, prompt, contextFile, worktreePath }: AgentRunRequest) {
+    return execaHarness(harness, prompt, contextFile, worktreePath);
   },
 };
 
 /**
- * Back-compat shim: existing step files import `spawnAgent` to invoke the
- * runner. Now goes through `hardAgentAdapter`. The `role` argument is no
- * longer ignored.
+ * Invoke one pipeline agent boundary through the strict subprocess adapter.
  */
 export function spawnAgent(
   harness: Harness,
@@ -320,9 +282,6 @@ export function spawnAgent(
 }
 
 /**
- * Alias retained for callers that import `subprocessAgentAdapter`. The
- * underlying behavior changed (now goes through a profile launcher per
- * phase rather than raw harness binaries), but the contract — Mastra
- * agent adapter — is the same shape.
+ * Default subprocess adapter used by pipeline steps.
  */
 export const subprocessAgentAdapter: AgentAdapter = hardAgentAdapter;

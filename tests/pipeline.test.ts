@@ -5,26 +5,6 @@ vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
 
-// Mock the resolver so tests don't need a real .pipeline/config.toml.
-vi.mock("../src/mastra/config.ts", () => ({
-  resolveProfileForPhase: (
-    role: "researcher" | "test-writer" | "code-writer" | "verifier"
-  ) =>
-    ({
-      researcher: "researcher",
-      "test-writer": "test-writer-profile",
-      "code-writer": "code-writer-profile",
-      verifier: "verifier",
-    })[role],
-  parseTicketAndDescription: (s: string) => ({
-    ticketId: null,
-    description: s,
-  }),
-  loadPipelineConfig: () => ({ phases: {} }),
-  readTicketOverride: () => null,
-  BUILT_IN_CONFIG: { phases: {} },
-}));
-
 vi.mock("node:fs", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs")>();
   return {
@@ -756,8 +736,8 @@ describe("pipelineWorkflow", () => {
     mockExeca.mockResolvedValue({ stdout: "research", exitCode: 0 } as any);
     await pipelineWorkflow.steps.research.execute({ inputData } as any);
     expect(mockExeca).toHaveBeenCalledWith(
-      "researcher",
-      expect.arrayContaining(["opencode", "--file", CONTEXT_FILE]),
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE]),
       expect.objectContaining({ cwd: "/fake/worktree" })
     );
 
@@ -779,33 +759,34 @@ describe("pipelineWorkflow", () => {
       );
     await pipelineWorkflow.steps.red.execute({ inputData } as any);
     expect(mockExeca.mock.calls[0]).toEqual([
-      "test-writer-profile",
-      expect.arrayContaining(["opencode", "--file", CONTEXT_FILE]),
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE]),
       expect.objectContaining({ cwd: "/fake/worktree" }),
     ]);
 
     mockExeca.mockReset();
     mockExistsSync.mockReturnValue(false);
     mockExeca.mockImplementation((cmd: string | URL) => {
-      if (String(cmd) === "code-writer-profile") {
+      if (String(cmd) === "opencode") {
         return Promise.resolve({ stdout: "implemented", exitCode: 0 }) as any;
       }
       return Promise.resolve({ stdout: "all pass", exitCode: 0 }) as any;
     });
     await pipelineWorkflow.steps.green.execute({ inputData } as any);
     const greenAgentCall = mockExeca.mock.calls.find(
-      ([cmd]) => String(cmd) === "code-writer-profile"
+      ([cmd, args]) =>
+        String(cmd) === "opencode" && (args as string[]).includes(CONTEXT_FILE)
     );
     expect(greenAgentCall).toEqual([
-      "code-writer-profile",
-      expect.arrayContaining(["opencode", "--file", CONTEXT_FILE]),
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE]),
       expect.objectContaining({ cwd: "/fake/worktree" }),
     ]);
 
     mockExeca.mockReset();
     mockExistsSync.mockReturnValue(false);
     mockExeca.mockImplementation((cmd: string | URL) => {
-      if (String(cmd) === "verifier") {
+      if (String(cmd) === "opencode") {
         return Promise.resolve({
           stdout: JSON.stringify({ verdict: "PASS", evidence: [] }),
           exitCode: 0,
@@ -827,11 +808,12 @@ describe("pipelineWorkflow", () => {
       },
     } as any);
     const verifyAgentCall = mockExeca.mock.calls.find(
-      ([cmd]) => String(cmd) === "verifier"
+      ([cmd, args]) =>
+        String(cmd) === "opencode" && (args as string[]).includes(CONTEXT_FILE)
     );
     expect(verifyAgentCall).toEqual([
-      "verifier",
-      expect.arrayContaining(["opencode", "--file", CONTEXT_FILE]),
+      "opencode",
+      expect.arrayContaining(["--file", CONTEXT_FILE]),
       expect.objectContaining({ cwd: "/fake/worktree" }),
     ]);
   });

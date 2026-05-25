@@ -1,218 +1,574 @@
-/**
- * Pipeline phase → profile resolver.
- *
- * Reads `.pipeline/config.toml` (or built-in default) and the parent ticket's
- * frontmatter to decide which `@oisin-ee/profile-<name>` to dispatch per phase
- * in --strict mode.
- *
- * Used only by the strict adapter. Soft mode (default `pipe` CLI) does not
- * invoke this; the orchestrator profile's rules handle phase dispatch
- * directly via native subagent invocation.
- */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import matter from "gray-matter";
-import { parse as parseTOML } from "smol-toml";
+import { parseDocument } from "yaml";
+import { z } from "zod";
 
-import type { AgentRole } from "./runner.js";
+export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
+const LEGACY_CONFIG_PATH = ".pipeline/config.toml";
 
-export type PipelinePhase = AgentRole;
+const ID_RE = /^[a-z][a-z0-9-]*$/;
 
-export interface PhaseSpec {
-  candidates: string[];
-  default?: string;
+const RUNNER_TYPES = [
+  "claude",
+  "codex",
+  "opencode",
+  "kimi",
+  "pi",
+  "command",
+] as const;
+const NODE_KINDS = ["agent", "command", "builtin", "group"] as const;
+const HOOK_EVENTS = [
+  "workflow.start",
+  "workflow.success",
+  "workflow.failure",
+  "workflow.complete",
+  "node.start",
+  "node.success",
+  "node.error",
+  "gate.failure",
+] as const;
+const TOOL_NAMES = [
+  "read",
+  "list",
+  "grep",
+  "glob",
+  "bash",
+  "edit",
+  "write",
+  "task",
+] as const;
+const FILESYSTEM_MODES = ["read-only", "workspace-write"] as const;
+const NETWORK_MODES = ["inherit", "disabled"] as const;
+const OUTPUT_FORMATS = ["text", "json", "jsonl", "json_schema"] as const;
+
+export type PipelineConfigErrorCode =
+  | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
+  | "PIPELINE_CONFIG_MISSING"
+  | "PIPELINE_CONFIG_PARSE_ERROR"
+  | "PIPELINE_CONFIG_VALIDATION_ERROR";
+
+export interface PipelineConfigIssue {
+  message: string;
+  path?: string;
 }
 
-export interface PipelineConfig {
-  phases: Record<PipelinePhase, PhaseSpec>;
+export class PipelineConfigError extends Error {
+  code: PipelineConfigErrorCode;
+  issues: PipelineConfigIssue[];
+
+  constructor(
+    code: PipelineConfigErrorCode,
+    message: string,
+    issues: PipelineConfigIssue[] = []
+  ) {
+    super(message);
+    this.name = "PipelineConfigError";
+    this.code = code;
+    this.issues = issues;
+  }
 }
 
-/**
- * Built-in default config used when the consuming project has no
- * `.pipeline/config.toml`. Mirrors the schema documented in the integration
- * plan. RED + GREEN intentionally have no `default` — a multi-candidate
- * domain phase MUST be resolved from ticket frontmatter or it errors.
- */
-export const BUILT_IN_CONFIG: PipelineConfig = {
-  phases: {
-    researcher: {
-      candidates: ["researcher"],
-      default: "researcher",
-    },
-    "test-writer": {
-      candidates: ["frontend", "backend"],
-    },
-    "code-writer": {
-      candidates: ["frontend", "backend"],
-    },
-    verifier: {
-      candidates: ["verifier"],
-      default: "verifier",
-    },
-  },
-};
+const strictRecord = <T extends z.ZodTypeAny>(valueSchema: T) =>
+  z.record(z.string(), valueSchema);
 
-/**
- * Maps the runner's `AgentRole` to the pipeline.toml frontmatter key.
- * Runner roles use long verbs ("test-writer"); ticket frontmatter uses the
- * short phase name ("red", "green") that's more natural for humans to write.
- */
-const ROLE_TO_TICKET_KEY: Record<AgentRole, string> = {
-  researcher: "research",
-  "test-writer": "red",
-  "code-writer": "green",
-  verifier: "verify",
-};
+const runnerCapabilitiesSchema = z
+  .object({
+    filesystem: z.array(z.enum(FILESYSTEM_MODES)).optional(),
+    mcp_servers: z.boolean().optional(),
+    native_subagents: z.boolean().optional(),
+    network: z.array(z.enum(NETWORK_MODES)).optional(),
+    output_formats: z.array(z.enum(OUTPUT_FORMATS)).optional(),
+    rules: z.boolean().optional(),
+    skills: z.boolean().optional(),
+    tools: z.array(z.enum(TOOL_NAMES)).optional(),
+  })
+  .strict();
 
-interface TicketResult {
-  description: string;
-  ticketId: string | null;
-}
+const runnerSchema = z
+  .object({
+    args: z.array(z.string()).optional(),
+    capabilities: runnerCapabilitiesSchema,
+    command: z.string().optional(),
+    type: z.enum(RUNNER_TYPES),
+  })
+  .strict();
 
-const TICKET_RE = /^([A-Z]+-\d+)\b\s*(.*)$/s;
+const pathRefSchema = z
+  .object({
+    path: z.string().min(1),
+  })
+  .strict();
 
-/**
- * Extract a Backlog.md ticket id (e.g. "PIPE-42") from the start of a free-form
- * description string. Returns the id and the remaining description.
- */
-export function parseTicketAndDescription(input: string): TicketResult {
-  const m = input.match(TICKET_RE);
-  if (m) {
-    return {
-      ticketId: m[1] ?? null,
-      description: (m[2] ?? "").trim() || (m[1] ?? ""),
-    };
-  }
-  return { ticketId: null, description: input };
-}
+const mcpServerSchema = z
+  .object({
+    args: z.array(z.string()).optional(),
+    command: z.string().min(1),
+    env: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
 
-/**
- * Load `.pipeline/config.toml` from a worktree, falling back to `BUILT_IN_CONFIG`.
- * Schema is lenient: any phase listed in BUILT_IN_CONFIG that's missing from
- * the user file inherits the built-in for that phase.
- */
-export function loadPipelineConfig(worktreePath: string): PipelineConfig {
-  const path = join(worktreePath, ".pipeline", "config.toml");
-  if (!existsSync(path)) {
-    return BUILT_IN_CONFIG;
-  }
+const instructionsSchema = z
+  .object({
+    inline: z.string().min(1).optional(),
+    path: z.string().min(1).optional(),
+  })
+  .strict();
 
-  let raw: unknown;
-  try {
-    raw = parseTOML(readFileSync(path, "utf8"));
-  } catch (err) {
-    throw new Error(`failed to parse ${path}: ${(err as Error).message}`);
-  }
+const filesystemSchema = z
+  .object({
+    allow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+    mode: z.enum(FILESYSTEM_MODES),
+  })
+  .strict();
 
-  const userPhases =
-    (raw as { phases?: Record<string, PhaseSpec> }).phases ?? {};
-  const merged: Record<PipelinePhase, PhaseSpec> = {
-    ...BUILT_IN_CONFIG.phases,
-  };
-  for (const role of Object.keys(BUILT_IN_CONFIG.phases) as PipelinePhase[]) {
-    const ticketKey = ROLE_TO_TICKET_KEY[role];
-    const fromUser = userPhases[ticketKey] ?? userPhases[role];
-    if (fromUser) {
-      merged[role] = fromUser;
-    }
-  }
-  return { phases: merged };
-}
+const networkSchema = z
+  .object({
+    mode: z.enum(NETWORK_MODES),
+  })
+  .strict();
 
-/**
- * Read a parent Backlog.md ticket's `pipeline.<phase>` frontmatter override.
- *
- * Pipeline frontmatter shape:
- * ```
- * ---
- * id: PIPE-42
- * pipeline:
- *   red: backend
- *   green: backend
- * ---
- * ```
- *
- * Returns the override string for the given role (mapped through ROLE_TO_TICKET_KEY)
- * or null when there is no ticket id, the file doesn't exist, or the field is unset.
- */
-export function readTicketOverride(
-  role: AgentRole,
-  ticketId: string | null,
-  worktreePath: string
-): string | null {
-  if (!ticketId) {
-    return null;
-  }
-  // Backlog.md tasks are stored as `backlog/tasks/<pipe-N> - <title>.md` —
-  // the file *starts* with the slug. We match by prefix on a sorted scan.
-  const tasksDir = join(worktreePath, "backlog", "tasks");
-  if (!existsSync(tasksDir)) {
-    return null;
-  }
+const outputSchema = z
+  .object({
+    format: z.enum(OUTPUT_FORMATS),
+    schema_path: z.string().min(1).optional(),
+  })
+  .strict();
 
-  // Find a file whose name starts with the ticket id's lowercase slug followed
-  // by a space-dash. Backlog.md normalizes ids to lowercase in the filename
-  // (e.g. PIPE-42 → "pipe-42 - …").
-  const slug = ticketId.toLowerCase();
-  const candidates = readdirSync(tasksDir).filter(
-    (name) => name.toLowerCase().startsWith(`${slug} `) && name.endsWith(".md")
-  );
-  if (candidates.length === 0) {
-    return null;
-  }
-  const file = join(tasksDir, candidates[0] as string);
+const agentSchema = z
+  .object({
+    description: z.string().optional(),
+    filesystem: filesystemSchema.optional(),
+    instructions: instructionsSchema,
+    mcp_servers: z.array(z.string()).optional(),
+    network: networkSchema.optional(),
+    output: outputSchema.optional(),
+    rules: z.array(z.string()).optional(),
+    runner: z.string(),
+    skills: z.array(z.string()).optional(),
+    tools: z.array(z.enum(TOOL_NAMES)).optional(),
+  })
+  .strict();
 
-  const parsed = matter(readFileSync(file, "utf8"));
-  const ticketKey = ROLE_TO_TICKET_KEY[role];
-  const pipeline = (parsed.data as { pipeline?: Record<string, string> })
-    .pipeline;
-  if (!pipeline) {
-    return null;
-  }
-  const val = pipeline[ticketKey];
-  return typeof val === "string" ? val : null;
-}
+const hookSchema = z
+  .object({
+    builtin: z.string().optional(),
+    command: z.array(z.string()).optional(),
+    event: z.enum(HOOK_EVENTS),
+    kind: z.enum(["command", "builtin"]),
+    required: z.boolean().optional(),
+    timeout_ms: z.number().int().positive().optional(),
+  })
+  .strict();
 
-/**
- * Resolve which profile name dispatches the given phase for this ticket.
- *
- * Order:
- *   1. Ticket frontmatter override (`pipeline.<phase>` in `backlog/tasks/<id>.md`).
- *   2. Config default (`.pipeline/config.toml` or built-in).
- *   3. Throw with a clear message naming the candidates the user needs to pick from.
- *
- * The returned string is also the npm package name suffix
- * (`@oisin-ee/profile-<returned>`) and the bin name on PATH.
- */
-export function resolveProfileForPhase(
-  role: AgentRole,
-  ticketId: string | null,
-  worktreePath: string
-): string {
-  const config = loadPipelineConfig(worktreePath);
-  const phase = config.phases[role];
-  if (!phase) {
-    throw new Error(`no candidates configured for phase '${role}'`);
-  }
+const workflowNodeSchema = z
+  .object({
+    agent: z.string().optional(),
+    builtin: z.string().optional(),
+    command: z.array(z.string()).optional(),
+    id: z.string(),
+    kind: z.enum(NODE_KINDS),
+    needs: z.array(z.string()).optional(),
+    nodes: z.array(z.string()).optional(),
+  })
+  .strict();
 
-  const override = readTicketOverride(role, ticketId, worktreePath);
-  if (override) {
-    if (!phase.candidates.includes(override)) {
-      throw new Error(
-        `ticket '${ticketId}' requests profile '${override}' for phase '${role}', ` +
-          `but candidates are [${phase.candidates.join(", ")}]`
+const workflowSchema = z
+  .object({
+    description: z.string().optional(),
+    hooks: z.array(z.string()).optional(),
+    nodes: z.array(workflowNodeSchema),
+  })
+  .strict();
+
+const configSchema = z
+  .object({
+    agents: strictRecord(agentSchema).default({}),
+    default_workflow: z.string(),
+    hooks: strictRecord(hookSchema).default({}),
+    mcp_servers: strictRecord(mcpServerSchema).default({}),
+    rules: strictRecord(pathRefSchema).default({}),
+    runners: strictRecord(runnerSchema).default({}),
+    skills: strictRecord(pathRefSchema).default({}),
+    version: z.literal(1),
+    workflows: strictRecord(workflowSchema).default({}),
+  })
+  .strict();
+
+export type PipelineConfig = z.infer<typeof configSchema>;
+export type RunnerType = (typeof RUNNER_TYPES)[number];
+export type WorkflowNodeKind = (typeof NODE_KINDS)[number];
+export type HookEvent = (typeof HOOK_EVENTS)[number];
+
+export function loadPipelineConfig(projectRoot: string): PipelineConfig {
+  const configPath = join(projectRoot, PIPELINE_CONFIG_PATH);
+  if (!existsSync(configPath)) {
+    const legacyPath = join(projectRoot, LEGACY_CONFIG_PATH);
+    if (existsSync(legacyPath)) {
+      throw new PipelineConfigError(
+        "PIPELINE_CONFIG_LEGACY_UNSUPPORTED",
+        `${LEGACY_CONFIG_PATH} is not supported by the v1 pipeline config. Create ${PIPELINE_CONFIG_PATH}.`,
+        [{ path: LEGACY_CONFIG_PATH, message: "legacy TOML config found" }]
       );
     }
-    return override;
+    throw new PipelineConfigError(
+      "PIPELINE_CONFIG_MISSING",
+      `Missing required pipeline config: ${PIPELINE_CONFIG_PATH}`,
+      [{ path: PIPELINE_CONFIG_PATH, message: "file does not exist" }]
+    );
   }
 
-  if (phase.default) {
-    return phase.default;
+  return parsePipelineConfigYaml(
+    readFileSync(configPath, "utf8"),
+    configPath,
+    projectRoot
+  );
+}
+
+export function parsePipelineConfigYaml(
+  source: string,
+  sourcePath = PIPELINE_CONFIG_PATH,
+  projectRoot?: string
+): PipelineConfig {
+  const document = parseDocument(source, {
+    prettyErrors: false,
+    uniqueKeys: true,
+  });
+  if (document.errors.length > 0) {
+    throw new PipelineConfigError(
+      "PIPELINE_CONFIG_PARSE_ERROR",
+      `Failed to parse ${sourcePath}`,
+      document.errors.map((err) => ({ message: err.message, path: sourcePath }))
+    );
   }
 
-  throw new Error(
-    `phase '${role}' has no default in .pipeline/config.toml; ticket ` +
-      `${ticketId ?? "(none detected)"} did not declare a 'pipeline.${ROLE_TO_TICKET_KEY[role]}' override. ` +
-      `Choose one of: [${phase.candidates.join(", ")}].`
+  const parsed = configSchema.safeParse(document.toJS());
+  if (!parsed.success) {
+    throw validationError(
+      parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      }))
+    );
+  }
+
+  return validatePipelineConfig(parsed.data, projectRoot);
+}
+
+export function validatePipelineConfig(
+  config: PipelineConfig,
+  projectRoot?: string
+): PipelineConfig {
+  const issues: PipelineConfigIssue[] = [];
+
+  validateRegistryIds("runners", config.runners, issues);
+  validateRegistryIds("agents", config.agents, issues);
+  validateRegistryIds("rules", config.rules, issues);
+  validateRegistryIds("skills", config.skills, issues);
+  validateRegistryIds("mcp_servers", config.mcp_servers, issues);
+  validateRegistryIds("hooks", config.hooks, issues);
+  validateRegistryIds("workflows", config.workflows, issues);
+
+  if (!config.workflows[config.default_workflow]) {
+    issues.push({
+      path: "default_workflow",
+      message: `default workflow '${config.default_workflow}' is not declared`,
+    });
+  }
+
+  for (const [agentId, agent] of Object.entries(config.agents)) {
+    const runner = config.runners[agent.runner];
+    if (!runner) {
+      issues.push({
+        path: `agents.${agentId}.runner`,
+        message: `agent '${agentId}' references missing runner '${agent.runner}'`,
+      });
+      continue;
+    }
+    validateAgent(agentId, agent, runner, config, issues, projectRoot);
+  }
+
+  for (const [hookId, hook] of Object.entries(config.hooks)) {
+    if (hook.kind === "command" && !hook.command) {
+      issues.push({
+        path: `hooks.${hookId}.command`,
+        message: `command hook '${hookId}' must declare command`,
+      });
+    }
+    if (hook.kind === "builtin" && !hook.builtin) {
+      issues.push({
+        path: `hooks.${hookId}.builtin`,
+        message: `builtin hook '${hookId}' must declare builtin`,
+      });
+    }
+  }
+
+  for (const [workflowId, workflow] of Object.entries(config.workflows)) {
+    validateWorkflow(workflowId, workflow, config, issues);
+  }
+
+  if (issues.length > 0) {
+    throw validationError(issues);
+  }
+  return config;
+}
+
+function validateRegistryIds(
+  name: string,
+  registry: Record<string, unknown>,
+  issues: PipelineConfigIssue[]
+): void {
+  for (const id of Object.keys(registry)) {
+    if (!ID_RE.test(id)) {
+      issues.push({
+        path: `${name}.${id}`,
+        message: `registry id '${id}' must match ${ID_RE.source}`,
+      });
+    }
+  }
+}
+
+function validateAgent(
+  agentId: string,
+  agent: PipelineConfig["agents"][string],
+  runner: PipelineConfig["runners"][string],
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[],
+  projectRoot?: string
+): void {
+  if (!(agent.instructions.path || agent.instructions.inline)) {
+    issues.push({
+      path: `agents.${agentId}.instructions`,
+      message: `agent '${agentId}' must declare instructions.path or instructions.inline`,
+    });
+  }
+  validatePath(
+    `agents.${agentId}.instructions.path`,
+    agent.instructions.path,
+    projectRoot,
+    issues
+  );
+
+  validateReferences(
+    `agents.${agentId}.rules`,
+    agent.rules,
+    config.rules,
+    "rule",
+    issues
+  );
+  validateReferences(
+    `agents.${agentId}.skills`,
+    agent.skills,
+    config.skills,
+    "skill",
+    issues
+  );
+  validateReferences(
+    `agents.${agentId}.mcp_servers`,
+    agent.mcp_servers,
+    config.mcp_servers,
+    "MCP server",
+    issues
+  );
+
+  validateBooleanCapability(
+    `agents.${agentId}.rules`,
+    agent.rules,
+    runner.capabilities.rules,
+    "rules",
+    issues
+  );
+  validateBooleanCapability(
+    `agents.${agentId}.skills`,
+    agent.skills,
+    runner.capabilities.skills,
+    "skills",
+    issues
+  );
+  validateBooleanCapability(
+    `agents.${agentId}.mcp_servers`,
+    agent.mcp_servers,
+    runner.capabilities.mcp_servers,
+    "MCP servers",
+    issues
+  );
+  validateListCapability(
+    `agents.${agentId}.tools`,
+    agent.tools,
+    runner.capabilities.tools,
+    "tool",
+    issues
+  );
+  validateListCapability(
+    `agents.${agentId}.filesystem.mode`,
+    agent.filesystem?.mode ? [agent.filesystem.mode] : undefined,
+    runner.capabilities.filesystem,
+    "filesystem mode",
+    issues
+  );
+  validateListCapability(
+    `agents.${agentId}.network.mode`,
+    agent.network?.mode ? [agent.network.mode] : undefined,
+    runner.capabilities.network,
+    "network mode",
+    issues
+  );
+  validateListCapability(
+    `agents.${agentId}.output.format`,
+    agent.output?.format ? [agent.output.format] : undefined,
+    runner.capabilities.output_formats,
+    "output format",
+    issues
+  );
+
+  if (agent.output?.format === "json_schema" && !agent.output.schema_path) {
+    issues.push({
+      path: `agents.${agentId}.output.schema_path`,
+      message: `agent '${agentId}' must declare output.schema_path for json_schema output`,
+    });
+  }
+  validatePath(
+    `agents.${agentId}.output.schema_path`,
+    agent.output?.schema_path,
+    projectRoot,
+    issues
+  );
+}
+
+function validateWorkflow(
+  workflowId: string,
+  workflow: PipelineConfig["workflows"][string],
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[]
+): void {
+  validateReferences(
+    `workflows.${workflowId}.hooks`,
+    workflow.hooks,
+    config.hooks,
+    "hook",
+    issues
+  );
+
+  const nodeIds = new Set<string>();
+  for (const node of workflow.nodes) {
+    if (nodeIds.has(node.id)) {
+      issues.push({
+        path: `workflows.${workflowId}.nodes.${node.id}`,
+        message: `workflow '${workflowId}' declares duplicate node id '${node.id}'`,
+      });
+    }
+    nodeIds.add(node.id);
+  }
+
+  for (const node of workflow.nodes) {
+    if (!ID_RE.test(node.id)) {
+      issues.push({
+        path: `workflows.${workflowId}.nodes.${node.id}`,
+        message: `workflow node id '${node.id}' must match ${ID_RE.source}`,
+      });
+    }
+    for (const need of node.needs ?? []) {
+      if (!nodeIds.has(need)) {
+        issues.push({
+          path: `workflows.${workflowId}.nodes.${node.id}.needs`,
+          message: `node '${node.id}' references missing dependency '${need}'`,
+        });
+      }
+    }
+    if (node.kind === "agent" && !node.agent) {
+      issues.push({
+        path: `workflows.${workflowId}.nodes.${node.id}.agent`,
+        message: `agent node '${node.id}' must declare agent`,
+      });
+    }
+    if (node.agent && !config.agents[node.agent]) {
+      issues.push({
+        path: `workflows.${workflowId}.nodes.${node.id}.agent`,
+        message: `node '${node.id}' references missing agent '${node.agent}'`,
+      });
+    }
+  }
+}
+
+function validateReferences(
+  path: string,
+  refs: string[] | undefined,
+  registry: Record<string, unknown>,
+  label: string,
+  issues: PipelineConfigIssue[]
+): void {
+  for (const ref of refs ?? []) {
+    if (!registry[ref]) {
+      issues.push({
+        path,
+        message: `references missing ${label} '${ref}'`,
+      });
+    }
+  }
+}
+
+function validateBooleanCapability(
+  path: string,
+  refs: string[] | undefined,
+  capability: boolean | undefined,
+  label: string,
+  issues: PipelineConfigIssue[]
+): void {
+  if ((refs?.length ?? 0) > 0 && capability !== true) {
+    issues.push({
+      path,
+      message: `selected runner does not support ${label}`,
+    });
+  }
+}
+
+function validateListCapability(
+  path: string,
+  requested: string[] | undefined,
+  supported: readonly string[] | undefined,
+  label: string,
+  issues: PipelineConfigIssue[]
+): void {
+  if (!requested || requested.length === 0) {
+    return;
+  }
+  const allowed = new Set(supported ?? []);
+  for (const item of requested) {
+    if (!allowed.has(item)) {
+      issues.push({
+        path,
+        message: `selected runner does not support ${label} '${item}'`,
+      });
+    }
+  }
+}
+
+function validatePath(
+  path: string,
+  value: string | undefined,
+  projectRoot: string | undefined,
+  issues: PipelineConfigIssue[]
+): void {
+  if (!(value && projectRoot)) {
+    return;
+  }
+  if (!existsSync(join(projectRoot, value))) {
+    issues.push({
+      path,
+      message: `referenced file '${value}' does not exist`,
+    });
+  }
+}
+
+function validationError(issues: PipelineConfigIssue[]): PipelineConfigError {
+  return new PipelineConfigError(
+    "PIPELINE_CONFIG_VALIDATION_ERROR",
+    [
+      "Invalid pipeline config:",
+      ...issues.map((issue) =>
+        issue.path ? `- ${issue.path}: ${issue.message}` : `- ${issue.message}`
+      ),
+    ].join("\n"),
+    issues
   );
 }

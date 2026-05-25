@@ -47,56 +47,10 @@ function writeFixtureWorktree(worktreePath: string): void {
     "# Test first\n\nWrite the failing test before implementation."
   );
   mkdirSync(join(worktreePath, ".pipeline"), { recursive: true });
-  // The strict-mode resolver requires either a default per phase or a ticket
-  // frontmatter override. The tracer test invokes pipe with a free-form
-  // description that does have a ticket id (PIPE-14) but no backlog file to
-  // read frontmatter from, so declare defaults here.
-  writeFileSync(
-    join(worktreePath, ".pipeline", "config.toml"),
-    `[phases.research]
-candidates = ["researcher"]
-default = "researcher"
-
-[phases.red]
-candidates = ["frontend", "backend"]
-default = "backend"
-
-[phases.green]
-candidates = ["frontend", "backend"]
-default = "backend"
-
-[phases.verify]
-candidates = ["verifier"]
-default = "verifier"
-
-[phases.learn]
-candidates = ["researcher"]
-default = "researcher"
-`
-  );
 }
 
 function writeFakeExecutables(env: TracerEnvironment): void {
   mkdirSync(env.binPath, { recursive: true });
-
-  // Fake profile launchers. Strict mode invokes `<profile> <harness> [...args]`.
-  // The fake launcher logs the invocation and forwards to the harness directly,
-  // so the test stays sandboxed (no real rulesync invocation).
-  const profileLauncherSource = `#!/usr/bin/env node
-const fs = require("node:fs");
-const { spawnSync } = require("node:child_process");
-const args = process.argv.slice(2);
-fs.appendFileSync(
-  process.env.PIPELINE_TRACER_LOG,
-  JSON.stringify({ type: "profile", profile: process.argv[1].split("/").pop(), args, cwd: process.cwd() }) + "\\n"
-);
-const [harness, ...rest] = args;
-const result = spawnSync(harness, rest, { cwd: process.cwd(), stdio: "inherit" });
-process.exit(result.status ?? 1);
-`;
-  for (const profile of ["researcher", "frontend", "backend", "verifier"]) {
-    writeExecutable(env.binPath, profile, profileLauncherSource);
-  }
 
   // Fake backlog: logs every invocation and, for "task create" calls, emits
   // a minimal stdout that mimics real backlog so createSwarmTasks can parse

@@ -22,11 +22,7 @@ export interface PipelinePhaseReporter {
 export interface PipelinePrimitiveInput {
   harness: Harness;
   task: string;
-  /**
-   * Optional ticket id (Backlog.md style, e.g. "PIPE-42") parsed from the
-   * task string. Used by the strict-mode resolver to look up phase-profile
-   * overrides in the parent ticket's frontmatter.
-   */
+  /** Optional ticket id (Backlog.md style, e.g. "PIPE-42") parsed from the task string. */
   ticketId?: string | null;
   worktreePath: string;
 }

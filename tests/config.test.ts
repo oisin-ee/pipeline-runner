@@ -1,215 +1,307 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("node:fs", async (importOriginal) => {
-  const real = await importOriginal<typeof import("node:fs")>();
-  return {
-    ...real,
-    existsSync: vi.fn(real.existsSync),
-    readFileSync: vi.fn(real.readFileSync),
-    readdirSync: vi.fn(real.readdirSync),
-  };
-});
-
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
-  BUILT_IN_CONFIG,
   loadPipelineConfig,
-  parseTicketAndDescription,
-  readTicketOverride,
-  resolveProfileForPhase,
+  PipelineConfigError,
+  parsePipelineConfigYaml,
 } from "../src/mastra/config.js";
 
-const mockExistsSync = vi.mocked(existsSync);
-const mockReadFileSync = vi.mocked(readFileSync);
-const mockReaddirSync = vi.mocked(readdirSync);
+const VALID_YAML = `
+version: 1
+default_workflow: default
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit]
+      output_formats: [text, json, jsonl, json_schema]
+rules:
+  test-first:
+    path: rules/test-first.md
+skills:
+  repo-research:
+    path: .agents/skills/repo-research/SKILL.md
+mcp_servers:
+  docs:
+    command: npx
+    args: ["-y", "@example/docs-mcp"]
+agents:
+  researcher:
+    runner: codex
+    description: Research the requested change.
+    instructions:
+      path: .pipeline/prompts/researcher.md
+    rules: [test-first]
+    skills: [repo-research]
+    mcp_servers: [docs]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/research.schema.json
+  test-writer:
+    runner: codex
+    instructions:
+      inline: Write failing tests.
+    tools: [read, edit, write, bash]
+workflows:
+  default:
+    description: Default workflow.
+    nodes:
+      - id: research
+        kind: agent
+        agent: researcher
+      - id: red
+        kind: agent
+        agent: test-writer
+        needs: [research]
+hooks:
+  announce-complete:
+    event: workflow.complete
+    kind: command
+    command: ["echo", "{{workflow.id}} complete"]
+    required: false
+    timeout_ms: 30000
+`;
 
-const WORKTREE = "/fake/worktree";
+let tempDirs: string[] = [];
 
-// Module-level regex constants (biome useTopLevelRegex)
-const FAILED_TO_PARSE_RE = /failed to parse/;
-const UNKNOWN_DOMAIN_RE = /requests profile 'unknown-domain'.*candidates are/;
-const NO_DEFAULT_RE = /phase 'code-writer' has no default/;
-const NO_CANDIDATES_RE = /no candidates configured/;
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  // Default: nothing exists on the FS.
-  mockExistsSync.mockReturnValue(false);
+afterEach(() => {
+  for (const dir of tempDirs) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  tempDirs = [];
 });
 
-describe("parseTicketAndDescription", () => {
-  it("extracts ticket id and remainder", () => {
-    expect(parseTicketAndDescription("PIPE-42 add NOOP fn")).toEqual({
-      ticketId: "PIPE-42",
-      description: "add NOOP fn",
-    });
-  });
+function makeProject(yaml = VALID_YAML, writeReferencedFiles = true): string {
+  const dir = mkdtempSync(join(tmpdir(), "pipeline-config-"));
+  tempDirs.push(dir);
+  writeProjectFile(dir, ".pipeline/pipeline.yaml", yaml);
+  if (writeReferencedFiles) {
+    writeProjectFile(dir, "rules/test-first.md", "# Test first\n");
+    writeProjectFile(
+      dir,
+      ".agents/skills/repo-research/SKILL.md",
+      "# Repo research\n"
+    );
+    writeProjectFile(
+      dir,
+      ".pipeline/prompts/researcher.md",
+      "Research this repository.\n"
+    );
+    writeProjectFile(
+      dir,
+      ".pipeline/schemas/research.schema.json",
+      JSON.stringify({ type: "object" })
+    );
+  }
+  return dir;
+}
 
-  it("handles ticket-only input", () => {
-    expect(parseTicketAndDescription("PIPE-42")).toEqual({
-      ticketId: "PIPE-42",
-      description: "PIPE-42",
-    });
-  });
+function writeProjectFile(root: string, path: string, content: string): void {
+  const fullPath = join(root, path);
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, content);
+}
 
-  it("returns null ticket id when no prefix", () => {
-    expect(parseTicketAndDescription("ad-hoc task description")).toEqual({
-      ticketId: null,
-      description: "ad-hoc task description",
-    });
-  });
-
-  it("does not match prefixes like 'V1-foo'", () => {
-    // Regex requires at least one capital letter then a hyphen-number.
-    // V1 has only one letter; ABC-3 should match.
-    expect(parseTicketAndDescription("ABC-3 something").ticketId).toBe("ABC-3");
-  });
-});
+function captureConfigError(action: () => unknown): PipelineConfigError {
+  try {
+    action();
+  } catch (err) {
+    if (err instanceof PipelineConfigError) {
+      return err;
+    }
+    throw err;
+  }
+  throw new Error("Expected PipelineConfigError");
+}
 
 describe("loadPipelineConfig", () => {
-  it("returns BUILT_IN_CONFIG when .pipeline/config.toml is missing", () => {
-    mockExistsSync.mockReturnValue(false);
-    expect(loadPipelineConfig(WORKTREE)).toEqual(BUILT_IN_CONFIG);
+  it("loads a complete valid config from .pipeline/pipeline.yaml", () => {
+    const project = makeProject();
+
+    const config = loadPipelineConfig(project);
+
+    expect(config.version).toBe(1);
+    expect(config.default_workflow).toBe("default");
+    expect(config.runners.codex.type).toBe("codex");
+    expect(config.agents.researcher.runner).toBe("codex");
+    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
+      "research",
+      "red",
+    ]);
   });
 
-  it("merges user config over built-in", () => {
-    mockExistsSync.mockImplementation((p) => String(p).endsWith("config.toml"));
-    mockReadFileSync.mockReturnValue(`
-[phases.green]
-candidates = ["frontend", "backend", "rust-backend"]
-default = "backend"
-`);
+  it("rejects missing .pipeline/pipeline.yaml", () => {
+    const project = mkdtempSync(join(tmpdir(), "pipeline-config-missing-"));
+    tempDirs.push(project);
 
-    const cfg = loadPipelineConfig(WORKTREE);
-    expect(cfg.phases["code-writer"]).toEqual({
-      candidates: ["frontend", "backend", "rust-backend"],
-      default: "backend",
-    });
-    // Other phases fall back to built-in:
-    expect(cfg.phases.researcher).toEqual(BUILT_IN_CONFIG.phases.researcher);
+    const error = captureConfigError(() => loadPipelineConfig(project));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_MISSING");
+    expect(error.message).toContain("Missing required pipeline config");
+    expect(error.issues.length).toBeGreaterThan(0);
   });
 
-  it("throws on malformed TOML", () => {
-    mockExistsSync.mockImplementation((p) => String(p).endsWith("config.toml"));
-    mockReadFileSync.mockReturnValue("not valid [[[ toml");
-    expect(() => loadPipelineConfig(WORKTREE)).toThrow(FAILED_TO_PARSE_RE);
-  });
-});
+  it("rejects legacy .pipeline/config.toml when YAML is missing", () => {
+    const project = mkdtempSync(join(tmpdir(), "pipeline-config-legacy-"));
+    tempDirs.push(project);
+    writeProjectFile(project, ".pipeline/config.toml", "[phases]\n");
 
-describe("readTicketOverride", () => {
-  it("returns null when ticketId is null", () => {
-    expect(readTicketOverride("code-writer", null, WORKTREE)).toBeNull();
-  });
+    const error = captureConfigError(() => loadPipelineConfig(project));
 
-  it("returns null when backlog/tasks dir is missing", () => {
-    mockExistsSync.mockReturnValue(false);
-    expect(readTicketOverride("code-writer", "PIPE-42", WORKTREE)).toBeNull();
+    expect(error.code).toBe("PIPELINE_CONFIG_LEGACY_UNSUPPORTED");
+    expect(error.message).toContain("not supported");
+    expect(error.issues.length).toBeGreaterThan(0);
   });
 
-  it("returns null when no matching ticket file exists", () => {
-    mockExistsSync.mockImplementation((p) => String(p).endsWith("tasks"));
-    mockReaddirSync.mockReturnValue([
-      "pipe-1 - other-task.md",
-      "pipe-2 - another-task.md",
-    ] as never);
-    expect(readTicketOverride("code-writer", "PIPE-42", WORKTREE)).toBeNull();
-  });
+  it("rejects malformed YAML with a parse error", () => {
+    const project = makeProject("version: 1\nrunners: [", false);
 
-  it("returns null when ticket has no pipeline frontmatter block", () => {
-    mockExistsSync.mockImplementation((p) => String(p).endsWith("tasks"));
-    mockReaddirSync.mockReturnValue(["pipe-42 - thing.md"] as never);
-    mockReadFileSync.mockReturnValue(`---
-id: PIPE-42
-title: thing
----
-body
-`);
-    expect(readTicketOverride("code-writer", "PIPE-42", WORKTREE)).toBeNull();
-  });
+    const error = captureConfigError(() => loadPipelineConfig(project));
 
-  it("returns the override value when set", () => {
-    mockExistsSync.mockImplementation((p) => String(p).endsWith("tasks"));
-    mockReaddirSync.mockReturnValue(["pipe-42 - thing.md"] as never);
-    mockReadFileSync.mockReturnValue(`---
-id: PIPE-42
-title: thing
-pipeline:
-  red: backend
-  green: backend
----
-body
-`);
-    expect(readTicketOverride("test-writer", "PIPE-42", WORKTREE)).toBe(
-      "backend"
-    );
-    expect(readTicketOverride("code-writer", "PIPE-42", WORKTREE)).toBe(
-      "backend"
-    );
-    expect(readTicketOverride("researcher", "PIPE-42", WORKTREE)).toBeNull();
+    expect(error.code).toBe("PIPELINE_CONFIG_PARSE_ERROR");
+    expect(error.message).toContain("Failed to parse");
+    expect(error.issues.length).toBeGreaterThan(0);
   });
 });
 
-describe("resolveProfileForPhase", () => {
-  it("returns the config default when no override is set", () => {
-    mockExistsSync.mockReturnValue(false);
-    expect(resolveProfileForPhase("researcher", "PIPE-42", WORKTREE)).toBe(
-      "researcher"
+describe("parsePipelineConfigYaml", () => {
+  it("rejects unknown top-level keys", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(`${VALID_YAML}\nprofiles: {}\n`)
     );
-    expect(resolveProfileForPhase("verifier", "PIPE-42", WORKTREE)).toBe(
-      "verifier"
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("Unrecognized key");
+  });
+
+  it("rejects missing runner references", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(
+        VALID_YAML.replace("runner: codex", "runner: missing-runner")
+      )
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("missing runner 'missing-runner'");
+  });
+
+  it("rejects missing agent references in workflow nodes", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(
+        VALID_YAML.replace("agent: test-writer", "agent: missing-agent")
+      )
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("missing agent 'missing-agent'");
+  });
+
+  it("rejects missing rule, skill, and MCP server references", () => {
+    const yaml = VALID_YAML.replace("rules: [test-first]", "rules: [missing]")
+      .replace("skills: [repo-research]", "skills: [missing]")
+      .replace("mcp_servers: [docs]", "mcp_servers: [missing]");
+
+    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("missing rule 'missing'");
+  });
+
+  it("rejects duplicate workflow node ids", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(VALID_YAML.replace("id: red", "id: research"))
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("duplicate node id 'research'");
+  });
+
+  it("rejects invalid needs references", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(
+        VALID_YAML.replace("needs: [research]", "needs: [missing-node]")
+      )
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("missing dependency 'missing-node'");
+  });
+
+  it("rejects unsupported node kinds", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(VALID_YAML.replace("kind: agent", "kind: phase"))
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("Invalid option");
+  });
+
+  it("rejects unsupported hook events", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(
+        VALID_YAML.replace("event: workflow.complete", "event: workflow.done")
+      )
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("Invalid option");
+  });
+
+  it("rejects tool grants outside runner capabilities", () => {
+    const error = captureConfigError(() =>
+      parsePipelineConfigYaml(
+        VALID_YAML.replace(
+          "tools: [read, list, grep, glob, bash, edit, write]",
+          "tools: [read]"
+        )
+      )
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("does not support tool 'list'");
+  });
+
+  it("rejects filesystem, network, and output grants outside runner capabilities", () => {
+    const yaml = VALID_YAML.replace(
+      "filesystem: [read-only, workspace-write]",
+      "filesystem: [workspace-write]"
+    )
+      .replace("network: [inherit]", "network: [disabled]")
+      .replace(
+        "output_formats: [text, json, jsonl, json_schema]",
+        "output_formats: [text]"
+      );
+
+    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain(
+      "does not support filesystem mode 'read-only'"
     );
   });
 
-  it("returns the ticket override when it is in candidates", () => {
-    mockExistsSync.mockImplementation((p) => {
-      const s = String(p);
-      return s.endsWith("tasks") || s.endsWith("config.toml");
-    });
-    mockReaddirSync.mockReturnValue(["pipe-42 - thing.md"] as never);
-    mockReadFileSync.mockImplementation((p) => {
-      if (String(p).endsWith("config.toml")) {
-        return "";
-      }
-      return `---
-id: PIPE-42
-pipeline:
-  green: frontend
----
-body
-`;
-    });
-    expect(resolveProfileForPhase("code-writer", "PIPE-42", WORKTREE)).toBe(
-      "frontend"
-    );
-  });
+  it("rejects missing instruction and schema files", () => {
+    const project = makeProject(VALID_YAML, false);
 
-  it("throws when ticket override is not in candidates", () => {
-    mockExistsSync.mockImplementation((p) => String(p).endsWith("tasks"));
-    mockReaddirSync.mockReturnValue(["pipe-42 - thing.md"] as never);
-    mockReadFileSync.mockReturnValue(`---
-id: PIPE-42
-pipeline:
-  green: unknown-domain
----
-`);
-    expect(() =>
-      resolveProfileForPhase("code-writer", "PIPE-42", WORKTREE)
-    ).toThrow(UNKNOWN_DOMAIN_RE);
-  });
+    const error = captureConfigError(() => loadPipelineConfig(project));
 
-  it("throws when multi-candidate phase has no default and no override", () => {
-    mockExistsSync.mockReturnValue(false);
-    expect(() => resolveProfileForPhase("code-writer", null, WORKTREE)).toThrow(
-      NO_DEFAULT_RE
-    );
-  });
-
-  it("throws when no candidates configured for a role", () => {
-    mockExistsSync.mockReturnValue(false);
-    // @ts-expect-error Testing unknown phase
-    expect(() => resolveProfileForPhase("unknown", null, WORKTREE)).toThrow(
-      NO_CANDIDATES_RE
-    );
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("referenced file");
   });
 });

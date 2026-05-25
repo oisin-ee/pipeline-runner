@@ -10,6 +10,7 @@
     "jsonpath-plus": "^10.4.0",
     "package-manager-detector": "^1.6.0",
     "smol-toml": "^1.6.1",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

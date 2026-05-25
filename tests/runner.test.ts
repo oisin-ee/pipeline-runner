@@ -4,27 +4,6 @@ vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
 
-// Stub the resolver so runner tests don't depend on a real config file.
-vi.mock("../src/mastra/config.ts", () => ({
-  // Identity-ish: every role resolves to a fixed profile name we can assert on.
-  resolveProfileForPhase: (
-    role: "researcher" | "test-writer" | "code-writer" | "verifier"
-  ) =>
-    ({
-      researcher: "researcher",
-      "test-writer": "test-writer-profile",
-      "code-writer": "code-writer-profile",
-      verifier: "verifier",
-    })[role],
-  parseTicketAndDescription: (s: string) => ({
-    ticketId: null,
-    description: s,
-  }),
-  loadPipelineConfig: () => ({ phases: {} }),
-  readTicketOverride: () => null,
-  BUILT_IN_CONFIG: { phases: {} },
-}));
-
 import { execa } from "execa";
 import { spawnAgent } from "../src/mastra/runner.ts";
 
@@ -38,13 +17,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// ---------------------------------------------------------------------------
-// Each test asserts: execa is called with PROFILE name (resolved from role),
-// followed by [harness, ...harness-argv].
-// ---------------------------------------------------------------------------
-
 describe("spawnAgent — claude harness", () => {
-  it("invokes <profile> claude --print -p <prompt> (no contextFile)", async () => {
+  it("invokes claude --print -p <prompt> (no contextFile)", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("claude output", 0));
 
     const result = await spawnAgent(
@@ -56,8 +30,8 @@ describe("spawnAgent — claude harness", () => {
     );
 
     expect(mockExeca).toHaveBeenCalledWith(
-      "researcher", // resolved profile
-      ["claude", "--print", "-p", "do the thing"],
+      "claude",
+      ["--print", "-p", "do the thing"],
       expect.objectContaining({ cwd: "/tmp/wt" })
     );
     expect(result).toEqual(
@@ -88,7 +62,7 @@ describe("spawnAgent — claude harness", () => {
 });
 
 describe("spawnAgent — codex harness", () => {
-  it("invokes <profile> codex exec with noninteractive write/approval flags", async () => {
+  it("invokes codex exec with noninteractive write/approval flags", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("codex output", 0));
 
     const result = await spawnAgent(
@@ -100,9 +74,8 @@ describe("spawnAgent — codex harness", () => {
     );
 
     expect(mockExeca).toHaveBeenCalledWith(
-      "test-writer-profile",
+      "codex",
       [
-        "codex",
         "exec",
         "--json",
         "--sandbox",
@@ -152,15 +125,14 @@ describe("spawnAgent — codex harness", () => {
 });
 
 describe("spawnAgent — opencode harness", () => {
-  it("invokes <profile> opencode run --format json --dir <worktree> <prompt> (no contextFile)", async () => {
+  it("invokes opencode run --format json --dir <worktree> <prompt> (no contextFile)", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
 
     await spawnAgent("opencode", "verifier", "verify things", null, "/tmp/wt");
 
     expect(mockExeca).toHaveBeenCalledWith(
-      "verifier",
+      "opencode",
       [
-        "opencode",
         "run",
         "--format",
         "json",
@@ -187,9 +159,8 @@ describe("spawnAgent — opencode harness", () => {
     );
 
     expect(mockExeca).toHaveBeenCalledWith(
-      "verifier",
+      "opencode",
       [
-        "opencode",
         "run",
         "--format",
         "json",
@@ -236,7 +207,7 @@ describe("spawnAgent — opencode harness", () => {
 });
 
 describe("spawnAgent — pi harness", () => {
-  it("invokes <profile> pi --print --mode json --no-session with context in prompt", async () => {
+  it("invokes pi --print --mode json --no-session with context in prompt", async () => {
     mockExeca.mockReturnValue(makeSimpleResult('{"type":"agent_end"}', 0));
     const { writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
@@ -255,15 +226,8 @@ describe("spawnAgent — pi harness", () => {
       );
 
       expect(mockExeca).toHaveBeenCalledWith(
-        "researcher",
-        [
-          "pi",
-          "--print",
-          "--mode",
-          "json",
-          "--no-session",
-          "CONTEXT\nresearch this",
-        ],
+        "pi",
+        ["--print", "--mode", "json", "--no-session", "CONTEXT\nresearch this"],
         expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
       );
 

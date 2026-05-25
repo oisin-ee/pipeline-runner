@@ -15,12 +15,12 @@ import {
   markPhase,
   type PipelineLifecycleResult,
 } from "./mastra/backlog.js";
-import { parseTicketAndDescription } from "./mastra/config.js";
 import {
   type PipelinePrimitiveInput,
   runPipelinePrimitive,
 } from "./mastra/pipeline-primitive.js";
 import { hardAgentAdapter } from "./mastra/runner.js";
+import { parseTicketAndDescription } from "./mastra/tickets.js";
 
 const SUPPORTED_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 const DEFAULT_HARNESS: PipelineHarness = "codex";
@@ -49,7 +49,7 @@ interface PipeOptions {
     args: string[],
     options: { cwd: string }
   ) => Promise<{ exitCode: number }>;
-  /** If true, dispatch the deterministic Mastra workflow per phase via specialized profiles. */
+  /** If true, dispatch the deterministic Mastra workflow through subprocess agent boundaries. */
   strict?: boolean;
 }
 
@@ -59,9 +59,8 @@ interface PipeOptions {
  * - **soft** (default): spawn `orchestrator <harness>` interactively with an
  *   initial prompt that asks the orchestrator to drive phases via native
  *   subagent delegation. User can interrupt.
- * - **strict** (`--strict`): run the Mastra workflow with `hardAgentAdapter`;
- *   per phase, dispatch a subprocess with the role-specific specialized
- *   profile applied (researcher / frontend / backend / verifier).
+ * - **strict** (`--strict`): run the deterministic Mastra workflow and spawn a
+ *   separate subprocess for each agent boundary.
  */
 export function pipe(
   description: string,
