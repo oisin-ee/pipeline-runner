@@ -1,8 +1,5 @@
 {
   "dependencies": {
-    "@mastra/core": "^1.35.0",
-    "@mastra/libsql": "^1.11.0",
-    "@mastra/memory": "^1.18.2",
     "commander": "^14.0.3",
     "execa": "^9.5.2",
     "extract-json-from-string": "^1.0.1",
@@ -15,6 +12,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
+    "@mastra/core": "^1.35.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/github": "^12.0.8",
     "@semantic-release/npm": "^13.1.5",
