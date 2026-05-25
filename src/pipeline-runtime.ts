@@ -303,6 +303,7 @@ async function executeAgentNode(
     evidence: [
       `agent boundary node=${node.id} agent=${node.agent} runner=${plan.runnerId} strategy=${plan.strategy}`,
       ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
+      ...(result.timedOut ? ["agent timed out"] : []),
     ],
     exitCode: result.exitCode,
     output: result.stdout,

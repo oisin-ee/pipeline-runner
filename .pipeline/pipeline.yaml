@@ -88,6 +88,21 @@ runners:
       filesystem: [read-only]
       network: [disabled]
       output_formats: [text, json, json_schema]
+  dogfood-artifact-command:
+    type: command
+    command: node
+    args:
+      - -e
+      - "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); const out={verdict:'PASS',evidence:['artifact written']}; fs.writeFileSync('.pipeline/dogfood/artifact.json', JSON.stringify(out)); console.log(JSON.stringify(out));"
+    capabilities:
+      native_subagents: false
+      rules: false
+      skills: false
+      mcp_servers: false
+      tools: [bash]
+      filesystem: [workspace-write]
+      network: [disabled]
+      output_formats: [text, json, json_schema]
 
 rules:
   test-first:
@@ -97,7 +112,22 @@ rules:
 
 skills: {}
 mcp_servers: {}
-hooks: {}
+hooks:
+  dogfood-workflow-start:
+    event: workflow.start
+    kind: command
+    command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'workflow.start ' + process.argv[1] + '\\\\n');", "{{workflow.id}}"]
+    required: true
+  dogfood-node-start:
+    event: node.start
+    kind: command
+    command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'node.start ' + process.argv[1] + '\\\\n');", "{{node.id}}"]
+    required: true
+  dogfood-optional-failure:
+    event: workflow.complete
+    kind: command
+    command: [node, -e, "process.exit(9)"]
+    required: false
 
 agents:
   pipeline-researcher:
@@ -190,6 +220,74 @@ agents:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/dogfood.schema.json
+  dogfood-artifact-writer:
+    runner: dogfood-artifact-command
+    description: Write a deterministic dogfood artifact for runtime gate coverage.
+    instructions:
+      inline: Write the configured dogfood artifact and do not inspect the repository.
+    tools: [bash]
+    filesystem:
+      mode: workspace-write
+    network:
+      mode: disabled
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/dogfood.schema.json
+  dogfood-codex-live:
+    runner: codex
+    description: Minimal live Codex runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-claude-live:
+    runner: claude
+    description: Minimal live Claude runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-opencode-live:
+    runner: opencode
+    description: Minimal live OpenCode runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-kimi-live:
+    runner: kimi
+    description: Minimal live Kimi runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
+  dogfood-pi-live:
+    runner: pi
+    description: Minimal live Pi runner check.
+    instructions:
+      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
+    filesystem:
+      mode: read-only
+    network:
+      mode: inherit
+    output:
+      format: text
 
 workflows:
   default:
@@ -216,10 +314,21 @@ workflows:
         needs: [verify]
   dogfood:
     description: Local model-free dogfood workflow for this repository.
+    hooks: [dogfood-workflow-start, dogfood-optional-failure]
     nodes:
       - id: agent-boundary
         kind: agent
         agent: dogfood-checker
+        hooks: [dogfood-node-start]
+        gates:
+          - id: expected-failing-command
+            kind: command
+            command: [node, -e, "process.exit(2)"]
+            expect_exit_code: 2
+          - id: dogfood-output-schema
+            kind: json_schema
+            target: stdout
+            schema_path: .pipeline/schemas/dogfood.schema.json
       - id: typecheck
         kind: builtin
         builtin: typecheck
@@ -228,3 +337,58 @@ workflows:
         kind: builtin
         builtin: test
         needs: [typecheck]
+  dogfood-options:
+    description: Local deterministic coverage for hooks, gates, artifacts, retries, and parallel nodes.
+    hooks: [dogfood-workflow-start, dogfood-optional-failure]
+    nodes:
+      - id: artifact
+        kind: agent
+        agent: dogfood-artifact-writer
+        artifacts:
+          - path: .pipeline/dogfood/artifact.json
+        gates:
+          - id: artifact-schema
+            kind: json_schema
+            target: artifact
+            path: .pipeline/dogfood/artifact.json
+            schema_path: .pipeline/schemas/dogfood.schema.json
+      - id: retry-gate
+        kind: command
+        command: [node, -e, "console.log('retry node ran')"]
+        retries:
+          max_attempts: 2
+        gates:
+          - id: flaky-once
+            kind: command
+            command: [node, -e, "const fs=require('node:fs'); const p='.pipeline/dogfood/retry-count'; let n=0; try{n=Number(fs.readFileSync(p,'utf8'))}catch{}; fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.writeFileSync(p,String(n+1)); process.exit(n === 0 ? 1 : 0);"]
+        needs: [artifact]
+      - id: parallel-left
+        kind: builtin
+        builtin: typecheck
+        needs: [retry-gate]
+      - id: parallel-right
+        kind: builtin
+        builtin: test
+        needs: [retry-gate]
+      - id: join
+        kind: group
+        nodes: [parallel-left, parallel-right]
+        needs: [parallel-left, parallel-right]
+  dogfood-live-runners:
+    description: Minimal live runner smoke for Codex, Claude, OpenCode, Kimi, and Pi.
+    nodes:
+      - id: codex-live
+        kind: agent
+        agent: dogfood-codex-live
+      - id: claude-live
+        kind: agent
+        agent: dogfood-claude-live
+      - id: opencode-live
+        kind: agent
+        agent: dogfood-opencode-live
+      - id: kimi-live
+        kind: agent
+        agent: dogfood-kimi-live
+      - id: pi-live
+        kind: agent
+        agent: dogfood-pi-live

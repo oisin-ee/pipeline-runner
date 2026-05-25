@@ -14,4 +14,4 @@ Workflow: default
 - verify kind=agent agent=pipeline-verifier needs=green
 - learn kind=agent agent=pipeline-learner needs=verify
 
-Delegate work only to configured agents: `dogfood-checker`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.
+Delegate work only to configured agents: `dogfood-artifact-writer`, `dogfood-checker`, `dogfood-claude-live`, `dogfood-codex-live`, `dogfood-kimi-live`, `dogfood-opencode-live`, `dogfood-pi-live`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.

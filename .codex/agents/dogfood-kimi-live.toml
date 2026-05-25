@@ -1,0 +1,4 @@
+description = "Minimal live Kimi runner check."
+developer_instructions = "Minimal live Kimi runner check.\nInstructions:\nReply with exactly OK. Do not inspect files. Do not run tools.\nConfigured grants:\ntools: none\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: text"
+name = "dogfood-kimi-live"
+sandbox_mode = "read-only"

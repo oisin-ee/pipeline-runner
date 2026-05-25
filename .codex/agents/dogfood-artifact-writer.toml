@@ -1,0 +1,4 @@
+description = "Write a deterministic dogfood artifact for runtime gate coverage."
+developer_instructions = "Write a deterministic dogfood artifact for runtime gate coverage.\nInstructions:\nWrite the configured dogfood artifact and do not inspect the repository.\nConfigured grants:\ntools: bash\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: workspace-write\nnetwork: disabled\noutput: json_schema"
+name = "dogfood-artifact-writer"
+sandbox_mode = "workspace-write"

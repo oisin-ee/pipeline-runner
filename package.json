@@ -57,6 +57,8 @@
   "scripts": {
     "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && tsc -p tsconfig.types.json",
     "test": "vitest run",
+    "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
+    "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
     "typecheck": "tsc --noEmit",
     "pipe": "bun src/index.ts pipe",
     "dev": "mastra dev",

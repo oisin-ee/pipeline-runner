@@ -165,7 +165,14 @@ function harnessArgv(
             prompt,
           ];
     case "kimi":
-      return ["--print", ...optionalModelArgs(harness), prompt];
+      return [
+        "--print",
+        "--work-dir",
+        worktreePath,
+        ...optionalModelArgs(harness),
+        "--prompt",
+        prompt,
+      ];
     default: {
       const _exhaustive: never = harness;
       throw new Error(
@@ -402,6 +409,7 @@ export async function runLaunchPlan(
     const result = await execa(plan.command, plan.args, {
       cwd: plan.cwd,
       env: plan.env,
+      stdin: "ignore",
       timeout: plan.timeoutMs,
     });
     return {
