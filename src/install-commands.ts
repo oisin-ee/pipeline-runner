@@ -51,7 +51,10 @@ interface CommandDefinition {
 
 type ProfileEntry = [string, PipelineConfig["profiles"][string]];
 type ActorConfig = PipelineConfig["profiles"][string] & { hooks?: string[] };
-type OpencodePermissionOptions = { forceTask?: boolean };
+
+interface OpencodePermissionOptions {
+  forceTask?: boolean;
+}
 
 function header(host: CommandHost): string {
   return [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join(
@@ -157,7 +160,7 @@ function nativeDelegationInstruction(
   config: PipelineConfig
 ): string | undefined {
   if (!hasAgentWorkflowNodes(config)) {
-    return undefined;
+    return;
   }
   if (host === "opencode") {
     return "Use OpenCode's task tool to delegate each agent workflow node to its configured profile. Do not invoke package scripts or the pipeline CLI to run this workflow.";

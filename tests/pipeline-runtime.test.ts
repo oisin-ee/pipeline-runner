@@ -14,6 +14,7 @@ vi.mock("execa", () => ({
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const tempDirs: string[] = [];
 const originalPipelineTestCommand = process.env.PIPELINE_TEST_COMMAND;
+const CANCEL_PATTERN = /cancel/i;
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -626,7 +627,7 @@ workflows:
 `,
     });
     mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
-    const events: Array<Record<string, unknown>> = [];
+    const events: Record<string, unknown>[] = [];
 
     const result = await runPipelineFromConfig({
       config,
@@ -740,7 +741,7 @@ workflows:
   it("returns a structured cancelled outcome and does not schedule dependent nodes after abort", async () => {
     const project = tempProject();
     const controller = new AbortController();
-    const events: Array<Record<string, unknown>> = [];
+    const events: Record<string, unknown>[] = [];
     const seen: string[] = [];
 
     const result = await runPipelineFromConfig({
@@ -762,8 +763,10 @@ workflows:
     expect(result.failureDetails).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          evidence: expect.arrayContaining([expect.stringMatching(/cancel/i)]),
-          reason: expect.stringMatching(/cancel/i),
+          evidence: expect.arrayContaining([
+            expect.stringMatching(CANCEL_PATTERN),
+          ]),
+          reason: expect.stringMatching(CANCEL_PATTERN),
         }),
       ])
     );

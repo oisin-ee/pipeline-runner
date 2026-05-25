@@ -201,6 +201,11 @@ interface NodeAttemptResult {
   output: string;
 }
 
+interface NodeAttemptCycleResult {
+  last: NodeAttemptResult;
+  result?: RuntimeNodeResult;
+}
+
 interface JsonSchemaValidationResult {
   evidence: string[];
   passed: boolean;
@@ -386,139 +391,168 @@ async function executeNode(
   };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (isCancelled(context)) {
-      const result = nodeFailure(
-        node.id,
-        attempt,
-        cancelledFailure().evidence,
-        last.output
-      );
-      emitNodeFinish(context, result);
-      return result;
-    }
-    emitNodeStart(context, node, attempt);
-    const startHook = await dispatchHooks(
+    const cycle = await executeNodeAttemptCycle(
+      node,
       context,
-      "node.start",
-      undefined,
-      node
+      attempt,
+      maxAttempts,
+      last
     );
-    if (startHook) {
-      const result = nodeFailure(
-        node.id,
-        attempt,
-        startHook.evidence,
-        last.output
-      );
-      emitNodeFinish(context, result);
-      return result;
-    }
-    if (isCancelled(context)) {
-      const result = nodeFailure(
-        node.id,
-        attempt,
-        cancelledFailure().evidence,
-        last.output
-      );
-      emitNodeFinish(context, result);
-      return result;
-    }
-
-    last = await executeNodeAttempt(node, context, attempt);
-    context.lastOutputByNode.set(node.id, last.output);
-    if (isCancelled(context)) {
-      const result: RuntimeNodeResult = {
-        attempts: attempt,
-        evidence: [...last.evidence, ...cancelledFailure().evidence],
-        exitCode: last.exitCode,
-        nodeId: node.id,
-        output: last.output,
-        status: last.exitCode === 0 ? "passed" : "failed",
-      };
-      emitNodeFinish(context, result);
-      return result;
-    }
-
-    const gateResults = await evaluateNodeGates(node, context, last);
-    if (isCancelled(context)) {
-      const result: RuntimeNodeResult = {
-        attempts: attempt,
-        evidence: [...last.evidence, ...cancelledFailure().evidence],
-        exitCode: last.exitCode,
-        nodeId: node.id,
-        output: last.output,
-        status: last.exitCode === 0 ? "passed" : "failed",
-      };
-      emitNodeFinish(context, result);
-      return result;
-    }
-    const failedGate = gateResults.find((gate) => !gate.passed);
-    if (!failedGate && last.exitCode === 0) {
-      const successHook = await dispatchHooks(
-        context,
-        "node.success",
-        undefined,
-        node
-      );
-      if (successHook) {
-        const result = nodeFailure(
-          node.id,
-          attempt,
-          successHook.evidence,
-          last.output
-        );
-        emitNodeFinish(context, result);
-        return result;
-      }
-      if (isCancelled(context)) {
-        const result: RuntimeNodeResult = {
-          attempts: attempt,
-          evidence: [...last.evidence, ...cancelledFailure().evidence],
-          exitCode: last.exitCode,
-          nodeId: node.id,
-          output: last.output,
-          status: last.exitCode === 0 ? "passed" : "failed",
-        };
-        emitNodeFinish(context, result);
-        return result;
-      }
-      const result: RuntimeNodeResult = {
-        attempts: attempt,
-        evidence: last.evidence,
-        exitCode: 0,
-        nodeId: node.id,
-        output: last.output,
-        status: "passed",
-      };
-      emitNodeFinish(context, result);
-      return result;
-    }
-
-    const evidence = failedGate
-      ? [...last.evidence, ...failedGate.evidence]
-      : last.evidence.concat(`node exited with code ${last.exitCode}`);
-    if (attempt === maxAttempts) {
-      await dispatchHooks(
-        context,
-        "node.error",
-        {
-          evidence,
-          gate: failedGate?.gateId ?? node.id,
-          nodeId: node.id,
-          reason:
-            failedGate?.reason ?? `node exited with code ${last.exitCode}`,
-        },
-        node
-      );
-      const result = nodeFailure(node.id, attempt, evidence, last.output);
-      emitNodeFinish(context, result);
-      return result;
+    last = cycle.last;
+    if (cycle.result) {
+      emitNodeFinish(context, cycle.result);
+      return cycle.result;
     }
   }
 
   const result = nodeFailure(node.id, maxAttempts, last.evidence, last.output);
   emitNodeFinish(context, result);
   return result;
+}
+
+async function executeNodeAttemptCycle(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  maxAttempts: number,
+  previous: NodeAttemptResult
+): Promise<NodeAttemptCycleResult> {
+  if (isCancelled(context)) {
+    return {
+      last: previous,
+      result: nodeFailure(
+        node.id,
+        attempt,
+        cancelledFailure().evidence,
+        previous.output
+      ),
+    };
+  }
+
+  emitNodeStart(context, node, attempt);
+  const startHook = await dispatchHooks(context, "node.start", undefined, node);
+  if (startHook) {
+    return {
+      last: previous,
+      result: nodeFailure(
+        node.id,
+        attempt,
+        startHook.evidence,
+        previous.output
+      ),
+    };
+  }
+  if (isCancelled(context)) {
+    return {
+      last: previous,
+      result: nodeFailure(
+        node.id,
+        attempt,
+        cancelledFailure().evidence,
+        previous.output
+      ),
+    };
+  }
+
+  const last = await executeNodeAttempt(node, context, attempt);
+  context.lastOutputByNode.set(node.id, last.output);
+  const cancelledAfterAttempt = cancelledNodeResult(
+    context,
+    node.id,
+    attempt,
+    last
+  );
+  if (cancelledAfterAttempt) {
+    return { last, result: cancelledAfterAttempt };
+  }
+
+  const gateResults = await evaluateNodeGates(node, context, last);
+  const cancelledAfterGates = cancelledNodeResult(
+    context,
+    node.id,
+    attempt,
+    last
+  );
+  if (cancelledAfterGates) {
+    return { last, result: cancelledAfterGates };
+  }
+
+  const failedGate = gateResults.find((gate) => !gate.passed);
+  if (!failedGate && last.exitCode === 0) {
+    const successHook = await dispatchHooks(
+      context,
+      "node.success",
+      undefined,
+      node
+    );
+    if (successHook) {
+      const result = nodeFailure(
+        node.id,
+        attempt,
+        successHook.evidence,
+        last.output
+      );
+      return { last, result };
+    }
+    const cancelledAfterHook = cancelledNodeResult(
+      context,
+      node.id,
+      attempt,
+      last
+    );
+    if (cancelledAfterHook) {
+      return { last, result: cancelledAfterHook };
+    }
+    const result: RuntimeNodeResult = {
+      attempts: attempt,
+      evidence: last.evidence,
+      exitCode: 0,
+      nodeId: node.id,
+      output: last.output,
+      status: "passed",
+    };
+    return { last, result };
+  }
+
+  const evidence = failedGate
+    ? [...last.evidence, ...failedGate.evidence]
+    : last.evidence.concat(`node exited with code ${last.exitCode}`);
+  if (attempt === maxAttempts) {
+    await dispatchHooks(
+      context,
+      "node.error",
+      {
+        evidence,
+        gate: failedGate?.gateId ?? node.id,
+        nodeId: node.id,
+        reason: failedGate?.reason ?? `node exited with code ${last.exitCode}`,
+      },
+      node
+    );
+    const result = nodeFailure(node.id, attempt, evidence, last.output);
+    return { last, result };
+  }
+
+  return { last };
+}
+
+function cancelledNodeResult(
+  context: RuntimeContext,
+  nodeId: string,
+  attempt: number,
+  last: NodeAttemptResult
+): RuntimeNodeResult | null {
+  if (!isCancelled(context)) {
+    return null;
+  }
+  return {
+    attempts: attempt,
+    evidence: [...last.evidence, ...cancelledFailure().evidence],
+    exitCode: last.exitCode,
+    nodeId,
+    output: last.output,
+    status: last.exitCode === 0 ? "passed" : "failed",
+  };
 }
 
 function nodeFailure(
@@ -618,7 +652,13 @@ async function finalizeAgentOutput(inputs: {
     return normalized;
   }
 
-  return await runOutputRepair(context, node, normalized, repairContext, attempt);
+  return await runOutputRepair(
+    context,
+    node,
+    normalized,
+    repairContext,
+    attempt
+  );
 }
 
 function outputRepairContext(
@@ -1059,8 +1099,40 @@ async function evaluateNodeGates(
   context: RuntimeContext,
   attempt: NodeAttemptResult
 ): Promise<RuntimeGateResult[]> {
-  const explicitGates = node.gates ?? [];
-  const artifactGates = (node.artifacts ?? []).map(
+  const results: RuntimeGateResult[] = [];
+  for (const gate of nodeGateSpecs(node, context)) {
+    const gateId = gate.id ?? `${gate.kind}:${node.id}`;
+    if (isCancelled(context)) {
+      break;
+    }
+    emitGateStart(context, node.id, gate, gateId);
+    const result = await evaluateGate(gate, node.id, context, attempt);
+    context.gates.push(result);
+    results.push(result);
+    emitGateFinish(context, gate, result);
+    if (!result.passed) {
+      await dispatchGateFailureHook(context, node, result);
+      if (gate.required !== false) {
+        break;
+      }
+    }
+  }
+  return results;
+}
+
+function nodeGateSpecs(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): GateSpec[] {
+  return [
+    ...(node.gates ?? []),
+    ...artifactGateSpecs(node),
+    ...schemaGateSpecs(node, context),
+  ];
+}
+
+function artifactGateSpecs(node: PlannedWorkflowNode): GateSpec[] {
+  return (node.artifacts ?? []).map(
     (artifact): GateSpec => ({
       id: `artifact:${artifact.path}`,
       kind: "artifact",
@@ -1068,81 +1140,96 @@ async function evaluateNodeGates(
       required: artifact.required,
     })
   );
+}
+
+function schemaGateSpecs(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): GateSpec[] {
   const profile = node.profile
     ? context.config.profiles[node.profile]
     : undefined;
-  const schemaGate: GateSpec[] =
-    profile?.output?.format === "json_schema" && profile.output.schema_path
-      ? [
-          {
-            id: `output:${node.id}`,
-            kind: "json_schema",
-            schema_path: profile.output.schema_path,
-            target: "stdout",
-          },
-        ]
-      : [];
-  const results: RuntimeGateResult[] = [];
-  for (const gate of [...explicitGates, ...artifactGates, ...schemaGate]) {
-    const gateId = gate.id ?? `${gate.kind}:${node.id}`;
-    if (isCancelled(context)) {
-      break;
-    }
+  if (
+    profile?.output?.format !== "json_schema" ||
+    !profile.output.schema_path
+  ) {
+    return [];
+  }
+  return [
+    {
+      id: `output:${node.id}`,
+      kind: "json_schema",
+      schema_path: profile.output.schema_path,
+      target: "stdout",
+    },
+  ];
+}
+
+function emitGateStart(
+  context: RuntimeContext,
+  nodeId: string,
+  gate: GateSpec,
+  gateId: string
+): void {
+  emit(context, {
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    type: "gate.start",
+  });
+  if (gate.kind === "artifact") {
     emit(context, {
-      gateId,
-      kind: gate.kind,
-      nodeId: node.id,
-      type: "gate.start",
+      nodeId,
+      path: gate.path ?? "",
+      required: gate.required !== false,
+      type: "artifact.check.start",
     });
-    if (gate.kind === "artifact") {
-      emit(context, {
-        nodeId: node.id,
-        path: gate.path ?? "",
-        required: gate.required !== false,
-        type: "artifact.check.start",
-      });
-    }
-    const result = await evaluateGate(gate, node.id, context, attempt);
-    context.gates.push(result);
-    results.push(result);
-    if (gate.kind === "artifact") {
-      emit(context, {
-        nodeId: node.id,
-        passed: result.passed,
-        path: gate.path ?? "",
-        required: gate.required !== false,
-        type: "artifact.check.finish",
-        ...(result.reason ? { reason: result.reason } : {}),
-      });
-    }
+  }
+}
+
+function emitGateFinish(
+  context: RuntimeContext,
+  gate: GateSpec,
+  result: RuntimeGateResult
+): void {
+  if (gate.kind === "artifact") {
     emit(context, {
-      evidence: result.evidence,
-      gateId: result.gateId,
-      kind: result.kind,
       nodeId: result.nodeId,
       passed: result.passed,
-      type: "gate.finish",
+      path: gate.path ?? "",
+      required: gate.required !== false,
+      type: "artifact.check.finish",
       ...(result.reason ? { reason: result.reason } : {}),
     });
-    if (!result.passed) {
-      await dispatchHooks(
-        context,
-        "gate.failure",
-        {
-          evidence: result.evidence,
-          gate: result.gateId,
-          nodeId: node.id,
-          reason: result.reason ?? "gate failed",
-        },
-        node,
-        result.gateId
-      );
-      if (gate.required !== false) {
-        break;
-      }
-    }
   }
-  return results;
+  emit(context, {
+    evidence: result.evidence,
+    gateId: result.gateId,
+    kind: result.kind,
+    nodeId: result.nodeId,
+    passed: result.passed,
+    type: "gate.finish",
+    ...(result.reason ? { reason: result.reason } : {}),
+  });
+}
+
+async function dispatchGateFailureHook(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  result: RuntimeGateResult
+): Promise<void> {
+  await dispatchHooks(
+    context,
+    "gate.failure",
+    {
+      evidence: result.evidence,
+      gate: result.gateId,
+      nodeId: node.id,
+      reason: result.reason ?? "gate failed",
+    },
+    node,
+    result.gateId
+  );
 }
 
 function emit(context: RuntimeContext, event: PipelineRuntimeEvent): void {
@@ -1170,8 +1257,12 @@ function emitNodeFinish(
   context: RuntimeContext,
   result: RuntimeNodeResult
 ): void {
-  const node = context.plan.topologicalOrder.find((item) => item.id === result.nodeId);
-  const profile = node?.profile ? context.config.profiles[node.profile] : undefined;
+  const node = context.plan.topologicalOrder.find(
+    (item) => item.id === result.nodeId
+  );
+  const profile = node?.profile
+    ? context.config.profiles[node.profile]
+    : undefined;
   emit(context, {
     attempt: result.attempts,
     exitCode: result.exitCode,
@@ -1254,10 +1345,7 @@ async function evaluateGate(
     };
   }
   if (gate.kind === "builtin") {
-    const result = await executeBuiltin(
-      gate.builtin ?? "",
-      context
-    );
+    const result = await executeBuiltin(gate.builtin ?? "", context);
     return {
       evidence: result.evidence,
       gateId,
@@ -1463,9 +1551,7 @@ async function dispatchHooks(
   node?: PlannedWorkflowNode,
   gateId?: string
 ): Promise<RuntimeFailure | null> {
-  const workflow = context.config.workflows[context.workflowId];
-  const hookIds = [...(workflow?.hooks ?? []), ...(node?.hooks ?? [])];
-  for (const hookId of hookIds) {
+  for (const hookId of hookIdsForContext(context, node)) {
     if (isCancelled(context)) {
       return null;
     }
@@ -1473,15 +1559,7 @@ async function dispatchHooks(
     if (!hook || hook.event !== event) {
       continue;
     }
-    emit(context, {
-      event,
-      hookId,
-      required: hook.required === true,
-      type: "hook.start",
-      workflowId: context.workflowId,
-      ...(node ? { nodeId: node.id } : {}),
-      ...(gateId ? { gateId } : {}),
-    });
+    emitHookStart(context, event, hookId, hook, node, gateId);
     const result = await executeHook(
       hook,
       hookId,
@@ -1490,17 +1568,7 @@ async function dispatchHooks(
       node,
       gateId
     );
-    emit(context, {
-      event,
-      hookId,
-      passed: result === null,
-      required: hook.required === true,
-      type: "hook.finish",
-      workflowId: context.workflowId,
-      ...(node ? { nodeId: node.id } : {}),
-      ...(gateId ? { gateId } : {}),
-      ...(result?.reason ? { reason: result.reason } : {}),
-    });
+    emitHookFinish(context, event, hookId, hook, result, node, gateId);
     if (result && hook.required === true) {
       context.hookFailures.push(result);
       return result;
@@ -1510,6 +1578,55 @@ async function dispatchHooks(
     }
   }
   return null;
+}
+
+function hookIdsForContext(
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): string[] {
+  const workflow = context.config.workflows[context.workflowId];
+  return [...(workflow?.hooks ?? []), ...(node?.hooks ?? [])];
+}
+
+function emitHookStart(
+  context: RuntimeContext,
+  event: HookSpec["event"],
+  hookId: string,
+  hook: HookSpec,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): void {
+  emit(context, {
+    event,
+    hookId,
+    required: hook.required === true,
+    type: "hook.start",
+    workflowId: context.workflowId,
+    ...(node ? { nodeId: node.id } : {}),
+    ...(gateId ? { gateId } : {}),
+  });
+}
+
+function emitHookFinish(
+  context: RuntimeContext,
+  event: HookSpec["event"],
+  hookId: string,
+  hook: HookSpec,
+  result: RuntimeFailure | null,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): void {
+  emit(context, {
+    event,
+    hookId,
+    passed: result === null,
+    required: hook.required === true,
+    type: "hook.finish",
+    workflowId: context.workflowId,
+    ...(node ? { nodeId: node.id } : {}),
+    ...(gateId ? { gateId } : {}),
+    ...(result?.reason ? { reason: result.reason } : {}),
+  });
 }
 
 async function executeHook(
@@ -1534,11 +1651,7 @@ async function executeHook(
   const rendered = (hook.command ?? []).map((part) =>
     renderTemplate(part, context, failure, node, gateId)
   );
-  const result = await executeCommand(
-    rendered,
-    context,
-    hook.timeout_ms
-  );
+  const result = await executeCommand(rendered, context, hook.timeout_ms);
   if (result.exitCode === 0) {
     return null;
   }
