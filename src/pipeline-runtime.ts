@@ -64,9 +64,43 @@ export interface PipelineRuntimeResult {
   plan: WorkflowExecutionPlan;
 }
 
+export type PipelineRuntimeEvent =
+  | {
+      nodeIds: string[];
+      type: "workflow.start";
+      workflowId: string;
+    }
+  | {
+      attempt: number;
+      nodeId: string;
+      profile?: string;
+      runnerId?: string;
+      type: "node.start";
+    }
+  | {
+      attempt: number;
+      exitCode: number;
+      nodeId: string;
+      status: RuntimeNodeResult["status"];
+      type: "node.finish";
+    }
+  | {
+      gateId: string;
+      nodeId: string;
+      passed: boolean;
+      reason?: string;
+      type: "gate.finish";
+    }
+  | {
+      outcome: PipelineRuntimeResult["outcome"];
+      type: "workflow.finish";
+      workflowId: string;
+    };
+
 export interface PipelineRuntimeOptions {
   config?: PipelineConfig;
   executor?: (plan: RunnerLaunchPlan) => AgentResult | Promise<AgentResult>;
+  reporter?: (event: PipelineRuntimeEvent) => void;
   task: string;
   workflowId?: string;
   worktreePath?: string;
@@ -80,6 +114,7 @@ interface RuntimeContext {
   hookFailures: RuntimeFailure[];
   lastOutputByNode: Map<string, string>;
   plan: WorkflowExecutionPlan;
+  reporter?: (event: PipelineRuntimeEvent) => void;
   task: string;
   workflowId: string;
   worktreePath: string;
@@ -109,12 +144,25 @@ export async function runPipelineFromConfig(
     task: options.task,
     workflowId,
     worktreePath,
+    ...(options.reporter ? { reporter: options.reporter } : {}),
   };
   const nodes: RuntimeNodeResult[] = [];
 
+  emit(context, {
+    nodeIds: plan.topologicalOrder.map((node) => node.id),
+    type: "workflow.start",
+    workflowId,
+  });
+
   const startHook = await dispatchHooks(context, "workflow.start");
   if (startHook) {
-    return failedRuntimeResult(context, nodes, startHook);
+    const result = failedRuntimeResult(context, nodes, startHook);
+    emit(context, {
+      outcome: result.outcome,
+      type: "workflow.finish",
+      workflowId,
+    });
+    return result;
   }
 
   for (const batch of plan.parallelBatches) {
@@ -132,7 +180,13 @@ export async function runPipelineFromConfig(
       };
       await dispatchHooks(context, "workflow.failure", failure);
       await dispatchHooks(context, "workflow.complete", failure);
-      return failedRuntimeResult(context, nodes, failure);
+      const result = failedRuntimeResult(context, nodes, failure);
+      emit(context, {
+        outcome: result.outcome,
+        type: "workflow.finish",
+        workflowId,
+      });
+      return result;
     }
   }
 
@@ -140,10 +194,16 @@ export async function runPipelineFromConfig(
   const completeHook = await dispatchHooks(context, "workflow.complete");
   const hookFailure = successHook ?? completeHook;
   if (hookFailure) {
-    return failedRuntimeResult(context, nodes, hookFailure);
+    const result = failedRuntimeResult(context, nodes, hookFailure);
+    emit(context, {
+      outcome: result.outcome,
+      type: "workflow.finish",
+      workflowId,
+    });
+    return result;
   }
 
-  return {
+  const result: PipelineRuntimeResult = {
     agentInvocations: context.agentInvocations,
     failureDetails: [],
     gates: context.gates,
@@ -152,6 +212,12 @@ export async function runPipelineFromConfig(
     outcome: "PASS",
     plan,
   };
+  emit(context, {
+    outcome: result.outcome,
+    type: "workflow.finish",
+    workflowId,
+  });
+  return result;
 }
 
 function failedRuntimeResult(
@@ -182,6 +248,7 @@ async function executeNode(
   };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    emitNodeStart(context, node, attempt);
     const startHook = await dispatchHooks(
       context,
       "node.start",
@@ -189,7 +256,14 @@ async function executeNode(
       node
     );
     if (startHook) {
-      return nodeFailure(node.id, attempt, startHook.evidence, last.output);
+      const result = nodeFailure(
+        node.id,
+        attempt,
+        startHook.evidence,
+        last.output
+      );
+      emitNodeFinish(context, result);
+      return result;
     }
 
     last = await executeNodeAttempt(node, context);
@@ -205,9 +279,16 @@ async function executeNode(
         node
       );
       if (successHook) {
-        return nodeFailure(node.id, attempt, successHook.evidence, last.output);
+        const result = nodeFailure(
+          node.id,
+          attempt,
+          successHook.evidence,
+          last.output
+        );
+        emitNodeFinish(context, result);
+        return result;
       }
-      return {
+      const result: RuntimeNodeResult = {
         attempts: attempt,
         evidence: last.evidence,
         exitCode: 0,
@@ -215,6 +296,8 @@ async function executeNode(
         output: last.output,
         status: "passed",
       };
+      emitNodeFinish(context, result);
+      return result;
     }
 
     const evidence =
@@ -233,11 +316,15 @@ async function executeNode(
         },
         node
       );
-      return nodeFailure(node.id, attempt, evidence, last.output);
+      const result = nodeFailure(node.id, attempt, evidence, last.output);
+      emitNodeFinish(context, result);
+      return result;
     }
   }
 
-  return nodeFailure(node.id, maxAttempts, last.evidence, last.output);
+  const result = nodeFailure(node.id, maxAttempts, last.evidence, last.output);
+  emitNodeFinish(context, result);
+  return result;
 }
 
 function nodeFailure(
@@ -595,6 +682,13 @@ async function evaluateNodeGates(
     const result = await evaluateGate(gate, node.id, context, attempt);
     context.gates.push(result);
     results.push(result);
+    emit(context, {
+      gateId: result.gateId,
+      nodeId: result.nodeId,
+      passed: result.passed,
+      type: "gate.finish",
+      ...(result.reason ? { reason: result.reason } : {}),
+    });
     if (!result.passed) {
       await dispatchHooks(
         context,
@@ -614,6 +708,40 @@ async function evaluateNodeGates(
     }
   }
   return results;
+}
+
+function emit(context: RuntimeContext, event: PipelineRuntimeEvent): void {
+  context.reporter?.(event);
+}
+
+function emitNodeStart(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  attempt: number
+): void {
+  const profile = node.profile
+    ? context.config.profiles[node.profile]
+    : undefined;
+  emit(context, {
+    attempt,
+    nodeId: node.id,
+    type: "node.start",
+    ...(node.profile ? { profile: node.profile } : {}),
+    ...(profile?.runner ? { runnerId: profile.runner } : {}),
+  });
+}
+
+function emitNodeFinish(
+  context: RuntimeContext,
+  result: RuntimeNodeResult
+): void {
+  emit(context, {
+    attempt: result.attempts,
+    exitCode: result.exitCode,
+    nodeId: result.nodeId,
+    status: result.status,
+    type: "node.finish",
+  });
 }
 
 async function evaluateGate(

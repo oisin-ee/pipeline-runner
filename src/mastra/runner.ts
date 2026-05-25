@@ -172,6 +172,8 @@ function harnessArgv(
       return [
         "exec",
         "--json",
+        "-C",
+        worktreePath,
         ...optionalModelArgs(harness, options.runner, options.actor),
         ...mcpArgs,
         ...skillArgs,
@@ -181,8 +183,6 @@ function harnessArgv(
         'approval_policy="never"',
         "--skip-git-repo-check",
         prompt,
-        "-C",
-        worktreePath,
       ];
     case "opencode":
       return contextFile

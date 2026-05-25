@@ -25,6 +25,7 @@ import {
 } from "./pipeline-init.js";
 import {
   formatConfigError,
+  type PipelineRuntimeEvent,
   type PipelineRuntimeResult,
   runPipelineFromConfig,
 } from "./pipeline-runtime.js";
@@ -78,6 +79,7 @@ interface RunInputs {
 async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
   const result = await runner({
+    reporter: formatRuntimeProgress,
     task: inputs.task,
     workflowId: inputs.workflow,
     worktreePath: inputs.worktreePath,
@@ -88,13 +90,60 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
   }
 }
 
+function formatRuntimeProgress(event: PipelineRuntimeEvent): void {
+  switch (event.type) {
+    case "workflow.start":
+      console.error(
+        `Pipeline starting: ${event.workflowId} (${event.nodeIds.join(" -> ")})`
+      );
+      return;
+    case "node.start":
+      console.error(
+        [
+          `Node starting: ${event.nodeId}`,
+          event.runnerId ? `runner=${event.runnerId}` : "",
+          event.profile ? `profile=${event.profile}` : "",
+          `attempt=${event.attempt}`,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+      return;
+    case "gate.finish":
+      console.error(
+        `Gate ${event.passed ? "passed" : "failed"}: ${event.nodeId}/${event.gateId}${event.reason ? ` (${event.reason})` : ""}`
+      );
+      return;
+    case "node.finish":
+      console.error(
+        `Node finished: ${event.nodeId} ${event.status} exit=${event.exitCode}`
+      );
+      return;
+    case "workflow.finish":
+      console.error(`Pipeline finished: ${event.workflowId} ${event.outcome}`);
+      return;
+    default: {
+      const _exhaustive: never = event;
+      throw new Error(`Unhandled runtime event: ${String(_exhaustive)}`);
+    }
+  }
+}
+
 function formatRuntimeResult(result: PipelineRuntimeResult): string {
-  return [
+  const lines = [
     `Pipeline complete: ${result.outcome}`,
     `Workflow: ${result.plan.workflowId}`,
     `Nodes: ${result.nodes.map((node) => `${node.nodeId}:${node.status}`).join(", ")}`,
     `Agent boundaries: ${result.agentInvocations.length}`,
-  ].join("\n");
+  ];
+  const outputs = result.nodes.filter((node) => node.output.trim());
+  if (outputs.length > 0) {
+    lines.push("Node outputs:");
+    for (const node of outputs) {
+      appendIndentedSection(lines, node.nodeId, [node.output]);
+    }
+  }
+  return lines.join("\n");
 }
 
 function formatRuntimeFailure(result: PipelineRuntimeResult): string {

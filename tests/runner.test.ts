@@ -91,14 +91,14 @@ describe("spawnAgent — codex harness", () => {
       [
         "exec",
         "--json",
+        "-C",
+        "/tmp/wt",
         "--sandbox",
         "workspace-write",
         "--config",
         'approval_policy="never"',
         "--skip-git-repo-check",
         "write tests",
-        "-C",
-        "/tmp/wt",
       ],
       expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
     );

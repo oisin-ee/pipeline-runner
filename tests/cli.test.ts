@@ -311,26 +311,92 @@ describe("pipe", () => {
 
   it("runs the YAML runtime through the pipe function", async () => {
     const { pipe } = await import("../src/index.js");
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const pipelineRunner = vi.fn().mockResolvedValue({
-      agentInvocations: [],
-      outcome: "PASS",
-      failureDetails: [],
-      gates: [],
-      hookFailures: [],
-      nodes: [],
-      plan: { workflowId: "custom", parallelBatches: [], topologicalOrder: [] },
+    const pipelineRunner = vi.fn().mockImplementation(({ reporter }) => {
+      reporter?.({
+        nodeIds: ["inspect"],
+        type: "workflow.start",
+        workflowId: "custom",
+      });
+      reporter?.({
+        attempt: 1,
+        nodeId: "inspect",
+        profile: "pipeline-inspector",
+        runnerId: "codex",
+        type: "node.start",
+      });
+      reporter?.({
+        attempt: 1,
+        exitCode: 0,
+        nodeId: "inspect",
+        status: "passed",
+        type: "node.finish",
+      });
+      reporter?.({
+        outcome: "PASS",
+        type: "workflow.finish",
+        workflowId: "custom",
+      });
+      return Promise.resolve({
+        agentInvocations: [],
+        outcome: "PASS",
+        failureDetails: [],
+        gates: [],
+        hookFailures: [],
+        nodes: [
+          {
+            attempts: 1,
+            evidence: [],
+            exitCode: 0,
+            nodeId: "inspect",
+            output: "repo report",
+            status: "passed",
+          },
+        ],
+        plan: {
+          workflowId: "custom",
+          parallelBatches: [],
+          topologicalOrder: [],
+        },
+      });
     });
 
-    await pipe("PIPE-42 trivial NOOP", { pipelineRunner, workflow: "custom" });
+    let progress: string[] = [];
+    let finalOutput = "";
+    try {
+      await pipe("PIPE-42 trivial NOOP", {
+        pipelineRunner,
+        workflow: "custom",
+      });
+      progress = error.mock.calls.map(([message]) => String(message));
+    } finally {
+      error.mockRestore();
+      finalOutput = log.mock.calls
+        .map(([message]) => String(message))
+        .join("\n");
+      log.mockRestore();
+    }
 
     expect(pipelineRunner).toHaveBeenCalledWith(
       expect.objectContaining({
+        reporter: expect.any(Function),
         task: "PIPE-42 trivial NOOP",
         workflowId: "custom",
         worktreePath: process.cwd(),
       })
     );
+    expect(progress).toContain("Pipeline starting: custom (inspect)");
+    expect(progress).toContain(
+      "Node starting: inspect runner=codex profile=pipeline-inspector attempt=1"
+    );
+    expect(progress).toContain("Node finished: inspect passed exit=0");
+    expect(progress).toContain("Pipeline finished: custom PASS");
+    expect(finalOutput).toContain("Node outputs:");
+    expect(finalOutput).toContain("repo report");
   });
 
   it("fails when pipe run is invoked without .pipeline/pipeline.yaml", async () => {
