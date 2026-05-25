@@ -27,6 +27,8 @@ import { execa } from "execa";
 
 const mockExeca = vi.mocked(execa);
 const DESCRIPTION_RE = /description/i;
+const FAILURE_DETAILS_RE =
+  /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -390,7 +392,7 @@ describe("pipe", () => {
       agentInvocations: [],
       failureDetails: [
         {
-          evidence: ["missing file"],
+          evidence: ["agent boundary node=verify", "missing file"],
           gate: "artifact",
           nodeId: "verify",
           reason: "missing artifact",
@@ -398,7 +400,16 @@ describe("pipe", () => {
       ],
       gates: [],
       hookFailures: [],
-      nodes: [],
+      nodes: [
+        {
+          attempts: 1,
+          evidence: ["agent boundary node=verify", "missing file"],
+          exitCode: 1,
+          nodeId: "verify",
+          output: "raw verifier output",
+          status: "failed",
+        },
+      ],
       outcome: "FAIL",
       plan: {
         workflowId: "default",
@@ -408,7 +419,7 @@ describe("pipe", () => {
     });
 
     await expect(pipe("ship it", { pipelineRunner })).rejects.toThrow(
-      "Pipeline failed"
+      FAILURE_DETAILS_RE
     );
   });
 });

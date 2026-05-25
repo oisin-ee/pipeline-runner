@@ -354,6 +354,51 @@ workflows:
     });
   });
 
+  it("validates JSON schema gates against the final Codex message instead of raw JSONL events", async () => {
+    const project = tempProject();
+    writeProjectFile(
+      project,
+      "schema.json",
+      JSON.stringify({
+        additionalProperties: false,
+        properties: { verdict: { enum: ["PASS"], type: "string" } },
+        required: ["verdict"],
+        type: "object",
+      })
+    );
+    const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+    const codexJsonl = [
+      JSON.stringify({ type: "thread.started" }),
+      JSON.stringify({
+        item: {
+          text: JSON.stringify({ verdict: "PASS" }),
+          type: "agent_message",
+        },
+        type: "item.completed",
+      }),
+    ].join("\n");
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => ({ exitCode: 0, stdout: codexJsonl }),
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
+    expect(result.nodes[0].evidence).toContain(
+      "normalized runner output from codex JSONL"
+    );
+  });
+
   it("runs hooks with templating and required failure semantics", async () => {
     const project = tempProject();
     const config = parsePipelineConfigParts({

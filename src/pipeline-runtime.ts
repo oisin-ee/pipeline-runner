@@ -27,6 +27,7 @@ import {
 type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
 type GateSpec = NonNullable<WorkflowNode["gates"]>[number];
 type HookSpec = PipelineConfig["hooks"][string];
+const LINE_RE = /\r?\n/;
 
 export interface RuntimeFailure {
   evidence: string[];
@@ -299,15 +300,85 @@ async function executeAgentNode(
   });
   context.agentInvocations.push(plan);
   const result = await context.executor(plan);
+  const normalized = normalizeAgentOutput(plan, result.stdout);
   return {
     evidence: [
       `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId} strategy=${plan.strategy}`,
+      ...normalized.evidence,
       ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
       ...(result.timedOut ? ["agent timed out"] : []),
     ],
     exitCode: result.exitCode,
-    output: result.stdout,
+    output: normalized.output,
   };
+}
+
+function normalizeAgentOutput(
+  plan: RunnerLaunchPlan,
+  stdout: string
+): { evidence: string[]; output: string } {
+  if (plan.type === "codex") {
+    const text = lastJsonLineValue(stdout, (value) => {
+      if (!isRecord(value)) {
+        return;
+      }
+      const item = value.item;
+      if (isRecord(item) && item.type === "agent_message") {
+        return typeof item.text === "string" ? item.text : undefined;
+      }
+      if (value.type === "agent_message") {
+        return typeof value.text === "string" ? value.text : undefined;
+      }
+    });
+    if (text) {
+      return {
+        evidence: ["normalized runner output from codex JSONL"],
+        output: text,
+      };
+    }
+  }
+
+  if (plan.type === "opencode") {
+    const text = lastJsonLineValue(stdout, (value) => {
+      if (!isRecord(value)) {
+        return;
+      }
+      const part = value.part;
+      if (isRecord(part) && part.type === "text") {
+        return typeof part.text === "string" ? part.text : undefined;
+      }
+    });
+    if (text) {
+      return {
+        evidence: ["normalized runner output from opencode JSON events"],
+        output: text,
+      };
+    }
+  }
+
+  return { evidence: [], output: stdout };
+}
+
+function lastJsonLineValue(
+  text: string,
+  extract: (value: unknown) => string | undefined
+): string | undefined {
+  let latest: string | undefined;
+  for (const line of text.split(LINE_RE)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    try {
+      const extracted = extract(JSON.parse(trimmed));
+      if (extracted) {
+        latest = extracted;
+      }
+    } catch {
+      // Non-JSON lines are valid for non-event runner output.
+    }
+  }
+  return latest;
 }
 
 function renderAgentPrompt(

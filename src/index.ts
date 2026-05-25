@@ -31,6 +31,7 @@ import {
 import { compileWorkflowPlan } from "./workflow-planner.js";
 
 const PATH_SEPARATOR_RE = /[\\/]/;
+const LINE_RE = /\r?\n/;
 
 interface PipeOptions {
   pipelineRunner?: typeof runPipelineFromConfig;
@@ -83,16 +84,7 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
   });
   console.log(formatRuntimeResult(result));
   if (result.outcome === "FAIL") {
-    throw new Error(
-      [
-        "Pipeline failed.",
-        ...result.failureDetails.map((failure) =>
-          failure.nodeId
-            ? `- ${failure.nodeId}: ${failure.reason}`
-            : `- ${failure.reason}`
-        ),
-      ].join("\n")
-    );
+    throw new Error(formatRuntimeFailure(result));
   }
 }
 
@@ -103,6 +95,66 @@ function formatRuntimeResult(result: PipelineRuntimeResult): string {
     `Nodes: ${result.nodes.map((node) => `${node.nodeId}:${node.status}`).join(", ")}`,
     `Agent boundaries: ${result.agentInvocations.length}`,
   ].join("\n");
+}
+
+function formatRuntimeFailure(result: PipelineRuntimeResult): string {
+  const lines = ["Pipeline failed."];
+  for (const failure of result.failureDetails) {
+    lines.push(
+      failure.nodeId
+        ? `- ${failure.nodeId}: ${failure.reason}`
+        : `- ${failure.reason}`
+    );
+    appendIndentedSection(lines, "Evidence", failure.evidence);
+    const node = failure.nodeId
+      ? result.nodes.find((item) => item.nodeId === failure.nodeId)
+      : undefined;
+    if (node) {
+      lines.push(
+        `  Node: status=${node.status} attempts=${node.attempts} exit=${node.exitCode}`
+      );
+      appendIndentedSection(lines, "Node evidence", node.evidence);
+      appendIndentedSection(lines, "Node output", [node.output]);
+    }
+  }
+  if (result.gates.length > 0) {
+    lines.push("Gates:");
+    for (const gate of result.gates) {
+      lines.push(
+        `  - ${gate.nodeId}/${gate.gateId}: ${gate.passed ? "PASS" : "FAIL"}${gate.reason ? ` (${gate.reason})` : ""}`
+      );
+      appendIndentedSection(lines, "Gate evidence", gate.evidence);
+    }
+  }
+  return lines.join("\n");
+}
+
+function appendIndentedSection(
+  lines: string[],
+  label: string,
+  values: string[]
+): void {
+  const text = values.filter(Boolean).join("\n").trim();
+  if (!text) {
+    return;
+  }
+  lines.push(`  ${label}:`);
+  lines.push(indent(truncateMiddle(text, 4000), "    "));
+}
+
+function indent(text: string, prefix: string): string {
+  return text
+    .split(LINE_RE)
+    .map((line) => `${prefix}${line}`)
+    .join("\n");
+}
+
+function truncateMiddle(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  const keep = Math.floor((maxLength - 32) / 2);
+  return `${text.slice(0, keep)}\n... truncated ...\n${text.slice(-keep)}`;
 }
 
 interface InstallCommandFlags {
