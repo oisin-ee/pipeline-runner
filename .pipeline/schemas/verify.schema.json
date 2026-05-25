@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "verdict": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ],
+      "type": "string"
+    },
+    "violations": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "verdict",
+    "evidence"
+  ],
+  "type": "object"
+}

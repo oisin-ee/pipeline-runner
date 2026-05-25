@@ -345,7 +345,6 @@ function kimiDefinitions(config: PipelineConfig): CommandDefinition[] {
 }
 
 function piDefinitions(config: PipelineConfig): CommandDefinition[] {
-  const plan = compileWorkflowPlan(config);
   return [
     {
       content: markdown(
@@ -363,55 +362,61 @@ function piDefinitions(config: PipelineConfig): CommandDefinition[] {
       content: [
         tsHeader("pi").trimEnd(),
         "",
-        "interface PiCommand { name: string }",
+        "interface PiCommand {",
+        "  name: string;",
+        "}",
         "interface PiCommandContext {",
         "  sendUserMessage(message: string): Promise<void> | void;",
         "  ui: { notify(message: string, type?: string): void };",
         "}",
         "interface PiExtensionApi {",
         "  getCommands?(): PiCommand[];",
-        "  registerCommand(name: string, command: {",
-        "    description: string;",
-        "    handler(args: string, ctx: PiCommandContext): Promise<void> | void;",
-        "  }): void;",
+        "  registerCommand(",
+        "    name: string,",
+        "    command: {",
+        "      description: string;",
+        "      handler(args: string, ctx: PiCommandContext): Promise<void> | void;",
+        "    }",
+        "  ): void;",
         "}",
         "",
-        `const WORKFLOW_NODES = ${JSON.stringify(
-          plan.topologicalOrder.map((node) => ({
-            agent: node.agent ?? null,
-            id: node.id,
-            kind: node.kind,
-            needs: node.needs,
-          })),
-          null,
-          2
-        )} as const;`,
+        ...piWorkflowNodesLiteral(config),
         "",
         "function renderSubagentCommand(task: string): string {",
-        "  const chain = WORKFLOW_NODES",
-        "    .filter((node) => node.kind === 'agent')",
-        '    .map((node) => String(node.agent) + ": " + node.id + " " + task)',
-        "    .join(' -> ');",
-        '  return "/chain " + JSON.stringify(chain);',
+        '  const chain = WORKFLOW_NODES.filter((node) => node.kind === "agent")',
+        "    .map((node) => `" +
+          "$" +
+          "{String(node.agent)}: " +
+          "$" +
+          "{node.id} " +
+          "$" +
+          "{task}" +
+          "`)",
+        '    .join(" -> ");',
+        ["  return `/chain ", "$", "{JSON.stringify(chain)}`;"].join(""),
         "}",
         "",
         "export default function pipelineWorkNext(pi: PiExtensionApi): void {",
-        "  pi.registerCommand('pipe', {",
-        "    description: 'Run the configured pipeline with Pi subagents',",
+        '  pi.registerCommand("pipe", {',
+        '    description: "Run the configured pipeline with Pi subagents",',
         "    handler: async (args: string, ctx) => {",
-        "      const task = String(args ?? '').trim();",
+        '      const task = String(args ?? "").trim();',
         "      if (!task) {",
-        "        ctx.ui.notify('Usage: /pipe <task description>', 'error');",
+        '        ctx.ui.notify("Usage: /pipe <task description>", "error");',
         "        return;",
         "      }",
-        "      const commands = typeof pi.getCommands === 'function' ? pi.getCommands() : [];",
+        "      const commands =",
+        '        typeof pi.getCommands === "function" ? pi.getCommands() : [];',
         "      const hasPiSubagents = commands.some((command) =>",
-        "        ['run', 'chain', 'parallel', 'run-chain', 'subagents-doctor'].some(",
-        '          (name) => command.name === name || command.name.startsWith(name + ":")',
+        '        ["run", "chain", "parallel", "run-chain", "subagents-doctor"].some(',
+        "          (name) => command.name === name || command.name.startsWith(`" +
+          "$" +
+          "{name}:" +
+          "`)",
         "        )",
         "      );",
         "      if (!hasPiSubagents) {",
-        "        ctx.ui.notify('Install pi-subagents before running /pipe.', 'error');",
+        '        ctx.ui.notify("Install pi-subagents before running /pipe.", "error");',
         "        return;",
         "      }",
         "      await ctx.sendUserMessage(renderSubagentCommand(task));",
@@ -424,6 +429,22 @@ function piDefinitions(config: PipelineConfig): CommandDefinition[] {
       invocation: "/pipe <task description>",
       path: ".pi/extensions/pipe.ts",
     },
+  ];
+}
+
+function piWorkflowNodesLiteral(config: PipelineConfig): string[] {
+  const plan = compileWorkflowPlan(config);
+  return [
+    "const WORKFLOW_NODES = [",
+    ...plan.topologicalOrder.flatMap((node) => [
+      "  {",
+      `    agent: ${JSON.stringify(node.agent ?? null)},`,
+      `    id: ${JSON.stringify(node.id)},`,
+      `    kind: ${JSON.stringify(node.kind)},`,
+      `    needs: ${JSON.stringify(node.needs)},`,
+      "  },",
+    ]),
+    "] as const;",
   ];
 }
 

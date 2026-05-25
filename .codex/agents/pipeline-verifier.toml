@@ -1,4 +1,4 @@
-description = "Verify tests, typecheck, style gates, duplication checks, and implementation fit."
-developer_instructions = "Verify tests, typecheck, style gates, duplication checks, and implementation fit.\nFollow the oisin pipeline phase contract for your assigned role.\nReturn concrete evidence to the orchestrator."
+description = "Verify checks, implementation fit, and final evidence."
+developer_instructions = "Verify checks, implementation fit, and final evidence.\nInstructions: .pipeline/prompts/verifier.md\nConfigured grants:\ntools: read, list, grep, glob, bash\nrules: verification\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: json_schema"
 name = "pipeline-verifier"
 sandbox_mode = "read-only"

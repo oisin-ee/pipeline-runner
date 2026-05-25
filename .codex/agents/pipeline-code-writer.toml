@@ -1,4 +1,4 @@
-description = "Implement production code to satisfy the failing tests while keeping edits scoped."
-developer_instructions = "Implement production code to satisfy the failing tests while keeping edits scoped.\nFollow the oisin pipeline phase contract for your assigned role.\nReturn concrete evidence to the orchestrator."
+description = "Implement production code until the failing tests pass."
+developer_instructions = "Implement production code until the failing tests pass.\nInstructions: .pipeline/prompts/code-writer.md\nConfigured grants:\ntools: read, list, grep, glob, bash, edit, write\nrules: test-first\nskills: none\nmcp_servers: none\nfilesystem: workspace-write\nnetwork: inherit\noutput: text"
 name = "pipeline-code-writer"
 sandbox_mode = "workspace-write"

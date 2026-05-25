@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "ac": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "files": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "risks": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "target": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "findings",
+    "ac"
+  ],
+  "type": "object"
+}

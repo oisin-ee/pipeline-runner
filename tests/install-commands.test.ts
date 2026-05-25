@@ -120,10 +120,10 @@ describe("installCommands", () => {
     expect(opencodeCommand).toContain("subtask: true");
     expect(codexSkill).toContain("$pipe <task description>");
     expect(piExtension).toContain("export default function pipelineWorkNext");
-    expect(piExtension).toContain("pi.registerCommand('pipe', {");
+    expect(piExtension).toContain('pi.registerCommand("pipe", {');
     expect(piExtension).toContain("WORKFLOW_NODES");
     expect(piExtension).toContain("pipeline-researcher");
-    expect(piExtension).toContain("'run-chain'");
+    expect(piExtension).toContain('"run-chain"');
     expect(piExtension).not.toContain("sendUserMessage(renderWorkflowPrompt");
 
     for (const content of [

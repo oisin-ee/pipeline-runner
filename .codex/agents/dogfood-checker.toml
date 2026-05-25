@@ -1,0 +1,4 @@
+description = "Prove the installed YAML runtime can run a separate agent boundary locally."
+developer_instructions = "Prove the installed YAML runtime can run a separate agent boundary locally.\nInstructions:\nEmit the dogfood structured result and do not modify files.\nConfigured grants:\ntools: bash\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: disabled\noutput: json_schema"
+name = "dogfood-checker"
+sandbox_mode = "read-only"

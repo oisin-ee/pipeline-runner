@@ -1,4 +1,4 @@
-description = "Research the requested task, map relevant files, identify existing patterns, and write concise findings."
-developer_instructions = "Research the requested task, map relevant files, identify existing patterns, and write concise findings.\nFollow the oisin pipeline phase contract for your assigned role.\nReturn concrete evidence to the orchestrator."
+description = "Research the requested task and produce structured findings."
+developer_instructions = "Research the requested task and produce structured findings.\nInstructions: .pipeline/prompts/researcher.md\nConfigured grants:\ntools: read, list, grep, glob, bash\nrules: test-first\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: json_schema"
 name = "pipeline-researcher"
 sandbox_mode = "read-only"
