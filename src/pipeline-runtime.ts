@@ -15,6 +15,7 @@ import {
 import {
   type AgentResult,
   createRunnerLaunchPlan,
+  type RunnerExecutionOptions,
   type RunnerLaunchPlan,
   runLaunchPlan,
 } from "./mastra/runner.js";
@@ -60,7 +61,7 @@ export interface PipelineRuntimeResult {
   gates: RuntimeGateResult[];
   hookFailures: RuntimeFailure[];
   nodes: RuntimeNodeResult[];
-  outcome: "FAIL" | "PASS";
+  outcome: "CANCELLED" | "FAIL" | "PASS";
   plan: WorkflowExecutionPlan;
 }
 
@@ -81,15 +82,74 @@ export type PipelineRuntimeEvent =
       attempt: number;
       exitCode: number;
       nodeId: string;
+      profile?: string;
+      runnerId?: string;
       status: RuntimeNodeResult["status"];
       type: "node.finish";
     }
   | {
+      attempt: number;
+      nodeId: string;
+      profile?: string;
+      runnerId?: string;
+      type: "agent.start";
+    }
+  | {
+      attempt: number;
+      exitCode: number;
+      nodeId: string;
+      profile?: string;
+      runnerId?: string;
+      type: "agent.finish";
+    }
+  | {
       gateId: string;
+      kind: string;
+      nodeId: string;
+      type: "gate.start";
+    }
+  | {
+      evidence?: string[];
+      gateId: string;
+      kind: string;
       nodeId: string;
       passed: boolean;
       reason?: string;
       type: "gate.finish";
+    }
+  | {
+      nodeId: string;
+      path: string;
+      required: boolean;
+      type: "artifact.check.start";
+    }
+  | {
+      nodeId: string;
+      passed: boolean;
+      path: string;
+      reason?: string;
+      required: boolean;
+      type: "artifact.check.finish";
+    }
+  | {
+      event: HookSpec["event"];
+      gateId?: string;
+      hookId: string;
+      nodeId?: string;
+      required: boolean;
+      type: "hook.start";
+      workflowId: string;
+    }
+  | {
+      event: HookSpec["event"];
+      gateId?: string;
+      hookId: string;
+      nodeId?: string;
+      passed: boolean;
+      reason?: string;
+      required: boolean;
+      type: "hook.finish";
+      workflowId: string;
     }
   | {
       attempt: number;
@@ -106,8 +166,12 @@ export type PipelineRuntimeEvent =
 
 export interface PipelineRuntimeOptions {
   config?: PipelineConfig;
-  executor?: (plan: RunnerLaunchPlan) => AgentResult | Promise<AgentResult>;
+  executor?: (
+    plan: RunnerLaunchPlan,
+    options: RunnerExecutionOptions
+  ) => AgentResult | Promise<AgentResult>;
   reporter?: (event: PipelineRuntimeEvent) => void;
+  signal?: AbortSignal;
   task: string;
   workflowId?: string;
   worktreePath?: string;
@@ -116,12 +180,16 @@ export interface PipelineRuntimeOptions {
 interface RuntimeContext {
   agentInvocations: RunnerLaunchPlan[];
   config: PipelineConfig;
-  executor: (plan: RunnerLaunchPlan) => AgentResult | Promise<AgentResult>;
+  executor: (
+    plan: RunnerLaunchPlan,
+    options: RunnerExecutionOptions
+  ) => AgentResult | Promise<AgentResult>;
   gates: RuntimeGateResult[];
   hookFailures: RuntimeFailure[];
   lastOutputByNode: Map<string, string>;
   plan: WorkflowExecutionPlan;
   reporter?: (event: PipelineRuntimeEvent) => void;
+  signal?: AbortSignal;
   task: string;
   workflowId: string;
   worktreePath: string;
@@ -162,10 +230,11 @@ export async function runPipelineFromConfig(
     hookFailures: [],
     lastOutputByNode: new Map(),
     plan,
+    ...(options.reporter ? { reporter: options.reporter } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
     task: options.task,
     workflowId,
     worktreePath,
-    ...(options.reporter ? { reporter: options.reporter } : {}),
   };
   const nodes: RuntimeNodeResult[] = [];
 
@@ -175,22 +244,39 @@ export async function runPipelineFromConfig(
     workflowId,
   });
 
+  if (isCancelled(context)) {
+    const result = cancelledRuntimeResult(context, nodes);
+    emitWorkflowFinish(context, result.outcome);
+    return result;
+  }
+
   const startHook = await dispatchHooks(context, "workflow.start");
+  if (isCancelled(context)) {
+    const result = cancelledRuntimeResult(context, nodes);
+    emitWorkflowFinish(context, result.outcome);
+    return result;
+  }
   if (startHook) {
     const result = failedRuntimeResult(context, nodes, startHook);
-    emit(context, {
-      outcome: result.outcome,
-      type: "workflow.finish",
-      workflowId,
-    });
+    emitWorkflowFinish(context, result.outcome);
     return result;
   }
 
   for (const batch of plan.parallelBatches) {
+    if (isCancelled(context)) {
+      const result = cancelledRuntimeResult(context, nodes);
+      emitWorkflowFinish(context, result.outcome);
+      return result;
+    }
     const results = await Promise.all(
       batch.map((node) => executeNode(node, context))
     );
     nodes.push(...results);
+    if (isCancelled(context)) {
+      const result = cancelledRuntimeResult(context, nodes);
+      emitWorkflowFinish(context, result.outcome);
+      return result;
+    }
     const failed = results.find((result) => result.status === "failed");
     if (failed) {
       const failure = {
@@ -202,25 +288,22 @@ export async function runPipelineFromConfig(
       await dispatchHooks(context, "workflow.failure", failure);
       await dispatchHooks(context, "workflow.complete", failure);
       const result = failedRuntimeResult(context, nodes, failure);
-      emit(context, {
-        outcome: result.outcome,
-        type: "workflow.finish",
-        workflowId,
-      });
+      emitWorkflowFinish(context, result.outcome);
       return result;
     }
   }
 
   const successHook = await dispatchHooks(context, "workflow.success");
   const completeHook = await dispatchHooks(context, "workflow.complete");
+  if (isCancelled(context)) {
+    const result = cancelledRuntimeResult(context, nodes);
+    emitWorkflowFinish(context, result.outcome);
+    return result;
+  }
   const hookFailure = successHook ?? completeHook;
   if (hookFailure) {
     const result = failedRuntimeResult(context, nodes, hookFailure);
-    emit(context, {
-      outcome: result.outcome,
-      type: "workflow.finish",
-      workflowId,
-    });
+    emitWorkflowFinish(context, result.outcome);
     return result;
   }
 
@@ -233,11 +316,7 @@ export async function runPipelineFromConfig(
     outcome: "PASS",
     plan,
   };
-  emit(context, {
-    outcome: result.outcome,
-    type: "workflow.finish",
-    workflowId,
-  });
+  emitWorkflowFinish(context, result.outcome);
   return result;
 }
 
@@ -257,6 +336,44 @@ function failedRuntimeResult(
   };
 }
 
+function cancelledRuntimeResult(
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): PipelineRuntimeResult {
+  return {
+    agentInvocations: context.agentInvocations,
+    failureDetails: [cancelledFailure()],
+    gates: context.gates,
+    hookFailures: context.hookFailures,
+    nodes,
+    outcome: "CANCELLED",
+    plan: context.plan,
+  };
+}
+
+function cancelledFailure(): RuntimeFailure {
+  return {
+    evidence: ["pipeline cancelled by AbortSignal"],
+    gate: "cancelled",
+    reason: "pipeline cancelled",
+  };
+}
+
+function isCancelled(context: RuntimeContext): boolean {
+  return context.signal?.aborted === true;
+}
+
+function emitWorkflowFinish(
+  context: RuntimeContext,
+  outcome: PipelineRuntimeResult["outcome"]
+): void {
+  emit(context, {
+    outcome,
+    type: "workflow.finish",
+    workflowId: context.workflowId,
+  });
+}
+
 async function executeNode(
   node: PlannedWorkflowNode,
   context: RuntimeContext
@@ -269,6 +386,16 @@ async function executeNode(
   };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (isCancelled(context)) {
+      const result = nodeFailure(
+        node.id,
+        attempt,
+        cancelledFailure().evidence,
+        last.output
+      );
+      emitNodeFinish(context, result);
+      return result;
+    }
     emitNodeStart(context, node, attempt);
     const startHook = await dispatchHooks(
       context,
@@ -286,11 +413,45 @@ async function executeNode(
       emitNodeFinish(context, result);
       return result;
     }
+    if (isCancelled(context)) {
+      const result = nodeFailure(
+        node.id,
+        attempt,
+        cancelledFailure().evidence,
+        last.output
+      );
+      emitNodeFinish(context, result);
+      return result;
+    }
 
-    last = await executeNodeAttempt(node, context);
+    last = await executeNodeAttempt(node, context, attempt);
     context.lastOutputByNode.set(node.id, last.output);
+    if (isCancelled(context)) {
+      const result: RuntimeNodeResult = {
+        attempts: attempt,
+        evidence: [...last.evidence, ...cancelledFailure().evidence],
+        exitCode: last.exitCode,
+        nodeId: node.id,
+        output: last.output,
+        status: last.exitCode === 0 ? "passed" : "failed",
+      };
+      emitNodeFinish(context, result);
+      return result;
+    }
 
     const gateResults = await evaluateNodeGates(node, context, last);
+    if (isCancelled(context)) {
+      const result: RuntimeNodeResult = {
+        attempts: attempt,
+        evidence: [...last.evidence, ...cancelledFailure().evidence],
+        exitCode: last.exitCode,
+        nodeId: node.id,
+        output: last.output,
+        status: last.exitCode === 0 ? "passed" : "failed",
+      };
+      emitNodeFinish(context, result);
+      return result;
+    }
     const failedGate = gateResults.find((gate) => !gate.passed);
     if (!failedGate && last.exitCode === 0) {
       const successHook = await dispatchHooks(
@@ -306,6 +467,18 @@ async function executeNode(
           successHook.evidence,
           last.output
         );
+        emitNodeFinish(context, result);
+        return result;
+      }
+      if (isCancelled(context)) {
+        const result: RuntimeNodeResult = {
+          attempts: attempt,
+          evidence: [...last.evidence, ...cancelledFailure().evidence],
+          exitCode: last.exitCode,
+          nodeId: node.id,
+          output: last.output,
+          status: last.exitCode === 0 ? "passed" : "failed",
+        };
         emitNodeFinish(context, result);
         return result;
       }
@@ -366,15 +539,16 @@ function nodeFailure(
 
 function executeNodeAttempt(
   node: PlannedWorkflowNode,
-  context: RuntimeContext
+  context: RuntimeContext,
+  attempt: number
 ): NodeAttemptResult | Promise<NodeAttemptResult> {
   switch (node.kind) {
     case "agent":
-      return executeAgentNode(node, context);
+      return executeAgentNode(node, context, attempt);
     case "command":
-      return executeCommand(node.command ?? [], context.worktreePath);
+      return executeCommand(node.command ?? [], context);
     case "builtin":
-      return executeBuiltin(node.builtin ?? "", context.worktreePath);
+      return executeBuiltin(node.builtin ?? "", context);
     case "group":
       return {
         evidence: [`group '${node.id}' completed`],
@@ -390,7 +564,8 @@ function executeNodeAttempt(
 
 async function executeAgentNode(
   node: PlannedWorkflowNode,
-  context: RuntimeContext
+  context: RuntimeContext,
+  attempt: number
 ): Promise<NodeAttemptResult> {
   if (!node.profile) {
     return {
@@ -407,13 +582,16 @@ async function executeAgentNode(
     worktreePath: context.worktreePath,
   });
   context.agentInvocations.push(plan);
-  const result = await context.executor(plan);
+  emitAgentStart(context, plan, attempt);
+  const result = await context.executor(plan, { signal: context.signal });
+  emitAgentFinish(context, plan, attempt, result);
   const normalized = normalizeAgentOutput(plan, result.stdout);
   const finalized = await finalizeAgentOutput({
     context,
     node,
     normalized,
     result,
+    attempt,
   });
   return {
     evidence: [
@@ -428,18 +606,19 @@ async function executeAgentNode(
 }
 
 async function finalizeAgentOutput(inputs: {
+  attempt: number;
   context: RuntimeContext;
   node: PlannedWorkflowNode;
   normalized: { evidence: string[]; output: string };
   result: AgentResult;
 }): Promise<{ evidence: string[]; output: string }> {
-  const { context, node, normalized, result } = inputs;
+  const { attempt, context, node, normalized, result } = inputs;
   const repairContext = outputRepairContext(context, node, normalized, result);
   if (!repairContext) {
     return normalized;
   }
 
-  return await runOutputRepair(context, node, normalized, repairContext);
+  return await runOutputRepair(context, node, normalized, repairContext, attempt);
 }
 
 function outputRepairContext(
@@ -490,7 +669,8 @@ async function runOutputRepair(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   normalized: { evidence: string[]; output: string },
-  repairContext: OutputRepairContext
+  repairContext: OutputRepairContext,
+  nodeAttempt: number
 ): Promise<{ evidence: string[]; output: string }> {
   let latest = normalized;
   let latestValidation = repairContext.validation;
@@ -505,7 +685,11 @@ async function runOutputRepair(
       validation: latestValidation,
     });
     context.agentInvocations.push(repairPlan);
-    const repairResult = await context.executor(repairPlan);
+    emitAgentStart(context, repairPlan, nodeAttempt);
+    const repairResult = await context.executor(repairPlan, {
+      signal: context.signal,
+    });
+    emitAgentFinish(context, repairPlan, nodeAttempt, repairResult);
     const repaired = normalizeAgentOutput(repairPlan, repairResult.stdout);
     const repairedValidation = validateJsonSchemaSource(
       repaired.output,
@@ -792,7 +976,7 @@ function renderMcpReferences(
 
 async function executeCommand(
   command: string[],
-  worktreePath: string,
+  context: RuntimeContext,
   timeout?: number
 ): Promise<NodeAttemptResult> {
   if (command.length === 0) {
@@ -800,7 +984,8 @@ async function executeCommand(
   }
   try {
     const result = await execa(command[0] as string, command.slice(1), {
-      cwd: worktreePath,
+      cwd: context.worktreePath,
+      signal: context.signal,
       timeout,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
@@ -833,11 +1018,11 @@ async function executeCommand(
 
 async function executeBuiltin(
   builtin: string,
-  worktreePath: string
+  context: RuntimeContext
 ): Promise<NodeAttemptResult> {
   switch (builtin) {
     case "test": {
-      const result = await runTests(worktreePath);
+      const result = await runTests(context.worktreePath, context.signal);
       return {
         evidence: [result.output, ...result.failingTests],
         exitCode: result.exitCode,
@@ -845,7 +1030,7 @@ async function executeBuiltin(
       };
     }
     case "typecheck": {
-      const result = await runTypecheck(worktreePath);
+      const result = await runTypecheck(context.worktreePath, context.signal);
       return {
         evidence: [result.output],
         exitCode: result.exitCode,
@@ -853,7 +1038,7 @@ async function executeBuiltin(
       };
     }
     case "duplication": {
-      const result = await runJscpd(worktreePath);
+      const result = await runJscpd(context.worktreePath, context.signal);
       return {
         evidence: result.violations.map((violation) => violation.message),
         exitCode: result.violations.length === 0 ? 0 : 1,
@@ -899,11 +1084,41 @@ async function evaluateNodeGates(
       : [];
   const results: RuntimeGateResult[] = [];
   for (const gate of [...explicitGates, ...artifactGates, ...schemaGate]) {
+    const gateId = gate.id ?? `${gate.kind}:${node.id}`;
+    if (isCancelled(context)) {
+      break;
+    }
+    emit(context, {
+      gateId,
+      kind: gate.kind,
+      nodeId: node.id,
+      type: "gate.start",
+    });
+    if (gate.kind === "artifact") {
+      emit(context, {
+        nodeId: node.id,
+        path: gate.path ?? "",
+        required: gate.required !== false,
+        type: "artifact.check.start",
+      });
+    }
     const result = await evaluateGate(gate, node.id, context, attempt);
     context.gates.push(result);
     results.push(result);
+    if (gate.kind === "artifact") {
+      emit(context, {
+        nodeId: node.id,
+        passed: result.passed,
+        path: gate.path ?? "",
+        required: gate.required !== false,
+        type: "artifact.check.finish",
+        ...(result.reason ? { reason: result.reason } : {}),
+      });
+    }
     emit(context, {
+      evidence: result.evidence,
       gateId: result.gateId,
+      kind: result.kind,
       nodeId: result.nodeId,
       passed: result.passed,
       type: "gate.finish",
@@ -955,12 +1170,46 @@ function emitNodeFinish(
   context: RuntimeContext,
   result: RuntimeNodeResult
 ): void {
+  const node = context.plan.topologicalOrder.find((item) => item.id === result.nodeId);
+  const profile = node?.profile ? context.config.profiles[node.profile] : undefined;
   emit(context, {
     attempt: result.attempts,
     exitCode: result.exitCode,
     nodeId: result.nodeId,
+    ...(node?.profile ? { profile: node.profile } : {}),
+    ...(profile?.runner ? { runnerId: profile.runner } : {}),
     status: result.status,
     type: "node.finish",
+  });
+}
+
+function emitAgentStart(
+  context: RuntimeContext,
+  plan: RunnerLaunchPlan,
+  attempt: number
+): void {
+  emit(context, {
+    attempt,
+    nodeId: plan.nodeId,
+    type: "agent.start",
+    ...(plan.profileId ? { profile: plan.profileId } : {}),
+    runnerId: plan.runnerId,
+  });
+}
+
+function emitAgentFinish(
+  context: RuntimeContext,
+  plan: RunnerLaunchPlan,
+  attempt: number,
+  result: AgentResult
+): void {
+  emit(context, {
+    attempt,
+    exitCode: result.exitCode,
+    nodeId: plan.nodeId,
+    type: "agent.finish",
+    ...(plan.profileId ? { profile: plan.profileId } : {}),
+    runnerId: plan.runnerId,
   });
 }
 
@@ -974,7 +1223,7 @@ async function evaluateGate(
   if (gate.kind === "command") {
     const result = await executeCommand(
       gate.command ?? [],
-      context.worktreePath,
+      context,
       gate.timeout_ms
     );
     const expected = gate.expect_exit_code ?? 0;
@@ -1007,7 +1256,7 @@ async function evaluateGate(
   if (gate.kind === "builtin") {
     const result = await executeBuiltin(
       gate.builtin ?? "",
-      context.worktreePath
+      context
     );
     return {
       evidence: result.evidence,
@@ -1217,10 +1466,22 @@ async function dispatchHooks(
   const workflow = context.config.workflows[context.workflowId];
   const hookIds = [...(workflow?.hooks ?? []), ...(node?.hooks ?? [])];
   for (const hookId of hookIds) {
+    if (isCancelled(context)) {
+      return null;
+    }
     const hook = context.config.hooks[hookId];
     if (!hook || hook.event !== event) {
       continue;
     }
+    emit(context, {
+      event,
+      hookId,
+      required: hook.required === true,
+      type: "hook.start",
+      workflowId: context.workflowId,
+      ...(node ? { nodeId: node.id } : {}),
+      ...(gateId ? { gateId } : {}),
+    });
     const result = await executeHook(
       hook,
       hookId,
@@ -1229,6 +1490,17 @@ async function dispatchHooks(
       node,
       gateId
     );
+    emit(context, {
+      event,
+      hookId,
+      passed: result === null,
+      required: hook.required === true,
+      type: "hook.finish",
+      workflowId: context.workflowId,
+      ...(node ? { nodeId: node.id } : {}),
+      ...(gateId ? { gateId } : {}),
+      ...(result?.reason ? { reason: result.reason } : {}),
+    });
     if (result && hook.required === true) {
       context.hookFailures.push(result);
       return result;
@@ -1264,7 +1536,7 @@ async function executeHook(
   );
   const result = await executeCommand(
     rendered,
-    context.worktreePath,
+    context,
     hook.timeout_ms
   );
   if (result.exitCode === 0) {

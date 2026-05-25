@@ -13,9 +13,15 @@ vi.mock("execa", () => ({
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const tempDirs: string[] = [];
+const originalPipelineTestCommand = process.env.PIPELINE_TEST_COMMAND;
 
 afterEach(() => {
   vi.clearAllMocks();
+  if (originalPipelineTestCommand === undefined) {
+    delete process.env.PIPELINE_TEST_COMMAND;
+  } else {
+    process.env.PIPELINE_TEST_COMMAND = originalPipelineTestCommand;
+  }
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -567,5 +573,332 @@ workflows:
       expect.objectContaining({ cwd: project })
     );
     expect(result.agentInvocations).toEqual([]);
+  });
+
+  it("emits structured lifecycle events for workflow, hooks, nodes, agents, gates, and artifacts", async () => {
+    const project = tempProject();
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    tools: []
+  producer:
+    runner: codex
+    instructions: { inline: Produce artifact }
+`,
+      pipeline: `
+version: 1
+default_workflow: lifecycle
+hooks:
+  announce:
+    event: workflow.start
+    kind: command
+    command: [hook-bin, "{{workflow.id}}"]
+    required: true
+orchestrator:
+  profile: orchestrator
+workflows:
+  lifecycle:
+    hooks: [announce]
+    nodes:
+      - id: produce
+        kind: agent
+        profile: producer
+        artifacts:
+          - path: out/result.txt
+        gates:
+          - id: command-check
+            kind: command
+            command: [check-bin, "{{task}}"]
+`,
+    });
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
+    const events: Array<Record<string, unknown>> = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        writeProjectFile(project, "out/result.txt", "artifact");
+        return { exitCode: 0, stdout: `${plan.nodeId} ok` };
+      },
+      reporter: (event) => events.push(event),
+      task: "lifecycle task",
+      workflowId: "lifecycle",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeIds: ["produce"],
+          type: "workflow.start",
+          workflowId: "lifecycle",
+        }),
+        expect.objectContaining({
+          event: "workflow.start",
+          hookId: "announce",
+          required: true,
+          type: "hook.start",
+          workflowId: "lifecycle",
+        }),
+        expect.objectContaining({
+          event: "workflow.start",
+          hookId: "announce",
+          passed: true,
+          required: true,
+          type: "hook.finish",
+          workflowId: "lifecycle",
+        }),
+        expect.objectContaining({
+          attempt: 1,
+          nodeId: "produce",
+          profile: "producer",
+          runnerId: "codex",
+          type: "node.start",
+        }),
+        expect.objectContaining({
+          attempt: 1,
+          nodeId: "produce",
+          profile: "producer",
+          runnerId: "codex",
+          type: "agent.start",
+        }),
+        expect.objectContaining({
+          attempt: 1,
+          nodeId: "produce",
+          profile: "producer",
+          runnerId: "codex",
+          type: "agent.finish",
+        }),
+        expect.objectContaining({
+          gateId: "command-check",
+          kind: "command",
+          nodeId: "produce",
+          type: "gate.start",
+        }),
+        expect.objectContaining({
+          gateId: "command-check",
+          kind: "command",
+          nodeId: "produce",
+          passed: true,
+          type: "gate.finish",
+        }),
+        expect.objectContaining({
+          nodeId: "produce",
+          path: "out/result.txt",
+          required: true,
+          type: "artifact.check.start",
+        }),
+        expect.objectContaining({
+          nodeId: "produce",
+          passed: true,
+          path: "out/result.txt",
+          required: true,
+          type: "artifact.check.finish",
+        }),
+        expect.objectContaining({
+          attempt: 1,
+          exitCode: 0,
+          nodeId: "produce",
+          status: "passed",
+          type: "node.finish",
+        }),
+        expect.objectContaining({
+          outcome: "PASS",
+          type: "workflow.finish",
+          workflowId: "lifecycle",
+        }),
+      ])
+    );
+    const indexOf = (type: string) => events.findIndex((e) => e.type === type);
+    expect(indexOf("workflow.start")).toBeLessThan(indexOf("hook.start"));
+    expect(indexOf("hook.start")).toBeLessThan(indexOf("hook.finish"));
+    expect(indexOf("node.start")).toBeLessThan(indexOf("agent.start"));
+    expect(indexOf("agent.start")).toBeLessThan(indexOf("agent.finish"));
+    expect(indexOf("agent.finish")).toBeLessThan(indexOf("gate.start"));
+    expect(indexOf("gate.start")).toBeLessThan(indexOf("gate.finish"));
+    expect(indexOf("artifact.check.start")).toBeLessThan(
+      indexOf("artifact.check.finish")
+    );
+    expect(indexOf("node.finish")).toBeLessThan(indexOf("workflow.finish"));
+  });
+
+  it("returns a structured cancelled outcome and does not schedule dependent nodes after abort", async () => {
+    const project = tempProject();
+    const controller = new AbortController();
+    const events: Array<Record<string, unknown>> = [];
+    const seen: string[] = [];
+
+    const result = await runPipelineFromConfig({
+      config: baseConfig(),
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        controller.abort();
+        return { exitCode: 0, stdout: "aborted after first node" };
+      },
+      reporter: (event) => events.push(event),
+      signal: controller.signal,
+      task: "cancel",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { signal: AbortSignal });
+
+    expect(result.outcome).toBe("CANCELLED");
+    expect(seen).toEqual(["a"]);
+    expect(result.nodes.map((node) => node.nodeId)).toEqual(["a"]);
+    expect(result.failureDetails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          evidence: expect.arrayContaining([expect.stringMatching(/cancel/i)]),
+          reason: expect.stringMatching(/cancel/i),
+        }),
+      ])
+    );
+    expect(result.gates).toEqual([]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outcome: "CANCELLED",
+          type: "workflow.finish",
+          workflowId: "default",
+        }),
+      ])
+    );
+  });
+
+  it("passes AbortSignal to the default agent executor subprocess", async () => {
+    const project = tempProject();
+    const controller = new AbortController();
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  agent:
+    type: command
+    command: agent-bin
+    args: ["{{prompt}}"]
+    capabilities:
+      native_subagents: false
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  agent:
+    runner: agent
+    instructions: { inline: Run the agent }
+    output: { format: text }
+`,
+      pipeline: `
+version: 1
+default_workflow: signal-agent
+orchestrator:
+  profile: agent
+workflows:
+  signal-agent:
+    nodes:
+      - id: agent-node
+        kind: agent
+        profile: agent
+`,
+    });
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
+
+    const result = await runPipelineFromConfig({
+      config,
+      signal: controller.signal,
+      task: "signal",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(mockExeca).toHaveBeenCalledWith(
+      "agent-bin",
+      expect.any(Array),
+      expect.objectContaining({ signal: controller.signal })
+    );
+  });
+
+  it("passes AbortSignal to execa-backed command hooks, command nodes, command gates, and builtins", async () => {
+    const project = tempProject();
+    const controller = new AbortController();
+    process.env.PIPELINE_TEST_COMMAND = "test-bin";
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    tools: []
+`,
+      pipeline: `
+version: 1
+default_workflow: signal-flow
+hooks:
+  start-hook:
+    event: workflow.start
+    kind: command
+    command: [hook-bin]
+    required: true
+orchestrator:
+  profile: orchestrator
+workflows:
+  signal-flow:
+    hooks: [start-hook]
+    nodes:
+      - id: command-node
+        kind: command
+        command: [command-bin]
+        gates:
+          - id: command-gate
+            kind: command
+            command: [gate-bin]
+          - id: builtin-gate
+            kind: builtin
+            builtin: test
+`,
+    });
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
+
+    const result = await runPipelineFromConfig({
+      config,
+      signal: controller.signal,
+      task: "signal",
+      workflowId: "signal-flow",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { signal: AbortSignal });
+
+    expect(result.outcome).toBe("PASS");
+    for (const command of ["hook-bin", "command-bin", "gate-bin", "test-bin"]) {
+      expect(mockExeca).toHaveBeenCalledWith(
+        command,
+        expect.any(Array),
+        expect.objectContaining({ signal: controller.signal })
+      );
+    }
   });
 });

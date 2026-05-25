@@ -85,7 +85,7 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
     worktreePath: inputs.worktreePath,
   });
   console.log(formatRuntimeResult(result));
-  if (result.outcome === "FAIL") {
+  if (result.outcome !== "PASS") {
     throw new Error(formatRuntimeFailure(result));
   }
 }
@@ -109,9 +109,40 @@ function formatRuntimeProgress(event: PipelineRuntimeEvent): void {
           .join(" ")
       );
       return;
+    case "agent.start":
+      console.error(
+        `Agent starting: ${event.nodeId} runner=${event.runnerId ?? "unknown"} attempt=${event.attempt}`
+      );
+      return;
+    case "agent.finish":
+      console.error(
+        `Agent finished: ${event.nodeId} runner=${event.runnerId ?? "unknown"} exit=${event.exitCode}`
+      );
+      return;
+    case "hook.start":
+      console.error(
+        `Hook starting: ${event.hookId} event=${event.event}${event.nodeId ? ` node=${event.nodeId}` : ""}`
+      );
+      return;
+    case "hook.finish":
+      console.error(
+        `Hook ${event.passed ? "passed" : "failed"}: ${event.hookId}${event.reason ? ` (${event.reason})` : ""}`
+      );
+      return;
+    case "gate.start":
+      console.error(`Gate starting: ${event.nodeId}/${event.gateId}`);
+      return;
     case "gate.finish":
       console.error(
         `Gate ${event.passed ? "passed" : "failed"}: ${event.nodeId}/${event.gateId}${event.reason ? ` (${event.reason})` : ""}`
+      );
+      return;
+    case "artifact.check.start":
+      console.error(`Artifact check starting: ${event.nodeId}/${event.path}`);
+      return;
+    case "artifact.check.finish":
+      console.error(
+        `Artifact check ${event.passed ? "passed" : "failed"}: ${event.nodeId}/${event.path}${event.reason ? ` (${event.reason})` : ""}`
       );
       return;
     case "output.repair":

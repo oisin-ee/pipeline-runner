@@ -27,6 +27,10 @@ export interface AgentResult {
   timedOut?: boolean;
 }
 
+export interface RunnerExecutionOptions {
+  signal?: AbortSignal;
+}
+
 export interface AgentRunRequest {
   contextFile: string | null;
   harness: Harness;
@@ -679,12 +683,14 @@ function renderArgv(args: string[], prompt: string, cwd: string): string[] {
 }
 
 export async function runLaunchPlan(
-  plan: RunnerLaunchPlan
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions = {}
 ): Promise<AgentResult> {
   try {
     const result = await execa(plan.command, plan.args, {
       cwd: plan.cwd,
       env: plan.env,
+      signal: options.signal,
       stdin: "ignore",
       timeout: plan.timeoutMs,
     });

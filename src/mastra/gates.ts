@@ -73,7 +73,10 @@ async function resolvePackageScript(
 
 // ─── runTests ─────────────────────────────────────────────────────────────────
 
-export async function runTests(worktreePath: string): Promise<TestResult> {
+export async function runTests(
+  worktreePath: string,
+  signal?: AbortSignal
+): Promise<TestResult> {
   const projectCommand =
     envCommand("PIPELINE_TEST_COMMAND") ??
     (await resolvePackageScript(worktreePath, "test"));
@@ -90,6 +93,7 @@ export async function runTests(worktreePath: string): Promise<TestResult> {
   try {
     const result = await execa(projectCommand.command, projectCommand.args, {
       cwd: worktreePath,
+      signal,
       shell: projectCommand.shell,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
@@ -108,7 +112,8 @@ export async function runTests(worktreePath: string): Promise<TestResult> {
 // ─── runTypecheck ─────────────────────────────────────────────────────────────
 
 export async function runTypecheck(
-  worktreePath: string
+  worktreePath: string,
+  signal?: AbortSignal
 ): Promise<{ exitCode: number; output: string }> {
   const projectCommand =
     envCommand("PIPELINE_TYPECHECK_COMMAND") ??
@@ -120,6 +125,7 @@ export async function runTypecheck(
   try {
     const result = await execa(projectCommand.command, projectCommand.args, {
       cwd: worktreePath,
+      signal,
       shell: projectCommand.shell,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
@@ -162,7 +168,8 @@ function parseJscpdOutput(output: string): { violations: GateViolation[] } {
 }
 
 export async function runJscpd(
-  worktreePath: string
+  worktreePath: string,
+  signal?: AbortSignal
 ): Promise<{ violations: GateViolation[] }> {
   try {
     const result = await execa(
@@ -170,6 +177,7 @@ export async function runJscpd(
       ["jscpd", "--min-tokens", "50", "--reporters", "json", "."],
       {
         cwd: worktreePath,
+        signal,
       }
     );
     return parseJscpdOutput(result.stdout ?? "");
