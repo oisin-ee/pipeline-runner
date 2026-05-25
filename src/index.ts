@@ -114,6 +114,11 @@ function formatRuntimeProgress(event: PipelineRuntimeEvent): void {
         `Gate ${event.passed ? "passed" : "failed"}: ${event.nodeId}/${event.gateId}${event.reason ? ` (${event.reason})` : ""}`
       );
       return;
+    case "output.repair":
+      console.error(
+        `Output repair ${event.passed ? "passed" : "failed"}: ${event.nodeId} attempt=${event.attempt}${event.reason ? ` (${event.reason})` : ""}`
+      );
+      return;
     case "node.finish":
       console.error(
         `Node finished: ${event.nodeId} ${event.status} exit=${event.exitCode}`

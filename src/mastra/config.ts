@@ -133,9 +133,18 @@ const networkSchema = z
   })
   .strict();
 
+const outputRepairSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    max_attempts: z.number().int().positive().optional(),
+    runner: z.string().optional(),
+  })
+  .strict();
+
 const outputSchema = z
   .object({
     format: z.enum(OUTPUT_FORMATS),
+    repair: outputRepairSchema.optional(),
     schema_path: z.string().min(1).optional(),
   })
   .strict();
@@ -531,6 +540,22 @@ function validateProfile(
       path: `profiles.${profileId}.output.schema_path`,
       message: `profile '${profileId}' must declare output.schema_path for json_schema output`,
     });
+  }
+  const repairRunnerId = profile.output?.repair?.runner;
+  if (repairRunnerId && !config.runners[repairRunnerId]) {
+    issues.push({
+      path: `profiles.${profileId}.output.repair.runner`,
+      message: `profile '${profileId}' references missing repair runner '${repairRunnerId}'`,
+    });
+  }
+  if (repairRunnerId && config.runners[repairRunnerId]) {
+    validateListCapability(
+      `profiles.${profileId}.output.repair.runner`,
+      ["text"],
+      config.runners[repairRunnerId].capabilities.output_formats,
+      "repair output format",
+      issues
+    );
   }
   validatePath(
     `profiles.${profileId}.output.schema_path`,

@@ -92,6 +92,13 @@ export type PipelineRuntimeEvent =
       type: "gate.finish";
     }
   | {
+      attempt: number;
+      nodeId: string;
+      passed: boolean;
+      reason?: string;
+      type: "output.repair";
+    }
+  | {
       outcome: PipelineRuntimeResult["outcome"];
       type: "workflow.finish";
       workflowId: string;
@@ -124,6 +131,20 @@ interface NodeAttemptResult {
   evidence: string[];
   exitCode: number;
   output: string;
+}
+
+interface JsonSchemaValidationResult {
+  evidence: string[];
+  passed: boolean;
+  reason?: string;
+}
+
+interface OutputRepairContext {
+  evidence: string[];
+  maxAttempts: number;
+  runner: string;
+  schemaPath: string;
+  validation: JsonSchemaValidationResult;
 }
 
 export async function runPipelineFromConfig(
@@ -300,9 +321,9 @@ async function executeNode(
       return result;
     }
 
-    const evidence =
-      failedGate?.evidence ??
-      last.evidence.concat(`node exited with code ${last.exitCode}`);
+    const evidence = failedGate
+      ? [...last.evidence, ...failedGate.evidence]
+      : last.evidence.concat(`node exited with code ${last.exitCode}`);
     if (attempt === maxAttempts) {
       await dispatchHooks(
         context,
@@ -388,16 +409,215 @@ async function executeAgentNode(
   context.agentInvocations.push(plan);
   const result = await context.executor(plan);
   const normalized = normalizeAgentOutput(plan, result.stdout);
+  const finalized = await finalizeAgentOutput({
+    context,
+    node,
+    normalized,
+    result,
+  });
   return {
     evidence: [
       `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId} strategy=${plan.strategy}`,
-      ...normalized.evidence,
+      ...finalized.evidence,
       ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
       ...(result.timedOut ? ["agent timed out"] : []),
     ],
     exitCode: result.exitCode,
-    output: normalized.output,
+    output: finalized.output,
   };
+}
+
+async function finalizeAgentOutput(inputs: {
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  normalized: { evidence: string[]; output: string };
+  result: AgentResult;
+}): Promise<{ evidence: string[]; output: string }> {
+  const { context, node, normalized, result } = inputs;
+  const repairContext = outputRepairContext(context, node, normalized, result);
+  if (!repairContext) {
+    return normalized;
+  }
+
+  return await runOutputRepair(context, node, normalized, repairContext);
+}
+
+function outputRepairContext(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  normalized: { evidence: string[]; output: string },
+  result: AgentResult
+): OutputRepairContext | null {
+  if (result.exitCode !== 0 || result.timedOut) {
+    return null;
+  }
+  const profile = node.profile
+    ? context.config.profiles[node.profile]
+    : undefined;
+  if (!profile) {
+    return null;
+  }
+  const output = profile?.output;
+  if (output?.format !== "json_schema" || !output.schema_path) {
+    return null;
+  }
+  const firstValidation = validateJsonSchemaSource(
+    normalized.output,
+    output.schema_path,
+    context.worktreePath
+  );
+  if (firstValidation.passed) {
+    return null;
+  }
+  const repair = outputRepairOptions(output);
+  if (!repair.enabled) {
+    return null;
+  }
+  return {
+    evidence: [
+      ...normalized.evidence,
+      "output repair triggered",
+      ...firstValidation.evidence.map((item) => `original output: ${item}`),
+    ],
+    maxAttempts: repair.maxAttempts,
+    runner: repair.runner ?? profile.runner,
+    schemaPath: output.schema_path,
+    validation: firstValidation,
+  };
+}
+
+async function runOutputRepair(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  normalized: { evidence: string[]; output: string },
+  repairContext: OutputRepairContext
+): Promise<{ evidence: string[]; output: string }> {
+  let latest = normalized;
+  let latestValidation = repairContext.validation;
+  const evidence = [...repairContext.evidence];
+  for (let attempt = 1; attempt <= repairContext.maxAttempts; attempt += 1) {
+    const repairPlan = createOutputRepairPlan({
+      context,
+      node,
+      originalOutput: latest.output,
+      repairRunner: repairContext.runner,
+      schemaPath: repairContext.schemaPath,
+      validation: latestValidation,
+    });
+    context.agentInvocations.push(repairPlan);
+    const repairResult = await context.executor(repairPlan);
+    const repaired = normalizeAgentOutput(repairPlan, repairResult.stdout);
+    const repairedValidation = validateJsonSchemaSource(
+      repaired.output,
+      repairContext.schemaPath,
+      context.worktreePath
+    );
+    latest = {
+      evidence: [
+        ...repaired.evidence,
+        ...(repairResult.stderr
+          ? [`repair stderr: ${repairResult.stderr}`]
+          : []),
+        ...(repairResult.timedOut ? ["output repair timed out"] : []),
+      ],
+      output: repaired.output,
+    };
+    latestValidation = repairedValidation;
+    const passed = repairResult.exitCode === 0 && repairedValidation.passed;
+    evidence.push(
+      ...repaired.evidence,
+      passed
+        ? `output repair passed for ${node.id} after attempt ${attempt}`
+        : `output repair failed for ${node.id} after attempt ${attempt}`,
+      ...repairedValidation.evidence.map((item) => `repaired output: ${item}`)
+    );
+    emit(context, {
+      attempt,
+      nodeId: node.id,
+      passed,
+      type: "output.repair",
+      ...(passed
+        ? {}
+        : { reason: repairedValidation.reason ?? "repair failed" }),
+    });
+    if (passed) {
+      return {
+        evidence,
+        output: repaired.output,
+      };
+    }
+  }
+
+  return {
+    evidence,
+    output: latest.output,
+  };
+}
+
+function outputRepairOptions(
+  output: NonNullable<PipelineConfig["profiles"][string]["output"]>
+): { enabled: boolean; maxAttempts: number; runner?: string } {
+  const repair = output.repair;
+  return {
+    enabled: repair?.enabled ?? true,
+    maxAttempts: repair?.max_attempts ?? 1,
+    ...(repair?.runner ? { runner: repair.runner } : {}),
+  };
+}
+
+function createOutputRepairPlan(inputs: {
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  originalOutput: string;
+  repairRunner: string;
+  schemaPath: string;
+  validation: JsonSchemaValidationResult;
+}): RunnerLaunchPlan {
+  const {
+    context,
+    node,
+    originalOutput,
+    repairRunner,
+    schemaPath,
+    validation,
+  } = inputs;
+  const schema = readFileSync(join(context.worktreePath, schemaPath), "utf8");
+  const repairProfileId = `${node.id}:output-repair`;
+  const repairConfig: PipelineConfig = {
+    ...context.config,
+    profiles: {
+      ...context.config.profiles,
+      [repairProfileId]: {
+        filesystem: { mode: "read-only" },
+        instructions: { inline: "Repair invalid structured output." },
+        network: { mode: "disabled" },
+        output: { format: "text" },
+        runner: repairRunner,
+        tools: [],
+      },
+    },
+  };
+  const prompt = [
+    "You are an output finalizer for a pipeline agent.",
+    "Return only valid JSON matching the expected schema.",
+    "Do not use Markdown fences or add prose outside the JSON value.",
+    "Preserve facts from the original output. If required information is missing, use empty arrays or nulls only where the schema permits.",
+    "",
+    "Expected schema:",
+    schema,
+    "",
+    "Validation error:",
+    validation.evidence.join("\n"),
+    "",
+    "Original output:",
+    originalOutput,
+  ].join("\n");
+  return createRunnerLaunchPlan(repairConfig, {
+    nodeId: repairProfileId,
+    profileId: repairProfileId,
+    prompt,
+    worktreePath: context.worktreePath,
+  });
 }
 
 function normalizeAgentOutput(
@@ -826,9 +1046,29 @@ function evaluateJsonSchemaGate(
       reason: `missing JSON artifact '${gate.path ?? ""}'`,
     };
   }
+  const result = validateJsonSchemaSource(
+    source,
+    schemaPath,
+    context.worktreePath
+  );
+  return {
+    evidence: result.evidence,
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    passed: result.passed,
+    reason: result.reason,
+  };
+}
+
+function validateJsonSchemaSource(
+  source: string,
+  schemaPath: string,
+  worktreePath: string
+): JsonSchemaValidationResult {
   try {
     const schema = JSON.parse(
-      readFileSync(join(context.worktreePath, schemaPath), "utf8")
+      readFileSync(join(worktreePath, schemaPath), "utf8")
     );
     const value = JSON.parse(source);
     const errors = validateJsonSchema(value, schema);
@@ -837,18 +1077,12 @@ function evaluateJsonSchemaGate(
         errors.length === 0
           ? [`JSON schema passed: ${schemaPath}`]
           : errors.map((error) => `schema: ${error}`),
-      gateId,
-      kind: gate.kind,
-      nodeId,
       passed: errors.length === 0,
       reason: errors.length === 0 ? undefined : "JSON schema validation failed",
     };
   } catch (err) {
     return {
       evidence: [err instanceof Error ? err.message : String(err)],
-      gateId,
-      kind: gate.kind,
-      nodeId,
       passed: false,
       reason: "JSON schema validation failed",
     };

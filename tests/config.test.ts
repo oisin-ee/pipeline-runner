@@ -74,6 +74,9 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/research.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   test-writer:
     runner: codex
     instructions:
@@ -191,6 +194,10 @@ describe("loadPipelineConfig", () => {
     expect(config.orchestrator.profile).toBe("orchestrator");
     expect(config.profiles.orchestrator.model).toBe("gpt-5-orchestrator");
     expect(config.profiles.researcher.runner).toBe("codex");
+    expect(config.profiles.researcher.output?.repair).toEqual({
+      enabled: true,
+      max_attempts: 1,
+    });
     expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
       "research",
       "red",
@@ -403,6 +410,18 @@ describe("parsePipelineConfigParts", () => {
     expect(error.message).toContain(
       "does not support filesystem mode 'read-only'"
     );
+  });
+
+  it("rejects missing output repair runner references", () => {
+    const profiles = VALID_PROFILES_YAML.replace(
+      "max_attempts: 1",
+      "max_attempts: 1\n        runner: missing-repair-runner"
+    );
+
+    const error = captureConfigError(() => parseParts({ profiles }));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("missing repair runner");
   });
 
   it("rejects missing instruction and schema files", () => {

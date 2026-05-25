@@ -109,6 +109,24 @@ receive explicit grants:
 - `network`: inherited or disabled.
 - `output`: text, JSON, JSONL, or JSON Schema output.
 
+JSON Schema outputs are hard contracts. The runtime validates normalized agent
+output before the node can pass. Schema outputs also get a bounded repair pass
+by default:
+
+```yaml
+output:
+  format: json_schema
+  schema_path: .pipeline/schemas/research.schema.json
+  repair:
+    enabled: true
+    max_attempts: 1
+```
+
+The repair pass receives only the schema, invalid output, and validation error.
+It uses a no-tools, read-only profile, then the runtime validates the repaired
+output again. If repair still fails, the node fails with both original and
+repair evidence.
+
 Hooks live in `pipeline.yaml` and can be attached to the orchestrator, workflow,
 or workflow nodes.
 

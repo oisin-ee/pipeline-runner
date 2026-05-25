@@ -169,6 +169,8 @@ function harnessArgv(
       // --sandbox workspace-write: codex's default sandbox is read-only, which
       // makes the test-writer / code-writer / learn phases unable to produce
       // file artifacts. workspace-write scopes writes to the worktree.
+      // Read-only profiles keep Codex in read-only mode, which is especially
+      // important for output repair/finalization passes.
       return [
         "exec",
         "--json",
@@ -178,7 +180,7 @@ function harnessArgv(
         ...mcpArgs,
         ...skillArgs,
         "--sandbox",
-        "workspace-write",
+        codexSandboxFor(options.actor),
         "--config",
         'approval_policy="never"',
         "--skip-git-repo-check",
@@ -230,6 +232,12 @@ function harnessArgv(
       );
     }
   }
+}
+
+function codexSandboxFor(actor?: ActorConfig): string {
+  return actor?.filesystem?.mode === "read-only"
+    ? "read-only"
+    : "workspace-write";
 }
 
 /**

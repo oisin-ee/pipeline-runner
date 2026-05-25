@@ -537,4 +537,20 @@ workflows:
     expect(agent.args).toContain("runner-codex");
     expect(orchestrator.args).toContain("runner-codex");
   });
+
+  it("uses read-only Codex sandbox for read-only profiles", () => {
+    const config = structuredClone(CONFIG);
+    config.profiles["codex-agent"].filesystem = { mode: "read-only" };
+
+    const plan = createRunnerLaunchPlan(config, {
+      profileId: "codex-agent",
+      nodeId: "node",
+      prompt: "inspect",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(plan.args).toEqual(
+      expect.arrayContaining(["--sandbox", "read-only"])
+    );
+  });
 });

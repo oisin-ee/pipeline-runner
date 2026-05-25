@@ -189,6 +189,9 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/research.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-inspector:
     runner: codex
     description: Inspect the repository without modifying files.
@@ -249,6 +252,9 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/verify.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-learner:
     runner: codex
     description: Store durable lessons from the completed run.
@@ -264,6 +270,9 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/learn.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
 `;
 
 const RESEARCH_SCHEMA = JSON.stringify(

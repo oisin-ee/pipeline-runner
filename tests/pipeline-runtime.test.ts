@@ -399,6 +399,109 @@ workflows:
     );
   });
 
+  it("repairs invalid JSON schema output before gates evaluate it", async () => {
+    const project = tempProject();
+    writeProjectFile(
+      project,
+      "schema.json",
+      JSON.stringify({
+        additionalProperties: false,
+        properties: { verdict: { enum: ["PASS"], type: "string" } },
+        required: ["verdict"],
+        type: "object",
+      })
+    );
+    const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+    const seen: RunnerLaunchPlan[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return {
+          exitCode: 0,
+          stdout:
+            plan.nodeId === "structured:output-repair"
+              ? '{"verdict":"PASS"}'
+              : "verdict is pass",
+        };
+      },
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
+    expect(result.nodes[0].evidence).toContain(
+      "output repair passed for structured after attempt 1"
+    );
+    expect(result.gates[0]).toMatchObject({
+      kind: "json_schema",
+      passed: true,
+    });
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "structured",
+      "structured:output-repair",
+    ]);
+    expect(seen[1]).toMatchObject({
+      outputFormat: "text",
+      profileId: "structured:output-repair",
+      runnerId: "codex",
+    });
+    expect(seen[1].args.join("\n")).toContain("Return only valid JSON");
+  });
+
+  it("fails with repair evidence when repaired output still violates the schema", async () => {
+    const project = tempProject();
+    writeProjectFile(
+      project,
+      "schema.json",
+      JSON.stringify({
+        additionalProperties: false,
+        properties: { verdict: { enum: ["PASS"], type: "string" } },
+        required: ["verdict"],
+        type: "object",
+      })
+    );
+    const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => ({
+        exitCode: 0,
+        stdout:
+          plan.nodeId === "structured:output-repair"
+            ? '{"verdict":"FAIL"}'
+            : "verdict is pass",
+      }),
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.nodes[0].evidence).toContain(
+      "output repair failed for structured after attempt 1"
+    );
+    expect(result.gates[0]).toMatchObject({
+      kind: "json_schema",
+      passed: false,
+    });
+  });
+
   it("runs hooks with templating and required failure semantics", async () => {
     const project = tempProject();
     const config = parsePipelineConfigParts({
