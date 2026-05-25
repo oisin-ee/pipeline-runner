@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { existsSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Option } from "commander";
 import {
@@ -235,13 +237,21 @@ function scriptName(argv: string[]): string {
   return argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
 }
 
-function isCliEntrypoint(argv: string[]): boolean {
+export function isCliEntrypoint(argv: string[]): boolean {
   const name = scriptName(argv);
+  const entrypoint = normalizeEntrypointPath(argv[1]);
+  const modulePath = normalizeEntrypointPath(fileURLToPath(import.meta.url));
   return (
-    argv[1] === fileURLToPath(import.meta.url) ||
-    name === "pipe" ||
-    name === "oisin-pipeline"
+    entrypoint === modulePath || name === "pipe" || name === "oisin-pipeline"
   );
+}
+
+function normalizeEntrypointPath(path: string | undefined): string | undefined {
+  if (!path) {
+    return;
+  }
+  const resolved = resolve(path);
+  return existsSync(resolved) ? realpathSync(resolved) : resolved;
 }
 
 if (isCliEntrypoint(process.argv)) {

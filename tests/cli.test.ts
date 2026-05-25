@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRunStart = vi.hoisted(() => vi.fn());
@@ -261,6 +262,17 @@ describe("pipe", () => {
       }
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("detects relative Node entrypoint paths as CLI executions", async () => {
+    const { isCliEntrypoint } = await import("../src/index.js");
+    const sourcePath = fileURLToPath(
+      new URL("../src/index.ts", import.meta.url)
+    );
+
+    expect(isCliEntrypoint(["node", relative(process.cwd(), sourcePath)])).toBe(
+      true
+    );
   });
 
   it("declares installable binaries and typed subpath exports", () => {
