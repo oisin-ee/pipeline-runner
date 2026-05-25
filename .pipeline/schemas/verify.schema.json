@@ -8,10 +8,7 @@
       "type": "array"
     },
     "verdict": {
-      "enum": [
-        "PASS",
-        "FAIL"
-      ],
+      "enum": ["PASS", "FAIL"],
       "type": "string"
     },
     "violations": {
@@ -21,9 +18,6 @@
       "type": "array"
     }
   },
-  "required": [
-    "verdict",
-    "evidence"
-  ],
+  "required": ["verdict", "evidence"],
   "type": "object"
 }

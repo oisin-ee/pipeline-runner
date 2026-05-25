@@ -17,16 +17,10 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "attempted",
-        "succeeded"
-      ],
+      "required": ["attempted", "succeeded"],
       "type": "object"
     }
   },
-  "required": [
-    "qdrant",
-    "evidence"
-  ],
+  "required": ["qdrant", "evidence"],
   "type": "object"
 }

@@ -29,9 +29,6 @@
       "type": "string"
     }
   },
-  "required": [
-    "findings",
-    "ac"
-  ],
+  "required": ["findings", "ac"],
   "type": "object"
 }
