@@ -1,13 +1,11 @@
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,6 +45,91 @@ function writeFixtureWorktree(worktreePath: string): void {
     "# Test first\n\nWrite the failing test before implementation."
   );
   mkdirSync(join(worktreePath, ".pipeline"), { recursive: true });
+  writeFileSync(
+    join(worktreePath, ".pipeline", "pipeline.yaml"),
+    `version: 1
+default_workflow: default
+runners:
+  claude:
+    type: claude
+    command: claude
+    capabilities:
+      native_subagents: true
+      rules: false
+      skills: false
+      mcp_servers: false
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit]
+      output_formats: [text, json]
+agents:
+  researcher:
+    runner: claude
+    instructions:
+      inline: You are a researcher for the tracer pipeline.
+    tools: [read, list, grep, glob, bash]
+    output: { format: text }
+  test-writer:
+    runner: claude
+    instructions:
+      inline: You are a test-writer for the tracer pipeline.
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem: { mode: workspace-write }
+    output: { format: text }
+  code-writer:
+    runner: claude
+    instructions:
+      inline: You are a code-writer for the tracer pipeline.
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem: { mode: workspace-write }
+    output: { format: text }
+  verifier:
+    runner: claude
+    instructions:
+      inline: You are a code verifier for the tracer pipeline.
+    tools: [read, list, grep, glob, bash]
+    output: { format: text }
+  learner:
+    runner: claude
+    instructions:
+      inline: You are the LEARN phase for the tracer pipeline.
+    tools: [read, list, grep, glob, bash]
+    output: { format: text }
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        agent: researcher
+        artifacts:
+          - path: .pipeline/research.json
+      - id: red
+        kind: agent
+        agent: test-writer
+        needs: [research]
+        gates:
+          - kind: command
+            command: [project-test]
+            expect_exit_code: 1
+      - id: green
+        kind: agent
+        agent: code-writer
+        needs: [red]
+        gates:
+          - kind: builtin
+            builtin: test
+          - kind: builtin
+            builtin: typecheck
+      - id: verify
+        kind: agent
+        agent: verifier
+        needs: [green]
+      - id: learn
+        kind: agent
+        agent: learner
+        needs: [verify]
+`
+  );
 }
 
 function writeFakeExecutables(env: TracerEnvironment): void {
@@ -161,6 +244,9 @@ if (prompt.includes("You are a code verifier")) {
       ? ["implementation matches tracer task"]
       : ["verifier found missing edge-case evidence"];
   process.stdout.write(JSON.stringify({ verdict, evidence }));
+  if (verdict !== "PASS") {
+    process.exit(1);
+  }
   process.exit(0);
 }
 
@@ -237,63 +323,6 @@ function readCommandLog(logPath: string): LoggedCommand[] {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as LoggedCommand);
-}
-
-function backlogStatusUpdates(logPath: string): [string, string][] {
-  return readCommandLog(logPath)
-    .filter(
-      (entry) =>
-        entry.type === "backlog" &&
-        entry.args?.[0] === "task" &&
-        entry.args?.[1] === "edit" &&
-        entry.args.includes("--status")
-    )
-    .map((entry) => [
-      entry.args?.[2] ?? "",
-      entry.args?.[entry.args.indexOf("--status") + 1] ?? "",
-    ]);
-}
-
-function backlogCreateTaskIds(logPath: string): string[] {
-  return readCommandLog(logPath)
-    .filter(
-      (entry) =>
-        entry.type === "backlog" &&
-        entry.args?.[0] === "task" &&
-        entry.args?.[1] === "create"
-    )
-    .map((entry) => entry.args?.[2] ?? "");
-}
-
-function backlogNoteUpdates(logPath: string): [string, string][] {
-  return readCommandLog(logPath)
-    .filter(
-      (entry) =>
-        entry.type === "backlog" &&
-        entry.args?.[0] === "task" &&
-        entry.args?.[1] === "edit" &&
-        entry.args.includes("--append-notes")
-    )
-    .map((entry) => [
-      entry.args?.[2] ?? "",
-      entry.args?.[entry.args.indexOf("--append-notes") + 1] ?? "",
-    ]);
-}
-
-async function localKnowledgeMarkdown(worktreePath: string): Promise<string> {
-  const knowledgeDir = join(worktreePath, ".pipeline", "knowledge");
-  let files: string[];
-  try {
-    files = (await readdir(knowledgeDir)).filter((file) =>
-      file.endsWith(".md")
-    );
-  } catch {
-    return "";
-  }
-  const contents = await Promise.all(
-    files.map((file) => readFile(join(knowledgeDir, file), "utf8"))
-  );
-  return contents.join("\n");
 }
 
 describe("PIPE-14 tracer-bullet pipeline", () => {
@@ -386,31 +415,21 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   it("runs the integrated tracer to PASS through real child-process commands", async () => {
     process.env.PIPELINE_TRACER_VERDICT = "PASS";
 
-    await pipe("PIPE-14 tracer bullet", { strict: true, harness: "claude" });
+    await pipe("PIPE-14 tracer bullet");
 
-    const contextPath = join(
-      env.worktreePath,
-      ".pipeline",
-      "knowledge-context.md"
-    );
     const researchPath = join(env.worktreePath, ".pipeline", "research.json");
-    const localKnowledge = await localKnowledgeMarkdown(env.worktreePath);
     const rolePrompts = readCommandLog(env.logPath)
       .filter((entry) => entry.type === "role")
       .map((entry) => entry.prompt ?? "");
 
-    expect(consoleLogSpy).toHaveBeenCalledWith("Pipeline complete: PASS");
-    expect(existsSync(contextPath)).toBe(true);
-    expect(readFileSync(contextPath, "utf8")).toContain("Current Rules");
-    expect(readFileSync(contextPath, "utf8")).not.toContain(
-      ".pipeline/knowledge"
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Pipeline complete: PASS")
     );
     expect(readFileSync(researchPath, "utf8")).toContain(
       "researched deterministic integrated pipeline behavior"
     );
-    expect(localKnowledge).toBe("");
     expect(rolePrompts.some((prompt) => prompt.includes("Test first"))).toBe(
-      true
+      false
     );
     expect(rolePrompts.some((prompt) => prompt.includes("researcher"))).toBe(
       true
@@ -424,65 +443,30 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(rolePrompts.some((prompt) => prompt.includes("code verifier"))).toBe(
       true
     );
-    // createSwarmTasks now creates a real parent + 5 children. `args[2]` of
-    // `backlog task create` is the title, not the id (backlog auto-assigns
-    // ids). The fake backlog binary issues TASK-1 (parent) then
-    // TASK-1.1..TASK-1.5 (children); assertion on the assigned ids happens
-    // indirectly via the status-updates assertion below.
-    expect(backlogCreateTaskIds(env.logPath)).toEqual([
-      "PIPE-14 tracer bullet",
-      "PIPE-14 tracer bullet — research",
-      "PIPE-14 tracer bullet — test-write",
-      "PIPE-14 tracer bullet — implement",
-      "PIPE-14 tracer bullet — verify",
-      "PIPE-14 tracer bullet — learn",
-    ]);
-    expect(backlogStatusUpdates(env.logPath)).toEqual([
-      ["TASK-1.1", "In Progress"],
-      ["TASK-1.1", "Done"],
-      ["TASK-1.2", "In Progress"],
-      ["TASK-1.2", "Done"],
-      ["TASK-1.3", "In Progress"],
-      ["TASK-1.3", "Done"],
-      ["TASK-1.4", "In Progress"],
-      ["TASK-1.4", "Done"],
-      ["TASK-1.5", "In Progress"],
-      ["TASK-1.5", "Done"],
-    ]);
-    expect(backlogNoteUpdates(env.logPath)).toEqual([]);
+    expect(
+      readCommandLog(env.logPath).some((entry) => entry.type === "backlog")
+    ).toBe(false);
   });
 
-  it("runs the integrated tracer to FAIL and preserves failed phase evidence", async () => {
+  it("runs the integrated tracer to FAIL and blocks dependent nodes", async () => {
     process.env.PIPELINE_TRACER_VERDICT = "FAIL";
 
-    await pipe("PIPE-14 tracer bullet", { strict: true, harness: "claude" });
+    await expect(pipe("PIPE-14 tracer bullet")).rejects.toThrow(
+      "Pipeline failed"
+    );
 
-    const notes = backlogNoteUpdates(env.logPath);
+    const rolePrompts = readCommandLog(env.logPath)
+      .filter((entry) => entry.type === "role")
+      .map((entry) => entry.prompt ?? "");
 
-    expect(consoleLogSpy).toHaveBeenCalledWith("Pipeline complete: FAIL");
-    expect(await localKnowledgeMarkdown(env.worktreePath)).toBe("");
-    expect(backlogStatusUpdates(env.logPath)).toEqual([
-      ["TASK-1.1", "In Progress"],
-      ["TASK-1.1", "Done"],
-      ["TASK-1.2", "In Progress"],
-      ["TASK-1.2", "Done"],
-      ["TASK-1.3", "In Progress"],
-      ["TASK-1.3", "Done"],
-      ["TASK-1.4", "In Progress"],
-    ]);
-    expect(backlogStatusUpdates(env.logPath)).not.toContainEqual([
-      "TASK-1.4",
-      "Done",
-    ]);
-    expect(backlogStatusUpdates(env.logPath)).not.toContainEqual([
-      "TASK-1.5",
-      "In Progress",
-    ]);
-    expect(notes).toEqual([
-      [
-        "TASK-1.4",
-        "VERIFY gate failed: VERIFY gate failed: verification checks did not pass\n\nEvidence:\n- LLM verifier verdict: FAIL\n- verifier found missing edge-case evidence",
-      ],
-    ]);
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Pipeline complete: FAIL")
+    );
+    expect(rolePrompts.some((prompt) => prompt.includes("code verifier"))).toBe(
+      true
+    );
+    expect(rolePrompts.some((prompt) => prompt.includes("LEARN phase"))).toBe(
+      false
+    );
   });
 });

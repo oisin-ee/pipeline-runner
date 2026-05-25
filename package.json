@@ -44,10 +44,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./pipeline-primitive": {
-      "types": "./dist/mastra/pipeline-primitive.d.ts",
-      "import": "./dist/mastra/pipeline-primitive.js"
-    },
     "./runner": {
       "types": "./dist/mastra/runner.d.ts",
       "import": "./dist/mastra/runner.js"
@@ -59,7 +55,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/pipeline-primitive.ts --outfile dist/mastra/pipeline-primitive.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && tsc -p tsconfig.types.json",
+    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && tsc -p tsconfig.types.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "pipe": "bun src/index.ts pipe",

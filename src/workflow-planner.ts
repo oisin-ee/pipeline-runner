@@ -30,14 +30,18 @@ export class WorkflowPlannerError extends Error {
 
 export interface PlannedWorkflowNode {
   agent?: string;
+  artifacts?: WorkflowNode["artifacts"];
   builtin?: string;
   command?: string[];
   dependents: string[];
+  gates?: WorkflowNode["gates"];
+  hooks?: string[];
   id: string;
   index: number;
   kind: WorkflowNodeKind;
   needs: string[];
   nodes?: string[];
+  retries?: WorkflowNode["retries"];
 }
 
 export interface WorkflowExecutionPlan {
@@ -305,14 +309,18 @@ function toPlannedNode(
 ): PlannedWorkflowNode {
   return {
     agent: node.agent,
+    artifacts: node.artifacts,
     builtin: node.builtin,
     command: node.command,
     dependents,
+    gates: node.gates,
+    hooks: node.hooks,
     id: node.id,
     index,
     kind: node.kind,
     needs: node.needs ?? [],
     nodes: node.nodes,
+    retries: node.retries,
   };
 }
 

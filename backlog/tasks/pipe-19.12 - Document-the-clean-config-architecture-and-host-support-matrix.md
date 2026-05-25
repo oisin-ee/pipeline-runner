@@ -1,10 +1,10 @@
 ---
 id: PIPE-19.12
 title: Document the clean config architecture and host support matrix
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-24 14:18'
-updated_date: '2026-05-24 14:18'
+updated_date: '2026-05-25 09:44'
 labels:
   - pipeline
   - docs
@@ -20,6 +20,11 @@ dependencies:
 references:
   - README.md
   - docs
+modified_files:
+  - README.md
+  - docs/config-architecture.md
+  - docs/slash-command-adapter-contract.md
+  - docs/pipeline-smoke-recovery-plan.md
 parent_task_id: PIPE-19
 priority: medium
 ordinal: 31000
@@ -33,9 +38,15 @@ Write user-facing and maintainer-facing documentation for the new YAML-only pipe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs include a complete default pipeline YAML example and a minimal custom workflow example.
-- [ ] #2 Docs explain top-level registries versus per-agent grants for rules, skills, MCP servers, tools, filesystem, and network policies.
-- [ ] #3 Docs include a host support matrix for Claude, Codex, OpenCode, Kimi, Pi, and command runners.
-- [ ] #4 Docs explain native-preferred execution and the guarantee that multi-agent workflows use real separate agent boundaries.
-- [ ] #5 Docs include troubleshooting guidance for config validation, missing host capabilities, missing Pi subagents support, gate failures, and schema output failures.
+- [x] #1 Docs include a complete default pipeline YAML example and a minimal custom workflow example.
+- [x] #2 Docs explain top-level registries versus per-agent grants for rules, skills, MCP servers, tools, filesystem, and network policies.
+- [x] #3 Docs include a host support matrix for Claude, Codex, OpenCode, Kimi, Pi, and command runners.
+- [x] #4 Docs explain native-preferred execution and the guarantee that multi-agent workflows use real separate agent boundaries.
+- [x] #5 Docs include troubleshooting guidance for config validation, missing host capabilities, missing Pi subagents support, gate failures, and schema output failures.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Rewrote user and maintainer docs around the YAML-only architecture, including examples, registry/grant semantics, host support matrix, native-preferred execution, and troubleshooting.
+<!-- SECTION:FINAL_SUMMARY:END -->

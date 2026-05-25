@@ -9,7 +9,7 @@ import { runVerify } from "../steps/verify.js";
 
 const pipelineInput = z.object({
   task: z.string(),
-  harness: z.enum(["claude", "codex", "opencode", "pi"]),
+  harness: z.enum(["claude", "codex", "kimi", "opencode", "pi"]),
   worktreePath: z.string(),
 });
 

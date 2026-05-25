@@ -5,7 +5,8 @@ vi.mock("execa", () => ({
 }));
 
 import { execa } from "execa";
-import { spawnAgent } from "../src/mastra/runner.ts";
+import { parsePipelineConfigYaml } from "../src/mastra/config.ts";
+import { createRunnerLaunchPlan, spawnAgent } from "../src/mastra/runner.ts";
 
 const mockExeca = vi.mocked(execa);
 
@@ -236,5 +237,105 @@ describe("spawnAgent — pi harness", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("createRunnerLaunchPlan", () => {
+  const CONFIG = parsePipelineConfigYaml(`
+version: 1
+default_workflow: default
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json, jsonl, json_schema]
+  claude:
+    type: claude
+    command: claude
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json]
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json, jsonl]
+  kimi:
+    type: kimi
+    command: kimi
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json]
+  pi:
+    type: pi
+    command: pi
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json]
+  shell:
+    type: command
+    command: node
+    args: ["-e", "console.log({{prompt}})", "{{cwd}}"]
+    capabilities:
+      native_subagents: false
+      output_formats: [text]
+agents:
+  codex-agent: { runner: codex, instructions: { inline: Codex }, output: { format: jsonl } }
+  claude-agent: { runner: claude, instructions: { inline: Claude }, output: { format: text } }
+  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, output: { format: json } }
+  kimi-agent: { runner: kimi, instructions: { inline: Kimi }, output: { format: text } }
+  pi-agent: { runner: pi, instructions: { inline: Pi }, output: { format: json } }
+  command-agent: { runner: shell, instructions: { inline: Shell }, output: { format: text } }
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, agent: codex-agent }
+`);
+
+  it.each([
+    ["codex-agent", "codex", "native", "codex"],
+    ["claude-agent", "claude", "native", "claude"],
+    ["opencode-agent", "opencode", "native", "opencode"],
+    ["kimi-agent", "kimi", "native", "kimi"],
+    ["pi-agent", "pi", "native", "pi"],
+    ["command-agent", "shell", "subprocess", "node"],
+  ])("creates a deterministic launch plan for %s", (agentId, runnerId, strategy, command) => {
+    const plan = createRunnerLaunchPlan(CONFIG, {
+      agentId,
+      nodeId: "node",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(plan).toEqual(
+      expect.objectContaining({
+        agentId,
+        command,
+        cwd: "/tmp/wt",
+        nodeId: "node",
+        runnerId,
+        strategy,
+      })
+    );
+    expect(plan.args.join(" ")).toContain(
+      agentId === "command-agent" ? "/tmp/wt" : "do work"
+    );
+  });
+
+  it("rejects unsupported output contracts before execution", () => {
+    const bad = structuredClone(CONFIG);
+    bad.agents["claude-agent"].output = { format: "jsonl" };
+
+    expect(() =>
+      createRunnerLaunchPlan(bad, {
+        agentId: "claude-agent",
+        nodeId: "node",
+        prompt: "do work",
+        worktreePath: "/tmp/wt",
+      })
+    ).toThrow("does not support output format");
   });
 });

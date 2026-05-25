@@ -2,8 +2,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
+import type { PipelineConfig, RunnerType } from "./config.js";
 
-export type Harness = "claude" | "codex" | "opencode" | "pi";
+export type Harness = "claude" | "codex" | "kimi" | "opencode" | "pi";
 export type AgentRole =
   | "researcher"
   | "test-writer"
@@ -30,6 +31,37 @@ export interface AgentRunRequest {
 
 export interface AgentAdapter {
   run(request: AgentRunRequest): Promise<AgentResult>;
+}
+
+export type RunnerStrategy = "native" | "subprocess";
+
+export interface RunnerLaunchPlan {
+  agentId?: string;
+  args: string[];
+  command: string;
+  cwd: string;
+  env: Record<string, string>;
+  nodeId: string;
+  outputFormat: string;
+  runnerId: string;
+  strategy: RunnerStrategy;
+  timeoutMs: number;
+  type: RunnerType;
+}
+
+export interface RunnerLaunchInput {
+  agentId?: string;
+  contextFile?: string | null;
+  nodeId: string;
+  prompt: string;
+  worktreePath: string;
+}
+
+export class RunnerCapabilityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RunnerCapabilityError";
+  }
 }
 
 async function loadContext(contextFile: string | null): Promise<string> {
@@ -132,6 +164,8 @@ function harnessArgv(
             worktreePath,
             prompt,
           ];
+    case "kimi":
+      return ["--print", ...optionalModelArgs(harness), prompt];
     default: {
       const _exhaustive: never = harness;
       throw new Error(
@@ -259,6 +293,139 @@ export const hardAgentAdapter: AgentAdapter = {
     return execaHarness(harness, prompt, contextFile, worktreePath);
   },
 };
+
+export function createRunnerLaunchPlan(
+  config: PipelineConfig,
+  input: RunnerLaunchInput
+): RunnerLaunchPlan {
+  const agent = input.agentId ? config.agents[input.agentId] : undefined;
+  if (input.agentId && !agent) {
+    throw new RunnerCapabilityError(`agent '${input.agentId}' is not declared`);
+  }
+  const runnerId = agent?.runner ?? "command";
+  const runner = config.runners[runnerId];
+  if (!runner) {
+    throw new RunnerCapabilityError(`runner '${runnerId}' is not declared`);
+  }
+  const outputFormat = agent?.output?.format ?? "text";
+  if (
+    runner.capabilities.output_formats &&
+    !runner.capabilities.output_formats.includes(outputFormat)
+  ) {
+    throw new RunnerCapabilityError(
+      `runner '${runnerId}' does not support output format '${outputFormat}'`
+    );
+  }
+
+  const command = runner.command ?? runner.type;
+  const timeoutMs = Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000);
+  const env = {};
+  const base = {
+    agentId: input.agentId,
+    cwd: input.worktreePath,
+    env,
+    nodeId: input.nodeId,
+    outputFormat,
+    runnerId,
+    timeoutMs,
+    type: runner.type,
+  };
+
+  if (runner.type === "command") {
+    if (!runner.command) {
+      throw new RunnerCapabilityError(
+        `command runner '${runnerId}' must declare command`
+      );
+    }
+    return {
+      ...base,
+      args: renderArgv(runner.args ?? [], input.prompt, input.worktreePath),
+      command,
+      strategy: "subprocess",
+    };
+  }
+
+  const strategy = nativeStrategy(config, input, runnerId);
+  return {
+    ...base,
+    args:
+      runner.type === "pi"
+        ? piArgv(input.prompt)
+        : harnessArgv(
+            runner.type,
+            input.prompt,
+            input.worktreePath,
+            input.contextFile ?? null
+          ),
+    command,
+    strategy,
+  };
+}
+
+function piArgv(prompt: string): string[] {
+  return [
+    "--print",
+    "--mode",
+    "json",
+    ...optionalModelArgs("pi"),
+    "--no-session",
+    prompt,
+  ];
+}
+
+function nativeStrategy(
+  config: PipelineConfig,
+  input: RunnerLaunchInput,
+  runnerId: string
+): RunnerStrategy {
+  const runner = config.runners[runnerId];
+  const agent = input.agentId ? config.agents[input.agentId] : undefined;
+  if (!(runner?.capabilities.native_subagents && agent)) {
+    return "subprocess";
+  }
+  if (runner.type === "command") {
+    return "subprocess";
+  }
+  return "native";
+}
+
+function renderArgv(args: string[], prompt: string, cwd: string): string[] {
+  return args.map((arg) =>
+    arg.replaceAll("{{prompt}}", prompt).replaceAll("{{cwd}}", cwd)
+  );
+}
+
+export async function runLaunchPlan(
+  plan: RunnerLaunchPlan
+): Promise<AgentResult> {
+  try {
+    const result = await execa(plan.command, plan.args, {
+      cwd: plan.cwd,
+      env: plan.env,
+      timeout: plan.timeoutMs,
+    });
+    return {
+      argv: plan.args,
+      exitCode: result.exitCode ?? 0,
+      stderr: result.stderr ?? "",
+      stdout: result.stdout ?? "",
+    };
+  } catch (err) {
+    const e = err as {
+      exitCode?: number;
+      stderr?: string;
+      stdout?: string;
+      timedOut?: boolean;
+    };
+    return {
+      argv: plan.args,
+      exitCode: e.exitCode ?? 1,
+      stderr: e.stderr ?? "",
+      stdout: e.stdout ?? "",
+      timedOut: Boolean(e.timedOut),
+    };
+  }
+}
 
 /**
  * Invoke one pipeline agent boundary through the strict subprocess adapter.

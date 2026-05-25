@@ -1,9 +1,10 @@
 ---
 id: PIPE-19
 title: 'Epic: Config-driven native multi-agent pipeline redesign'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-24 14:16'
+updated_date: '2026-05-25 09:44'
 labels:
   - epic
   - pipeline
@@ -31,6 +32,25 @@ documentation:
   - 'https://moonshotai.github.io/kimi-cli/en/customization/agents.html'
   - 'https://moonshotai.github.io/kimi-cli/en/customization/print-mode.html'
   - 'https://pi.dev/packages/pi-subagents'
+modified_files:
+  - README.md
+  - docs/config-architecture.md
+  - docs/pipeline-smoke-recovery-plan.md
+  - docs/slash-command-adapter-contract.md
+  - package.json
+  - src/index.ts
+  - src/install-commands.ts
+  - src/mastra/config.ts
+  - src/mastra/pipeline-primitive.ts
+  - src/mastra/runner.ts
+  - src/pipeline-runtime.ts
+  - src/pipeline-spec.ts
+  - src/workflow-planner.ts
+  - tests/cli.test.ts
+  - tests/install-commands.test.ts
+  - tests/pipeline-runtime.test.ts
+  - tests/runner.test.ts
+  - tests/tracer-bullet.test.ts
 priority: high
 ordinal: 19000
 ---
@@ -43,14 +63,20 @@ Redesign oisin-pipeline around one authoritative YAML workflow config, replacing
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A fresh repository can run `pipe init` to scaffold a complete default `.pipeline/pipeline.yaml` and supporting prompt/schema/resource files.
-- [ ] #2 `pipe run` requires `.pipeline/pipeline.yaml` and does not silently fall back to hardcoded phases, profiles, or bundled prompts.
-- [ ] #3 The default research/red/green/verify/learn pipeline is represented by config, not by hardcoded runtime phase lists.
-- [ ] #4 Configured multi-agent workflows execute each agent node as a real separate agent boundary, either through native host subagents or a separate CLI subprocess.
-- [ ] #5 Agents can explicitly declare runner, instructions, rules, skills, MCP server access, tools, filesystem policy, network policy, and output contracts.
-- [ ] #6 Deterministic gates decide pass/fail/retry outside the model and support tests, typecheck, schema checks, command exit expectations, and custom commands.
-- [ ] #7 Declarative hooks can run on workflow/node/gate lifecycle events without arbitrary in-process JS or TS callbacks.
-- [ ] #8 Generated Claude, Codex, OpenCode, Kimi, and Pi resources derive from the YAML config as the single source of truth.
-- [ ] #9 All legacy profile resolution and hardcoded phase coupling is removed from the active runtime path.
-- [ ] #10 The redesign is covered by parser, planner, adapter, gate, hook, and CLI tests, including a test that prevents merged single-prompt execution for multi-agent workflows.
+- [x] #1 A fresh repository can run `pipe init` to scaffold a complete default `.pipeline/pipeline.yaml` and supporting prompt/schema/resource files.
+- [x] #2 `pipe run` requires `.pipeline/pipeline.yaml` and does not silently fall back to hardcoded phases, profiles, or bundled prompts.
+- [x] #3 The default research/red/green/verify/learn pipeline is represented by config, not by hardcoded runtime phase lists.
+- [x] #4 Configured multi-agent workflows execute each agent node as a real separate agent boundary, either through native host subagents or a separate CLI subprocess.
+- [x] #5 Agents can explicitly declare runner, instructions, rules, skills, MCP server access, tools, filesystem policy, network policy, and output contracts.
+- [x] #6 Deterministic gates decide pass/fail/retry outside the model and support tests, typecheck, schema checks, command exit expectations, and custom commands.
+- [x] #7 Declarative hooks can run on workflow/node/gate lifecycle events without arbitrary in-process JS or TS callbacks.
+- [x] #8 Generated Claude, Codex, OpenCode, Kimi, and Pi resources derive from the YAML config as the single source of truth.
+- [x] #9 All legacy profile resolution and hardcoded phase coupling is removed from the active runtime path.
+- [x] #10 The redesign is covered by parser, planner, adapter, gate, hook, and CLI tests, including a test that prevents merged single-prompt execution for multi-agent workflows.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Completed the YAML-only config-driven pipeline redesign: runtime now loads and executes compiled workflow DAGs, records distinct agent boundaries, supports typed runner launch plans, explicit grants, deterministic gates/retries/artifacts/schema validation, declarative hooks, YAML-derived host resources, updated CLI commands, and architecture docs. Removed public legacy primitive/spec surfaces and verified with typecheck, lint, tests, and CLI build.
+<!-- SECTION:FINAL_SUMMARY:END -->

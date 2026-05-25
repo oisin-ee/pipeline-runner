@@ -1,30 +1,16 @@
 # @oisincoveney/pipeline
 
-Mastra workflow and CLI for running repository work through a fixed pipeline:
-collect project knowledge, research the task, write failing tests, implement the
-fix, verify the result, and record learnings for future runs.
-
-The reusable primitive is `runPipelinePrimitive()`. It is intended to run from
-an isolated worktree for one Backlog.md ticket or task description at a time.
-The CLI calls it with the subprocess adapter. Generated host resources run the
-same lifecycle through each host's native command, skill, agent, subagent,
-extension, or session mechanics.
+Config-driven multi-agent pipeline runner for repository work. The source of
+truth is `.pipeline/pipeline.yaml`: runners, agents, workflows, gates, hooks,
+rules, skills, MCP servers, tool grants, filesystem policy, network policy, and
+output contracts all live there.
 
 ## Requirements
 
 - Bun 1.1 or newer
 - Node.js 22.13 or newer
-- Backlog.md CLI available as `backlog`
-- One supported agent harness CLI available on `PATH`
-
-Supported harnesses:
-
-| Harness | CLI command used by the runner |
-| --- | --- |
-| `claude` | `claude --print -p ...` |
-| `codex` | `codex exec --json ...` |
-| `opencode` | `opencode run --format json ...` |
-| `pi` | `pi --mode rpc --no-session` |
+- At least one configured runner CLI on `PATH`: `codex`, `claude`,
+  `opencode`, `kimi`, `pi`, or a declared command runner
 
 Install dependencies:
 
@@ -32,200 +18,125 @@ Install dependencies:
 bun install --frozen-lockfile
 ```
 
-The selected harness must already be authenticated and configured in the local
-environment. Any provider-specific API keys are managed by that harness.
+## Start A Repository
 
-## Installing In Another Repository
-
-Install the package as a normal dependency, then run the installed binary:
+Scaffold the default YAML workflow:
 
 ```shell
-bun add -D @oisincoveney/pipeline
-work-next "Implement PIPE-123 user-facing behavior"
+pipe init
 ```
 
-The package-level binary is also available:
+Validate the config and compiled DAG:
 
 ```shell
-oisin-pipeline work-next "Implement PIPE-123 user-facing behavior"
+pipe validate
 ```
 
-Programmatic consumers can import the primitive and adapter types from package
-subpaths:
-
-```ts
-import { runPipelinePrimitive } from "@oisincoveney/pipeline/pipeline-primitive";
-import type { AgentAdapter } from "@oisincoveney/pipeline/runner";
-```
-
-Install all generated command adapters into the current repository:
+Inspect the execution plan before running:
 
 ```shell
-bunx @oisincoveney/pipeline install-commands --host all
+pipe explain-plan
 ```
 
-This creates or updates the supported host files:
+Run the default workflow:
 
-| Host | File | Invocation |
+```shell
+pipe run "Implement PIPE-123 user-facing behavior"
+```
+
+The `pipe` binary also accepts the task directly:
+
+```shell
+pipe "Implement PIPE-123 user-facing behavior"
+```
+
+Use `PIPELINE_TARGET_PATH=/path/to/worktree` when invoking from outside the
+target repository.
+
+## Minimal YAML
+
+```yaml
+version: 1
+default_workflow: default
+
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      tools: [read, grep, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit]
+      output_formats: [text, json, jsonl, json_schema]
+
+agents:
+  implementer:
+    runner: codex
+    instructions:
+      inline: Implement the requested change and return evidence.
+    tools: [read, grep, bash, edit, write]
+    filesystem:
+      mode: workspace-write
+    output:
+      format: text
+
+workflows:
+  default:
+    nodes:
+      - id: implement
+        kind: agent
+        agent: implementer
+        gates:
+          - kind: builtin
+            builtin: test
+          - kind: builtin
+            builtin: typecheck
+```
+
+The default scaffold includes a full research, red, green, verify, learn
+workflow. See `docs/config-architecture.md` for a complete example and the host
+support matrix.
+
+## Generated Host Resources
+
+Generate native host files from the YAML config:
+
+```shell
+pipe install-commands --host all
+```
+
+Generated resources are projections of `.pipeline/pipeline.yaml`; they are not
+separate profiles.
+
+| Host | Generated files | Invocation |
 | --- | --- | --- |
-| Claude Code | `.claude/commands/work-next.md`, `.claude/agents/pipeline-*.md` | `/work-next "Implement PIPE-123"` |
-| OpenCode | `.opencode/commands/work-next.md`, `.opencode/agents/pipeline-*.md` | `/work-next "Implement PIPE-123"` |
-| Pi | `.pi/extensions/work-next.ts`, `.pi/prompts/work-next.md` | `/work-next "Implement PIPE-123"` |
-| Codex | `.agents/skills/work-next/SKILL.md`, `.codex/agents/pipeline-*.toml` | `$work-next "Implement PIPE-123"` or `/skills` |
+| Claude Code | `.claude/commands/pipe.md`, `.claude/agents/*.md` | `/pipe <task>` |
+| Codex | `.agents/skills/pipe/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>` |
+| OpenCode | `.opencode/commands/pipe.md`, `.opencode/agents/*.md` | `/pipe <task>` |
+| Kimi | `.kimi/commands/pipe.md`, `.kimi/agents/*.md` | `/pipe <task>` |
+| Pi | `.pi/extensions/pipe.ts`, `.pi/prompts/pipe.md` | `/pipe <task>` |
 
-Re-run the installer after package updates. It updates generated files it owns,
-refuses to overwrite manual edits, supports `--check`, `--dry-run`, and
-requires `--force` to overwrite a manually edited command file.
+The installer is idempotent, supports `--check` and `--dry-run`, and refuses to
+overwrite manually edited files unless `--force` is supplied.
 
-For local unpublished validation, install from a packed tarball instead of
-linking:
+## Runtime Guarantees
 
-```shell
-bun pm pack
-bun add /path/to/oisincoveney-pipeline-1.0.0.tgz
-work-next "Implement PIPE-123 user-facing behavior"
-```
-
-## Invocation Modes
-
-Use a slash command when you are already inside Claude Code, Codex, OpenCode, or
-Pi and want that host to execute the phase work with its native agent,
-subagent, extension, or session mechanism. Claude Code and OpenCode expose
-`/work-next`. Pi exposes `/work-next` through a project extension and requires
-`pi-subagents` to be installed. Codex does not expose project-defined custom
-slash commands, so use `$work-next` or select the skill from `/skills`.
-
-Use the CLI when you are outside an agent host, when automation needs a shell
-entrypoint, or when you explicitly want harness CLIs launched as subprocesses.
-
-The slash-command adapter contract for Claude Code, Codex, OpenCode, and Pi is
-documented in `docs/slash-command-adapter-contract.md`. The command files are
-generated into each target repository by the installer rather than shipped as
-static package templates.
-
-## Running The CLI
-
-Use the package script to start a pipeline run with a task description:
-
-```shell
-PIPELINE_HARNESS=codex PIPELINE_TARGET_PATH=/path/to/worktree bun run work-next "Implement PIPE-123 user-facing behavior"
-```
-
-`PIPELINE_HARNESS` is optional and defaults to `claude`. If it is set, it must be
-one of `claude`, `codex`, `opencode`, or `pi`. Unsupported values are rejected
-before Backlog.md tasks or workflow runs are created.
-
-`PIPELINE_TARGET_PATH` is optional and defaults to the current working
-directory. Set it when starting the CLI from outside the worktree that should be
-modified.
-
-The direct entrypoint is also available:
-
-```shell
-bun src/index.ts work-next "Implement PIPE-123 user-facing behavior"
-```
-
-The CLI path uses `runPipelinePrimitive()` with the subprocess adapter from
-`src/mastra/runner.ts`. Environment variables are only needed for the CLI
-adapter; generated host resources use the current host session and repository
-context.
-
-## Pipeline Lifecycle
-
-Every run follows the same lifecycle:
-
-1. `knowledge-inject` builds the run context from repository rules and qdrant
-   retrieval.
-2. `research` asks the selected harness to inspect the codebase and summarize
-   the task.
-3. `RED/test-write` asks the harness to add failing tests and requires the RED
-   gate to see tests fail.
-4. `GREEN/code-write` asks the harness to implement the change and requires
-   tests and typecheck to pass.
-5. `VERIFY` runs repository quality checks and an LLM verifier.
-6. `LEARN` stores durable learning through qdrant.
-
-The workflow output has this shape:
-
-```ts
-{
-  outcome: "PASS" | "FAIL";
-  failureDetails: Array<{
-    gate: "RESEARCH" | "RED" | "GREEN" | "VERIFY" | "LEARN";
-    reason: string;
-    evidence: string[];
-  }>;
-}
-```
-
-`failureDetails` is empty for a full pass. On failure, it reports the first gate
-or gates that prevented the run from passing with captured evidence.
-
-## Backlog.md Phase Mapping
-
-The CLI creates one parent run id and five Backlog.md phase tasks. Their status
-tracks the pipeline lifecycle:
-
-| Backlog suffix | Pipeline phase | Meaning |
-| --- | --- | --- |
-| `R` | `research` | Understand the task and repository context. |
-| `TW` | `test-write` / RED | Add failing tests for the requested behavior. |
-| `CW` | `implement` / GREEN | Implement code until tests and typecheck pass. |
-| `V` | `verify` | Run style, duplication, and LLM verification gates. |
-| `L` | `learn` | Persist learnings from the completed run. |
-
-When a gate fails, later phase tasks remain `To Do`, the failing phase remains
-`In Progress`, and the failure evidence is appended to that phase task.
-
-## Generated Artifacts
-
-Pipeline artifacts are written under the target worktree:
-
-- `.pipeline/knowledge-context.md`: transient context assembled from
-  `rules/*.md` and qdrant retrieval.
-- `.pipeline/research.json`: captured research output from the research phase.
-
-The pipeline does not maintain a local markdown knowledge base. Durable memory
-is stored with `qdrant-store` during LEARN unless memory is explicitly disabled
-for the run.
-
-The runner also creates Backlog.md phase tasks with ids based on
-`TASK-<timestamp>`.
+- `pipe run` fails without `.pipeline/pipeline.yaml`.
+- Multi-agent workflows execute as separate agent boundaries; nodes are not
+  merged into one prompt.
+- Native subagent strategy is preferred when the selected runner can represent
+  the configured semantics. Otherwise the runtime uses a subprocess boundary.
+- Parallel DAG batches run concurrently after dependencies and gates pass.
+- Agent self-reporting is not enough to pass deterministic gates.
 
 ## Verification
 
-Use these exact commands before committing changes in this repository:
+Use these commands before committing changes in this repository:
 
 ```shell
-bun run test
 bun run typecheck
 bun run check
-bun run build
+bun run test
+bun run build:cli
 ```
-
-`bun run test` is the supported test command for this project. It runs the
-Vitest suite configured in `package.json`; Bun's native test runner is not the
-project suite runner.
-
-## Development
-
-Start Mastra Studio locally:
-
-```shell
-bun run dev
-```
-
-Open <http://localhost:4111> to inspect and run the Mastra application.
-
-## Known Limitations
-
-- The CLI does not create or switch git worktrees; provide the intended worktree
-  with `PIPELINE_TARGET_PATH` or run from that directory.
-- The pipeline can modify files in the target worktree through the selected
-  harness. Review the diff before committing.
-- Harness authentication, model selection, and provider API keys are owned by
-  the harness CLI, not this repository.
-- The Backlog.md phase ids use `TASK-<timestamp>`, so repeated runs create new
-  task groups rather than updating an existing ticket.
-- Verification depends on the repository scripts and the verifier output. A
-  passing LLM verifier is not a substitute for human review.

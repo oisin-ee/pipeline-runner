@@ -40,6 +40,8 @@ const TOOL_NAMES = [
 const FILESYSTEM_MODES = ["read-only", "workspace-write"] as const;
 const NETWORK_MODES = ["inherit", "disabled"] as const;
 const OUTPUT_FORMATS = ["text", "json", "jsonl", "json_schema"] as const;
+const GATE_KINDS = ["artifact", "builtin", "command", "json_schema"] as const;
+const BUILTIN_GATES = ["duplication", "test", "typecheck"] as const;
 
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
@@ -89,6 +91,7 @@ const runnerSchema = z
     args: z.array(z.string()).optional(),
     capabilities: runnerCapabilitiesSchema,
     command: z.string().optional(),
+    model: z.string().optional(),
     type: z.enum(RUNNER_TYPES),
   })
   .strict();
@@ -135,6 +138,34 @@ const outputSchema = z
   })
   .strict();
 
+const artifactSchema = z
+  .object({
+    path: z.string().min(1),
+    required: z.boolean().optional(),
+  })
+  .strict();
+
+const gateSchema = z
+  .object({
+    builtin: z.enum(BUILTIN_GATES).optional(),
+    command: z.array(z.string()).optional(),
+    expect_exit_code: z.number().int().optional(),
+    id: z.string().optional(),
+    kind: z.enum(GATE_KINDS),
+    path: z.string().min(1).optional(),
+    required: z.boolean().optional(),
+    schema_path: z.string().min(1).optional(),
+    target: z.enum(["artifact", "stdout"]).optional(),
+    timeout_ms: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const retriesSchema = z
+  .object({
+    max_attempts: z.number().int().positive(),
+  })
+  .strict();
+
 const agentSchema = z
   .object({
     description: z.string().optional(),
@@ -164,12 +195,16 @@ const hookSchema = z
 const workflowNodeSchema = z
   .object({
     agent: z.string().optional(),
+    artifacts: z.array(artifactSchema).optional(),
     builtin: z.string().optional(),
     command: z.array(z.string()).optional(),
+    gates: z.array(gateSchema).optional(),
+    hooks: z.array(z.string()).optional(),
     id: z.string(),
     kind: z.enum(NODE_KINDS),
     needs: z.array(z.string()).optional(),
     nodes: z.array(z.string()).optional(),
+    retries: retriesSchema.optional(),
   })
   .strict();
 
@@ -199,6 +234,7 @@ export type PipelineConfig = z.infer<typeof configSchema>;
 export type RunnerType = (typeof RUNNER_TYPES)[number];
 export type WorkflowNodeKind = (typeof NODE_KINDS)[number];
 export type HookEvent = (typeof HOOK_EVENTS)[number];
+export type GateKind = (typeof GATE_KINDS)[number];
 
 export function loadPipelineConfig(projectRoot: string): PipelineConfig {
   const configPath = join(projectRoot, PIPELINE_CONFIG_PATH);
@@ -304,7 +340,7 @@ export function validatePipelineConfig(
   }
 
   for (const [workflowId, workflow] of Object.entries(config.workflows)) {
-    validateWorkflow(workflowId, workflow, config, issues);
+    validateWorkflow(workflowId, workflow, config, issues, projectRoot);
   }
 
   if (issues.length > 0) {
@@ -439,7 +475,8 @@ function validateWorkflow(
   workflowId: string,
   workflow: PipelineConfig["workflows"][string],
   config: PipelineConfig,
-  issues: PipelineConfigIssue[]
+  issues: PipelineConfigIssue[],
+  projectRoot?: string
 ): void {
   validateReferences(
     `workflows.${workflowId}.hooks`,
@@ -461,30 +498,115 @@ function validateWorkflow(
   }
 
   for (const node of workflow.nodes) {
-    if (!ID_RE.test(node.id)) {
+    validateWorkflowNode(workflowId, node, nodeIds, config, issues);
+    validateNodeGates(workflowId, node, issues, projectRoot);
+  }
+}
+
+function validateWorkflowNode(
+  workflowId: string,
+  node: PipelineConfig["workflows"][string]["nodes"][number],
+  nodeIds: Set<string>,
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[]
+): void {
+  if (!ID_RE.test(node.id)) {
+    issues.push({
+      path: `workflows.${workflowId}.nodes.${node.id}`,
+      message: `workflow node id '${node.id}' must match ${ID_RE.source}`,
+    });
+  }
+  for (const need of node.needs ?? []) {
+    if (!nodeIds.has(need)) {
       issues.push({
-        path: `workflows.${workflowId}.nodes.${node.id}`,
-        message: `workflow node id '${node.id}' must match ${ID_RE.source}`,
+        path: `workflows.${workflowId}.nodes.${node.id}.needs`,
+        message: `node '${node.id}' references missing dependency '${need}'`,
       });
     }
-    for (const need of node.needs ?? []) {
-      if (!nodeIds.has(need)) {
-        issues.push({
-          path: `workflows.${workflowId}.nodes.${node.id}.needs`,
-          message: `node '${node.id}' references missing dependency '${need}'`,
-        });
-      }
-    }
-    if (node.kind === "agent" && !node.agent) {
+  }
+  validateReferences(
+    `workflows.${workflowId}.nodes.${node.id}.hooks`,
+    node.hooks,
+    config.hooks,
+    "hook",
+    issues
+  );
+  validateWorkflowNodeKind(workflowId, node, config, issues);
+}
+
+function validateWorkflowNodeKind(
+  workflowId: string,
+  node: PipelineConfig["workflows"][string]["nodes"][number],
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[]
+): void {
+  if (node.kind === "agent" && !node.agent) {
+    issues.push({
+      path: `workflows.${workflowId}.nodes.${node.id}.agent`,
+      message: `agent node '${node.id}' must declare agent`,
+    });
+  }
+  if (node.agent && !config.agents[node.agent]) {
+    issues.push({
+      path: `workflows.${workflowId}.nodes.${node.id}.agent`,
+      message: `node '${node.id}' references missing agent '${node.agent}'`,
+    });
+  }
+  if (node.kind === "command" && !node.command) {
+    issues.push({
+      path: `workflows.${workflowId}.nodes.${node.id}.command`,
+      message: `command node '${node.id}' must declare command`,
+    });
+  }
+  if (node.kind === "builtin" && !node.builtin) {
+    issues.push({
+      path: `workflows.${workflowId}.nodes.${node.id}.builtin`,
+      message: `builtin node '${node.id}' must declare builtin`,
+    });
+  }
+}
+
+function validateNodeGates(
+  workflowId: string,
+  node: PipelineConfig["workflows"][string]["nodes"][number],
+  issues: PipelineConfigIssue[],
+  projectRoot?: string
+): void {
+  for (const [index, gate] of (node.gates ?? []).entries()) {
+    const path = `workflows.${workflowId}.nodes.${node.id}.gates.${index}`;
+    if (gate.kind === "command" && !gate.command) {
       issues.push({
-        path: `workflows.${workflowId}.nodes.${node.id}.agent`,
-        message: `agent node '${node.id}' must declare agent`,
+        path: `${path}.command`,
+        message: `command gate on node '${node.id}' must declare command`,
       });
     }
-    if (node.agent && !config.agents[node.agent]) {
+    if (gate.kind === "artifact" && !gate.path) {
       issues.push({
-        path: `workflows.${workflowId}.nodes.${node.id}.agent`,
-        message: `node '${node.id}' references missing agent '${node.agent}'`,
+        path: `${path}.path`,
+        message: `artifact gate on node '${node.id}' must declare path`,
+      });
+    }
+    if (gate.kind === "json_schema" && !gate.schema_path) {
+      issues.push({
+        path: `${path}.schema_path`,
+        message: `json_schema gate on node '${node.id}' must declare schema_path`,
+      });
+    }
+    validatePath(`${path}.schema_path`, gate.schema_path, projectRoot, issues);
+    if (
+      gate.kind === "json_schema" &&
+      gate.target === "artifact" &&
+      !gate.path
+    ) {
+      issues.push({
+        path: `${path}.path`,
+        message: `json_schema artifact gate on node '${node.id}' must declare path`,
+      });
+    }
+    if (gate.kind === "builtin" && !gate.builtin) {
+      issues.push({
+        path: `${path}.builtin`,
+        message: `builtin gate on node '${node.id}' must declare builtin`,
       });
     }
   }

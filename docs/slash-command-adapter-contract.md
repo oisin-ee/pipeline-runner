@@ -1,64 +1,35 @@
-# Slash Command Adapter Contract
+# Host Resource Adapter Contract
 
-The reusable primitive is `runPipelinePrimitive(input, adapters)` from
-`src/mastra/pipeline-primitive.ts`. The shell CLI calls that primitive with the
-subprocess adapter from `src/mastra/runner.ts`.
+Generated host resources are projections of `.pipeline/pipeline.yaml`. They do
+not shell out to a legacy command and do not maintain independent agent
+profiles.
 
-Generated host resources do not shell out to `work-next`. They encode the same
-pipeline lifecycle for the host interface and use the host's native command,
-skill, agent, subagent, extension, or session mechanics.
-
-Install the generated resources in a repository with:
+Install or check generated resources with:
 
 ```sh
-bunx @oisincoveney/pipeline install-commands --host all
+pipe install-commands --host all
+pipe install-commands --host all --check
 ```
-
-The installer is idempotent, supports `--dry-run`, supports `--check`, and
-refuses to overwrite manually edited files unless `--force` is passed.
 
 ## Host Mappings
 
 | Host | Generated resources | Invocation | Mechanical path |
 | --- | --- | --- | --- |
-| Claude Code | `.claude/commands/work-next.md`, `.claude/agents/pipeline-*.md` | `/work-next <task>` | Project command orchestrates named Claude Code project agents. |
-| OpenCode | `.opencode/commands/work-next.md`, `.opencode/agents/pipeline-*.md` | `/work-next <task>` | Project command runs `pipeline-orchestrator`, which delegates to OpenCode subagents. |
-| Pi | `.pi/extensions/work-next.ts`, `.pi/prompts/work-next.md` | `/work-next <task>` | Project extension registers the command and requires `pi-subagents` before sending the phase prompt. |
-| Codex | `.agents/skills/work-next/SKILL.md`, `.codex/agents/pipeline-*.toml` | `$work-next <task>` or `/skills` | Project skill instructs Codex to spawn the generated Codex agents for phase work. |
+| Claude Code | `.claude/commands/pipe.md`, `.claude/agents/*.md` | `/pipe <task>` | Project command delegates to configured Claude agents. |
+| Codex | `.agents/skills/pipe/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>` | Skill instructs Codex to use generated Codex agents. |
+| OpenCode | `.opencode/commands/pipe.md`, `.opencode/agents/*.md` | `/pipe <task>` | Project command runs a primary orchestrator and configured subagents. |
+| Kimi | `.kimi/commands/pipe.md`, `.kimi/agents/*.md` | `/pipe <task>` | Project command and agent specs mirror YAML grants. |
+| Pi | `.pi/extensions/pipe.ts`, `.pi/prompts/pipe.md` | `/pipe <task>` | Extension requires `pi-subagents` before sending a chain. |
 
-Codex currently does not expose project-defined custom slash commands in the
-same way as Claude Code and OpenCode. The installer therefore generates a Codex
-skill and Codex agent definitions rather than pretending that `/work-next`
-exists in Codex.
+## Projection Rules
 
-## Pipeline Contract
+- Agent names, descriptions, instructions, tools, rules, skills, MCP servers,
+  filesystem mode, network mode, and output contracts are read from YAML.
+- Host-specific formats can omit unsupported capabilities, but they must not
+  grant broader access than requested.
+- Regeneration is idempotent for generated files. Manual edits are protected
+  unless `--force` is supplied.
 
-Every generated host resource uses the shared pipeline spec from
-`src/pipeline-spec.ts`:
-
-1. Build `.pipeline/knowledge-context.md` from repository rules and qdrant
-   retrieval.
-2. Run research with `pipeline-researcher`.
-3. Run RED with `pipeline-test-writer`; the new tests must fail for the right
-   reason.
-4. Run GREEN with `pipeline-code-writer`; tests and typecheck must pass.
-5. Run VERIFY with `pipeline-verifier`; quality checks and implementation
-   review must pass.
-6. Store durable learnings with `qdrant-store`; do not write local markdown
-   knowledge files.
-
-The host resource is responsible for keeping the command or skill invocation as
-the orchestrator, delegating phase work to the configured agents, and stopping
-with evidence when a gate fails.
-
-## CLI Adapter
-
-The CLI remains the shell automation path. It supplies:
-
-- `task`: the command argument.
-- `worktreePath`: `PIPELINE_TARGET_PATH` or the current directory.
-- `harness`: `PIPELINE_HARNESS` or `claude`.
-- `agentAdapter`: the subprocess adapter that calls the configured harness CLI.
-
-The CLI is the only path that intentionally starts `claude`, `codex`,
-`opencode`, or `pi` as subprocesses.
+The CLI runtime and host projections share the same workflow plan. Multi-agent
+workflows require separate agent boundaries; host resources must not collapse
+the workflow into a single prompt.

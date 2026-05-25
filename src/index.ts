@@ -2,7 +2,6 @@
 
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Option } from "commander";
-import { execa } from "execa";
 import {
   type CommandHostSelection,
   formatInstallCommandsResult,
@@ -10,61 +9,32 @@ import {
   parseCommandHost,
 } from "./install-commands.js";
 import {
-  applyPhaseLifecycle,
-  createSwarmTasks,
-  markPhase,
-  type PipelineLifecycleResult,
-} from "./mastra/backlog.js";
-import {
-  type PipelinePrimitiveInput,
-  runPipelinePrimitive,
-} from "./mastra/pipeline-primitive.js";
-import { hardAgentAdapter } from "./mastra/runner.js";
-import { parseTicketAndDescription } from "./mastra/tickets.js";
+  loadPipelineConfig,
+  type PipelineConfig,
+  PipelineConfigError,
+} from "./mastra/config.js";
+import { createRunnerLaunchPlan } from "./mastra/runner.js";
 import {
   formatPipelineInitResult,
   initPipelineProject,
 } from "./pipeline-init.js";
+import {
+  formatConfigError,
+  type PipelineRuntimeResult,
+  runPipelineFromConfig,
+} from "./pipeline-runtime.js";
+import { compileWorkflowPlan } from "./workflow-planner.js";
 
-const SUPPORTED_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
-const DEFAULT_HARNESS: PipelineHarness = "codex";
 const PATH_SEPARATOR_RE = /[\\/]/;
-type PipelineHarness = (typeof SUPPORTED_HARNESSES)[number];
-
-function parseHarnessFlag(value: string): PipelineHarness {
-  if (SUPPORTED_HARNESSES.includes(value as PipelineHarness)) {
-    return value as PipelineHarness;
-  }
-  throw new Error(
-    `Unsupported --harness "${value}". Supported values: ${SUPPORTED_HARNESSES.join(", ")}.`
-  );
-}
 
 interface PipeOptions {
-  /** Harness binary to dispatch (claude | codex | opencode | pi). Default `codex`. */
-  harness?: PipelineHarness;
-  /** Override the strict-mode pipeline runner (used by tests). */
-  pipelineRunner?: (
-    input: PipelinePrimitiveInput
-  ) => Promise<PipelineLifecycleResult>;
-  /** Override the soft-mode interactive spawn (used by tests). */
-  spawnInteractive?: (
-    command: string,
-    args: string[],
-    options: { cwd: string }
-  ) => Promise<{ exitCode: number }>;
-  /** If true, dispatch the deterministic Mastra workflow through subprocess agent boundaries. */
-  strict?: boolean;
+  pipelineRunner?: typeof runPipelineFromConfig;
+  workflow?: string;
 }
 
 /**
- * `pipe` entrypoint. Two modes:
- *
- * - **soft** (default): spawn `orchestrator <harness>` interactively with an
- *   initial prompt that asks the orchestrator to drive phases via native
- *   subagent delegation. User can interrupt.
- * - **strict** (`--strict`): run the deterministic Mastra workflow and spawn a
- *   separate subprocess for each agent boundary.
+ * Config-driven `pipe` entrypoint. The workflow source of truth is
+ * `.pipeline/pipeline.yaml`; missing YAML is a hard error.
  */
 export function pipe(
   description: string,
@@ -75,118 +45,59 @@ export function pipe(
       throw new Error("Task description is required");
     }
 
-    const harness = options.harness ?? DEFAULT_HARNESS;
     const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-    const { ticketId, description: trimmedDescription } =
-      parseTicketAndDescription(description);
-
-    if (options.strict) {
-      return runStrict({
-        ticketId,
-        task: description,
-        harness,
-        worktreePath,
-        pipelineRunner: options.pipelineRunner,
-      });
-    }
-
-    return runSoft({
-      ticketId,
+    const runner = options.pipelineRunner ?? runPipelineFromConfig;
+    return runConfiguredPipeline({
+      pipelineRunner: runner,
       task: description,
-      trimmedDescription,
-      harness,
+      workflow: options.workflow,
       worktreePath,
-      spawnInteractive: options.spawnInteractive,
     });
   } catch (err) {
     return Promise.reject(err as Error);
   }
 }
 
+interface RunFlags {
+  workflow?: string;
+}
+
 interface RunInputs {
-  harness: PipelineHarness;
+  pipelineRunner?: typeof runPipelineFromConfig;
   task: string;
-  ticketId: string | null;
+  workflow?: string;
   worktreePath: string;
 }
 
-async function runSoft(
-  inputs: RunInputs & {
-    trimmedDescription: string;
-    spawnInteractive?: PipeOptions["spawnInteractive"];
-  }
-): Promise<void> {
-  const { harness, worktreePath, ticketId, trimmedDescription } = inputs;
-  const ticketLabel = ticketId ?? "(no ticket id detected)";
-  const initialPrompt =
-    `Run the oisin-pipeline for ticket ${ticketLabel}.\n\n` +
-    `Task description: ${trimmedDescription}\n\n` +
-    "Drive the phases (research → RED → GREEN → VERIFY → LEARN) by " +
-    "delegating each to the appropriate subagent via the Task tool. " +
-    "Follow your orchestrator rules. Pause if I interrupt.";
-
-  console.log(`Starting interactive orchestrator session for: ${inputs.task}`);
-
-  const spawn =
-    inputs.spawnInteractive ??
-    (async (command: string, args: string[], opts: { cwd: string }) => {
-      const result = await execa(command, args, {
-        cwd: opts.cwd,
-        stdio: "inherit",
-      });
-      return { exitCode: result.exitCode ?? 0 };
-    });
-
-  const { exitCode } = await spawn("orchestrator", [harness, initialPrompt], {
-    cwd: worktreePath,
+async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
+  const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
+  const result = await runner({
+    task: inputs.task,
+    workflowId: inputs.workflow,
+    worktreePath: inputs.worktreePath,
   });
-
-  if (exitCode !== 0) {
-    throw Object.assign(
-      new Error(`orchestrator ${harness} exited with code ${exitCode}`),
-      { exitCode }
+  console.log(formatRuntimeResult(result));
+  if (result.outcome === "FAIL") {
+    throw new Error(
+      [
+        "Pipeline failed.",
+        ...result.failureDetails.map((failure) =>
+          failure.nodeId
+            ? `- ${failure.nodeId}: ${failure.reason}`
+            : `- ${failure.reason}`
+        ),
+      ].join("\n")
     );
   }
 }
 
-async function runStrict(
-  inputs: RunInputs & {
-    pipelineRunner?: PipeOptions["pipelineRunner"];
-  }
-): Promise<void> {
-  const { harness, worktreePath, ticketId, task } = inputs;
-  const runner =
-    inputs.pipelineRunner ??
-    ((input: PipelinePrimitiveInput) =>
-      runPipelinePrimitive(input, { agentAdapter: hardAgentAdapter }));
-
-  const swarm = await createSwarmTasks(task, worktreePath);
-
-  console.log(`Starting pipeline (--strict) for: ${task}`);
-  await markPhase(swarm.phases.R, "In Progress", worktreePath);
-
-  let pipelineResult: PipelineLifecycleResult;
-  try {
-    pipelineResult = await runner({
-      harness,
-      task,
-      worktreePath,
-      ticketId,
-    });
-  } catch (err) {
-    await applyPhaseLifecycle(
-      swarm,
-      { outcome: "FAIL", failureDetails: [] },
-      worktreePath,
-      { alreadyStarted: ["R"] }
-    );
-    throw err;
-  }
-
-  await applyPhaseLifecycle(swarm, pipelineResult, worktreePath, {
-    alreadyStarted: ["R"],
-  });
-  console.log(`Pipeline complete: ${pipelineResult.outcome}`);
+function formatRuntimeResult(result: PipelineRuntimeResult): string {
+  return [
+    `Pipeline complete: ${result.outcome}`,
+    `Workflow: ${result.plan.workflowId}`,
+    `Nodes: ${result.nodes.map((node) => `${node.nodeId}:${node.status}`).join(", ")}`,
+    `Agent boundaries: ${result.agentInvocations.length}`,
+  ].join("\n");
 }
 
 interface InstallCommandFlags {
@@ -200,6 +111,10 @@ interface InitFlags {
   overwrite?: boolean;
 }
 
+interface ValidateFlags {
+  workflow?: string;
+}
+
 export function createCliProgram(): Command {
   const program = new Command();
   program
@@ -207,35 +122,50 @@ export function createCliProgram(): Command {
     .description("Run and install the oisin pipeline")
     .exitOverride();
 
+  const runAction = async (descriptionParts: string[], flags: RunFlags) => {
+    await pipe(descriptionParts.join(" "), {
+      workflow: flags.workflow,
+    });
+  };
+
+  program
+    .command("run")
+    .description("Run a workflow from .pipeline/pipeline.yaml")
+    .argument("<description...>", "task description")
+    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .action(runAction);
+
   program
     .command("pipe")
-    .description("Run the oisin-pipeline for a task")
-    .argument("<description...>", "ticket id or task description")
-    .option(
-      "--strict",
-      "run the deterministic headless pipeline instead of the interactive orchestrator",
-      false
+    .description("Alias for run")
+    .argument("<description...>", "task description")
+    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .action(runAction);
+
+  program
+    .command("validate")
+    .description(
+      "Validate .pipeline/pipeline.yaml and compile the workflow plan"
     )
-    .addOption(
-      new Option(
-        "--harness <harness>",
-        "harness binary to dispatch (claude | codex | opencode | pi)"
-      )
-        .choices([...SUPPORTED_HARNESSES])
-        .default(DEFAULT_HARNESS)
-        .argParser(parseHarnessFlag)
-    )
-    .action(
-      async (
-        descriptionParts: string[],
-        flags: { strict?: boolean; harness?: PipelineHarness }
-      ) => {
-        await pipe(descriptionParts.join(" "), {
-          strict: flags.strict ?? false,
-          harness: flags.harness ?? DEFAULT_HARNESS,
-        });
-      }
-    );
+    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .action((flags: ValidateFlags) => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const config = loadPipelineConfig(cwd);
+      const plan = compileWorkflowPlan(config, flags.workflow);
+      console.log(
+        `OK: ${plan.workflowId} (${plan.topologicalOrder.length} nodes)`
+      );
+    });
+
+  program
+    .command("explain-plan")
+    .description("Explain workflow nodes, runners, gates, hooks, and artifacts")
+    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .action((flags: ValidateFlags) => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const config = loadPipelineConfig(cwd);
+      console.log(formatWorkflowPlan(config, cwd, flags.workflow));
+    });
 
   program
     .command("init")
@@ -256,7 +186,7 @@ export function createCliProgram(): Command {
     )
     .addOption(
       new Option("--host <host>", "host command set to install")
-        .choices(["all", "claude", "opencode", "codex", "pi"])
+        .choices(["all", "claude", "opencode", "codex", "kimi", "pi"])
         .default("all")
         .argParser(parseCommandHost)
     )
@@ -276,15 +206,21 @@ export async function runCli(argv: string[]): Promise<void> {
   // When invoked via the `pipe` bin entry (or its legacy aliases), prepend
   // the `pipe` subcommand so Commander parses the remaining args correctly.
   const scriptName = argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
-  if (scriptName === "pipe" || scriptName === "work-next") {
+  if (scriptName === "pipe") {
     const firstArg = argv[2];
-    const directSubcommands = new Set(["init", "install-commands"]);
+    const directSubcommands = new Set([
+      "explain-plan",
+      "init",
+      "install-commands",
+      "run",
+      "validate",
+    ]);
     if (firstArg && directSubcommands.has(firstArg)) {
       await program.parseAsync(argv, { from: "node" });
       return;
     }
     await program.parseAsync(
-      [argv[0] ?? "node", argv[1] ?? "pipe", "pipe", ...argv.slice(2)],
+      [argv[0] ?? "node", argv[1] ?? "pipe", "run", ...argv.slice(2)],
       { from: "node" }
     );
     return;
@@ -301,7 +237,6 @@ function isCliEntrypoint(argv: string[]): boolean {
   return (
     argv[1] === fileURLToPath(import.meta.url) ||
     name === "pipe" ||
-    name === "work-next" ||
     name === "oisin-pipeline"
   );
 }
@@ -312,10 +247,61 @@ if (isCliEntrypoint(process.argv)) {
       process.exit(err.exitCode);
     }
     if (err instanceof Error) {
-      console.error(err.message);
+      if (err instanceof PipelineConfigError) {
+        console.error(formatConfigError(err));
+      } else {
+        console.error(err.message);
+      }
       process.exit(1);
     }
     console.error(String(err));
     process.exit(1);
   });
+}
+
+function formatWorkflowPlan(
+  config: PipelineConfig,
+  worktreePath: string,
+  workflowId?: string
+): string {
+  const plan = compileWorkflowPlan(config, workflowId);
+  const workflow = config.workflows[plan.workflowId];
+  const lines = [`Workflow: ${plan.workflowId}`];
+  lines.push(
+    `Batches: ${plan.parallelBatches
+      .map((batch) => `[${batch.map((node) => node.id).join(", ")}]`)
+      .join(" -> ")}`
+  );
+  for (const node of plan.topologicalOrder) {
+    const agent = node.agent ? config.agents[node.agent] : undefined;
+    const launch =
+      agent && node.agent
+        ? createRunnerLaunchPlan(config, {
+            agentId: node.agent,
+            nodeId: node.id,
+            prompt: "<task>",
+            worktreePath,
+          })
+        : null;
+    lines.push(
+      [
+        `- ${node.id}`,
+        `kind=${node.kind}`,
+        `needs=${node.needs.join(",") || "none"}`,
+        launch ? `runner=${launch.runnerId}` : "",
+        launch ? `strategy=${launch.strategy}` : "",
+        node.gates?.length ? `gates=${node.gates.length}` : "gates=0",
+        node.artifacts?.length
+          ? `artifacts=${node.artifacts.map((artifact) => artifact.path).join(",")}`
+          : "artifacts=none",
+        node.hooks?.length ? `hooks=${node.hooks.join(",")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+  }
+  if (workflow?.hooks?.length) {
+    lines.push(`Workflow hooks: ${workflow.hooks.join(", ")}`);
+  }
+  return lines.join("\n");
 }
