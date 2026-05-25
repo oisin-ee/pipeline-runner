@@ -70,9 +70,22 @@ runners:
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
 
+orchestrator:
+  runner: codex
+  model: gpt-5
+  instructions:
+    inline: Coordinate the workflow from this YAML file only.
+  tools: [read, grep, bash]
+  filesystem:
+    mode: read-only
+  network:
+    mode: inherit
+  hooks: []
+
 agents:
   implementer:
     runner: codex
+    model: gpt-5
     instructions:
       inline: Implement the requested change and return evidence.
     tools: [read, grep, bash, edit, write]
@@ -107,7 +120,8 @@ pipe install-commands --host all
 ```
 
 Generated resources are projections of `.pipeline/pipeline.yaml`; they are not
-separate profiles.
+separate profiles. The top-level `orchestrator` block configures the host
+orchestrator surface, while `agents` configure delegated agent boundaries.
 
 | Host | Generated files | Invocation |
 | --- | --- | --- |

@@ -9,6 +9,7 @@ tools: 'Read, LS, Grep, Glob, Bash'
 Research the requested task and produce structured findings.
 
 Configured grants:
+model: default
 tools: read, list, grep, glob, bash
 rules: test-first
 skills: none

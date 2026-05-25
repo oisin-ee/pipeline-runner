@@ -35,6 +35,18 @@ skills: {}
 mcp_servers: {}
 hooks: {}
 
+orchestrator:
+  runner: codex
+  instructions:
+    path: .pipeline/prompts/orchestrator.md
+  rules: [test-first]
+  tools: [read, list, grep, glob, bash]
+  filesystem:
+    mode: read-only
+  network:
+    mode: inherit
+  hooks: []
+
 agents:
   pipeline-researcher:
     runner: codex
@@ -62,7 +74,8 @@ workflows:
 
 ## Registries And Grants
 
-Top-level registries declare resources. Agents receive explicit grants:
+Top-level registries declare resources. The required `orchestrator` block and
+each agent receive explicit grants:
 
 - `rules`: named markdown rule files.
 - `skills`: named skill files.
@@ -70,11 +83,12 @@ Top-level registries declare resources. Agents receive explicit grants:
 - `tools`: allowed host tools only.
 - `filesystem`: read-only or workspace-write plus allow/deny paths.
 - `network`: inherited or disabled.
-- `output`: text, JSON, JSONL, or JSON Schema output.
+- `hooks`: orchestrator or workflow lifecycle hooks.
+- `output`: agent-only text, JSON, JSONL, or JSON Schema output.
 
-Validation fails when an agent references an undeclared registry item or asks a
-runner for an unsupported capability. Projection never silently grants broader
-access than the YAML requested.
+Validation fails when the orchestrator or an agent references an undeclared
+registry item or asks a runner for an unsupported capability. Projection never
+silently grants broader access than the YAML requested.
 
 ## Gates, Artifacts, Retries, Hooks
 

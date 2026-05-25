@@ -1,6 +1,14 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config.js";
 
@@ -100,13 +108,31 @@ function ensureOpencodeGitExcludes(worktreePath: string): void {
   );
 }
 
-function optionalModelArgs(harness: Harness): string[] {
+function optionalModelArgs(
+  harness: Harness,
+  runner?: PipelineConfig["runners"][string],
+  actor?: ActorConfig
+): string[] {
   const model =
-    harness === "opencode"
+    actor?.model ??
+    runner?.model ??
+    (harness === "opencode"
       ? (process.env.PIPELINE_OPENCODE_MODEL ??
         "opencode/deepseek-v4-flash-free")
-      : process.env[`PIPELINE_${harness.toUpperCase()}_MODEL`];
+      : process.env[`PIPELINE_${harness.toUpperCase()}_MODEL`]);
   return model ? ["--model", model] : [];
+}
+
+type AgentConfig = PipelineConfig["agents"][string];
+type OrchestratorConfig = PipelineConfig["orchestrator"];
+type ActorConfig = AgentConfig | OrchestratorConfig;
+type McpServerConfig = PipelineConfig["mcp_servers"][string];
+
+interface NativeArgOptions {
+  actor?: ActorConfig;
+  config?: PipelineConfig;
+  nodeId?: string;
+  runner?: PipelineConfig["runners"][string];
 }
 
 /**
@@ -116,13 +142,30 @@ function harnessArgv(
   harness: Exclude<Harness, "pi">,
   prompt: string,
   worktreePath: string,
-  contextFile: string | null
+  contextFile: string | null,
+  options: NativeArgOptions = {}
 ): string[] {
+  const tools = options.actor?.tools ?? [];
+  const mcpArgs = mcpArgsFor(harness, options.config, options.actor);
+  const skillArgs = skillArgsFor(
+    harness,
+    options.config,
+    options.actor,
+    worktreePath
+  );
   switch (harness) {
     case "claude":
       // Claude's --print mode just takes one big prompt; we prepend the
       // context the way spawnClaude used to.
-      return ["--print", ...optionalModelArgs(harness), "-p", prompt];
+      return [
+        "--print",
+        ...optionalModelArgs(harness, options.runner, options.actor),
+        ...claudeToolArgs(tools),
+        ...mcpArgs,
+        ...skillArgs,
+        "-p",
+        prompt,
+      ];
     case "codex":
       // --sandbox workspace-write: codex's default sandbox is read-only, which
       // makes the test-writer / code-writer / learn phases unable to produce
@@ -130,7 +173,9 @@ function harnessArgv(
       return [
         "exec",
         "--json",
-        ...optionalModelArgs(harness),
+        ...optionalModelArgs(harness, options.runner, options.actor),
+        ...mcpArgs,
+        ...skillArgs,
         "--sandbox",
         "workspace-write",
         "--config",
@@ -146,7 +191,9 @@ function harnessArgv(
             "run",
             "--format",
             "json",
-            ...optionalModelArgs(harness),
+            ...optionalModelArgs(harness, options.runner, options.actor),
+            ...mcpArgs,
+            ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
             worktreePath,
@@ -158,7 +205,9 @@ function harnessArgv(
             "run",
             "--format",
             "json",
-            ...optionalModelArgs(harness),
+            ...optionalModelArgs(harness, options.runner, options.actor),
+            ...mcpArgs,
+            ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
             worktreePath,
@@ -169,7 +218,9 @@ function harnessArgv(
         "--print",
         "--work-dir",
         worktreePath,
-        ...optionalModelArgs(harness),
+        ...optionalModelArgs(harness, options.runner, options.actor),
+        ...mcpArgs,
+        ...skillArgs,
         "--prompt",
         prompt,
       ];
@@ -309,12 +360,41 @@ export function createRunnerLaunchPlan(
   if (input.agentId && !agent) {
     throw new RunnerCapabilityError(`agent '${input.agentId}' is not declared`);
   }
-  const runnerId = agent?.runner ?? "command";
+  return createActorLaunchPlan(
+    config,
+    input,
+    agent,
+    agent?.runner ?? "command"
+  );
+}
+
+export function createOrchestratorLaunchPlan(
+  config: PipelineConfig,
+  input: Omit<RunnerLaunchInput, "agentId">
+): RunnerLaunchPlan {
+  return createActorLaunchPlan(
+    config,
+    {
+      ...input,
+      agentId: undefined,
+    },
+    config.orchestrator,
+    config.orchestrator.runner
+  );
+}
+
+function createActorLaunchPlan(
+  config: PipelineConfig,
+  input: RunnerLaunchInput,
+  actor: ActorConfig | undefined,
+  runnerId: string
+): RunnerLaunchPlan {
   const runner = config.runners[runnerId];
   if (!runner) {
     throw new RunnerCapabilityError(`runner '${runnerId}' is not declared`);
   }
-  const outputFormat = agent?.output?.format ?? "text";
+  const outputFormat =
+    actor && "output" in actor ? (actor.output?.format ?? "text") : "text";
   if (
     runner.capabilities.output_formats &&
     !runner.capabilities.output_formats.includes(outputFormat)
@@ -326,7 +406,13 @@ export function createRunnerLaunchPlan(
 
   const command = runner.command ?? runner.type;
   const timeoutMs = Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000);
-  const env = {};
+  const env = runnerEnv(
+    runner.type,
+    config,
+    actor,
+    input.worktreePath,
+    input.nodeId
+  );
   const base = {
     agentId: input.agentId,
     cwd: input.worktreePath,
@@ -357,27 +443,204 @@ export function createRunnerLaunchPlan(
     ...base,
     args:
       runner.type === "pi"
-        ? piArgv(input.prompt)
+        ? piArgv(input.prompt, config, actor, input.worktreePath, runner)
         : harnessArgv(
             runner.type,
             input.prompt,
             input.worktreePath,
-            input.contextFile ?? null
+            input.contextFile ?? null,
+            {
+              actor,
+              config,
+              nodeId: input.nodeId,
+              runner,
+            }
           ),
     command,
     strategy,
   };
 }
 
-function piArgv(prompt: string): string[] {
+function piArgv(
+  prompt: string,
+  config?: PipelineConfig,
+  actor?: ActorConfig,
+  worktreePath = process.cwd(),
+  runner?: PipelineConfig["runners"][string]
+): string[] {
   return [
     "--print",
     "--mode",
     "json",
-    ...optionalModelArgs("pi"),
+    ...optionalModelArgs("pi", runner, actor),
+    ...piToolArgs(actor?.tools ?? []),
+    ...skillArgsFor("pi", config, actor, worktreePath),
     "--no-session",
     prompt,
   ];
+}
+
+function claudeToolArgs(tools: string[]): string[] {
+  const mapped = tools.flatMap((tool) => {
+    const value = new Map([
+      ["bash", "Bash"],
+      ["edit", "Edit"],
+      ["glob", "Glob"],
+      ["grep", "Grep"],
+      ["list", "LS"],
+      ["read", "Read"],
+      ["write", "Write"],
+    ]).get(tool);
+    return value ? [value] : [];
+  });
+  return mapped.length > 0 ? ["--tools", mapped.join(",")] : [];
+}
+
+function piToolArgs(tools: string[]): string[] {
+  const mapped = tools.flatMap((tool) => {
+    const value = new Map([
+      ["bash", "bash"],
+      ["edit", "edit"],
+      ["glob", "find"],
+      ["grep", "grep"],
+      ["list", "ls"],
+      ["read", "read"],
+      ["write", "write"],
+    ]).get(tool);
+    return value ? [value] : [];
+  });
+  return mapped.length > 0 ? ["--tools", mapped.join(",")] : [];
+}
+
+function skillArgsFor(
+  runnerType: RunnerType,
+  config: PipelineConfig | undefined,
+  actor: ActorConfig | undefined,
+  worktreePath: string
+): string[] {
+  const paths = (actor?.skills ?? []).flatMap((id) => {
+    const path = config?.skills[id]?.path;
+    return path ? [join(worktreePath, path)] : [];
+  });
+  if (paths.length === 0) {
+    return [];
+  }
+  if (runnerType === "kimi") {
+    return [...new Set(paths.map((path) => dirname(path)))].flatMap((path) => [
+      "--skills-dir",
+      path,
+    ]);
+  }
+  if (runnerType === "pi") {
+    return paths.flatMap((path) => ["--skill", path]);
+  }
+  return [];
+}
+
+function selectedMcpServers(
+  config: PipelineConfig | undefined,
+  actor: ActorConfig | undefined
+): Record<string, McpServerConfig> {
+  return Object.fromEntries(
+    (actor?.mcp_servers ?? []).flatMap((id) => {
+      const server = config?.mcp_servers[id];
+      return server ? [[id, server] as const] : [];
+    })
+  );
+}
+
+function mcpArgsFor(
+  runnerType: RunnerType,
+  config: PipelineConfig | undefined,
+  actor: ActorConfig | undefined
+): string[] {
+  const servers = selectedMcpServers(config, actor);
+  if (Object.keys(servers).length === 0) {
+    return [];
+  }
+  if (runnerType === "claude") {
+    return [
+      "--mcp-config",
+      JSON.stringify(toClaudeKimiMcpConfig(servers)),
+      "--strict-mcp-config",
+    ];
+  }
+  if (runnerType === "kimi") {
+    return ["--mcp-config", JSON.stringify(toClaudeKimiMcpConfig(servers))];
+  }
+  if (runnerType === "codex") {
+    return codexMcpArgs(servers);
+  }
+  return [];
+}
+
+function runnerEnv(
+  runnerType: RunnerType,
+  config: PipelineConfig,
+  actor: ActorConfig | undefined,
+  worktreePath: string,
+  nodeId: string
+): Record<string, string> {
+  const servers = selectedMcpServers(config, actor);
+  if (runnerType !== "opencode" || Object.keys(servers).length === 0) {
+    return {};
+  }
+  const dir = mkdtempSync(join(tmpdir(), "pipeline-opencode-mcp-"));
+  const path = join(dir, `${nodeId}.json`);
+  writeFileSync(path, JSON.stringify(toOpenCodeMcpConfig(servers)));
+  return {
+    OPENCODE_CONFIG: path,
+    PIPELINE_WORKTREE: worktreePath,
+  };
+}
+
+function toClaudeKimiMcpConfig(servers: Record<string, McpServerConfig>): {
+  mcpServers: Record<string, McpServerConfig>;
+} {
+  return { mcpServers: servers };
+}
+
+function toOpenCodeMcpConfig(servers: Record<string, McpServerConfig>): {
+  mcp: Record<string, Record<string, unknown>>;
+} {
+  return {
+    mcp: Object.fromEntries(
+      Object.entries(servers).map(([id, server]) => [
+        id,
+        {
+          command: [server.command, ...(server.args ?? [])],
+          enabled: true,
+          ...(server.env ? { environment: server.env } : {}),
+          type: "local",
+        },
+      ])
+    ),
+  };
+}
+
+function codexMcpArgs(servers: Record<string, McpServerConfig>): string[] {
+  return Object.entries(servers).flatMap(([id, server]) => [
+    "--config",
+    `mcp_servers.${id}.command=${tomlValue(server.command)}`,
+    ...(server.args
+      ? ["--config", `mcp_servers.${id}.args=${tomlValue(server.args)}`]
+      : []),
+    ...(server.env
+      ? ["--config", `mcp_servers.${id}.env=${tomlValue(server.env)}`]
+      : []),
+  ]);
+}
+
+function tomlValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(tomlValue).join(", ")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{ ${Object.entries(value)
+      .map(([key, item]) => `${key} = ${tomlValue(item)}`)
+      .join(", ")} }`;
+  }
+  return JSON.stringify(value);
 }
 
 function nativeStrategy(

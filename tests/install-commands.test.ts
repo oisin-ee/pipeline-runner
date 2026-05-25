@@ -160,6 +160,52 @@ describe("installCommands", () => {
     ).toContain("name: pipeline-researcher");
   });
 
+  it("projects configured orchestrator grants into every host surface", async () => {
+    mkdirSync(join(dir, ".agents/skills/orchestrator"), { recursive: true });
+    writeFileSync(
+      join(dir, ".agents/skills/orchestrator/SKILL.md"),
+      "# Orchestrator skill\n"
+    );
+    const configPath = join(dir, ".pipeline/pipeline.yaml");
+    const config = readFileSync(configPath, "utf8")
+      .replace(
+        "skills: {}",
+        "skills:\n  orchestrator:\n    path: .agents/skills/orchestrator/SKILL.md"
+      )
+      .replace(
+        "mcp_servers: {}",
+        "mcp_servers:\n  knowledge-base:\n    command: node\n    args: [kb.js]"
+      )
+      .replace(
+        "orchestrator:\n  runner: codex",
+        "orchestrator:\n  runner: codex\n  model: gpt-5-orchestrator"
+      )
+      .replace(
+        "  hooks: []",
+        "  skills: [orchestrator]\n  mcp_servers: [knowledge-base]\n  hooks: []"
+      );
+    writeFileSync(configPath, config);
+
+    await installCommands({ cwd: dir, force: true, host: "all" });
+
+    const surfaces = [
+      ".claude/commands/pipe.md",
+      ".opencode/commands/pipe.md",
+      ".opencode/agents/pipeline-orchestrator.md",
+      ".agents/skills/pipe/SKILL.md",
+      ".kimi/commands/pipe.md",
+      ".pi/prompts/pipe.md",
+      ".pi/extensions/pipe.ts",
+    ].map((path) => readFileSync(join(dir, path), "utf8"));
+
+    for (const content of surfaces) {
+      expect(content).toContain("Configured orchestrator:");
+      expect(content).toContain("model: gpt-5-orchestrator");
+      expect(content).toContain("skills: orchestrator");
+      expect(content).toContain("mcp_servers: knowledge-base");
+    }
+  });
+
   it("is idempotent and check passes after install", async () => {
     await installCommands({ cwd: dir, host: "all" });
 

@@ -8,6 +8,7 @@ name: dogfood-codex-live
 Minimal live Codex runner check.
 
 Configured grants:
+model: default
 tools: none
 rules: none
 skills: none

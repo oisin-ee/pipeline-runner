@@ -64,9 +64,23 @@ runners:
       - "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); const out={verdict:'PASS',evidence:['artifact written']}; fs.writeFileSync('.pipeline/dogfood/artifact.json', JSON.stringify(out)); console.log(JSON.stringify(out));"
     capabilities:
       native_subagents: false
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [bash]
       output_formats: [text, json, json_schema]
       filesystem: [workspace-write]
       network: [disabled]
+rules:
+  orchestrator-rule:
+    path: .pipeline/rules/orchestrator.md
+skills:
+  orchestrator-skill:
+    path: .agents/skills/orchestrator/SKILL.md
+mcp_servers:
+  knowledge-base:
+    command: node
+    args: [kb.js]
 hooks:
   workflow-start:
     event: workflow.start
@@ -83,6 +97,17 @@ hooks:
     kind: command
     command: [node, -e, "process.exit(9)"]
     required: false
+orchestrator:
+  runner: artifact-command
+  model: dogfood-orchestrator-model
+  instructions: { inline: Coordinate deterministic dogfood. }
+  rules: [orchestrator-rule]
+  skills: [orchestrator-skill]
+  mcp_servers: [knowledge-base]
+  tools: [bash]
+  filesystem: { mode: workspace-write }
+  network: { mode: disabled }
+  hooks: [workflow-start]
 agents:
   artifact-writer:
     runner: artifact-command
@@ -135,6 +160,12 @@ workflows:
         needs: [parallel-left, parallel-right]
 `
   );
+  writeProjectFile(root, ".pipeline/rules/orchestrator.md", "# Dogfood rule\n");
+  writeProjectFile(
+    root,
+    ".agents/skills/orchestrator/SKILL.md",
+    "# Dogfood orchestrator skill\n"
+  );
 }
 
 describe("installed dogfood configuration", () => {
@@ -168,16 +199,72 @@ describe("installed dogfood configuration", () => {
     ]);
   });
 
+  it("keeps installed host resources aligned with orchestrator and agent grants", () => {
+    const config = loadPipelineConfig(process.cwd());
+    const root = process.cwd();
+    const orchestratorSurfaces = [
+      ".claude/commands/pipe.md",
+      ".opencode/commands/pipe.md",
+      ".opencode/agents/pipeline-orchestrator.md",
+      ".agents/skills/pipe/SKILL.md",
+      ".kimi/commands/pipe.md",
+      ".pi/prompts/pipe.md",
+      ".pi/extensions/pipe.ts",
+    ];
+
+    for (const path of orchestratorSurfaces) {
+      const content = readFileSync(join(root, path), "utf8");
+      expect(content).toContain("Configured orchestrator:");
+      expect(content).toContain("model: gpt-5");
+      expect(content).toContain("skills: dogfood-orchestrator");
+      expect(content).toContain("mcp_servers: dogfood-knowledge-base");
+      expect(content).toContain("hooks: dogfood-workflow-start");
+    }
+
+    for (const agentId of Object.keys(config.agents)) {
+      for (const path of [
+        `.claude/agents/${agentId}.md`,
+        `.opencode/agents/${agentId}.md`,
+        `.codex/agents/${agentId}.toml`,
+        `.kimi/agents/${agentId}.md`,
+      ]) {
+        expect(readFileSync(join(root, path), "utf8")).toContain(
+          "Configured grants:"
+        );
+      }
+    }
+  });
+
   it("runs deterministic dogfood options as a repeatable test", async () => {
     const project = tempProject();
     writeDogfoodProject(project);
+    const previousTestCommand = process.env.PIPELINE_TEST_COMMAND;
+    const previousTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
+    process.env.PIPELINE_TEST_COMMAND =
+      "node -e \"console.log('dogfood tests pass')\"";
+    process.env.PIPELINE_TYPECHECK_COMMAND =
+      "node -e \"console.log('dogfood typecheck passes')\"";
 
-    const result = await runPipelineFromConfig({
-      task: "repeatable deterministic dogfood",
-      workflowId: "dogfood-options",
-      worktreePath: project,
-    });
-    expect(result.outcome).toBe("PASS");
+    let result!: Awaited<ReturnType<typeof runPipelineFromConfig>>;
+    try {
+      result = await runPipelineFromConfig({
+        task: "repeatable deterministic dogfood",
+        workflowId: "dogfood-options",
+        worktreePath: project,
+      });
+    } finally {
+      if (previousTestCommand === undefined) {
+        delete process.env.PIPELINE_TEST_COMMAND;
+      } else {
+        process.env.PIPELINE_TEST_COMMAND = previousTestCommand;
+      }
+      if (previousTypecheckCommand === undefined) {
+        delete process.env.PIPELINE_TYPECHECK_COMMAND;
+      } else {
+        process.env.PIPELINE_TYPECHECK_COMMAND = previousTypecheckCommand;
+      }
+    }
+    expect(result.outcome, JSON.stringify(result, null, 2)).toBe("PASS");
     expect(result.agentInvocations).toHaveLength(1);
     expect(result.gates.map((gate) => [gate.gateId, gate.passed])).toEqual([
       ["artifact-schema", true],
@@ -202,5 +289,25 @@ describe("installed dogfood configuration", () => {
     expect(
       readFileSync(join(project, ".pipeline/dogfood/hooks.log"), "utf8")
     ).toContain("workflow.start dogfood-options");
+    expect(configuredDogfoodOrchestrator(project)).toEqual({
+      hooks: ["workflow-start"],
+      mcp_servers: ["knowledge-base"],
+      model: "dogfood-orchestrator-model",
+      rules: ["orchestrator-rule"],
+      skills: ["orchestrator-skill"],
+      tools: ["bash"],
+    });
   });
 });
+
+function configuredDogfoodOrchestrator(project: string) {
+  const config = loadPipelineConfig(project);
+  return {
+    hooks: config.orchestrator.hooks,
+    mcp_servers: config.orchestrator.mcp_servers,
+    model: config.orchestrator.model,
+    rules: config.orchestrator.rules,
+    skills: config.orchestrator.skills,
+    tools: config.orchestrator.tools,
+  };
+}

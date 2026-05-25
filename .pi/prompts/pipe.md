@@ -12,3 +12,15 @@ Workflow: default
 - green kind=agent agent=pipeline-code-writer needs=red
 - verify kind=agent agent=pipeline-verifier needs=green
 - learn kind=agent agent=pipeline-learner needs=verify
+
+Configured orchestrator:
+model: gpt-5
+tools: read, list, grep, glob, bash
+rules: test-first, verification
+skills: dogfood-orchestrator
+mcp_servers: dogfood-knowledge-base
+filesystem: read-only
+network: inherit
+hooks: dogfood-workflow-start
+
+Instructions: .pipeline/prompts/orchestrator.md

@@ -110,8 +110,13 @@ rules:
   verification:
     path: .pipeline/rules/verification.md
 
-skills: {}
-mcp_servers: {}
+skills:
+  dogfood-orchestrator:
+    path: .pipeline/skills/dogfood-orchestrator/SKILL.md
+mcp_servers:
+  dogfood-knowledge-base:
+    command: node
+    args: ["-e", "process.exit(0)"]
 hooks:
   dogfood-workflow-start:
     event: workflow.start
@@ -128,6 +133,23 @@ hooks:
     kind: command
     command: [node, -e, "process.exit(9)"]
     required: false
+
+orchestrator:
+  runner: codex
+  model: gpt-5
+  instructions:
+    path: .pipeline/prompts/orchestrator.md
+  rules: [test-first, verification]
+  skills: [dogfood-orchestrator]
+  mcp_servers: [dogfood-knowledge-base]
+  tools: [read, list, grep, glob, bash]
+  filesystem:
+    mode: read-only
+    allow: ["**/*"]
+    deny: ["node_modules/**", "dist/**", ".git/**"]
+  network:
+    mode: inherit
+  hooks: [dogfood-workflow-start]
 
 agents:
   pipeline-researcher:

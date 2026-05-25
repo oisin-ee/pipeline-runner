@@ -61,6 +61,10 @@ runners:
     capabilities:
       native_subagents: true
       output_formats: [text, json]
+orchestrator:
+  runner: codex
+  instructions: { inline: "Coordinate the live smoke only. Do not run tools." }
+  tools: []
 agents:
   codex-live:
     runner: codex

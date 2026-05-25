@@ -9,6 +9,7 @@ tools: 'Read, LS, Grep, Glob, Bash'
 Verify checks, implementation fit, and final evidence.
 
 Configured grants:
+model: default
 tools: read, list, grep, glob, bash
 rules: verification
 skills: none

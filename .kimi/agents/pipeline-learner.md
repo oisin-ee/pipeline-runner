@@ -8,6 +8,7 @@ name: pipeline-learner
 Store durable lessons from the completed run.
 
 Configured grants:
+model: default
 tools: read, list, grep, glob, bash
 rules: none
 skills: none

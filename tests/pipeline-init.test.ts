@@ -101,6 +101,7 @@ describe("initPipelineProject", () => {
       ".pipeline/pipeline.yaml",
       ".pipeline/prompts/code-writer.md",
       ".pipeline/prompts/learner.md",
+      ".pipeline/prompts/orchestrator.md",
       ".pipeline/prompts/researcher.md",
       ".pipeline/prompts/test-writer.md",
       ".pipeline/prompts/verifier.md",

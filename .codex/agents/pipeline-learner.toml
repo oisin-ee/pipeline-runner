@@ -1,4 +1,4 @@
 description = "Store durable lessons from the completed run."
-developer_instructions = "Store durable lessons from the completed run.\nInstructions: .pipeline/prompts/learner.md\nConfigured grants:\ntools: read, list, grep, glob, bash\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: json_schema"
+developer_instructions = "Store durable lessons from the completed run.\nInstructions: .pipeline/prompts/learner.md\nConfigured grants:\nmodel: default\ntools: read, list, grep, glob, bash\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: json_schema"
 name = "pipeline-learner"
 sandbox_mode = "read-only"

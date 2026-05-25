@@ -1,4 +1,4 @@
 description = "Minimal live Claude runner check."
-developer_instructions = "Minimal live Claude runner check.\nInstructions:\nReply with exactly OK. Do not inspect files. Do not run tools.\nConfigured grants:\ntools: none\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: text"
+developer_instructions = "Minimal live Claude runner check.\nInstructions:\nReply with exactly OK. Do not inspect files. Do not run tools.\nConfigured grants:\nmodel: default\ntools: none\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: text"
 name = "dogfood-claude-live"
 sandbox_mode = "read-only"

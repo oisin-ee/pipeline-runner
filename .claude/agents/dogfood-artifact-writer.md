@@ -9,6 +9,7 @@ tools: Bash
 Write a deterministic dogfood artifact for runtime gate coverage.
 
 Configured grants:
+model: default
 tools: bash
 rules: none
 skills: none

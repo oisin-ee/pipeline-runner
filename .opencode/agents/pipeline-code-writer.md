@@ -17,6 +17,7 @@ permission:
 Implement production code until the failing tests pass.
 
 Configured grants:
+model: default
 tools: read, list, grep, glob, bash, edit, write
 rules: test-first
 skills: none

@@ -50,6 +50,9 @@ interface CommandDefinition {
 }
 
 type AgentEntry = [string, PipelineConfig["agents"][string]];
+type ActorConfig =
+  | PipelineConfig["agents"][string]
+  | PipelineConfig["orchestrator"];
 
 function header(host: CommandHost): string {
   return [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join(
@@ -96,15 +99,28 @@ function workflowSummary(config: PipelineConfig): string {
   ].join("\n");
 }
 
-function grants(agent: PipelineConfig["agents"][string]): string {
+function grants(actor: ActorConfig): string {
   return [
-    `tools: ${(agent.tools ?? []).join(", ") || "none"}`,
-    `rules: ${(agent.rules ?? []).join(", ") || "none"}`,
-    `skills: ${(agent.skills ?? []).join(", ") || "none"}`,
-    `mcp_servers: ${(agent.mcp_servers ?? []).join(", ") || "none"}`,
-    `filesystem: ${agent.filesystem?.mode ?? "default"}`,
-    `network: ${agent.network?.mode ?? "default"}`,
-    `output: ${agent.output?.format ?? "text"}`,
+    `model: ${actor.model ?? "default"}`,
+    `tools: ${(actor.tools ?? []).join(", ") || "none"}`,
+    `rules: ${(actor.rules ?? []).join(", ") || "none"}`,
+    `skills: ${(actor.skills ?? []).join(", ") || "none"}`,
+    `mcp_servers: ${(actor.mcp_servers ?? []).join(", ") || "none"}`,
+    `filesystem: ${actor.filesystem?.mode ?? "default"}`,
+    `network: ${actor.network?.mode ?? "default"}`,
+    ...("hooks" in actor
+      ? [`hooks: ${(actor.hooks ?? []).join(", ") || "none"}`]
+      : []),
+    ...("output" in actor ? [`output: ${actor.output?.format ?? "text"}`] : []),
+  ].join("\n");
+}
+
+function orchestratorBlock(config: PipelineConfig): string {
+  return [
+    "Configured orchestrator:",
+    grants(config.orchestrator),
+    "",
+    instructionsPointer(config.orchestrator),
   ].join("\n");
 }
 
@@ -139,6 +155,8 @@ function claudeDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           workflowSummary(config),
           "",
+          orchestratorBlock(config),
+          "",
           `Delegate work only to configured agents: ${agentNames(config)}.`,
         ].join("\n")
       ),
@@ -171,10 +189,8 @@ function claudeDefinitions(config: PipelineConfig): CommandDefinition[] {
   ];
 }
 
-function opencodePermission(
-  agent: PipelineConfig["agents"][string]
-): Record<string, string> {
-  const allowed = new Set(agent.tools ?? []);
+function opencodePermission(actor: ActorConfig): Record<string, string> {
+  const allowed = new Set(actor.tools ?? []);
   return {
     bash: allowed.has("bash") ? "allow" : "deny",
     edit: allowed.has("edit") ? "allow" : "deny",
@@ -201,6 +217,8 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           workflowSummary(config),
           "",
+          orchestratorBlock(config),
+          "",
           `Delegate work only to configured agents: ${agentNames(config)}.`,
         ].join("\n")
       ),
@@ -213,22 +231,9 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
         {
           description: "Orchestrate the configured pipeline and enforce gates.",
           mode: "primary",
-          permission: {
-            bash: "allow",
-            edit: "allow",
-            glob: "allow",
-            grep: "allow",
-            list: "allow",
-            read: "allow",
-            task: "allow",
-            write: "allow",
-          },
+          permission: opencodePermission(config.orchestrator),
         },
-        [
-          header("opencode").trimEnd(),
-          "",
-          "Use the YAML workflow plan as the only source of truth.",
-        ].join("\n")
+        [header("opencode").trimEnd(), "", orchestratorBlock(config)].join("\n")
       ),
       host: "opencode",
       invocation: "/pipe <task description>",
@@ -275,6 +280,8 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           workflowSummary(config),
           "",
+          orchestratorBlock(config),
+          "",
           `Use separate configured agents: ${agentNames(config)}.`,
         ].join("\n")
       ),
@@ -316,6 +323,8 @@ function kimiDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           workflowSummary(config),
           "",
+          orchestratorBlock(config),
+          "",
           `Use separate configured agents: ${agentNames(config)}.`,
         ].join("\n")
       ),
@@ -352,7 +361,13 @@ function piDefinitions(config: PipelineConfig): CommandDefinition[] {
           "argument-hint": "<task description>",
           description: "Run the configured pipeline workflow with Pi subagents",
         },
-        [header("pi").trimEnd(), "", workflowSummary(config)].join("\n")
+        [
+          header("pi").trimEnd(),
+          "",
+          workflowSummary(config),
+          "",
+          orchestratorBlock(config),
+        ].join("\n")
       ),
       host: "pi",
       invocation: "/pipe <task description>",
@@ -379,6 +394,8 @@ function piDefinitions(config: PipelineConfig): CommandDefinition[] {
         "    }",
         "  ): void;",
         "}",
+        "",
+        ...piOrchestratorComment(config),
         "",
         ...piWorkflowNodesLiteral(config),
         "",
@@ -448,11 +465,15 @@ function piWorkflowNodesLiteral(config: PipelineConfig): string[] {
   ];
 }
 
-function instructionsPointer(agent: PipelineConfig["agents"][string]): string {
-  if (agent.instructions.path) {
-    return `Instructions: ${agent.instructions.path}`;
+function piOrchestratorComment(config: PipelineConfig): string[] {
+  return ["/*", orchestratorBlock(config), "*/"];
+}
+
+function instructionsPointer(actor: ActorConfig): string {
+  if (actor.instructions.path) {
+    return `Instructions: ${actor.instructions.path}`;
   }
-  return `Instructions:\n${agent.instructions.inline ?? ""}`;
+  return `Instructions:\n${actor.instructions.inline ?? ""}`;
 }
 
 function definitionsFor(

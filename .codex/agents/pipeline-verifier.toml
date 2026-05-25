@@ -1,4 +1,4 @@
 description = "Verify checks, implementation fit, and final evidence."
-developer_instructions = "Verify checks, implementation fit, and final evidence.\nInstructions: .pipeline/prompts/verifier.md\nConfigured grants:\ntools: read, list, grep, glob, bash\nrules: verification\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: json_schema"
+developer_instructions = "Verify checks, implementation fit, and final evidence.\nInstructions: .pipeline/prompts/verifier.md\nConfigured grants:\nmodel: default\ntools: read, list, grep, glob, bash\nrules: verification\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: json_schema"
 name = "pipeline-verifier"
 sandbox_mode = "read-only"

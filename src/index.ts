@@ -13,7 +13,10 @@ import {
   type PipelineConfig,
   PipelineConfigError,
 } from "./mastra/config.js";
-import { createRunnerLaunchPlan } from "./mastra/runner.js";
+import {
+  createOrchestratorLaunchPlan,
+  createRunnerLaunchPlan,
+} from "./mastra/runner.js";
 import {
   formatPipelineInitResult,
   initPipelineProject,
@@ -267,6 +270,7 @@ function formatWorkflowPlan(
   const plan = compileWorkflowPlan(config, workflowId);
   const workflow = config.workflows[plan.workflowId];
   const lines = [`Workflow: ${plan.workflowId}`];
+  lines.push(formatOrchestratorPlan(config, worktreePath));
   lines.push(
     `Batches: ${plan.parallelBatches
       .map((batch) => `[${batch.map((node) => node.id).join(", ")}]`)
@@ -304,4 +308,30 @@ function formatWorkflowPlan(
     lines.push(`Workflow hooks: ${workflow.hooks.join(", ")}`);
   }
   return lines.join("\n");
+}
+
+function formatOrchestratorPlan(
+  config: PipelineConfig,
+  worktreePath: string
+): string {
+  const launch = createOrchestratorLaunchPlan(config, {
+    nodeId: "orchestrator",
+    prompt: "<task>",
+    worktreePath,
+  });
+  return [
+    `Orchestrator: runner=${launch.runnerId}`,
+    `strategy=${launch.strategy}`,
+    config.orchestrator.model ? `model=${config.orchestrator.model}` : "",
+    formatList("rules", config.orchestrator.rules),
+    formatList("skills", config.orchestrator.skills),
+    formatList("mcp_servers", config.orchestrator.mcp_servers),
+    formatList("hooks", config.orchestrator.hooks),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function formatList(label: string, items: string[] | undefined): string {
+  return items?.length ? `${label}=${items.join(",")}` : "";
 }

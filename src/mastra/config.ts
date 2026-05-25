@@ -172,8 +172,24 @@ const agentSchema = z
     filesystem: filesystemSchema.optional(),
     instructions: instructionsSchema,
     mcp_servers: z.array(z.string()).optional(),
+    model: z.string().optional(),
     network: networkSchema.optional(),
     output: outputSchema.optional(),
+    rules: z.array(z.string()).optional(),
+    runner: z.string(),
+    skills: z.array(z.string()).optional(),
+    tools: z.array(z.enum(TOOL_NAMES)).optional(),
+  })
+  .strict();
+
+const orchestratorSchema = z
+  .object({
+    filesystem: filesystemSchema.optional(),
+    hooks: z.array(z.string()).optional(),
+    instructions: instructionsSchema,
+    mcp_servers: z.array(z.string()).optional(),
+    model: z.string().optional(),
+    network: networkSchema.optional(),
     rules: z.array(z.string()).optional(),
     runner: z.string(),
     skills: z.array(z.string()).optional(),
@@ -222,6 +238,7 @@ const configSchema = z
     default_workflow: z.string(),
     hooks: strictRecord(hookSchema).default({}),
     mcp_servers: strictRecord(mcpServerSchema).default({}),
+    orchestrator: orchestratorSchema,
     rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
@@ -312,6 +329,31 @@ export function validatePipelineConfig(
     });
   }
 
+  const orchestratorRunner = config.runners[config.orchestrator.runner];
+  if (orchestratorRunner) {
+    validateActor(
+      "orchestrator",
+      "orchestrator",
+      config.orchestrator,
+      orchestratorRunner,
+      config,
+      issues,
+      projectRoot
+    );
+    validateReferences(
+      "orchestrator.hooks",
+      config.orchestrator.hooks,
+      config.hooks,
+      "hook",
+      issues
+    );
+  } else {
+    issues.push({
+      path: "orchestrator.runner",
+      message: `orchestrator references missing runner '${config.orchestrator.runner}'`,
+    });
+  }
+
   for (const [agentId, agent] of Object.entries(config.agents)) {
     const runner = config.runners[agent.runner];
     if (!runner) {
@@ -337,6 +379,14 @@ export function validatePipelineConfig(
         message: `builtin hook '${hookId}' must declare builtin`,
       });
     }
+  }
+
+  for (const [ruleId, rule] of Object.entries(config.rules)) {
+    validatePath(`rules.${ruleId}.path`, rule.path, projectRoot, issues);
+  }
+
+  for (const [skillId, skill] of Object.entries(config.skills)) {
+    validatePath(`skills.${skillId}.path`, skill.path, projectRoot, issues);
   }
 
   for (const [workflowId, workflow] of Object.entries(config.workflows)) {
@@ -372,82 +422,14 @@ function validateAgent(
   issues: PipelineConfigIssue[],
   projectRoot?: string
 ): void {
-  if (!(agent.instructions.path || agent.instructions.inline)) {
-    issues.push({
-      path: `agents.${agentId}.instructions`,
-      message: `agent '${agentId}' must declare instructions.path or instructions.inline`,
-    });
-  }
-  validatePath(
-    `agents.${agentId}.instructions.path`,
-    agent.instructions.path,
-    projectRoot,
-    issues
-  );
-
-  validateReferences(
-    `agents.${agentId}.rules`,
-    agent.rules,
-    config.rules,
-    "rule",
-    issues
-  );
-  validateReferences(
-    `agents.${agentId}.skills`,
-    agent.skills,
-    config.skills,
-    "skill",
-    issues
-  );
-  validateReferences(
-    `agents.${agentId}.mcp_servers`,
-    agent.mcp_servers,
-    config.mcp_servers,
-    "MCP server",
-    issues
-  );
-
-  validateBooleanCapability(
-    `agents.${agentId}.rules`,
-    agent.rules,
-    runner.capabilities.rules,
-    "rules",
-    issues
-  );
-  validateBooleanCapability(
-    `agents.${agentId}.skills`,
-    agent.skills,
-    runner.capabilities.skills,
-    "skills",
-    issues
-  );
-  validateBooleanCapability(
-    `agents.${agentId}.mcp_servers`,
-    agent.mcp_servers,
-    runner.capabilities.mcp_servers,
-    "MCP servers",
-    issues
-  );
-  validateListCapability(
-    `agents.${agentId}.tools`,
-    agent.tools,
-    runner.capabilities.tools,
-    "tool",
-    issues
-  );
-  validateListCapability(
-    `agents.${agentId}.filesystem.mode`,
-    agent.filesystem?.mode ? [agent.filesystem.mode] : undefined,
-    runner.capabilities.filesystem,
-    "filesystem mode",
-    issues
-  );
-  validateListCapability(
-    `agents.${agentId}.network.mode`,
-    agent.network?.mode ? [agent.network.mode] : undefined,
-    runner.capabilities.network,
-    "network mode",
-    issues
+  validateActor(
+    `agent '${agentId}'`,
+    `agents.${agentId}`,
+    agent,
+    runner,
+    config,
+    issues,
+    projectRoot
   );
   validateListCapability(
     `agents.${agentId}.output.format`,
@@ -467,6 +449,94 @@ function validateAgent(
     `agents.${agentId}.output.schema_path`,
     agent.output?.schema_path,
     projectRoot,
+    issues
+  );
+}
+
+function validateActor(
+  label: string,
+  path: string,
+  actor: PipelineConfig["agents"][string] | PipelineConfig["orchestrator"],
+  runner: PipelineConfig["runners"][string],
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[],
+  projectRoot?: string
+): void {
+  if (!(actor.instructions.path || actor.instructions.inline)) {
+    issues.push({
+      path: `${path}.instructions`,
+      message: `${label} must declare instructions.path or instructions.inline`,
+    });
+  }
+  validatePath(
+    `${path}.instructions.path`,
+    actor.instructions.path,
+    projectRoot,
+    issues
+  );
+
+  validateReferences(
+    `${path}.rules`,
+    actor.rules,
+    config.rules,
+    "rule",
+    issues
+  );
+  validateReferences(
+    `${path}.skills`,
+    actor.skills,
+    config.skills,
+    "skill",
+    issues
+  );
+  validateReferences(
+    `${path}.mcp_servers`,
+    actor.mcp_servers,
+    config.mcp_servers,
+    "MCP server",
+    issues
+  );
+
+  validateBooleanCapability(
+    `${path}.rules`,
+    actor.rules,
+    runner.capabilities.rules,
+    "rules",
+    issues
+  );
+  validateBooleanCapability(
+    `${path}.skills`,
+    actor.skills,
+    runner.capabilities.skills,
+    "skills",
+    issues
+  );
+  validateBooleanCapability(
+    `${path}.mcp_servers`,
+    actor.mcp_servers,
+    runner.capabilities.mcp_servers,
+    "MCP servers",
+    issues
+  );
+  validateListCapability(
+    `${path}.tools`,
+    actor.tools,
+    runner.capabilities.tools,
+    "tool",
+    issues
+  );
+  validateListCapability(
+    `${path}.filesystem.mode`,
+    actor.filesystem?.mode ? [actor.filesystem.mode] : undefined,
+    runner.capabilities.filesystem,
+    "filesystem mode",
+    issues
+  );
+  validateListCapability(
+    `${path}.network.mode`,
+    actor.network?.mode ? [actor.network.mode] : undefined,
+    runner.capabilities.network,
+    "network mode",
     issues
   );
 }

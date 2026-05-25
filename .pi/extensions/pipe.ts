@@ -19,6 +19,20 @@ interface PiExtensionApi {
   ): void;
 }
 
+/*
+Configured orchestrator:
+model: gpt-5
+tools: read, list, grep, glob, bash
+rules: test-first, verification
+skills: dogfood-orchestrator
+mcp_servers: dogfood-knowledge-base
+filesystem: read-only
+network: inherit
+hooks: dogfood-workflow-start
+
+Instructions: .pipeline/prompts/orchestrator.md
+*/
+
 const WORKFLOW_NODES = [
   {
     agent: "pipeline-researcher",

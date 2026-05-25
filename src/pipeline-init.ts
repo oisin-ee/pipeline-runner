@@ -114,6 +114,20 @@ skills: {}
 mcp_servers: {}
 hooks: {}
 
+orchestrator:
+  runner: codex
+  instructions:
+    path: .pipeline/prompts/orchestrator.md
+  rules: [test-first, verification]
+  tools: [read, list, grep, glob, bash]
+  filesystem:
+    mode: read-only
+    allow: ["**/*"]
+    deny: ["node_modules/**", "dist/**", ".git/**"]
+  network:
+    mode: inherit
+  hooks: []
+
 agents:
   pipeline-researcher:
     runner: codex
@@ -274,6 +288,12 @@ const LEARN_SCHEMA = JSON.stringify(
 
 const SCAFFOLD_FILES: Record<string, string> = {
   [PIPELINE_CONFIG_PATH]: DEFAULT_PIPELINE_YAML,
+  ".pipeline/prompts/orchestrator.md": [
+    "You are the orchestrator for the pipeline.",
+    "Use `.pipeline/pipeline.yaml` as the source of truth for workflow order, agents, gates, hooks, and artifacts.",
+    "Delegate only to configured agents and enforce configured gates before reporting completion.",
+    "",
+  ].join("\n"),
   ".pipeline/prompts/researcher.md": [
     "You are the research phase for the pipeline.",
     "Inspect first-party source, tests, docs, and task context before proposing changes.",

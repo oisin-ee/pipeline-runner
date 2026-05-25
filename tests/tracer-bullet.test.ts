@@ -62,6 +62,14 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json]
+orchestrator:
+  runner: claude
+  instructions:
+    inline: Coordinate the tracer pipeline.
+  tools: [read, list, grep, glob, bash]
+  filesystem: { mode: read-only }
+  network: { mode: inherit }
+  hooks: []
 agents:
   researcher:
     runner: claude

@@ -11,7 +11,7 @@ vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
 
-const mockExeca = vi.mocked(execa);
+const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -66,6 +66,10 @@ agents:
     output:
       format: json_schema
       schema_path: schema.json
+orchestrator:
+  runner: codex
+  instructions: { inline: Orchestrate }
+  tools: []
 workflows:
 ${extraWorkflow}
   default:
@@ -116,6 +120,84 @@ describe("runPipelineFromConfig", () => {
     expect(seen).toHaveLength(2);
     expect(seen[0].args.join("\n")).toContain("Node: a");
     expect(seen[1].args.join("\n")).toContain("Node: b");
+  });
+
+  it("loads configured rules, skills, and MCP servers into agent boundaries", async () => {
+    const project = tempProject();
+    writeProjectFile(project, "rules/test-first.md", "Always write tests.");
+    writeProjectFile(
+      project,
+      ".agents/skills/research/SKILL.md",
+      "Use repository research."
+    );
+    const config = parsePipelineConfigYaml(`
+version: 1
+default_workflow: default
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read]
+      output_formats: [text]
+rules:
+  test-first:
+    path: rules/test-first.md
+skills:
+  research:
+    path: .agents/skills/research/SKILL.md
+mcp_servers:
+  docs:
+    command: node
+    args: ["docs-server.js"]
+    env: { DOCS_TOKEN: test-token }
+orchestrator:
+  runner: codex
+  instructions: { inline: Orchestrate }
+  rules: [test-first]
+  skills: [research]
+  mcp_servers: [docs]
+  tools: [read]
+agents:
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+    rules: [test-first]
+    skills: [research]
+    mcp_servers: [docs]
+    tools: [read]
+workflows:
+  default:
+    nodes:
+      - id: a
+        kind: agent
+        agent: a
+`);
+    const seen: RunnerLaunchPlan[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return { exitCode: 0, stdout: "ok" };
+      },
+      task: "ship",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    const launchText = seen[0].args.join("\n");
+    expect(launchText).toContain("Loaded rules:");
+    expect(launchText).toContain("Always write tests.");
+    expect(launchText).toContain("Loaded skills:");
+    expect(launchText).toContain("Use repository research.");
+    expect(launchText).toContain("Loaded MCP servers:");
+    expect(launchText).toContain("command: node");
+    expect(launchText).toContain("mcp_servers.docs.command");
   });
 
   it("runs parallel nodes concurrently after dependencies are met", async () => {
@@ -270,6 +352,10 @@ hooks:
     kind: command
     command: [hook-bin, "{{workflow.id}}", "{{node.id}}", "{{task}}"]
     required: true
+orchestrator:
+  runner: codex
+  instructions: { inline: Orchestrate }
+  tools: []
 agents:
   a:
     runner: codex

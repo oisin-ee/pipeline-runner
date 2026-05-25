@@ -331,6 +331,19 @@ function renderAgentPrompt(
     `- rules: ${(agent?.rules ?? []).join(", ") || "none"}`,
     `- skills: ${(agent?.skills ?? []).join(", ") || "none"}`,
     `- mcp_servers: ${(agent?.mcp_servers ?? []).join(", ") || "none"}`,
+    renderPathReferences(
+      "Loaded rules",
+      agent?.rules,
+      context.config.rules,
+      context.worktreePath
+    ),
+    renderPathReferences(
+      "Loaded skills",
+      agent?.skills,
+      context.config.skills,
+      context.worktreePath
+    ),
+    renderMcpReferences(agent?.mcp_servers, context.config.mcp_servers),
     "",
     "Dependency outputs:",
     ...node.needs.map(
@@ -352,6 +365,49 @@ function readInstructions(
     return readFileSync(join(worktreePath, instructions.path), "utf8");
   }
   return "";
+}
+
+function renderPathReferences(
+  heading: string,
+  ids: string[] | undefined,
+  registry: Record<string, { path: string }>,
+  worktreePath: string
+): string {
+  if (!ids?.length) {
+    return "";
+  }
+  return [
+    "",
+    `${heading}:`,
+    ...ids.map((id) => {
+      const ref = registry[id];
+      const path = ref?.path ?? "";
+      const content = readFileSync(join(worktreePath, path), "utf8").trimEnd();
+      return [`## ${id}`, `Path: ${path}`, "", content].join("\n");
+    }),
+  ].join("\n");
+}
+
+function renderMcpReferences(
+  ids: string[] | undefined,
+  registry: PipelineConfig["mcp_servers"]
+): string {
+  if (!ids?.length) {
+    return "";
+  }
+  return [
+    "",
+    "Loaded MCP servers:",
+    ...ids.map((id) => {
+      const server = registry[id];
+      return [
+        `## ${id}`,
+        `command: ${server?.command ?? ""}`,
+        `args: ${(server?.args ?? []).join(" ") || "none"}`,
+        `env: ${Object.keys(server?.env ?? {}).join(", ") || "none"}`,
+      ].join("\n");
+    }),
+  ].join("\n");
 }
 
 async function executeCommand(

@@ -6,9 +6,13 @@ vi.mock("execa", () => ({
 
 import { execa } from "execa";
 import { parsePipelineConfigYaml } from "../src/mastra/config.ts";
-import { createRunnerLaunchPlan, spawnAgent } from "../src/mastra/runner.ts";
+import {
+  createOrchestratorLaunchPlan,
+  createRunnerLaunchPlan,
+  spawnAgent,
+} from "../src/mastra/runner.ts";
 
-const mockExeca = vi.mocked(execa);
+const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 
 function makeSimpleResult(stdout = "output", exitCode = 0) {
   return Promise.resolve({ stdout, exitCode }) as any;
@@ -248,6 +252,7 @@ runners:
   codex:
     type: codex
     command: codex
+    model: runner-codex
     capabilities:
       native_subagents: true
       output_formats: [text, json, jsonl, json_schema]
@@ -282,8 +287,13 @@ runners:
     capabilities:
       native_subagents: false
       output_formats: [text]
+orchestrator:
+  runner: codex
+  model: orchestrator-codex
+  instructions: { inline: Orchestrate }
+  tools: []
 agents:
-  codex-agent: { runner: codex, instructions: { inline: Codex }, output: { format: jsonl } }
+  codex-agent: { runner: codex, model: agent-codex, instructions: { inline: Codex }, output: { format: jsonl } }
   claude-agent: { runner: claude, instructions: { inline: Claude }, output: { format: text } }
   opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, output: { format: json } }
   kimi-agent: { runner: kimi, instructions: { inline: Kimi }, output: { format: text } }
@@ -337,5 +347,166 @@ workflows:
         worktreePath: "/tmp/wt",
       })
     ).toThrow("does not support output format");
+  });
+
+  it("hydrates tools, skills, and MCP servers into native runner launch plans", async () => {
+    const { readFileSync } = await import("node:fs");
+    const config = parsePipelineConfigYaml(`
+version: 1
+default_workflow: default
+runners:
+  codex:
+    type: codex
+    command: codex
+    model: runner-codex
+    capabilities:
+      native_subagents: true
+      skills: true
+      mcp_servers: true
+      tools: [read]
+      output_formats: [text]
+  claude:
+    type: claude
+    command: claude
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      tools: [read, bash]
+      output_formats: [text]
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+  kimi:
+    type: kimi
+    command: kimi
+    capabilities:
+      native_subagents: true
+      skills: true
+      mcp_servers: true
+      output_formats: [text]
+  pi:
+    type: pi
+    command: pi
+    capabilities:
+      native_subagents: true
+      skills: true
+      tools: [read, bash]
+      output_formats: [text]
+skills:
+  research:
+    path: .agents/skills/research/SKILL.md
+mcp_servers:
+  docs:
+    command: node
+    args: ["docs.js"]
+    env: { DOCS_TOKEN: test-token }
+orchestrator:
+  runner: codex
+  model: orchestrator-model
+  instructions: { inline: Orchestrate }
+  skills: [research]
+  mcp_servers: [docs]
+  tools: [read]
+agents:
+  codex-agent: { runner: codex, model: agent-model, instructions: { inline: Codex }, skills: [research], mcp_servers: [docs] }
+  claude-agent: { runner: claude, instructions: { inline: Claude }, mcp_servers: [docs], tools: [read, bash] }
+  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [docs] }
+  kimi-agent: { runner: kimi, instructions: { inline: Kimi }, skills: [research], mcp_servers: [docs] }
+  pi-agent: { runner: pi, instructions: { inline: Pi }, skills: [research], tools: [read, bash] }
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, agent: codex-agent }
+`);
+
+    const codex = createRunnerLaunchPlan(config, {
+      agentId: "codex-agent",
+      nodeId: "codex",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    expect(codex.args).toContain("--model");
+    expect(codex.args).toContain("agent-model");
+    expect(codex.args).toContain('mcp_servers.docs.command="node"');
+    expect(codex.args).toContain('mcp_servers.docs.args=["docs.js"]');
+
+    const claude = createRunnerLaunchPlan(config, {
+      agentId: "claude-agent",
+      nodeId: "claude",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    expect(claude.args).toContain("--tools");
+    expect(claude.args).toContain("Read,Bash");
+    expect(claude.args).toContain("--mcp-config");
+    expect(claude.args.join(" ")).toContain('"mcpServers"');
+
+    const opencode = createRunnerLaunchPlan(config, {
+      agentId: "opencode-agent",
+      nodeId: "opencode",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    expect(opencode.env.OPENCODE_CONFIG).toBeTruthy();
+    const opencodeConfig = readFileSync(opencode.env.OPENCODE_CONFIG, "utf8");
+    expect(opencodeConfig).toContain('"docs"');
+    expect(opencodeConfig).toContain('"environment"');
+
+    const kimi = createRunnerLaunchPlan(config, {
+      agentId: "kimi-agent",
+      nodeId: "kimi",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    expect(kimi.args).toContain("--skills-dir");
+    expect(kimi.args).toContain("/tmp/wt/.agents/skills/research");
+    expect(kimi.args).toContain("--mcp-config");
+
+    const pi = createRunnerLaunchPlan(config, {
+      agentId: "pi-agent",
+      nodeId: "pi",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    expect(pi.args).toContain("--tools");
+    expect(pi.args).toContain("read,bash");
+    expect(pi.args).toContain("--skill");
+    expect(pi.args).toContain("/tmp/wt/.agents/skills/research/SKILL.md");
+
+    const orchestrator = createOrchestratorLaunchPlan(config, {
+      nodeId: "orchestrator",
+      prompt: "coordinate",
+      worktreePath: "/tmp/wt",
+    });
+    expect(orchestrator.agentId).toBeUndefined();
+    expect(orchestrator.runnerId).toBe("codex");
+    expect(orchestrator.args).toContain("--model");
+    expect(orchestrator.args).toContain("orchestrator-model");
+    expect(orchestrator.args).toContain('mcp_servers.docs.command="node"');
+  });
+
+  it("falls back from actor model to runner model for launch plans", () => {
+    const config = structuredClone(CONFIG);
+    config.agents["codex-agent"].model = undefined;
+    config.orchestrator.model = undefined;
+
+    const agent = createRunnerLaunchPlan(config, {
+      agentId: "codex-agent",
+      nodeId: "agent",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const orchestrator = createOrchestratorLaunchPlan(config, {
+      nodeId: "orchestrator",
+      prompt: "coordinate",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(agent.args).toContain("runner-codex");
+    expect(orchestrator.args).toContain("runner-codex");
   });
 });

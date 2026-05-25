@@ -17,6 +17,7 @@ permission:
 Prove the installed YAML runtime can run a separate agent boundary locally.
 
 Configured grants:
+model: default
 tools: bash
 rules: none
 skills: none

@@ -15,6 +15,7 @@ runners:
   codex:
     type: codex
     command: codex
+    model: gpt-5-runner
     capabilities:
       native_subagents: true
       rules: true
@@ -34,8 +35,25 @@ mcp_servers:
   docs:
     command: npx
     args: ["-y", "@example/docs-mcp"]
+orchestrator:
+  runner: codex
+  model: gpt-5-orchestrator
+  instructions:
+    path: .pipeline/prompts/orchestrator.md
+  rules: [test-first]
+  skills: [repo-research]
+  mcp_servers: [docs]
+  tools: [read, list, grep, glob, bash]
+  filesystem:
+    mode: read-only
+    allow: ["**/*"]
+    deny: ["node_modules/**", "dist/**"]
+  network:
+    mode: inherit
+  hooks: [announce-complete]
 agents:
   researcher:
+    model: gpt-5-agent
     runner: codex
     description: Research the requested change.
     instructions:
@@ -77,6 +95,7 @@ hooks:
     required: false
     timeout_ms: 30000
 `;
+const ORCHESTRATOR_BLOCK_RE = /orchestrator:\n[\s\S]*?\nagents:\n/;
 
 let tempDirs: string[] = [];
 
@@ -97,6 +116,11 @@ function makeProject(yaml = VALID_YAML, writeReferencedFiles = true): string {
       dir,
       ".agents/skills/repo-research/SKILL.md",
       "# Repo research\n"
+    );
+    writeProjectFile(
+      dir,
+      ".pipeline/prompts/orchestrator.md",
+      "Orchestrate this workflow.\n"
     );
     writeProjectFile(
       dir,
@@ -139,6 +163,7 @@ describe("loadPipelineConfig", () => {
     expect(config.version).toBe(1);
     expect(config.default_workflow).toBe("default");
     expect(config.runners.codex.type).toBe("codex");
+    expect(config.orchestrator.model).toBe("gpt-5-orchestrator");
     expect(config.agents.researcher.runner).toBe("codex");
     expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
       "research",
@@ -199,6 +224,33 @@ describe("parsePipelineConfigYaml", () => {
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("missing runner 'missing-runner'");
+  });
+
+  it("requires a configured orchestrator", () => {
+    const yaml = VALID_YAML.replace(ORCHESTRATOR_BLOCK_RE, "agents:\n");
+
+    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("orchestrator");
+  });
+
+  it("validates orchestrator references and runner capabilities", () => {
+    const yaml = VALID_YAML.replace(
+      "mcp_servers: [docs]\n  tools: [read, list, grep, glob, bash]\n  filesystem:",
+      "mcp_servers: [missing]\n  tools: [read, write]\n  filesystem:"
+    ).replace(
+      "tools: [read, list, grep, glob, bash, edit, write]",
+      "tools: [read]"
+    );
+
+    const error = captureConfigError(() => parsePipelineConfigYaml(yaml));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("orchestrator.mcp_servers");
+    expect(error.message).toContain("missing MCP server 'missing'");
+    expect(error.message).toContain("orchestrator.tools");
+    expect(error.message).toContain("does not support tool 'write'");
   });
 
   it("rejects missing agent references in workflow nodes", () => {
@@ -303,5 +355,17 @@ describe("parsePipelineConfigYaml", () => {
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("referenced file");
+  });
+
+  it("rejects missing rule and skill files", () => {
+    const project = makeProject();
+    rmSync(join(project, "rules/test-first.md"));
+    rmSync(join(project, ".agents/skills/repo-research/SKILL.md"));
+
+    const error = captureConfigError(() => loadPipelineConfig(project));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("rules.test-first.path");
+    expect(error.message).toContain("skills.repo-research.path");
   });
 });

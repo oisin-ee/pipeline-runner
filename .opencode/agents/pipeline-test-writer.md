@@ -17,6 +17,7 @@ permission:
 Add focused failing tests for the requested behavior.
 
 Configured grants:
+model: default
 tools: read, list, grep, glob, bash, edit, write
 rules: test-first
 skills: none
