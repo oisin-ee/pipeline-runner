@@ -80,6 +80,11 @@ orchestrator:
 hooks: {}
 
 workflows:
+  inspect:
+    nodes:
+      - id: inspect
+        kind: agent
+        profile: pipeline-inspector
   default:
     nodes:
       - id: research

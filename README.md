@@ -45,6 +45,12 @@ Run the default workflow:
 pipe run "Implement PIPE-123 user-facing behavior"
 ```
 
+Run a read-only repository inspection:
+
+```shell
+pipe run --workflow inspect "Report the app structure and available checks. Do not modify files."
+```
+
 The `pipe` binary also accepts the task directly:
 
 ```shell
