@@ -21,6 +21,10 @@ import {
 } from "./mastra/pipeline-primitive.js";
 import { hardAgentAdapter } from "./mastra/runner.js";
 import { parseTicketAndDescription } from "./mastra/tickets.js";
+import {
+  formatPipelineInitResult,
+  initPipelineProject,
+} from "./pipeline-init.js";
 
 const SUPPORTED_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 const DEFAULT_HARNESS: PipelineHarness = "codex";
@@ -192,6 +196,10 @@ interface InstallCommandFlags {
   host?: CommandHostSelection;
 }
 
+interface InitFlags {
+  overwrite?: boolean;
+}
+
 export function createCliProgram(): Command {
   const program = new Command();
   program
@@ -230,6 +238,18 @@ export function createCliProgram(): Command {
     );
 
   program
+    .command("init")
+    .description("Scaffold the default .pipeline/pipeline.yaml workflow")
+    .option("--overwrite", "replace existing pipeline scaffold files", false)
+    .action(async (flags: InitFlags) => {
+      const result = await initPipelineProject({
+        cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
+        overwrite: flags.overwrite ?? false,
+      });
+      console.log(formatPipelineInitResult(result));
+    });
+
+  program
     .command("install-commands")
     .description(
       "Install generated slash-command adapters into this repository"
@@ -257,6 +277,12 @@ export async function runCli(argv: string[]): Promise<void> {
   // the `pipe` subcommand so Commander parses the remaining args correctly.
   const scriptName = argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
   if (scriptName === "pipe" || scriptName === "work-next") {
+    const firstArg = argv[2];
+    const directSubcommands = new Set(["init", "install-commands"]);
+    if (firstArg && directSubcommands.has(firstArg)) {
+      await program.parseAsync(argv, { from: "node" });
+      return;
+    }
     await program.parseAsync(
       [argv[0] ?? "node", argv[1] ?? "pipe", "pipe", ...argv.slice(2)],
       { from: "node" }

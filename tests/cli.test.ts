@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -309,6 +310,26 @@ describe("pipe", () => {
         "bogus",
       ])
     ).rejects.toThrow(UNSUPPORTED_HARNESS_RE);
+  });
+
+  it("supports direct pipe init invocation from the pipe binary", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+
+      expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
+    } finally {
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("declares installable binaries and typed subpath exports", () => {
