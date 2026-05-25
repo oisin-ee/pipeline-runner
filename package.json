@@ -42,9 +42,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./config": {
+      "types": "./dist/mastra/config.d.ts",
+      "import": "./dist/mastra/config.js"
+    },
+    "./planner": {
+      "types": "./dist/workflow-planner.d.ts",
+      "import": "./dist/workflow-planner.js"
+    },
     "./runner": {
       "types": "./dist/mastra/runner.d.ts",
       "import": "./dist/mastra/runner.js"
+    },
+    "./runtime": {
+      "types": "./dist/pipeline-runtime.d.ts",
+      "import": "./dist/pipeline-runtime.js"
     }
   },
   "files": [
@@ -53,7 +65,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && tsc -p tsconfig.types.json",
+    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && bun build src/mastra/config.ts --outfile dist/mastra/config.js --target node && bun build src/workflow-planner.ts --outfile dist/workflow-planner.js --target node && bun build src/pipeline-runtime.ts --outfile dist/pipeline-runtime.js --target node && tsc -p tsconfig.types.json",
     "test": "vitest run",
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",

@@ -302,6 +302,18 @@ describe("pipe", () => {
       import: "./dist/mastra/runner.js",
       types: "./dist/mastra/runner.d.ts",
     });
+    expect(pkg.exports?.["./config"]).toEqual({
+      import: "./dist/mastra/config.js",
+      types: "./dist/mastra/config.d.ts",
+    });
+    expect(pkg.exports?.["./planner"]).toEqual({
+      import: "./dist/workflow-planner.js",
+      types: "./dist/workflow-planner.d.ts",
+    });
+    expect(pkg.exports?.["./runtime"]).toEqual({
+      import: "./dist/pipeline-runtime.js",
+      types: "./dist/pipeline-runtime.d.ts",
+    });
   });
 
   it("throws if no description provided", async () => {

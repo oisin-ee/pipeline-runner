@@ -169,6 +169,17 @@ overwrite manually edited files unless `--force` is supplied.
 - Parallel DAG batches run concurrently after dependencies and gates pass.
 - Agent self-reporting is not enough to pass deterministic gates.
 
+## App-Facing API
+
+External apps can import the stable config, planner, and runtime surfaces
+without deep-importing private source paths:
+
+```ts
+import { loadPipelineConfig, parsePipelineConfigParts } from "@oisincoveney/pipeline/config";
+import { compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
+import { runPipelineFromConfig, type PipelineRuntimeResult } from "@oisincoveney/pipeline/runtime";
+```
+
 ## Verification
 
 Use these commands before committing changes in this repository:
