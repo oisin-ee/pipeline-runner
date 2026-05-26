@@ -1,0 +1,4 @@
+description = "Audit the finished change against every acceptance criterion."
+developer_instructions = "Audit the finished change against every acceptance criterion.\nInstructions: .pipeline/prompts/acceptance-reviewer.md\nConfigured grants:\nmodel: default\ntools: read, list, grep, glob, bash\nrules: verification\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: json_schema"
+name = "pipeline-acceptance-reviewer"
+sandbox_mode = "read-only"
