@@ -5,12 +5,12 @@ vi.mock("execa", () => ({
 }));
 
 import { execa } from "execa";
-import { parsePipelineConfigParts } from "../src/mastra/config.ts";
+import { parsePipelineConfigParts } from "../src/config.ts";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
   spawnAgent,
-} from "../src/mastra/runner.ts";
+} from "../src/runner.ts";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 
@@ -493,6 +493,7 @@ workflows:
     expect(kimi.args).toContain("--skills-dir");
     expect(kimi.args).toContain("/tmp/wt/.agents/skills/research");
     expect(kimi.args).toContain("--mcp-config");
+    expect(kimi.args).toContain("--final-message-only");
 
     const pi = createRunnerLaunchPlan(config, {
       profileId: "pi-agent",

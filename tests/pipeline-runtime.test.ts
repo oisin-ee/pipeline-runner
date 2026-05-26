@@ -1,11 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parsePipelineConfigParts } from "../src/mastra/config.js";
-import type { RunnerLaunchPlan } from "../src/mastra/runner.js";
+import { parsePipelineConfigParts } from "../src/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
+import type { RunnerLaunchPlan } from "../src/runner.js";
 
 vi.mock("execa", () => ({
   execa: vi.fn(),
@@ -509,6 +510,151 @@ workflows:
     });
   });
 
+  it("fails verifier output semantically when verdict is FAIL despite valid JSON", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  verdict-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: a
+        gates:
+          - id: verifier-verdict
+            kind: verdict
+            target: stdout
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({
+        structured: JSON.stringify({
+          verdict: "FAIL",
+          evidence: ["missing coverage"],
+        }),
+      }),
+      task: "verdict",
+      workflowId: "verdict-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.gates[0]).toMatchObject({
+      kind: "verdict",
+      passed: false,
+      reason: "verdict requirement failed",
+    });
+  });
+
+  it("checks acceptance coverage against normalized task context", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  acceptance-flow:
+    nodes:
+      - id: review
+        kind: agent
+        profile: a
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({
+        review: JSON.stringify({
+          acceptance: [
+            { id: "AC1", verdict: "PASS", evidence: ["test proves AC1"] },
+            { id: "AC2", verdict: "FAIL", evidence: ["not implemented"] },
+            { id: "EXTRA", verdict: "PASS", evidence: ["unknown"] },
+          ],
+        }),
+      }),
+      task: "acceptance",
+      taskContext: {
+        acceptanceCriteria: [
+          { id: "AC1", text: "First criterion" },
+          { id: "AC2", text: "Second criterion" },
+          { id: "AC3", text: "Third criterion" },
+        ],
+      },
+      workflowId: "acceptance-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.gates[0].evidence).toEqual(
+      expect.arrayContaining([
+        "acceptance criterion 'AC2' verdict 'FAIL'",
+        "extra acceptance criterion 'EXTRA'",
+        "missing acceptance criterion 'AC3'",
+      ])
+    );
+  });
+
+  it("injects normalized task context into agent prompts", async () => {
+    const project = tempProject();
+    const seen: RunnerLaunchPlan[] = [];
+
+    await runPipelineFromConfig({
+      config: baseConfig(),
+      executor: (plan) => {
+        seen.push(plan);
+        return { exitCode: 0, stdout: "ok" };
+      },
+      task: "PIPE-1",
+      taskContext: {
+        acceptanceCriteria: [{ id: "AC1", text: "Do the thing" }],
+        description: "Detailed task body",
+        id: "PIPE-1",
+        title: "Task title",
+      },
+      worktreePath: project,
+    });
+
+    const prompt = seen[0].args.join("\n");
+    expect(prompt).toContain("Canonical task context:");
+    expect(prompt).toContain("ID: PIPE-1");
+    expect(prompt).toContain("- AC1: Do the thing");
+  });
+
+  it("enforces changed-file policies around a node", async () => {
+    const project = tempProject();
+    execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
+    const config = baseConfig(`
+  file-policy:
+    nodes:
+      - id: writer
+        kind: agent
+        profile: a
+        gates:
+          - id: tests-only
+            kind: changed_files
+            changed_files:
+              require_any: ["tests/**/*.test.ts"]
+              deny: ["src/**"]
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => {
+        writeProjectFile(project, "src/app.ts", "export const x = 1;\n");
+        return { exitCode: 0, stdout: "changed source only" };
+      },
+      task: "files",
+      workflowId: "file-policy",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.gates[0].evidence).toEqual(
+      expect.arrayContaining([
+        "denied changes: src/app.ts",
+        "missing required changes matching: tests/**/*.test.ts",
+      ])
+    );
+  });
+
   it("runs hooks with templating and required failure semantics", async () => {
     const project = tempProject();
     const config = parsePipelineConfigParts({
@@ -574,6 +720,206 @@ workflows:
       expect.objectContaining({ cwd: project })
     );
     expect(result.agentInvocations).toEqual([]);
+  });
+
+  it("dispatches orchestrator workflow hooks before workflow hooks", async () => {
+    const project = tempProject();
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+hooks:
+  orchestrator-start:
+    event: workflow.start
+    kind: command
+    command: [hook-bin, orchestrator]
+    required: true
+  workflow-start:
+    event: workflow.start
+    kind: command
+    command: [hook-bin, workflow]
+    required: true
+orchestrator:
+  profile: orchestrator
+  hooks: [orchestrator-start]
+workflows:
+  default:
+    hooks: [orchestrator-start, workflow-start]
+    nodes:
+      - id: a
+        kind: agent
+        profile: a
+`,
+    });
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ a: "ok" }),
+      task: "hook order",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(mockExeca.mock.calls.map((call) => call[1]?.[0])).toEqual([
+      "orchestrator",
+      "workflow",
+    ]);
+  });
+
+  it("enforces hook trust policy, sanitized env, output limits, and JSON stdin payloads", async () => {
+    const project = tempProject();
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+hooks:
+  start:
+    event: workflow.start
+    kind: command
+    command: [hook-bin]
+    required: true
+    trusted: true
+    env:
+      passthrough: [PATH]
+      set: { HOOK_ONLY: "yes" }
+    output_limit_bytes: 4
+orchestrator:
+  profile: orchestrator
+  hooks: [start]
+workflows:
+  default:
+    nodes:
+      - id: a
+        kind: agent
+        profile: a
+`,
+    });
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "abcdef", stderr: "" });
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ a: "ok" }),
+      hookPolicy: {
+        env: { GLOBAL_HOOK: "1" },
+        envPassthrough: ["PATH"],
+      },
+      task: "hook payload",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(mockExeca).toHaveBeenCalledWith(
+      "hook-bin",
+      [],
+      expect.objectContaining({
+        cwd: project,
+        env: expect.objectContaining({ GLOBAL_HOOK: "1", HOOK_ONLY: "yes" }),
+        extendEnv: false,
+        input: expect.stringContaining('"task":"hook payload"'),
+        maxBuffer: 4,
+      })
+    );
+  });
+
+  it("fails required untrusted hooks when host policy disallows them", async () => {
+    const project = tempProject();
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+hooks:
+  start:
+    event: workflow.start
+    kind: command
+    command: [hook-bin]
+    required: true
+    trusted: false
+orchestrator:
+  profile: orchestrator
+  hooks: [start]
+workflows:
+  default:
+    nodes:
+      - id: a
+        kind: agent
+        profile: a
+`,
+    });
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ a: "never" }),
+      hookPolicy: { allowUntrustedCommandHooks: false },
+      task: "untrusted",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.hookFailures[0].evidence).toContain(
+      "command hook is not trusted"
+    );
+    expect(mockExeca).not.toHaveBeenCalled();
   });
 
   it("emits structured lifecycle events for workflow, hooks, nodes, agents, gates, and artifacts", async () => {

@@ -11,8 +11,8 @@ pipe run "smoke task"
 
 The run is valid only when `.pipeline/runners.yaml` declares runner adapters,
 `.pipeline/profiles.yaml` declares profiles and grants, and
-`.pipeline/pipeline.yaml` declares workflow nodes, gates, hooks, artifacts, and
-output contracts.
+`.pipeline/pipeline.yaml` declares entrypoints, workflow nodes, gates, hooks,
+artifacts, and output contracts.
 
 ## What A Passing Smoke Proves
 
@@ -25,6 +25,9 @@ output contracts.
 - Subprocess strategy is used for command runners and unsafe native cases.
 - Gates, artifacts, retries, hooks, and schema validation control workflow
   progress deterministically.
+- Verdict, acceptance, and changed-file gates enforce semantic verification and
+  project-configured RED/GREEN contracts without hardcoded task tools or test
+  frameworks.
 
 ## Fixture Requirements
 

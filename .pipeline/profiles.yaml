@@ -77,6 +77,22 @@ profiles:
       mode: inherit
     output:
       format: text
+  pipeline-acceptance-reviewer:
+    runner: codex
+    description: Audit the finished change against every acceptance criterion.
+    instructions:
+      path: .pipeline/prompts/acceptance-reviewer.md
+    rules: [verification]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/verify.schema.json
   pipeline-verifier:
     runner: codex
     description: Verify checks, implementation fit, and final evidence.

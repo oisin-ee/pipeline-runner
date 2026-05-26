@@ -55,9 +55,15 @@ const WORKFLOW_NODES = [
     profile: "pipeline-code-writer",
   },
   {
-    id: "verify",
+    id: "acceptance",
     kind: "agent",
     needs: ["green"],
+    profile: "pipeline-acceptance-reviewer",
+  },
+  {
+    id: "verify",
+    kind: "agent",
+    needs: ["acceptance"],
     profile: "pipeline-verifier",
   },
   {

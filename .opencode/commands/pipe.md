@@ -7,11 +7,15 @@ subtask: true
 <!-- @oisincoveney/pipeline:host=opencode -->
 
 Workflow: default
+Entrypoints:
+- pipe -> default (Full agent pipeline.)
+- dogfood -> dogfood-options (Deterministic local dogfood workflow.)
 
 - research kind=agent profile=pipeline-researcher needs=none
 - red kind=agent profile=pipeline-test-writer needs=research
 - green kind=agent profile=pipeline-code-writer needs=red
-- verify kind=agent profile=pipeline-verifier needs=green
+- acceptance kind=agent profile=pipeline-acceptance-reviewer needs=green
+- verify kind=agent profile=pipeline-verifier needs=acceptance
 - learn kind=agent profile=pipeline-learner needs=verify
 
 Configured orchestrator:
@@ -28,4 +32,4 @@ Instructions: .pipeline/prompts/orchestrator.md
 
 Use OpenCode's task tool to delegate each agent workflow node to its configured profile. Do not invoke package scripts or the pipeline CLI to run this workflow.
 
-Delegate work only to configured profiles: `dogfood-artifact-writer`, `dogfood-checker`, `dogfood-claude-live`, `dogfood-codex-live`, `dogfood-kimi-live`, `dogfood-opencode-live`, `dogfood-pi-live`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.
+Delegate work only to configured profiles: `dogfood-artifact-writer`, `dogfood-checker`, `dogfood-claude-live`, `dogfood-codex-live`, `dogfood-kimi-live`, `dogfood-opencode-live`, `dogfood-pi-live`, `pipeline-acceptance-reviewer`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.

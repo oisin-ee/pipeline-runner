@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PipelineConfig } from "../src/mastra/config.js";
-import { parsePipelineConfigParts } from "../src/mastra/config.js";
+import type { PipelineConfig } from "../src/config.js";
+import { parsePipelineConfigParts } from "../src/config.js";
 import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 import {
   compileWorkflowPlan,

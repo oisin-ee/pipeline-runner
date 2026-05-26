@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadPipelineConfig } from "../src/mastra/config.js";
+import { loadPipelineConfig } from "../src/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
 import { compileWorkflowPlan } from "../src/workflow-planner.js";
 

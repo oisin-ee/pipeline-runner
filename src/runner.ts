@@ -226,6 +226,7 @@ function harnessArgv(
         ...optionalModelArgs(harness, options.runner, options.actor),
         ...mcpArgs,
         ...skillArgs,
+        "--final-message-only",
         "--prompt",
         prompt,
       ];

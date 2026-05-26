@@ -26,7 +26,7 @@ import {
   runJscpd,
   runTests,
   runTypecheck,
-} from "../src/mastra/gates.js";
+} from "../src/gates.js";
 
 const mockExeca = vi.mocked(execa);
 const mockExistsSync = vi.mocked(existsSync);

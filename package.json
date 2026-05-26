@@ -2,9 +2,7 @@
   "dependencies": {
     "commander": "^14.0.3",
     "execa": "^9.5.2",
-    "extract-json-from-string": "^1.0.1",
     "gray-matter": "^4.0.3",
-    "jsonpath-plus": "^10.4.0",
     "package-manager-detector": "^1.6.0",
     "smol-toml": "^1.6.1",
     "yaml": "^2.9.0",
@@ -12,14 +10,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
-    "@mastra/core": "^1.35.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/github": "^12.0.8",
     "@semantic-release/npm": "^13.1.5",
     "@semantic-release/release-notes-generator": "^14.1.1",
     "@types/node": "^25.9.1",
     "jscpd": "^4.0.5",
-    "mastra": "^1.9.3",
     "semantic-release": "^25.0.3",
     "typescript": "^6.0.3",
     "ultracite": "7.7.0",
@@ -43,16 +39,16 @@
       "import": "./dist/index.js"
     },
     "./config": {
-      "types": "./dist/mastra/config.d.ts",
-      "import": "./dist/mastra/config.js"
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
     },
     "./planner": {
       "types": "./dist/workflow-planner.d.ts",
       "import": "./dist/workflow-planner.js"
     },
     "./runner": {
-      "types": "./dist/mastra/runner.d.ts",
-      "import": "./dist/mastra/runner.js"
+      "types": "./dist/runner.d.ts",
+      "import": "./dist/runner.js"
     },
     "./runtime": {
       "types": "./dist/pipeline-runtime.d.ts",
@@ -65,15 +61,13 @@
     "README.md"
   ],
   "scripts": {
-    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/mastra/runner.ts --outfile dist/mastra/runner.js --target node && bun build src/mastra/config.ts --outfile dist/mastra/config.js --target node && bun build src/workflow-planner.ts --outfile dist/workflow-planner.js --target node && bun build src/pipeline-runtime.ts --outfile dist/pipeline-runtime.js --target node && tsc -p tsconfig.types.json",
+    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/runner.ts --outfile dist/runner.js --target node && bun build src/config.ts --outfile dist/config.js --target node && bun build src/workflow-planner.ts --outfile dist/workflow-planner.js --target node && bun build src/pipeline-runtime.ts --outfile dist/pipeline-runtime.js --target node && tsc -p tsconfig.types.json",
     "test": "vitest run",
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
     "typecheck": "tsc --noEmit",
     "pipe": "bun src/index.ts pipe",
-    "dev": "mastra dev",
-    "build": "bun run build:cli && mastra build",
-    "start": "mastra start",
+    "build": "bun run build:cli",
     "check": "ultracite check",
     "fix": "ultracite fix",
     "prepack": "bun run build:cli"

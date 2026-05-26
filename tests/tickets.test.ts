@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTicketAndDescription } from "../src/mastra/tickets.js";
+import { parseTicketAndDescription } from "../src/task-ref.js";
 
 describe("parseTicketAndDescription", () => {
   it("extracts ticket id and remainder", () => {

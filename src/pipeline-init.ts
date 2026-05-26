@@ -6,7 +6,7 @@ import {
   PIPELINE_CONFIG_PATH,
   PROFILES_CONFIG_PATH,
   RUNNERS_CONFIG_PATH,
-} from "./mastra/config.js";
+} from "./config.js";
 
 export interface PipelineInitOptions {
   cwd?: string;
@@ -35,6 +35,14 @@ export class PipelineInitError extends Error {
 
 const DEFAULT_PIPELINE_YAML = `version: 1
 default_workflow: default
+
+entrypoints:
+  pipe:
+    workflow: default
+    description: Full pipeline
+  inspect:
+    workflow: inspect
+    description: Read-only repository inspection
 
 orchestrator:
   profile: orchestrator
@@ -67,6 +75,10 @@ workflows:
         kind: agent
         profile: pipeline-verifier
         needs: [green]
+        gates:
+          - id: verify-verdict
+            kind: verdict
+            target: stdout
       - id: learn
         kind: agent
         profile: pipeline-learner

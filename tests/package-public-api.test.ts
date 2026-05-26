@@ -91,6 +91,10 @@ describe("package public app-facing API", () => {
   });
 
   it("lets a separate TypeScript app compile type and value imports from public subpaths", () => {
+    runChecked("bun", ["run", "build:cli"], {
+      cwd: process.cwd(),
+    });
+
     const consumer = tempConsumerApp();
     writeFileSync(
       join(consumer, "usage.ts"),
@@ -113,6 +117,7 @@ import {
 import {
   formatConfigError,
   runPipelineFromConfig,
+  type PipelineTaskContext,
   type PipelineRuntimeEvent,
   type PipelineRuntimeOptions,
   type PipelineRuntimeResult,
@@ -135,6 +140,10 @@ const options: PipelineRuntimeOptions = {
   task: "consumer compile smoke",
   workflowId: "smoke",
 };
+const taskContext: PipelineTaskContext = {
+  acceptanceCriteria: [{ id: "AC1", text: "Compiles" }],
+  id: "TASK-1",
+};
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
 const eventType = (event: PipelineRuntimeEvent) => event.type;
 const formattedError = formatConfigError(
@@ -144,6 +153,7 @@ const formattedError = formatConfigError(
 void loadPipelineConfig;
 void WorkflowPlannerError;
 void result;
+void taskContext;
 void eventType;
 void formattedError;
 void runnerType;

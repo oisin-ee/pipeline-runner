@@ -5,20 +5,16 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Option } from "commander";
 import {
+  loadPipelineConfig,
+  type PipelineConfig,
+  PipelineConfigError,
+} from "./config.js";
+import {
   type CommandHostSelection,
   formatInstallCommandsResult,
   installCommands,
   parseCommandHost,
 } from "./install-commands.js";
-import {
-  loadPipelineConfig,
-  type PipelineConfig,
-  PipelineConfigError,
-} from "./mastra/config.js";
-import {
-  createOrchestratorLaunchPlan,
-  createRunnerLaunchPlan,
-} from "./mastra/runner.js";
 import {
   formatPipelineInitResult,
   initPipelineProject,
@@ -29,12 +25,17 @@ import {
   type PipelineRuntimeResult,
   runPipelineFromConfig,
 } from "./pipeline-runtime.js";
+import {
+  createOrchestratorLaunchPlan,
+  createRunnerLaunchPlan,
+} from "./runner.js";
 import { compileWorkflowPlan } from "./workflow-planner.js";
 
 const PATH_SEPARATOR_RE = /[\\/]/;
 const LINE_RE = /\r?\n/;
 
 interface PipeOptions {
+  entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
   workflow?: string;
 }
@@ -56,6 +57,7 @@ export function pipe(
     const runner = options.pipelineRunner ?? runPipelineFromConfig;
     return runConfiguredPipeline({
       pipelineRunner: runner,
+      entrypoint: options.entrypoint,
       task: description,
       workflow: options.workflow,
       worktreePath,
@@ -66,10 +68,12 @@ export function pipe(
 }
 
 interface RunFlags {
+  entrypoint?: string;
   workflow?: string;
 }
 
 interface RunInputs {
+  entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
   task: string;
   workflow?: string;
@@ -80,6 +84,7 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
   const result = await runner({
     reporter: formatRuntimeProgress,
+    entrypoint: inputs.entrypoint,
     task: inputs.task,
     workflowId: inputs.workflow,
     worktreePath: inputs.worktreePath,
@@ -254,6 +259,7 @@ interface InitFlags {
 }
 
 interface ValidateFlags {
+  entrypoint?: string;
   workflow?: string;
 }
 
@@ -266,6 +272,7 @@ export function createCliProgram(): Command {
 
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
     await pipe(descriptionParts.join(" "), {
+      entrypoint: flags.entrypoint,
       workflow: flags.workflow,
     });
   };
@@ -274,6 +281,7 @@ export function createCliProgram(): Command {
     .command("run")
     .description("Run a workflow from .pipeline/pipeline.yaml")
     .argument("<description...>", "task description")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action(runAction);
 
@@ -281,6 +289,7 @@ export function createCliProgram(): Command {
     .command("pipe")
     .description("Alias for run")
     .argument("<description...>", "task description")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action(runAction);
 
@@ -289,11 +298,15 @@ export function createCliProgram(): Command {
     .description(
       "Validate .pipeline/pipeline.yaml and compile the workflow plan"
     )
+    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action((flags: ValidateFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const config = loadPipelineConfig(cwd);
-      const plan = compileWorkflowPlan(config, flags.workflow);
+      const plan = compileWorkflowPlan(
+        config,
+        resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
+      );
       console.log(
         `OK: ${plan.workflowId} (${plan.topologicalOrder.length} nodes)`
       );
@@ -302,11 +315,18 @@ export function createCliProgram(): Command {
   program
     .command("explain-plan")
     .description("Explain workflow nodes, runners, gates, hooks, and artifacts")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action((flags: ValidateFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const config = loadPipelineConfig(cwd);
-      console.log(formatWorkflowPlan(config, cwd, flags.workflow));
+      console.log(
+        formatWorkflowPlan(
+          config,
+          cwd,
+          resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
+        )
+      );
     });
 
   program
@@ -455,6 +475,24 @@ function formatWorkflowPlan(
     lines.push(`Workflow hooks: ${workflow.hooks.join(", ")}`);
   }
   return lines.join("\n");
+}
+
+function resolveWorkflowSelection(
+  config: PipelineConfig,
+  workflowId?: string,
+  entrypointId?: string
+): string | undefined {
+  if (workflowId) {
+    return workflowId;
+  }
+  if (!entrypointId) {
+    return;
+  }
+  const entrypoint = config.entrypoints[entrypointId];
+  if (!entrypoint) {
+    throw new Error(`Unknown pipeline entrypoint '${entrypointId}'`);
+  }
+  return entrypoint.workflow;
 }
 
 function formatOrchestratorPlan(

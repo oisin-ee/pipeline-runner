@@ -4,24 +4,9 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockRunStart = vi.hoisted(() => vi.fn());
-const mockCreateRun = vi.hoisted(() => vi.fn());
-const mockGetWorkflow = vi.hoisted(() => vi.fn());
-
 vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
-
-vi.mock("../src/mastra/index.js", () => ({
-  mastra: {
-    getWorkflow: mockGetWorkflow,
-  },
-}));
-
-vi.mock("@mastra/core/workflows", async (importOriginal) => {
-  const real = await importOriginal<typeof import("@mastra/core/workflows")>();
-  return { ...real };
-});
 
 import { execa } from "execa";
 
@@ -32,8 +17,6 @@ const FAILURE_DETAILS_RE =
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockCreateRun.mockResolvedValue({ start: mockRunStart });
-  mockGetWorkflow.mockReturnValue({ createRun: mockCreateRun });
 });
 
 afterEach(() => {
@@ -48,7 +31,7 @@ function backlogCreateOutput(id: string, title: string): string {
 
 describe("createSwarmTasks", () => {
   it("creates parent + 5 child tasks via backlog and returns the assigned id map", async () => {
-    const { createSwarmTasks } = await import("../src/mastra/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog.js");
 
     // Sequence of backlog task create stdouts: parent, then R, TW, CW, V, L children
     mockExeca
@@ -100,7 +83,7 @@ describe("createSwarmTasks", () => {
   });
 
   it("threads worktree path as cwd into every backlog invocation", async () => {
-    const { createSwarmTasks } = await import("../src/mastra/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog.js");
 
     mockExeca.mockResolvedValue({
       stdout: backlogCreateOutput("TASK-1", "x"),
@@ -119,7 +102,7 @@ describe("createSwarmTasks", () => {
   });
 
   it("accepts custom Backlog task prefixes from real CLI output", async () => {
-    const { createSwarmTasks } = await import("../src/mastra/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog.js");
 
     mockExeca
       .mockResolvedValueOnce({
@@ -142,7 +125,7 @@ describe("createSwarmTasks", () => {
   });
 
   it("does not append --no-git to backlog calls (init-only flag in upstream)", async () => {
-    const { createSwarmTasks } = await import("../src/mastra/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog.js");
 
     mockExeca.mockResolvedValue({
       stdout: backlogCreateOutput("TASK-1", "x"),
@@ -161,7 +144,7 @@ describe("createSwarmTasks", () => {
 
 describe("markPhase", () => {
   it("calls backlog task edit with --status against the assigned id", async () => {
-    const { markPhase } = await import("../src/mastra/backlog.js");
+    const { markPhase } = await import("../src/backlog.js");
 
     mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
 
@@ -188,7 +171,7 @@ describe("planPhaseLifecycle", () => {
   } as const;
 
   it("plans each phase In Progress then Done for a successful run", async () => {
-    const { planPhaseLifecycle } = await import("../src/mastra/backlog.js");
+    const { planPhaseLifecycle } = await import("../src/backlog.js");
 
     const result = planPhaseLifecycle(SWARM, {
       outcome: "PASS",
@@ -211,7 +194,7 @@ describe("planPhaseLifecycle", () => {
   });
 
   it("stops at the gate failure phase and records failure context", async () => {
-    const { planPhaseLifecycle } = await import("../src/mastra/backlog.js");
+    const { planPhaseLifecycle } = await import("../src/backlog.js");
 
     const result = planPhaseLifecycle(SWARM, {
       outcome: "FAIL",
@@ -299,12 +282,12 @@ describe("pipe", () => {
     });
     expect(pkg.exports?.["./pipeline-primitive"]).toBeUndefined();
     expect(pkg.exports?.["./runner"]).toEqual({
-      import: "./dist/mastra/runner.js",
-      types: "./dist/mastra/runner.d.ts",
+      import: "./dist/runner.js",
+      types: "./dist/runner.d.ts",
     });
     expect(pkg.exports?.["./config"]).toEqual({
-      import: "./dist/mastra/config.js",
-      types: "./dist/mastra/config.d.ts",
+      import: "./dist/config.js",
+      types: "./dist/config.d.ts",
     });
     expect(pkg.exports?.["./planner"]).toEqual({
       import: "./dist/workflow-planner.js",
@@ -395,6 +378,7 @@ describe("pipe", () => {
 
     expect(pipelineRunner).toHaveBeenCalledWith(
       expect.objectContaining({
+        entrypoint: undefined,
         reporter: expect.any(Function),
         task: "PIPE-42 trivial NOOP",
         workflowId: "custom",
@@ -409,6 +393,41 @@ describe("pipe", () => {
     expect(progress).toContain("Pipeline finished: custom PASS");
     expect(finalOutput).toContain("Node outputs:");
     expect(finalOutput).toContain("repo report");
+  });
+
+  it("passes entrypoint aliases through the CLI runner", async () => {
+    const { pipe } = await import("../src/index.js");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const pipelineRunner = vi.fn().mockResolvedValue({
+      agentInvocations: [],
+      failureDetails: [],
+      gates: [],
+      hookFailures: [],
+      nodes: [],
+      outcome: "PASS",
+      plan: {
+        workflowId: "default",
+        parallelBatches: [],
+        topologicalOrder: [],
+      },
+    });
+
+    try {
+      await pipe("ship", { entrypoint: "quick", pipelineRunner });
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+    }
+
+    expect(pipelineRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entrypoint: "quick",
+        task: "ship",
+      })
+    );
   });
 
   it("fails when pipe run is invoked without .pipeline/pipeline.yaml", async () => {

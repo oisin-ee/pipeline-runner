@@ -6,11 +6,15 @@ description: Run the configured pipeline workflow with Pi subagents
 <!-- @oisincoveney/pipeline:host=pi -->
 
 Workflow: default
+Entrypoints:
+- pipe -> default (Full agent pipeline.)
+- dogfood -> dogfood-options (Deterministic local dogfood workflow.)
 
 - research kind=agent profile=pipeline-researcher needs=none
 - red kind=agent profile=pipeline-test-writer needs=research
 - green kind=agent profile=pipeline-code-writer needs=red
-- verify kind=agent profile=pipeline-verifier needs=green
+- acceptance kind=agent profile=pipeline-acceptance-reviewer needs=green
+- verify kind=agent profile=pipeline-verifier needs=acceptance
 - learn kind=agent profile=pipeline-learner needs=verify
 
 Configured orchestrator:

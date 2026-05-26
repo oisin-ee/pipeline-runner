@@ -51,6 +51,12 @@ Run a read-only repository inspection:
 pipe run --workflow inspect "Report the app structure and available checks. Do not modify files."
 ```
 
+Run a configured entrypoint alias:
+
+```shell
+pipe run --entrypoint dogfood "Run deterministic local verification."
+```
+
 The `pipe` binary also accepts the task directly:
 
 ```shell
@@ -130,6 +136,10 @@ workflows:
             builtin: typecheck
 ```
 
+Projects can also declare `entrypoints` in `.pipeline/pipeline.yaml` to expose
+stable app or CLI names that resolve to workflows. Direct `--workflow` selection
+remains available and takes precedence over `--entrypoint` when both are set.
+
 The default scaffold includes a full research, red, green, verify, learn
 workflow. See `docs/config-architecture.md` for a complete example and the host
 support matrix.
@@ -168,6 +178,10 @@ overwrite manually edited files unless `--force` is supplied.
   the configured semantics. Otherwise the runtime uses a subprocess boundary.
 - Parallel DAG batches run concurrently after dependencies and gates pass.
 - Agent self-reporting is not enough to pass deterministic gates.
+- JSON Schema gates validate structure only. Use `verdict` and `acceptance`
+  gates to enforce semantic pass/fail and per-criterion coverage.
+- Command hooks support host policy controls, sanitized environments, timeouts,
+  output limits, and JSON payloads on stdin.
 
 ## App-Facing API
 
@@ -177,7 +191,7 @@ without deep-importing private source paths:
 ```ts
 import { loadPipelineConfig, parsePipelineConfigParts } from "@oisincoveney/pipeline/config";
 import { compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
-import { runPipelineFromConfig, type PipelineRuntimeResult } from "@oisincoveney/pipeline/runtime";
+import { runPipelineFromConfig, type PipelineRuntimeResult, type PipelineTaskContext } from "@oisincoveney/pipeline/runtime";
 ```
 
 ## Verification

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -5,20 +6,15 @@ import {
   loadPipelineConfig,
   type PipelineConfig,
   type PipelineConfigError,
-} from "./mastra/config.js";
-import {
-  artifactExists,
-  runJscpd,
-  runTests,
-  runTypecheck,
-} from "./mastra/gates.js";
+} from "./config.js";
+import { artifactExists, runJscpd, runTests, runTypecheck } from "./gates.js";
 import {
   type AgentResult,
   createRunnerLaunchPlan,
   type RunnerExecutionOptions,
   type RunnerLaunchPlan,
   runLaunchPlan,
-} from "./mastra/runner.js";
+} from "./runner.js";
 import {
   compileWorkflowPlan,
   type PlannedWorkflowNode,
@@ -29,6 +25,29 @@ type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
 type GateSpec = NonNullable<WorkflowNode["gates"]>[number];
 type HookSpec = PipelineConfig["hooks"][string];
 const LINE_RE = /\r?\n/;
+const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
+
+export interface AcceptanceCriterion {
+  id: string;
+  text: string;
+}
+
+export interface PipelineTaskContext {
+  acceptanceCriteria?: AcceptanceCriterion[];
+  description?: string;
+  id?: string;
+  title?: string;
+}
+
+export interface HookRuntimePolicy {
+  allowCommandHooks?: boolean;
+  allowUntrustedCommandHooks?: boolean;
+  env?: Record<string, string>;
+  envPassthrough?: string[];
+  outputLimitBytes?: number;
+  timeoutMs?: number;
+}
 
 export interface RuntimeFailure {
   evidence: string[];
@@ -166,13 +185,16 @@ export type PipelineRuntimeEvent =
 
 export interface PipelineRuntimeOptions {
   config?: PipelineConfig;
+  entrypoint?: string;
   executor?: (
     plan: RunnerLaunchPlan,
     options: RunnerExecutionOptions
   ) => AgentResult | Promise<AgentResult>;
+  hookPolicy?: HookRuntimePolicy;
   reporter?: (event: PipelineRuntimeEvent) => void;
   signal?: AbortSignal;
   task: string;
+  taskContext?: PipelineTaskContext;
   workflowId?: string;
   worktreePath?: string;
 }
@@ -186,11 +208,14 @@ interface RuntimeContext {
   ) => AgentResult | Promise<AgentResult>;
   gates: RuntimeGateResult[];
   hookFailures: RuntimeFailure[];
+  hookPolicy: Required<HookRuntimePolicy>;
   lastOutputByNode: Map<string, string>;
+  nodeSnapshots: Map<string, ChangedFilesSnapshot>;
   plan: WorkflowExecutionPlan;
   reporter?: (event: PipelineRuntimeEvent) => void;
   signal?: AbortSignal;
   task: string;
+  taskContext?: PipelineTaskContext;
   workflowId: string;
   worktreePath: string;
 }
@@ -199,6 +224,18 @@ interface NodeAttemptResult {
   evidence: string[];
   exitCode: number;
   output: string;
+}
+
+interface ChangedFilesSnapshot {
+  files: Set<string>;
+}
+
+interface CommandExecutionOptions {
+  env?: Record<string, string>;
+  extendEnv?: boolean;
+  input?: string;
+  outputLimitBytes?: number;
+  timeout?: number;
 }
 
 interface NodeAttemptCycleResult {
@@ -223,106 +260,167 @@ interface OutputRepairContext {
 export async function runPipelineFromConfig(
   options: PipelineRuntimeOptions
 ): Promise<PipelineRuntimeResult> {
+  const context = createRuntimeContext(options);
+  const nodes: RuntimeNodeResult[] = [];
+
+  emit(context, {
+    nodeIds: context.plan.topologicalOrder.map((node) => node.id),
+    type: "workflow.start",
+    workflowId: context.workflowId,
+  });
+
+  const startFailure = await workflowStartFailure(context, nodes);
+  if (startFailure) {
+    return finishRuntime(context, startFailure);
+  }
+
+  const executionFailure = await executeWorkflowBatches(context, nodes);
+  if (executionFailure) {
+    return finishRuntime(context, executionFailure);
+  }
+
+  return finishRuntime(context, await successfulRuntimeResult(context, nodes));
+}
+
+function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
   const worktreePath = options.worktreePath ?? process.cwd();
   const config = options.config ?? loadPipelineConfig(worktreePath);
-  const plan = compileWorkflowPlan(config, options.workflowId);
+  const workflowSelection = resolveWorkflowSelection(
+    config,
+    options.workflowId,
+    options.entrypoint
+  );
+  const plan = compileWorkflowPlan(config, workflowSelection);
   const workflowId = plan.workflowId;
-  const context: RuntimeContext = {
+  return {
     agentInvocations: [],
     config,
     executor: options.executor ?? runLaunchPlan,
     gates: [],
     hookFailures: [],
+    hookPolicy: {
+      allowCommandHooks: options.hookPolicy?.allowCommandHooks ?? true,
+      allowUntrustedCommandHooks:
+        options.hookPolicy?.allowUntrustedCommandHooks ?? true,
+      env: options.hookPolicy?.env ?? {},
+      envPassthrough: options.hookPolicy?.envPassthrough ?? ["PATH"],
+      outputLimitBytes:
+        options.hookPolicy?.outputLimitBytes ?? DEFAULT_HOOK_OUTPUT_LIMIT_BYTES,
+      timeoutMs: options.hookPolicy?.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
+    },
     lastOutputByNode: new Map(),
+    nodeSnapshots: new Map(),
     plan,
     ...(options.reporter ? { reporter: options.reporter } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     task: options.task,
+    ...(options.taskContext ? { taskContext: options.taskContext } : {}),
     workflowId,
     worktreePath,
   };
-  const nodes: RuntimeNodeResult[] = [];
+}
 
-  emit(context, {
-    nodeIds: plan.topologicalOrder.map((node) => node.id),
-    type: "workflow.start",
-    workflowId,
-  });
-
+async function workflowStartFailure(
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): Promise<PipelineRuntimeResult | null> {
   if (isCancelled(context)) {
-    const result = cancelledRuntimeResult(context, nodes);
-    emitWorkflowFinish(context, result.outcome);
-    return result;
+    return cancelledRuntimeResult(context, nodes);
   }
 
   const startHook = await dispatchHooks(context, "workflow.start");
   if (isCancelled(context)) {
-    const result = cancelledRuntimeResult(context, nodes);
-    emitWorkflowFinish(context, result.outcome);
-    return result;
+    return cancelledRuntimeResult(context, nodes);
   }
   if (startHook) {
-    const result = failedRuntimeResult(context, nodes, startHook);
-    emitWorkflowFinish(context, result.outcome);
-    return result;
+    return failedRuntimeResult(context, nodes, startHook);
   }
+  return null;
+}
 
-  for (const batch of plan.parallelBatches) {
+async function executeWorkflowBatches(
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): Promise<PipelineRuntimeResult | null> {
+  for (const batch of context.plan.parallelBatches) {
     if (isCancelled(context)) {
-      const result = cancelledRuntimeResult(context, nodes);
-      emitWorkflowFinish(context, result.outcome);
-      return result;
+      return cancelledRuntimeResult(context, nodes);
     }
     const results = await Promise.all(
       batch.map((node) => executeNode(node, context))
     );
     nodes.push(...results);
     if (isCancelled(context)) {
-      const result = cancelledRuntimeResult(context, nodes);
-      emitWorkflowFinish(context, result.outcome);
-      return result;
+      return cancelledRuntimeResult(context, nodes);
     }
     const failed = results.find((result) => result.status === "failed");
     if (failed) {
-      const failure = {
-        evidence: failed.evidence,
-        gate: failed.nodeId,
-        nodeId: failed.nodeId,
-        reason: `node '${failed.nodeId}' failed`,
-      };
+      const failure = nodeRuntimeFailure(failed);
       await dispatchHooks(context, "workflow.failure", failure);
       await dispatchHooks(context, "workflow.complete", failure);
-      const result = failedRuntimeResult(context, nodes, failure);
-      emitWorkflowFinish(context, result.outcome);
-      return result;
+      return failedRuntimeResult(context, nodes, failure);
     }
   }
+  return null;
+}
 
+async function successfulRuntimeResult(
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): Promise<PipelineRuntimeResult> {
   const successHook = await dispatchHooks(context, "workflow.success");
   const completeHook = await dispatchHooks(context, "workflow.complete");
   if (isCancelled(context)) {
-    const result = cancelledRuntimeResult(context, nodes);
-    emitWorkflowFinish(context, result.outcome);
-    return result;
+    return cancelledRuntimeResult(context, nodes);
   }
   const hookFailure = successHook ?? completeHook;
   if (hookFailure) {
-    const result = failedRuntimeResult(context, nodes, hookFailure);
-    emitWorkflowFinish(context, result.outcome);
-    return result;
+    return failedRuntimeResult(context, nodes, hookFailure);
   }
-
-  const result: PipelineRuntimeResult = {
+  return {
     agentInvocations: context.agentInvocations,
     failureDetails: [],
     gates: context.gates,
     hookFailures: context.hookFailures,
     nodes,
     outcome: "PASS",
-    plan,
+    plan: context.plan,
   };
+}
+
+function nodeRuntimeFailure(node: RuntimeNodeResult): RuntimeFailure {
+  return {
+    evidence: node.evidence,
+    gate: node.nodeId,
+    nodeId: node.nodeId,
+    reason: `node '${node.nodeId}' failed`,
+  };
+}
+
+function finishRuntime(
+  context: RuntimeContext,
+  result: PipelineRuntimeResult
+): PipelineRuntimeResult {
   emitWorkflowFinish(context, result.outcome);
   return result;
+}
+
+function resolveWorkflowSelection(
+  config: PipelineConfig,
+  workflowId?: string,
+  entrypointId?: string
+): string | undefined {
+  if (workflowId) {
+    return workflowId;
+  }
+  if (!entrypointId) {
+    return;
+  }
+  const entrypoint = config.entrypoints[entrypointId];
+  if (!entrypoint) {
+    throw new Error(`Unknown pipeline entrypoint '${entrypointId}'`);
+  }
+  return entrypoint.workflow;
 }
 
 function failedRuntimeResult(
@@ -454,7 +552,19 @@ async function executeNodeAttemptCycle(
     };
   }
 
+  context.nodeSnapshots.set(
+    node.id,
+    snapshotChangedFiles(context.worktreePath)
+  );
   const last = await executeNodeAttempt(node, context, attempt);
+  const afterSnapshot = snapshotChangedFiles(context.worktreePath);
+  const beforeSnapshot = context.nodeSnapshots.get(node.id);
+  if (beforeSnapshot) {
+    context.nodeSnapshots.set(
+      node.id,
+      diffChangedFiles(beforeSnapshot, afterSnapshot)
+    );
+  }
   context.lastOutputByNode.set(node.id, last.output);
   const cancelledAfterAttempt = cancelledNodeResult(
     context,
@@ -568,6 +678,40 @@ function nodeFailure(
     nodeId,
     output,
     status: "failed",
+  };
+}
+
+function snapshotChangedFiles(worktreePath: string): ChangedFilesSnapshot {
+  try {
+    const output = execFileSync(
+      "git",
+      ["status", "--porcelain=v1", "--untracked-files=all"],
+      {
+        cwd: worktreePath,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    );
+    return {
+      files: new Set(
+        output
+          .split(LINE_RE)
+          .map((line) => line.slice(3).trim())
+          .map((line) => line.replace(/^"|"$/g, ""))
+          .filter(Boolean)
+      ),
+    };
+  } catch {
+    return { files: new Set() };
+  }
+}
+
+function diffChangedFiles(
+  before: ChangedFilesSnapshot,
+  after: ChangedFilesSnapshot
+): ChangedFilesSnapshot {
+  return {
+    files: new Set([...after.files].filter((file) => !before.files.has(file))),
   };
 }
 
@@ -929,6 +1073,7 @@ function renderAgentPrompt(
     `Workflow: ${context.workflowId}`,
     `Node: ${node.id}`,
     node.profile ? `Profile: ${node.profile}` : "",
+    renderTaskContext(context.taskContext),
     "",
     "Declared grants:",
     `- tools: ${(profile?.tools ?? []).join(", ") || "none"}`,
@@ -953,6 +1098,26 @@ function renderAgentPrompt(
     ...node.needs.map(
       (need) => `## ${need}\n${context.lastOutputByNode.get(need) ?? ""}`
     ),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderTaskContext(
+  taskContext: PipelineTaskContext | undefined
+): string {
+  if (!taskContext) {
+    return "";
+  }
+  const acceptance = taskContext.acceptanceCriteria ?? [];
+  return [
+    "",
+    "Canonical task context:",
+    taskContext.id ? `ID: ${taskContext.id}` : "",
+    taskContext.title ? `Title: ${taskContext.title}` : "",
+    taskContext.description ? `Description: ${taskContext.description}` : "",
+    acceptance.length ? "Acceptance criteria:" : "",
+    ...acceptance.map((criterion) => `- ${criterion.id}: ${criterion.text}`),
   ]
     .filter(Boolean)
     .join("\n");
@@ -1017,7 +1182,7 @@ function renderMcpReferences(
 async function executeCommand(
   command: string[],
   context: RuntimeContext,
-  timeout?: number
+  options: CommandExecutionOptions = {}
 ): Promise<NodeAttemptResult> {
   if (command.length === 0) {
     return { evidence: ["empty command"], exitCode: 1, output: "" };
@@ -1025,16 +1190,26 @@ async function executeCommand(
   try {
     const result = await execa(command[0] as string, command.slice(1), {
       cwd: context.worktreePath,
+      ...(options.env ? { env: options.env } : {}),
+      ...(options.extendEnv === false ? { extendEnv: false } : {}),
+      ...(options.input ? { input: options.input } : {}),
+      ...(options.outputLimitBytes
+        ? { maxBuffer: options.outputLimitBytes }
+        : {}),
       signal: context.signal,
-      timeout,
+      timeout: options.timeout,
     });
-    const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    const output = limitOutput(
+      [result.stdout, result.stderr].filter(Boolean).join("\n"),
+      options.outputLimitBytes
+    );
     return {
       evidence: [
         `command exited ${result.exitCode ?? 0}: ${command.join(" ")}`,
+        ...output.evidence,
       ],
       exitCode: result.exitCode ?? 0,
-      output,
+      output: output.text,
     };
   } catch (err) {
     const e = err as {
@@ -1043,17 +1218,42 @@ async function executeCommand(
       stdout?: string;
       timedOut?: boolean;
     };
-    const output = [e.stdout, e.stderr].filter(Boolean).join("\n");
+    const output = limitOutput(
+      [e.stdout, e.stderr].filter(Boolean).join("\n"),
+      options.outputLimitBytes
+    );
     return {
       evidence: [
         `command exited ${e.exitCode ?? 1}: ${command.join(" ")}`,
         ...(e.timedOut ? ["command timed out"] : []),
-        output,
+        ...output.evidence,
+        output.text,
       ].filter(Boolean),
       exitCode: e.exitCode ?? 1,
-      output,
+      output: output.text,
     };
   }
+}
+
+function limitOutput(
+  text: string,
+  limitBytes?: number
+): { evidence: string[]; text: string } {
+  if (!limitBytes || Buffer.byteLength(text, "utf8") <= limitBytes) {
+    return { evidence: [], text };
+  }
+  const truncated = Buffer.from(text, "utf8")
+    .subarray(0, limitBytes)
+    .toString("utf8");
+  return {
+    evidence: [
+      `command output truncated to ${limitBytes} bytes from ${Buffer.byteLength(
+        text,
+        "utf8"
+      )} bytes`,
+    ],
+    text: truncated,
+  };
 }
 
 async function executeBuiltin(
@@ -1304,61 +1504,327 @@ function emitAgentFinish(
   });
 }
 
-async function evaluateGate(
+function evaluateGate(
   gate: GateSpec,
   nodeId: string,
   context: RuntimeContext,
   attempt: NodeAttemptResult
-): Promise<RuntimeGateResult> {
+): RuntimeGateResult | Promise<RuntimeGateResult> {
   const gateId = gate.id ?? `${gate.kind}:${nodeId}`;
-  if (gate.kind === "command") {
-    const result = await executeCommand(
-      gate.command ?? [],
-      context,
-      gate.timeout_ms
+  switch (gate.kind) {
+    case "command":
+      return evaluateCommandGate(gate, gateId, nodeId, context);
+    case "artifact":
+      return evaluateArtifactGate(gate, gateId, nodeId, context);
+    case "builtin":
+      return evaluateBuiltinGate(gate, gateId, nodeId, context);
+    case "verdict":
+      return evaluateVerdictGate(gate, gateId, nodeId, context, attempt);
+    case "acceptance":
+      return evaluateAcceptanceGate(gate, gateId, nodeId, context, attempt);
+    case "changed_files":
+      return evaluateChangedFilesGate(gate, gateId, nodeId, context);
+    case "json_schema":
+      return evaluateJsonSchemaGate(gate, gateId, nodeId, context, attempt);
+    default: {
+      const _exhaustive: never = gate.kind;
+      throw new Error(`Unsupported gate kind: ${String(_exhaustive)}`);
+    }
+  }
+}
+
+async function evaluateCommandGate(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext
+): Promise<RuntimeGateResult> {
+  const result = await executeCommand(gate.command ?? [], context, {
+    timeout: gate.timeout_ms,
+  });
+  const expected = gate.expect_exit_code ?? 0;
+  return {
+    evidence: result.evidence,
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    passed: result.exitCode === expected,
+    reason:
+      result.exitCode === expected
+        ? undefined
+        : `expected exit ${expected}, got ${result.exitCode}`,
+  };
+}
+
+function evaluateArtifactGate(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext
+): RuntimeGateResult {
+  const path = gate.path ?? "";
+  const passed = Boolean(path) && artifactExists(context.worktreePath, path);
+  return {
+    evidence: [
+      passed ? `artifact exists: ${path}` : `missing artifact: ${path}`,
+    ],
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    passed,
+    reason: passed ? undefined : `missing artifact '${path}'`,
+  };
+}
+
+async function evaluateBuiltinGate(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext
+): Promise<RuntimeGateResult> {
+  const result = await executeBuiltin(gate.builtin ?? "", context);
+  return {
+    evidence: result.evidence,
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    passed: result.exitCode === 0,
+    reason:
+      result.exitCode === 0
+        ? undefined
+        : `builtin '${gate.builtin ?? ""}' failed`,
+  };
+}
+
+function gateJsonSource(
+  gate: GateSpec,
+  context: RuntimeContext,
+  attempt: NodeAttemptResult
+): { evidence?: string; source?: string } {
+  if (gate.target === "artifact") {
+    if (!gate.path) {
+      return { evidence: "missing JSON artifact path" };
+    }
+    const source = readOptionalFile(join(context.worktreePath, gate.path));
+    return source === null
+      ? { evidence: `missing JSON artifact: ${gate.path}` }
+      : { source };
+  }
+  return { source: attempt.output };
+}
+
+function parseGateJson(
+  gate: GateSpec,
+  context: RuntimeContext,
+  attempt: NodeAttemptResult
+): { evidence?: string; value?: unknown } {
+  const source = gateJsonSource(gate, context, attempt);
+  if (source.evidence) {
+    return { evidence: source.evidence };
+  }
+  try {
+    return { value: JSON.parse(source.source ?? "") };
+  } catch (err) {
+    return {
+      evidence: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function evaluateVerdictGate(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext,
+  attempt: NodeAttemptResult
+): RuntimeGateResult {
+  const parsed = parseGateJson(gate, context, attempt);
+  const field = gate.field ?? "verdict";
+  const expected = gate.equals ?? "PASS";
+  if (parsed.evidence) {
+    return {
+      evidence: [parsed.evidence],
+      gateId,
+      kind: gate.kind,
+      nodeId,
+      passed: false,
+      reason: "verdict gate JSON parse failed",
+    };
+  }
+  const value = isRecord(parsed.value) ? parsed.value[field] : undefined;
+  const passed = value === expected;
+  return {
+    evidence: [
+      passed
+        ? `verdict '${field}' matched '${expected}'`
+        : `verdict '${field}' expected '${expected}', got '${String(value)}'`,
+    ],
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    passed,
+    reason: passed ? undefined : "verdict requirement failed",
+  };
+}
+
+function evaluateAcceptanceGate(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext,
+  attempt: NodeAttemptResult
+): RuntimeGateResult {
+  const expected = context.taskContext?.acceptanceCriteria ?? [];
+  if (expected.length === 0) {
+    return {
+      evidence: ["no acceptance criteria in task context"],
+      gateId,
+      kind: gate.kind,
+      nodeId,
+      passed: gate.required === false,
+      reason:
+        gate.required === false ? undefined : "missing task acceptance context",
+    };
+  }
+  const parsed = parseGateJson(gate, context, attempt);
+  if (parsed.evidence) {
+    return {
+      evidence: [parsed.evidence],
+      gateId,
+      kind: gate.kind,
+      nodeId,
+      passed: false,
+      reason: "acceptance gate JSON parse failed",
+    };
+  }
+  const entries = acceptanceEntries(parsed.value, gate.acceptance_key);
+  const evidence = acceptanceCoverageEvidence(expected, entries);
+  const passed = evidence.length === 0;
+  return {
+    evidence: passed ? ["acceptance coverage passed"] : evidence,
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    passed,
+    reason: passed ? undefined : "acceptance coverage failed",
+  };
+}
+
+function acceptanceEntries(
+  value: unknown,
+  key = "acceptance"
+): Record<string, unknown>[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const raw = value[key] ?? value.criteria ?? value.acceptanceCriteria;
+  return Array.isArray(raw)
+    ? raw.filter((item): item is Record<string, unknown> => isRecord(item))
+    : [];
+}
+
+function acceptanceCoverageEvidence(
+  expected: AcceptanceCriterion[],
+  entries: Record<string, unknown>[]
+): string[] {
+  const evidence: string[] = [];
+  const expectedIds = new Set(expected.map((criterion) => criterion.id));
+  const seen = new Map<string, number>();
+  for (const entry of entries) {
+    const id = typeof entry.id === "string" ? entry.id : "";
+    if (!id) {
+      evidence.push("acceptance entry missing id");
+      continue;
+    }
+    seen.set(id, (seen.get(id) ?? 0) + 1);
+    if (!expectedIds.has(id)) {
+      evidence.push(`extra acceptance criterion '${id}'`);
+    }
+    const verdict = entry.verdict;
+    if (verdict !== "PASS") {
+      evidence.push(
+        `acceptance criterion '${id}' verdict '${String(verdict)}'`
+      );
+    }
+    const itemEvidence = entry.evidence;
+    if (
+      verdict === "PASS" &&
+      (!Array.isArray(itemEvidence) ||
+        itemEvidence.filter((item) => typeof item === "string" && item.trim())
+          .length === 0)
+    ) {
+      evidence.push(`acceptance criterion '${id}' has no evidence`);
+    }
+  }
+  for (const id of expectedIds) {
+    const count = seen.get(id) ?? 0;
+    if (count === 0) {
+      evidence.push(`missing acceptance criterion '${id}'`);
+    }
+    if (count > 1) {
+      evidence.push(`duplicate acceptance criterion '${id}'`);
+    }
+  }
+  return evidence;
+}
+
+function evaluateChangedFilesGate(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext
+): RuntimeGateResult {
+  const changed = [...(context.nodeSnapshots.get(nodeId)?.files ?? new Set())];
+  const policy = gate.changed_files ?? {};
+  const evidence: string[] = [];
+  const included =
+    policy.include_untracked === false
+      ? changed.filter((file) => !file.startsWith("?? "))
+      : changed;
+  const denied = included.filter((file) =>
+    (policy.deny ?? []).some((pattern) => globMatch(pattern, file))
+  );
+  if (denied.length > 0) {
+    evidence.push(`denied changes: ${denied.join(", ")}`);
+  }
+  const disallowed = included.filter(
+    (file) =>
+      (policy.allow?.length ?? 0) > 0 &&
+      !(policy.allow ?? []).some((pattern) => globMatch(pattern, file))
+  );
+  if (disallowed.length > 0) {
+    evidence.push(`changes outside allow list: ${disallowed.join(", ")}`);
+  }
+  if (
+    (policy.require_any?.length ?? 0) > 0 &&
+    !included.some((file) =>
+      (policy.require_any ?? []).some((pattern) => globMatch(pattern, file))
+    )
+  ) {
+    evidence.push(
+      `missing required changes matching: ${(policy.require_any ?? []).join(", ")}`
     );
-    const expected = gate.expect_exit_code ?? 0;
-    return {
-      evidence: result.evidence,
-      gateId,
-      kind: gate.kind,
-      nodeId,
-      passed: result.exitCode === expected,
-      reason:
-        result.exitCode === expected
-          ? undefined
-          : `expected exit ${expected}, got ${result.exitCode}`,
-    };
   }
-  if (gate.kind === "artifact") {
-    const path = gate.path ?? "";
-    const passed = Boolean(path) && artifactExists(context.worktreePath, path);
-    return {
-      evidence: [
-        passed ? `artifact exists: ${path}` : `missing artifact: ${path}`,
-      ],
-      gateId,
-      kind: gate.kind,
-      nodeId,
-      passed,
-      reason: passed ? undefined : `missing artifact '${path}'`,
-    };
-  }
-  if (gate.kind === "builtin") {
-    const result = await executeBuiltin(gate.builtin ?? "", context);
-    return {
-      evidence: result.evidence,
-      gateId,
-      kind: gate.kind,
-      nodeId,
-      passed: result.exitCode === 0,
-      reason:
-        result.exitCode === 0
-          ? undefined
-          : `builtin '${gate.builtin ?? ""}' failed`,
-    };
-  }
-  return evaluateJsonSchemaGate(gate, gateId, nodeId, context, attempt);
+  const passed = evidence.length === 0;
+  return {
+    evidence: passed
+      ? [`changed files: ${included.join(", ") || "none"}`]
+      : evidence,
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    passed,
+    reason: passed ? undefined : "changed-file policy failed",
+  };
+}
+
+function globMatch(pattern: string, value: string): boolean {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replaceAll("**", "\u0000")
+    .replaceAll("*", "[^/]*")
+    .replaceAll("\u0000", ".*");
+  return new RegExp(`^${escaped}$`).test(value);
 }
 
 function evaluateJsonSchemaGate(
@@ -1585,7 +2051,17 @@ function hookIdsForContext(
   node?: PlannedWorkflowNode
 ): string[] {
   const workflow = context.config.workflows[context.workflowId];
-  return [...(workflow?.hooks ?? []), ...(node?.hooks ?? [])];
+  if (node) {
+    return uniqueHookIds([...(workflow?.hooks ?? []), ...(node.hooks ?? [])]);
+  }
+  return uniqueHookIds([
+    ...(context.config.orchestrator.hooks ?? []),
+    ...(workflow?.hooks ?? []),
+  ]);
+}
+
+function uniqueHookIds(hookIds: string[]): string[] {
+  return [...new Set(hookIds)];
 }
 
 function emitHookStart(
@@ -1637,6 +2113,9 @@ async function executeHook(
   node?: PlannedWorkflowNode,
   gateId?: string
 ): Promise<RuntimeFailure | null> {
+  if (hook.enabled === false) {
+    return null;
+  }
   if (hook.kind === "builtin") {
     if (hook.builtin === "log") {
       return null;
@@ -1648,10 +2127,26 @@ async function executeHook(
       reason: `hook '${hookId}' failed`,
     };
   }
+  if (context.hookPolicy.allowCommandHooks === false) {
+    return hookPolicyFailure(hookId, node, "command hooks are disabled");
+  }
+  if (
+    hook.trusted === false &&
+    context.hookPolicy.allowUntrustedCommandHooks === false
+  ) {
+    return hookPolicyFailure(hookId, node, "command hook is not trusted");
+  }
   const rendered = (hook.command ?? []).map((part) =>
     renderTemplate(part, context, failure, node, gateId)
   );
-  const result = await executeCommand(rendered, context, hook.timeout_ms);
+  const result = await executeCommand(rendered, context, {
+    env: hookEnv(hook, context),
+    extendEnv: false,
+    input: JSON.stringify(hookPayload(context, failure, node, gateId)),
+    outputLimitBytes:
+      hook.output_limit_bytes ?? context.hookPolicy.outputLimitBytes,
+    timeout: hook.timeout_ms ?? context.hookPolicy.timeoutMs,
+  });
   if (result.exitCode === 0) {
     return null;
   }
@@ -1660,6 +2155,59 @@ async function executeHook(
     gate: hookId,
     nodeId: node?.id,
     reason: `hook '${hookId}' failed`,
+  };
+}
+
+function hookPolicyFailure(
+  hookId: string,
+  node: PlannedWorkflowNode | undefined,
+  reason: string
+): RuntimeFailure {
+  return {
+    evidence: [reason],
+    gate: hookId,
+    nodeId: node?.id,
+    reason: `hook '${hookId}' failed`,
+  };
+}
+
+function hookEnv(
+  hook: HookSpec,
+  context: RuntimeContext
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  const passthrough = new Set([
+    ...context.hookPolicy.envPassthrough,
+    ...(hook.env?.passthrough ?? []),
+  ]);
+  for (const name of passthrough) {
+    const value = process.env[name];
+    if (value !== undefined) {
+      env[name] = value;
+    }
+  }
+  return {
+    ...env,
+    ...context.hookPolicy.env,
+    ...(hook.env?.set ?? {}),
+  };
+}
+
+function hookPayload(
+  context: RuntimeContext,
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): Record<string, unknown> {
+  return {
+    event: {
+      gateId,
+      nodeId: node?.id,
+      workflowId: context.workflowId,
+    },
+    failure,
+    task: context.task,
+    taskContext: context.taskContext,
   };
 }
 

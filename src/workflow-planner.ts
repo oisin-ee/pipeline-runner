@@ -1,4 +1,4 @@
-import type { PipelineConfig, WorkflowNodeKind } from "./mastra/config.js";
+import type { PipelineConfig, WorkflowNodeKind } from "./config.js";
 
 export type WorkflowPlannerErrorCode =
   | "WORKFLOW_CYCLE"

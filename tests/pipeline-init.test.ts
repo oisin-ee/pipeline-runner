@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadPipelineConfig } from "../src/mastra/config.js";
+import { loadPipelineConfig } from "../src/config.js";
 import {
   defaultPipelineScaffoldFiles,
   initPipelineProject,

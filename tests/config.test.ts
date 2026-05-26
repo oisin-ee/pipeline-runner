@@ -7,7 +7,7 @@ import {
   PipelineConfigError,
   type PipelineConfigParts,
   parsePipelineConfigParts,
-} from "../src/mastra/config.js";
+} from "../src/config.js";
 
 const VALID_RUNNERS_YAML = `
 version: 1
@@ -313,6 +313,90 @@ describe("parsePipelineConfigParts", () => {
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("missing profile 'missing-profile'");
+  });
+
+  it("accepts entrypoints, task-context resolver config, and generic gate kinds", () => {
+    const config = parseParts({
+      pipeline: `
+version: 1
+default_workflow: default
+task_context:
+  type: markdown
+  glob: backlog/tasks/*.md
+entrypoints:
+  quick:
+    workflow: default
+    description: Quick pipeline
+hooks:
+  announce-complete:
+    event: workflow.complete
+    kind: command
+    command: ["echo", "done"]
+    env:
+      passthrough: [PATH]
+      set: { PIPELINE_HOOK: "1" }
+    output_limit_bytes: 1024
+    payload: stdin
+    trusted: true
+orchestrator:
+  profile: orchestrator
+  hooks: [announce-complete]
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+        gates:
+          - id: verdict-pass
+            kind: verdict
+            target: stdout
+          - id: ac-pass
+            kind: acceptance
+            target: stdout
+          - id: files
+            kind: changed_files
+            changed_files:
+              require_any: ["tests/**/*.test.ts"]
+              deny: ["src/**/*.ts"]
+`,
+    });
+
+    expect(config.entrypoints.quick.workflow).toBe("default");
+    expect(config.task_context?.type).toBe("markdown");
+    expect(
+      config.workflows.default.nodes[0].gates?.map((gate) => gate.kind)
+    ).toEqual(["verdict", "acceptance", "changed_files"]);
+  });
+
+  it("rejects entrypoints pointing at missing workflows and invalid gate shapes", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `
+version: 1
+default_workflow: default
+entrypoints:
+  bad:
+    workflow: missing
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+        gates:
+          - kind: changed_files
+`,
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain(
+      "entrypoint 'bad' references missing workflow"
+    );
+    expect(error.message).toContain("changed_files gate");
   });
 
   it("rejects missing rule, skill, and MCP server references", () => {

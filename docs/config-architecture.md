@@ -4,7 +4,7 @@ The v1 pipeline is YAML-only and is split into three required files:
 
 - `.pipeline/runners.yaml` declares runner adapters and capabilities.
 - `.pipeline/profiles.yaml` declares reusable profiles, rules, skills, and MCP servers.
-- `.pipeline/pipeline.yaml` declares the orchestrator profile, hooks, workflows, gates, and artifacts.
+- `.pipeline/pipeline.yaml` declares the orchestrator profile, entrypoints, hooks, workflows, gates, and artifacts.
 
 Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
 prompt constants.
@@ -73,6 +73,11 @@ profiles:
 version: 1
 default_workflow: default
 
+entrypoints:
+  pipe:
+    workflow: default
+    description: Full pipeline
+
 orchestrator:
   profile: orchestrator
   hooks: []
@@ -130,6 +135,10 @@ repair evidence.
 Hooks live in `pipeline.yaml` and can be attached to the orchestrator, workflow,
 or workflow nodes.
 
+Entrypoints are stable app and CLI aliases for workflows. Runtime callers may
+pass an entrypoint name instead of a workflow id; direct workflow selection is
+kept for advanced callers and wins when both are supplied.
+
 Validation fails when the orchestrator profile or a workflow node profile
 references an undeclared registry item or asks a runner for an unsupported
 capability. Projection never silently grants broader access than the YAML
@@ -153,13 +162,30 @@ gates:
   - kind: json_schema
     target: stdout
     schema_path: .pipeline/schemas/verify.schema.json
+  - kind: verdict
+    target: stdout
+    equals: PASS
+  - kind: acceptance
+    target: stdout
+  - kind: changed_files
+    changed_files:
+      require_any: ["tests/**/*.test.ts"]
+      deny: ["src/generated/**"]
 hooks:
   - notify-start
 ```
 
-Supported builtin gates are `test`, `typecheck`, and `duplication`. Hooks run on
-workflow, node, and gate events with command or builtin callbacks. Required hook
-failure blocks the workflow; optional hook failure is recorded as evidence.
+Supported builtin gates are `test`, `typecheck`, and `duplication`.
+`json_schema` remains structural; `verdict` checks configured JSON fields such
+as `verdict: PASS`; `acceptance` compares normalized task context acceptance
+criteria with structured review output; and `changed_files` enforces
+project-configured RED/GREEN file policies.
+
+Hooks run on workflow, node, and gate events with command or builtin callbacks.
+Orchestrator workflow hooks run before workflow hooks. Required hook failure
+blocks the workflow; optional hook failure is recorded as evidence. Command
+hooks receive a JSON payload on stdin and can be constrained by host policy,
+timeouts, output limits, sanitized env, and explicit trust flags.
 
 ## Host Support Matrix
 

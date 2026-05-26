@@ -1,6 +1,14 @@
 version: 1
 default_workflow: default
 
+entrypoints:
+  pipe:
+    workflow: default
+    description: Full agent pipeline.
+  dogfood:
+    workflow: dogfood-options
+    description: Deterministic local dogfood workflow.
+
 orchestrator:
   profile: orchestrator
   hooks: [dogfood-workflow-start]
@@ -11,20 +19,25 @@ hooks:
     kind: command
     command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'workflow.start ' + process.argv[1] + '\\\\n');", "{{workflow.id}}"]
     required: true
+    trusted: true
+    output_limit_bytes: 4096
   dogfood-node-start:
     event: node.start
     kind: command
     command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'node.start ' + process.argv[1] + '\\\\n');", "{{node.id}}"]
     required: true
+    trusted: true
+    output_limit_bytes: 4096
   dogfood-optional-failure:
     event: workflow.complete
     kind: command
     command: [node, -e, "process.exit(9)"]
     required: false
+    trusted: true
 
 workflows:
   default:
-    description: Default research, red, green, verify, learn workflow.
+    description: Default research, red, green, acceptance, verify, learn workflow.
     nodes:
       - id: research
         kind: agent
@@ -37,10 +50,22 @@ workflows:
         kind: agent
         profile: pipeline-code-writer
         needs: [red]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [green]
+        gates:
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
       - id: verify
         kind: agent
         profile: pipeline-verifier
-        needs: [green]
+        needs: [acceptance]
+        gates:
+          - id: verify-verdict
+            kind: verdict
+            target: stdout
       - id: learn
         kind: agent
         profile: pipeline-learner
@@ -62,6 +87,9 @@ workflows:
             kind: json_schema
             target: stdout
             schema_path: .pipeline/schemas/dogfood.schema.json
+          - id: dogfood-verdict
+            kind: verdict
+            target: stdout
       - id: typecheck
         kind: builtin
         builtin: typecheck
@@ -85,6 +113,10 @@ workflows:
             target: artifact
             path: .pipeline/dogfood/artifact.json
             schema_path: .pipeline/schemas/dogfood.schema.json
+          - id: artifact-verdict
+            kind: verdict
+            target: artifact
+            path: .pipeline/dogfood/artifact.json
       - id: retry-gate
         kind: command
         command: [node, -e, "console.log('retry node ran')"]

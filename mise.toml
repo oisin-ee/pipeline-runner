@@ -14,10 +14,7 @@ run = "bun run check"
 run = "bun run fix"
 
 [tasks.build]
-run = "bun run mastra build"
-
-[tasks.dev]
-run = "bun run mastra dev"
+run = "bun run build:cli"
 
 [tasks."pipeline:run"]
-run = "bun run src/index.ts work-next"
+run = "bun src/index.ts pipe"
