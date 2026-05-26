@@ -1189,6 +1189,7 @@ async function executeCommand(
   }
   try {
     const result = await execa(command[0] as string, command.slice(1), {
+      cancelSignal: context.signal,
       cwd: context.worktreePath,
       ...(options.env ? { env: options.env } : {}),
       ...(options.extendEnv === false ? { extendEnv: false } : {}),
@@ -1196,7 +1197,6 @@ async function executeCommand(
       ...(options.outputLimitBytes
         ? { maxBuffer: options.outputLimitBytes }
         : {}),
-      signal: context.signal,
       timeout: options.timeout,
     });
     const output = limitOutput(

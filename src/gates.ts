@@ -92,8 +92,8 @@ export async function runTests(
 
   try {
     const result = await execa(projectCommand.command, projectCommand.args, {
+      cancelSignal: signal,
       cwd: worktreePath,
-      signal,
       shell: projectCommand.shell,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
@@ -124,8 +124,8 @@ export async function runTypecheck(
   }
   try {
     const result = await execa(projectCommand.command, projectCommand.args, {
+      cancelSignal: signal,
       cwd: worktreePath,
-      signal,
       shell: projectCommand.shell,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
@@ -176,8 +176,8 @@ export async function runJscpd(
       "bunx",
       ["jscpd", "--min-tokens", "50", "--reporters", "json", "."],
       {
+        cancelSignal: signal,
         cwd: worktreePath,
-        signal,
       }
     );
     return parseJscpdOutput(result.stdout ?? "");

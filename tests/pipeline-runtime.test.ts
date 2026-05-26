@@ -1177,7 +1177,7 @@ workflows:
     expect(mockExeca).toHaveBeenCalledWith(
       "agent-bin",
       expect.any(Array),
-      expect.objectContaining({ signal: controller.signal })
+      expect.objectContaining({ cancelSignal: controller.signal })
     );
   });
 
@@ -1246,8 +1246,100 @@ workflows:
       expect(mockExeca).toHaveBeenCalledWith(
         command,
         expect.any(Array),
-        expect.objectContaining({ signal: controller.signal })
+        expect.objectContaining({ cancelSignal: controller.signal })
       );
     }
+  });
+
+  it("returns CANCELLED when an execa-backed command node is aborted", async () => {
+    const project = tempProject();
+    const controller = new AbortController();
+    const events: Record<string, unknown>[] = [];
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    tools: []
+`,
+      pipeline: `
+version: 1
+default_workflow: cancel-flow
+orchestrator:
+  profile: orchestrator
+workflows:
+  cancel-flow:
+    nodes:
+      - id: wait
+        kind: command
+        command: [wait-bin]
+      - id: dependent
+        kind: command
+        command: [dependent-bin]
+        needs: [wait]
+`,
+    });
+
+    mockExeca.mockImplementation(
+      (
+        _command: string,
+        _args: string[],
+        options: { cancelSignal?: AbortSignal }
+      ) =>
+        new Promise((_resolve, reject) => {
+          options.cancelSignal?.addEventListener("abort", () => {
+            reject(
+              Object.assign(new Error("cancelled"), {
+                exitCode: 1,
+                stdout: "started",
+              })
+            );
+          });
+          controller.abort();
+        })
+    );
+
+    const result = await runPipelineFromConfig({
+      config,
+      reporter: (event) => events.push(event),
+      signal: controller.signal,
+      task: "cancel",
+      workflowId: "cancel-flow",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { signal: AbortSignal });
+
+    expect(result.outcome).toBe("CANCELLED");
+    expect(result.nodes.map((node) => node.nodeId)).toEqual(["wait"]);
+    expect(mockExeca).toHaveBeenCalledWith(
+      "wait-bin",
+      expect.any(Array),
+      expect.objectContaining({ cancelSignal: controller.signal })
+    );
+    expect(mockExeca).not.toHaveBeenCalledWith(
+      "dependent-bin",
+      expect.any(Array),
+      expect.any(Object)
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outcome: "CANCELLED",
+          type: "workflow.finish",
+          workflowId: "cancel-flow",
+        }),
+      ])
+    );
   });
 });

@@ -689,9 +689,9 @@ export async function runLaunchPlan(
 ): Promise<AgentResult> {
   try {
     const result = await execa(plan.command, plan.args, {
+      cancelSignal: options.signal,
       cwd: plan.cwd,
       env: plan.env,
-      signal: options.signal,
       stdin: "ignore",
       timeout: plan.timeoutMs,
     });
