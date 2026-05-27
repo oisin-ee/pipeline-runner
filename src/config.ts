@@ -123,9 +123,12 @@ const mcpServerSchema = z
     url: z
       .string()
       .url()
-      .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
-        message: "MCP server url must use http or https",
-      })
+      .refine(
+        (value) => ["http:", "https:"].includes(new URL(value).protocol),
+        {
+          message: "MCP server url must use http or https",
+        }
+      )
       .optional(),
   })
   .strict()

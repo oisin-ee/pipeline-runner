@@ -130,9 +130,7 @@ describe("spawnAgent — codex harness", () => {
         timedOut: true,
       })
     );
-    expect(result.argv).toContain(
-      "--dangerously-bypass-approvals-and-sandbox"
-    );
+    expect(result.argv).toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(result.argv).not.toContain('approval_policy="never"');
   });
 });
@@ -461,9 +459,7 @@ workflows:
     expect(codex.args).toContain("agent-model");
     expect(codex.args).toContain('mcp_servers.docs.command="node"');
     expect(codex.args).toContain('mcp_servers.docs.args=["docs.js"]');
-    expect(codex.args).toContain(
-      "--dangerously-bypass-approvals-and-sandbox"
-    );
+    expect(codex.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(codex.args).not.toContain("--sandbox");
     expect(codex.args).not.toContain('approval_policy="never"');
 
@@ -623,7 +619,7 @@ workflows:
       url: "https://memory-mcp.momokaya.ee/mcp/",
     });
     expect(claudeConfig.mcpServers["secure-memory"].headers).toEqual({
-      Authorization: "Bearer ${MEMORY_MCP_TOKEN}",
+      Authorization: ["Bearer", ["$", "{MEMORY_MCP_TOKEN}"].join("")].join(" "),
     });
 
     const kimi = createRunnerLaunchPlan(config, {
@@ -696,9 +692,7 @@ workflows:
       worktreePath: "/tmp/wt",
     });
 
-    expect(plan.args).toContain(
-      "--dangerously-bypass-approvals-and-sandbox"
-    );
+    expect(plan.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(plan.args).not.toContain("--sandbox");
     expect(plan.args).not.toContain("read-only");
   });

@@ -12,6 +12,8 @@ import { dirname, join } from "node:path";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config.js";
 
+const TOML_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 export type Harness = "claude" | "codex" | "kimi" | "opencode" | "pi";
 export type AgentRole =
   | "researcher"
@@ -750,7 +752,7 @@ function tomlValue(value: unknown): string {
 }
 
 function tomlKey(key: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+  return TOML_BARE_KEY_PATTERN.test(key) ? key : JSON.stringify(key);
 }
 
 function nativeStrategy(

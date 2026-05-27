@@ -237,9 +237,7 @@ workflows:
     expect(launchText).toContain("transport: http");
     expect(launchText).toContain("url: https://memory-mcp.momokaya.ee/mcp/");
     expect(launchText).toContain("headers: X-Memory-Region");
-    expect(launchText).toContain(
-      "bearer_token_env_var: MEMORY_MCP_TOKEN"
-    );
+    expect(launchText).toContain("bearer_token_env_var: MEMORY_MCP_TOKEN");
     expect(launchText).toContain("mcp_servers.memory.url");
   });
 
