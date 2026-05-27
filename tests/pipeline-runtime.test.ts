@@ -1213,6 +1213,20 @@ workflows:
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          edges: [],
+          nodes: [
+            expect.objectContaining({
+              id: "produce",
+              kind: "agent",
+              needs: [],
+              profile: "producer",
+              runnerId: "codex",
+            }),
+          ],
+          type: "workflow.planned",
+          workflowId: "lifecycle",
+        }),
+        expect.objectContaining({
           nodeIds: ["produce"],
           type: "workflow.start",
           workflowId: "lifecycle",
@@ -1300,6 +1314,7 @@ workflows:
       ])
     );
     const indexOf = (type: string) => events.findIndex((e) => e.type === type);
+    expect(indexOf("workflow.planned")).toBeLessThan(indexOf("workflow.start"));
     expect(indexOf("workflow.start")).toBeLessThan(indexOf("hook.start"));
     expect(indexOf("hook.start")).toBeLessThan(indexOf("hook.finish"));
     expect(indexOf("node.start")).toBeLessThan(indexOf("agent.start"));

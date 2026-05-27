@@ -126,6 +126,18 @@ export interface PipelineRuntimeResult {
 
 export type PipelineRuntimeEvent =
   | {
+      edges: { source: string; target: string }[];
+      nodes: {
+        id: string;
+        kind: PlannedWorkflowNode["kind"];
+        needs: string[];
+        profile?: string;
+        runnerId?: string;
+      }[];
+      type: "workflow.planned";
+      workflowId: string;
+    }
+  | {
       nodeIds: string[];
       type: "workflow.start";
       workflowId: string;
@@ -340,6 +352,7 @@ export async function runPipelineFromConfig(
   const context = createRuntimeContext(options);
   const nodes: RuntimeNodeResult[] = [];
 
+  emitWorkflowPlanned(context);
   emit(context, {
     nodeIds: context.plan.topologicalOrder.map((node) => node.id),
     type: "workflow.start",
@@ -732,6 +745,40 @@ function emitWorkflowFinish(
   emit(context, {
     outcome,
     type: "workflow.finish",
+    workflowId: context.workflowId,
+  });
+}
+
+function emitWorkflowPlanned(context: RuntimeContext): void {
+  emit(context, {
+    edges: context.plan.topologicalOrder.flatMap((node) =>
+      node.needs.map((source) => ({
+        source,
+        target: node.id,
+      }))
+    ),
+    nodes: context.plan.topologicalOrder.map((node) => {
+      const planned = {
+        id: node.id,
+        kind: node.kind,
+        needs: node.needs,
+      } as {
+        id: string;
+        kind: PlannedWorkflowNode["kind"];
+        needs: string[];
+        profile?: string;
+        runnerId?: string;
+      };
+      if (node.profile) {
+        planned.profile = node.profile;
+        const profile = context.config.profiles[node.profile];
+        if (profile?.runner) {
+          planned.runnerId = profile.runner;
+        }
+      }
+      return planned;
+    }),
+    type: "workflow.planned",
     workflowId: context.workflowId,
   });
 }
