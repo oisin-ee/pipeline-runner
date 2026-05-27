@@ -73,7 +73,7 @@
     "prepack": "bun run build:cli"
   },
   "type": "module",
-  "version": "1.0.2",
+  "version": "1.5.6",
   "description": "",
   "main": "index.js",
   "keywords": [],
