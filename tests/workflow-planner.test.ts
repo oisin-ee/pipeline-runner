@@ -168,6 +168,13 @@ describe("compileWorkflowPlan", () => {
           id: "research",
           kind: "agent",
           profile: "pipeline-researcher",
+          retries: {
+            backoff_ms: 500,
+            max_attempts: 3,
+            multiplier: 2,
+            retry_on: ["timeout", "exit_nonzero"],
+          },
+          timeout_ms: 5000,
         },
       ],
     };
@@ -178,6 +185,15 @@ describe("compileWorkflowPlan", () => {
       failFast: true,
       maxParallelNodes: 2,
       timeoutMs: 10_000,
+    });
+    expect(plan.topologicalOrder[0]).toMatchObject({
+      retries: {
+        backoff_ms: 500,
+        max_attempts: 3,
+        multiplier: 2,
+        retry_on: ["timeout", "exit_nonzero"],
+      },
+      timeoutMs: 5000,
     });
   });
 

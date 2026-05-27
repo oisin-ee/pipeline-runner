@@ -52,6 +52,7 @@ const GATE_KINDS = [
   "verdict",
 ] as const;
 const BUILTIN_GATES = ["duplication", "test", "typecheck"] as const;
+const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
 
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
@@ -299,7 +300,10 @@ const gateSchema = z.discriminatedUnion("kind", [
 
 const retriesSchema = z
   .object({
+    backoff_ms: z.number().int().nonnegative().optional(),
     max_attempts: z.number().int().positive(),
+    multiplier: z.number().positive().optional(),
+    retry_on: z.array(z.enum(RETRY_REASONS)).optional(),
   })
   .strict();
 
@@ -379,6 +383,7 @@ const workflowNodeBaseSchema = z.object({
   id: z.string(),
   needs: z.array(z.string()).optional(),
   retries: retriesSchema.optional(),
+  timeout_ms: z.number().int().positive().optional(),
 });
 
 const workflowNodeSchema = z.discriminatedUnion("kind", [

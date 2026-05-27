@@ -97,6 +97,12 @@ workflows:
       - id: research
         kind: agent
         profile: researcher
+        retries:
+          max_attempts: 3
+          backoff_ms: 100
+          multiplier: 2
+          retry_on: [timeout, exit_nonzero]
+        timeout_ms: 5000
       - id: red
         kind: agent
         profile: test-writer
@@ -202,6 +208,15 @@ describe("loadPipelineConfig", () => {
       "research",
       "red",
     ]);
+    expect(config.workflows.default.nodes[0]).toMatchObject({
+      retries: {
+        backoff_ms: 100,
+        max_attempts: 3,
+        multiplier: 2,
+        retry_on: ["timeout", "exit_nonzero"],
+      },
+      timeout_ms: 5000,
+    });
   });
 
   it("accepts canonical models and optional host-specific model overrides", () => {

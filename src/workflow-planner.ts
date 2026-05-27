@@ -43,6 +43,7 @@ export interface PlannedWorkflowNode {
   nodes?: string[];
   profile?: string;
   retries?: WorkflowNode["retries"];
+  timeoutMs?: number;
 }
 
 export interface WorkflowExecutionPlan {
@@ -293,7 +294,7 @@ function createWorkflowGraph(
 }
 
 function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
-  return {
+  const planned: PlannedWorkflowNode = {
     artifacts: node.artifacts,
     builtin: "builtin" in node ? node.builtin : undefined,
     command: "command" in node ? node.command : undefined,
@@ -308,6 +309,10 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
     profile: "profile" in node ? node.profile : undefined,
     retries: node.retries,
   };
+  if (node.timeout_ms) {
+    planned.timeoutMs = node.timeout_ms;
+  }
+  return planned;
 }
 
 function uniqueStrings(values: string[]): string[] {
