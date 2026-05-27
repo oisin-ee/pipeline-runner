@@ -303,6 +303,14 @@ const retriesSchema = z
   })
   .strict();
 
+const workflowExecutionSchema = z
+  .object({
+    fail_fast: z.boolean().optional(),
+    max_parallel_nodes: z.number().int().positive().optional(),
+    timeout_ms: z.number().int().positive().optional(),
+  })
+  .strict();
+
 const profileSchema = z
   .object({
     description: z.string().optional(),
@@ -403,6 +411,7 @@ const workflowNodeSchema = z.discriminatedUnion("kind", [
 const workflowSchema = z
   .object({
     description: z.string().optional(),
+    execution: workflowExecutionSchema.optional(),
     hooks: z.array(z.string()).optional(),
     nodes: z.array(workflowNodeSchema),
   })

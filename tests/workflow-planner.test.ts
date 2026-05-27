@@ -35,6 +35,7 @@ describe("compileWorkflowPlan", () => {
     const plan = compileWorkflowPlan(DEFAULT_CONFIG);
 
     expect(plan.workflowId).toBe("default");
+    expect(plan.execution).toEqual({ failFast: false });
     expect(plan.topologicalOrder.map((node) => node.id)).toEqual([
       "research",
       "red",
@@ -152,6 +153,32 @@ describe("compileWorkflowPlan", () => {
     expect(
       plan.parallelBatches.map((batch) => batch.map((node) => node.id))
     ).toEqual([["left", "right"], ["quality"]]);
+  });
+
+  it("normalizes workflow execution settings", () => {
+    const config = cloneConfig();
+    config.workflows.limited = {
+      execution: {
+        fail_fast: true,
+        max_parallel_nodes: 2,
+        timeout_ms: 10_000,
+      },
+      nodes: [
+        {
+          id: "research",
+          kind: "agent",
+          profile: "pipeline-researcher",
+        },
+      ],
+    };
+
+    const plan = compileWorkflowPlan(config, "limited");
+
+    expect(plan.execution).toEqual({
+      failFast: true,
+      maxParallelNodes: 2,
+      timeoutMs: 10_000,
+    });
   });
 
   it("rejects missing workflows", () => {

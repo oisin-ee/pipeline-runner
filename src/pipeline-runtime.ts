@@ -326,11 +326,7 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
       timeoutMs: options.hookPolicy?.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
     },
     lastOutputByNode: new Map(),
-    ...(options.maxParallelNodes
-      ? {
-          maxParallelNodes: normalizeMaxParallelNodes(options.maxParallelNodes),
-        }
-      : {}),
+    maxParallelNodes: runtimeMaxParallelNodes(options, plan),
     nodeSnapshots: new Map(),
     plan,
     ...(options.reporter ? { reporter: options.reporter } : {}),
@@ -340,6 +336,19 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     workflowId,
     worktreePath,
   };
+}
+
+function runtimeMaxParallelNodes(
+  options: PipelineRuntimeOptions,
+  plan: WorkflowExecutionPlan
+): number | undefined {
+  if (options.maxParallelNodes) {
+    return normalizeMaxParallelNodes(options.maxParallelNodes);
+  }
+  if (plan.execution.maxParallelNodes) {
+    return normalizeMaxParallelNodes(plan.execution.maxParallelNodes);
+  }
+  return;
 }
 
 function normalizeMaxParallelNodes(value: number): number {

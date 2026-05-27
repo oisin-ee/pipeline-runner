@@ -46,10 +46,17 @@ export interface PlannedWorkflowNode {
 }
 
 export interface WorkflowExecutionPlan {
+  execution: PlannedWorkflowExecution;
   graph: Graph<undefined, PlannedWorkflowNode>;
   parallelBatches: PlannedWorkflowNode[][];
   topologicalOrder: PlannedWorkflowNode[];
   workflowId: string;
+}
+
+export interface PlannedWorkflowExecution {
+  failFast: boolean;
+  maxParallelNodes?: number;
+  timeoutMs?: number;
 }
 
 type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
@@ -81,11 +88,27 @@ export function compileWorkflowPlan(
   const parallelBatches = buildParallelBatches(topologicalOrder, graph);
 
   return {
+    execution: workflowExecution(workflow),
     graph,
     parallelBatches,
     topologicalOrder,
     workflowId,
   };
+}
+
+function workflowExecution(
+  workflow: PipelineConfig["workflows"][string]
+): PlannedWorkflowExecution {
+  const execution: PlannedWorkflowExecution = {
+    failFast: workflow.execution?.fail_fast === true,
+  };
+  if (workflow.execution?.max_parallel_nodes) {
+    execution.maxParallelNodes = workflow.execution.max_parallel_nodes;
+  }
+  if (workflow.execution?.timeout_ms) {
+    execution.timeoutMs = workflow.execution.timeout_ms;
+  }
+  return execution;
 }
 
 function normalizeGroupDependencies(nodes: WorkflowNode[]): WorkflowNode[] {
