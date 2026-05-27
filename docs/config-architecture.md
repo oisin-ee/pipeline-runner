@@ -196,7 +196,7 @@ retries:
   multiplier: 2
   retry_on: [exit_nonzero, gate_failure, timeout]
 artifacts:
-  - path: .pipeline/research.json
+  - path: reports/verification.md
 gates:
   - kind: command
     command: [bun, test]
@@ -229,6 +229,9 @@ Retries default to retrying non-zero exits, required gate failures, and
 timeouts when `max_attempts` is greater than one. `retry_on` narrows that set.
 `backoff_ms` and `multiplier` apply between attempts. Per-node `timeout_ms`
 overrides the generated agent subprocess timeout and command node timeout.
+Internal node handoff uses validated runtime output, not repo-level artifact
+files. Declare artifacts only for durable files that should remain inspectable
+after the node runs.
 
 Supported builtin gates are `test`, `typecheck`, and `duplication`.
 `json_schema` remains structural; `verdict` checks configured JSON fields such

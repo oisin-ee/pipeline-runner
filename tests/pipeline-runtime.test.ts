@@ -282,7 +282,8 @@ workflows:
       worktreePath: project,
     });
 
-    expect(started).toEqual(["start", "left", "right"]);
+    expect(started[0]).toBe("start");
+    expect(started.slice(1).sort()).toEqual(["left", "right"]);
   });
 
   it("limits parallel node execution when configured", async () => {

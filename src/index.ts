@@ -111,6 +111,8 @@ function formatRuntimeProgressMessage(event: PipelineRuntimeEvent): string {
 
 function formatWorkflowProgress(event: PipelineRuntimeEvent): string | null {
   switch (event.type) {
+    case "workflow.planned":
+      return `Pipeline planned: ${event.workflowId} (${event.nodes.map((node) => node.id).join(" -> ")})`;
     case "workflow.start":
       return `Pipeline starting: ${event.workflowId} (${event.nodeIds.join(" -> ")})`;
     case "node.start":
@@ -124,6 +126,8 @@ function formatWorkflowProgress(event: PipelineRuntimeEvent): string | null {
         .join(" ");
     case "node.finish":
       return `Node finished: ${event.nodeId} ${event.status} exit=${event.exitCode}`;
+    case "node.output.recorded":
+      return `Node output recorded: ${event.nodeId} format=${event.format}`;
     case "workflow.finish":
       return `Pipeline finished: ${event.workflowId} ${event.outcome}`;
     default:

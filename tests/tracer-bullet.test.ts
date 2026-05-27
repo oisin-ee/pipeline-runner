@@ -121,8 +121,6 @@ workflows:
       - id: research
         kind: agent
         profile: researcher
-        artifacts:
-          - path: .pipeline/research.json
       - id: red
         kind: agent
         profile: test-writer
@@ -219,14 +217,6 @@ if (
   prompt.includes("You are a researcher") ||
   prompt.includes("You are a bounded researcher")
 ) {
-  fs.mkdirSync(path.join(process.cwd(), ".pipeline"), { recursive: true });
-  fs.writeFileSync(
-    path.join(process.cwd(), ".pipeline", "research.json"),
-    JSON.stringify({
-      findings: ["researched deterministic integrated pipeline behavior"],
-      ac: ["tracer feature passes"]
-    })
-  );
   process.stdout.write("researched deterministic integrated pipeline behavior");
   process.exit(0);
 }
@@ -437,16 +427,12 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
 
     await pipe("PIPE-14 tracer bullet");
 
-    const researchPath = join(env.worktreePath, ".pipeline", "research.json");
     const rolePrompts = readCommandLog(env.logPath)
       .filter((entry) => entry.type === "role")
       .map((entry) => entry.prompt ?? "");
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining("Pipeline complete: PASS")
-    );
-    expect(readFileSync(researchPath, "utf8")).toContain(
-      "researched deterministic integrated pipeline behavior"
     );
     expect(rolePrompts.some((prompt) => prompt.includes("Test first"))).toBe(
       false
