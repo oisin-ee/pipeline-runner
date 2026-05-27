@@ -349,6 +349,35 @@ workflows:
     expect(maxActive).toBe(1);
   });
 
+  it("stops a ready batch when fail_fast is enabled", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  fail-fast:
+    execution:
+      fail_fast: true
+    nodes:
+      - { id: left, kind: agent, profile: a }
+      - { id: right, kind: agent, profile: b }
+`);
+    const seen: string[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        return { exitCode: plan.nodeId === "left" ? 1 : 0, stdout: "" };
+      },
+      task: "parallel",
+      workflowId: "fail-fast",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(seen).toEqual(["left"]);
+    expect(result.nodeStates.left).toMatchObject({ status: "failed" });
+    expect(result.nodeStates.right).toMatchObject({ status: "skipped" });
+  });
+
   it("fails missing artifact gates and blocks dependents", async () => {
     const project = tempProject();
     const config = baseConfig(`
@@ -416,6 +445,108 @@ workflows:
 
     expect(result.outcome).toBe("PASS");
     expect(result.nodes[0]).toMatchObject({ attempts: 2, status: "passed" });
+  });
+
+  it("honors retry_on when deciding whether to retry a failed node", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  retry-flow:
+    nodes:
+      - id: flaky
+        kind: agent
+        profile: a
+        retries:
+          max_attempts: 2
+          retry_on: [exit_nonzero]
+        gates:
+          - kind: command
+            command: [check-flaky]
+`);
+    mockExeca.mockRejectedValueOnce({ exitCode: 1, stdout: "no", stderr: "" });
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ flaky: "done" }),
+      task: "retry",
+      workflowId: "retry-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.nodes[0]).toMatchObject({ attempts: 1, status: "failed" });
+    expect(mockExeca).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies node timeout to agent and command execution", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  timeout-flow:
+    nodes:
+      - id: agent-timeout
+        kind: agent
+        profile: a
+        timeout_ms: 1234
+      - id: command-timeout
+        kind: command
+        command: [node, slow.js]
+        timeout_ms: 2345
+        needs: [agent-timeout]
+`);
+    mockExeca.mockResolvedValueOnce({ exitCode: 0, stdout: "", stderr: "" });
+    const timeouts: number[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        timeouts.push(plan.timeoutMs);
+        return { exitCode: 0, stdout: "done" };
+      },
+      task: "timeout",
+      workflowId: "timeout-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(timeouts).toEqual([1234]);
+    expect(mockExeca).toHaveBeenCalledWith(
+      "node",
+      ["slow.js"],
+      expect.objectContaining({ timeout: 2345 })
+    );
+  });
+
+  it("retries timed-out command nodes when retry_on includes timeout", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  timeout-retry:
+    nodes:
+      - id: command-timeout
+        kind: command
+        command: [node, slow.js]
+        timeout_ms: 50
+        retries:
+          max_attempts: 2
+          retry_on: [timeout]
+`);
+    mockExeca
+      .mockRejectedValueOnce({
+        exitCode: 1,
+        stderr: "",
+        stdout: "",
+        timedOut: true,
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "ok", stderr: "" });
+
+    const result = await runPipelineFromConfig({
+      config,
+      task: "timeout",
+      workflowId: "timeout-retry",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.nodes[0]).toMatchObject({ attempts: 2, status: "passed" });
+    expect(mockExeca).toHaveBeenCalledTimes(2);
   });
 
   it("validates JSON schema output gates", async () => {

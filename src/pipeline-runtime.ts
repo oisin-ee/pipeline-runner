@@ -267,6 +267,7 @@ interface NodeAttemptResult {
   evidence: string[];
   exitCode: number;
   output: string;
+  timedOut?: boolean;
 }
 
 interface ChangedFilesSnapshot {
@@ -285,6 +286,8 @@ interface NodeAttemptCycleResult {
   last: NodeAttemptResult;
   result?: RuntimeNodeResult;
 }
+
+type RetryReason = "exit_nonzero" | "gate_failure" | "timeout";
 
 type NodeStateEvent =
   | { at: string; attempt: number; type: "NODE_STARTED" }
@@ -455,6 +458,9 @@ function executeWorkflowBatch(
   for (const node of batch) {
     transitionNode(context, node.id, { at: now(), type: "NODE_READY" });
   }
+  if (context.plan.execution.failFast) {
+    return executeFailFastWorkflowBatch(batch, context);
+  }
   if (!context.maxParallelNodes) {
     return Promise.all(batch.map((node) => executeNode(node, context)));
   }
@@ -462,6 +468,38 @@ function executeWorkflowBatch(
   return Promise.all(
     batch.map((node) => limit(() => executeNode(node, context)))
   );
+}
+
+async function executeFailFastWorkflowBatch(
+  batch: PlannedWorkflowNode[],
+  context: RuntimeContext
+): Promise<RuntimeNodeResult[]> {
+  const results: RuntimeNodeResult[] = [];
+  for (const [index, node] of batch.entries()) {
+    const result = await executeNode(node, context);
+    results.push(result);
+    if (result.status === "failed") {
+      skipRemainingBatchNodes(batch, index + 1, context, result.nodeId);
+      return results;
+    }
+  }
+  return results;
+}
+
+function skipRemainingBatchNodes(
+  batch: PlannedWorkflowNode[],
+  startIndex: number,
+  context: RuntimeContext,
+  failedNodeId: string
+): void {
+  const reason = `skipped because workflow fail_fast stopped after node '${failedNodeId}' failed`;
+  for (const node of batch.slice(startIndex)) {
+    transitionNode(context, node.id, {
+      at: now(),
+      reason,
+      type: "NODE_SKIPPED",
+    });
+  }
 }
 
 async function successfulRuntimeResult(
@@ -692,19 +730,19 @@ async function executeNode(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): Promise<RuntimeNodeResult> {
-  const maxAttempts = node.retries?.max_attempts ?? 1;
+  const retryPolicy = nodeRetryPolicy(node);
   let last: NodeAttemptResult = {
     evidence: [],
     exitCode: 1,
     output: "",
   };
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
     const cycle = await executeNodeAttemptCycle(
       node,
       context,
       attempt,
-      maxAttempts,
+      retryPolicy,
       last
     );
     last = cycle.last;
@@ -714,16 +752,48 @@ async function executeNode(
     }
   }
 
-  const result = nodeFailure(node.id, maxAttempts, last.evidence, last.output);
+  const result = nodeFailure(
+    node.id,
+    retryPolicy.maxAttempts,
+    last.evidence,
+    last.output
+  );
   emitNodeFinish(context, result);
   return result;
+}
+
+interface NodeRetryPolicy {
+  backoffMs: number;
+  maxAttempts: number;
+  multiplier: number;
+  retryOn: Set<RetryReason>;
+}
+
+function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
+  const retryOn = new Set<RetryReason>([
+    "exit_nonzero",
+    "gate_failure",
+    "timeout",
+  ]);
+  if (node.retries?.retry_on) {
+    retryOn.clear();
+    for (const reason of node.retries.retry_on) {
+      retryOn.add(reason);
+    }
+  }
+  return {
+    backoffMs: node.retries?.backoff_ms ? node.retries.backoff_ms : 0,
+    maxAttempts: node.retries?.max_attempts ? node.retries.max_attempts : 1,
+    multiplier: node.retries?.multiplier ? node.retries.multiplier : 1,
+    retryOn,
+  };
 }
 
 async function executeNodeAttemptCycle(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  maxAttempts: number,
+  retryPolicy: NodeRetryPolicy,
   previous: NodeAttemptResult
 ): Promise<NodeAttemptCycleResult> {
   if (isCancelled(context)) {
@@ -873,7 +943,11 @@ async function executeNodeAttemptCycle(
   const evidence = failedGate
     ? [...last.evidence, ...failedGate.evidence]
     : last.evidence.concat(`node exited with code ${last.exitCode}`);
-  if (attempt === maxAttempts) {
+  const retryReason = nodeRetryReason(last, failedGate);
+  if (
+    attempt === retryPolicy.maxAttempts ||
+    !retryPolicy.retryOn.has(retryReason)
+  ) {
     await dispatchHooks(
       context,
       "node.error",
@@ -895,7 +969,62 @@ async function executeNodeAttemptCycle(
     return { last, result };
   }
 
+  await waitBeforeRetry(context, retryPolicy, attempt);
   return { last };
+}
+
+function nodeRetryReason(
+  attempt: NodeAttemptResult,
+  failedGate?: RuntimeGateResult
+): RetryReason {
+  if (attempt.timedOut) {
+    return "timeout";
+  }
+  if (failedGate) {
+    return "gate_failure";
+  }
+  return "exit_nonzero";
+}
+
+async function waitBeforeRetry(
+  context: RuntimeContext,
+  retryPolicy: NodeRetryPolicy,
+  attempt: number
+): Promise<void> {
+  const duration = retryBackoffDuration(retryPolicy, attempt);
+  if (duration <= 0) {
+    return;
+  }
+  await sleep(duration, context.signal);
+}
+
+function retryBackoffDuration(
+  retryPolicy: NodeRetryPolicy,
+  attempt: number
+): number {
+  if (retryPolicy.backoffMs === 0) {
+    return 0;
+  }
+  return Math.round(
+    retryPolicy.backoffMs * retryPolicy.multiplier ** (attempt - 1)
+  );
+}
+
+function sleep(duration: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, duration);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true }
+    );
+  });
 }
 
 function cancelledNodeResult(
@@ -970,7 +1099,9 @@ function executeNodeAttempt(
     case "agent":
       return executeAgentNode(node, context, attempt);
     case "command":
-      return executeCommand(node.command ?? [], context);
+      return executeCommand(node.command ?? [], context, {
+        timeout: node.timeoutMs,
+      });
     case "builtin":
       return executeBuiltin(node.builtin ?? "", context);
     case "group":
@@ -1005,6 +1136,9 @@ async function executeAgentNode(
     prompt,
     worktreePath: context.worktreePath,
   });
+  if (node.timeoutMs) {
+    plan.timeoutMs = node.timeoutMs;
+  }
   context.agentInvocations.push(plan);
   emitAgentStart(context, plan, attempt);
   const result = await context.executor(plan, { signal: context.signal });
@@ -1026,6 +1160,7 @@ async function executeAgentNode(
     ],
     exitCode: result.exitCode,
     output: finalized.output,
+    timedOut: result.timedOut,
   };
 }
 
@@ -1487,6 +1622,7 @@ async function executeCommand(
       ].filter(Boolean),
       exitCode: e.exitCode ?? 1,
       output: output.text,
+      timedOut: Boolean(e.timedOut),
     };
   }
 }
