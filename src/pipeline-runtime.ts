@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { execa } from "execa";
+import micromatch from "micromatch";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -1831,12 +1832,7 @@ function evaluateChangedFilesGate(
 }
 
 function globMatch(pattern: string, value: string): boolean {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replaceAll("**", "\u0000")
-    .replaceAll("*", "[^/]*")
-    .replaceAll("\u0000", ".*");
-  return new RegExp(`^${escaped}$`).test(value);
+  return micromatch.isMatch(value, pattern, { dot: true });
 }
 
 function evaluateJsonSchemaGate(
