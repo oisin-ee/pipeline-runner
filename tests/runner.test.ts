@@ -31,7 +31,7 @@ function parseTestConfig(parts: {
 }
 
 describe("spawnAgent — claude harness", () => {
-  it("invokes claude --print -p <prompt> (no contextFile)", async () => {
+  it("invokes claude --print with bypass permissions (no contextFile)", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("claude output", 0));
 
     const result = await spawnAgent(
@@ -44,7 +44,7 @@ describe("spawnAgent — claude harness", () => {
 
     expect(mockExeca).toHaveBeenCalledWith(
       "claude",
-      ["--print", "-p", "do the thing"],
+      ["--print", "--dangerously-skip-permissions", "-p", "do the thing"],
       expect.objectContaining({ cwd: "/tmp/wt" })
     );
     expect(result).toEqual(
@@ -75,7 +75,7 @@ describe("spawnAgent — claude harness", () => {
 });
 
 describe("spawnAgent — codex harness", () => {
-  it("invokes codex exec with noninteractive write/approval flags", async () => {
+  it("invokes codex exec with bypass approvals and sandbox flag", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("codex output", 0));
 
     const result = await spawnAgent(
@@ -93,10 +93,7 @@ describe("spawnAgent — codex harness", () => {
         "--json",
         "-C",
         "/tmp/wt",
-        "--sandbox",
-        "workspace-write",
-        "--config",
-        'approval_policy="never"',
+        "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
         "write tests",
       ],
@@ -133,7 +130,10 @@ describe("spawnAgent — codex harness", () => {
         timedOut: true,
       })
     );
-    expect(result.argv).toContain('approval_policy="never"');
+    expect(result.argv).toContain(
+      "--dangerously-bypass-approvals-and-sandbox"
+    );
+    expect(result.argv).not.toContain('approval_policy="never"');
   });
 });
 
@@ -461,6 +461,11 @@ workflows:
     expect(codex.args).toContain("agent-model");
     expect(codex.args).toContain('mcp_servers.docs.command="node"');
     expect(codex.args).toContain('mcp_servers.docs.args=["docs.js"]');
+    expect(codex.args).toContain(
+      "--dangerously-bypass-approvals-and-sandbox"
+    );
+    expect(codex.args).not.toContain("--sandbox");
+    expect(codex.args).not.toContain('approval_policy="never"');
 
     const claude = createRunnerLaunchPlan(config, {
       profileId: "claude-agent",
@@ -472,6 +477,7 @@ workflows:
     expect(claude.args).toContain("Read,Bash");
     expect(claude.args).toContain("--mcp-config");
     expect(claude.args.join(" ")).toContain('"mcpServers"');
+    expect(claude.args).toContain("--dangerously-skip-permissions");
 
     const opencode = createRunnerLaunchPlan(config, {
       profileId: "opencode-agent",
@@ -494,6 +500,7 @@ workflows:
     expect(kimi.args).toContain("--skills-dir");
     expect(kimi.args).toContain("/tmp/wt/.agents/skills/research");
     expect(kimi.args).toContain("--mcp-config");
+    expect(kimi.args).toContain("--yolo");
     expect(kimi.args).toContain("--final-message-only");
 
     const pi = createRunnerLaunchPlan(config, {
@@ -678,7 +685,7 @@ workflows:
     expect(orchestrator.args).toContain("runner-codex");
   });
 
-  it("uses read-only Codex sandbox for read-only profiles", () => {
+  it("uses Codex bypass mode for read-only profiles", () => {
     const config = structuredClone(CONFIG);
     config.profiles["codex-agent"].filesystem = { mode: "read-only" };
 
@@ -689,8 +696,10 @@ workflows:
       worktreePath: "/tmp/wt",
     });
 
-    expect(plan.args).toEqual(
-      expect.arrayContaining(["--sandbox", "read-only"])
+    expect(plan.args).toContain(
+      "--dangerously-bypass-approvals-and-sandbox"
     );
+    expect(plan.args).not.toContain("--sandbox");
+    expect(plan.args).not.toContain("read-only");
   });
 });

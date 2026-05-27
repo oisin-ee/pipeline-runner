@@ -334,27 +334,21 @@ function cliDispatchLine(route: AgentDispatchRoute): string {
 
 function runnerCliCommand(route: AgentDispatchRoute): string {
   if (route.runnerId === "codex") {
-    return `codex exec --json -C <repo-root> --sandbox ${codexSandbox(route.profile)} --skip-git-repo-check <node prompt>`;
+    return "codex exec --json -C <repo-root> --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check <node prompt>";
   }
   if (route.runnerId === "kimi") {
-    return `kimi --print --agent-file .kimi/agents/${route.profileId}.yaml --work-dir <repo-root> --final-message-only --prompt <node prompt>`;
+    return `kimi --print --agent-file .kimi/agents/${route.profileId}.yaml --work-dir <repo-root> --yolo --final-message-only --prompt <node prompt>`;
   }
   if (route.runnerId === "opencode") {
     return `opencode run --agent ${route.profileId} --format json --dir <repo-root> <node prompt>`;
   }
   if (route.runnerId === "claude") {
-    return `claude --agent ${route.profileId} --print -p <node prompt>`;
+    return `claude --agent ${route.profileId} --print --dangerously-skip-permissions -p <node prompt>`;
   }
   if (route.runnerId === "pi") {
     return "pi --print --no-session <node prompt>";
   }
   return `${route.runnerId} <node prompt>`;
-}
-
-function codexSandbox(profile: PipelineConfig["profiles"][string]): string {
-  return profile.filesystem?.mode === "workspace-write"
-    ? "workspace-write"
-    : "read-only";
 }
 
 function nodePromptContract(
