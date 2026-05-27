@@ -124,10 +124,17 @@ orchestrator:
 
 workflows:
   default:
+    execution:
+      fail_fast: true
+      max_parallel_nodes: 2
     nodes:
       - id: implement
         kind: agent
         profile: implementer
+        timeout_ms: 300000
+        retries:
+          max_attempts: 2
+          retry_on: [exit_nonzero, gate_failure, timeout]
         gates:
           - kind: builtin
             builtin: test
@@ -189,6 +196,9 @@ runners:
 - Native subagent strategy is preferred when the selected runner can represent
   the configured semantics. Otherwise the runtime uses a subprocess boundary.
 - Parallel DAG batches run concurrently after dependencies and gates pass.
+- Workflow execution can cap parallelism and enable fail-fast batch stopping.
+- Nodes can declare bounded retries, retry reasons, backoff, and execution
+  timeouts.
 - Agent self-reporting is not enough to pass deterministic gates.
 - JSON Schema gates validate structure only. Use `verdict` and `acceptance`
   gates to enforce semantic pass/fail and per-criterion coverage.

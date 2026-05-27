@@ -102,6 +102,24 @@ workflows:
         needs: [research]
 ```
 
+Workflow execution settings are declared at the workflow level:
+
+```yaml
+workflows:
+  default:
+    execution:
+      fail_fast: true
+      max_parallel_nodes: 2
+      timeout_ms: 600000
+    nodes: []
+```
+
+`max_parallel_nodes` caps ready DAG nodes for that workflow. `fail_fast` stops
+the current ready batch after the first failed node and marks the remaining
+ready nodes as skipped. `timeout_ms` is normalized into the plan for callers
+that want a workflow-wide budget; node execution still uses per-node
+`timeout_ms`.
+
 ## Registries And Grants
 
 Runner adapters live in `runners.yaml`. Profiles live in `profiles.yaml` and
@@ -171,8 +189,12 @@ requested.
 Workflow nodes can declare:
 
 ```yaml
+timeout_ms: 300000
 retries:
   max_attempts: 2
+  backoff_ms: 1000
+  multiplier: 2
+  retry_on: [exit_nonzero, gate_failure, timeout]
 artifacts:
   - path: .pipeline/research.json
 gates:
@@ -196,6 +218,17 @@ gates:
 hooks:
   - notify-start
 ```
+
+Node shapes are strict and discriminated by `kind`: `agent` nodes require
+`profile`, `command` nodes require `command`, `builtin` nodes require
+`builtin`, and `group` nodes require `nodes`. Gate shapes follow the same
+strict `kind` discriminator, so unrelated fields fail validation instead of
+being ignored.
+
+Retries default to retrying non-zero exits, required gate failures, and
+timeouts when `max_attempts` is greater than one. `retry_on` narrows that set.
+`backoff_ms` and `multiplier` apply between attempts. Per-node `timeout_ms`
+overrides the generated agent subprocess timeout and command node timeout.
 
 Supported builtin gates are `test`, `typecheck`, and `duplication`.
 `json_schema` remains structural; `verdict` checks configured JSON fields such
