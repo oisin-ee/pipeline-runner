@@ -260,10 +260,7 @@ describe("installCommands", () => {
   it("uses canonical runner models for OpenCode native mixed-runner subagents", async () => {
     const runnersPath = join(dir, ".pipeline/runners.yaml");
     const runners = readFileSync(runnersPath, "utf8")
-      .replace(
-        "    model: gpt-5.5",
-        "    model: openai/gpt-5.3-codex"
-      )
+      .replace("    model: gpt-5.5", "    model: openai/gpt-5.3-codex")
       .replace(
         "  kimi:\n    type: kimi",
         "  kimi:\n    type: kimi\n    model: moonshot/kimi-k2.6"

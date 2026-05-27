@@ -598,20 +598,20 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
       }
       return {
         content: `${hashHeader("codex")}${stringifyToml({
-        description: profile.description ?? id,
-        developer_instructions: [
-          profile.description ?? id,
-          instructionsPointer(profile),
-          "Configured grants:",
-          grants(profile),
-        ].join("\n"),
-        model,
-        name: id,
-        sandbox_mode:
-          profile.filesystem?.mode === "workspace-write"
-            ? "workspace-write"
-            : "read-only",
-      }).trimEnd()}\n`,
+          description: profile.description ?? id,
+          developer_instructions: [
+            profile.description ?? id,
+            instructionsPointer(profile),
+            "Configured grants:",
+            grants(profile),
+          ].join("\n"),
+          model,
+          name: id,
+          sandbox_mode:
+            profile.filesystem?.mode === "workspace-write"
+              ? "workspace-write"
+              : "read-only",
+        }).trimEnd()}\n`,
         host: "codex" as const,
         invocation: "$pipe <task description>",
         path: `.codex/agents/${id}.toml`,
