@@ -1,10 +1,10 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { execa } from "execa";
 import micromatch from "micromatch";
 import pLimit from "p-limit";
+import simpleGit from "simple-git";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -583,10 +583,10 @@ async function executeNodeAttemptCycle(
 
   context.nodeSnapshots.set(
     node.id,
-    snapshotChangedFiles(context.worktreePath)
+    await snapshotChangedFiles(context.worktreePath)
   );
   const last = await executeNodeAttempt(node, context, attempt);
-  const afterSnapshot = snapshotChangedFiles(context.worktreePath);
+  const afterSnapshot = await snapshotChangedFiles(context.worktreePath);
   const beforeSnapshot = context.nodeSnapshots.get(node.id);
   if (beforeSnapshot) {
     context.nodeSnapshots.set(
@@ -710,25 +710,13 @@ function nodeFailure(
   };
 }
 
-function snapshotChangedFiles(worktreePath: string): ChangedFilesSnapshot {
+async function snapshotChangedFiles(
+  worktreePath: string
+): Promise<ChangedFilesSnapshot> {
   try {
-    const output = execFileSync(
-      "git",
-      ["status", "--porcelain=v1", "--untracked-files=all"],
-      {
-        cwd: worktreePath,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }
-    );
+    const status = await simpleGit({ baseDir: worktreePath }).status();
     return {
-      files: new Set(
-        output
-          .split(LINE_RE)
-          .map((line) => line.slice(3).trim())
-          .map((line) => line.replace(/^"|"$/g, ""))
-          .filter(Boolean)
-      ),
+      files: new Set(status.files.map((file) => file.path).filter(Boolean)),
     };
   } catch {
     return { files: new Set() };
