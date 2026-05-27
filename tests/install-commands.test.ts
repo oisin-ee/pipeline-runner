@@ -108,7 +108,7 @@ describe("installCommands", () => {
     expect(opencodeCommand).not.toContain("subtask: true");
     expect(opencodeOrchestrator).toContain("task: deny");
     expect(opencodeOrchestrator).toContain(
-      "red: codex CLI profile=pipeline-test-writer"
+      "red: codex CLI profile=pipeline-test-writer command="
     );
     expect(codexSkill).toContain("$pipe <task description>");
     expect(codexSkill).toContain(
@@ -284,6 +284,49 @@ describe("installCommands", () => {
       readFileSync(join(dir, ".opencode/commands/pipe.md"), "utf8")
     ).toContain(
       "green: Task tool subagent_type=pipeline-code-writer model=moonshot/kimi-k2.6 runner=kimi needs=red"
+    );
+  });
+
+  it("does not invent OpenCode native models for mixed-runner subagents", async () => {
+    const profilesPath = join(dir, ".pipeline/profiles.yaml");
+    const profiles = readFileSync(profilesPath, "utf8")
+      .replace(
+        "  orchestrator:\n    runner: codex",
+        "  orchestrator:\n    runner: opencode"
+      )
+      .replace(
+        "  pipeline-researcher:\n    runner: codex",
+        "  pipeline-researcher:\n    runner: claude"
+      )
+      .replace(
+        "  pipeline-code-writer:\n    runner: codex",
+        "  pipeline-code-writer:\n    runner: kimi"
+      );
+    writeFileSync(profilesPath, profiles);
+
+    await installCommands({ cwd: dir, force: true, host: "opencode" });
+
+    const command = readFileSync(
+      join(dir, ".opencode/commands/pipe.md"),
+      "utf8"
+    );
+    expect(
+      existsSync(join(dir, ".opencode/agents/pipeline-researcher.md"))
+    ).toBe(false);
+    expect(
+      existsSync(join(dir, ".opencode/agents/pipeline-code-writer.md"))
+    ).toBe(false);
+    expect(command).toContain(
+      "research: claude CLI profile=pipeline-researcher command="
+    );
+    expect(command).toContain(
+      "green: kimi CLI profile=pipeline-code-writer command="
+    );
+    expect(command).not.toContain(
+      "research: Task tool subagent_type=pipeline-researcher"
+    );
+    expect(command).not.toContain(
+      "green: Task tool subagent_type=pipeline-code-writer"
     );
   });
 
