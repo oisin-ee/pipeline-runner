@@ -1,4 +1,0 @@
-description = "Minimal live OpenCode runner check."
-developer_instructions = "Minimal live OpenCode runner check.\nInstructions:\nReply with exactly OK. Do not inspect files. Do not run tools.\nConfigured grants:\nmodel: default\ntools: none\nrules: none\nskills: none\nmcp_servers: none\nfilesystem: read-only\nnetwork: inherit\noutput: text"
-name = "dogfood-opencode-live"
-sandbox_mode = "read-only"

@@ -220,7 +220,7 @@ describe("spawnAgent — opencode harness", () => {
 });
 
 describe("spawnAgent — pi harness", () => {
-  it("invokes pi --print --mode json --no-session with context in prompt", async () => {
+  it("invokes pi --print --no-session with context in prompt", async () => {
     mockExeca.mockReturnValue(makeSimpleResult('{"type":"agent_end"}', 0));
     const { writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
@@ -240,7 +240,7 @@ describe("spawnAgent — pi harness", () => {
 
       expect(mockExeca).toHaveBeenCalledWith(
         "pi",
-        ["--print", "--mode", "json", "--no-session", "CONTEXT\nresearch this"],
+        ["--print", "--no-session", "CONTEXT\nresearch this"],
         expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
       );
 
@@ -490,6 +490,7 @@ workflows:
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });
+    expect(kimi.args).toContain("--print");
     expect(kimi.args).toContain("--skills-dir");
     expect(kimi.args).toContain("/tmp/wt/.agents/skills/research");
     expect(kimi.args).toContain("--mcp-config");

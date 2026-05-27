@@ -10,12 +10,20 @@ Entrypoints:
 - pipe -> default (Full agent pipeline.)
 - dogfood -> dogfood-options (Deterministic local dogfood workflow.)
 
-- research kind=agent profile=pipeline-researcher needs=none
-- red kind=agent profile=pipeline-test-writer needs=research
-- green kind=agent profile=pipeline-code-writer needs=red
-- acceptance kind=agent profile=pipeline-acceptance-reviewer needs=green
-- verify kind=agent profile=pipeline-verifier needs=acceptance
-- learn kind=agent profile=pipeline-learner needs=verify
+- research kind=agent profile=pipeline-researcher runner=codex needs=none
+- red kind=agent profile=pipeline-test-writer runner=codex needs=research
+- green kind=agent profile=pipeline-code-writer runner=codex needs=red
+- acceptance kind=agent profile=pipeline-acceptance-reviewer runner=codex needs=green
+- verify kind=agent profile=pipeline-verifier runner=codex needs=acceptance
+- learn kind=agent profile=pipeline-learner runner=codex needs=verify
+
+Node dispatch:
+- research: codex CLI profile=pipeline-researcher runner=codex
+- red: codex CLI profile=pipeline-test-writer runner=codex
+- green: codex CLI profile=pipeline-code-writer runner=codex
+- acceptance: codex CLI profile=pipeline-acceptance-reviewer runner=codex
+- verify: codex CLI profile=pipeline-verifier runner=codex
+- learn: codex CLI profile=pipeline-learner runner=codex
 
 Configured orchestrator:
 model: gpt-5
@@ -29,6 +37,14 @@ hooks: dogfood-workflow-start
 
 Instructions: .pipeline/prompts/orchestrator.md
 
-Use this host's native subagent mechanism for agent workflow nodes. Do not invoke package scripts or the pipeline CLI to run this workflow.
+Dispatch each agent workflow node by its runner. For lines marked `Claude native subagent`, use Claude's Task tool with `subagent_type` exactly equal to the configured profile id. For lines marked CLI, invoke that runner's CLI directly. Do not substitute a default subagent. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.
+
+For CLI-dispatched nodes, construct the node prompt with the task, workflow id, node id, profile id, runner id, and dependency outputs.
+CLI dispatch command shapes:
+- codex: `codex exec --json -C <repo-root> --sandbox <mode> --config 'approval_policy="never"' --skip-git-repo-check <node prompt>`
+- kimi: `kimi --print --agent-file .kimi/agents/<profile>.yaml --work-dir <repo-root> --final-message-only --prompt <node prompt>`
+- opencode: `opencode run --agent <profile> --format json --dir <repo-root> <node prompt>`
+- claude: `claude --print -p <node prompt>`
+- pi: `pi --print --no-session <node prompt>`
 
 Delegate work only to configured profiles: `dogfood-artifact-writer`, `dogfood-checker`, `dogfood-claude-live`, `dogfood-codex-live`, `dogfood-kimi-live`, `dogfood-opencode-live`, `dogfood-pi-live`, `pipeline-acceptance-reviewer`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.

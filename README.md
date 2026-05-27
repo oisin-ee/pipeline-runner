@@ -152,21 +152,35 @@ Generate native host files from the YAML config:
 pipe install-commands --host all
 ```
 
-Generated resources are projections of the three config files; they are not
-separate sources of truth. The pipeline `orchestrator.profile` configures the
-host orchestrator surface, while workflow node `profile` values configure
-delegated agent boundaries.
+Generated resources are derived from the three config files; they are not
+separate sources of truth. Host resources use exact native agents when the node
+runner matches the host. Cross-runner nodes use host-native execution only when
+the host can run the requested model explicitly, such as OpenCode subagents with
+a resolved `model:`; otherwise generated instructions dispatch to that runner's
+CLI instead of doing instruction-only translation.
 
-| Host | Generated files | Invocation |
-| --- | --- | --- |
-| Claude Code | `.claude/commands/pipe.md`, `.claude/agents/*.md` | `/pipe <task>` |
-| Codex | `.agents/skills/pipe/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>` |
-| OpenCode | `.opencode/commands/pipe.md`, `.opencode/agents/*.md` | `/pipe <task>` |
-| Kimi | `.kimi/commands/pipe.md`, `.kimi/agents/*.md` | `/pipe <task>` |
-| Pi | `.pi/extensions/pipe.ts`, `.pi/prompts/pipe.md` | `/pipe <task>` |
+| Host        | Generated files                                        | Invocation           |
+| ----------- | ------------------------------------------------------ | -------------------- |
+| Claude Code | `.claude/commands/pipe.md`, `.claude/agents/*.md`      | `/pipe <task>`       |
+| Codex       | `.agents/skills/pipe/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>`       |
+| OpenCode    | `.opencode/commands/pipe.md`, `.opencode/agents/*.md`  | `/pipe <task>`       |
+| Kimi        | `.kimi/skills/pipe/SKILL.md`, `.kimi/agents/*.yaml`    | `/skill:pipe <task>` |
+| Pi          | `.pi/prompts/pipe.md`, `.pi/extensions/pipe.ts`        | `/pipe <task>`       |
 
 The installer is idempotent, supports `--check` and `--dry-run`, and refuses to
 overwrite manually edited files unless `--force` is supplied.
+
+Runner `model` is the canonical model id. Optional
+`host_models.<host>` entries are only needed when a host uses a different model
+identifier:
+
+```yaml
+runners:
+  kimi:
+    type: kimi
+    command: kimi
+    model: moonshot/kimi-k2.6
+```
 
 ## Runtime Guarantees
 
@@ -189,9 +203,16 @@ External apps can import the stable config, planner, and runtime surfaces
 without deep-importing private source paths:
 
 ```ts
-import { loadPipelineConfig, parsePipelineConfigParts } from "@oisincoveney/pipeline/config";
+import {
+  loadPipelineConfig,
+  parsePipelineConfigParts,
+} from "@oisincoveney/pipeline/config";
 import { compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
-import { runPipelineFromConfig, type PipelineRuntimeResult, type PipelineTaskContext } from "@oisincoveney/pipeline/runtime";
+import {
+  runPipelineFromConfig,
+  type PipelineRuntimeResult,
+  type PipelineTaskContext,
+} from "@oisincoveney/pipeline/runtime";
 ```
 
 ## Verification

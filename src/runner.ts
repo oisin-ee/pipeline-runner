@@ -320,8 +320,6 @@ async function execaHarnessPi(
   const effectivePrompt = context ? `${context}\n${prompt}` : prompt;
   const argv = [
     "--print",
-    "--mode",
-    "json",
     ...optionalModelArgs("pi"),
     "--no-session",
     effectivePrompt,
@@ -486,8 +484,6 @@ function piArgv(
 ): string[] {
   return [
     "--print",
-    "--mode",
-    "json",
     ...optionalModelArgs("pi", runner, actor),
     ...piToolArgs(actor?.tools ?? []),
     ...skillArgsFor("pi", config, actor, worktreePath),

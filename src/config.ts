@@ -101,6 +101,7 @@ const runnerSchema = z
     args: z.array(z.string()).optional(),
     capabilities: runnerCapabilitiesSchema,
     command: z.string().optional(),
+    host_models: z.record(z.string(), z.string().min(1)).optional(),
     model: z.string().optional(),
     type: z.enum(RUNNER_TYPES),
   })
@@ -202,6 +203,7 @@ const profileSchema = z
   .object({
     description: z.string().optional(),
     filesystem: filesystemSchema.optional(),
+    host_models: z.record(z.string(), z.string().min(1)).optional(),
     instructions: instructionsSchema,
     mcp_servers: z.array(z.string()).optional(),
     model: z.string().optional(),

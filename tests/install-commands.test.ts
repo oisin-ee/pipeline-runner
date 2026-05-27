@@ -35,20 +35,8 @@ describe("installCommands", () => {
     expect(result.items.every((item) => item.action === "create")).toBe(true);
     expect(result.items.map((item) => item.path)).toEqual([
       ".claude/commands/pipe.md",
-      ".claude/agents/pipeline-code-writer.md",
-      ".claude/agents/pipeline-inspector.md",
-      ".claude/agents/pipeline-learner.md",
-      ".claude/agents/pipeline-researcher.md",
-      ".claude/agents/pipeline-test-writer.md",
-      ".claude/agents/pipeline-verifier.md",
       ".opencode/commands/pipe.md",
       ".opencode/agents/pipeline-orchestrator.md",
-      ".opencode/agents/pipeline-code-writer.md",
-      ".opencode/agents/pipeline-inspector.md",
-      ".opencode/agents/pipeline-learner.md",
-      ".opencode/agents/pipeline-researcher.md",
-      ".opencode/agents/pipeline-test-writer.md",
-      ".opencode/agents/pipeline-verifier.md",
       ".agents/skills/pipe/SKILL.md",
       ".codex/agents/pipeline-code-writer.toml",
       ".codex/agents/pipeline-inspector.toml",
@@ -56,13 +44,9 @@ describe("installCommands", () => {
       ".codex/agents/pipeline-researcher.toml",
       ".codex/agents/pipeline-test-writer.toml",
       ".codex/agents/pipeline-verifier.toml",
-      ".kimi/commands/pipe.md",
-      ".kimi/agents/pipeline-code-writer.md",
-      ".kimi/agents/pipeline-inspector.md",
-      ".kimi/agents/pipeline-learner.md",
-      ".kimi/agents/pipeline-researcher.md",
-      ".kimi/agents/pipeline-test-writer.md",
-      ".kimi/agents/pipeline-verifier.md",
+      ".kimi/skills/pipe/SKILL.md",
+      ".kimi/agents/pipeline-orchestrator.yaml",
+      ".kimi/agents/pipeline-orchestrator.prompt.md",
       ".pi/prompts/pipe.md",
       ".pi/extensions/pipe.ts",
     ]);
@@ -90,6 +74,8 @@ describe("installCommands", () => {
         expect(content).toContain(
           `// @oisincoveney/pipeline:host=${item.host}`
         );
+      } else if (item.path.endsWith(".yaml")) {
+        expect(content).toContain(`# @oisincoveney/pipeline:host=${item.host}`);
       } else if (!item.path.endsWith(".toml")) {
         expect(content).toContain(
           `<!-- @oisincoveney/pipeline:host=${item.host} -->`
@@ -99,7 +85,7 @@ describe("installCommands", () => {
     }
   });
 
-  it("generates host resources that configure native agents instead of shelling to the CLI", async () => {
+  it("generates host resources with runner-aware dispatch instructions", async () => {
     await installCommands({ cwd: dir, host: "all" });
 
     const claudeCommand = readFileSync(
@@ -122,26 +108,43 @@ describe("installCommands", () => {
       join(dir, ".pi/extensions/pipe.ts"),
       "utf8"
     );
+    const piPrompt = readFileSync(join(dir, ".pi/prompts/pipe.md"), "utf8");
 
     expect(claudeCommand).toContain("pipeline-researcher");
     expect(opencodeCommand).toContain("agent: pipeline-orchestrator");
     expect(opencodeCommand).toContain("subtask: true");
     expect(opencodeOrchestrator).toContain("task: allow");
-    expect(opencodeOrchestrator).toContain("Use OpenCode's task tool");
+    expect(opencodeOrchestrator).toContain("use OpenCode's task tool");
+    expect(opencodeOrchestrator).toContain("pipeline-test-writer runner=codex");
+    expect(opencodeOrchestrator).toContain(
+      "red: codex CLI profile=pipeline-test-writer runner=codex"
+    );
     expect(codexSkill).toContain("$pipe <task description>");
+    expect(codexSkill).toContain(
+      'call `spawn_agent` with `agent_type: "worker"`'
+    );
+    expect(codexSkill).toContain("`fork_context: false`");
+    expect(codexSkill).toContain(
+      "green: Codex native worker subagent profile=pipeline-code-writer agent_type=worker runner=codex"
+    );
+    expect(codexSkill).toContain(
+      "green kind=agent profile=pipeline-code-writer runner=codex needs=red"
+    );
     expect(piExtension).toContain("export default function pipelineWorkNext");
-    expect(piExtension).toContain('pi.registerCommand("pipe", {');
-    expect(piExtension).toContain("WORKFLOW_NODES");
-    expect(piExtension).toContain("pipeline-researcher");
-    expect(piExtension).toContain('"run-chain"');
-    expect(piExtension).not.toContain("sendUserMessage(renderWorkflowPrompt");
+    expect(piExtension).toContain("registers no command");
+    expect(piExtension).not.toContain('pi.registerCommand("pipe"');
+    expect(piPrompt).toContain("pipeline-researcher");
+    expect(piPrompt).toContain("pipeline-test-writer runner=codex");
+    expect(piPrompt).toContain(
+      "If Pi native subagent commands are unavailable"
+    );
 
     for (const content of [
       claudeCommand,
       opencodeCommand,
       opencodeOrchestrator,
       codexSkill,
-      piExtension,
+      piPrompt,
     ]) {
       expect(content).toContain("Do not invoke package scripts");
       expect(content).not.toContain("bunx @oisincoveney/pipeline");
@@ -153,23 +156,341 @@ describe("installCommands", () => {
     await installCommands({ cwd: dir, host: "all" });
 
     expect(
-      readFileSync(join(dir, ".claude/agents/pipeline-researcher.md"), "utf8")
-    ).toContain("name: pipeline-researcher");
-    expect(
       readFileSync(
         join(dir, ".opencode/agents/pipeline-orchestrator.md"),
         "utf8"
       )
     ).toContain("mode: primary");
     expect(
-      readFileSync(join(dir, ".opencode/agents/pipeline-researcher.md"), "utf8")
-    ).toContain("mode: subagent");
-    expect(
       readFileSync(join(dir, ".codex/agents/pipeline-researcher.toml"), "utf8")
     ).toContain('name = "pipeline-researcher"');
+    expect(existsSync(join(dir, ".claude/agents/pipeline-researcher.md"))).toBe(
+      false
+    );
     expect(
-      readFileSync(join(dir, ".kimi/agents/pipeline-researcher.md"), "utf8")
-    ).toContain("name: pipeline-researcher");
+      existsSync(join(dir, ".opencode/agents/pipeline-researcher.md"))
+    ).toBe(false);
+    expect(existsSync(join(dir, ".kimi/agents/pipeline-researcher.yaml"))).toBe(
+      false
+    );
+  });
+
+  it("generates Kimi native agents as YAML specs", async () => {
+    const configPath = join(dir, ".pipeline/profiles.yaml");
+    const config = readFileSync(configPath, "utf8").replace(
+      "  pipeline-code-writer:\n    runner: codex",
+      "  pipeline-code-writer:\n    runner: kimi"
+    );
+    writeFileSync(configPath, config);
+
+    await installCommands({ cwd: dir, host: "kimi" });
+
+    const agent = readFileSync(
+      join(dir, ".kimi/agents/pipeline-code-writer.yaml"),
+      "utf8"
+    );
+    expect(agent).toContain("# @oisincoveney/pipeline:host=kimi");
+    expect(agent).toContain("version: 1");
+    expect(agent).toContain("name: pipeline-code-writer");
+    expect(agent).toContain("extend: default");
+    expect(agent).toContain(
+      "system_prompt_path: ../../.pipeline/prompts/code-writer.md"
+    );
+
+    const checked = await installCommands({
+      check: true,
+      cwd: dir,
+      host: "kimi",
+    });
+    expect(checked.items.every((item) => item.action === "unchanged")).toBe(
+      true
+    );
+  });
+
+  it("deletes obsolete generated host resources", async () => {
+    await installCommands({ cwd: dir, host: "all" });
+    const obsoleteKimiCommand = join(dir, ".kimi/commands/pipe.md");
+    const obsoleteClaudeAgent = join(dir, ".claude/agents/old.md");
+    mkdirSync(join(dir, ".kimi/commands"), { recursive: true });
+    mkdirSync(join(dir, ".claude/agents"), { recursive: true });
+    writeFileSync(
+      obsoleteKimiCommand,
+      [
+        "<!-- Generated by @oisincoveney/pipeline. -->",
+        "<!-- @oisincoveney/pipeline:host=kimi -->",
+        "",
+      ].join("\n")
+    );
+    writeFileSync(
+      obsoleteClaudeAgent,
+      [
+        "<!-- Generated by @oisincoveney/pipeline. -->",
+        "<!-- @oisincoveney/pipeline:host=claude -->",
+        "",
+      ].join("\n")
+    );
+
+    await expect(
+      installCommands({
+        check: true,
+        cwd: dir,
+        host: "all",
+      })
+    ).rejects.toThrow(".kimi/commands/pipe.md: delete");
+
+    const dryRun = await installCommands({
+      cwd: dir,
+      dryRun: true,
+      host: "all",
+    });
+    expect(dryRun.items).toContainEqual(
+      expect.objectContaining({
+        action: "delete",
+        host: "kimi",
+        path: ".kimi/commands/pipe.md",
+      })
+    );
+
+    const result = await installCommands({ cwd: dir, host: "all" });
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        action: "delete",
+        host: "claude",
+        path: ".claude/agents/old.md",
+      })
+    );
+    expect(existsSync(obsoleteKimiCommand)).toBe(false);
+    expect(existsSync(obsoleteClaudeAgent)).toBe(false);
+  });
+
+  it("uses canonical runner models for OpenCode native mixed-runner subagents", async () => {
+    const runnersPath = join(dir, ".pipeline/runners.yaml");
+    const runners = readFileSync(runnersPath, "utf8")
+      .replace(
+        "  codex:\n    type: codex",
+        "  codex:\n    type: codex\n    model: openai/gpt-5.3-codex"
+      )
+      .replace(
+        "  kimi:\n    type: kimi",
+        "  kimi:\n    type: kimi\n    model: moonshot/kimi-k2.6"
+      );
+    writeFileSync(runnersPath, runners);
+
+    const profilesPath = join(dir, ".pipeline/profiles.yaml");
+    const profiles = readFileSync(profilesPath, "utf8").replace(
+      "  pipeline-code-writer:\n    runner: codex",
+      "  pipeline-code-writer:\n    runner: kimi"
+    );
+    writeFileSync(profilesPath, profiles);
+
+    await installCommands({ cwd: dir, host: "opencode" });
+
+    const testWriter = readFileSync(
+      join(dir, ".opencode/agents/pipeline-test-writer.md"),
+      "utf8"
+    );
+    const codeWriter = readFileSync(
+      join(dir, ".opencode/agents/pipeline-code-writer.md"),
+      "utf8"
+    );
+    expect(testWriter).toContain("model: openai/gpt-5.3-codex");
+    expect(codeWriter).toContain("model: moonshot/kimi-k2.6");
+    expect(
+      readFileSync(join(dir, ".opencode/commands/pipe.md"), "utf8")
+    ).toContain(
+      "green: OpenCode native subagent profile=pipeline-code-writer model=moonshot/kimi-k2.6 runner=kimi"
+    );
+  });
+
+  it("uses Kimi native Agent subagents when the orchestrator spec is loaded", async () => {
+    const configPath = join(dir, ".pipeline/profiles.yaml");
+    const config = readFileSync(configPath, "utf8").replace(
+      "  pipeline-code-writer:\n    runner: codex",
+      "  pipeline-code-writer:\n    runner: kimi"
+    );
+    writeFileSync(configPath, config);
+
+    await installCommands({ cwd: dir, host: "kimi" });
+
+    const command = readFileSync(
+      join(dir, ".kimi/skills/pipe/SKILL.md"),
+      "utf8"
+    );
+    const orchestrator = readFileSync(
+      join(dir, ".kimi/agents/pipeline-orchestrator.yaml"),
+      "utf8"
+    );
+    expect(command).toContain("name: pipe");
+    expect(command).toContain(
+      "green: Kimi native Agent subagent subagent_type=pipeline-code-writer runner=kimi"
+    );
+    expect(command).toContain(
+      "use Kimi's Agent tool with `subagent_type` exactly equal to the configured profile id"
+    );
+    expect(command).toContain(
+      "If that native subagent type is not available, invoke Kimi CLI"
+    );
+    expect(orchestrator).toContain("name: pipeline-orchestrator");
+    expect(orchestrator).toContain("kimi_cli.tools.agent:Agent");
+    expect(orchestrator).toContain("pipeline-code-writer:");
+    expect(orchestrator).toContain("path: ./pipeline-code-writer.yaml");
+  });
+
+  it("projects every orchestrator host against every runner without fake native dispatch", async () => {
+    writeFileSync(
+      join(dir, ".pipeline/pipeline.yaml"),
+      `
+version: 1
+default_workflow: all-runners
+orchestrator:
+  profile: orchestrator
+workflows:
+  all-runners:
+    nodes:
+      - id: codex-node
+        kind: agent
+        profile: codex-agent
+      - id: claude-node
+        kind: agent
+        profile: claude-agent
+      - id: opencode-node
+        kind: agent
+        profile: opencode-agent
+      - id: kimi-node
+        kind: agent
+        profile: kimi-agent
+      - id: pi-node
+        kind: agent
+        profile: pi-agent
+`.trimStart()
+    );
+    writeFileSync(
+      join(dir, ".pipeline/runners.yaml"),
+      `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    model: openai/gpt-5.3-codex
+    capabilities: &agent_caps
+      native_subagents: true
+      rules: true
+      skills: false
+      mcp_servers: false
+      tools: [read, list, grep, glob, bash, edit, write, task]
+      filesystem: [read-only, workspace-write]
+      network: [inherit]
+      output_formats: [text, json]
+  claude:
+    type: claude
+    command: claude
+    model: anthropic/claude-sonnet-4-6
+    capabilities: *agent_caps
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.4-mini
+    capabilities: *agent_caps
+  kimi:
+    type: kimi
+    command: kimi
+    model: kimi-for-coding/k2p6
+    capabilities: *agent_caps
+  pi:
+    type: pi
+    command: pi
+    model: openai/gpt-5.4-mini
+    capabilities: *agent_caps
+`.trimStart()
+    );
+    writeFileSync(
+      join(dir, ".pipeline/profiles.yaml"),
+      `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate. }
+  codex-agent:
+    runner: codex
+    instructions: { inline: Codex. }
+  claude-agent:
+    runner: claude
+    instructions: { inline: Claude. }
+  opencode-agent:
+    runner: opencode
+    instructions: { inline: OpenCode. }
+  kimi-agent:
+    runner: kimi
+    instructions: { inline: Kimi. }
+  pi-agent:
+    runner: pi
+    instructions: { inline: Pi. }
+`.trimStart()
+    );
+
+    await installCommands({ cwd: dir, force: true, host: "all" });
+
+    const codex = readFileSync(
+      join(dir, ".agents/skills/pipe/SKILL.md"),
+      "utf8"
+    );
+    expect(codex).toContain(
+      "codex-node: Codex native worker subagent profile=codex-agent agent_type=worker runner=codex"
+    );
+    expect(codex).toContain(
+      "claude-node: claude CLI profile=claude-agent runner=claude"
+    );
+    expect(codex).toContain("Do not spawn the default agent");
+
+    const claude = readFileSync(join(dir, ".claude/commands/pipe.md"), "utf8");
+    expect(claude).toContain(
+      "claude-node: Claude native subagent subagent_type=claude-agent runner=claude"
+    );
+    expect(claude).toContain(
+      "kimi-node: kimi CLI profile=kimi-agent runner=kimi"
+    );
+
+    const opencode = readFileSync(
+      join(dir, ".opencode/commands/pipe.md"),
+      "utf8"
+    );
+    expect(opencode).toContain(
+      "codex-node: OpenCode native subagent profile=codex-agent model=openai/gpt-5.3-codex runner=codex"
+    );
+    expect(opencode).toContain(
+      "claude-node: OpenCode native subagent profile=claude-agent model=anthropic/claude-sonnet-4-6 runner=claude"
+    );
+    expect(opencode).toContain(
+      "opencode-node: OpenCode native subagent subagent_type=opencode-agent runner=opencode"
+    );
+    expect(opencode).toContain(
+      "kimi-node: OpenCode native subagent profile=kimi-agent model=kimi-for-coding/k2p6 runner=kimi"
+    );
+    expect(opencode).toContain(
+      "pi-node: OpenCode native subagent profile=pi-agent model=openai/gpt-5.4-mini runner=pi"
+    );
+
+    const kimi = readFileSync(join(dir, ".kimi/skills/pipe/SKILL.md"), "utf8");
+    expect(kimi).toContain(
+      "kimi-node: Kimi native Agent subagent subagent_type=kimi-agent runner=kimi"
+    );
+    expect(kimi).toContain(
+      "codex-node: codex CLI profile=codex-agent runner=codex"
+    );
+    expect(
+      readFileSync(join(dir, ".kimi/agents/pipeline-orchestrator.yaml"), "utf8")
+    ).toContain("kimi-agent:");
+    expect(existsSync(join(dir, ".kimi/agents/kimi-agent.yaml"))).toBe(true);
+
+    const pi = readFileSync(join(dir, ".pi/prompts/pipe.md"), "utf8");
+    expect(pi).toContain(
+      "pi-node: Pi native subagent chain profile=pi-agent runner=pi"
+    );
+    expect(pi).toContain(
+      "codex-node: codex CLI profile=codex-agent runner=codex"
+    );
   });
 
   it("projects configured orchestrator grants into every host surface", async () => {
@@ -205,9 +526,8 @@ describe("installCommands", () => {
       ".opencode/commands/pipe.md",
       ".opencode/agents/pipeline-orchestrator.md",
       ".agents/skills/pipe/SKILL.md",
-      ".kimi/commands/pipe.md",
+      ".kimi/skills/pipe/SKILL.md",
       ".pi/prompts/pipe.md",
-      ".pi/extensions/pipe.ts",
     ].map((path) => readFileSync(join(dir, path), "utf8"));
 
     for (const content of surfaces) {

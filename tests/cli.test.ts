@@ -249,6 +249,38 @@ describe("pipe", () => {
     }
   });
 
+  it("installs host resources into PIPELINE_TARGET_PATH", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-install-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "install-commands",
+        "--host",
+        "opencode",
+      ]);
+
+      expect(existsSync(join(dir, ".opencode", "commands", "pipe.md"))).toBe(
+        true
+      );
+      expect(
+        existsSync(join(process.cwd(), ".opencode", "commands", "pipe.md"))
+      ).toBe(true);
+    } finally {
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("detects relative Node entrypoint paths as CLI executions", async () => {
     const { isCliEntrypoint } = await import("../src/index.js");
     const sourcePath = fileURLToPath(

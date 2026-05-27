@@ -12,12 +12,20 @@ Entrypoints:
 - pipe -> default (Full agent pipeline.)
 - dogfood -> dogfood-options (Deterministic local dogfood workflow.)
 
-- research kind=agent profile=pipeline-researcher needs=none
-- red kind=agent profile=pipeline-test-writer needs=research
-- green kind=agent profile=pipeline-code-writer needs=red
-- acceptance kind=agent profile=pipeline-acceptance-reviewer needs=green
-- verify kind=agent profile=pipeline-verifier needs=acceptance
-- learn kind=agent profile=pipeline-learner needs=verify
+- research kind=agent profile=pipeline-researcher runner=codex needs=none
+- red kind=agent profile=pipeline-test-writer runner=codex needs=research
+- green kind=agent profile=pipeline-code-writer runner=codex needs=red
+- acceptance kind=agent profile=pipeline-acceptance-reviewer runner=codex needs=green
+- verify kind=agent profile=pipeline-verifier runner=codex needs=acceptance
+- learn kind=agent profile=pipeline-learner runner=codex needs=verify
+
+Node dispatch:
+- research: Codex native worker subagent profile=pipeline-researcher agent_type=worker runner=codex
+- red: Codex native worker subagent profile=pipeline-test-writer agent_type=worker runner=codex
+- green: Codex native worker subagent profile=pipeline-code-writer agent_type=worker runner=codex
+- acceptance: Codex native worker subagent profile=pipeline-acceptance-reviewer agent_type=worker runner=codex
+- verify: Codex native worker subagent profile=pipeline-verifier agent_type=worker runner=codex
+- learn: Codex native worker subagent profile=pipeline-learner agent_type=worker runner=codex
 
 Configured orchestrator:
 model: gpt-5
@@ -31,6 +39,14 @@ hooks: dogfood-workflow-start
 
 Instructions: .pipeline/prompts/orchestrator.md
 
-Use this host's native subagent mechanism for agent workflow nodes. Do not invoke package scripts or the pipeline CLI to run this workflow.
+Dispatch each agent workflow node by its runner. For lines marked `Codex native worker subagent`, call `spawn_agent` with `agent_type: "worker"` and `fork_context: false`, then pass a node prompt containing the task, workflow id, node id, profile id, runner id, configured profile instructions, grants, and dependency outputs. Codex `exec` exposes native built-in agent types (`default`, `explorer`, `worker`) rather than arbitrary generated project profile ids, so do not call `spawn_agent` with the profile id as `agent_type`. Do not spawn the default agent for configured Codex nodes. For lines marked CLI, invoke that runner's CLI directly. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.
+
+For CLI-dispatched nodes, construct the node prompt with the task, workflow id, node id, profile id, runner id, and dependency outputs.
+CLI dispatch command shapes:
+- codex: `codex exec --json -C <repo-root> --sandbox <mode> --config 'approval_policy="never"' --skip-git-repo-check <node prompt>`
+- kimi: `kimi --print --agent-file .kimi/agents/<profile>.yaml --work-dir <repo-root> --final-message-only --prompt <node prompt>`
+- opencode: `opencode run --agent <profile> --format json --dir <repo-root> <node prompt>`
+- claude: `claude --print -p <node prompt>`
+- pi: `pi --print --no-session <node prompt>`
 
 Use separate configured profiles: `dogfood-artifact-writer`, `dogfood-checker`, `dogfood-claude-live`, `dogfood-codex-live`, `dogfood-kimi-live`, `dogfood-opencode-live`, `dogfood-pi-live`, `pipeline-acceptance-reviewer`, `pipeline-code-writer`, `pipeline-learner`, `pipeline-researcher`, `pipeline-test-writer`, `pipeline-verifier`.

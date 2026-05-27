@@ -189,20 +189,29 @@ timeouts, output limits, sanitized env, and explicit trust flags.
 
 ## Host Support Matrix
 
-| Runner | Native subagents | Rules | Skills | MCP | Outputs | Generated resources |
-| --- | --- | --- | --- | --- | --- | --- |
-| Claude | yes | yes | projected as text when declared | yes | text, JSON, schema | command plus `.claude/agents` |
-| Codex | yes | yes | yes | yes | text, JSON, JSONL, schema | skill plus `.codex/agents` |
-| OpenCode | yes | yes | projected as text when declared | yes | text, JSON, JSONL, schema | command plus `.opencode/agents` |
-| Kimi | yes | yes | projected as text when declared | no | text, JSON | command plus `.kimi/agents` |
-| Pi | yes, with pi-subagents | yes | projected as text when declared | no | text, JSON | extension plus prompt |
-| command | no | no | no | no | declared by runner | subprocess argv |
+| Runner   | Native subagents       | Rules | Skills                                        | MCP | Outputs                   | Generated resources              |
+| -------- | ---------------------- | ----- | --------------------------------------------- | --- | ------------------------- | -------------------------------- |
+| Claude   | yes                    | yes   | included in generated profile text            | yes | text, JSON, schema        | command plus `.claude/agents`    |
+| Codex    | yes                    | yes   | yes                                           | yes | text, JSON, JSONL, schema | skill plus `.codex/agents`       |
+| OpenCode | yes                    | yes   | included in generated profile text            | yes | text, JSON, JSONL, schema | command plus `.opencode/agents`  |
+| Kimi     | yes                    | yes   | surfaced through project skills when declared | no  | text, JSON                | skill plus `.kimi/agents/*.yaml` |
+| Pi       | yes, with pi-subagents | yes   | included in generated prompt text             | no  | text, JSON                | prompt plus no-op extension shim |
+| command  | no                     | no    | no                                            | no  | declared by runner        | subprocess argv                  |
 
 The runtime prefers native subagents when the runner advertises
 `native_subagents: true` and the configured permissions, runner, output, and
 resource grants can be represented safely. Otherwise it uses a subprocess for
 the agent node. In both cases each agent node records a separate invocation
 boundary; multi-agent workflows are never collapsed into one prompt.
+
+Generated host resources follow a native-first, runner-correct rule. Same-host
+agent nodes use exact native subagents. Cross-runner nodes use host-native
+execution only when the host can explicitly run the requested model; OpenCode
+does this through per-agent `model:` values resolved from profile or runner
+`model`, with optional `host_models.opencode` overrides when model ids differ.
+If native execution cannot represent the requested runner/model, generated
+instructions dispatch to that runner's CLI instead of doing instruction-only
+translation.
 
 ## Troubleshooting
 
@@ -212,8 +221,9 @@ boundary; multi-agent workflows are never collapsed into one prompt.
 - Capability error: reduce the profile grants or choose a runner whose declared
   capabilities include the requested tools, filesystem, network, output, rules,
   skills, or MCP access.
-- Pi native execution error: install and enable `pi-subagents`; generated Pi
-  resources check for its commands before sending a chain.
+- Pi native execution unavailable: install and enable `pi-subagents` if you want
+  Pi-native chains. Otherwise `/pipe` uses the CLI dispatch instructions in the
+  generated Pi prompt.
 - Gate failure: inspect `pipe run` output for node, gate, reason, and evidence.
   Dependent nodes are not executed after a required gate fails.
 - Schema failure: ensure the agent emits valid JSON and that `schema_path`

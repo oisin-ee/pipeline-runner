@@ -223,9 +223,8 @@ describe("installed dogfood configuration", () => {
       ".opencode/commands/pipe.md",
       ".opencode/agents/pipeline-orchestrator.md",
       ".agents/skills/pipe/SKILL.md",
-      ".kimi/commands/pipe.md",
+      ".kimi/skills/pipe/SKILL.md",
       ".pi/prompts/pipe.md",
-      ".pi/extensions/pipe.ts",
     ];
 
     for (const path of orchestratorSurfaces) {
@@ -238,15 +237,15 @@ describe("installed dogfood configuration", () => {
     }
 
     for (const profileId of workflowProfileIds(config)) {
-      for (const path of [
-        `.claude/agents/${profileId}.md`,
-        `.opencode/agents/${profileId}.md`,
-        `.codex/agents/${profileId}.toml`,
-        `.kimi/agents/${profileId}.md`,
-      ]) {
-        expect(readFileSync(join(root, path), "utf8")).toContain(
-          "Configured grants:"
-        );
+      const runner = config.profiles[profileId]?.runner;
+      const nativeAgentPath = nativeAgentPathFor(runner, profileId);
+      if (nativeAgentPath) {
+        const content = readFileSync(join(root, nativeAgentPath), "utf8");
+        if (nativeAgentPath.endsWith(".yaml")) {
+          expect(content).toContain("system_prompt_path:");
+        } else {
+          expect(content).toContain("Configured grants:");
+        }
       }
     }
   });
@@ -326,6 +325,25 @@ function workflowProfileIds(config: ReturnType<typeof loadPipelineConfig>) {
       )
     ),
   ].sort();
+}
+
+function nativeAgentPathFor(
+  runner: string | undefined,
+  profileId: string
+): string | undefined {
+  if (runner === "claude") {
+    return `.claude/agents/${profileId}.md`;
+  }
+  if (runner === "opencode") {
+    return `.opencode/agents/${profileId}.md`;
+  }
+  if (runner === "codex") {
+    return `.codex/agents/${profileId}.toml`;
+  }
+  if (runner === "kimi") {
+    return `.kimi/agents/${profileId}.yaml`;
+  }
+  return;
 }
 
 function configuredDogfoodOrchestrator(project: string) {

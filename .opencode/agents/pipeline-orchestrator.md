@@ -26,4 +26,20 @@ hooks: dogfood-workflow-start
 
 Instructions: .pipeline/prompts/orchestrator.md
 
-Use OpenCode's task tool to delegate each agent workflow node to its configured profile. Do not invoke package scripts or the pipeline CLI to run this workflow.
+Node dispatch:
+- research: codex CLI profile=pipeline-researcher runner=codex
+- red: codex CLI profile=pipeline-test-writer runner=codex
+- green: codex CLI profile=pipeline-code-writer runner=codex
+- acceptance: codex CLI profile=pipeline-acceptance-reviewer runner=codex
+- verify: codex CLI profile=pipeline-verifier runner=codex
+- learn: codex CLI profile=pipeline-learner runner=codex
+
+Dispatch each agent workflow node by its runner. For lines marked `OpenCode native subagent`, use OpenCode's task tool with `subagent_type` exactly equal to the configured profile id. For cross-runner nodes with an explicit resolved OpenCode model, use the generated OpenCode native subagent. For lines marked CLI, invoke that runner's CLI directly. Do not substitute a default subagent. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.
+
+For CLI-dispatched nodes, construct the node prompt with the task, workflow id, node id, profile id, runner id, and dependency outputs.
+CLI dispatch command shapes:
+- codex: `codex exec --json -C <repo-root> --sandbox <mode> --config 'approval_policy="never"' --skip-git-repo-check <node prompt>`
+- kimi: `kimi --print --agent-file .kimi/agents/<profile>.yaml --work-dir <repo-root> --final-message-only --prompt <node prompt>`
+- opencode: `opencode run --agent <profile> --format json --dir <repo-root> <node prompt>`
+- claude: `claude --print -p <node prompt>`
+- pi: `pi --print --no-session <node prompt>`

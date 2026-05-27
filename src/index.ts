@@ -356,7 +356,10 @@ export function createCliProgram(): Command {
     .option("--check", "fail if generated command files are missing or stale")
     .option("--force", "overwrite manually edited command files")
     .action(async (flags: InstallCommandFlags) => {
-      const result = await installCommands(flags);
+      const result = await installCommands({
+        ...flags,
+        cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
+      });
       console.log(formatInstallCommandsResult(result));
     });
 

@@ -204,6 +204,26 @@ describe("loadPipelineConfig", () => {
     ]);
   });
 
+  it("accepts canonical models and optional host-specific model overrides", () => {
+    const config = parseParts({
+      profiles: VALID_PROFILES_YAML.replace(
+        "    model: gpt-5-agent\n    runner: codex",
+        "    model: gpt-5-agent\n    host_models:\n      opencode: openai/gpt-5.3-codex\n    runner: codex"
+      ),
+      runners: VALID_RUNNERS_YAML.replace(
+        "    model: gpt-5-runner",
+        "    model: gpt-5-runner\n    host_models:\n      opencode: openai/gpt-5.3-codex"
+      ),
+    });
+
+    expect(config.runners.codex.host_models?.opencode).toBe(
+      "openai/gpt-5.3-codex"
+    );
+    expect(config.profiles.researcher.host_models?.opencode).toBe(
+      "openai/gpt-5.3-codex"
+    );
+  });
+
   it("rejects missing required config files", () => {
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-missing-"));
     tempDirs.push(project);
