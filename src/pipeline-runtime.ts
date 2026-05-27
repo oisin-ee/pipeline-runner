@@ -148,6 +148,16 @@ export type PipelineRuntimeEvent =
     }
   | {
       attempt: number;
+      format: string;
+      nodeId: string;
+      output: unknown;
+      parseError?: string;
+      profile?: string;
+      schemaPath?: string;
+      type: "node.output.recorded";
+    }
+  | {
+      attempt: number;
       nodeId: string;
       profile?: string;
       runnerId?: string;
@@ -865,6 +875,7 @@ async function executeNodeAttemptCycle(
     );
   }
   context.lastOutputByNode.set(node.id, last.output);
+  emitNodeOutputRecorded(context, node, attempt, last.output);
   const cancelledAfterAttempt = cancelledNodeResult(
     context,
     node.id,
@@ -1864,6 +1875,62 @@ function emitNodeFinish(
     status: result.status,
     type: "node.finish",
   });
+}
+
+function emitNodeOutputRecorded(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  attempt: number,
+  output: string
+): void {
+  const profile = node.profile
+    ? context.config.profiles[node.profile]
+    : undefined;
+  const format = profile?.output?.format ? profile.output.format : "text";
+  const parsed = parseRuntimeOutput(format, output);
+  const event: Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }> =
+    {
+      attempt,
+      format,
+      nodeId: node.id,
+      output: parsed.output,
+      type: "node.output.recorded",
+    };
+  if (node.profile) {
+    event.profile = node.profile;
+  }
+  if (profile?.output?.schema_path) {
+    event.schemaPath = profile.output.schema_path;
+  }
+  if (parsed.error) {
+    event.parseError = parsed.error;
+  }
+  emit(context, event);
+}
+
+function parseRuntimeOutput(
+  format: string,
+  output: string
+): { error?: string; output: unknown } {
+  if (!(format === "json" || format === "json_schema" || format === "jsonl")) {
+    return { output };
+  }
+  try {
+    if (format === "jsonl") {
+      return {
+        output: output
+          .split(LINE_RE)
+          .filter((line) => line.trim().length > 0)
+          .map((line) => JSON.parse(line)),
+      };
+    }
+    return { output: JSON.parse(output) };
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : "failed to parse output",
+      output,
+    };
+  }
 }
 
 function emitAgentStart(

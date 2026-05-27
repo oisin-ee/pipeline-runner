@@ -1249,6 +1249,12 @@ workflows:
         expect.objectContaining({
           attempt: 1,
           nodeId: "produce",
+          output: "produce ok",
+          type: "node.output.recorded",
+        }),
+        expect.objectContaining({
+          attempt: 1,
+          nodeId: "produce",
           profile: "producer",
           runnerId: "codex",
           type: "agent.finish",
@@ -1298,6 +1304,9 @@ workflows:
     expect(indexOf("hook.start")).toBeLessThan(indexOf("hook.finish"));
     expect(indexOf("node.start")).toBeLessThan(indexOf("agent.start"));
     expect(indexOf("agent.start")).toBeLessThan(indexOf("agent.finish"));
+    expect(indexOf("agent.finish")).toBeLessThan(
+      indexOf("node.output.recorded")
+    );
     expect(indexOf("agent.finish")).toBeLessThan(indexOf("gate.start"));
     expect(indexOf("gate.start")).toBeLessThan(indexOf("gate.finish"));
     expect(indexOf("artifact.check.start")).toBeLessThan(
