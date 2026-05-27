@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import Ajv, { type ErrorObject } from "ajv";
 import { execa } from "execa";
 import {
   loadPipelineConfig,
@@ -27,6 +28,7 @@ type HookSpec = PipelineConfig["hooks"][string];
 const LINE_RE = /\r?\n/;
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
+const jsonSchemaValidator = new Ajv({ allErrors: true, strict: false });
 
 export interface AcceptanceCriterion {
   id: string;
@@ -1884,7 +1886,10 @@ function validateJsonSchemaSource(
       readFileSync(join(worktreePath, schemaPath), "utf8")
     );
     const value = JSON.parse(source);
-    const errors = validateJsonSchema(value, schema);
+    const validate = jsonSchemaValidator.compile(schema);
+    const errors = validate(value)
+      ? []
+      : formatJsonSchemaErrors(validate.errors ?? []);
     return {
       evidence:
         errors.length === 0
@@ -1909,111 +1914,11 @@ function readOptionalFile(path: string): string | null {
   return readFileSync(path, "utf8");
 }
 
-function validateJsonSchema(
-  value: unknown,
-  schema: Record<string, unknown>
-): string[] {
-  const errors: string[] = [];
-  validateSchemaAt(value, schema, "$", errors);
-  return errors;
-}
-
-function validateSchemaAt(
-  value: unknown,
-  schema: Record<string, unknown>,
-  path: string,
-  errors: string[]
-): void {
-  const type = schema.type;
-  if (!validateTypeAndEnum(value, schema, path, errors)) {
-    return;
-  }
-  if (type === "object" && isRecord(value)) {
-    validateObjectSchema(value, schema, path, errors);
-  }
-  if (type === "array" && Array.isArray(value)) {
-    validateArraySchema(value, schema, path, errors);
-  }
-}
-
-function validateTypeAndEnum(
-  value: unknown,
-  schema: Record<string, unknown>,
-  path: string,
-  errors: string[]
-): boolean {
-  const type = schema.type;
-  if (typeof type === "string" && !matchesJsonType(value, type)) {
-    errors.push(`${path} expected ${type}`);
-    return false;
-  }
-  const enumValues = schema.enum;
-  if (Array.isArray(enumValues) && !enumValues.includes(value)) {
-    errors.push(`${path} expected one of ${enumValues.join(", ")}`);
-  }
-  return true;
-}
-
-function validateObjectSchema(
-  value: Record<string, unknown>,
-  schema: Record<string, unknown>,
-  path: string,
-  errors: string[]
-): void {
-  const properties = isRecord(schema.properties) ? schema.properties : {};
-  const required = Array.isArray(schema.required)
-    ? schema.required.filter((item): item is string => typeof item === "string")
-    : [];
-  for (const key of required) {
-    if (!(key in value)) {
-      errors.push(`${path}.${key} is required`);
-    }
-  }
-  if (schema.additionalProperties === false) {
-    for (const key of Object.keys(value)) {
-      if (!(key in properties)) {
-        errors.push(`${path}.${key} is not allowed`);
-      }
-    }
-  }
-  for (const [key, childSchema] of Object.entries(properties)) {
-    if (key in value && isRecord(childSchema)) {
-      validateSchemaAt(value[key], childSchema, `${path}.${key}`, errors);
-    }
-  }
-}
-
-function validateArraySchema(
-  value: unknown[],
-  schema: Record<string, unknown>,
-  path: string,
-  errors: string[]
-): void {
-  if (!isRecord(schema.items)) {
-    return;
-  }
-  for (const [index, item] of value.entries()) {
-    validateSchemaAt(item, schema.items, `${path}[${index}]`, errors);
-  }
-}
-
-function matchesJsonType(value: unknown, type: string): boolean {
-  switch (type) {
-    case "array":
-      return Array.isArray(value);
-    case "boolean":
-      return typeof value === "boolean";
-    case "integer":
-      return Number.isInteger(value);
-    case "number":
-      return typeof value === "number";
-    case "object":
-      return isRecord(value);
-    case "string":
-      return typeof value === "string";
-    default:
-      return true;
-  }
+function formatJsonSchemaErrors(errors: ErrorObject[]): string[] {
+  return errors.map((error) => {
+    const path = error.instancePath || "$";
+    return `${path} ${error.message ?? "failed validation"}`.trim();
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
