@@ -77,6 +77,7 @@ runners:
   codex:
     type: codex
     command: codex
+    model: gpt-5.5
     capabilities:
       native_subagents: true
       tools: [read, grep, bash, edit, write]
@@ -93,7 +94,6 @@ version: 1
 profiles:
   orchestrator:
     runner: codex
-    model: gpt-5
     instructions:
       inline: Coordinate the workflow from this YAML file only.
     tools: [read, grep, bash]
@@ -103,7 +103,6 @@ profiles:
       mode: inherit
   implementer:
     runner: codex
-    model: gpt-5
     instructions:
       inline: Implement the requested change and return evidence.
     tools: [read, grep, bash, edit, write]

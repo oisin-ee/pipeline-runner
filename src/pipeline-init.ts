@@ -91,6 +91,7 @@ runners:
   codex:
     type: codex
     command: codex
+    model: gpt-5.5
     capabilities:
       native_subagents: true
       rules: true

@@ -35,7 +35,9 @@ describe("initPipelineProject", () => {
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
-    expect(loadPipelineConfig(dir).default_workflow).toBe("default");
+    const config = loadPipelineConfig(dir);
+    expect(config.default_workflow).toBe("default");
+    expect(config.runners.codex.model).toBe("gpt-5.5");
   });
 
   it("scaffolds prompt files, schema files, and host resource inputs", async () => {

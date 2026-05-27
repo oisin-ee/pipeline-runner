@@ -158,6 +158,9 @@ function canRunNatively(
     return false;
   }
   if (profile.runner === host) {
+    if (host === "codex") {
+      return resolvedHostModel(config, host, profile) !== undefined;
+    }
     return true;
   }
   return (
@@ -202,12 +205,16 @@ function dispatchRouteForAgent(
 ): AgentDispatchRoute {
   const runnerId = route.profile.runner;
   if (host !== "pi" && runnerId === host) {
-    return {
-      ...route,
-      kind: "native-named-agent",
-      nativeAgentId: route.profileId,
-      runnerId,
-    };
+    const model = resolvedHostModel(config, host, route.profile);
+    if (host !== "codex" || model) {
+      return {
+        ...route,
+        kind: "native-named-agent",
+        ...(model ? { model } : {}),
+        nativeAgentId: route.profileId,
+        runnerId,
+      };
+    }
   }
   if (host === "opencode" && isModelRunner(runnerId)) {
     const model = resolvedHostModel(config, host, route.profile);
@@ -297,7 +304,8 @@ function nativeDispatchLine(
 ): string {
   const needs = needsSummary(route.needs);
   if (host === "codex") {
-    return `- ${route.nodeId}: spawn_agent agent_type=${route.nativeAgentId} runner=${route.runnerId} needs=${needs}`;
+    const model = route.model ? ` model=${route.model}` : "";
+    return `- ${route.nodeId}: spawn_agent agent_type=${route.nativeAgentId}${model} runner=${route.runnerId} needs=${needs}`;
   }
   if (host === "claude") {
     return `- ${route.nodeId}: Agent tool subagent_type=${route.nativeAgentId} runner=${route.runnerId} needs=${needs}`;
@@ -581,8 +589,15 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
       invocation: "$pipe <task description>",
       path: ".agents/skills/pipe/SKILL.md",
     },
-    ...nativeProfileEntries("codex", config).map(([id, profile]) => ({
-      content: `${hashHeader("codex")}${stringifyToml({
+    ...nativeProfileEntries("codex", config).map(([id, profile]) => {
+      const model = resolvedHostModel(config, "codex", profile);
+      if (!model) {
+        throw new Error(
+          `Codex native agent '${id}' requires a resolved model from profile.model or runner.model.`
+        );
+      }
+      return {
+        content: `${hashHeader("codex")}${stringifyToml({
         description: profile.description ?? id,
         developer_instructions: [
           profile.description ?? id,
@@ -590,16 +605,18 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
           "Configured grants:",
           grants(profile),
         ].join("\n"),
+        model,
         name: id,
         sandbox_mode:
           profile.filesystem?.mode === "workspace-write"
             ? "workspace-write"
             : "read-only",
       }).trimEnd()}\n`,
-      host: "codex" as const,
-      invocation: "$pipe <task description>",
-      path: `.codex/agents/${id}.toml`,
-    })),
+        host: "codex" as const,
+        invocation: "$pipe <task description>",
+        path: `.codex/agents/${id}.toml`,
+      };
+    }),
   ];
 }
 

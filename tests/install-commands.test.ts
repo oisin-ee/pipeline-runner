@@ -37,6 +37,12 @@ describe("installCommands", () => {
       ".claude/commands/pipe.md",
       ".opencode/commands/pipe.md",
       ".opencode/agents/pipeline-orchestrator.md",
+      ".opencode/agents/pipeline-code-writer.md",
+      ".opencode/agents/pipeline-inspector.md",
+      ".opencode/agents/pipeline-learner.md",
+      ".opencode/agents/pipeline-researcher.md",
+      ".opencode/agents/pipeline-test-writer.md",
+      ".opencode/agents/pipeline-verifier.md",
       ".agents/skills/pipe/SKILL.md",
       ".codex/agents/pipeline-code-writer.toml",
       ".codex/agents/pipeline-inspector.toml",
@@ -106,13 +112,13 @@ describe("installCommands", () => {
     expect(claudeCommand).toContain("pipeline-researcher");
     expect(opencodeCommand).toContain("agent: pipeline-orchestrator");
     expect(opencodeCommand).not.toContain("subtask: true");
-    expect(opencodeOrchestrator).toContain("task: deny");
+    expect(opencodeOrchestrator).toContain("task: allow");
     expect(opencodeOrchestrator).toContain(
-      "red: codex CLI profile=pipeline-test-writer command="
+      "red: Task tool subagent_type=pipeline-test-writer model=gpt-5.5 runner=codex needs=research"
     );
     expect(codexSkill).toContain("$pipe <task description>");
     expect(codexSkill).toContain(
-      "green: spawn_agent agent_type=pipeline-code-writer runner=codex needs=red"
+      "green: spawn_agent agent_type=pipeline-code-writer model=gpt-5.5 runner=codex needs=red"
     );
     expect(codexSkill).not.toContain("agent_type=worker");
     expect(existsSync(join(dir, ".pi/extensions/pipe.ts"))).toBe(false);
@@ -149,12 +155,15 @@ describe("installCommands", () => {
     expect(
       readFileSync(join(dir, ".codex/agents/pipeline-researcher.toml"), "utf8")
     ).toContain('name = "pipeline-researcher"');
+    expect(
+      readFileSync(join(dir, ".codex/agents/pipeline-researcher.toml"), "utf8")
+    ).toContain('model = "gpt-5.5"');
     expect(existsSync(join(dir, ".claude/agents/pipeline-researcher.md"))).toBe(
       false
     );
     expect(
       existsSync(join(dir, ".opencode/agents/pipeline-researcher.md"))
-    ).toBe(false);
+    ).toBe(true);
     expect(existsSync(join(dir, ".kimi/agents/pipeline-researcher.yaml"))).toBe(
       false
     );
@@ -252,8 +261,8 @@ describe("installCommands", () => {
     const runnersPath = join(dir, ".pipeline/runners.yaml");
     const runners = readFileSync(runnersPath, "utf8")
       .replace(
-        "  codex:\n    type: codex",
-        "  codex:\n    type: codex\n    model: openai/gpt-5.3-codex"
+        "    model: gpt-5.5",
+        "    model: openai/gpt-5.3-codex"
       )
       .replace(
         "  kimi:\n    type: kimi",
@@ -328,6 +337,24 @@ describe("installCommands", () => {
     expect(command).not.toContain(
       "green: Task tool subagent_type=pipeline-code-writer"
     );
+  });
+
+  it("uses CLI dispatch instead of invalid Codex named agents when no Codex model resolves", async () => {
+    const runnersPath = join(dir, ".pipeline/runners.yaml");
+    const runners = readFileSync(runnersPath, "utf8").replace(
+      "    model: gpt-5.5\n",
+      ""
+    );
+    writeFileSync(runnersPath, runners);
+
+    await installCommands({ cwd: dir, host: "codex" });
+
+    expect(
+      existsSync(join(dir, ".codex/agents/pipeline-researcher.toml"))
+    ).toBe(false);
+    expect(
+      readFileSync(join(dir, ".agents/skills/pipe/SKILL.md"), "utf8")
+    ).toContain("research: codex CLI profile=pipeline-researcher command=");
   });
 
   it("uses Kimi native Agent subagents when the orchestrator spec is loaded", async () => {
@@ -460,7 +487,7 @@ profiles:
       "utf8"
     );
     expect(codex).toContain(
-      "codex-node: spawn_agent agent_type=codex-agent runner=codex needs=none"
+      "codex-node: spawn_agent agent_type=codex-agent model=openai/gpt-5.3-codex runner=codex needs=none"
     );
     expect(codex).toContain("claude-node: claude CLI profile=claude-agent");
     expect(codex).toContain(
@@ -484,7 +511,7 @@ profiles:
       "claude-node: Task tool subagent_type=claude-agent model=anthropic/claude-sonnet-4-6 runner=claude needs=none"
     );
     expect(opencode).toContain(
-      "opencode-node: Task tool subagent_type=opencode-agent runner=opencode needs=none"
+      "opencode-node: Task tool subagent_type=opencode-agent model=openai/gpt-5.4-mini runner=opencode needs=none"
     );
     expect(opencode).toContain(
       "kimi-node: Task tool subagent_type=kimi-agent model=kimi-for-coding/k2p6 runner=kimi needs=none"
