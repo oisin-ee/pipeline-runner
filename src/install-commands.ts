@@ -64,18 +64,23 @@ interface OpencodePermissionOptions {
   forceTask?: boolean;
 }
 
+type DispatchKind = "cli" | "native-model-agent" | "native-named-agent";
+
+interface AgentDispatchRoute {
+  kind: DispatchKind;
+  model?: string;
+  nativeAgentId?: string;
+  needs: string[];
+  nodeId: string;
+  profile: PipelineConfig["profiles"][string];
+  profileId: string;
+  runnerId: string;
+}
+
 function header(host: CommandHost): string {
   return [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join(
     "\n"
   );
-}
-
-function tsHeader(host: CommandHost): string {
-  return [
-    GENERATED_TS_MARKER,
-    `${OWNER_TS_MARKER_PREFIX}host=${host}`,
-    "",
-  ].join("\n");
 }
 
 function yamlHeader(host: CommandHost): string {
@@ -117,18 +122,6 @@ function nativeProfileEntries(
   );
 }
 
-function hasAgentWorkflowNodes(config: PipelineConfig): boolean {
-  return compileWorkflowPlan(config).topologicalOrder.some(
-    (node) => node.kind === "agent"
-  );
-}
-
-function profileNames(config: PipelineConfig): string {
-  return profileEntries(config)
-    .map(([name]) => `\`${name}\``)
-    .join(", ");
-}
-
 function orchestratorProfile(config: PipelineConfig): ActorConfig {
   const profile = config.profiles[config.orchestrator.profile];
   if (!profile) {
@@ -140,34 +133,6 @@ function orchestratorProfile(config: PipelineConfig): ActorConfig {
     ...profile,
     hooks: config.orchestrator.hooks,
   };
-}
-
-function workflowSummary(config: PipelineConfig): string {
-  const plan = compileWorkflowPlan(config);
-  return [
-    `Workflow: ${plan.workflowId}`,
-    entrypointSummary(config),
-    "",
-    ...plan.topologicalOrder.map((node) => {
-      const parts = [
-        `- ${node.id}`,
-        `kind=${node.kind}`,
-        node.profile ? `profile=${node.profile}` : "",
-        runnerForNode(config, node.profile)
-          ? `runner=${runnerForNode(config, node.profile)}`
-          : "",
-        node.needs.length ? `needs=${node.needs.join(",")}` : "needs=none",
-      ].filter(Boolean);
-      return parts.join(" ");
-    }),
-  ].join("\n");
-}
-
-function runnerForNode(
-  config: PipelineConfig,
-  profileId: string | undefined
-): string | undefined {
-  return profileId ? config.profiles[profileId]?.runner : undefined;
 }
 
 function resolvedHostModel(
@@ -189,6 +154,9 @@ function canRunNatively(
   config: PipelineConfig,
   profile: PipelineConfig["profiles"][string]
 ): boolean {
+  if (host === "pi") {
+    return false;
+  }
   if (profile.runner === host) {
     return true;
   }
@@ -203,13 +171,12 @@ function isModelRunner(runnerId: string): boolean {
   return COMMAND_HOSTS.some((host) => host === runnerId);
 }
 
-function runnerCliLabel(runnerId: string): string {
-  return `${runnerId} CLI`;
-}
-
-function dispatchSummary(host: CommandHost, config: PipelineConfig): string {
+function agentDispatchRoutes(
+  host: CommandHost,
+  config: PipelineConfig
+): AgentDispatchRoute[] {
   const plan = compileWorkflowPlan(config);
-  const lines = plan.topologicalOrder.flatMap((node) => {
+  return plan.topologicalOrder.flatMap((node) => {
     if (!(node.kind === "agent" && node.profile)) {
       return [];
     }
@@ -217,60 +184,48 @@ function dispatchSummary(host: CommandHost, config: PipelineConfig): string {
     if (!profile) {
       return [];
     }
-    return [dispatchLineForAgent(host, config, node.id, node.profile, profile)];
+    return [
+      dispatchRouteForAgent(host, config, {
+        needs: node.needs,
+        nodeId: node.id,
+        profile,
+        profileId: node.profile,
+      }),
+    ];
   });
-  return ["Node dispatch:", ...(lines.length > 0 ? lines : ["- none"])].join(
-    "\n"
-  );
 }
 
-function dispatchLineForAgent(
+function dispatchRouteForAgent(
   host: CommandHost,
   config: PipelineConfig,
-  nodeId: string,
-  profileId: string,
-  profile: PipelineConfig["profiles"][string]
-): string {
-  if (profile.runner === host) {
-    return sameHostDispatchLine(host, nodeId, profileId, profile.runner);
+  route: Pick<AgentDispatchRoute, "needs" | "nodeId" | "profile" | "profileId">
+): AgentDispatchRoute {
+  const runnerId = route.profile.runner;
+  if (host !== "pi" && runnerId === host) {
+    return {
+      ...route,
+      kind: "native-named-agent",
+      nativeAgentId: route.profileId,
+      runnerId,
+    };
   }
-  if (host === "opencode" && isModelRunner(profile.runner)) {
-    const model = resolvedHostModel(config, host, profile);
+  if (host === "opencode" && isModelRunner(runnerId)) {
+    const model = resolvedHostModel(config, host, route.profile);
     if (model) {
-      return `- ${nodeId}: OpenCode native subagent profile=${profileId} model=${model} runner=${profile.runner}`;
+      return {
+        ...route,
+        kind: "native-model-agent",
+        model,
+        nativeAgentId: route.profileId,
+        runnerId,
+      };
     }
   }
-  return `- ${nodeId}: ${runnerCliLabel(profile.runner)} profile=${profileId} runner=${profile.runner}`;
-}
-
-function sameHostDispatchLine(
-  host: CommandHost,
-  nodeId: string,
-  profileId: string,
-  runnerId: string
-): string {
-  const labels: Record<CommandHost, string> = {
-    claude: `Claude native subagent subagent_type=${profileId}`,
-    codex: `Codex native worker subagent profile=${profileId} agent_type=worker`,
-    kimi: `Kimi native Agent subagent subagent_type=${profileId}`,
-    opencode: `OpenCode native subagent subagent_type=${profileId}`,
-    pi: `Pi native subagent chain profile=${profileId}`,
+  return {
+    ...route,
+    kind: "cli",
+    runnerId,
   };
-  return `- ${nodeId}: ${labels[host]} runner=${runnerId}`;
-}
-
-function entrypointSummary(config: PipelineConfig): string {
-  const entries = Object.entries(config.entrypoints);
-  if (entries.length === 0) {
-    return "Entrypoints: none";
-  }
-  return [
-    "Entrypoints:",
-    ...entries.map(
-      ([id, entrypoint]) =>
-        `- ${id} -> ${entrypoint.workflow}${entrypoint.description ? ` (${entrypoint.description})` : ""}`
-    ),
-  ].join("\n");
 }
 
 function grants(actor: ActorConfig): string {
@@ -298,44 +253,162 @@ function orchestratorBlock(config: PipelineConfig): string {
   ].join("\n");
 }
 
-function nativeDelegationInstruction(
+function dispatchBlock(
   host: CommandHost,
   config: PipelineConfig
 ): string | undefined {
-  if (!hasAgentWorkflowNodes(config)) {
+  const routes = agentDispatchRoutes(host, config);
+  if (routes.length === 0) {
     return;
   }
-  if (host === "opencode") {
-    return "Dispatch each agent workflow node by its runner. For lines marked `OpenCode native subagent`, use OpenCode's task tool with `subagent_type` exactly equal to the configured profile id. For cross-runner nodes with an explicit resolved OpenCode model, use the generated OpenCode native subagent. For lines marked CLI, invoke that runner's CLI directly. Do not substitute a default subagent. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.";
-  }
-  if (host === "codex") {
-    return 'Dispatch each agent workflow node by its runner. For lines marked `Codex native worker subagent`, call `spawn_agent` with `agent_type: "worker"` and `fork_context: false`, then pass a node prompt containing the task, workflow id, node id, profile id, runner id, configured profile instructions, grants, and dependency outputs. Codex `exec` exposes native built-in agent types (`default`, `explorer`, `worker`) rather than arbitrary generated project profile ids, so do not call `spawn_agent` with the profile id as `agent_type`. Do not spawn the default agent for configured Codex nodes. For lines marked CLI, invoke that runner\'s CLI directly. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.';
-  }
-  if (host === "claude") {
-    return "Dispatch each agent workflow node by its runner. For lines marked `Claude native subagent`, use Claude's Task tool with `subagent_type` exactly equal to the configured profile id. For lines marked CLI, invoke that runner's CLI directly. Do not substitute a default subagent. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.";
-  }
-  if (host === "kimi") {
-    return "Dispatch each agent workflow node by its runner. For lines marked `Kimi native Agent subagent`, use Kimi's Agent tool with `subagent_type` exactly equal to the configured profile id when the current Kimi root agent exposes that subagent type. If that native subagent type is not available, invoke Kimi CLI with the generated `.kimi/agents/<profile>.yaml` agent spec. For non-Kimi nodes, invoke that runner's CLI directly. Do not substitute a default subagent. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.";
-  }
-  if (host === "pi") {
-    return "Dispatch each agent workflow node by its runner. Use Pi's native subagent chain only when every agent node is a Pi runner node and the Pi subagent commands are available. If Pi native subagent commands are unavailable, invoke each configured runner through its CLI directly. For mixed-runner workflows, invoke each configured runner through its CLI directly. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.";
-  }
-  return "Dispatch each agent workflow node by its runner. Use this host's native subagent mechanism only when it can actually run the requested runner/model. For cross-runner nodes that cannot be represented natively, invoke that runner's CLI directly. Do not use instruction-only translation. Do not invoke package scripts or the pipeline CLI to run this workflow.";
+  const plan = compileWorkflowPlan(config);
+  const nativeRoutes = routes.filter((route) => route.kind !== "cli");
+  const cliRoutes = routes.filter((route) => route.kind === "cli");
+  return [
+    `Run workflow \`${plan.workflowId}\` for the user task.`,
+    "",
+    nativeDispatchBlock(host, nativeRoutes),
+    cliDispatchBlock(host, cliRoutes),
+    nodePromptContract(plan.workflowId, routes),
+    "Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.",
+    hostSpecificDispatchGuard(host, nativeRoutes, cliRoutes),
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
-function cliDispatchInstructions(config: PipelineConfig): string | undefined {
-  if (!hasAgentWorkflowNodes(config)) {
+function nativeDispatchBlock(
+  host: CommandHost,
+  routes: AgentDispatchRoute[]
+): string | undefined {
+  if (routes.length === 0) {
     return;
   }
   return [
-    "For CLI-dispatched nodes, construct the node prompt with the task, workflow id, node id, profile id, runner id, and dependency outputs.",
-    "CLI dispatch command shapes:",
-    "- codex: `codex exec --json -C <repo-root> --sandbox <mode> --config 'approval_policy=\"never\"' --skip-git-repo-check <node prompt>`",
-    "- kimi: `kimi --print --agent-file .kimi/agents/<profile>.yaml --work-dir <repo-root> --final-message-only --prompt <node prompt>`",
-    "- opencode: `opencode run --agent <profile> --format json --dir <repo-root> <node prompt>`",
-    "- claude: `claude --print -p <node prompt>`",
-    "- pi: `pi --print --no-session <node prompt>`",
+    `${hostDisplayName(host)} native routes:`,
+    ...routes.map((route) => nativeDispatchLine(host, route)),
+    "",
   ].join("\n");
+}
+
+function nativeDispatchLine(
+  host: CommandHost,
+  route: AgentDispatchRoute
+): string {
+  const needs = needsSummary(route.needs);
+  if (host === "codex") {
+    return `- ${route.nodeId}: spawn_agent agent_type=${route.nativeAgentId} runner=${route.runnerId} needs=${needs}`;
+  }
+  if (host === "claude") {
+    return `- ${route.nodeId}: Agent tool subagent_type=${route.nativeAgentId} runner=${route.runnerId} needs=${needs}`;
+  }
+  if (host === "kimi") {
+    return `- ${route.nodeId}: Agent tool subagent_type=${route.nativeAgentId} runner=${route.runnerId} needs=${needs}`;
+  }
+  if (host === "opencode") {
+    const model = route.model ? ` model=${route.model}` : "";
+    return `- ${route.nodeId}: Task tool subagent_type=${route.nativeAgentId}${model} runner=${route.runnerId} needs=${needs}`;
+  }
+  return `- ${route.nodeId}: native agent ${route.nativeAgentId} runner=${route.runnerId} needs=${needs}`;
+}
+
+function cliDispatchBlock(
+  host: CommandHost,
+  routes: AgentDispatchRoute[]
+): string | undefined {
+  if (routes.length === 0) {
+    return;
+  }
+  const nativeNotice =
+    host === "pi"
+      ? "Pi native dispatch is not enabled for this generated workflow."
+      : `These nodes are not ${hostDisplayName(host)} native routes.`;
+  return [nativeNotice, "CLI routes:", ...routes.map(cliDispatchLine), ""].join(
+    "\n"
+  );
+}
+
+function cliDispatchLine(route: AgentDispatchRoute): string {
+  return `- ${route.nodeId}: ${route.runnerId} CLI profile=${route.profileId} command=\`${runnerCliCommand(route)}\` needs=${needsSummary(route.needs)}`;
+}
+
+function runnerCliCommand(route: AgentDispatchRoute): string {
+  if (route.runnerId === "codex") {
+    return `codex exec --json -C <repo-root> --sandbox ${codexSandbox(route.profile)} --skip-git-repo-check <node prompt>`;
+  }
+  if (route.runnerId === "kimi") {
+    return `kimi --print --agent-file .kimi/agents/${route.profileId}.yaml --work-dir <repo-root> --final-message-only --prompt <node prompt>`;
+  }
+  if (route.runnerId === "opencode") {
+    return `opencode run --agent ${route.profileId} --format json --dir <repo-root> <node prompt>`;
+  }
+  if (route.runnerId === "claude") {
+    return `claude --agent ${route.profileId} --print -p <node prompt>`;
+  }
+  if (route.runnerId === "pi") {
+    return "pi --print --no-session <node prompt>";
+  }
+  return `${route.runnerId} <node prompt>`;
+}
+
+function codexSandbox(profile: PipelineConfig["profiles"][string]): string {
+  return profile.filesystem?.mode === "workspace-write"
+    ? "workspace-write"
+    : "read-only";
+}
+
+function nodePromptContract(
+  workflowId: string,
+  routes: AgentDispatchRoute[]
+): string {
+  const hasCliRoutes = routes.some((route) => route.kind === "cli");
+  const lead = hasCliRoutes
+    ? "For each CLI node prompt include:"
+    : "For each native node prompt include:";
+  return [
+    lead,
+    "- user task",
+    `- workflow id: ${workflowId}`,
+    "- node id",
+    "- profile id",
+    "- runner id",
+    "- profile instructions reference",
+    "- profile grants",
+    "- dependency outputs",
+    "",
+  ].join("\n");
+}
+
+function hostSpecificDispatchGuard(
+  host: CommandHost,
+  nativeRoutes: AgentDispatchRoute[],
+  cliRoutes: AgentDispatchRoute[]
+): string | undefined {
+  if (host === "codex" && nativeRoutes.length > 0) {
+    return "Do not substitute the generic Codex worker for configured profiles.";
+  }
+  if (cliRoutes.length > 0 && nativeRoutes.length > 0) {
+    return `Do not claim CLI routes are ${hostDisplayName(host)} native routes.`;
+  }
+  if (cliRoutes.length > 0 && nativeRoutes.length === 0 && host !== "pi") {
+    return `Do not claim these nodes are ${hostDisplayName(host)} subagents.`;
+  }
+  return;
+}
+
+function hostDisplayName(host: CommandHost): string {
+  const names: Record<CommandHost, string> = {
+    claude: "Claude",
+    codex: "Codex",
+    kimi: "Kimi",
+    opencode: "OpenCode",
+    pi: "Pi",
+  };
+  return names[host];
+}
+
+function needsSummary(needs: string[]): string {
+  return needs.length > 0 ? needs.join(",") : "none";
 }
 
 function compactLines(lines: Array<string | undefined>): string[] {
@@ -371,17 +444,9 @@ function claudeDefinitions(config: PipelineConfig): CommandDefinition[] {
         compactLines([
           header("claude").trimEnd(),
           "",
-          workflowSummary(config),
-          "",
-          dispatchSummary("claude", config),
-          "",
           orchestratorBlock(config),
           "",
-          nativeDelegationInstruction("claude", config),
-          "",
-          cliDispatchInstructions(config),
-          "",
-          `Delegate work only to configured profiles: ${profileNames(config)}.`,
+          dispatchBlock("claude", config),
         ]).join("\n")
       ),
       host: "claude",
@@ -437,22 +502,13 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
         {
           agent: "pipeline-orchestrator",
           description: "Run the configured pipeline workflow",
-          subtask: true,
         },
         compactLines([
           header("opencode").trimEnd(),
           "",
-          workflowSummary(config),
-          "",
-          dispatchSummary("opencode", config),
-          "",
           orchestratorBlock(config),
           "",
-          nativeDelegationInstruction("opencode", config),
-          "",
-          cliDispatchInstructions(config),
-          "",
-          `Delegate work only to configured profiles: ${profileNames(config)}.`,
+          dispatchBlock("opencode", config),
         ]).join("\n")
       ),
       host: "opencode",
@@ -465,7 +521,9 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
           description: "Orchestrate the configured pipeline and enforce gates.",
           mode: "primary",
           permission: opencodePermission(orchestratorProfile(config), {
-            forceTask: hasAgentWorkflowNodes(config),
+            forceTask: agentDispatchRoutes("opencode", config).some(
+              (route) => route.kind !== "cli"
+            ),
           }),
         },
         compactLines([
@@ -473,11 +531,7 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           orchestratorBlock(config),
           "",
-          dispatchSummary("opencode", config),
-          "",
-          nativeDelegationInstruction("opencode", config),
-          "",
-          cliDispatchInstructions(config),
+          dispatchBlock("opencode", config),
         ]).join("\n")
       ),
       host: "opencode",
@@ -524,17 +578,9 @@ function codexDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           "Invoke this skill with `$pipe <task description>`.",
           "",
-          workflowSummary(config),
-          "",
-          dispatchSummary("codex", config),
-          "",
           orchestratorBlock(config),
           "",
-          nativeDelegationInstruction("codex", config),
-          "",
-          cliDispatchInstructions(config),
-          "",
-          `Use separate configured profiles: ${profileNames(config)}.`,
+          dispatchBlock("codex", config),
         ]).join("\n")
       ),
       host: "codex",
@@ -574,17 +620,9 @@ function kimiDefinitions(config: PipelineConfig): CommandDefinition[] {
         compactLines([
           header("kimi").trimEnd(),
           "",
-          workflowSummary(config),
-          "",
-          dispatchSummary("kimi", config),
-          "",
           orchestratorBlock(config),
           "",
-          nativeDelegationInstruction("kimi", config),
-          "",
-          cliDispatchInstructions(config),
-          "",
-          `Use separate configured profiles: ${profileNames(config)}.`,
+          dispatchBlock("kimi", config),
         ]).join("\n")
       ),
       host: "kimi",
@@ -660,6 +698,13 @@ function kimiAgentDefinitions(
 function kimiOrchestratorAgentDefinitions(
   config: PipelineConfig
 ): CommandDefinition[] {
+  if (
+    agentDispatchRoutes("kimi", config).every(
+      (route) => route.kind !== "native-named-agent"
+    )
+  ) {
+    return [];
+  }
   const agentPath = ".kimi/agents/pipeline-orchestrator.yaml";
   const promptPath = ".kimi/agents/pipeline-orchestrator.prompt.md";
   const nativeKimiProfiles = nativeProfileEntries("kimi", config);
@@ -715,15 +760,9 @@ function kimiOrchestratorAgentDefinitions(
       content: compactLines([
         header("kimi").trimEnd(),
         "",
-        workflowSummary(config),
-        "",
-        dispatchSummary("kimi", config),
-        "",
         orchestratorBlock(config),
         "",
-        nativeDelegationInstruction("kimi", config),
-        "",
-        cliDispatchInstructions(config),
+        dispatchBlock("kimi", config),
         "",
         "This agent file is the Kimi-native orchestrator surface. Launch Kimi with `--agent-file .kimi/agents/pipeline-orchestrator.yaml` before using `/skill:pipe` when you want Kimi runner nodes to run through Kimi's native Agent tool.",
       ]).join("\n"),
@@ -759,42 +798,19 @@ function piDefinitions(config: PipelineConfig): CommandDefinition[] {
       content: markdown(
         {
           "argument-hint": "<task description>",
-          description: "Run the configured pipeline workflow with Pi subagents",
+          description: "Run the configured pipeline workflow",
         },
         compactLines([
           header("pi").trimEnd(),
           "",
-          workflowSummary(config),
-          "",
-          dispatchSummary("pi", config),
-          "",
           orchestratorBlock(config),
           "",
-          nativeDelegationInstruction("pi", config),
-          "",
-          cliDispatchInstructions(config),
+          dispatchBlock("pi", config),
         ]).join("\n")
       ),
       host: "pi",
       invocation: "/pipe <task description>",
       path: ".pi/prompts/pipe.md",
-    },
-    {
-      content: [
-        tsHeader("pi").trimEnd(),
-        "",
-        "// Pi exposes project prompt templates as slash commands.",
-        "// The real /pipe command is .pi/prompts/pipe.md.",
-        "// This generated shim intentionally registers no command so it cannot",
-        "// intercept /pipe in print mode before the prompt-template expansion runs.",
-        "export default function pipelineWorkNext(): void {",
-        "  return;",
-        "}",
-        "",
-      ].join("\n"),
-      host: "pi",
-      invocation: "/pipe <task description>",
-      path: ".pi/extensions/pipe.ts",
     },
   ];
 }
