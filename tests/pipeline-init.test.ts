@@ -60,6 +60,16 @@ describe("initPipelineProject", () => {
     ]) {
       expect(existsSync(join(dir, path))).toBe(true);
     }
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/orchestrator.md"), "utf8")
+    ).toContain(
+      "Only gates declared in `.pipeline/pipeline.yaml` are blocking"
+    );
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/code-writer.md"), "utf8")
+    ).toContain(
+      "Include typecheck evidence only when a typecheck command exists"
+    );
   });
 
   it("expresses the default phases as workflow nodes", async () => {

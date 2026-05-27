@@ -350,6 +350,8 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "You are the orchestrator for the pipeline.",
     "Use `.pipeline/pipeline.yaml` as the source of truth for workflow order, profiles, gates, hooks, and artifacts.",
     "Delegate only to workflow node profiles and enforce configured gates before reporting completion.",
+    "Only gates declared in `.pipeline/pipeline.yaml` are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
+    "If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.",
     "",
   ].join("\n"),
   ".pipeline/prompts/researcher.md": [
@@ -381,7 +383,8 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "You are the GREEN/code-write phase for the pipeline.",
     "Implement the smallest production change that satisfies the failing tests.",
     "Keep edits scoped to the requested behavior.",
-    "Return concrete test and typecheck evidence.",
+    "Return concrete targeted test evidence. Include typecheck evidence only when a typecheck command exists or a configured gate requires it.",
+    "Unrelated full-suite failures and missing optional scripts are not blocking unless `.pipeline/pipeline.yaml` declares a gate for them.",
     "",
   ].join("\n"),
   ".pipeline/prompts/verifier.md": [

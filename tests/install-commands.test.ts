@@ -120,6 +120,12 @@ describe("installCommands", () => {
     expect(codexSkill).toContain(
       "green: spawn_agent agent_type=pipeline-code-writer model=gpt-5.5 runner=codex needs=red"
     );
+    expect(codexSkill).toContain(
+      "Only gates declared in `.pipeline/pipeline.yaml` are blocking"
+    );
+    expect(codexSkill).toContain(
+      "If a node returns targeted evidence and has no configured blocking gate"
+    );
     expect(codexSkill).not.toContain("agent_type=worker");
     expect(existsSync(join(dir, ".pi/extensions/pipe.ts"))).toBe(false);
     expect(piPrompt).toContain("pipeline-researcher");
