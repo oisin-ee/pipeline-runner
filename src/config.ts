@@ -116,10 +116,72 @@ const pathRefSchema = z
 const mcpServerSchema = z
   .object({
     args: z.array(z.string()).optional(),
-    command: z.string().min(1),
+    bearer_token_env_var: z.string().min(1).optional(),
+    command: z.string().min(1).optional(),
     env: z.record(z.string(), z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    url: z
+      .string()
+      .url()
+      .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
+        message: "MCP server url must use http or https",
+      })
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((server, ctx) => {
+    const hasCommand = Boolean(server.command);
+    const hasUrl = Boolean(server.url);
+    if (hasCommand === hasUrl) {
+      ctx.addIssue({
+        code: "custom",
+        message: "MCP server must declare exactly one of command or url",
+        path: hasCommand ? ["url"] : ["command"],
+      });
+    }
+    if (hasUrl && server.args) {
+      ctx.addIssue({
+        code: "custom",
+        message: "args are only valid for command MCP servers",
+        path: ["args"],
+      });
+    }
+    if (hasUrl && server.env) {
+      ctx.addIssue({
+        code: "custom",
+        message: "env is only valid for command MCP servers",
+        path: ["env"],
+      });
+    }
+    if (hasCommand && server.headers) {
+      ctx.addIssue({
+        code: "custom",
+        message: "headers are only valid for url MCP servers",
+        path: ["headers"],
+      });
+    }
+    if (hasCommand && server.bearer_token_env_var) {
+      ctx.addIssue({
+        code: "custom",
+        message: "bearer_token_env_var is only valid for url MCP servers",
+        path: ["bearer_token_env_var"],
+      });
+    }
+    if (
+      hasUrl &&
+      server.bearer_token_env_var &&
+      Object.keys(server.headers ?? {}).some(
+        (key) => key.toLowerCase() === "authorization"
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "headers.Authorization cannot be combined with bearer_token_env_var",
+        path: ["bearer_token_env_var"],
+      });
+    }
+  });
 
 const instructionsSchema = z
   .object({

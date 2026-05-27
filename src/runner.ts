@@ -573,12 +573,12 @@ function mcpArgsFor(
   if (runnerType === "claude") {
     return [
       "--mcp-config",
-      JSON.stringify(toClaudeKimiMcpConfig(servers)),
+      JSON.stringify(toClaudeMcpConfig(servers)),
       "--strict-mcp-config",
     ];
   }
   if (runnerType === "kimi") {
-    return ["--mcp-config", JSON.stringify(toClaudeKimiMcpConfig(servers))];
+    return ["--mcp-config", JSON.stringify(toKimiMcpConfig(servers))];
   }
   if (runnerType === "codex") {
     return codexMcpArgs(servers);
@@ -606,10 +606,79 @@ function runnerEnv(
   };
 }
 
-function toClaudeKimiMcpConfig(servers: Record<string, McpServerConfig>): {
-  mcpServers: Record<string, McpServerConfig>;
+function isRemoteMcpServer(
+  server: McpServerConfig
+): server is McpServerConfig & { url: string } {
+  return typeof server.url === "string";
+}
+
+function headersWithBearerTokenEnv(
+  server: McpServerConfig & { bearer_token_env_var?: string },
+  renderTokenRef: (envVar: string) => string
+): Record<string, string> | undefined {
+  const headers = { ...(server.headers ?? {}) };
+  if (server.bearer_token_env_var) {
+    headers.Authorization = `Bearer ${renderTokenRef(server.bearer_token_env_var)}`;
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+function toClaudeMcpConfig(servers: Record<string, McpServerConfig>): {
+  mcpServers: Record<string, Record<string, unknown>>;
 } {
-  return { mcpServers: servers };
+  return {
+    mcpServers: Object.fromEntries(
+      Object.entries(servers).map(([id, server]) => {
+        if (isRemoteMcpServer(server)) {
+          const headers = headersWithBearerTokenEnv(
+            server,
+            (envVar) => `\${${envVar}}`
+          );
+          return [
+            id,
+            {
+              type: "http",
+              url: server.url,
+              ...(headers ? { headers } : {}),
+            },
+          ];
+        }
+        return [
+          id,
+          {
+            command: server.command,
+            ...(server.args ? { args: server.args } : {}),
+            ...(server.env ? { env: server.env } : {}),
+          },
+        ];
+      })
+    ),
+  };
+}
+
+function toKimiMcpConfig(servers: Record<string, McpServerConfig>): {
+  mcpServers: Record<string, Record<string, unknown>>;
+} {
+  return {
+    mcpServers: Object.fromEntries(
+      Object.entries(servers).map(([id, server]) => [
+        id,
+        isRemoteMcpServer(server)
+          ? {
+              url: server.url,
+              ...(server.headers ? { headers: server.headers } : {}),
+              ...(server.bearer_token_env_var
+                ? { bearerTokenEnvVar: server.bearer_token_env_var }
+                : {}),
+            }
+          : {
+              command: server.command,
+              ...(server.args ? { args: server.args } : {}),
+              ...(server.env ? { env: server.env } : {}),
+            },
+      ])
+    ),
+  };
 }
 
 function toOpenCodeMcpConfig(servers: Record<string, McpServerConfig>): {
@@ -617,30 +686,67 @@ function toOpenCodeMcpConfig(servers: Record<string, McpServerConfig>): {
 } {
   return {
     mcp: Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => [
-        id,
-        {
-          command: [server.command, ...(server.args ?? [])],
-          enabled: true,
-          ...(server.env ? { environment: server.env } : {}),
-          type: "local",
-        },
-      ])
+      Object.entries(servers).map(([id, server]) => {
+        if (isRemoteMcpServer(server)) {
+          const headers = headersWithBearerTokenEnv(
+            server,
+            (envVar) => `{env:${envVar}}`
+          );
+          return [
+            id,
+            {
+              enabled: true,
+              ...(headers ? { headers } : {}),
+              type: "remote",
+              url: server.url,
+            },
+          ];
+        }
+        return [
+          id,
+          {
+            command: [server.command, ...(server.args ?? [])],
+            enabled: true,
+            ...(server.env ? { environment: server.env } : {}),
+            type: "local",
+          },
+        ];
+      })
     ),
   };
 }
 
 function codexMcpArgs(servers: Record<string, McpServerConfig>): string[] {
-  return Object.entries(servers).flatMap(([id, server]) => [
-    "--config",
-    `mcp_servers.${id}.command=${tomlValue(server.command)}`,
-    ...(server.args
-      ? ["--config", `mcp_servers.${id}.args=${tomlValue(server.args)}`]
-      : []),
-    ...(server.env
-      ? ["--config", `mcp_servers.${id}.env=${tomlValue(server.env)}`]
-      : []),
-  ]);
+  return Object.entries(servers).flatMap(([id, server]) => {
+    if (isRemoteMcpServer(server)) {
+      return [
+        "--config",
+        `mcp_servers.${id}.url=${tomlValue(server.url)}`,
+        ...(server.headers
+          ? [
+              "--config",
+              `mcp_servers.${id}.http_headers=${tomlValue(server.headers)}`,
+            ]
+          : []),
+        ...(server.bearer_token_env_var
+          ? [
+              "--config",
+              `mcp_servers.${id}.bearer_token_env_var=${tomlValue(server.bearer_token_env_var)}`,
+            ]
+          : []),
+      ];
+    }
+    return [
+      "--config",
+      `mcp_servers.${id}.command=${tomlValue(server.command)}`,
+      ...(server.args
+        ? ["--config", `mcp_servers.${id}.args=${tomlValue(server.args)}`]
+        : []),
+      ...(server.env
+        ? ["--config", `mcp_servers.${id}.env=${tomlValue(server.env)}`]
+        : []),
+    ];
+  });
 }
 
 function tomlValue(value: unknown): string {
@@ -649,10 +755,14 @@ function tomlValue(value: unknown): string {
   }
   if (value && typeof value === "object") {
     return `{ ${Object.entries(value)
-      .map(([key, item]) => `${key} = ${tomlValue(item)}`)
+      .map(([key, item]) => `${tomlKey(key)} = ${tomlValue(item)}`)
       .join(", ")} }`;
   }
   return JSON.stringify(value);
+}
+
+function tomlKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
 }
 
 function nativeStrategy(

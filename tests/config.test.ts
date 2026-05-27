@@ -224,6 +224,94 @@ describe("loadPipelineConfig", () => {
     );
   });
 
+  it("accepts remote HTTP MCP server definitions", () => {
+    const config = parseParts({
+      profiles: VALID_PROFILES_YAML.replace(
+        `mcp_servers:
+  docs:
+    command: npx
+    args: ["-y", "@example/docs-mcp"]`,
+        `mcp_servers:
+  docs:
+    url: https://memory-mcp.momokaya.ee/mcp/
+    headers:
+      X-Memory-Region: eu
+  secure-memory:
+    url: https://memory-mcp.momokaya.ee/mcp/
+    bearer_token_env_var: MEMORY_MCP_TOKEN`
+      ).replace("mcp_servers: [docs]", "mcp_servers: [secure-memory]"),
+    });
+
+    expect(config.mcp_servers.docs.url).toBe(
+      "https://memory-mcp.momokaya.ee/mcp/"
+    );
+    expect(config.mcp_servers.docs.headers).toEqual({
+      "X-Memory-Region": "eu",
+    });
+    expect(config.mcp_servers["secure-memory"].bearer_token_env_var).toBe(
+      "MEMORY_MCP_TOKEN"
+    );
+  });
+
+  it("rejects invalid MCP server transport field combinations", () => {
+    const cases = [
+      {
+        message: "exactly one of command or url",
+        server: `
+    command: npx
+    url: https://memory-mcp.momokaya.ee/mcp/`,
+      },
+      {
+        message: "args are only valid for command MCP servers",
+        server: `
+    url: https://memory-mcp.momokaya.ee/mcp/
+    args: ["bad"]`,
+      },
+      {
+        message: "env is only valid for command MCP servers",
+        server: `
+    url: https://memory-mcp.momokaya.ee/mcp/
+    env: { BAD: value }`,
+      },
+      {
+        message: "headers are only valid for url MCP servers",
+        server: `
+    command: npx
+    headers: { X-Test: value }`,
+      },
+      {
+        message: "bearer_token_env_var is only valid for url MCP servers",
+        server: `
+    command: npx
+    bearer_token_env_var: MEMORY_MCP_TOKEN`,
+      },
+      {
+        message:
+          "headers.Authorization cannot be combined with bearer_token_env_var",
+        server: `
+    url: https://memory-mcp.momokaya.ee/mcp/
+    bearer_token_env_var: MEMORY_MCP_TOKEN
+    headers:
+      Authorization: Bearer token`,
+      },
+    ];
+
+    for (const item of cases) {
+      const error = captureConfigError(() =>
+        parseParts({
+          profiles: VALID_PROFILES_YAML.replace(
+            `  docs:
+    command: npx
+    args: ["-y", "@example/docs-mcp"]`,
+            `  docs:${item.server}`
+          ),
+        })
+      );
+
+      expect(error.message).toContain(item.message);
+    }
+  });
+
   it("rejects missing required config files", () => {
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-missing-"));
     tempDirs.push(project);

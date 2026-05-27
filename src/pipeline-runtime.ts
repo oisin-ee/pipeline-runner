@@ -1169,8 +1169,18 @@ function renderMcpReferences(
     "Loaded MCP servers:",
     ...ids.map((id) => {
       const server = registry[id];
+      if (server?.url) {
+        return [
+          `## ${id}`,
+          "transport: http",
+          `url: ${server.url}`,
+          `headers: ${Object.keys(server.headers ?? {}).join(", ") || "none"}`,
+          `bearer_token_env_var: ${server.bearer_token_env_var ?? "none"}`,
+        ].join("\n");
+      }
       return [
         `## ${id}`,
+        "transport: stdio",
         `command: ${server?.command ?? ""}`,
         `args: ${(server?.args ?? []).join(" ") || "none"}`,
         `env: ${Object.keys(server?.env ?? {}).join(", ") || "none"}`,

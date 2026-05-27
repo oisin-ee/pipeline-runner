@@ -108,11 +108,32 @@ receive explicit grants:
 
 - `rules`: named markdown rule files.
 - `skills`: named skill files.
-- `mcp_servers`: named MCP command definitions.
+- `mcp_servers`: named MCP server definitions. Servers may be local stdio
+  commands or remote streamable HTTP endpoints.
 - `tools`: allowed host tools only.
 - `filesystem`: read-only or workspace-write plus allow/deny paths.
 - `network`: inherited or disabled.
 - `output`: text, JSON, JSONL, or JSON Schema output.
+
+MCP servers support two strict shapes:
+
+```yaml
+mcp_servers:
+  docs:
+    command: npx
+    args: ["-y", "@example/docs-mcp"]
+    env:
+      DOCS_TOKEN: token
+  memory:
+    url: https://memory-mcp.momokaya.ee/mcp/
+    bearer_token_env_var: MEMORY_MCP_TOKEN
+    headers:
+      X-Memory-Region: eu
+```
+
+Exactly one of `command` or `url` is required. `args` and `env` apply only to
+command servers. `headers` and `bearer_token_env_var` apply only to URL
+servers.
 
 JSON Schema outputs are hard contracts. The runtime validates normalized agent
 output before the node can pass. Schema outputs also get a bounded repair pass

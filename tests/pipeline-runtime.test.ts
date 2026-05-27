@@ -176,20 +176,27 @@ mcp_servers:
     command: node
     args: ["docs-server.js"]
     env: { DOCS_TOKEN: test-token }
+  memory:
+    url: https://memory-mcp.momokaya.ee/mcp/
+    headers:
+      X-Memory-Region: eu
+  secure-memory:
+    url: https://memory-mcp.momokaya.ee/mcp/
+    bearer_token_env_var: MEMORY_MCP_TOKEN
 profiles:
   orchestrator:
     runner: codex
     instructions: { inline: Orchestrate }
     rules: [test-first]
     skills: [research]
-    mcp_servers: [docs]
+    mcp_servers: [docs, memory, secure-memory]
     tools: [read]
   a:
     runner: codex
     instructions: { inline: Agent A }
     rules: [test-first]
     skills: [research]
-    mcp_servers: [docs]
+    mcp_servers: [docs, memory, secure-memory]
     tools: [read]
 `,
       pipeline: `
@@ -224,8 +231,16 @@ workflows:
     expect(launchText).toContain("Loaded skills:");
     expect(launchText).toContain("Use repository research.");
     expect(launchText).toContain("Loaded MCP servers:");
+    expect(launchText).toContain("transport: stdio");
     expect(launchText).toContain("command: node");
     expect(launchText).toContain("mcp_servers.docs.command");
+    expect(launchText).toContain("transport: http");
+    expect(launchText).toContain("url: https://memory-mcp.momokaya.ee/mcp/");
+    expect(launchText).toContain("headers: X-Memory-Region");
+    expect(launchText).toContain(
+      "bearer_token_env_var: MEMORY_MCP_TOKEN"
+    );
+    expect(launchText).toContain("mcp_servers.memory.url");
   });
 
   it("runs parallel nodes concurrently after dependencies are met", async () => {

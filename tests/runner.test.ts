@@ -519,6 +519,144 @@ workflows:
     expect(orchestrator.args).toContain('mcp_servers.docs.command="node"');
   });
 
+  it("renders remote HTTP MCP servers for each native runner", async () => {
+    const { readFileSync } = await import("node:fs");
+    const config = parseTestConfig({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+  claude:
+    type: claude
+    command: claude
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+  kimi:
+    type: kimi
+    command: kimi
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+mcp_servers:
+  memory:
+    url: https://memory-mcp.momokaya.ee/mcp/
+    headers:
+      X-Memory-Region: eu
+  secure-memory:
+    url: https://memory-mcp.momokaya.ee/mcp/
+    bearer_token_env_var: MEMORY_MCP_TOKEN
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  codex-agent: { runner: codex, instructions: { inline: Codex }, mcp_servers: [memory, secure-memory] }
+  claude-agent: { runner: claude, instructions: { inline: Claude }, mcp_servers: [memory, secure-memory] }
+  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [memory, secure-memory] }
+  kimi-agent: { runner: kimi, instructions: { inline: Kimi }, mcp_servers: [memory, secure-memory] }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: codex-agent }
+`,
+    });
+
+    const codex = createRunnerLaunchPlan(config, {
+      profileId: "codex-agent",
+      nodeId: "codex",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    expect(codex.args).toContain(
+      'mcp_servers.memory.url="https://memory-mcp.momokaya.ee/mcp/"'
+    );
+    expect(codex.args).toContain(
+      'mcp_servers.memory.http_headers={ X-Memory-Region = "eu" }'
+    );
+    expect(codex.args).toContain(
+      'mcp_servers.secure-memory.bearer_token_env_var="MEMORY_MCP_TOKEN"'
+    );
+
+    const claude = createRunnerLaunchPlan(config, {
+      profileId: "claude-agent",
+      nodeId: "claude",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const claudeConfig = JSON.parse(
+      claude.args[claude.args.indexOf("--mcp-config") + 1] as string
+    );
+    expect(claudeConfig.mcpServers.memory).toEqual({
+      headers: { "X-Memory-Region": "eu" },
+      type: "http",
+      url: "https://memory-mcp.momokaya.ee/mcp/",
+    });
+    expect(claudeConfig.mcpServers["secure-memory"].headers).toEqual({
+      Authorization: "Bearer ${MEMORY_MCP_TOKEN}",
+    });
+
+    const kimi = createRunnerLaunchPlan(config, {
+      profileId: "kimi-agent",
+      nodeId: "kimi",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const kimiConfig = JSON.parse(
+      kimi.args[kimi.args.indexOf("--mcp-config") + 1] as string
+    );
+    expect(kimiConfig.mcpServers.memory).toEqual({
+      headers: { "X-Memory-Region": "eu" },
+      url: "https://memory-mcp.momokaya.ee/mcp/",
+    });
+    expect(kimiConfig.mcpServers["secure-memory"].bearerTokenEnvVar).toBe(
+      "MEMORY_MCP_TOKEN"
+    );
+
+    const opencode = createRunnerLaunchPlan(config, {
+      profileId: "opencode-agent",
+      nodeId: "opencode",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const opencodeConfig = JSON.parse(
+      readFileSync(opencode.env.OPENCODE_CONFIG, "utf8")
+    );
+    expect(opencodeConfig.mcp.memory).toEqual({
+      enabled: true,
+      headers: { "X-Memory-Region": "eu" },
+      type: "remote",
+      url: "https://memory-mcp.momokaya.ee/mcp/",
+    });
+    expect(opencodeConfig.mcp["secure-memory"].headers).toEqual({
+      Authorization: "Bearer {env:MEMORY_MCP_TOKEN}",
+    });
+    expect(opencodeConfig.mcp["secure-memory"].command).toBeUndefined();
+  });
+
   it("falls back from actor model to runner model for launch plans", () => {
     const config = structuredClone(CONFIG);
     config.profiles["codex-agent"].model = undefined;
