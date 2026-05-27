@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@dagrejs/graphlib": "^4.0.1",
     "ajv": "^8.20.0",
     "commander": "^14.0.3",
     "execa": "^9.5.2",

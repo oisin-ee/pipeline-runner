@@ -1,3 +1,4 @@
+import { alg, Graph } from "@dagrejs/graphlib";
 import type { PipelineConfig, WorkflowNodeKind } from "./config.js";
 
 export type WorkflowPlannerErrorCode =
@@ -45,6 +46,7 @@ export interface PlannedWorkflowNode {
 }
 
 export interface WorkflowExecutionPlan {
+  graph: Graph<undefined, PlannedWorkflowNode>;
   parallelBatches: PlannedWorkflowNode[][];
   topologicalOrder: PlannedWorkflowNode[];
   workflowId: string;
@@ -66,24 +68,36 @@ export function compileWorkflowPlan(
     );
   }
 
-  const nodes = workflow.nodes;
+  const nodes = normalizeGroupDependencies(workflow.nodes);
   const issues = validateNodeGraph(workflowId, nodes);
   if (issues.length > 0) {
     throw issuesToError(issues);
   }
 
-  const plannedNodes = nodes.map((node, index) =>
-    toPlannedNode(node, index, dependentsFor(node.id, nodes))
-  );
-  const byId = new Map(plannedNodes.map((node) => [node.id, node]));
-  const topologicalOrder = topologicalSort(workflowId, plannedNodes);
-  const parallelBatches = buildParallelBatches(topologicalOrder, byId);
+  const graph = createWorkflowGraph(nodes);
+  const topologicalOrder = alg
+    .topsort(graph)
+    .map((nodeId) => graph.node(nodeId));
+  const parallelBatches = buildParallelBatches(topologicalOrder, graph);
 
   return {
+    graph,
     parallelBatches,
     topologicalOrder,
     workflowId,
   };
+}
+
+function normalizeGroupDependencies(nodes: WorkflowNode[]): WorkflowNode[] {
+  return nodes.map((node) => {
+    if (!isGroupNode(node)) {
+      return node;
+    }
+    return {
+      ...node,
+      needs: uniqueStrings([...(node.nodes ?? []), ...(node.needs ?? [])]),
+    };
+  });
 }
 
 function validateNodeGraph(
@@ -94,11 +108,11 @@ function validateNodeGraph(
   const nodeIds = new Set(nodes.map((node) => node.id));
   const issues = [
     ...duplicateIssues,
-    ...dependencyIssues(workflowId, nodes, nodeIds),
     ...groupIssues(workflowId, nodes, nodeIds),
+    ...dependencyIssues(workflowId, nodes, nodeIds),
   ];
   if (duplicateIssues.length === 0) {
-    return [...issues, ...cycleIssues(workflowId, nodes)];
+    return [...issues, ...cycleIssues(workflowId, nodes, nodeIds)];
   }
   return issues;
 }
@@ -197,90 +211,22 @@ function isGroupNode(node: WorkflowNode): node is GroupWorkflowNode {
 
 function cycleIssues(
   workflowId: string,
-  nodes: WorkflowNode[]
+  nodes: WorkflowNode[],
+  nodeIds: Set<string>
 ): WorkflowPlannerIssue[] {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const stack: string[] = [];
-  const cycles: WorkflowPlannerIssue[] = [];
-
-  const visit = (id: string): void => {
-    if (visited.has(id)) {
-      return;
-    }
-    if (visiting.has(id)) {
-      const start = stack.indexOf(id);
-      const cycle = [...stack.slice(start), id];
-      cycles.push({
-        path: `workflows.${workflowId}.nodes.${id}.needs`,
-        message: `workflow '${workflowId}' contains dependency cycle: ${cycle.join(" -> ")}`,
-      });
-      return;
-    }
-
-    visiting.add(id);
-    stack.push(id);
-    const node = byId.get(id);
-    for (const need of node?.needs ?? []) {
-      if (byId.has(need)) {
-        visit(need);
-      }
-    }
-    stack.pop();
-    visiting.delete(id);
-    visited.add(id);
-  };
-
-  for (const node of nodes) {
-    visit(node.id);
-  }
-  return cycles;
-}
-
-function topologicalSort(
-  workflowId: string,
-  nodes: PlannedWorkflowNode[]
-): PlannedWorkflowNode[] {
-  const remainingNeeds = new Map(
-    nodes.map((node) => [node.id, new Set(node.needs)])
-  );
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const ordered: PlannedWorkflowNode[] = [];
-
-  while (ordered.length < nodes.length) {
-    const ready = nodes.filter(
-      (node) =>
-        !ordered.includes(node) &&
-        (remainingNeeds.get(node.id)?.size ?? 0) === 0
-    );
-    if (ready.length === 0) {
-      throw new WorkflowPlannerError(
-        "WORKFLOW_CYCLE",
-        `workflow '${workflowId}' contains a dependency cycle`,
-        [
-          {
-            path: `workflows.${workflowId}.nodes`,
-            message: "no executable node remains",
-          },
-        ]
-      );
-    }
-
-    ready.sort((a, b) => a.index - b.index);
-    const next = ready[0] as PlannedWorkflowNode;
-    ordered.push(next);
-    for (const dependentId of next.dependents) {
-      remainingNeeds.get(dependentId)?.delete(next.id);
-    }
-  }
-
-  return ordered.map((node) => byId.get(node.id) as PlannedWorkflowNode);
+  const graph = createWorkflowGraph(nodes, nodeIds);
+  return alg.findCycles(graph).map((cycle) => {
+    const id = cycle[0] ?? "nodes";
+    return {
+      path: `workflows.${workflowId}.nodes.${id}.needs`,
+      message: `workflow '${workflowId}' contains dependency cycle: ${cycle.join(" -> ")}`,
+    };
+  });
 }
 
 function buildParallelBatches(
   topologicalOrder: PlannedWorkflowNode[],
-  byId: Map<string, PlannedWorkflowNode>
+  graph: Graph<undefined, PlannedWorkflowNode>
 ): PlannedWorkflowNode[][] {
   const completed = new Set<string>();
   const remaining = [...topologicalOrder];
@@ -288,10 +234,10 @@ function buildParallelBatches(
 
   while (remaining.length > 0) {
     const batch = remaining.filter((node) =>
-      node.needs.every((need) => completed.has(need))
+      (graph.predecessors(node.id) ?? []).every((need) => completed.has(need))
     );
     batch.sort((a, b) => a.index - b.index);
-    batches.push(batch.map((node) => byId.get(node.id) as PlannedWorkflowNode));
+    batches.push(batch);
     for (const node of batch) {
       completed.add(node.id);
       remaining.splice(remaining.indexOf(node), 1);
@@ -301,22 +247,34 @@ function buildParallelBatches(
   return batches;
 }
 
-function dependentsFor(id: string, nodes: WorkflowNode[]): string[] {
-  return nodes
-    .filter((node) => (node.needs ?? []).includes(id))
-    .map((node) => node.id);
+function createWorkflowGraph(
+  nodes: WorkflowNode[],
+  nodeIds = new Set(nodes.map((node) => node.id))
+): Graph<undefined, PlannedWorkflowNode> {
+  const graph = new Graph<undefined, PlannedWorkflowNode>({ directed: true });
+  for (const [index, node] of nodes.entries()) {
+    graph.setNode(node.id, toPlannedNode(node, index));
+  }
+  for (const node of nodes) {
+    for (const need of node.needs ?? []) {
+      if (nodeIds.has(need)) {
+        graph.setEdge(need, node.id);
+      }
+    }
+  }
+  for (const node of graph.nodes()) {
+    const planned = graph.node(node);
+    planned.dependents = graph.successors(node) ?? [];
+  }
+  return graph;
 }
 
-function toPlannedNode(
-  node: WorkflowNode,
-  index: number,
-  dependents: string[]
-): PlannedWorkflowNode {
+function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
   return {
     artifacts: node.artifacts,
     builtin: "builtin" in node ? node.builtin : undefined,
     command: "command" in node ? node.command : undefined,
-    dependents,
+    dependents: [],
     gates: node.gates,
     hooks: node.hooks,
     id: node.id,
@@ -327,6 +285,10 @@ function toPlannedNode(
     profile: "profile" in node ? node.profile : undefined,
     retries: node.retries,
   };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function issuesToError(issues: WorkflowPlannerIssue[]): WorkflowPlannerError {

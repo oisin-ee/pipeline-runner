@@ -115,6 +115,45 @@ describe("compileWorkflowPlan", () => {
     ]);
   });
 
+  it("treats group child nodes as implicit dependencies", () => {
+    const config = cloneConfig();
+    config.workflows.grouped = {
+      nodes: [
+        {
+          id: "left",
+          kind: "agent",
+          profile: "pipeline-researcher",
+        },
+        {
+          id: "right",
+          kind: "agent",
+          profile: "pipeline-test-writer",
+        },
+        {
+          id: "quality",
+          kind: "group",
+          nodes: ["left", "right"],
+        },
+      ],
+    };
+
+    const plan = compileWorkflowPlan(config, "grouped");
+
+    expect(plan.topologicalOrder.map((node) => node.id)).toEqual([
+      "left",
+      "right",
+      "quality",
+    ]);
+    expect(
+      plan.topologicalOrder.find((node) => node.id === "quality")
+    ).toMatchObject({
+      needs: ["left", "right"],
+    });
+    expect(
+      plan.parallelBatches.map((batch) => batch.map((node) => node.id))
+    ).toEqual([["left", "right"], ["quality"]]);
+  });
+
   it("rejects missing workflows", () => {
     const error = capturePlannerError(() =>
       compileWorkflowPlan(DEFAULT_CONFIG, "missing")
