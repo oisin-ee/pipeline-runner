@@ -46,6 +46,5 @@ jobs:
       - name: Release
         run: bunx semantic-release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GIT_TERMINAL_PROMPT: "0"
