@@ -135,6 +135,14 @@ describe("runPipelineFromConfig", () => {
       "a",
       "b",
     ]);
+    expect(result.nodeStates.a).toMatchObject({
+      attempts: 1,
+      status: "passed",
+    });
+    expect(result.nodeStates.b).toMatchObject({
+      attempts: 1,
+      status: "passed",
+    });
     expect(seen).toHaveLength(2);
     expect(seen[0].args.join("\n")).toContain("Node: a");
     expect(seen[1].args.join("\n")).toContain("Node: b");
@@ -366,6 +374,12 @@ workflows:
     });
 
     expect(result.outcome).toBe("FAIL");
+    expect(result.nodeStates.produce).toMatchObject({
+      status: "failed",
+    });
+    expect(result.nodeStates.dependent).toMatchObject({
+      status: "pending",
+    });
     expect(result.gates[0]).toMatchObject({
       kind: "artifact",
       passed: false,

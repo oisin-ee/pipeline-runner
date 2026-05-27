@@ -10,6 +10,7 @@
     "package-manager-detector": "^1.6.0",
     "simple-git": "^3.36.0",
     "smol-toml": "^1.6.1",
+    "ts-pattern": "^5.9.0",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },

@@ -5,6 +5,7 @@ import { execa } from "execa";
 import micromatch from "micromatch";
 import pLimit from "p-limit";
 import simpleGit from "simple-git";
+import { match } from "ts-pattern";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -89,11 +90,35 @@ export interface RuntimeNodeResult {
   status: "failed" | "passed";
 }
 
+export type NodeStatus =
+  | "cancelled"
+  | "failed"
+  | "gating"
+  | "passed"
+  | "pending"
+  | "ready"
+  | "running"
+  | "skipped";
+
+export interface NodeExecutionState {
+  attempts: number;
+  evidence: string[];
+  exitCode?: number;
+  failure?: RuntimeFailure;
+  finishedAt?: string;
+  gates: RuntimeGateResult[];
+  id: string;
+  output?: string;
+  startedAt?: string;
+  status: NodeStatus;
+}
+
 export interface PipelineRuntimeResult {
   agentInvocations: RunnerLaunchPlan[];
   failureDetails: RuntimeFailure[];
   gates: RuntimeGateResult[];
   hookFailures: RuntimeFailure[];
+  nodeStates: Record<string, NodeExecutionState>;
   nodes: RuntimeNodeResult[];
   outcome: "CANCELLED" | "FAIL" | "PASS";
   plan: WorkflowExecutionPlan;
@@ -228,6 +253,7 @@ interface RuntimeContext {
   lastOutputByNode: Map<string, string>;
   maxParallelNodes?: number;
   nodeSnapshots: Map<string, ChangedFilesSnapshot>;
+  nodeStates: Map<string, NodeExecutionState>;
   plan: WorkflowExecutionPlan;
   reporter?: (event: PipelineRuntimeEvent) => void;
   signal?: AbortSignal;
@@ -259,6 +285,27 @@ interface NodeAttemptCycleResult {
   last: NodeAttemptResult;
   result?: RuntimeNodeResult;
 }
+
+type NodeStateEvent =
+  | { at: string; attempt: number; type: "NODE_STARTED" }
+  | { at: string; type: "NODE_READY" }
+  | {
+      at: string;
+      exitCode: number;
+      output: string;
+      type: "NODE_OUTPUT";
+    }
+  | { at: string; type: "GATES_STARTED" }
+  | { at: string; gates: RuntimeGateResult[]; type: "GATES_FINISHED" }
+  | { at: string; result: RuntimeNodeResult; type: "NODE_PASSED" }
+  | {
+      at: string;
+      failure: RuntimeFailure;
+      result: RuntimeNodeResult;
+      type: "NODE_FAILED";
+    }
+  | { at: string; failure: RuntimeFailure; type: "NODE_CANCELLED" }
+  | { at: string; reason: string; type: "NODE_SKIPPED" };
 
 interface JsonSchemaValidationResult {
   evidence: string[];
@@ -328,6 +375,7 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     lastOutputByNode: new Map(),
     maxParallelNodes: runtimeMaxParallelNodes(options, plan),
     nodeSnapshots: new Map(),
+    nodeStates: initialNodeStates(plan),
     plan,
     ...(options.reporter ? { reporter: options.reporter } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
@@ -404,6 +452,9 @@ function executeWorkflowBatch(
   batch: PlannedWorkflowNode[],
   context: RuntimeContext
 ): Promise<RuntimeNodeResult[]> {
+  for (const node of batch) {
+    transitionNode(context, node.id, { at: now(), type: "NODE_READY" });
+  }
   if (!context.maxParallelNodes) {
     return Promise.all(batch.map((node) => executeNode(node, context)));
   }
@@ -431,6 +482,7 @@ async function successfulRuntimeResult(
     failureDetails: [],
     gates: context.gates,
     hookFailures: context.hookFailures,
+    nodeStates: runtimeNodeStates(context),
     nodes,
     outcome: "PASS",
     plan: context.plan,
@@ -482,6 +534,7 @@ function failedRuntimeResult(
     failureDetails: [failure],
     gates: context.gates,
     hookFailures: context.hookFailures,
+    nodeStates: runtimeNodeStates(context),
     nodes,
     outcome: "FAIL",
     plan: context.plan,
@@ -497,10 +550,17 @@ function cancelledRuntimeResult(
     failureDetails: [cancelledFailure()],
     gates: context.gates,
     hookFailures: context.hookFailures,
+    nodeStates: runtimeNodeStates(context),
     nodes,
     outcome: "CANCELLED",
     plan: context.plan,
   };
+}
+
+function runtimeNodeStates(
+  context: RuntimeContext
+): Record<string, NodeExecutionState> {
+  return Object.fromEntries(context.nodeStates);
 }
 
 function cancelledFailure(): RuntimeFailure {
@@ -509,6 +569,108 @@ function cancelledFailure(): RuntimeFailure {
     gate: "cancelled",
     reason: "pipeline cancelled",
   };
+}
+
+function initialNodeStates(
+  plan: WorkflowExecutionPlan
+): Map<string, NodeExecutionState> {
+  return new Map(
+    plan.topologicalOrder.map((node) => [
+      node.id,
+      {
+        attempts: 0,
+        evidence: [],
+        gates: [],
+        id: node.id,
+        status: "pending",
+      },
+    ])
+  );
+}
+
+function transitionNode(
+  context: RuntimeContext,
+  nodeId: string,
+  event: NodeStateEvent
+): void {
+  const current = context.nodeStates.get(nodeId);
+  if (!current) {
+    return;
+  }
+  context.nodeStates.set(nodeId, reduceNodeState(current, event));
+}
+
+function reduceNodeState(
+  state: NodeExecutionState,
+  event: NodeStateEvent
+): NodeExecutionState {
+  return match(event)
+    .returnType<NodeExecutionState>()
+    .with({ type: "NODE_READY" }, ({ at }) => ({
+      ...state,
+      startedAt: state.startedAt ? state.startedAt : at,
+      status: state.status === "pending" ? "ready" : state.status,
+    }))
+    .with({ type: "NODE_STARTED" }, ({ at, attempt }) => ({
+      ...state,
+      attempts: attempt,
+      startedAt: state.startedAt ? state.startedAt : at,
+      status: "running",
+    }))
+    .with({ type: "NODE_OUTPUT" }, ({ exitCode, output }) => ({
+      ...state,
+      exitCode,
+      output,
+    }))
+    .with({ type: "GATES_STARTED" }, () => ({
+      ...state,
+      status: "gating",
+    }))
+    .with({ type: "GATES_FINISHED" }, ({ gates }) => ({
+      ...state,
+      gates,
+    }))
+    .with({ type: "NODE_PASSED" }, ({ at, result }) => ({
+      ...state,
+      attempts: result.attempts,
+      evidence: result.evidence,
+      exitCode: result.exitCode,
+      finishedAt: at,
+      output: result.output,
+      status: "passed",
+    }))
+    .with({ type: "NODE_FAILED" }, ({ at, failure, result }) => ({
+      ...state,
+      attempts: result.attempts,
+      evidence: result.evidence,
+      exitCode: result.exitCode,
+      failure,
+      finishedAt: at,
+      output: result.output,
+      status: "failed",
+    }))
+    .with({ type: "NODE_CANCELLED" }, ({ at, failure }) => ({
+      ...state,
+      failure,
+      finishedAt: at,
+      status: "cancelled",
+    }))
+    .with({ type: "NODE_SKIPPED" }, ({ at, reason }) => ({
+      ...state,
+      failure: {
+        evidence: [reason],
+        gate: state.id,
+        nodeId: state.id,
+        reason,
+      },
+      finishedAt: at,
+      status: "skipped",
+    }))
+    .exhaustive();
+}
+
+function now(): string {
+  return new Date().toISOString();
 }
 
 function isCancelled(context: RuntimeContext): boolean {
@@ -577,16 +739,28 @@ async function executeNodeAttemptCycle(
   }
 
   emitNodeStart(context, node, attempt);
+  transitionNode(context, node.id, {
+    at: now(),
+    attempt,
+    type: "NODE_STARTED",
+  });
   const startHook = await dispatchHooks(context, "node.start", undefined, node);
   if (startHook) {
+    const result = nodeFailure(
+      node.id,
+      attempt,
+      startHook.evidence,
+      previous.output
+    );
+    transitionNode(context, node.id, {
+      at: now(),
+      failure: nodeRuntimeFailure(result),
+      result,
+      type: "NODE_FAILED",
+    });
     return {
       last: previous,
-      result: nodeFailure(
-        node.id,
-        attempt,
-        startHook.evidence,
-        previous.output
-      ),
+      result,
     };
   }
   if (isCancelled(context)) {
@@ -606,6 +780,12 @@ async function executeNodeAttemptCycle(
     await snapshotChangedFiles(context.worktreePath)
   );
   const last = await executeNodeAttempt(node, context, attempt);
+  transitionNode(context, node.id, {
+    at: now(),
+    exitCode: last.exitCode,
+    output: last.output,
+    type: "NODE_OUTPUT",
+  });
   const afterSnapshot = await snapshotChangedFiles(context.worktreePath);
   const beforeSnapshot = context.nodeSnapshots.get(node.id);
   if (beforeSnapshot) {
@@ -625,7 +805,13 @@ async function executeNodeAttemptCycle(
     return { last, result: cancelledAfterAttempt };
   }
 
+  transitionNode(context, node.id, { at: now(), type: "GATES_STARTED" });
   const gateResults = await evaluateNodeGates(node, context, last);
+  transitionNode(context, node.id, {
+    at: now(),
+    gates: gateResults,
+    type: "GATES_FINISHED",
+  });
   const cancelledAfterGates = cancelledNodeResult(
     context,
     node.id,
@@ -651,6 +837,12 @@ async function executeNodeAttemptCycle(
         successHook.evidence,
         last.output
       );
+      transitionNode(context, node.id, {
+        at: now(),
+        failure: nodeRuntimeFailure(result),
+        result,
+        type: "NODE_FAILED",
+      });
       return { last, result };
     }
     const cancelledAfterHook = cancelledNodeResult(
@@ -670,6 +862,11 @@ async function executeNodeAttemptCycle(
       output: last.output,
       status: "passed",
     };
+    transitionNode(context, node.id, {
+      at: now(),
+      result,
+      type: "NODE_PASSED",
+    });
     return { last, result };
   }
 
@@ -689,6 +886,12 @@ async function executeNodeAttemptCycle(
       node
     );
     const result = nodeFailure(node.id, attempt, evidence, last.output);
+    transitionNode(context, node.id, {
+      at: now(),
+      failure: nodeRuntimeFailure(result),
+      result,
+      type: "NODE_FAILED",
+    });
     return { last, result };
   }
 
@@ -704,7 +907,7 @@ function cancelledNodeResult(
   if (!isCancelled(context)) {
     return null;
   }
-  return {
+  const result: RuntimeNodeResult = {
     attempts: attempt,
     evidence: [...last.evidence, ...cancelledFailure().evidence],
     exitCode: last.exitCode,
@@ -712,6 +915,12 @@ function cancelledNodeResult(
     output: last.output,
     status: last.exitCode === 0 ? "passed" : "failed",
   };
+  transitionNode(context, nodeId, {
+    at: now(),
+    failure: cancelledFailure(),
+    type: "NODE_CANCELLED",
+  });
+  return result;
 }
 
 function nodeFailure(
