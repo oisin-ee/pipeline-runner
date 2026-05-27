@@ -22,6 +22,7 @@
     "@types/node": "^25.9.1",
     "jscpd": "^4.0.5",
     "semantic-release": "^25.0.3",
+    "tsdown": "^0.22.0",
     "typescript": "^6.0.3",
     "ultracite": "7.7.0",
     "vitest": "^3.2.0"
@@ -66,7 +67,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:cli": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node && bun build src/runner.ts --outfile dist/runner.js --target node && bun build src/config.ts --outfile dist/config.js --target node && bun build src/workflow-planner.ts --outfile dist/workflow-planner.js --target node && bun build src/pipeline-runtime.ts --outfile dist/pipeline-runtime.js --target node && tsc -p tsconfig.types.json",
+    "build:cli": "tsdown",
     "test": "vitest run",
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
