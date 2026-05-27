@@ -51,6 +51,7 @@ export interface WorkflowExecutionPlan {
 }
 
 type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
+type GroupWorkflowNode = Extract<WorkflowNode, { kind: "group" }>;
 
 export function compileWorkflowPlan(
   config: PipelineConfig,
@@ -142,7 +143,7 @@ function groupIssues(
   nodeIds: Set<string>
 ): WorkflowPlannerIssue[] {
   return nodes
-    .filter((node) => node.kind === "group")
+    .filter(isGroupNode)
     .flatMap((node) => [
       ...emptyGroupIssues(workflowId, node),
       ...groupChildIssues(workflowId, node, nodeIds),
@@ -151,7 +152,7 @@ function groupIssues(
 
 function emptyGroupIssues(
   workflowId: string,
-  node: WorkflowNode
+  node: GroupWorkflowNode
 ): WorkflowPlannerIssue[] {
   if ((node.nodes ?? []).length > 0) {
     return [];
@@ -166,7 +167,7 @@ function emptyGroupIssues(
 
 function groupChildIssues(
   workflowId: string,
-  node: WorkflowNode,
+  node: GroupWorkflowNode,
   nodeIds: Set<string>
 ): WorkflowPlannerIssue[] {
   return (node.nodes ?? []).flatMap((childId) => {
@@ -188,6 +189,10 @@ function groupChildIssues(
     }
     return [];
   });
+}
+
+function isGroupNode(node: WorkflowNode): node is GroupWorkflowNode {
+  return node.kind === "group";
 }
 
 function cycleIssues(
@@ -309,8 +314,8 @@ function toPlannedNode(
 ): PlannedWorkflowNode {
   return {
     artifacts: node.artifacts,
-    builtin: node.builtin,
-    command: node.command,
+    builtin: "builtin" in node ? node.builtin : undefined,
+    command: "command" in node ? node.command : undefined,
     dependents,
     gates: node.gates,
     hooks: node.hooks,
@@ -318,8 +323,8 @@ function toPlannedNode(
     index,
     kind: node.kind,
     needs: node.needs ?? [],
-    nodes: node.nodes,
-    profile: node.profile,
+    nodes: "nodes" in node ? node.nodes : undefined,
+    profile: "profile" in node ? node.profile : undefined,
     retries: node.retries,
   };
 }

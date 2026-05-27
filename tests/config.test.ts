@@ -477,7 +477,7 @@ workflows:
     ).toEqual(["verdict", "acceptance", "changed_files"]);
   });
 
-  it("rejects entrypoints pointing at missing workflows and invalid gate shapes", () => {
+  it("rejects entrypoints pointing at missing workflows", () => {
     const error = captureConfigError(() =>
       parseParts({
         pipeline: `
@@ -494,8 +494,6 @@ workflows:
       - id: research
         kind: agent
         profile: researcher
-        gates:
-          - kind: changed_files
 `,
       })
     );
@@ -504,7 +502,30 @@ workflows:
     expect(error.message).toContain(
       "entrypoint 'bad' references missing workflow"
     );
-    expect(error.message).toContain("changed_files gate");
+  });
+
+  it("rejects invalid gate shapes by kind", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+        gates:
+          - kind: changed_files
+`,
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("changed_files");
   });
 
   it("rejects missing rule, skill, and MCP server references", () => {
@@ -554,7 +575,21 @@ workflows:
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("Invalid option");
+    expect(error.message).toContain("Invalid discriminator value");
+  });
+
+  it("rejects invalid workflow node field combinations", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "profile: researcher",
+          "profile: researcher\n        command: [echo, bad]"
+        ),
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("Unrecognized key");
   });
 
   it("rejects unsupported hook events", () => {

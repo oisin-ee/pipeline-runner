@@ -26,6 +26,17 @@ import {
 
 type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
 type GateSpec = NonNullable<WorkflowNode["gates"]>[number];
+type AcceptanceGateSpec = Extract<GateSpec, { kind: "acceptance" }>;
+type ArtifactGateSpec = Extract<GateSpec, { kind: "artifact" }>;
+type BuiltinGateSpec = Extract<GateSpec, { kind: "builtin" }>;
+type ChangedFilesGateSpec = Extract<GateSpec, { kind: "changed_files" }>;
+type CommandGateSpec = Extract<GateSpec, { kind: "command" }>;
+type JsonSchemaGateSpec = Extract<GateSpec, { kind: "json_schema" }>;
+type JsonSourceGateSpec = Extract<
+  GateSpec,
+  { kind: "acceptance" | "json_schema" | "verdict" }
+>;
+type VerdictGateSpec = Extract<GateSpec, { kind: "verdict" }>;
 type HookSpec = PipelineConfig["hooks"][string];
 const LINE_RE = /\r?\n/;
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
@@ -1553,15 +1564,17 @@ function evaluateGate(
       return evaluateChangedFilesGate(gate, gateId, nodeId, context);
     case "json_schema":
       return evaluateJsonSchemaGate(gate, gateId, nodeId, context, attempt);
-    default: {
-      const _exhaustive: never = gate.kind;
-      throw new Error(`Unsupported gate kind: ${String(_exhaustive)}`);
-    }
+    default:
+      return assertNever(gate);
   }
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unsupported gate kind: ${String(value)}`);
+}
+
 async function evaluateCommandGate(
-  gate: GateSpec,
+  gate: CommandGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext
@@ -1584,7 +1597,7 @@ async function evaluateCommandGate(
 }
 
 function evaluateArtifactGate(
-  gate: GateSpec,
+  gate: ArtifactGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext
@@ -1604,7 +1617,7 @@ function evaluateArtifactGate(
 }
 
 async function evaluateBuiltinGate(
-  gate: GateSpec,
+  gate: BuiltinGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext
@@ -1624,7 +1637,7 @@ async function evaluateBuiltinGate(
 }
 
 function gateJsonSource(
-  gate: GateSpec,
+  gate: JsonSourceGateSpec,
   context: RuntimeContext,
   attempt: NodeAttemptResult
 ): { evidence?: string; source?: string } {
@@ -1641,7 +1654,7 @@ function gateJsonSource(
 }
 
 function parseGateJson(
-  gate: GateSpec,
+  gate: JsonSourceGateSpec,
   context: RuntimeContext,
   attempt: NodeAttemptResult
 ): { evidence?: string; value?: unknown } {
@@ -1659,7 +1672,7 @@ function parseGateJson(
 }
 
 function evaluateVerdictGate(
-  gate: GateSpec,
+  gate: VerdictGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext,
@@ -1695,7 +1708,7 @@ function evaluateVerdictGate(
 }
 
 function evaluateAcceptanceGate(
-  gate: GateSpec,
+  gate: AcceptanceGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext,
@@ -1796,7 +1809,7 @@ function acceptanceCoverageEvidence(
 }
 
 function evaluateChangedFilesGate(
-  gate: GateSpec,
+  gate: ChangedFilesGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext
@@ -1850,7 +1863,7 @@ function globMatch(pattern: string, value: string): boolean {
 }
 
 function evaluateJsonSchemaGate(
-  gate: GateSpec,
+  gate: JsonSchemaGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext,

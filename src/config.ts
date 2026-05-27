@@ -239,24 +239,63 @@ const changedFilesPolicySchema = z
   })
   .strict();
 
-const gateSchema = z
-  .object({
-    acceptance_key: z.string().optional(),
-    builtin: z.enum(BUILTIN_GATES).optional(),
-    changed_files: changedFilesPolicySchema.optional(),
-    command: z.array(z.string()).optional(),
-    equals: z.string().optional(),
-    expect_exit_code: z.number().int().optional(),
-    field: z.string().optional(),
-    id: z.string().optional(),
-    kind: z.enum(GATE_KINDS),
-    path: z.string().min(1).optional(),
-    required: z.boolean().optional(),
-    schema_path: z.string().min(1).optional(),
-    target: z.enum(["artifact", "stdout"]).optional(),
-    timeout_ms: z.number().int().positive().optional(),
-  })
-  .strict();
+const gateBaseSchema = z.object({
+  id: z.string().optional(),
+  required: z.boolean().optional(),
+});
+
+const jsonSourceGateSchema = gateBaseSchema.extend({
+  path: z.string().min(1).optional(),
+  target: z.enum(["artifact", "stdout"]).optional(),
+});
+
+const gateSchema = z.discriminatedUnion("kind", [
+  jsonSourceGateSchema
+    .extend({
+      acceptance_key: z.string().optional(),
+      kind: z.literal("acceptance"),
+    })
+    .strict(),
+  gateBaseSchema
+    .extend({
+      kind: z.literal("artifact"),
+      path: z.string().min(1),
+    })
+    .strict(),
+  gateBaseSchema
+    .extend({
+      builtin: z.enum(BUILTIN_GATES),
+      kind: z.literal("builtin"),
+    })
+    .strict(),
+  gateBaseSchema
+    .extend({
+      changed_files: changedFilesPolicySchema,
+      kind: z.literal("changed_files"),
+    })
+    .strict(),
+  gateBaseSchema
+    .extend({
+      command: z.array(z.string()),
+      expect_exit_code: z.number().int().optional(),
+      kind: z.literal("command"),
+      timeout_ms: z.number().int().positive().optional(),
+    })
+    .strict(),
+  jsonSourceGateSchema
+    .extend({
+      kind: z.literal("json_schema"),
+      schema_path: z.string().min(1),
+    })
+    .strict(),
+  jsonSourceGateSchema
+    .extend({
+      equals: z.string().optional(),
+      field: z.string().optional(),
+      kind: z.literal("verdict"),
+    })
+    .strict(),
+]);
 
 const retriesSchema = z
   .object({
@@ -325,21 +364,41 @@ const entrypointSchema = z
   })
   .strict();
 
-const workflowNodeSchema = z
-  .object({
-    artifacts: z.array(artifactSchema).optional(),
-    builtin: z.string().optional(),
-    command: z.array(z.string()).optional(),
-    gates: z.array(gateSchema).optional(),
-    hooks: z.array(z.string()).optional(),
-    id: z.string(),
-    kind: z.enum(NODE_KINDS),
-    needs: z.array(z.string()).optional(),
-    nodes: z.array(z.string()).optional(),
-    profile: z.string().optional(),
-    retries: retriesSchema.optional(),
-  })
-  .strict();
+const workflowNodeBaseSchema = z.object({
+  artifacts: z.array(artifactSchema).optional(),
+  gates: z.array(gateSchema).optional(),
+  hooks: z.array(z.string()).optional(),
+  id: z.string(),
+  needs: z.array(z.string()).optional(),
+  retries: retriesSchema.optional(),
+});
+
+const workflowNodeSchema = z.discriminatedUnion("kind", [
+  workflowNodeBaseSchema
+    .extend({
+      kind: z.literal("agent"),
+      profile: z.string(),
+    })
+    .strict(),
+  workflowNodeBaseSchema
+    .extend({
+      command: z.array(z.string()),
+      kind: z.literal("command"),
+    })
+    .strict(),
+  workflowNodeBaseSchema
+    .extend({
+      builtin: z.string(),
+      kind: z.literal("builtin"),
+    })
+    .strict(),
+  workflowNodeBaseSchema
+    .extend({
+      kind: z.literal("group"),
+      nodes: z.array(z.string()).min(1),
+    })
+    .strict(),
+]);
 
 const workflowSchema = z
   .object({
@@ -854,28 +913,10 @@ function validateWorkflowNodeKind(
   config: PipelineConfig,
   issues: PipelineConfigIssue[]
 ): void {
-  if (node.kind === "agent" && !node.profile) {
-    issues.push({
-      path: `workflows.${workflowId}.nodes.${node.id}.profile`,
-      message: `agent node '${node.id}' must declare profile`,
-    });
-  }
-  if (node.profile && !config.profiles[node.profile]) {
+  if (node.kind === "agent" && !config.profiles[node.profile]) {
     issues.push({
       path: `workflows.${workflowId}.nodes.${node.id}.profile`,
       message: `node '${node.id}' references missing profile '${node.profile}'`,
-    });
-  }
-  if (node.kind === "command" && !node.command) {
-    issues.push({
-      path: `workflows.${workflowId}.nodes.${node.id}.command`,
-      message: `command node '${node.id}' must declare command`,
-    });
-  }
-  if (node.kind === "builtin" && !node.builtin) {
-    issues.push({
-      path: `workflows.${workflowId}.nodes.${node.id}.builtin`,
-      message: `builtin node '${node.id}' must declare builtin`,
     });
   }
 }
@@ -889,7 +930,14 @@ function validateNodeGates(
   for (const [index, gate] of (node.gates ?? []).entries()) {
     const path = `workflows.${workflowId}.nodes.${node.id}.gates.${index}`;
     validateGateRequiredFields(gate, path, node.id, issues);
-    validatePath(`${path}.schema_path`, gate.schema_path, projectRoot, issues);
+    if (gate.kind === "json_schema") {
+      validatePath(
+        `${path}.schema_path`,
+        gate.schema_path,
+        projectRoot,
+        issues
+      );
+    }
   }
 }
 
@@ -913,42 +961,7 @@ function gateMissingField(gate: ConfigGateSpec): {
   field: string;
   message: (nodeId: string) => string;
 } | null {
-  if (gate.kind === "command" && !gate.command) {
-    return {
-      field: "command",
-      message: (nodeId) =>
-        `command gate on node '${nodeId}' must declare command`,
-    };
-  }
-  if (gate.kind === "artifact" && !gate.path) {
-    return {
-      field: "path",
-      message: (nodeId) =>
-        `artifact gate on node '${nodeId}' must declare path`,
-    };
-  }
-  if (gate.kind === "json_schema" && !gate.schema_path) {
-    return {
-      field: "schema_path",
-      message: (nodeId) =>
-        `json_schema gate on node '${nodeId}' must declare schema_path`,
-    };
-  }
-  if (gate.kind === "builtin" && !gate.builtin) {
-    return {
-      field: "builtin",
-      message: (nodeId) =>
-        `builtin gate on node '${nodeId}' must declare builtin`,
-    };
-  }
-  if (gate.kind === "changed_files" && !gate.changed_files) {
-    return {
-      field: "changed_files",
-      message: (nodeId) =>
-        `changed_files gate on node '${nodeId}' must declare changed_files policy`,
-    };
-  }
-  if (gate.target === "artifact" && !gate.path) {
+  if ("target" in gate && gate.target === "artifact" && !gate.path) {
     return {
       field: "path",
       message: (nodeId) =>

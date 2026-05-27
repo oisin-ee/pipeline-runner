@@ -388,7 +388,7 @@ function assertLaunchPlanContainsGrants(
   const profile = config.profiles[profileId];
   const plan = config.workflows.live.nodes[0];
   assertSmoke(
-    plan?.profile === profileId,
+    plan?.kind === "agent" && plan.profile === profileId,
     "profile id did not match",
     diagnostic
   );
