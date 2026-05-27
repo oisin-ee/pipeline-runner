@@ -277,6 +277,39 @@ workflows:
     expect(started).toEqual(["start", "left", "right"]);
   });
 
+  it("limits parallel node execution when configured", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  limited:
+    nodes:
+      - { id: left, kind: agent, profile: a }
+      - { id: right, kind: agent, profile: b }
+`);
+    let active = 0;
+    let maxActive = 0;
+    const seen: string[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: async (plan) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        seen.push(plan.nodeId);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        active -= 1;
+        return { exitCode: 0, stdout: plan.nodeId };
+      },
+      maxParallelNodes: 1,
+      task: "parallel",
+      workflowId: "limited",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen).toEqual(["left", "right"]);
+    expect(maxActive).toBe(1);
+  });
+
   it("fails missing artifact gates and blocks dependents", async () => {
     const project = tempProject();
     const config = baseConfig(`

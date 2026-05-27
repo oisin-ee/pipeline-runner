@@ -4,6 +4,7 @@ import { join } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { execa } from "execa";
 import micromatch from "micromatch";
+import pLimit from "p-limit";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -194,6 +195,7 @@ export interface PipelineRuntimeOptions {
     options: RunnerExecutionOptions
   ) => AgentResult | Promise<AgentResult>;
   hookPolicy?: HookRuntimePolicy;
+  maxParallelNodes?: number;
   reporter?: (event: PipelineRuntimeEvent) => void;
   signal?: AbortSignal;
   task: string;
@@ -213,6 +215,7 @@ interface RuntimeContext {
   hookFailures: RuntimeFailure[];
   hookPolicy: Required<HookRuntimePolicy>;
   lastOutputByNode: Map<string, string>;
+  maxParallelNodes?: number;
   nodeSnapshots: Map<string, ChangedFilesSnapshot>;
   plan: WorkflowExecutionPlan;
   reporter?: (event: PipelineRuntimeEvent) => void;
@@ -312,6 +315,11 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
       timeoutMs: options.hookPolicy?.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
     },
     lastOutputByNode: new Map(),
+    ...(options.maxParallelNodes
+      ? {
+          maxParallelNodes: normalizeMaxParallelNodes(options.maxParallelNodes),
+        }
+      : {}),
     nodeSnapshots: new Map(),
     plan,
     ...(options.reporter ? { reporter: options.reporter } : {}),
@@ -321,6 +329,13 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     workflowId,
     worktreePath,
   };
+}
+
+function normalizeMaxParallelNodes(value: number): number {
+  if (!(Number.isInteger(value) && value > 0)) {
+    throw new Error("maxParallelNodes must be a positive integer");
+  }
+  return value;
 }
 
 async function workflowStartFailure(
@@ -349,9 +364,7 @@ async function executeWorkflowBatches(
     if (isCancelled(context)) {
       return cancelledRuntimeResult(context, nodes);
     }
-    const results = await Promise.all(
-      batch.map((node) => executeNode(node, context))
-    );
+    const results = await executeWorkflowBatch(batch, context);
     nodes.push(...results);
     if (isCancelled(context)) {
       return cancelledRuntimeResult(context, nodes);
@@ -365,6 +378,19 @@ async function executeWorkflowBatches(
     }
   }
   return null;
+}
+
+function executeWorkflowBatch(
+  batch: PlannedWorkflowNode[],
+  context: RuntimeContext
+): Promise<RuntimeNodeResult[]> {
+  if (!context.maxParallelNodes) {
+    return Promise.all(batch.map((node) => executeNode(node, context)));
+  }
+  const limit = pLimit(context.maxParallelNodes);
+  return Promise.all(
+    batch.map((node) => limit(() => executeNode(node, context)))
+  );
 }
 
 async function successfulRuntimeResult(

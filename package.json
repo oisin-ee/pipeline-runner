@@ -5,6 +5,7 @@
     "execa": "^9.5.2",
     "gray-matter": "^4.0.3",
     "micromatch": "^4.0.8",
+    "p-limit": "^7.3.0",
     "package-manager-detector": "^1.6.0",
     "smol-toml": "^1.6.1",
     "yaml": "^2.9.0",
