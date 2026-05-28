@@ -268,6 +268,119 @@ describe("loadPipelineConfig", () => {
     );
   });
 
+  it("resolves MCP server definitions from mcp-json config files", () => {
+    const profiles = VALID_PROFILES_YAML.replace(
+      `mcp_servers:
+  docs:
+    command: npx
+    args: ["-y", "@example/docs-mcp"]`,
+      `mcp_servers:
+  docs:
+    ref:
+      path: .mcp.json
+      id: serena`
+    );
+    const project = makeProject({ ...VALID_PARTS, profiles });
+    writeProjectFile(
+      project,
+      ".mcp.json",
+      JSON.stringify({
+        mcpServers: {
+          serena: {
+            command: "uvx",
+            args: [
+              "--from",
+              "git+https://github.com/oraios/serena",
+              "serena",
+              "start-mcp-server",
+            ],
+            env: {
+              SERENA_TEST: "1",
+            },
+          },
+        },
+      })
+    );
+
+    const config = loadPipelineConfig(project);
+
+    expect(config.mcp_servers.docs).toEqual({
+      command: "uvx",
+      args: [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+      ],
+      env: {
+        SERENA_TEST: "1",
+      },
+    });
+    expect(config.profiles.researcher.mcp_servers).toEqual(["docs"]);
+  });
+
+  it("rejects MCP refs that point at missing mcp-json server ids", () => {
+    const profiles = VALID_PROFILES_YAML.replace(
+      `mcp_servers:
+  docs:
+    command: npx
+    args: ["-y", "@example/docs-mcp"]`,
+      `mcp_servers:
+  docs:
+    ref:
+      path: .mcp.json
+      id: missing`
+    );
+    const project = makeProject({ ...VALID_PARTS, profiles });
+    writeProjectFile(
+      project,
+      ".mcp.json",
+      JSON.stringify({
+        mcpServers: {
+          serena: {
+            command: "uvx",
+          },
+        },
+      })
+    );
+
+    const error = captureConfigError(() => loadPipelineConfig(project));
+
+    expect(error.message).toContain(
+      "MCP config '.mcp.json' does not declare server 'missing'"
+    );
+  });
+
+  it("rejects invalid imported mcp-json server definitions", () => {
+    const profiles = VALID_PROFILES_YAML.replace(
+      `mcp_servers:
+  docs:
+    command: npx
+    args: ["-y", "@example/docs-mcp"]`,
+      `mcp_servers:
+  docs:
+    ref:
+      path: .mcp.json`
+    );
+    const project = makeProject({ ...VALID_PARTS, profiles });
+    writeProjectFile(
+      project,
+      ".mcp.json",
+      JSON.stringify({
+        mcpServers: {
+          docs: {
+            command: "uvx",
+            url: "https://memory-mcp.momokaya.ee/mcp/",
+          },
+        },
+      })
+    );
+
+    const error = captureConfigError(() => loadPipelineConfig(project));
+
+    expect(error.message).toContain("exactly one of command or url");
+  });
+
   it("rejects invalid MCP server transport field combinations", () => {
     const cases = [
       {

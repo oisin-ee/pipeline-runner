@@ -522,6 +522,110 @@ workflows:
     expect(orchestrator.args).toContain('mcp_servers.docs.command="node"');
   });
 
+  it("hydrates imported mcp-json servers into native runner launch plans", async () => {
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import(
+      "node:fs"
+    );
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const project = mkdtempSync(join(tmpdir(), "pipeline-runner-mcp-"));
+    writeFileSync(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          serena: {
+            command: "uvx",
+            args: ["--from", "git+https://github.com/oraios/serena"],
+          },
+        },
+      })
+    );
+
+    try {
+      const config = parsePipelineConfigParts(
+        {
+          runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+`,
+          profiles: `
+version: 1
+mcp_servers:
+  serena:
+    ref:
+      path: .mcp.json
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    mcp_servers: [serena]
+  codex-agent:
+    runner: codex
+    instructions: { inline: Codex }
+    mcp_servers: [serena]
+  opencode-agent:
+    runner: opencode
+    instructions: { inline: OpenCode }
+    mcp_servers: [serena]
+`,
+          pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: codex-agent }
+`,
+        },
+        project
+      );
+
+      const codex = createRunnerLaunchPlan(config, {
+        profileId: "codex-agent",
+        nodeId: "codex",
+        prompt: "do work",
+        worktreePath: project,
+      });
+      expect(codex.args).toContain('mcp_servers.serena.command="uvx"');
+      expect(codex.args).toContain(
+        'mcp_servers.serena.args=["--from", "git+https://github.com/oraios/serena"]'
+      );
+
+      const opencode = createRunnerLaunchPlan(config, {
+        profileId: "opencode-agent",
+        nodeId: "opencode",
+        prompt: "do work",
+        worktreePath: project,
+      });
+      const opencodeConfig = JSON.parse(
+        readFileSync(opencode.env.OPENCODE_CONFIG, "utf8")
+      );
+      expect(opencodeConfig.mcp.serena).toEqual({
+        command: ["uvx", "--from", "git+https://github.com/oraios/serena"],
+        enabled: true,
+        type: "local",
+      });
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
   it("renders remote HTTP MCP servers for each native runner", async () => {
     const { readFileSync } = await import("node:fs");
     const config = parseTestConfig({

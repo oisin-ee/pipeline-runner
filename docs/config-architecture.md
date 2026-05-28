@@ -154,6 +154,26 @@ Exactly one of `command` or `url` is required. `args` and `env` apply only to
 command servers. `headers` and `bearer_token_env_var` apply only to URL
 servers.
 
+MCP registry entries can also reference an existing MCP JSON config file. This
+keeps the pipeline config decoupled from whatever generated the MCP config:
+
+```yaml
+mcp_servers:
+  serena:
+    ref:
+      path: .mcp.json
+      id: serena
+
+profiles:
+  inspector:
+    runner: codex
+    mcp_servers: [serena]
+```
+
+`ref.path` is resolved from the repository root and currently supports the
+standard `mcp-json` shape: `{ "mcpServers": { "<id>": { ... } } }`. If `id` is
+omitted, the registry key is used.
+
 JSON Schema outputs are hard contracts. The runtime validates normalized agent
 output before the node can pass. Schema outputs also get a bounded repair pass
 by default:
