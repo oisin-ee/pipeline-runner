@@ -36,6 +36,10 @@ rulesync.local.jsonc
 **/.claude/CLAUDE.local.md
 **/.claude/rules/
 **/.claude/commands/
+!.claude/commands/
+!.claude/commands/pipe.md
+!.claude/commands/inspect.md
+!.claude/commands/epic.md
 **/.claude/agents/
 **/.claude/skills/
 **/.mcp.json
@@ -60,4 +64,8 @@ rulesync.local.jsonc
 **/.opencode/package-lock.json
 **/.agents/memories/
 **/.pi/prompts/
+!.pi/prompts/
+!.pi/prompts/pipe.md
+!.pi/prompts/inspect.md
+!.pi/prompts/epic.md
 **/.pi/skills/
