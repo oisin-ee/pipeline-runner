@@ -294,8 +294,9 @@ describe("installCommands", () => {
     expect(codexResearcher).toContain('model = "gpt-5.5"');
     expect(codexResearcher).toContain("[[skills.config]]");
     expect(codexResearcher).toContain(
-      `path = "${join(dir, ".agents/skills/context-engineering/SKILL.md")}"`
+      'path = ".agents/skills/context-engineering/SKILL.md"'
     );
+    expect(codexResearcher).not.toContain(dir);
     expect(codexResearcher).toContain("[mcp_servers.serena]");
     expect(codexResearcher).toContain('command = "uvx"');
     expect(codexResearcher).toContain(

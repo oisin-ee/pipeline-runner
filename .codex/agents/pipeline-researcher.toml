@@ -8,19 +8,19 @@ sandbox_mode = "read-only"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/context-engineering/SKILL.md"
+path = ".agents/skills/context-engineering/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/source-driven-development/SKILL.md"
+path = ".agents/skills/source-driven-development/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/spec-driven-development/SKILL.md"
+path = ".agents/skills/spec-driven-development/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/planning-and-task-breakdown/SKILL.md"
+path = ".agents/skills/planning-and-task-breakdown/SKILL.md"
 
 [mcp_servers.serena]
 args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-serena" ]

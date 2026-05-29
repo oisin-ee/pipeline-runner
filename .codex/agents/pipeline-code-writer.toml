@@ -8,19 +8,19 @@ sandbox_mode = "workspace-write"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/incremental-implementation/SKILL.md"
+path = ".agents/skills/incremental-implementation/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/source-driven-development/SKILL.md"
+path = ".agents/skills/source-driven-development/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/debugging-and-error-recovery/SKILL.md"
+path = ".agents/skills/debugging-and-error-recovery/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/test-driven-development/SKILL.md"
+path = ".agents/skills/test-driven-development/SKILL.md"
 
 [mcp_servers.serena]
 args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-serena" ]

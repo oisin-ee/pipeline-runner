@@ -50,6 +50,8 @@ rulesync.local.jsonc
 **/.codexignore
 **/.codex/skills/
 **/.codex/agents/
+!.codex/agents/
+!.codex/agents/pipeline-*.toml
 **/.codex/memories/
 **/.codex/config.toml
 **/.codex/hooks.json

@@ -291,15 +291,20 @@ describe("installed dogfood configuration", () => {
         const skill = config.skills[skillId];
         expect(skill, `${profileId} skill ${skillId}`).toBeTruthy();
         const skillPath = join(root, skill.path);
+        const installedSkillPath = skill.path.replaceAll("\\", "/");
         if (existsSync(skillPath)) {
           expect(content, `${profileId} loads skill ${skillId}`).toContain(
-            `path = "${skillPath}"`
+            `path = "${installedSkillPath}"`
           );
+          expect(
+            content,
+            `${profileId} uses portable skill paths`
+          ).not.toContain(`path = "${skillPath}"`);
         } else {
           expect(
             content,
             `${profileId} skips missing lint-only skill ${skillId}`
-          ).not.toContain(`path = "${skillPath}"`);
+          ).not.toContain(`path = "${installedSkillPath}"`);
         }
       }
       for (const mcpId of profile.mcp_servers ?? []) {

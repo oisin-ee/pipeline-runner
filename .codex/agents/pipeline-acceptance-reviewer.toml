@@ -8,19 +8,19 @@ sandbox_mode = "read-only"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/requesting-code-review/SKILL.md"
+path = ".agents/skills/requesting-code-review/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/receiving-code-review/SKILL.md"
+path = ".agents/skills/receiving-code-review/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/code-review-and-quality/SKILL.md"
+path = ".agents/skills/code-review-and-quality/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/doubt-driven-development/SKILL.md"
+path = ".agents/skills/doubt-driven-development/SKILL.md"
 
 [mcp_servers.serena]
 args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-serena" ]

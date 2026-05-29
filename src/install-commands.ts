@@ -690,7 +690,7 @@ function codexAgentSkillConfig(
       ? [
           {
             enabled: true,
-            path: absoluteSkillPath,
+            path: skillPath.replaceAll("\\", "/"),
           },
         ]
       : [];

@@ -8,7 +8,7 @@ sandbox_mode = "workspace-write"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/oisin-pipeline/.agents/skills/test-driven-development/SKILL.md"
+path = ".agents/skills/test-driven-development/SKILL.md"
 
 [mcp_servers.serena]
 args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-serena" ]
