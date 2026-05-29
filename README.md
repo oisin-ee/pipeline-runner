@@ -96,7 +96,7 @@ pipe epic PIPE-31
 
 The `epic` entrypoint routes an epic's child tickets into fixed specialist
 tracks, runs those tracks in parallel, merges passing branches, and then runs a
-hardened review.
+thermo-nuclear code quality review.
 
 The `pipe` binary also accepts the task directly:
 
@@ -207,11 +207,11 @@ The built-in `epic` entrypoint uses those primitives:
 entrypoints:
   epic:
     workflow: epic-drain
-    description: Route an epic's tickets into specialist tracks, run them in parallel, then hardened-review.
+    description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
 
 workflows:
   epic-drain:
-    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, hardened-review.
+    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, thermo-nuclear review.
     nodes:
       - id: research
         kind: agent
@@ -246,7 +246,7 @@ workflows:
         needs: [implement]
       - id: review
         kind: agent
-        profile: pipeline-hardened-reviewer
+        profile: pipeline-thermo-nuclear-reviewer
         needs: [merge]
         gates:
           - { id: review-verdict, kind: verdict, target: stdout }
@@ -259,10 +259,9 @@ branches share a base SHA, and merges passing branches into an integration
 branch in declaration order. It reports merge conflicts; it does not resolve
 them automatically.
 
-The `hardened-review` skill is an external/local skill registered at
-`.agents/skills/hardened-review/SKILL.md`. When that file is absent, normal
-validation reports a `missing-file-reference` warning and continues; `--strict`
-promotes that warning to a failure.
+The `thermo-nuclear-code-quality-review` skill is installed from
+`cursor/plugins` and registered at
+`.agents/skills/thermo-nuclear-code-quality-review/SKILL.md`.
 
 ## Generated Host Resources
 

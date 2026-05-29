@@ -1074,13 +1074,13 @@ describe("epic entrypoint integration", () => {
     expect(config.entrypoints?.epic).toEqual({
       workflow: "epic-drain",
       description:
-        "Route an epic's tickets into specialist tracks, run them in parallel, then hardened-review.",
+        "Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.",
     });
 
     const workflow = config.workflows?.["epic-drain"];
     expect(workflow, "workflows.epic-drain should exist").toBeDefined();
     expect(workflow.description).toBe(
-      "Research, route, parallel-implement tracks in isolated worktrees, integrate, hardened-review."
+      "Research, route, parallel-implement tracks in isolated worktrees, integrate, thermo-nuclear review."
     );
     expect(workflow.nodes.map((node: { id: string }) => node.id)).toEqual([
       "research",
@@ -1145,7 +1145,7 @@ describe("epic entrypoint integration", () => {
     expect(workflow.nodes[4]).toMatchObject({
       id: "review",
       kind: "agent",
-      profile: "pipeline-hardened-reviewer",
+      profile: "pipeline-thermo-nuclear-reviewer",
       needs: ["merge"],
     });
     expect(workflow.nodes[4].gates).toEqual([
@@ -1275,8 +1275,8 @@ describe("epic-router asset bundle", () => {
   });
 });
 
-describe("hardened-review asset bundle", () => {
-  it("declares the hardened-review skill and pipeline-hardened-reviewer profile contract", () => {
+describe("thermo-nuclear review asset bundle", () => {
+  it("declares the thermo-nuclear skill and reviewer profile contract", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
       "utf8"
@@ -1286,19 +1286,24 @@ describe("hardened-review asset bundle", () => {
       profiles?: Record<string, any>;
     };
 
-    expect(profilesConfig.skills?.["hardened-review"]).toEqual({
-      path: ".agents/skills/hardened-review/SKILL.md",
+    expect(
+      profilesConfig.skills?.["thermo-nuclear-code-quality-review"]
+    ).toEqual({
+      path: ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
     });
 
-    const profile = profilesConfig.profiles?.["pipeline-hardened-reviewer"];
+    const profile =
+      profilesConfig.profiles?.["pipeline-thermo-nuclear-reviewer"];
     expect(
       profile,
-      "profiles.pipeline-hardened-reviewer should exist in .pipeline/profiles.yaml"
+      "profiles.pipeline-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml"
     ).toBeDefined();
     expect(profile).toMatchObject({
       runner: "codex",
-      instructions: { path: ".pipeline/prompts/hardened-review.md" },
-      skills: ["hardened-review"],
+      instructions: {
+        path: ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
+      },
+      skills: ["thermo-nuclear-code-quality-review"],
       mcp_servers: ["serena", "semgrep", "github-readonly"],
       filesystem: {
         mode: "read-only",
@@ -1318,7 +1323,7 @@ describe("hardened-review asset bundle", () => {
     expect(profile.tools).toEqual(["read", "list", "grep", "glob", "bash"]);
   });
 
-  it("validates the hardened-review output schema contract", () => {
+  it("validates the thermo-nuclear review output schema contract", () => {
     const schema = JSON.parse(
       readFileSync(
         join(process.cwd(), ".pipeline/schemas/review.schema.json"),
@@ -1364,18 +1369,18 @@ describe("hardened-review asset bundle", () => {
     ).toBe(false);
   });
 
-  it("documents the hardened-review prompt contract and skill usage", () => {
-    const prompt = readFileSync(
-      join(process.cwd(), ".pipeline/prompts/hardened-review.md"),
+  it("uses the thermo-nuclear review skill itself as the reviewer instructions", () => {
+    const skill = readFileSync(
+      join(
+        process.cwd(),
+        ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md"
+      ),
       "utf8"
     );
 
-    expect(prompt).toContain("final reviewer");
-    expect(prompt).toContain("integration branch");
-    expect(prompt).toContain("hardened-review");
-    expect(prompt).toContain("serena");
-    expect(prompt).toContain("semgrep");
-    expect(prompt).toContain(".pipeline/schemas/review.schema.json");
-    expect(prompt).toContain("Do not modify any files");
+    expect(skill).toContain("name: thermo-nuclear-code-quality-review");
+    expect(skill).toContain("Thermo-Nuclear Code Quality Review");
+    expect(skill).toContain("extremely strict maintainability review");
+    expect(skill).toContain("spaghetti");
   });
 });

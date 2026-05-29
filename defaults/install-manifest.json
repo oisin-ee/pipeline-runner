@@ -31,6 +31,10 @@
       ]
     },
     {
+      "source": "cursor/plugins",
+      "skills": ["thermo-nuclear-code-quality-review"]
+    },
+    {
       "source": "trailofbits/skills",
       "skills": ["semgrep", "supply-chain-risk-auditor"]
     },

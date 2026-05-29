@@ -155,7 +155,7 @@ describe("compileWorkflowPlan", () => {
       id: "review",
       kind: "agent",
       needs: ["merge"],
-      profile: "pipeline-hardened-reviewer",
+      profile: "pipeline-thermo-nuclear-reviewer",
     });
     expect(plan.topologicalOrder[4].gates).toEqual([
       { id: "review-verdict", kind: "verdict", target: "stdout" },

@@ -33,8 +33,8 @@ skills:
     path: .agents/skills/incremental-implementation/SKILL.md
   debugging-and-error-recovery:
     path: .agents/skills/debugging-and-error-recovery/SKILL.md
-  hardened-review:
-    path: .agents/skills/hardened-review/SKILL.md
+  thermo-nuclear-code-quality-review:
+    path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
   code-review-and-quality:
     path: .agents/skills/code-review-and-quality/SKILL.md
   doubt-driven-development:
@@ -229,12 +229,12 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-hardened-reviewer:
+  pipeline-thermo-nuclear-reviewer:
     runner: codex
-    description: Perform the final hardened review of the integration branch.
+    description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions:
-      path: .pipeline/prompts/hardened-review.md
-    skills: [hardened-review]
+      path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
+    skills: [thermo-nuclear-code-quality-review]
     mcp_servers: [serena, semgrep, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:

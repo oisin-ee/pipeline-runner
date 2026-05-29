@@ -275,6 +275,9 @@ entrypoints:
   inspect:
     workflow: inspect
     description: Read-only repository inspection
+  epic:
+    workflow: epic-drain
+    description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
 
 orchestrator:
   profile: orchestrator
@@ -384,6 +387,121 @@ workflows:
         kind: agent
         profile: pipeline-learner
         needs: [verify]
+  infra:
+    description: Default-shaped stub workflow for infrastructure specialization.
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: red
+        kind: agent
+        profile: pipeline-test-writer
+        needs: [research]
+        gates:
+          - id: red-test-file-policy
+            kind: changed_files
+            changed_files:
+              allow:
+                [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                  "**/*.snap",
+                ]
+              require_any:
+                [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                ]
+      - id: green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [red]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [green]
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+            required: false
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [acceptance]
+        gates:
+          - id: verify-typecheck
+            kind: builtin
+            builtin: typecheck
+          - id: verify-tests
+            kind: builtin
+            builtin: test
+          - id: verify-semgrep
+            kind: builtin
+            builtin: semgrep
+          - id: verify-duplication
+            kind: builtin
+            builtin: duplication
+          - id: verify-verdict
+            kind: verdict
+            target: stdout
+      - id: learn
+        kind: agent
+        profile: pipeline-learner
+        needs: [verify]
+  epic-drain:
+    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, thermo-nuclear review.
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: plan
+        kind: agent
+        profile: pipeline-epic-router
+        needs: [research]
+      - id: implement
+        kind: parallel
+        needs: [plan]
+        nodes:
+          - id: test
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/\${runId}/test
+          - id: frontend
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/\${runId}/frontend
+          - id: backend
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/\${runId}/backend
+          - id: k8s
+            kind: workflow
+            workflow: infra
+            worktree_root: .pipeline/runs/\${runId}/k8s
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [implement]
+      - id: review
+        kind: agent
+        profile: pipeline-thermo-nuclear-reviewer
+        needs: [merge]
+        gates:
+          - id: review-verdict
+            kind: verdict
+            target: stdout
 `;
 
 const DEFAULT_RUNNERS_YAML = `version: 1
@@ -524,6 +642,8 @@ skills:
     path: .agents/skills/incremental-implementation/SKILL.md
   debugging-and-error-recovery:
     path: .agents/skills/debugging-and-error-recovery/SKILL.md
+  thermo-nuclear-code-quality-review:
+    path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
   code-review-and-quality:
     path: .agents/skills/code-review-and-quality/SKILL.md
   doubt-driven-development:
@@ -649,6 +769,25 @@ profiles:
       mode: inherit
     output:
       format: text
+  pipeline-epic-router:
+    runner: codex
+    description: Route epic sub-tickets into fixed implementation tracks.
+    instructions:
+      path: .pipeline/prompts/epic-router.md
+    mcp_servers: [backlog, github-readonly]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/epic-plan.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-code-writer:
     runner: codex
     description: Implement production code until the failing tests pass.
@@ -696,6 +835,26 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/acceptance.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
+  pipeline-thermo-nuclear-reviewer:
+    runner: codex
+    description: Perform the final thermo-nuclear code quality review of the integration branch.
+    instructions:
+      path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
+    skills: [thermo-nuclear-code-quality-review]
+    mcp_servers: [serena, semgrep, github-readonly]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/review.schema.json
       repair:
         enabled: true
         max_attempts: 1
@@ -830,6 +989,103 @@ const ACCEPTANCE_SCHEMA = JSON.stringify(
   2
 );
 
+const EPIC_PLAN_SCHEMA = JSON.stringify(
+  {
+    additionalProperties: false,
+    properties: {
+      backend: {
+        items: {
+          additionalProperties: false,
+          properties: {
+            id: { type: "string" },
+            rationale: { type: "string" },
+            title: { type: "string" },
+          },
+          required: ["id"],
+          type: "object",
+        },
+        type: "array",
+      },
+      frontend: {
+        items: {
+          additionalProperties: false,
+          properties: {
+            id: { type: "string" },
+            rationale: { type: "string" },
+            title: { type: "string" },
+          },
+          required: ["id"],
+          type: "object",
+        },
+        type: "array",
+      },
+      k8s: {
+        items: {
+          additionalProperties: false,
+          properties: {
+            id: { type: "string" },
+            rationale: { type: "string" },
+            title: { type: "string" },
+          },
+          required: ["id"],
+          type: "object",
+        },
+        type: "array",
+      },
+      rationale: { type: "string" },
+      test: {
+        items: {
+          additionalProperties: false,
+          properties: {
+            id: { type: "string" },
+            rationale: { type: "string" },
+            title: { type: "string" },
+          },
+          required: ["id"],
+          type: "object",
+        },
+        type: "array",
+      },
+    },
+    required: ["test", "frontend", "backend", "k8s"],
+    type: "object",
+  },
+  null,
+  2
+);
+
+const REVIEW_SCHEMA = JSON.stringify(
+  {
+    additionalProperties: false,
+    properties: {
+      findings: {
+        items: {
+          additionalProperties: false,
+          properties: {
+            file: { type: "string" },
+            line: { minimum: 1, type: "integer" },
+            message: { type: "string" },
+            rule: { type: "string" },
+            severity: {
+              enum: ["info", "warn", "error", "critical"],
+              type: "string",
+            },
+          },
+          required: ["severity", "message"],
+          type: "object",
+        },
+        type: "array",
+      },
+      summary: { type: "string" },
+      verdict: { enum: ["PASS", "FAIL"], type: "string" },
+    },
+    required: ["verdict", "findings"],
+    type: "object",
+  },
+  null,
+  2
+);
+
 const SCAFFOLD_FILES: Record<string, string> = {
   [PIPELINE_CONFIG_PATH]: DEFAULT_PIPELINE_YAML,
   [PROFILES_CONFIG_PATH]: DEFAULT_PROFILES_YAML,
@@ -865,6 +1121,36 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "Add focused failing tests for the requested behavior only.",
     "Do not change production code.",
     "Return concrete failing-test evidence.",
+    "",
+  ].join("\n"),
+  ".pipeline/prompts/epic-router.md": [
+    "# Epic router",
+    "",
+    "You read an epic ticket and its sub-tickets via the Backlog MCP server, then route each sub-ticket into exactly one of four named tracks: test, frontend, backend, k8s. You output a JSON document matching `.pipeline/schemas/epic-plan.schema.json`.",
+    "",
+    "## Inputs",
+    "",
+    "- The user's task is an epic id (or a description that names one). Use the Backlog MCP `task_view` and `task_search` tools to find the epic and enumerate its sub-tickets.",
+    "- For each sub-ticket, read its title, description, labels, and any referenced files.",
+    "",
+    "## Routing rules",
+    "",
+    "Pick the single best-fit track per ticket. Heuristics, in priority order:",
+    "",
+    "1. **k8s** - anything touching deployment, Kubernetes manifests, Helm charts, infra YAML, CI/CD pipelines, Docker, ingress, RBAC, cluster config.",
+    "2. **backend** - server-side APIs, services, database schema, server-side data flows, MCP servers, non-UI integrations.",
+    "3. **frontend** - UI components, client-side state, styling, browser interactions, accessibility, Figma-referenced work.",
+    "4. **test** - work that is *primarily* writing or restructuring tests (e.g. coverage uplift, harness changes). Don't route a feature ticket here just because it mentions tests - features go to their domain track and write their own tests there.",
+    "",
+    "Ties: prefer **backend > frontend > test > k8s** unless a strong signal flips it.",
+    "",
+    "A track may be empty (`[]`).",
+    "",
+    "## Output",
+    "",
+    "Emit a single JSON document conforming to the schema. Include a short `rationale` string explaining notable routing decisions.",
+    "",
+    "Do not modify any files. Do not invoke other agents.",
     "",
   ].join("\n"),
   ".pipeline/prompts/code-writer.md": [
@@ -919,7 +1205,9 @@ const SCAFFOLD_FILES: Record<string, string> = {
   ].join("\n"),
   ".pipeline/schemas/research.schema.json": `${RESEARCH_SCHEMA}\n`,
   ".pipeline/schemas/acceptance.schema.json": `${ACCEPTANCE_SCHEMA}\n`,
+  ".pipeline/schemas/epic-plan.schema.json": `${EPIC_PLAN_SCHEMA}\n`,
   ".pipeline/schemas/verify.schema.json": `${VERIFY_SCHEMA}\n`,
+  ".pipeline/schemas/review.schema.json": `${REVIEW_SCHEMA}\n`,
   ".pipeline/schemas/learn.schema.json": `${LEARN_SCHEMA}\n`,
   ".pipeline/host-resources/claude.md": hostResourceInput("Claude Code"),
   ".pipeline/host-resources/codex.md": hostResourceInput("Codex"),

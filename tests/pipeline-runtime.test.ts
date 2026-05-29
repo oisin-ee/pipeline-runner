@@ -300,7 +300,7 @@ profiles:
     runner: codex
     instructions: { inline: Implement only the sub-tickets assigned to this track. }
     output: { format: text }
-  hardened-review:
+  thermo-nuclear-review:
     runner: codex
     instructions: { inline: Review the integration branch and emit a verdict. }
     output:
@@ -348,7 +348,7 @@ workflows:
         needs: [implement]
       - id: review
         kind: agent
-        profile: hardened-review
+        profile: thermo-nuclear-review
         needs: [merge]
         gates:
           - id: review-verdict
@@ -2011,7 +2011,7 @@ workflows:
   });
 
   describe("parent epic-drain E2E scenarios", () => {
-    it("routes an epic into four fixed worktree tracks, drain-merges PASSed branches in order, and emits a hardened-review PASS", async () => {
+    it("routes an epic into four fixed worktree tracks, drain-merges PASSed branches in order, and emits a thermo-nuclear review PASS", async () => {
       const project = tempProject();
       writeEpicDrainLikeSchemas(project);
       gitMock.client.revparse.mockResolvedValue("base-epic");

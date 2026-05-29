@@ -10,7 +10,7 @@ entrypoints:
     description: Read-only repository inspection
   epic:
     workflow: epic-drain
-    description: Route an epic's tickets into specialist tracks, run them in parallel, then hardened-review.
+    description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
 
 orchestrator:
   profile: orchestrator
@@ -194,7 +194,7 @@ workflows:
         profile: pipeline-learner
         needs: [verify]
   epic-drain:
-    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, hardened-review.
+    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, thermo-nuclear review.
     nodes:
       - id: research
         kind: agent
@@ -229,7 +229,7 @@ workflows:
         needs: [implement]
       - id: review
         kind: agent
-        profile: pipeline-hardened-reviewer
+        profile: pipeline-thermo-nuclear-reviewer
         needs: [merge]
         gates:
           - id: review-verdict

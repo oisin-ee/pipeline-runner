@@ -271,7 +271,7 @@ function writeProjectFileSet(
   }
 }
 
-function writeHardenedReviewValidateFixture(
+function writeThermoNuclearReviewValidateFixture(
   root: string,
   options: { includeSkill: boolean }
 ): void {
@@ -294,8 +294,8 @@ runners:
     ".pipeline/profiles.yaml": `
 version: 1
 skills:
-  hardened-review:
-    path: .agents/skills/hardened-review/SKILL.md
+  thermo-nuclear-code-quality-review:
+    path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
 mcp_servers:
   serena:
     command: serena-mcp
@@ -310,11 +310,11 @@ profiles:
       inline: Orchestrate
     filesystem:
       mode: read-only
-  pipeline-hardened-reviewer:
+  pipeline-thermo-nuclear-reviewer:
     runner: codex
     instructions:
-      path: .pipeline/prompts/hardened-review.md
-    skills: [hardened-review]
+      path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
+    skills: [thermo-nuclear-code-quality-review]
     mcp_servers: [serena, semgrep, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -340,17 +340,16 @@ workflows:
     nodes:
       - id: review
         kind: agent
-        profile: pipeline-hardened-reviewer
+        profile: pipeline-thermo-nuclear-reviewer
 `,
-    ".pipeline/prompts/hardened-review.md": "Use hardened-review.\n",
     ".pipeline/schemas/review.schema.json": `{"type":"object"}\n`,
   });
 
   if (options.includeSkill) {
     writeCliProjectFile(
       root,
-      ".agents/skills/hardened-review/SKILL.md",
-      "---\nname: hardened-review\n---\n\n# Hardened review\n"
+      ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
+      "---\nname: thermo-nuclear-code-quality-review\n---\n\n# Thermo-Nuclear Code Quality Review\n"
     );
   }
 }
@@ -1573,10 +1572,10 @@ workflows:
     }
   });
 
-  it("validate --strict emits no hardened-review missing-file-reference warning when the stub skill is present", async () => {
+  it("validate --strict emits no thermo-nuclear review missing-file-reference warning when the skill is present", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-lint-hardened-review-present-")
+      join(tmpdir(), "pipeline-cli-lint-thermo-review-present-")
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -1585,7 +1584,7 @@ workflows:
       .mockImplementation(() => undefined);
 
     try {
-      writeHardenedReviewValidateFixture(dir, { includeSkill: true });
+      writeThermoNuclearReviewValidateFixture(dir, { includeSkill: true });
       process.env.PIPELINE_TARGET_PATH = dir;
 
       await runCli([
@@ -1600,13 +1599,13 @@ workflows:
         .join("\n");
       expect(stderr).not.toContain("WARN missing-file-reference");
       expect(stderr).not.toContain(
-        "skills.hardened-review.path references missing file '.agents/skills/hardened-review/SKILL.md'"
+        "skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
       );
       expect(stderr).not.toContain(
-        "profiles.pipeline-hardened-reviewer.instructions.path references missing file '.pipeline/prompts/hardened-review.md'"
+        "profiles.pipeline-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
       );
       expect(stderr).not.toContain(
-        "profiles.pipeline-hardened-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
+        "profiles.pipeline-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
       );
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
@@ -1623,10 +1622,10 @@ workflows:
     }
   });
 
-  it("validate emits exactly one hardened-review missing-file-reference warning when only the skill file is absent", async () => {
+  it("validate emits thermo-nuclear review missing-file-reference warnings when the skill file is absent", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-lint-hardened-review-missing-")
+      join(tmpdir(), "pipeline-cli-lint-thermo-review-missing-")
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -1635,7 +1634,7 @@ workflows:
       .mockImplementation(() => undefined);
 
     try {
-      writeHardenedReviewValidateFixture(dir, { includeSkill: false });
+      writeThermoNuclearReviewValidateFixture(dir, { includeSkill: false });
       process.env.PIPELINE_TARGET_PATH = dir;
 
       await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
@@ -1647,7 +1646,8 @@ workflows:
         .split("\n")
         .filter((line) => line.includes("WARN missing-file-reference"));
       expect(missingFileWarnings).toEqual([
-        "WARN missing-file-reference: skills.hardened-review.path references missing file '.agents/skills/hardened-review/SKILL.md'",
+        "WARN missing-file-reference: skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'",
+        "WARN missing-file-reference: profiles.pipeline-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'",
       ]);
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")

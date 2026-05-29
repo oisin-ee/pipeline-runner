@@ -77,6 +77,9 @@ describe("initPipelineProject", () => {
     expect(result.files).toContain(
       ".agents/skills/context-engineering/SKILL.md"
     );
+    expect(result.files).toContain(
+      ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md"
+    );
     expect(result.files).toContain("skills-lock.json");
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
@@ -84,6 +87,36 @@ describe("initPipelineProject", () => {
     expect(existsSync(join(dir, ".mcp.json"))).toBe(true);
     const config = loadPipelineConfig(dir);
     expect(config.default_workflow).toBe("default");
+    expect(config.entrypoints.epic).toMatchObject({
+      workflow: "epic-drain",
+    });
+    expect(config.workflows["epic-drain"].nodes.map((node) => node.id)).toEqual(
+      ["research", "plan", "implement", "merge", "review"]
+    );
+    expect(config.workflows.infra.nodes.map((node) => node.id)).toEqual([
+      "research",
+      "red",
+      "green",
+      "acceptance",
+      "verify",
+      "learn",
+    ]);
+    expect(config.profiles["pipeline-epic-router"]).toMatchObject({
+      output: {
+        format: "json_schema",
+        schema_path: ".pipeline/schemas/epic-plan.schema.json",
+      },
+    });
+    expect(config.profiles["pipeline-thermo-nuclear-reviewer"]).toMatchObject({
+      instructions: {
+        path: ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
+      },
+      skills: ["thermo-nuclear-code-quality-review"],
+      output: {
+        format: "json_schema",
+        schema_path: ".pipeline/schemas/review.schema.json",
+      },
+    });
     expect(config.runners.codex.model).toBe("gpt-5.5");
     expect(config.mcp_servers.serena).toMatchObject({
       args: ["--python", "3.12", "mcpm", "run", "oisin-pipeline-serena"],
@@ -101,17 +134,21 @@ describe("initPipelineProject", () => {
     for (const path of [
       ".pipeline/prompts/researcher.md",
       ".pipeline/prompts/test-writer.md",
+      ".pipeline/prompts/epic-router.md",
       ".pipeline/prompts/acceptance-reviewer.md",
       ".pipeline/prompts/code-writer.md",
       ".pipeline/prompts/verifier.md",
       ".pipeline/prompts/learner.md",
       ".pipeline/schemas/research.schema.json",
+      ".pipeline/schemas/epic-plan.schema.json",
       ".pipeline/schemas/acceptance.schema.json",
+      ".pipeline/schemas/review.schema.json",
       ".pipeline/schemas/verify.schema.json",
       ".pipeline/schemas/learn.schema.json",
       ".agents/skills/using-superpowers/SKILL.md",
       ".agents/skills/context-engineering/SKILL.md",
       ".agents/skills/semgrep/SKILL.md",
+      ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
       ".agents/skills/vercel-react-best-practices/SKILL.md",
       ".pipeline/host-resources/claude.md",
       ".pipeline/host-resources/codex.md",
@@ -409,6 +446,7 @@ describe("initPipelineProject", () => {
       ".pipeline/profiles.yaml",
       ".pipeline/prompts/acceptance-reviewer.md",
       ".pipeline/prompts/code-writer.md",
+      ".pipeline/prompts/epic-router.md",
       ".pipeline/prompts/inspector.md",
       ".pipeline/prompts/learner.md",
       ".pipeline/prompts/orchestrator.md",
@@ -419,8 +457,10 @@ describe("initPipelineProject", () => {
       ".pipeline/rules/verification.md",
       ".pipeline/runners.yaml",
       ".pipeline/schemas/acceptance.schema.json",
+      ".pipeline/schemas/epic-plan.schema.json",
       ".pipeline/schemas/learn.schema.json",
       ".pipeline/schemas/research.schema.json",
+      ".pipeline/schemas/review.schema.json",
       ".pipeline/schemas/verify.schema.json",
     ]);
   });
