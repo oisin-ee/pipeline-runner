@@ -37,11 +37,17 @@ Momokaya remote endpoint
 
 The default GitHub MCP registration uses GitHub's official container in
 read-only mode and reads `GITHUB_PERSONAL_ACCESS_TOKEN` from the environment.
-The Momokaya Qdrant endpoint is protected by Traefik HTTP Basic auth. Set either
-`MOMOKAYA_MCP_AUTHORIZATION` to the complete Authorization header value
-(`Basic <base64-user-colon-password>`) or `MEMORY_MCP_BASIC_AUTH` to only the
-base64 payload. `pipe init` resolves that value before registering the remote
-server with MCPM.
+The Momokaya Qdrant endpoint is protected by Traefik HTTP Basic auth. Set
+`MEMORY_MCP_BASIC_AUTH` to the base64 `user:password` payload before running
+`pipe init` if you want init to register that remote server with MCPM:
+
+```shell
+export MEMORY_MCP_BASIC_AUTH="$(printf '%s' 'user:password' | base64)"
+```
+
+When `MEMORY_MCP_BASIC_AUTH` is not set, `pipe init` still writes the default
+scaffold and keeps the generated `qdrant` MCP entry, but skips immediate MCPM
+registration for that private endpoint.
 
 Check local prerequisites and config health:
 

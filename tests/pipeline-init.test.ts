@@ -31,8 +31,6 @@ import {
 
 const mockExeca = vi.mocked(execa);
 const ORIGINAL_MEMORY_MCP_BASIC_AUTH = process.env.MEMORY_MCP_BASIC_AUTH;
-const ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION =
-  process.env.MOMOKAYA_MCP_AUTHORIZATION;
 const BANNED_DEFAULTS_RE =
   /atlassian|jira|linear|confluence|compass|sentry|deepwiki/i;
 const GITHUB_WRITE_MCP_RE = /api\.githubcopilot\.com\/mcp\/(?!readonly)/;
@@ -47,12 +45,6 @@ afterEach(() => {
     delete process.env.MEMORY_MCP_BASIC_AUTH;
   } else {
     process.env.MEMORY_MCP_BASIC_AUTH = ORIGINAL_MEMORY_MCP_BASIC_AUTH;
-  }
-  if (ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION === undefined) {
-    delete process.env.MOMOKAYA_MCP_AUTHORIZATION;
-  } else {
-    process.env.MOMOKAYA_MCP_AUTHORIZATION =
-      ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION;
   }
 });
 
@@ -238,7 +230,7 @@ describe("initPipelineProject", () => {
         registered.push(
           ...specs.map((spec) => `${spec.name}:${spec.url ?? ""}`)
         );
-        return Promise.resolve();
+        return Promise.resolve(undefined);
       },
       skillInstaller: fakeSkillInstaller,
     });
@@ -265,7 +257,7 @@ describe("initPipelineProject", () => {
     expect(DEFAULT_MCP_INSTALLS).toEqual(manifest.mcps);
   });
 
-  it("declares both Momokaya Qdrant credential sources in the default MCP manifest", () => {
+  it("declares the single memory basic auth source in the default MCP manifest", () => {
     const manifest = JSON.parse(
       readFileSync("defaults/install-manifest.json", "utf8")
     ) as {
@@ -290,27 +282,24 @@ describe("initPipelineProject", () => {
     expect(defaultQdrant).toEqual(manifestQdrant);
     expect(manifestQdrant).toMatchObject({
       name: "oisin-pipeline-qdrant",
+      optionalRegistration: true,
       transport: "remote",
       url: "https://memory-mcp.momokaya.ee/mcp/",
     });
-    expect(manifestQdrant?.headers?.Authorization?.sources).toEqual(
-      expect.arrayContaining([
-        { env: "MOMOKAYA_MCP_AUTHORIZATION" },
-        { env: "MEMORY_MCP_BASIC_AUTH", prefix: "Basic " },
-      ])
-    );
+    expect(manifestQdrant?.headers?.Authorization?.sources).toEqual([
+      { env: "MEMORY_MCP_BASIC_AUTH", prefix: "Basic " },
+    ]);
   });
 
-  it("redacts the resolved Momokaya authorization header from direct MCPM registration failures", async () => {
-    process.env.MOMOKAYA_MCP_AUTHORIZATION = "Bearer momokaya-token";
-    delete process.env.MEMORY_MCP_BASIC_AUTH;
+  it("redacts the resolved memory basic auth header from direct MCPM registration failures", async () => {
+    process.env.MEMORY_MCP_BASIC_AUTH = "memory-basic-payload";
     mockExeca.mockImplementation(((_command: string, args?: string[]) => {
       if (args?.includes("oisin-pipeline-qdrant")) {
         return Promise.reject({
           shortMessage:
-            "Command failed: uvx --python 3.12 mcpm new oisin-pipeline-qdrant --headers Authorization=Bearer momokaya-token",
-          stderr: "remote rejected token momokaya-token",
-          stdout: "Bearer momokaya-token",
+            "Command failed: uvx --python 3.12 mcpm new oisin-pipeline-qdrant --headers Authorization=Basic memory-basic-payload",
+          stderr: "remote rejected token memory-basic-payload",
+          stdout: "Basic memory-basic-payload",
         });
       }
       return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
@@ -329,8 +318,34 @@ describe("initPipelineProject", () => {
       "Failed to register MCP server oisin-pipeline-qdrant with MCPM."
     );
     expect(message).toContain("Authorization=[REDACTED]");
-    expect(message).not.toContain("momokaya-token");
-    expect(message).not.toContain("Authorization=Bearer momokaya-token");
+    expect(message).not.toContain("memory-basic-payload");
+    expect(message).not.toContain("Authorization=Basic memory-basic-payload");
+  });
+
+  it("skips optional Qdrant registration when memory credentials are missing", async () => {
+    delete process.env.MEMORY_MCP_BASIC_AUTH;
+
+    const result = await installDefaultMcpsWithCli(DEFAULT_MCP_INSTALLS, dir);
+
+    expect(
+      mockExeca.mock.calls.some(
+        ([_command, args]) =>
+          Array.isArray(args) && args.includes("oisin-pipeline-qdrant")
+      )
+    ).toBe(false);
+    expect(result.skipped).toEqual([
+      {
+        missingEnv: ["MEMORY_MCP_BASIC_AUTH"],
+        name: "oisin-pipeline-qdrant",
+        reason: "missing Authorization credentials",
+      },
+    ]);
+    expect(
+      mockExeca.mock.calls.some(
+        ([_command, args]) =>
+          Array.isArray(args) && args.includes("oisin-pipeline-backlog")
+      )
+    ).toBe(true);
   });
 
   it("does not write scaffold files when MCP registration fails", async () => {
@@ -439,4 +454,4 @@ const fakeSkillInstaller: PipelineSkillInstaller = (specs, cwd) => {
   return Promise.resolve();
 };
 
-const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve();
+const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve(undefined);

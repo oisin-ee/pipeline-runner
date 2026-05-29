@@ -19,6 +19,7 @@ export interface PipelineInitOptions {
 
 export interface PipelineInitResult {
   files: string[];
+  skippedMcps: PipelineMcpSkippedRegistration[];
 }
 
 export interface PipelineSkillInstallSpec {
@@ -38,6 +39,7 @@ export interface PipelineMcpInstallSpec {
   env?: Record<string, string>;
   headers?: Record<string, PipelineMcpHeaderValue>;
   name: string;
+  optionalRegistration?: boolean;
   transport: "remote" | "stdio";
   url?: string;
 }
@@ -54,10 +56,20 @@ export interface PipelineMcpHeaderValueSpec {
   sources: PipelineMcpHeaderSource[];
 }
 
+export interface PipelineMcpSkippedRegistration {
+  missingEnv: string[];
+  name: string;
+  reason: string;
+}
+
+export interface PipelineMcpInstallResult {
+  skipped: PipelineMcpSkippedRegistration[];
+}
+
 export type PipelineMcpInstaller = (
   specs: PipelineMcpInstallSpec[],
   cwd: string
-) => Promise<void>;
+) => Promise<PipelineMcpInstallResult | undefined>;
 
 export class PipelineInitError extends Error {
   conflicts: string[];
@@ -86,6 +98,25 @@ export class PipelineMcpInstallError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PipelineMcpInstallError";
+  }
+}
+
+class PipelineMcpMissingCredentialError extends PipelineMcpInstallError {
+  headerName: string;
+  missingEnv: string[];
+  serverName: string;
+
+  constructor(serverName: string, headerName: string, missingEnv: string[]) {
+    super(
+      [
+        `MCP server ${serverName} requires ${headerName} credentials before it can be registered.`,
+        `Set ${missingEnv.join(" or ")} and re-run pipeline init.`,
+      ].join("\n")
+    );
+    this.name = "PipelineMcpMissingCredentialError";
+    this.serverName = serverName;
+    this.headerName = headerName;
+    this.missingEnv = missingEnv;
   }
 }
 
@@ -135,6 +166,7 @@ const pipelineMcpInstallSpecSchema = z
     env: z.record(z.string(), z.string()).optional(),
     headers: z.record(z.string(), pipelineMcpHeaderValueSchema).optional(),
     name: z.string().min(1),
+    optionalRegistration: z.boolean().optional(),
     transport: z.enum(["remote", "stdio"]),
     url: z.string().url().optional(),
   })
@@ -954,9 +986,14 @@ export async function installDefaultSkillsWithCli(
 export async function installDefaultMcpsWithCli(
   specs: PipelineMcpInstallSpec[],
   cwd: string
-): Promise<void> {
+): Promise<PipelineMcpInstallResult> {
+  const skipped: PipelineMcpSkippedRegistration[] = [];
   for (const spec of specs) {
     const install = mcpInstallArgs(spec);
+    if ("skipped" in install) {
+      skipped.push(install.skipped);
+      continue;
+    }
     try {
       await execa(
         DEFAULT_MCPM_COMMAND,
@@ -991,6 +1028,7 @@ export async function installDefaultMcpsWithCli(
       );
     }
   }
+  return { skipped };
 }
 
 interface McpInstallArgs {
@@ -998,7 +1036,13 @@ interface McpInstallArgs {
   redactions: string[];
 }
 
-function mcpInstallArgs(spec: PipelineMcpInstallSpec): McpInstallArgs {
+interface McpSkippedInstall {
+  skipped: PipelineMcpSkippedRegistration;
+}
+
+function mcpInstallArgs(
+  spec: PipelineMcpInstallSpec
+): McpInstallArgs | McpSkippedInstall {
   if (spec.catalog) {
     return {
       args: ["install", spec.catalog, "--force", "--alias", spec.name],
@@ -1013,19 +1057,33 @@ function mcpInstallArgs(spec: PipelineMcpInstallSpec): McpInstallArgs {
       );
     }
     const redactions: string[] = [];
-    return {
-      args: [
-        ...args,
-        "--url",
-        spec.url,
-        ...Object.entries(spec.headers ?? {}).flatMap(([key, value]) => {
+    try {
+      const headers = Object.entries(spec.headers ?? {}).flatMap(
+        ([key, value]) => {
           const headerValue = resolveMcpHeaderValue(spec.name, key, value);
           redactions.push(headerValue);
           return ["--headers", `${key}=${headerValue}`];
-        }),
-      ],
-      redactions,
-    };
+        }
+      );
+      return {
+        args: [...args, "--url", spec.url, ...headers],
+        redactions,
+      };
+    } catch (err) {
+      if (
+        spec.optionalRegistration &&
+        err instanceof PipelineMcpMissingCredentialError
+      ) {
+        return {
+          skipped: {
+            missingEnv: err.missingEnv,
+            name: spec.name,
+            reason: `missing ${err.headerName} credentials`,
+          },
+        };
+      }
+      throw err;
+    }
   }
   if (!spec.command) {
     throw new PipelineMcpInstallError(
@@ -1091,12 +1149,10 @@ function resolveMcpHeaderValue(
       return `${source.prefix ?? ""}${rawValue}${source.suffix ?? ""}`;
     }
   }
-  const envNames = header.sources.map((source) => source.env).join(" or ");
-  throw new PipelineMcpInstallError(
-    [
-      `MCP server ${serverName} requires ${headerName} credentials before it can be registered.`,
-      `Set ${envNames} and re-run pipeline init.`,
-    ].join("\n")
+  throw new PipelineMcpMissingCredentialError(
+    serverName,
+    headerName,
+    header.sources.map((source) => source.env)
   );
 }
 
@@ -1131,7 +1187,7 @@ export async function initPipelineProject(
   }
 
   const mcpInstaller = options.mcpInstaller ?? installDefaultMcpsWithCli;
-  await mcpInstaller(DEFAULT_MCP_INSTALLS, cwd);
+  const mcpInstallResult = await mcpInstaller(DEFAULT_MCP_INSTALLS, cwd);
   const skillInstaller = options.skillInstaller ?? installDefaultSkillsWithCli;
   await skillInstaller(DEFAULT_SKILL_INSTALLS, cwd);
   const skillPaths = assertDefaultSkillsInstalled(cwd);
@@ -1149,13 +1205,21 @@ export async function initPipelineProject(
   ];
 
   loadPipelineConfig(cwd);
-  return { files: generatedPaths };
+  return {
+    files: generatedPaths,
+    skippedMcps: mcpInstallResult?.skipped ?? [],
+  };
 }
 
 export function formatPipelineInitResult(result: PipelineInitResult): string {
+  const skippedMcps = result.skippedMcps ?? [];
   return [
     "Initialized pipeline scaffold:",
     ...result.files.map((path) => `create ${path}`),
+    ...skippedMcps.flatMap((skip) => [
+      `Skipped MCPM registration for ${skip.name}: ${skip.reason}.`,
+      `Set ${skip.missingEnv.join(" or ")} before retrying MCPM registration. The generated MCP entry remains in .mcp.json.`,
+    ]),
   ].join("\n");
 }
 

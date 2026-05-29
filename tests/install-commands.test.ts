@@ -929,4 +929,4 @@ const fakeSkillInstaller: PipelineSkillInstaller = (specs, cwd) => {
   return Promise.resolve();
 };
 
-const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve();
+const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve(undefined);

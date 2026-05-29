@@ -78,12 +78,10 @@
       "name": "oisin-pipeline-qdrant",
       "transport": "remote",
       "url": "https://memory-mcp.momokaya.ee/mcp/",
+      "optionalRegistration": true,
       "headers": {
         "Authorization": {
-          "sources": [
-            { "env": "MOMOKAYA_MCP_AUTHORIZATION" },
-            { "env": "MEMORY_MCP_BASIC_AUTH", "prefix": "Basic " }
-          ]
+          "sources": [{ "env": "MEMORY_MCP_BASIC_AUTH", "prefix": "Basic " }]
         }
       }
     },

@@ -38,13 +38,10 @@ const FAILED_TO_PARSE_PIPELINE_YAML_ESCAPED_RE =
   /Failed to parse \.pipeline\/pipeline\.yaml/;
 const MISSING_WORKFLOW_OR_NOT_DECLARED_RE = /missing workflow|not declared/;
 const ORIGINAL_MEMORY_MCP_BASIC_AUTH = process.env.MEMORY_MCP_BASIC_AUTH;
-const ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION =
-  process.env.MOMOKAYA_MCP_AUTHORIZATION;
 
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.MEMORY_MCP_BASIC_AUTH = "test-basic-payload";
-  delete process.env.MOMOKAYA_MCP_AUTHORIZATION;
   mockExeca.mockImplementation(((
     command: string,
     args?: string[],
@@ -68,12 +65,6 @@ afterEach(() => {
     delete process.env.MEMORY_MCP_BASIC_AUTH;
   } else {
     process.env.MEMORY_MCP_BASIC_AUTH = ORIGINAL_MEMORY_MCP_BASIC_AUTH;
-  }
-  if (ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION === undefined) {
-    delete process.env.MOMOKAYA_MCP_AUTHORIZATION;
-  } else {
-    process.env.MOMOKAYA_MCP_AUTHORIZATION =
-      ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION;
   }
 });
 
@@ -665,56 +656,6 @@ describe("pipe", () => {
     }
   });
 
-  it("prefers MOMOKAYA_MCP_AUTHORIZATION when registering Qdrant with MCPM", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-qdrant-auth-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-      process.env.MOMOKAYA_MCP_AUTHORIZATION = "Bearer momokaya-token";
-      process.env.MEMORY_MCP_BASIC_AUTH = "memory-basic-payload";
-
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        "uvx",
-        [
-          "--python",
-          "3.12",
-          "mcpm",
-          "new",
-          "oisin-pipeline-qdrant",
-          "--type",
-          "remote",
-          "--force",
-          "--url",
-          "https://memory-mcp.momokaya.ee/mcp/",
-          "--headers",
-          "Authorization=Bearer momokaya-token",
-        ],
-        expect.objectContaining({
-          cwd: dir,
-          env: expect.objectContaining({
-            MCPM_NON_INTERACTIVE: "true",
-          }),
-        })
-      );
-      expect(mockExeca).not.toHaveBeenCalledWith(
-        "uvx",
-        expect.arrayContaining(["Authorization=Basic memory-basic-payload"]),
-        expect.anything()
-      );
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   it("redacts resolved MCP authorization headers from MCPM registration failures", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-redacted-mcp-"));
@@ -722,8 +663,7 @@ describe("pipe", () => {
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
-      process.env.MOMOKAYA_MCP_AUTHORIZATION = "Bearer momokaya-token";
-      delete process.env.MEMORY_MCP_BASIC_AUTH;
+      process.env.MEMORY_MCP_BASIC_AUTH = "memory-basic-payload";
       mockExeca.mockImplementation(((
         command: string,
         args?: string[],
@@ -732,9 +672,9 @@ describe("pipe", () => {
         if (args?.includes("oisin-pipeline-qdrant")) {
           return Promise.reject({
             shortMessage:
-              "Command failed: uvx --python 3.12 mcpm new oisin-pipeline-qdrant --headers Authorization=Bearer momokaya-token",
-            stderr: "remote rejected Authorization=Bearer momokaya-token",
-            stdout: "Bearer momokaya-token",
+              "Command failed: uvx --python 3.12 mcpm new oisin-pipeline-qdrant --headers Authorization=Basic memory-basic-payload",
+            stderr: "remote rejected Authorization=Basic memory-basic-payload",
+            stdout: "Basic memory-basic-payload",
           });
         }
         if (
@@ -759,7 +699,7 @@ describe("pipe", () => {
       }
 
       expect(message).toContain("Authorization=[REDACTED]");
-      expect(message).not.toContain("momokaya-token");
+      expect(message).not.toContain("memory-basic-payload");
     } finally {
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;
@@ -770,26 +710,46 @@ describe("pipe", () => {
     }
   });
 
-  it("fails init clearly when Momokaya Qdrant credentials are missing", async () => {
+  it("skips only Qdrant MCPM registration when memory credentials are missing", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-cli-init-missing-qdrant-")
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
       delete process.env.MEMORY_MCP_BASIC_AUTH;
-      delete process.env.MOMOKAYA_MCP_AUTHORIZATION;
 
-      await expect(
-        runCli(["node", "/repo/node_modules/.bin/pipe", "init"])
-      ).rejects.toThrow(
-        "MCP server oisin-pipeline-qdrant requires Authorization credentials"
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) =>
+            command === "uvx" &&
+            Array.isArray(args) &&
+            args.includes("oisin-pipeline-qdrant")
+        )
+      ).toBe(false);
+      expect(existsSync(join(dir, ".mcp.json"))).toBe(true);
+      expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
+      expect(readFileSync(join(dir, ".mcp.json"), "utf8")).toContain(
+        "oisin-pipeline-qdrant"
       );
-      expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-      expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
+      expect(
+        readFileSync(join(dir, ".pipeline", "profiles.yaml"), "utf8")
+      ).toContain("qdrant");
+      expect(
+        readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf8")
+      ).toContain("learn");
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain(
+        "Skipped MCPM registration for oisin-pipeline-qdrant"
+      );
+      expect(output).toContain("MEMORY_MCP_BASIC_AUTH");
     } finally {
+      log.mockRestore();
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;
       } else {
