@@ -1,12 +1,12 @@
 {
   "statistics": {
-    "detectionDate": "2026-05-20T22:22:12.079Z",
+    "detectionDate": "2026-05-29T08:35:03.004Z",
     "formats": {
-      "typescript": {
+      "markdown": {
         "sources": {
-          "tests/gates.test.ts": {
-            "lines": 262,
-            "tokens": 2385,
+          "backlog/tasks/pipe-9 - PIPE-10-tracer-bullet-smoke.md": {
+            "lines": 12,
+            "tokens": 24,
             "sources": 1,
             "clones": 0,
             "duplicatedLines": 0,
@@ -16,9 +16,9 @@
             "newDuplicatedLines": 0,
             "newClones": 0
           },
-          "src/mastra/index.ts": {
-            "lines": 2,
-            "tokens": 26,
+          "backlog/tasks/pipe-8 - PIPE-6-cli-entry.md": {
+            "lines": 10,
+            "tokens": 20,
             "sources": 1,
             "clones": 0,
             "duplicatedLines": 0,
@@ -28,9 +28,909 @@
             "newDuplicatedLines": 0,
             "newClones": 0
           },
-          "src/mastra/gates.ts": {
-            "lines": 192,
-            "tokens": 1916,
+          "backlog/tasks/pipe-7 - PIPE-5-workflow-chain.md": {
+            "lines": 10,
+            "tokens": 20,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-6 - PIPE-4-pipeline-steps.md": {
+            "lines": 11,
+            "tokens": 22,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-5 - PIPE-8-knowledge-base-setup.md": {
+            "lines": 10,
+            "tokens": 20,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-4 - PIPE-7-ruler-agents-rules.md": {
+            "lines": 10,
+            "tokens": 20,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.9 - Config-epic-router-asset-bundle-profile-schema-prompt.md": {
+            "lines": 154,
+            "tokens": 963,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.8 - Config-epic-entrypoint-epic-drain-workflow-pipeline.yaml-.gitignore.md": {
+            "lines": 161,
+            "tokens": 1262,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.7 - install-commands-one-slash-command-per-configured-entrypoint-every-host.md": {
+            "lines": 107,
+            "tokens": 1269,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.6 - CLI-pipe-validate-lint-extensions-strict-flag.md": {
+            "lines": 103,
+            "tokens": 1279,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.5 - CLI-configured-entrypoints-as-first-class-Commander-subcommands.md": {
+            "lines": 124,
+            "tokens": 1567,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.4 - Runtime-drain-merge-builtin-topological-merge-of-parallel-branch-worktrees.md": {
+            "lines": 118,
+            "tokens": 1462,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.3 - Runtime-worktree-isolation-for-kind-workflow-worktree_root-lifecycle.md": {
+            "lines": 127,
+            "tokens": 1675,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.2 - Runtime-kind-parallel-container-node-concurrent-children.md": {
+            "lines": 117,
+            "tokens": 1243,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.10 - Config-hardened-reviewer-asset-bundle-skill-profile-schema-prompt.md": {
+            "lines": 161,
+            "tokens": 1082,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.1 - Runtime-kind-workflow-node-sub-workflow-invocation-no-worktree.md": {
+            "lines": 109,
+            "tokens": 1191,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31 - Epic-drain-—-structural-nested-DAG-workflows.md": {
+            "lines": 73,
+            "tokens": 1193,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-30 - Add-configurable-RED-and-GREEN-contracts.md": {
+            "lines": 66,
+            "tokens": 945,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-3 - PIPE-3-gate-implementations.md": {
+            "lines": 10,
+            "tokens": 20,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-29 - Add-acceptance-coverage-gate.md": {
+            "lines": 64,
+            "tokens": 863,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-28 - Add-configurable-task-context-resolver-interface.md": {
+            "lines": 68,
+            "tokens": 899,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-27 - Add-semantic-verdict-gate.md": {
+            "lines": 60,
+            "tokens": 859,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-26 - Preserve-core-configurability-after-Mastra-removal.md": {
+            "lines": 65,
+            "tokens": 917,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-25 - Remove-legacy-Mastra-workflow-and-decouple-core-modules.md": {
+            "lines": 83,
+            "tokens": 1190,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-24 - Add-first-class-entrypoint-aliases.md": {
+            "lines": 61,
+            "tokens": 781,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-23 - Fix-orchestrator-hooks-runtime-dispatch.md": {
+            "lines": 60,
+            "tokens": 832,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-22 - Harden-command-hook-execution.md": {
+            "lines": 63,
+            "tokens": 864,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-21 - Emit-live-runtime-events-and-support-cancellation.md": {
+            "lines": 25,
+            "tokens": 141,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-20 - Export-app-facing-runtime-APIs.md": {
+            "lines": 25,
+            "tokens": 143,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-2 - PIPE-2-runner-dispatcher.md": {
+            "lines": 10,
+            "tokens": 20,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.9 - Implement-deterministic-gates-artifacts-retries-and-schema-validation.md": {
+            "lines": 45,
+            "tokens": 360,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.8 - Implement-explicit-skills-MCP-servers-rules-and-tool-capability-grants.md": {
+            "lines": 48,
+            "tokens": 368,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.7 - Project-YAML-agents-into-native-host-resource-files.md": {
+            "lines": 48,
+            "tokens": 417,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.6 - Implement-native-preferred-multi-agent-execution-engine.md": {
+            "lines": 47,
+            "tokens": 434,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.5 - Build-typed-runner-adapters-plus-command-runner-escape-hatch.md": {
+            "lines": 42,
+            "tokens": 368,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.4 - Remove-legacy-profile-and-hardcoded-phase-runtime-paths.md": {
+            "lines": 51,
+            "tokens": 355,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.3 - Compile-workflow-YAML-into-a-deterministic-DAG-execution-plan.md": {
+            "lines": 51,
+            "tokens": 539,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.2 - Scaffold-default-pipeline-with-`pipe-init`.md": {
+            "lines": 52,
+            "tokens": 510,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.12 - Document-the-clean-config-architecture-and-host-support-matrix.md": {
+            "lines": 50,
+            "tokens": 398,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.11 - Update-CLI-UX-for-init-run-validate-and-explain-plan.md": {
+            "lines": 47,
+            "tokens": 363,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.10 - Implement-declarative-lifecycle-hooks.md": {
+            "lines": 42,
+            "tokens": 370,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.1 - Design-and-validate-the-YAML-pipeline-config-model.md": {
+            "lines": 38,
+            "tokens": 488,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19 - Epic-Config-driven-native-multi-agent-pipeline-redesign.md": {
+            "lines": 80,
+            "tokens": 961,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-18 - Add-generated-slash-command-installer.md": {
+            "lines": 31,
+            "tokens": 267,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-17 - Make-package-installable-from-tarball.md": {
+            "lines": 30,
+            "tokens": 271,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-16 - Expose-pipeline-primitive-through-slash-command-and-CLI-adapters.md": {
+            "lines": 48,
+            "tokens": 899,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-15 - Document-and-polish-the-pipeline-CLI.md": {
+            "lines": 56,
+            "tokens": 594,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-14 - Add-tracer-bullet-end-to-end-pipeline-test.md": {
+            "lines": 54,
+            "tokens": 673,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-13 - Track-backlog-phase-status-accurately.md": {
+            "lines": 55,
+            "tokens": 658,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-12 - Propagate-knowledge-context-to-agents.md": {
+            "lines": 55,
+            "tokens": 654,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-11 - Enforce-pipeline-gate-semantics.md": {
+            "lines": 57,
+            "tokens": 606,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-10 - Stabilize-repository-verification.md": {
+            "lines": 56,
+            "tokens": 559,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-1 - PIPE-1-project-setup.md": {
+            "lines": 8,
+            "tokens": 16,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/milestones/m-0 - drain-structural-workflows.md": {
+            "lines": 6,
+            "tokens": 93,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/verifier.md": {
+            "lines": 19,
+            "tokens": 161,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/test-writer.md": {
+            "lines": 13,
+            "tokens": 198,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/researcher.md": {
+            "lines": 15,
+            "tokens": 167,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/code-writer.md": {
+            "lines": 15,
+            "tokens": 189,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/test-first.md": {
+            "lines": 18,
+            "tokens": 164,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/scope-discipline.md": {
+            "lines": 21,
+            "tokens": 158,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/overview.md": {
+            "lines": 33,
+            "tokens": 375,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/no-duplicate-code.md": {
+            "lines": 18,
+            "tokens": 122,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/no-arbitrary-tailwind.md": {
+            "lines": 18,
+            "tokens": 105,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/no-api-tokens.md": {
+            "lines": 19,
+            "tokens": 140,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/verifier.md": {
+            "lines": 9,
+            "tokens": 330,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/test-writer.md": {
+            "lines": 3,
+            "tokens": 50,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/researcher.md": {
+            "lines": 4,
+            "tokens": 134,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/orchestrator.md": {
+            "lines": 4,
+            "tokens": 138,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/learner.md": {
+            "lines": 4,
+            "tokens": 114,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/inspector.md": {
+            "lines": 6,
+            "tokens": 158,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/hardened-review.md": {
+            "lines": 10,
+            "tokens": 294,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/epic-router.md": {
+            "lines": 26,
+            "tokens": 474,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/code-writer.md": {
+            "lines": 4,
+            "tokens": 122,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/prompts/acceptance-reviewer.md": {
+            "lines": 5,
+            "tokens": 146,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "docs/slash-command-adapter-contract.md": {
+            "lines": 42,
+            "tokens": 646,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "docs/pipeline-smoke-recovery-plan.md": {
+            "lines": 51,
+            "tokens": 408,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "docs/config-architecture.md": {
+            "lines": 307,
+            "tokens": 2420,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "README.md": {
+            "lines": 347,
+            "tokens": 2250,
             "sources": 1,
             "clones": 0,
             "duplicatedLines": 0,
@@ -42,9 +942,1505 @@
           }
         },
         "total": {
-          "lines": 456,
-          "tokens": 4327,
+          "lines": 4185,
+          "tokens": 43470,
+          "sources": 78,
+          "clones": 0,
+          "duplicatedLines": 0,
+          "duplicatedTokens": 0,
+          "percentage": 0,
+          "percentageTokens": 0,
+          "newDuplicatedLines": 0,
+          "newClones": 0
+        }
+      },
+      "yaml": {
+        "sources": {
+          "backlog/tasks/pipe-9 - PIPE-10-tracer-bullet-smoke.md": {
+            "lines": 12,
+            "tokens": 78,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-8 - PIPE-6-cli-entry.md": {
+            "lines": 10,
+            "tokens": 62,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-7 - PIPE-5-workflow-chain.md": {
+            "lines": 10,
+            "tokens": 62,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-6 - PIPE-4-pipeline-steps.md": {
+            "lines": 11,
+            "tokens": 69,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-5 - PIPE-8-knowledge-base-setup.md": {
+            "lines": 10,
+            "tokens": 64,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-4 - PIPE-7-ruler-agents-rules.md": {
+            "lines": 10,
+            "tokens": 64,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.9 - Config-epic-router-asset-bundle-profile-schema-prompt.md": {
+            "lines": 54,
+            "tokens": 223,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.8 - Config-epic-entrypoint-epic-drain-workflow-pipeline.yaml-.gitignore.md": {
+            "lines": 111,
+            "tokens": 668,
+            "sources": 1,
+            "clones": 2,
+            "duplicatedLines": 84,
+            "duplicatedTokens": 687,
+            "percentage": 75.68,
+            "percentageTokens": 102.84,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.7 - install-commands-one-slash-command-per-configured-entrypoint-every-host.md": {
+            "lines": 40,
+            "tokens": 245,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.6 - CLI-pipe-validate-lint-extensions-strict-flag.md": {
+            "lines": 21,
+            "tokens": 136,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.5 - CLI-configured-entrypoints-as-first-class-Commander-subcommands.md": {
+            "lines": 21,
+            "tokens": 135,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.4 - Runtime-drain-merge-builtin-topological-merge-of-parallel-branch-worktrees.md": {
+            "lines": 45,
+            "tokens": 194,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.3 - Runtime-worktree-isolation-for-kind-workflow-worktree_root-lifecycle.md": {
+            "lines": 47,
+            "tokens": 193,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.2 - Runtime-kind-parallel-container-node-concurrent-children.md": {
+            "lines": 48,
+            "tokens": 271,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.10 - Config-hardened-reviewer-asset-bundle-skill-profile-schema-prompt.md": {
+            "lines": 68,
+            "tokens": 262,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.1 - Runtime-kind-workflow-node-sub-workflow-invocation-no-worktree.md": {
+            "lines": 43,
+            "tokens": 180,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31 - Epic-drain-—-structural-nested-DAG-workflows.md": {
+            "lines": 14,
+            "tokens": 100,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-30 - Add-configurable-RED-and-GREEN-contracts.md": {
+            "lines": 14,
+            "tokens": 88,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-3 - PIPE-3-gate-implementations.md": {
+            "lines": 10,
+            "tokens": 62,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-29 - Add-acceptance-coverage-gate.md": {
+            "lines": 14,
+            "tokens": 82,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-28 - Add-configurable-task-context-resolver-interface.md": {
+            "lines": 13,
+            "tokens": 81,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-27 - Add-semantic-verdict-gate.md": {
+            "lines": 12,
+            "tokens": 70,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-26 - Preserve-core-configurability-after-Mastra-removal.md": {
+            "lines": 15,
+            "tokens": 93,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-25 - Remove-legacy-Mastra-workflow-and-decouple-core-modules.md": {
+            "lines": 14,
+            "tokens": 90,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-24 - Add-first-class-entrypoint-aliases.md": {
+            "lines": 12,
+            "tokens": 72,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-23 - Fix-orchestrator-hooks-runtime-dispatch.md": {
+            "lines": 13,
+            "tokens": 77,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-22 - Harden-command-hook-execution.md": {
+            "lines": 13,
+            "tokens": 77,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-21 - Emit-live-runtime-events-and-support-cancellation.md": {
+            "lines": 12,
+            "tokens": 77,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-20 - Export-app-facing-runtime-APIs.md": {
+            "lines": 12,
+            "tokens": 73,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-2 - PIPE-2-runner-dispatcher.md": {
+            "lines": 10,
+            "tokens": 62,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.9 - Implement-deterministic-gates-artifacts-retries-and-schema-validation.md": {
+            "lines": 23,
+            "tokens": 127,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.8 - Implement-explicit-skills-MCP-servers-rules-and-tool-capability-grants.md": {
+            "lines": 26,
+            "tokens": 140,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.7 - Project-YAML-agents-into-native-host-resource-files.md": {
+            "lines": 26,
+            "tokens": 166,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.6 - Implement-native-preferred-multi-agent-execution-engine.md": {
+            "lines": 25,
+            "tokens": 155,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.5 - Build-typed-runner-adapters-plus-command-runner-escape-hatch.md": {
+            "lines": 20,
+            "tokens": 118,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.4 - Remove-legacy-profile-and-hardcoded-phase-runtime-paths.md": {
+            "lines": 29,
+            "tokens": 179,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.3 - Compile-workflow-YAML-into-a-deterministic-DAG-execution-plan.md": {
+            "lines": 23,
+            "tokens": 158,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.2 - Scaffold-default-pipeline-with-`pipe-init`.md": {
+            "lines": 24,
+            "tokens": 156,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.12 - Document-the-clean-config-architecture-and-host-support-matrix.md": {
+            "lines": 28,
+            "tokens": 186,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.11 - Update-CLI-UX-for-init-run-validate-and-explain-plan.md": {
+            "lines": 25,
+            "tokens": 139,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.10 - Implement-declarative-lifecycle-hooks.md": {
+            "lines": 20,
+            "tokens": 116,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19.1 - Design-and-validate-the-YAML-pipeline-config-model.md": {
+            "lines": 16,
+            "tokens": 101,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-19 - Epic-Config-driven-native-multi-agent-pipeline-redesign.md": {
+            "lines": 53,
+            "tokens": 323,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-18 - Add-generated-slash-command-installer.md": {
+            "lines": 16,
+            "tokens": 95,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-17 - Make-package-installable-from-tarball.md": {
+            "lines": 15,
+            "tokens": 86,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-16 - Expose-pipeline-primitive-through-slash-command-and-CLI-adapters.md": {
+            "lines": 19,
+            "tokens": 118,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-15 - Document-and-polish-the-pipeline-CLI.md": {
+            "lines": 23,
+            "tokens": 122,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-14 - Add-tracer-bullet-end-to-end-pipeline-test.md": {
+            "lines": 21,
+            "tokens": 124,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-13 - Track-backlog-phase-status-accurately.md": {
+            "lines": 22,
+            "tokens": 115,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-12 - Propagate-knowledge-context-to-agents.md": {
+            "lines": 22,
+            "tokens": 119,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-11 - Enforce-pipeline-gate-semantics.md": {
+            "lines": 24,
+            "tokens": 123,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-10 - Stabilize-repository-verification.md": {
+            "lines": 23,
+            "tokens": 117,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-1 - PIPE-1-project-setup.md": {
+            "lines": 8,
+            "tokens": 53,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/milestones/m-0 - drain-structural-workflows.md": {
+            "lines": 1,
+            "tokens": 10,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/verifier.md": {
+            "lines": 4,
+            "tokens": 24,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/test-writer.md": {
+            "lines": 4,
+            "tokens": 26,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/researcher.md": {
+            "lines": 4,
+            "tokens": 24,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/subagents/code-writer.md": {
+            "lines": 4,
+            "tokens": 26,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/test-first.md": {
+            "lines": 3,
+            "tokens": 22,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/scope-discipline.md": {
+            "lines": 3,
+            "tokens": 22,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/overview.md": {
+            "lines": 3,
+            "tokens": 22,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/no-duplicate-code.md": {
+            "lines": 3,
+            "tokens": 22,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/no-arbitrary-tailwind.md": {
+            "lines": 3,
+            "tokens": 22,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".rulesync/rules/no-api-tokens.md": {
+            "lines": 3,
+            "tokens": 22,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".github/workflows/publish.yml": {
+            "lines": 49,
+            "tokens": 287,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "docs/config-architecture.md": {
+            "lines": 220,
+            "tokens": 805,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 16,
+            "duplicatedTokens": 128,
+            "percentage": 7.27,
+            "percentageTokens": 15.9,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/config.yml": {
+            "lines": 14,
+            "tokens": 86,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/runners.yaml": {
+            "lines": 74,
+            "tokens": 636,
+            "sources": 1,
+            "clones": 3,
+            "duplicatedLines": 34,
+            "duplicatedTokens": 304,
+            "percentage": 45.95,
+            "percentageTokens": 47.8,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/profiles.yaml": {
+            "lines": 297,
+            "tokens": 2220,
+            "sources": 1,
+            "clones": 6,
+            "duplicatedLines": 60,
+            "duplicatedTokens": 522,
+            "percentage": 20.2,
+            "percentageTokens": 23.51,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/pipeline.yaml": {
+            "lines": 236,
+            "tokens": 1510,
+            "sources": 1,
+            "clones": 3,
+            "duplicatedLines": 181,
+            "duplicatedTokens": 1206,
+            "percentage": 76.69,
+            "percentageTokens": 79.87,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "lefthook.yml": {
+            "lines": 14,
+            "tokens": 97,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "README.md": {
+            "lines": 187,
+            "tokens": 804,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 45,
+            "duplicatedTokens": 381,
+            "percentage": 24.06,
+            "percentageTokens": 47.39,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        },
+        "total": {
+          "lines": 2396,
+          "tokens": 13833,
+          "sources": 72,
+          "clones": 8,
+          "duplicatedLines": 210,
+          "duplicatedTokens": 1614,
+          "percentage": 8.76,
+          "percentageTokens": 11.67,
+          "newDuplicatedLines": 0,
+          "newClones": 0
+        }
+      },
+      "json": {
+        "sources": {
+          "backlog/tasks/pipe-31.9 - Config-epic-router-asset-bundle-profile-schema-prompt.md": {
+            "lines": 24,
+            "tokens": 263,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.10 - Config-hardened-reviewer-asset-bundle-skill-profile-schema-prompt.md": {
+            "lines": 24,
+            "tokens": 223,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/schemas/verify.schema.json": {
+            "lines": 28,
+            "tokens": 138,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 22,
+            "duplicatedTokens": 111,
+            "percentage": 78.57,
+            "percentageTokens": 80.43,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/schemas/review.schema.json": {
+            "lines": 54,
+            "tokens": 267,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/schemas/research.schema.json": {
+            "lines": 36,
+            "tokens": 185,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/schemas/learn.schema.json": {
+            "lines": 31,
+            "tokens": 154,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/schemas/epic-plan.schema.json": {
+            "lines": 98,
+            "tokens": 501,
+            "sources": 1,
+            "clones": 6,
+            "duplicatedLines": 126,
+            "duplicatedTokens": 646,
+            "percentage": 128.57,
+            "percentageTokens": 128.94,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/schemas/dogfood.schema.json": {
+            "lines": 16,
+            "tokens": 93,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".pipeline/schemas/acceptance.schema.json": {
+            "lines": 59,
+            "tokens": 292,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 22,
+            "duplicatedTokens": 111,
+            "percentage": 37.29,
+            "percentageTokens": 38.01,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "defaults/install-manifest.json": {
+            "lines": 109,
+            "tokens": 566,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".vscode/settings.json": {
+            "lines": 53,
+            "tokens": 290,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tsconfig.types.json": {
+            "lines": 11,
+            "tokens": 70,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tsconfig.json": {
+            "lines": 14,
+            "tokens": 92,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "skills-lock.json": {
+            "lines": 142,
+            "tokens": 868,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "renovate.json": {
+            "lines": 24,
+            "tokens": 128,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "package.json": {
+            "lines": 95,
+            "tokens": 578,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          ".releaserc.json": {
+            "lines": 8,
+            "tokens": 35,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        },
+        "total": {
+          "lines": 826,
+          "tokens": 4743,
+          "sources": 17,
+          "clones": 4,
+          "duplicatedLines": 85,
+          "duplicatedTokens": 434,
+          "percentage": 10.29,
+          "percentageTokens": 9.15,
+          "newDuplicatedLines": 0,
+          "newClones": 0
+        }
+      },
+      "typescript": {
+        "sources": {
+          "backlog/tasks/pipe-31.6 - CLI-pipe-validate-lint-extensions-strict-flag.md": {
+            "lines": 1,
+            "tokens": 16,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.5 - CLI-configured-entrypoints-as-first-class-Commander-subcommands.md": {
+            "lines": 23,
+            "tokens": 231,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.4 - Runtime-drain-merge-builtin-topological-merge-of-parallel-branch-worktrees.md": {
+            "lines": 6,
+            "tokens": 85,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.3 - Runtime-worktree-isolation-for-kind-workflow-worktree_root-lifecycle.md": {
+            "lines": 7,
+            "tokens": 49,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.2 - Runtime-kind-parallel-container-node-concurrent-children.md": {
+            "lines": 5,
+            "tokens": 47,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "backlog/tasks/pipe-31.1 - Runtime-kind-workflow-node-sub-workflow-invocation-no-worktree.md": {
+            "lines": 5,
+            "tokens": 41,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/workflow-planner.test.ts": {
+            "lines": 431,
+            "tokens": 3500,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/tracer-bullet.test.ts": {
+            "lines": 477,
+            "tokens": 2088,
+            "sources": 1,
+            "clones": 2,
+            "duplicatedLines": 14,
+            "duplicatedTokens": 146,
+            "percentage": 2.94,
+            "percentageTokens": 6.99,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/tickets.test.ts": {
+            "lines": 24,
+            "tokens": 199,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/runner.test.ts": {
+            "lines": 808,
+            "tokens": 4796,
+            "sources": 1,
+            "clones": 2,
+            "duplicatedLines": 16,
+            "duplicatedTokens": 232,
+            "percentage": 1.98,
+            "percentageTokens": 4.84,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/pipeline-init.test.ts": {
+            "lines": 441,
+            "tokens": 3700,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 32,
+            "duplicatedTokens": 313,
+            "percentage": 7.26,
+            "percentageTokens": 8.46,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/package-public-api.test.ts": {
+            "lines": 207,
+            "tokens": 1040,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 10,
+            "duplicatedTokens": 81,
+            "percentage": 4.83,
+            "percentageTokens": 7.79,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/install-commands.test.ts": {
+            "lines": 924,
+            "tokens": 7169,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 32,
+            "duplicatedTokens": 313,
+            "percentage": 3.46,
+            "percentageTokens": 4.37,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/gates.test.ts": {
+            "lines": 368,
+            "tokens": 3098,
+            "sources": 1,
+            "clones": 4,
+            "duplicatedLines": 28,
+            "duplicatedTokens": 340,
+            "percentage": 7.61,
+            "percentageTokens": 10.97,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/dogfood-live-runners.test.ts": {
+            "lines": 575,
+            "tokens": 3571,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/dogfood-installed.test.ts": {
+            "lines": 466,
+            "tokens": 3173,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 10,
+            "duplicatedTokens": 81,
+            "percentage": 2.15,
+            "percentageTokens": 2.55,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/workflow-planner.ts": {
+            "lines": 359,
+            "tokens": 3205,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/task-ref.ts": {
+            "lines": 20,
+            "tokens": 182,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/runner.ts": {
+            "lines": 855,
+            "tokens": 6915,
+            "sources": 1,
+            "clones": 4,
+            "duplicatedLines": 64,
+            "duplicatedTokens": 528,
+            "percentage": 7.49,
+            "percentageTokens": 7.64,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/index.ts": {
+            "lines": 835,
+            "tokens": 7471,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/gates.ts": {
+            "lines": 242,
+            "tokens": 2193,
+            "sources": 1,
+            "clones": 4,
+            "duplicatedLines": 48,
+            "duplicatedTokens": 646,
+            "percentage": 19.83,
+            "percentageTokens": 29.46,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/backlog.ts": {
+            "lines": 220,
+            "tokens": 1769,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "vitest.config.ts": {
+            "lines": 8,
+            "tokens": 71,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tsdown.config.ts": {
+            "lines": 19,
+            "tokens": 152,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "README.md": {
+            "lines": 9,
+            "tokens": 57,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        },
+        "total": {
+          "lines": 7335,
+          "tokens": 54818,
+          "sources": 25,
+          "clones": 10,
+          "duplicatedLines": 127,
+          "duplicatedTokens": 1340,
+          "percentage": 1.73,
+          "percentageTokens": 2.44,
+          "newDuplicatedLines": 0,
+          "newClones": 0
+        }
+      },
+      "bash": {
+        "sources": {
+          "docs/slash-command-adapter-contract.md": {
+            "lines": 1,
+            "tokens": 16,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "docs/pipeline-smoke-recovery-plan.md": {
+            "lines": 46,
+            "tokens": 39,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "README.md": {
+            "lines": 328,
+            "tokens": 933,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        },
+        "total": {
+          "lines": 375,
+          "tokens": 988,
           "sources": 3,
+          "clones": 0,
+          "duplicatedLines": 0,
+          "duplicatedTokens": 0,
+          "percentage": 0,
+          "percentageTokens": 0,
+          "newDuplicatedLines": 0,
+          "newClones": 0
+        }
+      },
+      "toml": {
+        "sources": {
+          "mise.toml": {
+            "lines": 19,
+            "tokens": 74,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        },
+        "total": {
+          "lines": 19,
+          "tokens": 74,
+          "sources": 1,
           "clones": 0,
           "duplicatedLines": 0,
           "duplicatedTokens": 0,
@@ -56,17 +2452,810 @@
       }
     },
     "total": {
-      "lines": 456,
-      "tokens": 4327,
-      "sources": 3,
-      "clones": 0,
-      "duplicatedLines": 0,
-      "duplicatedTokens": 0,
-      "percentage": 0,
-      "percentageTokens": 0,
+      "lines": 15136,
+      "tokens": 117926,
+      "sources": 196,
+      "clones": 22,
+      "duplicatedLines": 422,
+      "duplicatedTokens": 3388,
+      "percentage": 2.79,
+      "percentageTokens": 2.87,
       "newDuplicatedLines": 0,
       "newClones": 0
     }
   },
-  "duplicates": []
+  "duplicates": [
+    {
+      "format": "json",
+      "lines": 22,
+      "fragment": ": {\n      \"items\": {\n        \"additionalProperties\": false,\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          },\n          \"rationale\": {\n            \"type\": \"string\"\n          },\n          \"title\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"type\": \"array\"\n    },\n    \"k8s\"",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/schemas/epic-plan.schema.json",
+        "start": 25,
+        "end": 46,
+        "startLoc": {
+          "line": 25,
+          "column": 15,
+          "position": 126
+        },
+        "endLoc": {
+          "line": 46,
+          "column": 10,
+          "position": 234
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/schemas/epic-plan.schema.json",
+        "start": 4,
+        "end": 25,
+        "startLoc": {
+          "line": 4,
+          "column": 14,
+          "position": 17
+        },
+        "endLoc": {
+          "line": 25,
+          "column": 15,
+          "position": 125
+        }
+      }
+    },
+    {
+      "format": "json",
+      "lines": 22,
+      "fragment": ": {\n      \"items\": {\n        \"additionalProperties\": false,\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          },\n          \"rationale\": {\n            \"type\": \"string\"\n          },\n          \"title\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"type\": \"array\"\n    },\n    \"rationale\"",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/schemas/epic-plan.schema.json",
+        "start": 46,
+        "end": 67,
+        "startLoc": {
+          "line": 46,
+          "column": 10,
+          "position": 235
+        },
+        "endLoc": {
+          "line": 67,
+          "column": 16,
+          "position": 343
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/schemas/epic-plan.schema.json",
+        "start": 4,
+        "end": 25,
+        "startLoc": {
+          "line": 4,
+          "column": 14,
+          "position": 17
+        },
+        "endLoc": {
+          "line": 25,
+          "column": 15,
+          "position": 125
+        }
+      }
+    },
+    {
+      "format": "json",
+      "lines": 22,
+      "fragment": ": {\n      \"items\": {\n        \"additionalProperties\": false,\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          },\n          \"rationale\": {\n            \"type\": \"string\"\n          },\n          \"title\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"type\": \"array\"\n    }\n  }",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/schemas/epic-plan.schema.json",
+        "start": 70,
+        "end": 91,
+        "startLoc": {
+          "line": 70,
+          "column": 11,
+          "position": 360
+        },
+        "endLoc": {
+          "line": 91,
+          "column": 4,
+          "position": 467
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/schemas/epic-plan.schema.json",
+        "start": 4,
+        "end": 24,
+        "startLoc": {
+          "line": 4,
+          "column": 14,
+          "position": 17
+        },
+        "endLoc": {
+          "line": 24,
+          "column": 7,
+          "position": 122
+        }
+      }
+    },
+    {
+      "format": "json",
+      "lines": 23,
+      "fragment": "\"evidence\": {\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"type\": \"array\"\n    },\n    \"verdict\": {\n      \"enum\": [\n        \"PASS\",\n        \"FAIL\"\n      ],\n      \"type\": \"string\"\n    },\n    \"violations\": {\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"type\": \"array\"\n    }\n  },\n  \"required\": [\n    \"verdict\",\n    \"evidence\",",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/schemas/acceptance.schema.json",
+        "start": 34,
+        "end": 56,
+        "startLoc": {
+          "line": 34,
+          "column": 5,
+          "position": 166
+        },
+        "endLoc": {
+          "line": 56,
+          "column": 16,
+          "position": 277
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/schemas/verify.schema.json",
+        "start": 4,
+        "end": 27,
+        "startLoc": {
+          "line": 4,
+          "column": 5,
+          "position": 16
+        },
+        "endLoc": {
+          "line": 27,
+          "column": 4,
+          "position": 129
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 8,
+      "fragment": ");\n\n    const rolePrompts = readCommandLog(env.logPath)\n      .filter((entry) => entry.type === \"role\")\n      .map((entry) => entry.prompt ?? \"\");\n\n    expect(consoleLogSpy).toHaveBeenCalledWith(\n      expect.stringContaining(\"Pipeline complete: FAIL\"",
+      "tokens": 0,
+      "firstFile": {
+        "name": "tests/tracer-bullet.test.ts",
+        "start": 462,
+        "end": 469,
+        "startLoc": {
+          "line": 462,
+          "column": 5,
+          "position": 1937
+        },
+        "endLoc": {
+          "line": 469,
+          "column": 56,
+          "position": 2010
+        }
+      },
+      "secondFile": {
+        "name": "tests/tracer-bullet.test.ts",
+        "start": 428,
+        "end": 435,
+        "startLoc": {
+          "line": 428,
+          "column": 39,
+          "position": 1605
+        },
+        "endLoc": {
+          "line": 435,
+          "column": 56,
+          "position": 1678
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 9,
+      "fragment": "const { writeFileSync, mkdtempSync, rmSync } = await import(\"node:fs\");\n    const { tmpdir } = await import(\"node:os\");\n    const { join } = await import(\"node:path\");\n    const dir = mkdtempSync(join(tmpdir(), \"runner-test-\"));\n    const ctx = join(dir, \"ctx.md\");\n    writeFileSync(ctx, \"CONTEXT\");\n\n    try {\n      const",
+      "tokens": 0,
+      "firstFile": {
+        "name": "tests/runner.test.ts",
+        "start": 223,
+        "end": 231,
+        "startLoc": {
+          "line": 223,
+          "column": 5,
+          "position": 1772
+        },
+        "endLoc": {
+          "line": 231,
+          "column": 12,
+          "position": 1888
+        }
+      },
+      "secondFile": {
+        "name": "tests/runner.test.ts",
+        "start": 59,
+        "end": 67,
+        "startLoc": {
+          "line": 59,
+          "column": 5,
+          "position": 448
+        },
+        "endLoc": {
+          "line": 67,
+          "column": 12,
+          "position": 564
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 33,
+      "fragment": ");\n  });\n});\n\nconst fakeSkillInstaller: PipelineSkillInstaller = (specs, cwd) => {\n  const lock: Record<string, unknown> = { skills: {}, version: 1 };\n  for (const spec of specs) {\n    for (const skill of spec.skills) {\n      const path = join(cwd, \".agents\", \"skills\", skill, \"SKILL.md\");\n      mkdirSync(dirname(path), { recursive: true });\n      writeFileSync(\n        path,\n        [\n          \"---\",\n          `name: ${skill}`,\n          \"x-pipeline-source:\",\n          `  repository: ${spec.source}`,\n          \"---\",\n          \"\",\n          `# ${skill}`,\n          \"\",\n        ].join(\"\\n\")\n      );\n      (lock.skills as Record<string, unknown>)[skill] = {\n        source: spec.source,\n      };\n    }\n  }\n  writeFileSync(join(cwd, \"skills-lock.json\"), `${JSON.stringify(lock)}\\n`);\n  return Promise.resolve();\n};\n\nconst fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve();",
+      "tokens": 0,
+      "firstFile": {
+        "name": "tests/install-commands.test.ts",
+        "start": 893,
+        "end": 925,
+        "startLoc": {
+          "line": 893,
+          "column": 75,
+          "position": 6856
+        },
+        "endLoc": {
+          "line": 925,
+          "column": 72,
+          "position": 7169
+        }
+      },
+      "secondFile": {
+        "name": "tests/pipeline-init.test.ts",
+        "start": 410,
+        "end": 442,
+        "startLoc": {
+          "line": 410,
+          "column": 6,
+          "position": 3387
+        },
+        "endLoc": {
+          "line": 442,
+          "column": 72,
+          "position": 3700
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 8,
+      "fragment": ", async () => {\n    mockReadFileSync.mockImplementation((p: unknown) => {\n      if (String(p).endsWith(\"package.json\")) {\n        return JSON.stringify({ scripts: { test: \"custom-test-runner\" } });\n      }\n      return \"\";\n    });\n    const",
+      "tokens": 0,
+      "firstFile": {
+        "name": "tests/gates.test.ts",
+        "start": 70,
+        "end": 77,
+        "startLoc": {
+          "line": 70,
+          "column": 56,
+          "position": 602
+        },
+        "endLoc": {
+          "line": 77,
+          "column": 10,
+          "position": 686
+        }
+      },
+      "secondFile": {
+        "name": "tests/gates.test.ts",
+        "start": 46,
+        "end": 53,
+        "startLoc": {
+          "line": 46,
+          "column": 73,
+          "position": 372
+        },
+        "endLoc": {
+          "line": 53,
+          "column": 14,
+          "position": 456
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 8,
+      "fragment": ", async () => {\n    mockReadFileSync.mockImplementation((p: unknown) => {\n      if (String(p).endsWith(\"package.json\")) {\n        return JSON.stringify({ scripts: { typecheck: \"custom-typecheck\" } });\n      }\n      return \"\";\n    });\n    mockExeca.mockRejectedValueOnce",
+      "tokens": 0,
+      "firstFile": {
+        "name": "tests/gates.test.ts",
+        "start": 165,
+        "end": 172,
+        "startLoc": {
+          "line": 165,
+          "column": 55,
+          "position": 1430
+        },
+        "endLoc": {
+          "line": 172,
+          "column": 36,
+          "position": 1516
+        }
+      },
+      "secondFile": {
+        "name": "tests/gates.test.ts",
+        "start": 143,
+        "end": 150,
+        "startLoc": {
+          "line": 143,
+          "column": 72,
+          "position": 1229
+        },
+        "endLoc": {
+          "line": 150,
+          "column": 36,
+          "position": 1315
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 11,
+      "fragment": ";\n\nconst tempDirs: string[] = [];\n\nafterEach(() => {\n  for (const dir of tempDirs.splice(0)) {\n    rmSync(dir, { force: true, recursive: true });\n  }\n});\n\nfunction tempProject",
+      "tokens": 0,
+      "firstFile": {
+        "name": "tests/dogfood-installed.test.ts",
+        "start": 15,
+        "end": 25,
+        "startLoc": {
+          "line": 15,
+          "column": 65,
+          "position": 136
+        },
+        "endLoc": {
+          "line": 25,
+          "column": 21,
+          "position": 217
+        }
+      },
+      "secondFile": {
+        "name": "tests/package-public-api.test.ts",
+        "start": 12,
+        "end": 22,
+        "startLoc": {
+          "line": 12,
+          "column": 57,
+          "position": 94
+        },
+        "endLoc": {
+          "line": 22,
+          "column": 25,
+          "position": 175
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 28,
+      "fragment": "),\n    });\n    return {\n      argv,\n      exitCode: result.exitCode ?? 0,\n      stderr: result.stderr ?? \"\",\n      stdout: result.stdout,\n    };\n  } catch (err) {\n    const e = err as {\n      exitCode?: number;\n      stderr?: string;\n      stdout?: string;\n      timedOut?: boolean;\n    };\n    return {\n      argv,\n      exitCode: e.exitCode ?? 1,\n      stderr: e.stderr ?? \"\",\n      stdout: e.stdout ?? \"\",\n      timedOut: Boolean(e.timedOut),\n    };\n  }\n}\n\n/**\n * Strict adapter: each phase runs as its own harness subprocess.\n */",
+      "tokens": 0,
+      "firstFile": {
+        "name": "src/runner.ts",
+        "start": 321,
+        "end": 348,
+        "startLoc": {
+          "line": 321,
+          "column": 71,
+          "position": 2336
+        },
+        "endLoc": {
+          "line": 348,
+          "column": 4,
+          "position": 2527
+        }
+      },
+      "secondFile": {
+        "name": "src/runner.ts",
+        "start": 276,
+        "end": 303,
+        "startLoc": {
+          "line": 276,
+          "column": 47,
+          "position": 1973
+        },
+        "endLoc": {
+          "line": 303,
+          "column": 4,
+          "position": 2164
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 6,
+      "fragment": "(servers: Record<string, McpServerConfig>): {\n  mcpServers: Record<string, Record<string, unknown>>;\n} {\n  return {\n    mcpServers: Object.fromEntries(\n      Object.entries(servers).map(([id, server]) => [",
+      "tokens": 0,
+      "firstFile": {
+        "name": "src/runner.ts",
+        "start": 664,
+        "end": 669,
+        "startLoc": {
+          "line": 664,
+          "column": 25,
+          "position": 5286
+        },
+        "endLoc": {
+          "line": 669,
+          "column": 54,
+          "position": 5359
+        }
+      },
+      "secondFile": {
+        "name": "src/runner.ts",
+        "start": 631,
+        "end": 636,
+        "startLoc": {
+          "line": 631,
+          "column": 27,
+          "position": 5007
+        },
+        "endLoc": {
+          "line": 636,
+          "column": 54,
+          "position": 5080
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 10,
+      "fragment": "};\n  }\n  try {\n    const result = await execa(projectCommand.command, projectCommand.args, {\n      cancelSignal: signal,\n      cwd: worktreePath,\n      shell: projectCommand.shell,\n    });\n    const output = [result.stdout, result.stderr].filter(Boolean).join(\"\\n\");\n    return { exitCode: result.exitCode ?? 0, output }",
+      "tokens": 0,
+      "firstFile": {
+        "name": "src/gates.ts",
+        "start": 123,
+        "end": 132,
+        "startLoc": {
+          "line": 123,
+          "column": 45,
+          "position": 1090
+        },
+        "endLoc": {
+          "line": 132,
+          "column": 54,
+          "position": 1201
+        }
+      },
+      "secondFile": {
+        "name": "src/gates.ts",
+        "start": 90,
+        "end": 100,
+        "startLoc": {
+          "line": 90,
+          "column": 5,
+          "position": 743
+        },
+        "endLoc": {
+          "line": 100,
+          "column": 53,
+          "position": 854
+        }
+      }
+    },
+    {
+      "format": "typescript",
+      "lines": 16,
+      "fragment": "try {\n    const result = await execa(projectCommand.command, projectCommand.args, {\n      cancelSignal: signal,\n      cwd: worktreePath,\n      shell: projectCommand.shell,\n    });\n    const output = [result.stdout, result.stderr].filter(Boolean).join(\"\\n\");\n    return { exitCode: result.exitCode ?? 0, output };\n  } catch (err) {\n    const e = err as { stdout?: string; stderr?: string; exitCode?: number };\n    const output = [e.stdout, e.stderr].filter(Boolean).join(\"\\n\");\n    return { exitCode: e.exitCode ?? 1, output };\n  }\n}\n\n// ─── artifactExists ───────────────────────────────────────────────────────────",
+      "tokens": 0,
+      "firstFile": {
+        "name": "src/gates.ts",
+        "start": 151,
+        "end": 166,
+        "startLoc": {
+          "line": 151,
+          "column": 3,
+          "position": 1409
+        },
+        "endLoc": {
+          "line": 166,
+          "column": 82,
+          "position": 1621
+        }
+      },
+      "secondFile": {
+        "name": "src/gates.ts",
+        "start": 93,
+        "end": 140,
+        "startLoc": {
+          "line": 93,
+          "column": 3,
+          "position": 751
+        },
+        "endLoc": {
+          "line": 140,
+          "column": 81,
+          "position": 1309
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 17,
+      "fragment": "version: 1\n\nrunners:\n  codex:\n    type: codex\n    command: codex\n    model: gpt-5.5\n    capabilities:\n      native_subagents: true\n      rules: true\n      skills: true\n      mcp_servers: true\n      tools: [read, list, grep, glob, bash, edit, write]\n      filesystem: [read-only, workspace-write]\n      network: [inherit]\n      output_formats: [text, json, jsonl, json_schema]\n  claude",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/runners.yaml",
+        "start": 1,
+        "end": 17,
+        "startLoc": {
+          "line": 1,
+          "column": 1,
+          "position": 0
+        },
+        "endLoc": {
+          "line": 17,
+          "column": 9,
+          "position": 128
+        }
+      },
+      "secondFile": {
+        "name": "docs/config-architecture.md",
+        "start": 19,
+        "end": 40,
+        "startLoc": {
+          "line": 19,
+          "column": 1,
+          "position": 0
+        },
+        "endLoc": {
+          "line": 40,
+          "column": 8,
+          "position": 126
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 10,
+      "fragment": "capabilities:\n      native_subagents: true\n      rules: true\n      skills: false\n      mcp_servers: false\n      tools: [read, list, grep, glob, bash, edit, write]\n      filesystem: [read-only, workspace-write]\n      network: [inherit]\n      output_formats: [text, json]\n  command",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/runners.yaml",
+        "start": 56,
+        "end": 65,
+        "startLoc": {
+          "line": 56,
+          "column": 5,
+          "position": 468
+        },
+        "endLoc": {
+          "line": 65,
+          "column": 10,
+          "position": 556
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/runners.yaml",
+        "start": 44,
+        "end": 53,
+        "startLoc": {
+          "line": 44,
+          "column": 5,
+          "position": 364
+        },
+        "endLoc": {
+          "line": 53,
+          "column": 5,
+          "position": 452
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 11,
+      "fragment": ", github-readonly]\n    tools: [read, list, grep, glob, bash]\n    filesystem:\n      mode: read-only\n      allow: [\"**/*\"]\n      deny: [\"node_modules/**\", \"dist/**\", \".git/**\"]\n    network:\n      mode: inherit\n    output:\n      format: json_schema\n      schema_path: .pipeline/schemas/epic",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/profiles.yaml",
+        "start": 191,
+        "end": 201,
+        "startLoc": {
+          "line": 191,
+          "column": 26,
+          "position": 1370
+        },
+        "endLoc": {
+          "line": 201,
+          "column": 42,
+          "position": 1455
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/profiles.yaml",
+        "start": 116,
+        "end": 126,
+        "startLoc": {
+          "line": 116,
+          "column": 52,
+          "position": 738
+        },
+        "endLoc": {
+          "line": 126,
+          "column": 58,
+          "position": 823
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 11,
+      "fragment": ", github-readonly]\n    tools: [read, list, grep, glob, bash]\n    filesystem:\n      mode: read-only\n      allow: [\"**/*\"]\n      deny: [\"node_modules/**\", \"dist/**\", \".git/**\"]\n    network:\n      mode: inherit\n    output:\n      format: json_schema\n      schema_path: .pipeline/schemas/review.schema.json",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/profiles.yaml",
+        "start": 238,
+        "end": 248,
+        "startLoc": {
+          "line": 238,
+          "column": 34,
+          "position": 1750
+        },
+        "endLoc": {
+          "line": 248,
+          "column": 56,
+          "position": 1835
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/profiles.yaml",
+        "start": 116,
+        "end": 126,
+        "startLoc": {
+          "line": 116,
+          "column": 52,
+          "position": 738
+        },
+        "endLoc": {
+          "line": 126,
+          "column": 58,
+          "position": 823
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 11,
+      "fragment": ", semgrep, github-readonly, playwright]\n    tools: [read, list, grep, glob, bash]\n    filesystem:\n      mode: read-only\n      allow: [\"**/*\"]\n      deny: [\"node_modules/**\", \"dist/**\", \".git/**\"]\n    network:\n      mode: inherit\n    output:\n      format: json_schema\n      schema_path: .pipeline/schemas/verify.schema.json",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/profiles.yaml",
+        "start": 265,
+        "end": 275,
+        "startLoc": {
+          "line": 265,
+          "column": 25,
+          "position": 1949
+        },
+        "endLoc": {
+          "line": 275,
+          "column": 56,
+          "position": 2040
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/profiles.yaml",
+        "start": 218,
+        "end": 228,
+        "startLoc": {
+          "line": 218,
+          "column": 35,
+          "position": 1578
+        },
+        "endLoc": {
+          "line": 228,
+          "column": 60,
+          "position": 1669
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 72,
+      "fragment": "nodes:\n      - id: research\n        kind: agent\n        profile: pipeline-researcher\n      - id: red\n        kind: agent\n        profile: pipeline-test-writer\n        needs: [research]\n        gates:\n          - id: red-test-file-policy\n            kind: changed_files\n            changed_files:\n              allow:\n                [\n                  \"**/*.test.*\",\n                  \"**/*.spec.*\",\n                  \"**/*_test.*\",\n                  \"**/__tests__/**\",\n                  \"test/**\",\n                  \"tests/**\",\n                  \"**/*.snap\",\n                ]\n              require_any:\n                [\n                  \"**/*.test.*\",\n                  \"**/*.spec.*\",\n                  \"**/*_test.*\",\n                  \"**/__tests__/**\",\n                  \"test/**\",\n                  \"tests/**\",\n                ]\n      - id: green\n        kind: agent\n        profile: pipeline-code-writer\n        needs: [red]\n      - id: acceptance\n        kind: agent\n        profile: pipeline-acceptance-reviewer\n        needs: [green]\n        gates:\n          - id: acceptance-coverage\n            kind: acceptance\n            target: stdout\n            required: false\n          - id: acceptance-verdict\n            kind: verdict\n            target: stdout\n      - id: verify\n        kind: agent\n        profile: pipeline-verifier\n        needs: [acceptance]\n        gates:\n          - id: verify-typecheck\n            kind: builtin\n            builtin: typecheck\n          - id: verify-tests\n            kind: builtin\n            builtin: test\n          - id: verify-semgrep\n            kind: builtin\n            builtin: semgrep\n          - id: verify-duplication\n            kind: builtin\n            builtin: duplication\n          - id: verify-verdict\n            kind: verdict\n            target: stdout\n      - id: learn\n        kind: agent\n        profile: pipeline-learner\n        needs: [verify]\n  epic-drain",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/pipeline.yaml",
+        "start": 125,
+        "end": 196,
+        "startLoc": {
+          "line": 125,
+          "column": 5,
+          "position": 737
+        },
+        "endLoc": {
+          "line": 196,
+          "column": 13,
+          "position": 1187
+        }
+      },
+      "secondFile": {
+        "name": ".pipeline/pipeline.yaml",
+        "start": 52,
+        "end": 123,
+        "startLoc": {
+          "line": 52,
+          "column": 5,
+          "position": 265
+        },
+        "endLoc": {
+          "line": 123,
+          "column": 8,
+          "position": 715
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 40,
+      "fragment": "epic-drain:\n    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, hardened-review.\n    nodes:\n      - id: research\n        kind: agent\n        profile: pipeline-researcher\n      - id: plan\n        kind: agent\n        profile: pipeline-epic-router\n        needs: [research]\n      - id: implement\n        kind: parallel\n        needs: [plan]\n        nodes:\n          - id: test\n            kind: workflow\n            workflow: default\n            worktree_root: .pipeline/runs/${runId}/test\n          - id: frontend\n            kind: workflow\n            workflow: default\n            worktree_root: .pipeline/runs/${runId}/frontend\n          - id: backend\n            kind: workflow\n            workflow: default\n            worktree_root: .pipeline/runs/${runId}/backend\n          - id: k8s\n            kind: workflow\n            workflow: infra\n            worktree_root: .pipeline/runs/${runId}/k8s\n      - id: merge\n        kind: builtin\n        builtin: drain-merge\n        needs: [implement]\n      - id: review\n        kind: agent\n        profile: pipeline-hardened-reviewer\n        needs: [merge]\n        gates:\n          - id",
+      "tokens": 0,
+      "firstFile": {
+        "name": ".pipeline/pipeline.yaml",
+        "start": 196,
+        "end": 235,
+        "startLoc": {
+          "line": 196,
+          "column": 3,
+          "position": 1187
+        },
+        "endLoc": {
+          "line": 235,
+          "column": 15,
+          "position": 1493
+        }
+      },
+      "secondFile": {
+        "name": "backlog/tasks/pipe-31.8 - Config-epic-entrypoint-epic-drain-workflow-pipeline.yaml-.gitignore.md",
+        "start": 70,
+        "end": 113,
+        "startLoc": {
+          "line": 70,
+          "column": 3,
+          "position": 337
+        },
+        "endLoc": {
+          "line": 113,
+          "column": 14,
+          "position": 647
+        }
+      }
+    },
+    {
+      "format": "yaml",
+      "lines": 46,
+      "fragment": "# @oisincoveney/pipeline\n\nConfig-driven multi-agent pipeline runner for repository work. The source of\ntruth is three YAML files: `.pipeline/runners.yaml` declares runner adapters,\n`.pipeline/profiles.yaml` declares reusable profiles and their grants, and\n`.pipeline/pipeline.yaml` declares orchestration, workflows, gates, hooks, and\nartifacts.\n\n## Requirements\n\n- Bun 1.1 or newer\n- Node.js 22.13 or newer\n- `npx`, `backlog`, `uvx`, and Docker on `PATH` for default skill and MCP setup\n- At least one configured runner CLI on `PATH`: `codex`, `claude`,\n  `opencode`, `kimi`, `pi`, or a declared command runner\n\nInstall dependencies:\n\n```shell\nbun install --frozen-lockfile\n```\n\n## Start A Repository\n\nScaffold the default YAML workflow:\n\n```shell\npipe init\n```\n\n`pipe init` installs default skills with the `skills` CLI and registers default\nMCP servers with the MCPM CLI from https://mcpm.sh/. The package invokes MCPM\nthrough `uvx --python 3.12 mcpm`, so generated `.mcp.json` entries do not depend\non a globally installed `mcpm` binary. The default Qdrant/memory MCP is the\nMomokaya remote endpoint\n`https://memory-mcp.momokaya.ee/mcp/`.\n\nThe default GitHub MCP registration uses GitHub's official container in\nread-only mode and reads `GITHUB_PERSONAL_ACCESS_TOKEN` from the environment.\nThe Momokaya Qdrant endpoint is protected by Traefik HTTP Basic auth. Set either\n`MOMOKAYA_MCP_AUT",
+      "tokens": 0,
+      "firstFile": {
+        "name": "README.md",
+        "start": 198,
+        "end": 243,
+        "startLoc": {
+          "line": 198,
+          "column": 1,
+          "position": 438
+        },
+        "endLoc": {
+          "line": 243,
+          "column": 66,
+          "position": 819
+        }
+      },
+      "secondFile": {
+        "name": "backlog/tasks/pipe-31.8 - Config-epic-entrypoint-epic-drain-workflow-pipeline.yaml-.gitignore.md",
+        "start": 64,
+        "end": 113,
+        "startLoc": {
+          "line": 64,
+          "column": 1,
+          "position": 283
+        },
+        "endLoc": {
+          "line": 113,
+          "column": 66,
+          "position": 668
+        }
+      }
+    }
+  ]
 }

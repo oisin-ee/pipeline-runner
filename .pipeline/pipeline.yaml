@@ -4,38 +4,49 @@ default_workflow: default
 entrypoints:
   pipe:
     workflow: default
-    description: Full agent pipeline.
-  dogfood:
-    workflow: dogfood-options
-    description: Deterministic local dogfood workflow.
+    description: Full pipeline
+  inspect:
+    workflow: inspect
+    description: Read-only repository inspection
+  epic:
+    workflow: epic-drain
+    description: Route an epic's tickets into specialist tracks, run them in parallel, then hardened-review.
 
 orchestrator:
   profile: orchestrator
-  hooks: [dogfood-workflow-start]
+  hooks: [generated-defaults-audit]
 
 hooks:
-  dogfood-workflow-start:
+  generated-defaults-audit:
     event: workflow.start
     kind: command
-    command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'workflow.start ' + process.argv[1] + '\\\\n');", "{{workflow.id}}"]
+    command:
+      - node
+      - -e
+      - |
+        const fs = require("node:fs");
+        const files = [".pipeline/profiles.yaml", ".mcp.json"].filter((file) => fs.existsSync(file));
+        const text = files.map((file) => fs.readFileSync(file, "utf8")).join("\n").toLowerCase();
+        const banned = ["atlassian", "jira", "linear", "confluence", "compass", "sentry", "deepwiki"];
+        const hits = banned.filter((item) => text.includes(item));
+        const githubUrls = [...text.matchAll(/https:\/\/api\.githubcopilot\.com\/mcp[^"'\s]*/g)].map((match) => match[0]);
+        const writeGithub = githubUrls.filter((url) => !url.includes("/readonly"));
+        if (hits.length || writeGithub.length) {
+          console.error(["Banned generated defaults detected.", hits.length ? "services=" + hits.join(",") : "", writeGithub.length ? "github=" + writeGithub.join(",") : ""].filter(Boolean).join(" "));
+          process.exit(1);
+        }
     required: true
     trusted: true
+    timeout_ms: 5000
     output_limit_bytes: 4096
-  dogfood-node-start:
-    event: node.start
-    kind: command
-    command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'node.start ' + process.argv[1] + '\\\\n');", "{{node.id}}"]
-    required: true
-    trusted: true
-    output_limit_bytes: 4096
-  dogfood-optional-failure:
-    event: workflow.complete
-    kind: command
-    command: [node, -e, "process.exit(9)"]
-    required: false
-    trusted: true
 
 workflows:
+  inspect:
+    description: Read-only repository inspection workflow.
+    nodes:
+      - id: inspect
+        kind: agent
+        profile: pipeline-inspector
   default:
     description: Default research, red, green, acceptance, verify, learn workflow.
     nodes:
@@ -46,6 +57,29 @@ workflows:
         kind: agent
         profile: pipeline-test-writer
         needs: [research]
+        gates:
+          - id: red-test-file-policy
+            kind: changed_files
+            changed_files:
+              allow:
+                [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                  "**/*.snap",
+                ]
+              require_any:
+                [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                ]
       - id: green
         kind: agent
         profile: pipeline-code-writer
@@ -55,6 +89,10 @@ workflows:
         profile: pipeline-acceptance-reviewer
         needs: [green]
         gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+            required: false
           - id: acceptance-verdict
             kind: verdict
             target: stdout
@@ -63,6 +101,18 @@ workflows:
         profile: pipeline-verifier
         needs: [acceptance]
         gates:
+          - id: verify-typecheck
+            kind: builtin
+            builtin: typecheck
+          - id: verify-tests
+            kind: builtin
+            builtin: test
+          - id: verify-semgrep
+            kind: builtin
+            builtin: semgrep
+          - id: verify-duplication
+            kind: builtin
+            builtin: duplication
           - id: verify-verdict
             kind: verdict
             target: stdout
@@ -70,90 +120,118 @@ workflows:
         kind: agent
         profile: pipeline-learner
         needs: [verify]
-  dogfood:
-    description: Local model-free dogfood workflow for this repository.
-    hooks: [dogfood-workflow-start, dogfood-optional-failure]
+  infra:
+    description: Default-shaped stub workflow for infrastructure specialization.
     nodes:
-      - id: agent-boundary
+      - id: research
         kind: agent
-        profile: dogfood-checker
-        hooks: [dogfood-node-start]
+        profile: pipeline-researcher
+      - id: red
+        kind: agent
+        profile: pipeline-test-writer
+        needs: [research]
         gates:
-          - id: expected-failing-command
-            kind: command
-            command: [node, -e, "process.exit(2)"]
-            expect_exit_code: 2
-          - id: dogfood-output-schema
-            kind: json_schema
+          - id: red-test-file-policy
+            kind: changed_files
+            changed_files:
+              allow:
+                [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                  "**/*.snap",
+                ]
+              require_any:
+                [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                ]
+      - id: green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [red]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [green]
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
             target: stdout
-            schema_path: .pipeline/schemas/dogfood.schema.json
-          - id: dogfood-verdict
+            required: false
+          - id: acceptance-verdict
             kind: verdict
             target: stdout
-      - id: typecheck
-        kind: builtin
-        builtin: typecheck
-        needs: [agent-boundary]
-      - id: tests
-        kind: builtin
-        builtin: test
-        needs: [typecheck]
-  dogfood-options:
-    description: Local deterministic coverage for hooks, gates, artifacts, retries, and parallel nodes.
-    hooks: [dogfood-workflow-start, dogfood-optional-failure]
-    nodes:
-      - id: artifact
+      - id: verify
         kind: agent
-        profile: dogfood-artifact-writer
-        artifacts:
-          - path: .pipeline/dogfood/artifact.json
+        profile: pipeline-verifier
+        needs: [acceptance]
         gates:
-          - id: artifact-schema
-            kind: json_schema
-            target: artifact
-            path: .pipeline/dogfood/artifact.json
-            schema_path: .pipeline/schemas/dogfood.schema.json
-          - id: artifact-verdict
+          - id: verify-typecheck
+            kind: builtin
+            builtin: typecheck
+          - id: verify-tests
+            kind: builtin
+            builtin: test
+          - id: verify-semgrep
+            kind: builtin
+            builtin: semgrep
+          - id: verify-duplication
+            kind: builtin
+            builtin: duplication
+          - id: verify-verdict
             kind: verdict
-            target: artifact
-            path: .pipeline/dogfood/artifact.json
-      - id: retry-gate
-        kind: command
-        command: [node, -e, "console.log('retry node ran')"]
-        retries:
-          max_attempts: 2
-        gates:
-          - id: flaky-once
-            kind: command
-            command: [node, -e, "const fs=require('node:fs'); const p='.pipeline/dogfood/retry-count'; let n=0; try{n=Number(fs.readFileSync(p,'utf8'))}catch{}; fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.writeFileSync(p,String(n+1)); process.exit(n === 0 ? 1 : 0);"]
-        needs: [artifact]
-      - id: parallel-left
-        kind: builtin
-        builtin: typecheck
-        needs: [retry-gate]
-      - id: parallel-right
-        kind: builtin
-        builtin: test
-        needs: [retry-gate]
-      - id: join
-        kind: group
-        nodes: [parallel-left, parallel-right]
-        needs: [parallel-left, parallel-right]
-  dogfood-live-runners:
-    description: Minimal live runner smoke for Codex, Claude, OpenCode, Kimi, and Pi.
+            target: stdout
+      - id: learn
+        kind: agent
+        profile: pipeline-learner
+        needs: [verify]
+  epic-drain:
+    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, hardened-review.
     nodes:
-      - id: codex-live
+      - id: research
         kind: agent
-        profile: dogfood-codex-live
-      - id: claude-live
+        profile: pipeline-researcher
+      - id: plan
         kind: agent
-        profile: dogfood-claude-live
-      - id: opencode-live
+        profile: pipeline-epic-router
+        needs: [research]
+      - id: implement
+        kind: parallel
+        needs: [plan]
+        nodes:
+          - id: test
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/${runId}/test
+          - id: frontend
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/${runId}/frontend
+          - id: backend
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/${runId}/backend
+          - id: k8s
+            kind: workflow
+            workflow: infra
+            worktree_root: .pipeline/runs/${runId}/k8s
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [implement]
+      - id: review
         kind: agent
-        profile: dogfood-opencode-live
-      - id: kimi-live
-        kind: agent
-        profile: dogfood-kimi-live
-      - id: pi-live
-        kind: agent
-        profile: dogfood-pi-live
+        profile: pipeline-hardened-reviewer
+        needs: [merge]
+        gates:
+          - id: review-verdict
+            kind: verdict
+            target: stdout

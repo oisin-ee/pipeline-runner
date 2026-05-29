@@ -64,6 +64,7 @@
     }
   },
   "files": [
+    "defaults",
     "dist",
     "docs",
     "README.md"

@@ -3,11 +3,13 @@
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Command, CommanderError, Option } from "commander";
+import { Command, CommanderError, Help, Option } from "commander";
+import { execa } from "execa";
 import {
   loadPipelineConfig,
   type PipelineConfig,
   PipelineConfigError,
+  tryLoadPipelineConfig,
 } from "./config.js";
 import {
   type CommandHostSelection,
@@ -16,6 +18,8 @@ import {
   parseCommandHost,
 } from "./install-commands.js";
 import {
+  DEFAULT_MCPM_ARGS,
+  DEFAULT_MCPM_COMMAND,
   formatPipelineInitResult,
   initPipelineProject,
 } from "./pipeline-init.js";
@@ -29,7 +33,10 @@ import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
 } from "./runner.js";
-import { compileWorkflowPlan } from "./workflow-planner.js";
+import {
+  compileWorkflowPlan,
+  type PlannedWorkflowNode,
+} from "./workflow-planner.js";
 
 const PATH_SEPARATOR_RE = /[\\/]/;
 const LINE_RE = /\r?\n/;
@@ -70,6 +77,17 @@ export function pipe(
 interface RunFlags {
   entrypoint?: string;
   workflow?: string;
+}
+
+interface DoctorCheck {
+  detail: string;
+  name: string;
+  passed: boolean;
+}
+
+interface DoctorResult {
+  checks: DoctorCheck[];
+  passed: boolean;
 }
 
 interface RunInputs {
@@ -264,10 +282,33 @@ interface InitFlags {
 
 interface ValidateFlags {
   entrypoint?: string;
+  lint?: boolean;
+  strict?: boolean;
   workflow?: string;
 }
 
+type ConfigWorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
+
+interface ConfigLintWarning {
+  message: string;
+  ruleId: string;
+}
+
+const BUILTIN_PIPE_COMMANDS = new Set([
+  "run",
+  "pipe",
+  "validate",
+  "explain-plan",
+  "doctor",
+  "init",
+  "install-commands",
+]);
+
 export function createCliProgram(): Command {
+  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+  const configuredPipeline = tryLoadPipelineConfig(cwd, {
+    allowMissingLintFileReferences: true,
+  });
   const program = new Command();
   program
     .name("@oisincoveney/pipeline")
@@ -303,14 +344,28 @@ export function createCliProgram(): Command {
       "Validate .pipeline/pipeline.yaml and compile the workflow plan"
     )
     .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--strict", "fail when validation lint warnings are emitted")
+    .option("--no-lint", "skip validation lint warnings")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action((flags: ValidateFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-      const config = loadPipelineConfig(cwd);
+      const config = loadPipelineConfig(cwd, {
+        allowMissingLintFileReferences: true,
+      });
       const plan = compileWorkflowPlan(
         config,
         resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
       );
+      const warnings =
+        flags.lint === false ? [] : lintPipelineConfig(config, cwd);
+      for (const warning of warnings) {
+        console.error(formatConfigLintWarning(warning));
+      }
+      if (flags.strict && warnings.length > 0) {
+        throw new Error(
+          `Validation failed with ${warnings.length} warning${warnings.length === 1 ? "" : "s"}.`
+        );
+      }
       console.log(
         `OK: ${plan.workflowId} (${plan.topologicalOrder.length} nodes)`
       );
@@ -323,7 +378,9 @@ export function createCliProgram(): Command {
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action((flags: ValidateFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-      const config = loadPipelineConfig(cwd);
+      const config = loadPipelineConfig(cwd, {
+        allowMissingLintFileReferences: true,
+      });
       console.log(
         formatWorkflowPlan(
           config,
@@ -331,6 +388,18 @@ export function createCliProgram(): Command {
           resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
         )
       );
+    });
+
+  program
+    .command("doctor")
+    .description("Check local prerequisites for pipeline init and execution")
+    .action(async () => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const result = await runDoctor(cwd);
+      console.log(formatDoctorResult(result));
+      if (!result.passed) {
+        throw new Error("Doctor checks failed.");
+      }
     });
 
   program
@@ -367,7 +436,155 @@ export function createCliProgram(): Command {
       console.log(formatInstallCommandsResult(result));
     });
 
+  const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
+    program,
+    configuredPipeline
+  );
+  if (configuredEntrypointCommands.size > 0) {
+    program.configureHelp({
+      subcommandTerm(this: Help, command: Command) {
+        if (configuredEntrypointCommands.has(command.name())) {
+          return command.name();
+        }
+        return Help.prototype.subcommandTerm.call(this, command);
+      },
+    });
+  }
+
   return program;
+}
+
+function registerConfiguredEntrypointCommands(
+  program: Command,
+  config: PipelineConfig | null
+): Set<string> {
+  const registered = new Set<string>();
+  if (!config) {
+    return registered;
+  }
+
+  const reservedCommands = new Set(
+    program.commands.map((command) => command.name())
+  );
+  for (const [id, entrypoint] of Object.entries(config.entrypoints)) {
+    if (reservedCommands.has(id)) {
+      continue;
+    }
+    program
+      .command(id)
+      .description(entrypoint.description ?? `Run the ${id} workflow`)
+      .argument("<description...>", "task description")
+      .action(async (descriptionParts: string[]) => {
+        await pipe(descriptionParts.join(" "), { entrypoint: id });
+      });
+    registered.add(id);
+    reservedCommands.add(id);
+  }
+  return registered;
+}
+
+function lintPipelineConfig(
+  config: PipelineConfig,
+  projectRoot: string
+): ConfigLintWarning[] {
+  return [
+    ...lintShadowedEntrypoints(config),
+    ...lintMissingFileReferences(config, projectRoot),
+    ...lintWorkflowNodes(config),
+  ];
+}
+
+function lintShadowedEntrypoints(config: PipelineConfig): ConfigLintWarning[] {
+  return Object.keys(config.entrypoints)
+    .filter((id) => BUILTIN_PIPE_COMMANDS.has(id))
+    .map((id) => ({
+      ruleId: "entrypoint-shadowed",
+      message: `entrypoint '${id}' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint ${id} ...'`,
+    }));
+}
+
+function lintMissingFileReferences(
+  config: PipelineConfig,
+  projectRoot: string
+): ConfigLintWarning[] {
+  const refs: Array<{ path: string; value: string | undefined }> = [];
+  for (const [skillId, skill] of Object.entries(config.skills)) {
+    refs.push({ path: `skills.${skillId}.path`, value: skill.path });
+  }
+  for (const [profileId, profile] of Object.entries(config.profiles)) {
+    refs.push({
+      path: `profiles.${profileId}.instructions.path`,
+      value: profile.instructions.path,
+    });
+    refs.push({
+      path: `profiles.${profileId}.output.schema_path`,
+      value: profile.output?.schema_path,
+    });
+  }
+  return refs.flatMap((ref) => {
+    if (!ref.value || existsSync(resolve(projectRoot, ref.value))) {
+      return [];
+    }
+    return [
+      {
+        ruleId: "missing-file-reference",
+        message: `${ref.path} references missing file '${ref.value}'`,
+      },
+    ];
+  });
+}
+
+function lintWorkflowNodes(config: PipelineConfig): ConfigLintWarning[] {
+  const warnings: ConfigLintWarning[] = [];
+  for (const workflow of Object.values(config.workflows)) {
+    for (const node of workflow.nodes) {
+      lintWorkflowNode(warnings, node);
+    }
+  }
+  return warnings;
+}
+
+function lintWorkflowNode(
+  warnings: ConfigLintWarning[],
+  node: ConfigWorkflowNode
+): void {
+  if (node.kind === "parallel") {
+    if (node.nodes.length === 1) {
+      warnings.push({
+        ruleId: "singleton-parallel",
+        message: `node '${node.id}' is a parallel container with only one child; remove the wrapper`,
+      });
+    }
+    for (const child of node.nodes) {
+      lintWorkflowNode(warnings, child);
+    }
+  }
+  if (
+    node.kind === "workflow" &&
+    node.worktree_root &&
+    !isPipelineWorktreeRoot(node.worktree_root)
+  ) {
+    warnings.push({
+      ruleId: "worktree-root-style",
+      message: `node '${node.id}' worktree_root '${node.worktree_root}' is outside the suggested .pipeline/runs/ root; this is a style nudge, not an error`,
+    });
+  }
+}
+
+const LEADING_DOT_SLASH = /^\.\//;
+
+function isPipelineWorktreeRoot(worktreeRoot: string): boolean {
+  const normalized = worktreeRoot
+    .replaceAll("\\", "/")
+    .replace(LEADING_DOT_SLASH, "");
+  return (
+    normalized.startsWith(".pipeline/runs/") ||
+    normalized.startsWith(".pipeline/drain/")
+  );
+}
+
+function formatConfigLintWarning(warning: ConfigLintWarning): string {
+  return `WARN ${warning.ruleId}: ${warning.message}`;
 }
 
 export async function runCli(argv: string[]): Promise<void> {
@@ -377,14 +594,7 @@ export async function runCli(argv: string[]): Promise<void> {
   const scriptName = argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
   if (scriptName === "pipe") {
     const firstArg = argv[2];
-    const directSubcommands = new Set([
-      "explain-plan",
-      "init",
-      "install-commands",
-      "run",
-      "validate",
-    ]);
-    if (firstArg && directSubcommands.has(firstArg)) {
+    if (firstArg && shouldParsePipeArgsDirectly(program, firstArg)) {
       await program.parseAsync(argv, { from: "node" });
       return;
     }
@@ -395,6 +605,104 @@ export async function runCli(argv: string[]): Promise<void> {
     return;
   }
   await program.parseAsync(argv, { from: "node" });
+}
+
+function shouldParsePipeArgsDirectly(
+  program: Command,
+  firstArg: string
+): boolean {
+  if (firstArg === "help" || firstArg === "-h" || firstArg === "--help") {
+    return true;
+  }
+  return program.commands.some((command) => command.name() === firstArg);
+}
+
+export async function runDoctor(cwd: string): Promise<DoctorResult> {
+  const commandChecks = await Promise.all([
+    checkCommand("npx", ["--version"], cwd),
+    checkCommand("backlog", ["--version"], cwd),
+    checkCommand("uvx", ["--version"], cwd),
+    checkCommandWithRunner(
+      "mcpm-cli",
+      DEFAULT_MCPM_COMMAND,
+      [...DEFAULT_MCPM_ARGS, "--version"],
+      cwd
+    ),
+    checkCommand("codex", ["--version"], cwd),
+  ]);
+  const configCheck = checkPipelineConfig(cwd);
+  const checks = [...commandChecks, configCheck];
+  return {
+    checks,
+    passed: checks.every((check) => check.passed),
+  };
+}
+
+function checkCommand(
+  name: string,
+  args: string[],
+  cwd: string
+): Promise<DoctorCheck> {
+  return checkCommandWithRunner(name, name, args, cwd);
+}
+
+async function checkCommandWithRunner(
+  name: string,
+  command: string,
+  args: string[],
+  cwd: string
+): Promise<DoctorCheck> {
+  try {
+    await execa(command, args, {
+      cwd,
+      stdin: "ignore",
+    });
+    return {
+      detail: "available",
+      name,
+      passed: true,
+    };
+  } catch (err) {
+    const error = err as { shortMessage?: string; stderr?: string };
+    return {
+      detail: (error.shortMessage || error.stderr || "not available").trim(),
+      name,
+      passed: false,
+    };
+  }
+}
+
+function checkPipelineConfig(cwd: string): DoctorCheck {
+  try {
+    loadPipelineConfig(cwd);
+    return {
+      detail: "valid",
+      name: "pipeline-config",
+      passed: true,
+    };
+  } catch (err) {
+    let message = "invalid";
+    if (err instanceof PipelineConfigError) {
+      message = err.issues.map((issue) => issue.message).join("; ");
+    } else if (err instanceof Error) {
+      message = err.message;
+    }
+    return {
+      detail: message || "missing or invalid",
+      name: "pipeline-config",
+      passed: false,
+    };
+  }
+}
+
+function formatDoctorResult(result: DoctorResult): string {
+  return [
+    `Doctor: ${result.passed ? "PASS" : "FAIL"}`,
+    ...result.checks.map(
+      (check) =>
+        `- ${check.passed ? "PASS" : "FAIL"} ${check.name}: ${check.detail}`
+    ),
+  ].join("\n");
 }
 
 function scriptName(argv: string[]): string {
@@ -451,37 +759,48 @@ function formatWorkflowPlan(
       .join(" -> ")}`
   );
   for (const node of plan.topologicalOrder) {
-    const profile = node.profile ? config.profiles[node.profile] : undefined;
-    const launch =
-      profile && node.profile
-        ? createRunnerLaunchPlan(config, {
-            nodeId: node.id,
-            profileId: node.profile,
-            prompt: "<task>",
-            worktreePath,
-          })
-        : null;
-    lines.push(
-      [
-        `- ${node.id}`,
-        `kind=${node.kind}`,
-        `needs=${node.needs.join(",") || "none"}`,
-        launch ? `runner=${launch.runnerId}` : "",
-        launch ? `strategy=${launch.strategy}` : "",
-        node.gates?.length ? `gates=${node.gates.length}` : "gates=0",
-        node.artifacts?.length
-          ? `artifacts=${node.artifacts.map((artifact) => artifact.path).join(",")}`
-          : "artifacts=none",
-        node.hooks?.length ? `hooks=${node.hooks.join(",")}` : "",
-      ]
-        .filter(Boolean)
-        .join(" ")
-    );
+    if (node.kind === "parallel" && node.children?.length) {
+      lines.push(
+        `${node.id}(parallel: ${node.children.map((child) => child.id).join(", ")})`
+      );
+    }
+    lines.push(formatWorkflowPlanNode(node, config, worktreePath));
   }
   if (workflow?.hooks?.length) {
     lines.push(`Workflow hooks: ${workflow.hooks.join(", ")}`);
   }
   return lines.join("\n");
+}
+
+function formatWorkflowPlanNode(
+  node: PlannedWorkflowNode,
+  config: PipelineConfig,
+  worktreePath: string
+): string {
+  const profile = node.profile ? config.profiles[node.profile] : undefined;
+  const launch =
+    profile && node.profile
+      ? createRunnerLaunchPlan(config, {
+          nodeId: node.id,
+          profileId: node.profile,
+          prompt: "<task>",
+          worktreePath,
+        })
+      : null;
+  return [
+    `- ${node.id}`,
+    `kind=${node.kind}`,
+    `needs=${node.needs.join(",") || "none"}`,
+    launch ? `runner=${launch.runnerId}` : "",
+    launch ? `strategy=${launch.strategy}` : "",
+    node.gates?.length ? `gates=${node.gates.length}` : "gates=0",
+    node.artifacts?.length
+      ? `artifacts=${node.artifacts.map((artifact) => artifact.path).join(",")}`
+      : "artifacts=none",
+    node.hooks?.length ? `hooks=${node.hooks.join(",")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function resolveWorkflowSelection(

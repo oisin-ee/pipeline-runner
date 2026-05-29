@@ -1,19 +1,60 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("execa", () => ({
+  execa: vi.fn(),
+}));
+
+import { execa } from "execa";
 import { loadPipelineConfig } from "../src/config.js";
 import {
+  DEFAULT_INSTALL_MANIFEST,
+  DEFAULT_MCP_INSTALLS,
+  DEFAULT_SKILL_INSTALLS,
   defaultPipelineScaffoldFiles,
   initPipelineProject,
+  installDefaultMcpsWithCli,
   PipelineInitError,
+  PipelineMcpInstallError,
+  type PipelineMcpInstaller,
+  type PipelineSkillInstaller,
 } from "../src/pipeline-init.js";
+
+const mockExeca = vi.mocked(execa);
+const ORIGINAL_MEMORY_MCP_BASIC_AUTH = process.env.MEMORY_MCP_BASIC_AUTH;
+const ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION =
+  process.env.MOMOKAYA_MCP_AUTHORIZATION;
+const BANNED_DEFAULTS_RE =
+  /atlassian|jira|linear|confluence|compass|sentry|deepwiki/i;
+const GITHUB_WRITE_MCP_RE = /api\.githubcopilot\.com\/mcp\/(?!readonly)/;
+
+beforeEach(() => {
+  mockExeca.mockReset();
+  mockExeca.mockResolvedValue({ exitCode: 0, stderr: "", stdout: "" } as any);
+});
+
+afterEach(() => {
+  if (ORIGINAL_MEMORY_MCP_BASIC_AUTH === undefined) {
+    delete process.env.MEMORY_MCP_BASIC_AUTH;
+  } else {
+    process.env.MEMORY_MCP_BASIC_AUTH = ORIGINAL_MEMORY_MCP_BASIC_AUTH;
+  }
+  if (ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION === undefined) {
+    delete process.env.MOMOKAYA_MCP_AUTHORIZATION;
+  } else {
+    process.env.MOMOKAYA_MCP_AUTHORIZATION =
+      ORIGINAL_MOMOKAYA_MCP_AUTHORIZATION;
+  }
+});
 
 describe("initPipelineProject", () => {
   let dir: string;
@@ -26,32 +67,60 @@ describe("initPipelineProject", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  const init = (options: Parameters<typeof initPipelineProject>[0] = {}) =>
+    initPipelineProject({
+      cwd: dir,
+      mcpInstaller: fakeMcpInstaller,
+      skillInstaller: fakeSkillInstaller,
+      ...options,
+    });
+
   it("creates the required config files when no config exists", async () => {
-    const result = await initPipelineProject({ cwd: dir });
+    const result = await init();
 
     expect(result.files).toContain(".pipeline/pipeline.yaml");
     expect(result.files).toContain(".pipeline/profiles.yaml");
     expect(result.files).toContain(".pipeline/runners.yaml");
+    expect(result.files).toContain(".mcp.json");
+    expect(result.files).toContain(
+      ".agents/skills/context-engineering/SKILL.md"
+    );
+    expect(result.files).toContain("skills-lock.json");
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
+    expect(existsSync(join(dir, ".mcp.json"))).toBe(true);
     const config = loadPipelineConfig(dir);
     expect(config.default_workflow).toBe("default");
     expect(config.runners.codex.model).toBe("gpt-5.5");
+    expect(config.mcp_servers.serena).toMatchObject({
+      args: ["--python", "3.12", "mcpm", "run", "oisin-pipeline-serena"],
+      command: "uvx",
+    });
+    expect(config.mcp_servers.context7).toMatchObject({
+      args: ["--python", "3.12", "mcpm", "run", "oisin-pipeline-context7"],
+      command: "uvx",
+    });
   });
 
   it("scaffolds prompt files, schema files, and host resource inputs", async () => {
-    await initPipelineProject({ cwd: dir });
+    await init();
 
     for (const path of [
       ".pipeline/prompts/researcher.md",
       ".pipeline/prompts/test-writer.md",
+      ".pipeline/prompts/acceptance-reviewer.md",
       ".pipeline/prompts/code-writer.md",
       ".pipeline/prompts/verifier.md",
       ".pipeline/prompts/learner.md",
       ".pipeline/schemas/research.schema.json",
+      ".pipeline/schemas/acceptance.schema.json",
       ".pipeline/schemas/verify.schema.json",
       ".pipeline/schemas/learn.schema.json",
+      ".agents/skills/using-superpowers/SKILL.md",
+      ".agents/skills/context-engineering/SKILL.md",
+      ".agents/skills/semgrep/SKILL.md",
+      ".agents/skills/vercel-react-best-practices/SKILL.md",
       ".pipeline/host-resources/claude.md",
       ".pipeline/host-resources/codex.md",
       ".pipeline/host-resources/opencode.md",
@@ -72,35 +141,236 @@ describe("initPipelineProject", () => {
     );
   });
 
+  it("tells verifier agents not to replace deterministic gates and treats configured gates as authoritative", () => {
+    const verifierPrompt =
+      defaultPipelineScaffoldFiles()[".pipeline/prompts/verifier.md"];
+
+    expect(verifierPrompt).toContain(
+      "Do not invent ad hoc replacements for deterministic gates"
+    );
+    expect(verifierPrompt).toContain(
+      "Do not run built-in deterministic gates manually"
+    );
+    expect(verifierPrompt).toContain(
+      "Treat configured gates declared in `.pipeline/pipeline.yaml` as authoritative."
+    );
+  });
+
+  it("tells verifier agents not to run semgrep or duplication directly unless debugging those tools", () => {
+    const verifierPrompt =
+      defaultPipelineScaffoldFiles()[".pipeline/prompts/verifier.md"];
+
+    expect(verifierPrompt).toContain(
+      "Verifier agents must not run semgrep or duplication directly unless the task specifically asks them to debug those tools."
+    );
+  });
+
   it("expresses the default phases as workflow nodes", async () => {
-    await initPipelineProject({ cwd: dir });
+    await init();
 
     const config = loadPipelineConfig(dir);
     expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
       "research",
       "red",
       "green",
+      "acceptance",
       "verify",
       "learn",
     ]);
     expect(
       config.workflows.default.nodes.every((node) => node.kind === "agent")
     ).toBe(true);
+    expect(config.workflows.default.nodes[1].gates?.[0]).toMatchObject({
+      id: "red-test-file-policy",
+      kind: "changed_files",
+    });
+    expect(
+      config.workflows.default.nodes[3].gates?.map((gate) => gate.id)
+    ).toEqual(["acceptance-coverage", "acceptance-verdict"]);
+    expect(
+      config.workflows.default.nodes[4].gates?.map((gate) => gate.id)
+    ).toEqual([
+      "verify-typecheck",
+      "verify-tests",
+      "verify-semgrep",
+      "verify-duplication",
+      "verify-verdict",
+    ]);
   });
 
-  it("refuses to overwrite existing scaffold files without --overwrite", async () => {
-    await initPipelineProject({ cwd: dir });
+  it("installs concrete repo-local external skill files", async () => {
+    await init();
 
-    await expect(initPipelineProject({ cwd: dir })).rejects.toThrow(
-      PipelineInitError
+    const config = loadPipelineConfig(dir);
+    expect(config.skills["context-engineering"].path).toBe(
+      ".agents/skills/context-engineering/SKILL.md"
+    );
+    expect(config.profiles["pipeline-researcher"].skills).toContain(
+      "context-engineering"
+    );
+    const skill = readFileSync(
+      join(dir, ".agents/skills/context-engineering/SKILL.md"),
+      "utf8"
+    );
+    expect(skill).toContain("name: context-engineering");
+    expect(skill).toContain("repository: addyosmani/agent-skills");
+    expect(skill).not.toContain("pipeline-context-engineering");
+  });
+
+  it("keeps banned generated MCP defaults out of the scaffold", async () => {
+    await init();
+
+    const generated = [
+      readFileSync(join(dir, ".pipeline/profiles.yaml"), "utf8"),
+      readFileSync(join(dir, ".mcp.json"), "utf8"),
+    ].join("\n");
+    expect(generated).not.toMatch(BANNED_DEFAULTS_RE);
+    expect(generated).not.toMatch(GITHUB_WRITE_MCP_RE);
+    expect(generated).toContain("oisin-pipeline-github-readonly");
+  });
+
+  it("registers default MCP servers through MCPM", async () => {
+    const registered: string[] = [];
+
+    await initPipelineProject({
+      cwd: dir,
+      mcpInstaller: (specs) => {
+        registered.push(
+          ...specs.map((spec) => `${spec.name}:${spec.url ?? ""}`)
+        );
+        return Promise.resolve();
+      },
+      skillInstaller: fakeSkillInstaller,
+    });
+
+    expect(registered).toEqual(
+      DEFAULT_MCP_INSTALLS.map((spec) => `${spec.name}:${spec.url ?? ""}`)
+    );
+    expect(registered).toContain(
+      "oisin-pipeline-qdrant:https://memory-mcp.momokaya.ee/mcp/"
     );
   });
 
+  it("loads default installs from the package manifest", () => {
+    const manifest = JSON.parse(
+      readFileSync("defaults/install-manifest.json", "utf8")
+    ) as {
+      mcps: unknown[];
+      skills: unknown[];
+      version: number;
+    };
+
+    expect(DEFAULT_INSTALL_MANIFEST.version).toBe(1);
+    expect(DEFAULT_SKILL_INSTALLS).toEqual(manifest.skills);
+    expect(DEFAULT_MCP_INSTALLS).toEqual(manifest.mcps);
+  });
+
+  it("declares both Momokaya Qdrant credential sources in the default MCP manifest", () => {
+    const manifest = JSON.parse(
+      readFileSync("defaults/install-manifest.json", "utf8")
+    ) as {
+      mcps: Array<{
+        headers?: {
+          Authorization?: {
+            sources?: Array<{ env?: string; prefix?: string }>;
+          };
+        };
+        name?: string;
+        transport?: string;
+        url?: string;
+      }>;
+    };
+    const manifestQdrant = manifest.mcps.find(
+      (spec) => spec.name === "oisin-pipeline-qdrant"
+    );
+    const defaultQdrant = DEFAULT_MCP_INSTALLS.find(
+      (spec) => spec.name === "oisin-pipeline-qdrant"
+    );
+
+    expect(defaultQdrant).toEqual(manifestQdrant);
+    expect(manifestQdrant).toMatchObject({
+      name: "oisin-pipeline-qdrant",
+      transport: "remote",
+      url: "https://memory-mcp.momokaya.ee/mcp/",
+    });
+    expect(manifestQdrant?.headers?.Authorization?.sources).toEqual(
+      expect.arrayContaining([
+        { env: "MOMOKAYA_MCP_AUTHORIZATION" },
+        { env: "MEMORY_MCP_BASIC_AUTH", prefix: "Basic " },
+      ])
+    );
+  });
+
+  it("redacts the resolved Momokaya authorization header from direct MCPM registration failures", async () => {
+    process.env.MOMOKAYA_MCP_AUTHORIZATION = "Bearer momokaya-token";
+    delete process.env.MEMORY_MCP_BASIC_AUTH;
+    mockExeca.mockImplementation(((_command: string, args?: string[]) => {
+      if (args?.includes("oisin-pipeline-qdrant")) {
+        return Promise.reject({
+          shortMessage:
+            "Command failed: uvx --python 3.12 mcpm new oisin-pipeline-qdrant --headers Authorization=Bearer momokaya-token",
+          stderr: "remote rejected token momokaya-token",
+          stdout: "Bearer momokaya-token",
+        });
+      }
+      return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+    }) as any);
+
+    let thrown: unknown;
+    try {
+      await installDefaultMcpsWithCli(DEFAULT_MCP_INSTALLS, dir);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(PipelineMcpInstallError);
+    const message = String((thrown as Error).message);
+    expect(message).toContain(
+      "Failed to register MCP server oisin-pipeline-qdrant with MCPM."
+    );
+    expect(message).toContain("Authorization=[REDACTED]");
+    expect(message).not.toContain("momokaya-token");
+    expect(message).not.toContain("Authorization=Bearer momokaya-token");
+  });
+
+  it("does not write scaffold files when MCP registration fails", async () => {
+    await expect(
+      initPipelineProject({
+        cwd: dir,
+        mcpInstaller: () => Promise.reject(new Error("mcpm missing")),
+        skillInstaller: fakeSkillInstaller,
+      })
+    ).rejects.toThrow("mcpm missing");
+
+    expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
+    expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+    expect(existsSync(join(dir, ".agents", "skills"))).toBe(false);
+  });
+
+  it("does not write scaffold files when skill installation fails", async () => {
+    await expect(
+      initPipelineProject({
+        cwd: dir,
+        mcpInstaller: fakeMcpInstaller,
+        skillInstaller: () => Promise.reject(new Error("skills missing")),
+      })
+    ).rejects.toThrow("skills missing");
+
+    expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
+    expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+  });
+
+  it("refuses to overwrite existing scaffold files without --overwrite", async () => {
+    await init();
+
+    await expect(init()).rejects.toThrow(PipelineInitError);
+  });
+
   it("overwrites existing scaffold files when requested", async () => {
-    await initPipelineProject({ cwd: dir });
+    await init();
     writeFileSync(join(dir, ".pipeline", "pipeline.yaml"), "custom: true\n");
 
-    await initPipelineProject({ cwd: dir, overwrite: true });
+    await init({ overwrite: true });
 
     expect(readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf8")).toBe(
       defaultPipelineScaffoldFiles()[".pipeline/pipeline.yaml"]
@@ -108,7 +378,13 @@ describe("initPipelineProject", () => {
   });
 
   it("keeps the scaffold manifest complete", () => {
-    expect(Object.keys(defaultPipelineScaffoldFiles()).sort()).toEqual([
+    const files = Object.keys(defaultPipelineScaffoldFiles()).sort();
+
+    expect(files.some((path) => path.startsWith(".agents/skills/"))).toBe(
+      false
+    );
+    expect(files).toEqual([
+      ".mcp.json",
       ".pipeline/host-resources/claude.md",
       ".pipeline/host-resources/codex.md",
       ".pipeline/host-resources/kimi.md",
@@ -116,6 +392,7 @@ describe("initPipelineProject", () => {
       ".pipeline/host-resources/pi.md",
       ".pipeline/pipeline.yaml",
       ".pipeline/profiles.yaml",
+      ".pipeline/prompts/acceptance-reviewer.md",
       ".pipeline/prompts/code-writer.md",
       ".pipeline/prompts/inspector.md",
       ".pipeline/prompts/learner.md",
@@ -126,9 +403,40 @@ describe("initPipelineProject", () => {
       ".pipeline/rules/test-first.md",
       ".pipeline/rules/verification.md",
       ".pipeline/runners.yaml",
+      ".pipeline/schemas/acceptance.schema.json",
       ".pipeline/schemas/learn.schema.json",
       ".pipeline/schemas/research.schema.json",
       ".pipeline/schemas/verify.schema.json",
     ]);
   });
 });
+
+const fakeSkillInstaller: PipelineSkillInstaller = (specs, cwd) => {
+  const lock: Record<string, unknown> = { skills: {}, version: 1 };
+  for (const spec of specs) {
+    for (const skill of spec.skills) {
+      const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        [
+          "---",
+          `name: ${skill}`,
+          "x-pipeline-source:",
+          `  repository: ${spec.source}`,
+          "---",
+          "",
+          `# ${skill}`,
+          "",
+        ].join("\n")
+      );
+      (lock.skills as Record<string, unknown>)[skill] = {
+        source: spec.source,
+      };
+    }
+  }
+  writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
+  return Promise.resolve();
+};
+
+const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve();

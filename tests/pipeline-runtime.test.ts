@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { execa } from "execa";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parsePipelineConfigParts } from "../src/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
 import type { RunnerLaunchPlan } from "../src/runner.js";
@@ -12,10 +12,54 @@ vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
 
+const gitMock = vi.hoisted(() => {
+  interface GitStatusResult {
+    files: { path: string }[];
+  }
+  const client = {
+    raw: vi.fn<(...commands: (string | string[])[]) => Promise<string>>(
+      async () => ""
+    ),
+    revparse: vi.fn<(options: string[]) => Promise<string>>(
+      async () => "base-sha"
+    ),
+    status: vi.fn(
+      async (_options?: { baseDir?: string }): Promise<GitStatusResult> => ({
+        files: [],
+      })
+    ),
+  };
+  return {
+    client,
+    simpleGit: vi.fn((options?: { baseDir?: string }) => ({
+      raw: client.raw,
+      revparse: client.revparse,
+      status: () => client.status(options),
+    })),
+  };
+});
+
+vi.mock("simple-git", () => ({
+  default: gitMock.simpleGit,
+}));
+
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const tempDirs: string[] = [];
 const originalPipelineTestCommand = process.env.PIPELINE_TEST_COMMAND;
+const originalPipelineSemgrepCommand = process.env.PIPELINE_SEMGREP_COMMAND;
 const CANCEL_PATTERN = /cancel/i;
+const LINE_SPLIT_RE = /\r?\n/;
+const RUN_CHILD_BRANCH_RE = /^run-[0-9a-f-]+\/child$/;
+const RUN_ID_TOKEN = `$${"{runId}"}`;
+const NODE_ID_TOKEN = `$${"{nodeId}"}`;
+
+beforeEach(() => {
+  gitMock.client.raw.mockResolvedValue("");
+  gitMock.client.revparse.mockResolvedValue("base-sha");
+  gitMock.client.status.mockImplementation(async (options) =>
+    gitStatusSnapshot(options?.baseDir)
+  );
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -23,6 +67,11 @@ afterEach(() => {
     delete process.env.PIPELINE_TEST_COMMAND;
   } else {
     process.env.PIPELINE_TEST_COMMAND = originalPipelineTestCommand;
+  }
+  if (originalPipelineSemgrepCommand === undefined) {
+    delete process.env.PIPELINE_SEMGREP_COMMAND;
+  } else {
+    process.env.PIPELINE_SEMGREP_COMMAND = originalPipelineSemgrepCommand;
   }
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -39,6 +88,28 @@ function writeProjectFile(root: string, path: string, content: string): void {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
+}
+
+function gitStatusSnapshot(baseDir?: string): {
+  files: Array<{ path: string }>;
+} {
+  try {
+    const stdout = execFileSync(
+      "git",
+      ["status", "--porcelain", "--untracked-files=all"],
+      { cwd: baseDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    );
+    return {
+      files: stdout
+        .split(LINE_SPLIT_RE)
+        .filter(Boolean)
+        .map((line) => line.slice(3))
+        .map((path) => path.split(" -> ").at(-1) ?? path)
+        .map((path) => ({ path })),
+    };
+  } catch {
+    return { files: [] };
+  }
 }
 
 function baseConfig(extraWorkflow = "") {
@@ -113,6 +184,267 @@ function executor(outputs: Record<string, string | string[]>) {
       : value;
     return { exitCode: stdout === "__FAIL__" ? 1 : 0, stdout };
   };
+}
+
+function setWorkflowNodeWorktreeRoot(
+  config: ReturnType<typeof baseConfig>,
+  workflowId: string,
+  nodeId: string,
+  worktreeRoot: string
+): void {
+  const node = config.workflows[workflowId].nodes.find(
+    (candidate) => candidate.id === nodeId
+  );
+  if (!node) {
+    throw new Error(`Missing node ${workflowId}.${nodeId}`);
+  }
+  (node as { worktree_root?: string }).worktree_root = worktreeRoot;
+}
+
+function setParallelWorkflowChildWorktreeRoot(
+  config: ReturnType<typeof baseConfig>,
+  workflowId: string,
+  parallelNodeId: string,
+  childNodeId: string,
+  worktreeRoot: string
+): void {
+  const parallelNode = config.workflows[workflowId].nodes.find(
+    (candidate) => candidate.id === parallelNodeId
+  );
+  if (!parallelNode || parallelNode.kind !== "parallel") {
+    throw new Error(`Missing parallel node ${workflowId}.${parallelNodeId}`);
+  }
+  const child = parallelNode.nodes.find(
+    (candidate) => candidate.id === childNodeId
+  );
+  if (!child) {
+    throw new Error(`Missing child node ${parallelNodeId}.${childNodeId}`);
+  }
+  (child as { worktree_root?: string }).worktree_root = worktreeRoot;
+}
+
+function gitRawCommands(): string[][] {
+  return gitMock.client.raw.mock.calls.map((call) =>
+    call.flatMap((part) =>
+      Array.isArray(part) ? part.map((value) => String(value)) : [String(part)]
+    )
+  );
+}
+
+function workflowChildOutput(input: {
+  baseSha?: string;
+  branch?: string | null;
+  nodeId?: string;
+  status?: "PASS" | "FAIL";
+  workflowId?: string;
+  worktreePath?: string | null;
+}): string {
+  const nodeId = input.nodeId ?? "child-agent";
+  return JSON.stringify({
+    baseSha: input.baseSha ?? "base-sha",
+    branch: input.branch ?? `run-merge/${nodeId}`,
+    nodeResults: [{ nodeId, status: "passed" }],
+    status: input.status ?? "PASS",
+    worktreePath:
+      input.worktreePath === undefined
+        ? `/tmp/pipeline-runtime-${nodeId}`
+        : input.worktreePath,
+    workflowId: input.workflowId ?? `${nodeId}-flow`,
+  });
+}
+
+function mergeReport(
+  result: Awaited<ReturnType<typeof runPipelineFromConfig>>
+) {
+  const mergeNode = result.nodes.find((node) => node.nodeId === "merge");
+  if (!mergeNode) {
+    throw new Error("Expected merge node result");
+  }
+  if (mergeNode.output === "") {
+    throw new Error("merge node should output MergeReport JSON");
+  }
+  return JSON.parse(mergeNode.output);
+}
+
+function epicDrainLikeConfig() {
+  return parsePipelineConfigParts({
+    runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json_schema]
+`,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    tools: []
+  research:
+    runner: codex
+    instructions: { inline: Research the epic and sub-tickets. }
+    output: { format: text }
+  router:
+    runner: codex
+    instructions:
+      inline: "Route sub-tickets into test, frontend, backend, and k8s tracks."
+    output:
+      format: json_schema
+      schema_path: schemas/epic-plan.schema.json
+  worker:
+    runner: codex
+    instructions: { inline: Implement only the sub-tickets assigned to this track. }
+    output: { format: text }
+  hardened-review:
+    runner: codex
+    instructions: { inline: Review the integration branch and emit a verdict. }
+    output:
+      format: json_schema
+      schema_path: schemas/review.schema.json
+`,
+    pipeline: `
+version: 1
+default_workflow: epic-drain
+orchestrator:
+  profile: orchestrator
+workflows:
+  epic-drain:
+    nodes:
+      - id: research
+        kind: agent
+        profile: research
+      - id: plan
+        kind: agent
+        profile: router
+        needs: [research]
+      - id: implement
+        kind: parallel
+        needs: [plan]
+        nodes:
+          - id: test
+            kind: workflow
+            workflow: test-track
+            worktree_root: .pipeline/runs/\${runId}/test
+          - id: frontend
+            kind: workflow
+            workflow: frontend-track
+            worktree_root: .pipeline/runs/\${runId}/frontend
+          - id: backend
+            kind: workflow
+            workflow: backend-track
+            worktree_root: .pipeline/runs/\${runId}/backend
+          - id: k8s
+            kind: workflow
+            workflow: k8s-track
+            worktree_root: .pipeline/runs/\${runId}/k8s
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [implement]
+      - id: review
+        kind: agent
+        profile: hardened-review
+        needs: [merge]
+        gates:
+          - id: review-verdict
+            kind: verdict
+            target: stdout
+  test-track:
+    nodes:
+      - id: test-worker
+        kind: agent
+        profile: worker
+  frontend-track:
+    nodes:
+      - id: frontend-worker
+        kind: agent
+        profile: worker
+  backend-track:
+    nodes:
+      - id: backend-worker
+        kind: agent
+        profile: worker
+  k8s-track:
+    nodes:
+      - id: k8s-worker
+        kind: agent
+        profile: worker
+`,
+  });
+}
+
+function writeEpicDrainLikeSchemas(project: string): void {
+  writeProjectFile(
+    project,
+    "schemas/epic-plan.schema.json",
+    JSON.stringify({
+      additionalProperties: false,
+      properties: {
+        backend: { type: "array" },
+        frontend: { type: "array" },
+        k8s: { type: "array" },
+        rationale: { type: "string" },
+        test: { type: "array" },
+      },
+      required: ["test", "frontend", "backend", "k8s"],
+      type: "object",
+    })
+  );
+  writeProjectFile(
+    project,
+    "schemas/review.schema.json",
+    JSON.stringify({
+      additionalProperties: true,
+      properties: {
+        verdict: { enum: ["PASS", "FAIL"] },
+      },
+      required: ["verdict"],
+      type: "object",
+    })
+  );
+}
+
+function epicPlanOutput(
+  overrides: Partial<
+    Record<"backend" | "frontend" | "k8s" | "test", string>
+  > = {}
+): string {
+  return JSON.stringify({
+    backend: [
+      {
+        id: overrides.backend ?? "PIPE-31.backend",
+        rationale: "server-side change",
+        title: "Backend API work",
+      },
+    ],
+    frontend: [
+      {
+        id: overrides.frontend ?? "PIPE-31.frontend",
+        rationale: "browser UI change",
+        title: "Frontend UI work",
+      },
+    ],
+    k8s: [
+      {
+        id: overrides.k8s ?? "PIPE-31.k8s",
+        rationale: "deployment manifest change",
+        title: "Kubernetes deployment work",
+      },
+    ],
+    rationale: "Each sub-ticket is assigned to exactly one fixed track.",
+    test: [
+      {
+        id: overrides.test ?? "PIPE-31.test",
+        rationale: "test harness change",
+        title: "Runtime test coverage",
+      },
+    ],
+  });
 }
 
 describe("runPipelineFromConfig", () => {
@@ -446,6 +778,47 @@ workflows:
 
     expect(result.outcome).toBe("PASS");
     expect(result.nodes[0]).toMatchObject({ attempts: 2, status: "passed" });
+  });
+
+  it("runs the default builtin semgrep gate through uvx", async () => {
+    const project = tempProject();
+    delete process.env.PIPELINE_SEMGREP_COMMAND;
+    const config = baseConfig(`
+  semgrep-flow:
+    nodes:
+      - id: checked
+        kind: agent
+        profile: a
+        gates:
+          - id: verify-semgrep
+            kind: builtin
+            builtin: semgrep
+`);
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: "semgrep ok",
+    });
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ checked: "done" }),
+      task: "semgrep",
+      workflowId: "semgrep-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.gates[0]).toMatchObject({
+      gateId: "verify-semgrep",
+      kind: "builtin",
+      passed: true,
+    });
+    expect(mockExeca).toHaveBeenCalledWith(
+      "uvx",
+      ["semgrep", "scan", "--config=p/ci", "--error", "."],
+      expect.objectContaining({ cwd: project })
+    );
   });
 
   it("honors retry_on when deciding whether to retry a failed node", async () => {
@@ -841,6 +1214,1706 @@ workflows:
     expect(prompt).toContain("- AC1: Do the thing");
   });
 
+  it("runs a workflow node with inherited task context and dependency outputs", async () => {
+    const project = tempProject();
+    const seen: RunnerLaunchPlan[] = [];
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: prepare
+        kind: agent
+        profile: a
+      - id: child
+        kind: workflow
+        workflow: child-flow
+        needs: [prepare]
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: b
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return { exitCode: 0, stdout: `${plan.nodeId} output` };
+      },
+      task: "nested workflow",
+      taskContext: {
+        acceptanceCriteria: [{ id: "AC1", text: "Nested task context" }],
+        id: "PIPE-31.1",
+        title: "Workflow node",
+      },
+      workflowId: "parent",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen.map((plan) => plan.nodeId)).toEqual(["prepare", "nested"]);
+    const nestedPrompt = seen[1].args.join("\n");
+    expect(nestedPrompt).toContain("Workflow: child-flow");
+    expect(nestedPrompt).toContain("ID: PIPE-31.1");
+    expect(nestedPrompt).toContain("## prepare\nprepare output");
+    expect(result.nodes.find((node) => node.nodeId === "child")?.output).toBe(
+      JSON.stringify({
+        baseSha: null,
+        branch: null,
+        nodeResults: [{ nodeId: "nested", status: "passed" }],
+        status: "PASS",
+        worktreePath: null,
+        workflowId: "child-flow",
+      })
+    );
+  });
+
+  it("propagates workflow node child failure to the parent node", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ nested: "__FAIL__" }),
+      task: "nested workflow",
+      workflowId: "parent",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.nodes).toEqual([
+      expect.objectContaining({
+        exitCode: 1,
+        nodeId: "child",
+        status: "failed",
+      }),
+    ]);
+    expect(result.nodes[0].evidence).toContain("workflow 'child-flow' failed");
+  });
+
+  it("reuses the parent executor for workflow node children", async () => {
+    const project = tempProject();
+    const seen: string[] = [];
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+
+    await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        return { exitCode: 0, stdout: "ok" };
+      },
+      task: "nested workflow",
+      workflowId: "parent",
+      worktreePath: project,
+    });
+
+    expect(seen).toEqual(["nested"]);
+  });
+
+  it("emits child workflow reporter events with parent node context", async () => {
+    const project = tempProject();
+    const events: Record<string, unknown>[] = [];
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => ({ exitCode: 0, stdout: `${plan.nodeId} ok` }),
+      reporter: (event) => events.push(event),
+      task: "nested workflow",
+      workflowId: "parent",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          parentNodeId: "child",
+          type: "workflow.start",
+          workflowId: "child-flow",
+        }),
+        expect.objectContaining({
+          nodes: [
+            expect.objectContaining({
+              id: "child.nested",
+              kind: "agent",
+            }),
+          ],
+          parentNodeId: "child",
+          type: "workflow.planned",
+          workflowId: "child-flow",
+        }),
+        expect.objectContaining({
+          nodeId: "child.nested",
+          parentNodeId: "child",
+          type: "agent.start",
+        }),
+        expect.objectContaining({
+          outcome: "PASS",
+          parentNodeId: "child",
+          type: "workflow.finish",
+          workflowId: "child-flow",
+        }),
+      ])
+    );
+  });
+
+  it("creates a workflow-node worktree from a pinned base SHA, runs the child there, and removes it on success", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+    setWorkflowNodeWorktreeRoot(
+      config,
+      "parent",
+      "child",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    gitMock.client.revparse.mockResolvedValue("base-sha-123");
+    const seen: RunnerLaunchPlan[] = [];
+    const resolvedWorktreePath = resolve(
+      project,
+      "worktrees",
+      "run-123",
+      "child"
+    );
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return { exitCode: 0, stdout: "nested ok" };
+      },
+      runId: "run-123",
+      task: "nested workflow",
+      workflowId: "parent",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+    expect(result.outcome).toBe("PASS");
+    expect(gitMock.client.revparse).toHaveBeenCalledTimes(1);
+    expect(gitMock.client.revparse).toHaveBeenCalledWith(["HEAD"]);
+    expect(gitRawCommands()).toContainEqual([
+      "worktree",
+      "add",
+      "-b",
+      "run-123/child",
+      resolvedWorktreePath,
+      "base-sha-123",
+    ]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].cwd).toBe(resolvedWorktreePath);
+    expect(gitRawCommands()).toContainEqual([
+      "worktree",
+      "remove",
+      "--force",
+      resolvedWorktreePath,
+    ]);
+    expect(JSON.parse(result.nodes[0].output)).toMatchObject({
+      baseSha: "base-sha-123",
+      branch: "run-123/child",
+      worktreePath: resolvedWorktreePath,
+    });
+  });
+
+  it("generates a run id for workflow worktree templates when no run id is provided", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+    setWorkflowNodeWorktreeRoot(
+      config,
+      "parent",
+      "child",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    gitMock.client.revparse.mockResolvedValue("generated-base");
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => ({ exitCode: 0, stdout: "nested ok" }),
+      task: "generated run",
+      workflowId: "parent",
+      worktreePath: project,
+    });
+    const output = JSON.parse(result.nodes[0].output);
+
+    expect(result.outcome).toBe("PASS");
+    expect(output.branch).toMatch(RUN_CHILD_BRANCH_RE);
+    expect(output.branch).not.toBe("run/child");
+    expect(output.worktreePath).toBe(
+      resolve(project, "worktrees", output.branch.split("/")[0], "child")
+    );
+    expect(gitRawCommands()).toContainEqual([
+      "worktree",
+      "add",
+      "-b",
+      output.branch,
+      output.worktreePath,
+      "generated-base",
+    ]);
+  });
+
+  it("leaves a workflow-node worktree on failure and emits an absolute inspection path", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+    setWorkflowNodeWorktreeRoot(
+      config,
+      "parent",
+      "child",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    gitMock.client.revparse.mockResolvedValue("base-sha-fail");
+    const resolvedWorktreePath = resolve(
+      project,
+      "worktrees",
+      "run-fail",
+      "child"
+    );
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ nested: "__FAIL__" }),
+      runId: "run-fail",
+      task: "nested workflow",
+      workflowId: "parent",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(gitRawCommands()).toContainEqual([
+      "worktree",
+      "add",
+      "-b",
+      "run-fail/child",
+      resolvedWorktreePath,
+      "base-sha-fail",
+    ]);
+    expect(gitRawCommands()).not.toContainEqual([
+      "worktree",
+      "remove",
+      resolvedWorktreePath,
+    ]);
+    expect(result.nodes[0].evidence.join("\n")).toContain(
+      `cd ${resolvedWorktreePath}`
+    );
+  });
+
+  it("does not touch git worktrees and emits null worktree metadata when workflow nodes omit worktree_root", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+    const seen: RunnerLaunchPlan[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return { exitCode: 0, stdout: "nested ok" };
+      },
+      task: "nested workflow",
+      workflowId: "parent",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen[0].cwd).toBe(project);
+    expect(gitMock.client.revparse).not.toHaveBeenCalled();
+    expect(gitRawCommands()).not.toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining(["worktree", "add"]),
+        expect.arrayContaining(["worktree", "remove"]),
+      ])
+    );
+    expect(JSON.parse(result.nodes[0].output)).toMatchObject({
+      baseSha: null,
+      branch: null,
+      worktreePath: null,
+    });
+  });
+
+  it("pins the base SHA at workflow start when the plan contains a worktree-backed workflow node", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: prepare
+        kind: agent
+        profile: a
+      - id: child
+        kind: workflow
+        workflow: child-flow
+        needs: [prepare]
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: b
+`);
+    setWorkflowNodeWorktreeRoot(
+      config,
+      "parent",
+      "child",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    gitMock.client.revparse.mockResolvedValue("start-pinned-base");
+    const run = vi.fn((plan: RunnerLaunchPlan) => ({
+      exitCode: 0,
+      stdout: `${plan.nodeId} ok`,
+    }));
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: run,
+      runId: "run-start",
+      task: "start pin",
+      workflowId: "parent",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+    expect(result.outcome).toBe("PASS");
+    expect(gitMock.client.revparse).toHaveBeenCalledTimes(1);
+    expect(gitMock.client.revparse.mock.invocationCallOrder[0]).toBeLessThan(
+      run.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("resolves independent worktree paths for parallel workflow children without mutating process.env", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: workflow
+            workflow: left-flow
+          - id: right
+            kind: workflow
+            workflow: right-flow
+  left-flow:
+    nodes:
+      - id: left-agent
+        kind: agent
+        profile: a
+  right-flow:
+    nodes:
+      - id: right-agent
+        kind: agent
+        profile: b
+`);
+    setParallelWorkflowChildWorktreeRoot(
+      config,
+      "parent",
+      "fanout",
+      "left",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    setParallelWorkflowChildWorktreeRoot(
+      config,
+      "parent",
+      "fanout",
+      "right",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    gitMock.client.revparse.mockResolvedValue("parallel-base");
+    const envBefore = { ...process.env };
+    const seen = new Map<string, string>();
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.set(plan.nodeId, plan.cwd);
+        return { exitCode: 0, stdout: `${plan.nodeId} ok` };
+      },
+      runId: "run-parallel",
+      task: "parallel worktrees",
+      workflowId: "parent",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen.get("left-agent")).toBe(
+      resolve(project, "worktrees", "run-parallel", "left")
+    );
+    expect(seen.get("right-agent")).toBe(
+      resolve(project, "worktrees", "run-parallel", "right")
+    );
+    expect(seen.get("left-agent")).not.toBe(seen.get("right-agent"));
+    expect({ ...process.env }).toEqual(envBefore);
+  });
+
+  it("pins the base SHA once across multiple workflow-node worktrees", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: left
+        kind: workflow
+        workflow: left-flow
+      - id: right
+        kind: workflow
+        workflow: right-flow
+        needs: [left]
+  left-flow:
+    nodes:
+      - id: left-agent
+        kind: agent
+        profile: a
+  right-flow:
+    nodes:
+      - id: right-agent
+        kind: agent
+        profile: b
+`);
+    setWorkflowNodeWorktreeRoot(
+      config,
+      "parent",
+      "left",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    setWorkflowNodeWorktreeRoot(
+      config,
+      "parent",
+      "right",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    gitMock.client.revparse.mockResolvedValue("single-pinned-base");
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => ({ exitCode: 0, stdout: `${plan.nodeId} ok` }),
+      runId: "run-pinned",
+      task: "pinned base",
+      workflowId: "parent",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+    expect(result.outcome).toBe("PASS");
+    expect(gitMock.client.revparse).toHaveBeenCalledTimes(1);
+    expect(gitRawCommands()).toEqual(
+      expect.arrayContaining([
+        [
+          "worktree",
+          "add",
+          "-b",
+          "run-pinned/left",
+          resolve(project, "worktrees", "run-pinned", "left"),
+          "single-pinned-base",
+        ],
+        [
+          "worktree",
+          "add",
+          "-b",
+          "run-pinned/right",
+          resolve(project, "worktrees", "run-pinned", "right"),
+          "single-pinned-base",
+        ],
+      ])
+    );
+  });
+
+  it("runs parallel container children concurrently and honors maxParallelNodes", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parallel-container:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: agent
+            profile: a
+          - id: middle
+            kind: agent
+            profile: a
+          - id: right
+            kind: agent
+            profile: b
+`);
+    const seen: string[] = [];
+    let active = 0;
+    let maxActive = 0;
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: async (plan) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        seen.push(plan.nodeId);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        return { exitCode: 0, stdout: `${plan.nodeId} output` };
+      },
+      maxParallelNodes: 2,
+      task: "parallel container",
+      workflowId: "parallel-container",
+      worktreePath: project,
+    });
+
+    const fanout = result.nodes.find((node) => node.nodeId === "fanout");
+    if (!fanout) {
+      throw new Error("Expected fanout container result");
+    }
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen.sort()).toEqual(["left", "middle", "right"]);
+    expect(maxActive).toBe(2);
+    expect(JSON.parse(fanout.output)).toEqual({
+      children: {
+        left: "left output",
+        middle: "middle output",
+        right: "right output",
+      },
+    });
+  });
+
+  it("runs all parallel siblings without failFast and reports aggregate failure", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  aggregate-failure:
+    execution:
+      fail_fast: false
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: bad
+            kind: agent
+            profile: a
+          - id: good
+            kind: agent
+            profile: b
+          - id: also-good
+            kind: agent
+            profile: a
+`);
+    const seen: string[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        return {
+          exitCode: plan.nodeId === "bad" ? 1 : 0,
+          stdout: `${plan.nodeId} output`,
+        };
+      },
+      task: "parallel container",
+      workflowId: "aggregate-failure",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(seen.sort()).toEqual(["also-good", "bad", "good"]);
+    expect(result.nodes).toEqual([
+      expect.objectContaining({
+        exitCode: 1,
+        nodeId: "fanout",
+        status: "failed",
+      }),
+    ]);
+    expect(result.nodeStates.fanout).toMatchObject({ status: "failed" });
+  });
+
+  it("stops pending parallel siblings and aborts running siblings when failFast is enabled", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  fail-fast-parallel:
+    execution:
+      fail_fast: true
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: fail
+            kind: agent
+            profile: a
+          - id: slow
+            kind: agent
+            profile: b
+          - id: pending
+            kind: agent
+            profile: a
+`);
+    const started: string[] = [];
+    let slowAbortObserved = false;
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: async (plan, options) => {
+        started.push(plan.nodeId);
+        if (plan.nodeId === "fail") {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          return { exitCode: 1, stdout: "failed" };
+        }
+        if (plan.nodeId === "slow") {
+          return new Promise((resolve) => {
+            options.signal?.addEventListener(
+              "abort",
+              () => {
+                slowAbortObserved = true;
+                resolve({ exitCode: 1, stdout: "aborted" });
+              },
+              { once: true }
+            );
+            setTimeout(() => resolve({ exitCode: 0, stdout: "slow done" }), 50);
+          });
+        }
+        return { exitCode: 0, stdout: "pending should not start" };
+      },
+      maxParallelNodes: 2,
+      task: "parallel container",
+      workflowId: "fail-fast-parallel",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(started).toEqual(expect.arrayContaining(["fail", "slow"]));
+    expect(started).not.toContain("pending");
+    expect(slowAbortObserved).toBe(true);
+    expect(result.nodeStates.fanout).toMatchObject({ status: "failed" });
+  });
+
+  it("composes nested parallel and workflow nodes with children output shape", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  nested-composition:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: direct
+            kind: agent
+            profile: a
+          - id: nested
+            kind: parallel
+            nodes:
+              - id: child
+                kind: workflow
+                workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested-agent
+        kind: agent
+        profile: b
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => ({ exitCode: 0, stdout: `${plan.nodeId} output` }),
+      task: "nested parallel",
+      workflowId: "nested-composition",
+      worktreePath: project,
+    });
+
+    const fanout = result.nodes.find((node) => node.nodeId === "fanout");
+    if (!fanout) {
+      throw new Error("Expected fanout container result");
+    }
+    const fanoutOutput = JSON.parse(fanout.output);
+    const nestedOutput = JSON.parse(fanoutOutput.children.nested);
+    const workflowOutput = JSON.parse(nestedOutput.children.child);
+
+    expect(result.outcome).toBe("PASS");
+    expect(fanoutOutput).toEqual({
+      children: {
+        direct: "direct output",
+        nested: expect.any(String),
+      },
+    });
+    expect(nestedOutput).toEqual({
+      children: {
+        child: expect.any(String),
+      },
+    });
+    expect(workflowOutput).toEqual({
+      baseSha: null,
+      branch: null,
+      nodeResults: [{ nodeId: "nested-agent", status: "passed" }],
+      status: "PASS",
+      worktreePath: null,
+      workflowId: "child-flow",
+    });
+  });
+
+  describe("parent epic-drain E2E scenarios", () => {
+    it("routes an epic into four fixed worktree tracks, drain-merges PASSed branches in order, and emits a hardened-review PASS", async () => {
+      const project = tempProject();
+      writeEpicDrainLikeSchemas(project);
+      gitMock.client.revparse.mockResolvedValue("base-epic");
+      const seen: RunnerLaunchPlan[] = [];
+
+      const result = await runPipelineFromConfig({
+        config: epicDrainLikeConfig(),
+        executor: (plan) => {
+          seen.push(plan);
+          if (plan.nodeId === "plan") {
+            return { exitCode: 0, stdout: epicPlanOutput() };
+          }
+          if (plan.nodeId === "review") {
+            return {
+              exitCode: 0,
+              stdout: JSON.stringify({
+                evidence: ["integration branch reviewed"],
+                findings: [],
+                verdict: "PASS",
+              }),
+            };
+          }
+          return { exitCode: 0, stdout: `${plan.nodeId} PASS` };
+        },
+        runId: "run-epic",
+        task: "PIPE-31 parent epic",
+        workflowId: "epic-drain",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("PASS");
+      expect(
+        gitRawCommands().filter(
+          (command) => command[0] === "worktree" && command[1] === "add"
+        )
+      ).toEqual([
+        [
+          "worktree",
+          "add",
+          "-b",
+          "run-epic/test",
+          resolve(project, ".pipeline", "runs", "run-epic", "test"),
+          "base-epic",
+        ],
+        [
+          "worktree",
+          "add",
+          "-b",
+          "run-epic/frontend",
+          resolve(project, ".pipeline", "runs", "run-epic", "frontend"),
+          "base-epic",
+        ],
+        [
+          "worktree",
+          "add",
+          "-b",
+          "run-epic/backend",
+          resolve(project, ".pipeline", "runs", "run-epic", "backend"),
+          "base-epic",
+        ],
+        [
+          "worktree",
+          "add",
+          "-b",
+          "run-epic/k8s",
+          resolve(project, ".pipeline", "runs", "run-epic", "k8s"),
+          "base-epic",
+        ],
+      ]);
+      expect(
+        gitRawCommands().filter((command) => command[0] === "merge")
+      ).toEqual([
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-epic/test",
+        ],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-epic/frontend",
+        ],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-epic/backend",
+        ],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-epic/k8s",
+        ],
+      ]);
+      expect(mergeReport(result)).toMatchObject({
+        conflicts: [],
+        merged: [
+          { branch: "run-epic/test", id: "test" },
+          { branch: "run-epic/frontend", id: "frontend" },
+          { branch: "run-epic/backend", id: "backend" },
+          { branch: "run-epic/k8s", id: "k8s" },
+        ],
+      });
+      expect(result.gates).toContainEqual(
+        expect.objectContaining({
+          gateId: "review-verdict",
+          passed: true,
+        })
+      );
+
+      const promptByTrack = new Map(
+        seen
+          .filter((plan) => plan.nodeId.endsWith("-worker"))
+          .map((plan) => [
+            plan.nodeId.replace("-worker", ""),
+            plan.args.join("\n"),
+          ])
+      );
+      expect(promptByTrack.get("test")).toContain("PIPE-31.test");
+      expect(promptByTrack.get("test")).not.toContain("PIPE-31.frontend");
+      expect(promptByTrack.get("frontend")).toContain("PIPE-31.frontend");
+      expect(promptByTrack.get("frontend")).not.toContain("PIPE-31.backend");
+      expect(promptByTrack.get("backend")).toContain("PIPE-31.backend");
+      expect(promptByTrack.get("backend")).not.toContain("PIPE-31.k8s");
+      expect(promptByTrack.get("k8s")).toContain("PIPE-31.k8s");
+      expect(promptByTrack.get("k8s")).not.toContain("PIPE-31.test");
+    });
+
+    it("reports package.json drain-merge conflicts with branch and worktree inspection metadata", async () => {
+      const project = tempProject();
+      writeEpicDrainLikeSchemas(project);
+      gitMock.client.revparse.mockResolvedValue("base-conflict");
+      gitMock.client.raw.mockImplementation((...commands) => {
+        const command = commands.flatMap((part) =>
+          Array.isArray(part) ? part.map(String) : [String(part)]
+        );
+        if (
+          command[0] === "merge" &&
+          command.at(-1) === "run-conflict/frontend"
+        ) {
+          return Promise.reject(new Error("package.json conflict"));
+        }
+        if (
+          command[0] === "diff" &&
+          command.slice(1).join(" ") === "--name-only --diff-filter=U"
+        ) {
+          return Promise.resolve("package.json\n");
+        }
+        return Promise.resolve("");
+      });
+
+      const result = await runPipelineFromConfig({
+        config: epicDrainLikeConfig(),
+        executor: (plan) => {
+          if (plan.nodeId === "plan") {
+            return {
+              exitCode: 0,
+              stdout: epicPlanOutput({
+                frontend: "PIPE-31.package-frontend",
+                test: "PIPE-31.package-test",
+              }),
+            };
+          }
+          return { exitCode: 0, stdout: `${plan.nodeId} touched package.json` };
+        },
+        runId: "run-conflict",
+        task: "PIPE-31 conflict epic",
+        workflowId: "epic-drain",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("FAIL");
+      expect(result.nodeStates.merge).toMatchObject({
+        exitCode: 1,
+        status: "failed",
+      });
+      expect(
+        gitRawCommands().filter((command) => command[0] === "merge")
+      ).toEqual([
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-conflict/test",
+        ],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-conflict/frontend",
+        ],
+        ["merge", "--abort"],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-conflict/backend",
+        ],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-conflict/k8s",
+        ],
+      ]);
+      expect(mergeReport(result).conflicts).toEqual([
+        {
+          branch: "run-conflict/frontend",
+          files: ["package.json"],
+          id: "frontend",
+          worktreePath: resolve(
+            project,
+            ".pipeline",
+            "runs",
+            "run-conflict",
+            "frontend"
+          ),
+        },
+      ]);
+      expect(
+        gitRawCommands().filter(
+          (command) => command[0] === "worktree" && command[1] === "remove"
+        )
+      ).toEqual([]);
+    });
+  });
+
+  describe("drain-merge builtin", () => {
+    it("merges PASS children in parallel declaration order and emits a MergeReport", async () => {
+      const project = tempProject();
+      const leftWorktree = resolve(project, "worktrees", "run-merge", "left");
+      const rightWorktree = resolve(project, "worktrees", "run-merge", "right");
+      const config = baseConfig(`
+  drain-flow:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: agent
+            profile: a
+          - id: right
+            kind: agent
+            profile: b
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [fanout]
+`);
+
+      const result = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          left: workflowChildOutput({
+            baseSha: "base-merge",
+            branch: "run-merge/left",
+            nodeId: "left-agent",
+            worktreePath: leftWorktree,
+          }),
+          right: workflowChildOutput({
+            baseSha: "base-merge",
+            branch: "run-merge/right",
+            nodeId: "right-agent",
+            worktreePath: rightWorktree,
+          }),
+        }),
+        runId: "run-merge",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("PASS");
+      expect(result.nodeStates.merge).toMatchObject({
+        exitCode: 0,
+        status: "passed",
+      });
+      expect(
+        gitRawCommands().filter((command) => command[0] === "merge")
+      ).toEqual([
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-merge/left",
+        ],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-merge/right",
+        ],
+      ]);
+      expect(mergeReport(result)).toEqual({
+        baseSha: "base-merge",
+        conflicts: [],
+        integrationBranch: "runs/integration/run-merge",
+        merged: [
+          {
+            branch: "run-merge/left",
+            id: "left",
+            worktreePath: leftWorktree,
+          },
+          {
+            branch: "run-merge/right",
+            id: "right",
+            worktreePath: rightWorktree,
+          },
+        ],
+        skipped: [],
+      });
+    });
+
+    it("creates the integration branch from baseSha when missing and checks it out when existing", async () => {
+      const project = tempProject();
+      const config = baseConfig(`
+  drain-flow:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: agent
+            profile: a
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [fanout]
+`);
+      gitMock.client.raw.mockImplementation((...commands) => {
+        const command = commands.flatMap((part) =>
+          Array.isArray(part) ? part.map(String) : [String(part)]
+        );
+        if (
+          command[0] === "rev-parse" &&
+          command.includes("runs/integration/run-missing")
+        ) {
+          throw new Error("branch missing");
+        }
+        return Promise.resolve("");
+      });
+
+      const missing = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          left: workflowChildOutput({
+            baseSha: "base-setup",
+            branch: "run-setup/left",
+            nodeId: "left-agent",
+            worktreePath: resolve(project, "left"),
+          }),
+        }),
+        runId: "run-missing",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(missing.outcome).toBe("PASS");
+      expect(gitRawCommands()).toContainEqual([
+        "checkout",
+        "-b",
+        "runs/integration/run-missing",
+        "base-setup",
+      ]);
+
+      gitMock.client.raw.mockClear();
+      const existing = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          left: workflowChildOutput({
+            baseSha: "base-setup",
+            branch: "run-setup/left",
+            nodeId: "left-agent",
+            worktreePath: resolve(project, "left"),
+          }),
+        }),
+        runId: "run-existing",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(existing.outcome).toBe("PASS");
+      expect(gitRawCommands()).toContainEqual([
+        "checkout",
+        "runs/integration/run-existing",
+      ]);
+      expect(gitRawCommands()).not.toContainEqual([
+        "checkout",
+        "-b",
+        "runs/integration/run-existing",
+        "base-setup",
+      ]);
+    });
+
+    it("records conflicts, aborts the conflicted merge, continues later siblings, and exits nonzero", async () => {
+      const project = tempProject();
+      const config = baseConfig(`
+  drain-flow:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: agent
+            profile: a
+          - id: conflict
+            kind: agent
+            profile: b
+          - id: later
+            kind: agent
+            profile: a
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [fanout]
+`);
+      gitMock.client.raw.mockImplementation((...commands) => {
+        const command = commands.flatMap((part) =>
+          Array.isArray(part) ? part.map(String) : [String(part)]
+        );
+        if (command[0] === "merge" && command.at(-1) === "run-merge/conflict") {
+          throw new Error("merge conflict");
+        }
+        if (
+          command[0] === "diff" &&
+          command.slice(1).join(" ") === "--name-only --diff-filter=U"
+        ) {
+          return Promise.resolve("src/conflict.ts\npackage.json\n");
+        }
+        return Promise.resolve("");
+      });
+
+      const result = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          conflict: workflowChildOutput({
+            baseSha: "base-merge",
+            branch: "run-merge/conflict",
+            nodeId: "conflict-agent",
+            worktreePath: resolve(project, "conflict"),
+          }),
+          later: workflowChildOutput({
+            baseSha: "base-merge",
+            branch: "run-merge/later",
+            nodeId: "later-agent",
+            worktreePath: resolve(project, "later"),
+          }),
+          left: workflowChildOutput({
+            baseSha: "base-merge",
+            branch: "run-merge/left",
+            nodeId: "left-agent",
+            worktreePath: resolve(project, "left"),
+          }),
+        }),
+        runId: "run-merge",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("FAIL");
+      expect(result.nodeStates.merge).toMatchObject({
+        exitCode: 1,
+        status: "failed",
+      });
+      expect(
+        gitRawCommands().filter((command) =>
+          ["diff", "merge"].includes(command[0] ?? "")
+        )
+      ).toEqual([
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-merge/left",
+        ],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-merge/conflict",
+        ],
+        ["diff", "--name-only", "--diff-filter=U"],
+        ["merge", "--abort"],
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-merge/later",
+        ],
+      ]);
+      expect(mergeReport(result)).toMatchObject({
+        conflicts: [
+          {
+            branch: "run-merge/conflict",
+            files: ["src/conflict.ts", "package.json"],
+            id: "conflict",
+          },
+        ],
+        merged: [
+          { branch: "run-merge/left", id: "left" },
+          { branch: "run-merge/later", id: "later" },
+        ],
+      });
+    });
+
+    it("skips non-PASS children as failed and PASS children without worktree metadata as no-worktree without failing", async () => {
+      const project = tempProject();
+      const config = baseConfig(`
+  drain-flow:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: failed
+            kind: agent
+            profile: a
+          - id: missing
+            kind: agent
+            profile: b
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [fanout]
+`);
+
+      const result = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          failed: workflowChildOutput({
+            branch: "run-merge/failed",
+            nodeId: "failed-agent",
+            status: "FAIL",
+            worktreePath: resolve(project, "failed"),
+          }),
+          missing: workflowChildOutput({
+            branch: null,
+            nodeId: "missing-agent",
+            status: "PASS",
+            worktreePath: null,
+          }),
+        }),
+        runId: "run-merge",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("PASS");
+      expect(result.nodeStates.merge).toMatchObject({
+        exitCode: 0,
+        status: "passed",
+      });
+      expect(
+        gitRawCommands().filter((command) => command[0] === "merge")
+      ).toEqual([]);
+      expect(mergeReport(result)).toMatchObject({
+        conflicts: [],
+        merged: [],
+        skipped: [
+          { id: "failed", reason: "failed", status: "FAIL" },
+          { id: "missing", reason: "no-worktree", status: "PASS" },
+        ],
+      });
+    });
+
+    it("runs after a failed parallel workflow child and merges the passing worktree child", async () => {
+      const project = tempProject();
+      const passedWorktree = resolve(
+        project,
+        "worktrees",
+        "run-drain",
+        "passed"
+      );
+      const failedWorktree = resolve(
+        project,
+        "worktrees",
+        "run-drain",
+        "failed"
+      );
+      const config = baseConfig(`
+  drain-flow:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: failed
+            kind: workflow
+            workflow: failed-flow
+          - id: passed
+            kind: workflow
+            workflow: passed-flow
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [fanout]
+  failed-flow:
+    nodes:
+      - id: failed-agent
+        kind: agent
+        profile: a
+  passed-flow:
+    nodes:
+      - id: passed-agent
+        kind: agent
+        profile: b
+`);
+      setParallelWorkflowChildWorktreeRoot(
+        config,
+        "drain-flow",
+        "fanout",
+        "failed",
+        join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+      );
+      setParallelWorkflowChildWorktreeRoot(
+        config,
+        "drain-flow",
+        "fanout",
+        "passed",
+        join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+      );
+      gitMock.client.revparse.mockResolvedValue("base-drain");
+
+      const result = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          "failed-agent": "__FAIL__",
+          "passed-agent": "passed ok",
+        }),
+        runId: "run-drain",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("PASS");
+      expect(result.nodeStates.fanout).toMatchObject({
+        exitCode: 1,
+        status: "failed",
+      });
+      expect(result.nodeStates.merge).toMatchObject({
+        exitCode: 0,
+        status: "passed",
+      });
+      expect(
+        gitRawCommands().filter((command) => command[0] === "merge")
+      ).toEqual([
+        [
+          "merge",
+          "--no-ff",
+          "--no-edit",
+          "-m",
+          "drain-merge: merge",
+          "run-drain/passed",
+        ],
+      ]);
+      expect(mergeReport(result)).toEqual({
+        baseSha: "base-drain",
+        conflicts: [],
+        integrationBranch: "runs/integration/run-drain",
+        merged: [
+          {
+            branch: "run-drain/passed",
+            id: "passed",
+            worktreePath: passedWorktree,
+          },
+        ],
+        skipped: [{ id: "failed", reason: "failed", status: "FAIL" }],
+      });
+      expect(gitRawCommands()).toEqual(
+        expect.arrayContaining([
+          [
+            "worktree",
+            "add",
+            "-b",
+            "run-drain/failed",
+            failedWorktree,
+            "base-drain",
+          ],
+          [
+            "worktree",
+            "add",
+            "-b",
+            "run-drain/passed",
+            passedWorktree,
+            "base-drain",
+          ],
+        ])
+      );
+    });
+
+    it("detects divergent child baseSha before checkout or merge side effects and exits nonzero", async () => {
+      const project = tempProject();
+      const config = baseConfig(`
+  drain-flow:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: agent
+            profile: a
+          - id: divergent
+            kind: agent
+            profile: b
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [fanout]
+`);
+
+      const result = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          divergent: workflowChildOutput({
+            baseSha: "other-base",
+            branch: "run-merge/divergent",
+            nodeId: "divergent-agent",
+            worktreePath: resolve(project, "divergent"),
+          }),
+          left: workflowChildOutput({
+            baseSha: "base-merge",
+            branch: "run-merge/left",
+            nodeId: "left-agent",
+            worktreePath: resolve(project, "left"),
+          }),
+        }),
+        runId: "run-merge",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("FAIL");
+      expect(
+        gitRawCommands().filter((command) =>
+          ["checkout", "merge"].includes(command[0] ?? "")
+        )
+      ).toEqual([]);
+      expect(result.nodeStates.merge.evidence).toContain(
+        "drain-merge child 'divergent' baseSha other-base diverges from base-merge"
+      );
+      expect(mergeReport(result)).toEqual({
+        baseSha: "base-merge",
+        conflicts: [],
+        integrationBranch: "runs/integration/run-merge",
+        merged: [],
+        skipped: [],
+      });
+    });
+
+    it("uses nonzero report exit code for setup errors", async () => {
+      const project = tempProject();
+      const config = baseConfig(`
+  drain-flow:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: agent
+            profile: a
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [fanout]
+`);
+      gitMock.client.raw.mockImplementation((...commands) => {
+        const command = commands.flatMap((part) =>
+          Array.isArray(part) ? part.map(String) : [String(part)]
+        );
+        if (
+          command[0] === "checkout" &&
+          command.includes("runs/integration/run-setup-error")
+        ) {
+          throw new Error("cannot create integration branch");
+        }
+        return Promise.resolve("");
+      });
+
+      const result = await runPipelineFromConfig({
+        config,
+        executor: executor({
+          left: workflowChildOutput({
+            baseSha: "base-merge",
+            branch: "run-merge/left",
+            nodeId: "left-agent",
+            worktreePath: resolve(project, "left"),
+          }),
+        }),
+        runId: "run-setup-error",
+        task: "drain merge",
+        workflowId: "drain-flow",
+        worktreePath: project,
+      } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+      expect(result.outcome).toBe("FAIL");
+      expect(result.nodeStates.merge).toMatchObject({
+        exitCode: 1,
+        status: "failed",
+      });
+      expect(result.nodeStates.merge.evidence).toContain(
+        "drain-merge setup-error: cannot create integration branch"
+      );
+      expect(mergeReport(result)).toEqual({
+        baseSha: "base-merge",
+        conflicts: [],
+        integrationBranch: "runs/integration/run-setup-error",
+        merged: [],
+        skipped: [],
+      });
+    });
+  });
+
+  it("emits parallel container lifecycle and prefixed child reporter events", async () => {
+    const project = tempProject();
+    const events: Record<string, unknown>[] = [];
+    const config = baseConfig(`
+  parallel-events:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: left
+            kind: agent
+            profile: a
+          - id: right
+            kind: agent
+            profile: b
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => ({ exitCode: 0, stdout: `${plan.nodeId} ok` }),
+      reporter: (event) => events.push(event),
+      task: "parallel events",
+      workflowId: "parallel-events",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "fanout",
+          type: "node.start",
+        }),
+        expect.objectContaining({
+          nodeId: "fanout.left",
+          parentNodeId: "fanout",
+          type: "node.start",
+        }),
+        expect.objectContaining({
+          nodeId: "fanout.left",
+          parentNodeId: "fanout",
+          type: "agent.start",
+        }),
+        expect.objectContaining({
+          nodeId: "fanout.right",
+          parentNodeId: "fanout",
+          type: "node.finish",
+        }),
+        expect.objectContaining({
+          nodeId: "fanout",
+          status: "passed",
+          type: "node.finish",
+        }),
+      ])
+    );
+  });
+
   it("enforces changed-file policies around a node", async () => {
     const project = tempProject();
     execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
@@ -876,6 +2949,92 @@ workflows:
         "missing required changes matching: tests/**/*.test.ts",
       ])
     );
+  });
+
+  it("counts files modified by a node even when they were already dirty", async () => {
+    const project = tempProject();
+    execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
+    writeProjectFile(project, "tests/existing.test.ts", "before\n");
+    const config = baseConfig(`
+  file-policy:
+    nodes:
+      - id: writer
+        kind: agent
+        profile: a
+        gates:
+          - id: tests-only
+            kind: changed_files
+            changed_files:
+              require_any: ["tests/**/*.test.ts"]
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => {
+        writeProjectFile(project, "tests/existing.test.ts", "before\nafter\n");
+        return { exitCode: 0, stdout: "changed dirty test" };
+      },
+      task: "files",
+      workflowId: "file-policy",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.gates[0].evidence).toEqual([
+      "changed files: tests/existing.test.ts",
+    ]);
+  });
+
+  it("counts an already-dirty tracked test file even when the node restores it to clean", async () => {
+    const project = tempProject();
+    execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
+    writeProjectFile(project, "tests/existing.test.ts", "baseline\n");
+    execFileSync("git", ["add", "tests/existing.test.ts"], {
+      cwd: project,
+      stdio: "ignore",
+    });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.email=pipeline@example.invalid",
+        "-c",
+        "user.name=Pipeline Test",
+        "commit",
+        "-m",
+        "baseline",
+      ],
+      { cwd: project, stdio: "ignore" }
+    );
+    writeProjectFile(project, "tests/existing.test.ts", "dirty before\n");
+    const config = baseConfig(`
+  file-policy:
+    nodes:
+      - id: writer
+        kind: agent
+        profile: a
+        gates:
+          - id: tests-only
+            kind: changed_files
+            changed_files:
+              require_any: ["tests/**/*.test.ts"]
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => {
+        writeProjectFile(project, "tests/existing.test.ts", "baseline\n");
+        return { exitCode: 0, stdout: "restored dirty test" };
+      },
+      task: "files",
+      workflowId: "file-policy",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.gates[0].evidence).toEqual([
+      "changed files: tests/existing.test.ts",
+    ]);
   });
 
   it("runs hooks with templating and required failure semantics", async () => {

@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadPipelineConfig } from "../src/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
+import { createRunnerLaunchPlan } from "../src/runner.js";
 import { compileWorkflowPlan } from "../src/workflow-planner.js";
 
 const tempDirs: string[] = [];
@@ -186,55 +187,82 @@ workflows:
 
 describe("installed dogfood configuration", () => {
   it("keeps installed YAML workflows valid and explainable", () => {
-    const config = loadPipelineConfig(process.cwd());
+    const config = loadPipelineConfig(process.cwd(), {
+      allowMissingLintFileReferences: true,
+    });
 
     expect(
-      compileWorkflowPlan(config, "dogfood").topologicalOrder
-    ).toHaveLength(3);
-    expect(
-      compileWorkflowPlan(config, "dogfood-options").topologicalOrder.map(
+      compileWorkflowPlan(config, "default").topologicalOrder.map(
         (node) => node.id
       )
-    ).toEqual([
-      "artifact",
-      "retry-gate",
-      "parallel-left",
-      "parallel-right",
-      "join",
-    ]);
+    ).toEqual(["research", "red", "green", "acceptance", "verify", "learn"]);
     expect(
-      compileWorkflowPlan(config, "dogfood-live-runners").topologicalOrder.map(
+      compileWorkflowPlan(config, "inspect").topologicalOrder.map(
         (node) => node.id
       )
-    ).toEqual([
-      "codex-live",
-      "claude-live",
-      "opencode-live",
-      "kimi-live",
-      "pi-live",
-    ]);
+    ).toEqual(["inspect"]);
   });
 
   it("keeps installed host resources aligned with orchestrator and agent grants", () => {
-    const config = loadPipelineConfig(process.cwd());
+    const config = loadPipelineConfig(process.cwd(), {
+      allowMissingLintFileReferences: true,
+    });
     const root = process.cwd();
-    const orchestratorSurfaces = [
-      ".claude/commands/pipe.md",
-      ".opencode/commands/pipe.md",
-      ".opencode/agents/pipeline-orchestrator.md",
-      ".agents/skills/pipe/SKILL.md",
-      ".kimi/skills/pipe/SKILL.md",
-      ".pi/prompts/pipe.md",
-    ];
-
-    for (const path of orchestratorSurfaces) {
-      const content = readFileSync(join(root, path), "utf8");
+    for (const surface of entrypointCommandSurfaces(config)) {
+      expect(existsSync(join(root, surface.path)), surface.path).toBe(true);
+      const content = readFileSync(join(root, surface.path), "utf8");
+      const profile = config.profiles[config.orchestrator.profile];
+      expect(profile).toBeTruthy();
       expect(content).toContain("Configured orchestrator:");
-      expect(content).toContain("model: gpt-5");
-      expect(content).toContain("skills: dogfood-orchestrator");
-      expect(content).toContain("mcp_servers: dogfood-knowledge-base");
-      expect(content).toContain("hooks: dogfood-workflow-start");
+      expect(content).toContain(`model: ${profile.model ?? "default"}`);
+      expect(content).toContain(`tools: ${(profile.tools ?? []).join(", ")}`);
+      expect(content).toContain(`rules: ${(profile.rules ?? []).join(", ")}`);
+      expect(content).toContain(`skills: ${(profile.skills ?? []).join(", ")}`);
+      expect(content).toContain(
+        `mcp_servers: ${(profile.mcp_servers ?? []).join(", ")}`
+      );
+      expect(content).toContain(`filesystem: ${profile.filesystem?.mode}`);
+      expect(content).toContain(`network: ${profile.network?.mode}`);
+      expect(content).toContain(
+        `hooks: ${(config.orchestrator.hooks ?? []).join(", ")}`
+      );
+      expect(content).toContain(surface.invocation);
+      expect(content).toContain(`Run workflow \`${surface.workflowId}\``);
     }
+
+    expect(existsSync(join(root, ".kimi/skills/pipe/SKILL.md"))).toBe(false);
+
+    const pipelineOrchestratorContent = readFileSync(
+      join(root, ".opencode/agents/pipeline-orchestrator.md"),
+      "utf8"
+    );
+    const profile = config.profiles[config.orchestrator.profile];
+    expect(profile).toBeTruthy();
+    expect(pipelineOrchestratorContent).toContain("Configured orchestrator:");
+    expect(pipelineOrchestratorContent).toContain(
+      `model: ${profile.model ?? "default"}`
+    );
+    expect(pipelineOrchestratorContent).toContain(
+      `tools: ${(profile.tools ?? []).join(", ")}`
+    );
+    expect(pipelineOrchestratorContent).toContain(
+      `rules: ${(profile.rules ?? []).join(", ")}`
+    );
+    expect(pipelineOrchestratorContent).toContain(
+      `skills: ${(profile.skills ?? []).join(", ")}`
+    );
+    expect(pipelineOrchestratorContent).toContain(
+      `mcp_servers: ${(profile.mcp_servers ?? []).join(", ")}`
+    );
+    expect(pipelineOrchestratorContent).toContain(
+      `filesystem: ${profile.filesystem?.mode}`
+    );
+    expect(pipelineOrchestratorContent).toContain(
+      `network: ${profile.network?.mode}`
+    );
+    expect(pipelineOrchestratorContent).toContain(
+      `hooks: ${(config.orchestrator.hooks ?? []).join(", ")}`
+    );
 
     for (const profileId of workflowProfileIds(config)) {
       const runner = config.profiles[profileId]?.runner;
@@ -246,6 +274,70 @@ describe("installed dogfood configuration", () => {
         } else {
           expect(content).toContain("Configured grants:");
         }
+      }
+    }
+
+    for (const profileId of workflowProfileIds(config)) {
+      const profile = config.profiles[profileId];
+      if (profile?.runner !== "codex") {
+        continue;
+      }
+
+      const content = readFileSync(
+        join(root, `.codex/agents/${profileId}.toml`),
+        "utf8"
+      );
+      for (const skillId of profile.skills ?? []) {
+        const skill = config.skills[skillId];
+        expect(skill, `${profileId} skill ${skillId}`).toBeTruthy();
+        const skillPath = join(root, skill.path);
+        if (existsSync(skillPath)) {
+          expect(content, `${profileId} loads skill ${skillId}`).toContain(
+            `path = "${skillPath}"`
+          );
+        } else {
+          expect(
+            content,
+            `${profileId} skips missing lint-only skill ${skillId}`
+          ).not.toContain(`path = "${skillPath}"`);
+        }
+      }
+      for (const mcpId of profile.mcp_servers ?? []) {
+        expect(
+          config.mcp_servers[mcpId],
+          `${profileId} MCP ${mcpId}`
+        ).toBeTruthy();
+        expect(content, `${profileId} loads MCP ${mcpId}`).toContain(
+          `[mcp_servers.${mcpId}]`
+        );
+      }
+
+      const launch = createRunnerLaunchPlan(config, {
+        nodeId: profileId,
+        profileId,
+        prompt: "verify configured grants",
+        worktreePath: root,
+      });
+      const launchArgs = launch.args.join("\n");
+      for (const skillId of profile.skills ?? []) {
+        const skill = config.skills[skillId];
+        const skillPath = join(root, skill.path);
+        if (existsSync(skillPath)) {
+          expect(
+            launchArgs,
+            `${profileId} launches skill ${skillId}`
+          ).toContain(skillPath);
+        } else {
+          expect(
+            launchArgs,
+            `${profileId} skips missing lint-only skill ${skillId}`
+          ).not.toContain(skillPath);
+        }
+      }
+      for (const mcpId of profile.mcp_servers ?? []) {
+        expect(launchArgs, `${profileId} launches MCP ${mcpId}`).toContain(
+          `mcp_servers.${mcpId}.`
+        );
       }
     }
   });
@@ -325,6 +417,40 @@ function workflowProfileIds(config: ReturnType<typeof loadPipelineConfig>) {
       )
     ),
   ].sort();
+}
+
+function entrypointCommandSurfaces(
+  config: ReturnType<typeof loadPipelineConfig>
+) {
+  return Object.entries(config.entrypoints).flatMap(
+    ([entrypointId, entrypoint]) => [
+      {
+        invocation: `/${entrypointId} <task description>`,
+        path: `.claude/commands/${entrypointId}.md`,
+        workflowId: entrypoint.workflow,
+      },
+      {
+        invocation: `/${entrypointId} <task description>`,
+        path: `.opencode/commands/${entrypointId}.md`,
+        workflowId: entrypoint.workflow,
+      },
+      {
+        invocation: `$${entrypointId} <task description>`,
+        path: `.agents/skills/${entrypointId}/SKILL.md`,
+        workflowId: entrypoint.workflow,
+      },
+      {
+        invocation: `/${entrypointId} <task description>`,
+        path: `.kimi/commands/${entrypointId}.md`,
+        workflowId: entrypoint.workflow,
+      },
+      {
+        invocation: `/${entrypointId} <task description>`,
+        path: `.pi/prompts/${entrypointId}.md`,
+        workflowId: entrypoint.workflow,
+      },
+    ]
+  );
 }
 
 function nativeAgentPathFor(

@@ -137,6 +137,32 @@ export async function runTypecheck(
   }
 }
 
+// ─── runSemgrep ──────────────────────────────────────────────────────────────
+
+export async function runSemgrep(
+  worktreePath: string,
+  signal?: AbortSignal
+): Promise<{ exitCode: number; output: string }> {
+  const projectCommand = envCommand("PIPELINE_SEMGREP_COMMAND") ?? {
+    args: ["semgrep", "scan", "--config=p/ci", "--error", "."],
+    command: "uvx",
+  };
+
+  try {
+    const result = await execa(projectCommand.command, projectCommand.args, {
+      cancelSignal: signal,
+      cwd: worktreePath,
+      shell: projectCommand.shell,
+    });
+    const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    return { exitCode: result.exitCode ?? 0, output };
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; exitCode?: number };
+    const output = [e.stdout, e.stderr].filter(Boolean).join("\n");
+    return { exitCode: e.exitCode ?? 1, output };
+  }
+}
+
 // ─── artifactExists ───────────────────────────────────────────────────────────
 
 export function artifactExists(
@@ -152,6 +178,25 @@ interface JscpdDuplicate {
   firstFile?: { name?: string; start?: number };
   secondFile?: { name?: string };
 }
+
+const JSCPD_DEFAULT_IGNORES = [
+  "**/node_modules/**",
+  "**/.git/**",
+  "**/dist/**",
+  "**/coverage/**",
+  "**/.next/**",
+  "**/.turbo/**",
+  "**/.cache/**",
+  "**/.claude/**",
+  "**/.codex/**",
+  "**/.kimi/**",
+  "**/.serena/**",
+  "**/.opencode/**",
+  "**/.pi/**",
+  "**/.pipeline/host-resources/**",
+  "**/.pipeline/skills/**",
+  "**/.agents/skills/**",
+];
 
 function parseJscpdOutput(output: string): { violations: GateViolation[] } {
   try {
@@ -174,7 +219,17 @@ export async function runJscpd(
   try {
     const result = await execa(
       "bunx",
-      ["jscpd", "--min-tokens", "50", "--reporters", "json", "."],
+      [
+        "jscpd",
+        "--min-tokens",
+        "50",
+        "--reporters",
+        "json",
+        "--gitignore",
+        "--ignore",
+        JSCPD_DEFAULT_IGNORES.join(","),
+        ".",
+      ],
       {
         cancelSignal: signal,
         cwd: worktreePath,

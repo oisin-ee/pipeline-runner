@@ -7,23 +7,92 @@ rules:
     path: .pipeline/rules/verification.md
 
 skills:
-  dogfood-orchestrator:
-    path: .pipeline/skills/dogfood-orchestrator/SKILL.md
-
+  using-superpowers:
+    path: .agents/skills/using-superpowers/SKILL.md
+  writing-plans:
+    path: .agents/skills/writing-plans/SKILL.md
+  dispatching-parallel-agents:
+    path: .agents/skills/dispatching-parallel-agents/SKILL.md
+  test-driven-development:
+    path: .agents/skills/test-driven-development/SKILL.md
+  requesting-code-review:
+    path: .agents/skills/requesting-code-review/SKILL.md
+  receiving-code-review:
+    path: .agents/skills/receiving-code-review/SKILL.md
+  verification-before-completion:
+    path: .agents/skills/verification-before-completion/SKILL.md
+  context-engineering:
+    path: .agents/skills/context-engineering/SKILL.md
+  source-driven-development:
+    path: .agents/skills/source-driven-development/SKILL.md
+  spec-driven-development:
+    path: .agents/skills/spec-driven-development/SKILL.md
+  planning-and-task-breakdown:
+    path: .agents/skills/planning-and-task-breakdown/SKILL.md
+  incremental-implementation:
+    path: .agents/skills/incremental-implementation/SKILL.md
+  debugging-and-error-recovery:
+    path: .agents/skills/debugging-and-error-recovery/SKILL.md
+  hardened-review:
+    path: .agents/skills/hardened-review/SKILL.md
+  code-review-and-quality:
+    path: .agents/skills/code-review-and-quality/SKILL.md
+  doubt-driven-development:
+    path: .agents/skills/doubt-driven-development/SKILL.md
+  security-and-hardening:
+    path: .agents/skills/security-and-hardening/SKILL.md
+  performance-optimization:
+    path: .agents/skills/performance-optimization/SKILL.md
+  documentation-and-adrs:
+    path: .agents/skills/documentation-and-adrs/SKILL.md
+  deprecation-and-migration:
+    path: .agents/skills/deprecation-and-migration/SKILL.md
+  semgrep:
+    path: .agents/skills/semgrep/SKILL.md
+  supply-chain-risk-auditor:
+    path: .agents/skills/supply-chain-risk-auditor/SKILL.md
+  vercel-react-best-practices:
+    path: .agents/skills/vercel-react-best-practices/SKILL.md
+  web-design-guidelines:
+    path: .agents/skills/web-design-guidelines/SKILL.md
 mcp_servers:
-  dogfood-knowledge-base:
-    command: node
-    args: ["-e", "process.exit(0)"]
+  serena:
+    ref:
+      path: .mcp.json
+  context7:
+    ref:
+      path: .mcp.json
+  semgrep:
+    ref:
+      path: .mcp.json
+  backlog:
+    ref:
+      path: .mcp.json
+  qdrant:
+    ref:
+      path: .mcp.json
+  github-readonly:
+    ref:
+      path: .mcp.json
+  playwright:
+    ref:
+      path: .mcp.json
 
 profiles:
   orchestrator:
     runner: codex
-    model: gpt-5
     instructions:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first, verification]
-    skills: [dogfood-orchestrator]
-    mcp_servers: [dogfood-knowledge-base]
+    skills:
+      [
+        using-superpowers,
+        writing-plans,
+        dispatching-parallel-agents,
+        planning-and-task-breakdown,
+        doubt-driven-development,
+      ]
+    mcp_servers: [backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -37,6 +106,14 @@ profiles:
     instructions:
       path: .pipeline/prompts/researcher.md
     rules: [test-first]
+    skills:
+      [
+        context-engineering,
+        source-driven-development,
+        spec-driven-development,
+        planning-and-task-breakdown,
+      ]
+    mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -47,12 +124,33 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/research.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
+  pipeline-inspector:
+    runner: codex
+    description: Inspect the repository without modifying files.
+    instructions:
+      path: .pipeline/prompts/inspector.md
+    skills: [context-engineering, source-driven-development]
+    mcp_servers: [serena, context7]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
   pipeline-test-writer:
     runner: codex
     description: Add focused failing tests for the requested behavior.
     instructions:
       path: .pipeline/prompts/test-writer.md
     rules: [test-first]
+    skills: [test-driven-development]
+    mcp_servers: [serena, context7]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
       mode: workspace-write
@@ -68,6 +166,14 @@ profiles:
     instructions:
       path: .pipeline/prompts/code-writer.md
     rules: [test-first]
+    skills:
+      [
+        incremental-implementation,
+        source-driven-development,
+        debugging-and-error-recovery,
+        test-driven-development,
+      ]
+    mcp_servers: [serena, context7, semgrep]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
       mode: workspace-write
@@ -77,12 +183,39 @@ profiles:
       mode: inherit
     output:
       format: text
+  pipeline-epic-router:
+    runner: codex
+    description: Route epic sub-tickets into fixed implementation tracks.
+    instructions:
+      path: .pipeline/prompts/epic-router.md
+    mcp_servers: [backlog, github-readonly]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/epic-plan.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-acceptance-reviewer:
     runner: codex
     description: Audit the finished change against every acceptance criterion.
     instructions:
       path: .pipeline/prompts/acceptance-reviewer.md
     rules: [verification]
+    skills:
+      [
+        requesting-code-review,
+        receiving-code-review,
+        code-review-and-quality,
+        doubt-driven-development,
+      ]
+    mcp_servers: [serena, context7, semgrep, github-readonly, playwright]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -92,13 +225,44 @@ profiles:
       mode: inherit
     output:
       format: json_schema
-      schema_path: .pipeline/schemas/verify.schema.json
+      schema_path: .pipeline/schemas/acceptance.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
+  pipeline-hardened-reviewer:
+    runner: codex
+    description: Perform the final hardened review of the integration branch.
+    instructions:
+      path: .pipeline/prompts/hardened-review.md
+    skills: [hardened-review]
+    mcp_servers: [serena, semgrep, github-readonly]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/review.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-verifier:
     runner: codex
     description: Verify checks, implementation fit, and final evidence.
     instructions:
       path: .pipeline/prompts/verifier.md
     rules: [verification]
+    skills:
+      [
+        verification-before-completion,
+        code-review-and-quality,
+        security-and-hardening,
+        performance-optimization,
+      ]
+    mcp_servers: [serena, semgrep, github-readonly, playwright]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -109,11 +273,16 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/verify.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-learner:
     runner: codex
     description: Store durable lessons from the completed run.
     instructions:
       path: .pipeline/prompts/learner.md
+    skills: [documentation-and-adrs, deprecation-and-migration]
+    mcp_servers: [qdrant, backlog]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -124,84 +293,6 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/learn.schema.json
-  dogfood-checker:
-    runner: dogfood-command
-    description: Prove the installed YAML runtime can run a separate agent boundary locally.
-    instructions:
-      inline: Emit the dogfood structured result and do not modify files.
-    tools: [bash]
-    filesystem:
-      mode: read-only
-    network:
-      mode: disabled
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/dogfood.schema.json
-  dogfood-artifact-writer:
-    runner: dogfood-artifact-command
-    description: Write a deterministic dogfood artifact for runtime gate coverage.
-    instructions:
-      inline: Write the configured dogfood artifact and do not inspect the repository.
-    tools: [bash]
-    filesystem:
-      mode: workspace-write
-    network:
-      mode: disabled
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/dogfood.schema.json
-  dogfood-codex-live:
-    runner: codex
-    description: Minimal live Codex runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-claude-live:
-    runner: claude
-    description: Minimal live Claude runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-opencode-live:
-    runner: opencode
-    description: Minimal live OpenCode runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-kimi-live:
-    runner: kimi
-    description: Minimal live Kimi runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
-  dogfood-pi-live:
-    runner: pi
-    description: Minimal live Pi runner check.
-    instructions:
-      inline: "Reply with exactly OK. Do not inspect files. Do not run tools."
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
-    output:
-      format: text
+      repair:
+        enabled: true
+        max_attempts: 1

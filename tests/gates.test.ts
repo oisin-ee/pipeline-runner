@@ -24,6 +24,7 @@ import { execa } from "execa";
 import {
   artifactExists,
   runJscpd,
+  runSemgrep,
   runTests,
   runTypecheck,
 } from "../src/gates.js";
@@ -36,6 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.PIPELINE_TEST_COMMAND;
   delete process.env.PIPELINE_TYPECHECK_COMMAND;
+  delete process.env.PIPELINE_SEMGREP_COMMAND;
 });
 
 // ─── runTests ───────────────────────────────────────────────────────────────
@@ -199,6 +201,61 @@ describe("runTypecheck", () => {
   });
 });
 
+// ─── runSemgrep ─────────────────────────────────────────────────────────────
+
+describe("runSemgrep", () => {
+  it("runs semgrep ci config through uvx by default", async () => {
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: "semgrep ok",
+      stderr: "",
+    } as any);
+
+    const result = await runSemgrep("/fake/worktree");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("semgrep ok");
+    expect(mockExeca).toHaveBeenCalledWith(
+      "uvx",
+      ["semgrep", "scan", "--config=p/ci", "--error", "."],
+      expect.objectContaining({ cwd: "/fake/worktree" })
+    );
+  });
+
+  it("uses explicit PIPELINE_SEMGREP_COMMAND when provided", async () => {
+    process.env.PIPELINE_SEMGREP_COMMAND = "make semgrep";
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+    } as any);
+
+    const result = await runSemgrep("/fake/worktree");
+
+    expect(result.exitCode).toBe(0);
+    expect(mockExeca).toHaveBeenCalledWith(
+      "make semgrep",
+      [],
+      expect.objectContaining({ cwd: "/fake/worktree", shell: true })
+    );
+  });
+
+  it("fails on non-zero semgrep scan", async () => {
+    mockExeca.mockRejectedValueOnce(
+      Object.assign(new Error("semgrep failed"), {
+        exitCode: 2,
+        stdout: "finding",
+        stderr: "",
+      })
+    );
+
+    const result = await runSemgrep("/fake/worktree");
+
+    expect(result.exitCode).toBe(2);
+    expect(result.output).toContain("finding");
+  });
+});
+
 // ─── artifactExists ──────────────────────────────────────────────────────────
 
 describe("artifactExists", () => {
@@ -227,6 +284,45 @@ describe("artifactExists", () => {
 // ─── runJscpd ────────────────────────────────────────────────────────────────
 
 describe("runJscpd", () => {
+  it("excludes dependency and generated pipeline directories from the default scan", async () => {
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: JSON.stringify({ duplicates: [] }),
+      stderr: "",
+    } as any);
+
+    await runJscpd("/fake/worktree");
+
+    expect(mockExeca).toHaveBeenCalledWith(
+      "bunx",
+      expect.arrayContaining([
+        "jscpd",
+        "--gitignore",
+        "--ignore",
+        expect.stringContaining("**/node_modules/**"),
+        ".",
+      ]),
+      expect.objectContaining({ cwd: "/fake/worktree" })
+    );
+    const args = mockExeca.mock.calls[0]?.[1] as string[];
+    const ignoreArg = args.at(args.indexOf("--ignore") + 1);
+    expect(ignoreArg).toBeDefined();
+
+    for (const ignoredPath of [
+      "**/node_modules/**",
+      "**/.claude/**",
+      "**/.codex/**",
+      "**/.kimi/**",
+      "**/.opencode/**",
+      "**/.pi/**",
+      "**/.pipeline/host-resources/**",
+      "**/.pipeline/skills/**",
+      "**/.agents/skills/**",
+    ]) {
+      expect(ignoreArg).toContain(ignoredPath);
+    }
+  });
+
   it("returns populated violations when jscpd finds duplicates", async () => {
     const jscpdOutput = JSON.stringify({
       duplicates: [

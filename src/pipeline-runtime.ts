@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { execa } from "execa";
 import micromatch from "micromatch";
@@ -11,7 +12,13 @@ import {
   type PipelineConfig,
   type PipelineConfigError,
 } from "./config.js";
-import { artifactExists, runJscpd, runTests, runTypecheck } from "./gates.js";
+import {
+  artifactExists,
+  runJscpd,
+  runSemgrep,
+  runTests,
+  runTypecheck,
+} from "./gates.js";
 import {
   type AgentResult,
   createRunnerLaunchPlan,
@@ -40,6 +47,12 @@ type JsonSourceGateSpec = Extract<
 type VerdictGateSpec = Extract<GateSpec, { kind: "verdict" }>;
 type HookSpec = PipelineConfig["hooks"][string];
 const LINE_RE = /\r?\n/;
+// Matchers for the pipeline's own substitution tokens (literal "${runId}" /
+// "${nodeId}" text in worktree roots — not JS interpolation). Expressed as
+// regexes so the literal "${" sequence never appears in a string the bundler
+// could fold into a real template interpolation.
+const RUN_ID_TOKEN_RE = /\$\{runId\}/g;
+const NODE_ID_TOKEN_RE = /\$\{nodeId\}/g;
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
 const jsonSchemaValidator = new Ajv({ allErrors: true, strict: false });
@@ -124,7 +137,7 @@ export interface PipelineRuntimeResult {
   plan: WorkflowExecutionPlan;
 }
 
-export type PipelineRuntimeEvent =
+export type PipelineRuntimeEvent = { parentNodeId?: string } & (
   | {
       edges: { source: string; target: string }[];
       nodes: {
@@ -243,7 +256,8 @@ export type PipelineRuntimeEvent =
       outcome: PipelineRuntimeResult["outcome"];
       type: "workflow.finish";
       workflowId: string;
-    };
+    }
+);
 
 export interface PipelineRuntimeOptions {
   config?: PipelineConfig;
@@ -255,6 +269,7 @@ export interface PipelineRuntimeOptions {
   hookPolicy?: HookRuntimePolicy;
   maxParallelNodes?: number;
   reporter?: (event: PipelineRuntimeEvent) => void;
+  runId?: string;
   signal?: AbortSignal;
   task: string;
   taskContext?: PipelineTaskContext;
@@ -264,6 +279,7 @@ export interface PipelineRuntimeOptions {
 
 interface RuntimeContext {
   agentInvocations: RunnerLaunchPlan[];
+  baseSha?: Promise<string>;
   config: PipelineConfig;
   executor: (
     plan: RunnerLaunchPlan,
@@ -272,12 +288,15 @@ interface RuntimeContext {
   gates: RuntimeGateResult[];
   hookFailures: RuntimeFailure[];
   hookPolicy: Required<HookRuntimePolicy>;
+  inheritedOutputNodeIds: Set<string>;
   lastOutputByNode: Map<string, string>;
   maxParallelNodes?: number;
   nodeSnapshots: Map<string, ChangedFilesSnapshot>;
   nodeStates: Map<string, NodeExecutionState>;
   plan: WorkflowExecutionPlan;
+  preserveSuccessfulWorkflowWorktrees?: boolean;
   reporter?: (event: PipelineRuntimeEvent) => void;
+  runId?: string;
   signal?: AbortSignal;
   task: string;
   taskContext?: PipelineTaskContext;
@@ -294,6 +313,7 @@ interface NodeAttemptResult {
 
 interface ChangedFilesSnapshot {
   files: Set<string>;
+  fingerprints: Map<string, string>;
 }
 
 interface CommandExecutionOptions {
@@ -346,12 +366,19 @@ interface OutputRepairContext {
   validation: JsonSchemaValidationResult;
 }
 
-export async function runPipelineFromConfig(
+export function runPipelineFromConfig(
   options: PipelineRuntimeOptions
 ): Promise<PipelineRuntimeResult> {
   const context = createRuntimeContext(options);
+  return runPipelineWithContext(context);
+}
+
+async function runPipelineWithContext(
+  context: RuntimeContext
+): Promise<PipelineRuntimeResult> {
   const nodes: RuntimeNodeResult[] = [];
 
+  await pinWorkflowBaseSha(context);
   emitWorkflowPlanned(context);
   emit(context, {
     nodeIds: context.plan.topologicalOrder.map((node) => node.id),
@@ -382,12 +409,17 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
   );
   const plan = compileWorkflowPlan(config, workflowSelection);
   const workflowId = plan.workflowId;
+  const runId =
+    options.runId ??
+    (planReferencesRunIdTemplate(plan) ? generateRuntimeRunId() : undefined);
   return {
     agentInvocations: [],
+    ...(runId ? { runId } : {}),
     config,
     executor: options.executor ?? runLaunchPlan,
     gates: [],
     hookFailures: [],
+    inheritedOutputNodeIds: new Set(),
     hookPolicy: {
       allowCommandHooks: options.hookPolicy?.allowCommandHooks ?? true,
       allowUntrustedCommandHooks:
@@ -403,6 +435,7 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     nodeSnapshots: new Map(),
     nodeStates: initialNodeStates(plan),
     plan,
+    preserveSuccessfulWorkflowWorktrees: false,
     ...(options.reporter ? { reporter: options.reporter } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     task: options.task,
@@ -430,6 +463,44 @@ function normalizeMaxParallelNodes(value: number): number {
     throw new Error("maxParallelNodes must be a positive integer");
   }
   return value;
+}
+
+async function pinWorkflowBaseSha(context: RuntimeContext): Promise<void> {
+  if (planContainsWorktreeBackedWorkflowNode(context.plan)) {
+    await workflowBaseSha(context);
+  }
+}
+
+function planContainsWorktreeBackedWorkflowNode(
+  plan: WorkflowExecutionPlan
+): boolean {
+  return nodesContainWorktreeBackedWorkflowNode(plan.topologicalOrder);
+}
+
+function nodesContainWorktreeBackedWorkflowNode(
+  nodes: PlannedWorkflowNode[]
+): boolean {
+  return nodes.some(
+    (node) =>
+      (node.kind === "workflow" && Boolean(node.worktreeRoot)) ||
+      nodesContainWorktreeBackedWorkflowNode(node.children ?? [])
+  );
+}
+
+function planReferencesRunIdTemplate(plan: WorkflowExecutionPlan): boolean {
+  return nodesReferenceRunIdTemplate(plan.topologicalOrder);
+}
+
+function nodesReferenceRunIdTemplate(nodes: PlannedWorkflowNode[]): boolean {
+  return nodes.some(
+    (node) =>
+      (node.worktreeRoot?.search(RUN_ID_TOKEN_RE) ?? -1) !== -1 ||
+      nodesReferenceRunIdTemplate(node.children ?? [])
+  );
+}
+
+function generateRuntimeRunId(): string {
+  return `run-${randomUUID()}`;
 }
 
 async function workflowStartFailure(
@@ -465,6 +536,13 @@ async function executeWorkflowBatches(
     }
     const failed = results.find((result) => result.status === "failed");
     if (failed) {
+      if (
+        results.every((result) =>
+          shouldContinueAfterNodeResult(result, context)
+        )
+      ) {
+        continue;
+      }
       const failure = nodeRuntimeFailure(failed);
       await dispatchHooks(context, "workflow.failure", failure);
       await dispatchHooks(context, "workflow.complete", failure);
@@ -472,6 +550,35 @@ async function executeWorkflowBatches(
     }
   }
   return null;
+}
+
+function shouldContinueAfterNodeResult(
+  result: RuntimeNodeResult,
+  context: RuntimeContext
+): boolean {
+  if (result.status !== "failed") {
+    return true;
+  }
+  const node = context.plan.graph.node(result.nodeId);
+  if (node?.kind !== "parallel" || !parallelOutputHasChildren(result.output)) {
+    return false;
+  }
+  return (
+    node.dependents.length > 0 &&
+    node.dependents.every((dependentId) =>
+      isDrainMergeNode(context.plan.graph.node(dependentId))
+    )
+  );
+}
+
+function parallelOutputHasChildren(output: string): boolean {
+  return (
+    Object.keys(parseJsonObject(parseJsonObject(output).children)).length > 0
+  );
+}
+
+function isDrainMergeNode(node: PlannedWorkflowNode | undefined): boolean {
+  return node?.kind === "builtin" && node.builtin === "drain-merge";
 }
 
 function executeWorkflowBatch(
@@ -918,7 +1025,7 @@ async function executeNodeAttemptCycle(
   if (beforeSnapshot) {
     context.nodeSnapshots.set(
       node.id,
-      diffChangedFiles(beforeSnapshot, afterSnapshot)
+      diffChangedFiles(beforeSnapshot, afterSnapshot, context.worktreePath)
     );
   }
   context.lastOutputByNode.set(node.id, last.output);
@@ -1131,21 +1238,49 @@ async function snapshotChangedFiles(
 ): Promise<ChangedFilesSnapshot> {
   try {
     const status = await simpleGit({ baseDir: worktreePath }).status();
+    const files = new Set(
+      status.files.map((file) => file.path).filter(Boolean)
+    );
     return {
-      files: new Set(status.files.map((file) => file.path).filter(Boolean)),
+      files,
+      fingerprints: new Map(
+        [...files].map((file) => [file, fileFingerprint(worktreePath, file)])
+      ),
     };
   } catch {
-    return { files: new Set() };
+    return { files: new Set(), fingerprints: new Map() };
   }
 }
 
 function diffChangedFiles(
   before: ChangedFilesSnapshot,
-  after: ChangedFilesSnapshot
+  after: ChangedFilesSnapshot,
+  worktreePath: string
 ): ChangedFilesSnapshot {
+  const candidateFiles = new Set([...before.files, ...after.files]);
+  const files = [...candidateFiles].filter(
+    (file) =>
+      !before.files.has(file) ||
+      before.fingerprints.get(file) !==
+        (after.fingerprints.get(file) ?? fileFingerprint(worktreePath, file))
+  );
   return {
-    files: new Set([...after.files].filter((file) => !before.files.has(file))),
+    files: new Set(files),
+    fingerprints: new Map(
+      files.map((file) => [
+        file,
+        after.fingerprints.get(file) ?? fileFingerprint(worktreePath, file),
+      ])
+    ),
   };
+}
+
+function fileFingerprint(worktreePath: string, file: string): string {
+  const fullPath = join(worktreePath, file);
+  if (!existsSync(fullPath)) {
+    return "missing";
+  }
+  return createHash("sha256").update(readFileSync(fullPath)).digest("hex");
 }
 
 function executeNodeAttempt(
@@ -1161,18 +1296,442 @@ function executeNodeAttempt(
         timeout: node.timeoutMs,
       });
     case "builtin":
-      return executeBuiltin(node.builtin ?? "", context);
+      return executeBuiltin(node.builtin ?? "", context, node);
     case "group":
       return {
         evidence: [`group '${node.id}' completed`],
         exitCode: 0,
         output: "",
       };
+    case "parallel":
+      return executeParallelNode(node, context);
+    case "workflow":
+      return executeWorkflowNode(node, context);
     default: {
       const _exhaustive: never = node.kind;
       throw new Error(`Unsupported node kind: ${String(_exhaustive)}`);
     }
   }
+}
+
+async function executeParallelNode(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Promise<NodeAttemptResult> {
+  const children = node.children ?? [];
+  if (children.length === 0) {
+    return {
+      evidence: [`parallel node '${node.id}' has no children`],
+      exitCode: 1,
+      output: "",
+    };
+  }
+
+  const linkedAbort = createLinkedAbortController(context.signal);
+  const childContext = createParallelChildContext(
+    context,
+    node.id,
+    children,
+    context.plan.execution.failFast
+      ? linkedAbort.controller.signal
+      : context.signal
+  );
+  try {
+    const results = context.plan.execution.failFast
+      ? await executeFailFastParallelChildren(
+          children,
+          childContext,
+          linkedAbort.controller
+        )
+      : await executeParallelChildren(children, childContext);
+    const failed = results.filter((result) => result.status === "failed");
+    return {
+      evidence: parallelEvidence(node.id, results, failed),
+      exitCode: failed.length > 0 ? 1 : 0,
+      output: parallelOutput(children, results),
+    };
+  } finally {
+    linkedAbort.cleanup();
+  }
+}
+
+function createParallelChildContext(
+  context: RuntimeContext,
+  parentNodeId: string,
+  children: PlannedWorkflowNode[],
+  signal: AbortSignal | undefined
+): RuntimeContext {
+  return {
+    ...context,
+    inheritedOutputNodeIds: new Set(context.lastOutputByNode.keys()),
+    lastOutputByNode: new Map(context.lastOutputByNode),
+    nodeSnapshots: new Map(),
+    nodeStates: new Map(
+      children.map((child) => [
+        child.id,
+        {
+          attempts: 0,
+          evidence: [],
+          gates: [],
+          id: child.id,
+          status: "pending",
+        },
+      ])
+    ),
+    plan: {
+      ...context.plan,
+      parallelBatches: [children],
+      topologicalOrder: children,
+    },
+    preserveSuccessfulWorkflowWorktrees:
+      context.preserveSuccessfulWorkflowWorktrees ||
+      parallelFeedsDrainMerge(parentNodeId, context),
+    reporter: childReporter(context, parentNodeId),
+    ...(signal ? { signal } : {}),
+  };
+}
+
+function parallelFeedsDrainMerge(
+  parentNodeId: string,
+  context: RuntimeContext
+): boolean {
+  const parent = context.plan.graph.node(parentNodeId);
+  return (
+    parent?.dependents.length > 0 &&
+    parent.dependents.every((dependentId) =>
+      isDrainMergeNode(context.plan.graph.node(dependentId))
+    )
+  );
+}
+
+function createLinkedAbortController(signal?: AbortSignal): {
+  cleanup: () => void;
+  controller: AbortController;
+} {
+  const controller = new AbortController();
+  if (!signal) {
+    return { cleanup: () => undefined, controller };
+  }
+  if (signal.aborted) {
+    controller.abort();
+    return { cleanup: () => undefined, controller };
+  }
+  const abort = () => controller.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  return {
+    cleanup: () => signal.removeEventListener("abort", abort),
+    controller,
+  };
+}
+
+function executeParallelChildren(
+  children: PlannedWorkflowNode[],
+  context: RuntimeContext
+): Promise<RuntimeNodeResult[]> {
+  for (const child of children) {
+    transitionNode(context, child.id, { at: now(), type: "NODE_READY" });
+  }
+  if (!context.maxParallelNodes) {
+    return Promise.all(children.map((child) => executeNode(child, context)));
+  }
+  const limit = pLimit(context.maxParallelNodes);
+  return Promise.all(
+    children.map((child) => limit(() => executeNode(child, context)))
+  );
+}
+
+async function executeFailFastParallelChildren(
+  children: PlannedWorkflowNode[],
+  context: RuntimeContext,
+  abortController: AbortController
+): Promise<RuntimeNodeResult[]> {
+  for (const child of children) {
+    transitionNode(context, child.id, { at: now(), type: "NODE_READY" });
+  }
+  const limit = pLimit({
+    concurrency: context.maxParallelNodes ?? children.length,
+    rejectOnClear: true,
+  });
+  const settled = await Promise.allSettled(
+    children.map((child) =>
+      limit(async () => {
+        const result = await executeNode(child, context);
+        if (result.status === "failed") {
+          abortController.abort();
+          limit.clearQueue();
+        }
+        return result;
+      })
+    )
+  );
+  return settled.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : []
+  );
+}
+
+function parallelEvidence(
+  nodeId: string,
+  results: RuntimeNodeResult[],
+  failed: RuntimeNodeResult[]
+): string[] {
+  if (failed.length === 0) {
+    return [
+      `parallel node '${nodeId}' completed ${results.length} child nodes`,
+    ];
+  }
+  return [
+    `parallel node '${nodeId}' failed with ${failed.length} failed child nodes`,
+    ...failed.flatMap((result) => result.evidence),
+  ];
+}
+
+function parallelOutput(
+  children: PlannedWorkflowNode[],
+  results: RuntimeNodeResult[]
+): string {
+  const outputsByNode = new Map(
+    results.map((result) => [result.nodeId, result.output])
+  );
+  return JSON.stringify({
+    children: Object.fromEntries(
+      children
+        .filter((child) => outputsByNode.has(child.id))
+        .map((child) => [child.id, outputsByNode.get(child.id)])
+    ),
+  });
+}
+
+async function executeWorkflowNode(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Promise<NodeAttemptResult> {
+  if (!node.workflow) {
+    return {
+      evidence: [`workflow node '${node.id}' has no workflow`],
+      exitCode: 1,
+      output: "",
+    };
+  }
+
+  const worktree = await prepareWorkflowNodeWorktree(node, context);
+  const childContext = createRuntimeContext({
+    config: context.config,
+    executor: context.executor,
+    hookPolicy: context.hookPolicy,
+    reporter: childReporter(context, node.id),
+    runId: context.runId,
+    signal: context.signal,
+    task: context.task,
+    taskContext: context.taskContext,
+    workflowId: node.workflow,
+    worktreePath: worktree.worktreePath ?? context.worktreePath,
+  });
+  childContext.baseSha = context.baseSha;
+  childContext.lastOutputByNode = workflowChildInheritedOutputs(node, context);
+  childContext.inheritedOutputNodeIds = new Set(
+    childContext.lastOutputByNode.keys()
+  );
+
+  const result = await runPipelineWithContext(childContext);
+  context.agentInvocations.push(...result.agentInvocations);
+  if (
+    result.outcome === "PASS" &&
+    worktree.worktreePath &&
+    !shouldPreserveWorkflowNodeWorktree(node, context)
+  ) {
+    await removeWorkflowNodeWorktree(worktree.worktreePath);
+  }
+  const output = JSON.stringify({
+    baseSha: worktree.baseSha,
+    branch: worktree.branch,
+    nodeResults: result.nodes.map((child) => ({
+      nodeId: child.nodeId,
+      status: child.status,
+    })),
+    status: result.outcome,
+    worktreePath: worktree.worktreePath,
+    workflowId: result.plan.workflowId,
+  });
+  return {
+    evidence: [
+      result.outcome === "PASS"
+        ? `workflow '${result.plan.workflowId}' passed`
+        : `workflow '${result.plan.workflowId}' failed`,
+      ...(result.outcome === "PASS" || !worktree.worktreePath
+        ? []
+        : [`inspect workflow worktree: cd ${worktree.worktreePath}`]),
+      ...result.failureDetails.flatMap((failure) => failure.evidence),
+    ],
+    exitCode: result.outcome === "PASS" ? 0 : 1,
+    output,
+  };
+}
+
+function shouldPreserveWorkflowNodeWorktree(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): boolean {
+  if (context.preserveSuccessfulWorkflowWorktrees) {
+    return true;
+  }
+  const plannedNode = context.plan.graph.node(node.id);
+  return (
+    plannedNode?.dependents.length > 0 &&
+    plannedNode.dependents.every((dependentId) =>
+      isDrainMergeNode(context.plan.graph.node(dependentId))
+    )
+  );
+}
+
+function workflowChildInheritedOutputs(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Map<string, string> {
+  const siblingNodeIds = new Set(
+    context.plan.topologicalOrder.map((candidate) => candidate.id)
+  );
+  return new Map(
+    [...context.lastOutputByNode].map(([nodeId, output]) => [
+      nodeId,
+      filterWorkflowChildRoutedOutput(output, node.id, siblingNodeIds),
+    ])
+  );
+}
+
+function filterWorkflowChildRoutedOutput(
+  output: string,
+  childNodeId: string,
+  siblingNodeIds: Set<string>
+): string {
+  const parsed = parseJsonObject(output);
+  if (!Object.hasOwn(parsed, childNodeId)) {
+    return output;
+  }
+  const routedSiblingKeys = Object.keys(parsed).filter((key) =>
+    siblingNodeIds.has(key)
+  );
+  if (routedSiblingKeys.length <= 1) {
+    return output;
+  }
+  return JSON.stringify({ [childNodeId]: parsed[childNodeId] });
+}
+
+interface WorkflowNodeWorktree {
+  baseSha: string | null;
+  branch: string | null;
+  worktreePath: string | null;
+}
+
+async function prepareWorkflowNodeWorktree(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Promise<WorkflowNodeWorktree> {
+  if (!node.worktreeRoot) {
+    return { baseSha: null, branch: null, worktreePath: null };
+  }
+
+  const baseSha = await workflowBaseSha(context);
+  const branch = `${context.runId ?? generateRuntimeRunId()}/${node.id}`;
+  const worktreePath = resolveWorkflowNodeWorktreePath(node, context);
+  mkdirSync(dirname(worktreePath), { recursive: true });
+  await simpleGit({ baseDir: context.worktreePath }).raw([
+    "worktree",
+    "add",
+    "-b",
+    branch,
+    worktreePath,
+    baseSha,
+  ]);
+  ensurePipelineSymlink(context.worktreePath, worktreePath);
+  return { baseSha, branch, worktreePath };
+}
+
+function workflowBaseSha(context: RuntimeContext): Promise<string> {
+  context.baseSha ??= simpleGit({ baseDir: context.worktreePath }).revparse([
+    "HEAD",
+  ]);
+  return context.baseSha;
+}
+
+function resolveWorkflowNodeWorktreePath(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): string {
+  const rendered = (node.worktreeRoot ?? "")
+    .replaceAll(RUN_ID_TOKEN_RE, context.runId ?? generateRuntimeRunId())
+    .replaceAll(NODE_ID_TOKEN_RE, node.id);
+  return resolve(context.worktreePath, rendered);
+}
+
+function ensurePipelineSymlink(
+  parentWorktreePath: string,
+  childWorktreePath: string
+): void {
+  if (!existsSync(childWorktreePath)) {
+    return;
+  }
+  const source = join(parentWorktreePath, ".pipeline");
+  const target = join(childWorktreePath, ".pipeline");
+  if (existsSync(source) && !existsSync(target)) {
+    symlinkSync(source, target, "dir");
+  }
+}
+
+async function removeWorkflowNodeWorktree(worktreePath: string): Promise<void> {
+  await simpleGit().raw(["worktree", "remove", "--force", worktreePath]);
+}
+
+function childReporter(
+  context: RuntimeContext,
+  parentNodeId: string
+): PipelineRuntimeOptions["reporter"] {
+  if (!context.reporter) {
+    return;
+  }
+  return (event) => {
+    context.reporter?.(prefixChildRuntimeEvent(parentNodeId, event));
+  };
+}
+
+function prefixChildRuntimeEvent(
+  parentNodeId: string,
+  event: PipelineRuntimeEvent
+): PipelineRuntimeEvent {
+  const prefixed = { ...event } as Record<string, unknown>;
+  prefixed.parentNodeId = parentNodeId;
+  if (typeof prefixed.nodeId === "string") {
+    prefixed.nodeId = `${parentNodeId}.${prefixed.nodeId}`;
+  }
+  if (Array.isArray(prefixed.nodeIds)) {
+    prefixed.nodeIds = prefixed.nodeIds.map((id) =>
+      typeof id === "string" ? `${parentNodeId}.${id}` : id
+    );
+  }
+  if (Array.isArray(prefixed.nodes)) {
+    prefixed.nodes = prefixed.nodes.map((child) =>
+      isRecord(child) && typeof child.id === "string"
+        ? { ...child, id: `${parentNodeId}.${child.id}` }
+        : child
+    );
+  }
+  if (Array.isArray(prefixed.edges)) {
+    prefixed.edges = prefixed.edges.map((edge) =>
+      isRecord(edge)
+        ? {
+            ...edge,
+            source:
+              typeof edge.source === "string"
+                ? `${parentNodeId}.${edge.source}`
+                : edge.source,
+            target:
+              typeof edge.target === "string"
+                ? `${parentNodeId}.${edge.target}`
+                : edge.target,
+          }
+        : edge
+    );
+  }
+  return prefixed as PipelineRuntimeEvent;
 }
 
 async function executeAgentNode(
@@ -1533,6 +2092,7 @@ function renderAgentPrompt(
     ),
     renderMcpReferences(profile?.mcp_servers, context.config.mcp_servers),
     "",
+    ...inheritedOutputSections(node, context),
     "Dependency outputs:",
     ...node.needs.map(
       (need) => `## ${need}\n${context.lastOutputByNode.get(need) ?? ""}`
@@ -1540,6 +2100,26 @@ function renderAgentPrompt(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function inheritedOutputSections(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): string[] {
+  const ownNeeds = new Set(node.needs);
+  const inherited = [...context.inheritedOutputNodeIds].filter(
+    (id) => !ownNeeds.has(id) && context.lastOutputByNode.has(id)
+  );
+  if (inherited.length === 0) {
+    return [];
+  }
+  return [
+    "Inherited dependency outputs:",
+    ...inherited.map(
+      (id) => `## ${id}\n${context.lastOutputByNode.get(id) ?? ""}`
+    ),
+    "",
+  ];
 }
 
 function renderTaskContext(
@@ -1708,9 +2288,12 @@ function limitOutput(
 
 async function executeBuiltin(
   builtin: string,
-  context: RuntimeContext
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
 ): Promise<NodeAttemptResult> {
   switch (builtin) {
+    case "drain-merge":
+      return executeDrainMergeBuiltin(context, node);
     case "test": {
       const result = await runTests(context.worktreePath, context.signal);
       return {
@@ -1735,6 +2318,14 @@ async function executeBuiltin(
         output: JSON.stringify(result.violations),
       };
     }
+    case "semgrep": {
+      const result = await runSemgrep(context.worktreePath, context.signal);
+      return {
+        evidence: [result.output],
+        exitCode: result.exitCode,
+        output: result.output,
+      };
+    }
     default:
       return {
         evidence: [`unsupported builtin '${builtin}'`],
@@ -1742,6 +2333,274 @@ async function executeBuiltin(
         output: "",
       };
   }
+}
+
+type DrainMergeStatus = "FAIL" | "PASS";
+
+interface DrainMergeChildOutput {
+  baseSha: string | null;
+  branch: string | null;
+  status: DrainMergeStatus;
+  worktreePath: string | null;
+}
+
+interface DrainMergeMergeEntry {
+  branch: string;
+  id: string;
+  worktreePath: string;
+}
+
+interface DrainMergeSkipEntry {
+  id: string;
+  reason: "failed" | "no-worktree";
+  status: DrainMergeStatus;
+}
+
+interface DrainMergeConflictEntry {
+  branch: string;
+  files: string[];
+  id: string;
+  worktreePath: string;
+}
+
+interface DrainMergeReport {
+  baseSha: string | null;
+  conflicts: DrainMergeConflictEntry[];
+  integrationBranch: string;
+  merged: DrainMergeMergeEntry[];
+  skipped: DrainMergeSkipEntry[];
+}
+
+async function executeDrainMergeBuiltin(
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): Promise<NodeAttemptResult> {
+  const upstreamNodeId = node?.needs.at(0) ?? null;
+  const integrationBranch = `runs/integration/${
+    context.runId ?? generateRuntimeRunId()
+  }`;
+  const report: DrainMergeReport = {
+    baseSha: null,
+    conflicts: [],
+    integrationBranch,
+    merged: [],
+    skipped: [],
+  };
+
+  const children = drainMergeChildren(context, upstreamNodeId);
+  const mergeable = drainMergeMergeableChildren(children, report);
+  if (mergeable.length === 0) {
+    return drainMergeResult(report);
+  }
+
+  report.baseSha = mergeable[0].output.baseSha;
+  const divergent = mergeable.find(
+    (child) => child.output.baseSha !== report.baseSha
+  );
+  if (divergent) {
+    return drainMergeResult(report, {
+      evidence: [
+        `drain-merge child '${divergent.nodeId}' baseSha ${divergent.output.baseSha} diverges from ${report.baseSha}`,
+      ],
+      failed: true,
+    });
+  }
+
+  const git = simpleGit({ baseDir: context.worktreePath });
+  try {
+    await checkoutDrainMergeIntegrationBranch(
+      git,
+      integrationBranch,
+      report.baseSha
+    );
+  } catch (error) {
+    return drainMergeResult(report, {
+      evidence: [
+        `drain-merge setup-error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      ],
+      failed: true,
+    });
+  }
+
+  for (const child of mergeable) {
+    try {
+      await git.raw([
+        "merge",
+        "--no-ff",
+        "--no-edit",
+        "-m",
+        "drain-merge: merge",
+        child.output.branch,
+      ]);
+      report.merged.push({
+        branch: child.output.branch,
+        id: child.nodeId,
+        worktreePath: child.output.worktreePath,
+      });
+    } catch {
+      const files = await drainMergeConflictFiles(git);
+      report.conflicts.push({
+        branch: child.output.branch,
+        files,
+        id: child.nodeId,
+        worktreePath: child.output.worktreePath,
+      });
+      await abortDrainMerge(git);
+    }
+  }
+
+  return drainMergeResult(report);
+}
+
+function drainMergeChildren(
+  context: RuntimeContext,
+  upstreamNodeId: string | null
+): Array<{ nodeId: string; output: DrainMergeChildOutput }> {
+  if (!upstreamNodeId) {
+    return [];
+  }
+  const upstream = context.plan.graph.node(upstreamNodeId);
+  const output = parseJsonObject(context.lastOutputByNode.get(upstreamNodeId));
+  const childrenOutput = parseJsonObject(output.children);
+  return (upstream?.children ?? []).flatMap((child) => {
+    const childOutput = parseDrainMergeChildOutput(childrenOutput[child.id]);
+    return childOutput ? [{ nodeId: child.id, output: childOutput }] : [];
+  });
+}
+
+function drainMergeMergeableChildren(
+  children: Array<{ nodeId: string; output: DrainMergeChildOutput }>,
+  report: DrainMergeReport
+): Array<{
+  nodeId: string;
+  output: DrainMergeChildOutput & {
+    baseSha: string;
+    branch: string;
+    worktreePath: string;
+  };
+}> {
+  return children.flatMap((child) => {
+    if (child.output.status !== "PASS") {
+      report.skipped.push({
+        id: child.nodeId,
+        reason: "failed",
+        status: child.output.status,
+      });
+      return [];
+    }
+    if (
+      !(
+        child.output.baseSha &&
+        child.output.branch &&
+        child.output.worktreePath
+      )
+    ) {
+      report.skipped.push({
+        id: child.nodeId,
+        reason: "no-worktree",
+        status: child.output.status,
+      });
+      return [];
+    }
+    return [
+      {
+        nodeId: child.nodeId,
+        output: {
+          baseSha: child.output.baseSha,
+          branch: child.output.branch,
+          status: child.output.status,
+          worktreePath: child.output.worktreePath,
+        },
+      },
+    ];
+  });
+}
+
+async function checkoutDrainMergeIntegrationBranch(
+  git: ReturnType<typeof simpleGit>,
+  integrationBranch: string,
+  baseSha: string
+): Promise<void> {
+  try {
+    await git.raw(["rev-parse", "--verify", integrationBranch]);
+    await git.raw(["checkout", integrationBranch]);
+  } catch {
+    await git.raw(["checkout", "-b", integrationBranch, baseSha]);
+  }
+}
+
+async function drainMergeConflictFiles(
+  git: ReturnType<typeof simpleGit>
+): Promise<string[]> {
+  try {
+    const output = await git.raw(["diff", "--name-only", "--diff-filter=U"]);
+    return output.split(LINE_RE).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function abortDrainMerge(
+  git: ReturnType<typeof simpleGit>
+): Promise<void> {
+  try {
+    await git.raw(["merge", "--abort"]);
+  } catch {
+    // The merge failure is already captured in the report; abort errors should
+    // not prevent later siblings from being attempted.
+  }
+}
+
+function parseDrainMergeChildOutput(
+  value: unknown
+): DrainMergeChildOutput | null {
+  const output = parseJsonObject(value);
+  if (Object.keys(output).length === 0) {
+    return null;
+  }
+  return {
+    baseSha: typeof output.baseSha === "string" ? output.baseSha : null,
+    branch: typeof output.branch === "string" ? output.branch : null,
+    status: output.status === "PASS" ? "PASS" : "FAIL",
+    worktreePath:
+      typeof output.worktreePath === "string" ? output.worktreePath : null,
+  };
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string") {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function drainMergeResult(
+  report: DrainMergeReport,
+  options: { evidence?: string[]; failed?: boolean } = {}
+): NodeAttemptResult {
+  const hasFailure = report.conflicts.length > 0 || options.failed === true;
+  return {
+    evidence: [
+      ...(options.evidence ?? []),
+      hasFailure
+        ? `drain-merge completed with ${report.conflicts.length} conflicts`
+        : `drain-merge merged ${report.merged.length} branches`,
+    ],
+    exitCode: hasFailure ? 1 : 0,
+    output: JSON.stringify(report),
+  };
 }
 
 async function evaluateNodeGates(

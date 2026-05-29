@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "backlog": {
+      "args": ["--python", "3.12", "mcpm", "run", "oisin-pipeline-backlog"],
+      "command": "uvx"
+    },
+    "context7": {
+      "args": ["--python", "3.12", "mcpm", "run", "oisin-pipeline-context7"],
+      "command": "uvx"
+    },
+    "github-readonly": {
+      "args": [
+        "--python",
+        "3.12",
+        "mcpm",
+        "run",
+        "oisin-pipeline-github-readonly"
+      ],
+      "command": "uvx"
+    },
+    "playwright": {
+      "args": ["--python", "3.12", "mcpm", "run", "oisin-pipeline-playwright"],
+      "command": "uvx"
+    },
+    "qdrant": {
+      "args": ["--python", "3.12", "mcpm", "run", "oisin-pipeline-qdrant"],
+      "command": "uvx"
+    },
+    "semgrep": {
+      "args": ["--python", "3.12", "mcpm", "run", "oisin-pipeline-semgrep"],
+      "command": "uvx"
+    },
+    "serena": {
+      "args": ["--python", "3.12", "mcpm", "run", "oisin-pipeline-serena"],
+      "command": "uvx"
+    }
+  }
+}

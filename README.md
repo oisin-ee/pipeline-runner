@@ -10,6 +10,7 @@ artifacts.
 
 - Bun 1.1 or newer
 - Node.js 22.13 or newer
+- `npx`, `backlog`, `uvx`, and Docker on `PATH` for default skill and MCP setup
 - At least one configured runner CLI on `PATH`: `codex`, `claude`,
   `opencode`, `kimi`, `pi`, or a declared command runner
 
@@ -26,6 +27,30 @@ Scaffold the default YAML workflow:
 ```shell
 pipe init
 ```
+
+`pipe init` installs default skills with the `skills` CLI and registers default
+MCP servers with the MCPM CLI from https://mcpm.sh/. The package invokes MCPM
+through `uvx --python 3.12 mcpm`, so generated `.mcp.json` entries do not depend
+on a globally installed `mcpm` binary. The default Qdrant/memory MCP is the
+Momokaya remote endpoint
+`https://memory-mcp.momokaya.ee/mcp/`.
+
+The default GitHub MCP registration uses GitHub's official container in
+read-only mode and reads `GITHUB_PERSONAL_ACCESS_TOKEN` from the environment.
+The Momokaya Qdrant endpoint is protected by Traefik HTTP Basic auth. Set either
+`MOMOKAYA_MCP_AUTHORIZATION` to the complete Authorization header value
+(`Basic <base64-user-colon-password>`) or `MEMORY_MCP_BASIC_AUTH` to only the
+base64 payload. `pipe init` resolves that value before registering the remote
+server with MCPM.
+
+Check local prerequisites and config health:
+
+```shell
+pipe doctor
+```
+
+For a compact operator guide covering every command plus how to attach skills
+and MCP servers to agent profiles, see `docs/operator-guide.md`.
 
 Validate the config and compiled DAG:
 
@@ -56,6 +81,16 @@ Run a configured entrypoint alias:
 ```shell
 pipe run --entrypoint dogfood "Run deterministic local verification."
 ```
+
+Run an epic drain workflow:
+
+```shell
+pipe epic PIPE-31
+```
+
+The `epic` entrypoint routes an epic's child tickets into fixed specialist
+tracks, runs those tracks in parallel, merges passing branches, and then runs a
+hardened review.
 
 The `pipe` binary also accepts the task directly:
 
@@ -150,6 +185,79 @@ The default scaffold includes a full research, red, green, verify, learn
 workflow. See `docs/config-architecture.md` for a complete example and the host
 support matrix.
 
+### Structural Parallelism
+
+Workflows can compose other workflows with fixed YAML structure. A
+`kind: workflow` node invokes another named workflow; without `worktree_root` it
+runs in the current worktree, and with `worktree_root` it runs in an isolated
+git worktree. A `kind: parallel` node contains a fixed set of child nodes that
+run concurrently after dependencies pass. This is structural parallelism, not
+dynamic fanout: agents may route work to tracks, but the branch topology stays
+auditable in YAML.
+
+The built-in `epic` entrypoint uses those primitives:
+
+```yaml
+entrypoints:
+  epic:
+    workflow: epic-drain
+    description: Route an epic's tickets into specialist tracks, run them in parallel, then hardened-review.
+
+workflows:
+  epic-drain:
+    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, hardened-review.
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: plan
+        kind: agent
+        profile: pipeline-epic-router
+        needs: [research]
+      - id: implement
+        kind: parallel
+        needs: [plan]
+        nodes:
+          - id: test
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/${runId}/test
+          - id: frontend
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/${runId}/frontend
+          - id: backend
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/${runId}/backend
+          - id: k8s
+            kind: workflow
+            workflow: infra
+            worktree_root: .pipeline/runs/${runId}/k8s
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [implement]
+      - id: review
+        kind: agent
+        profile: pipeline-hardened-reviewer
+        needs: [merge]
+        gates:
+          - { id: review-verdict, kind: verdict, target: stdout }
+```
+
+Use `.pipeline/runs/${runId}/<track>` for isolated track worktrees; the default
+`.gitignore` excludes `.pipeline/runs/`. The `drain-merge` builtin consumes the
+parallel output, skips non-passing or non-worktree children, verifies mergeable
+branches share a base SHA, and merges passing branches into an integration
+branch in declaration order. It reports merge conflicts; it does not resolve
+them automatically.
+
+The `hardened-review` skill is an external/local skill registered at
+`.agents/skills/hardened-review/SKILL.md`. When that file is absent, normal
+validation reports a `missing-file-reference` warning and continues; `--strict`
+promotes that warning to a failure.
+
 ## Generated Host Resources
 
 Generate native host files from the YAML config:
@@ -164,14 +272,15 @@ runner matches the host. OpenCode also uses native subagents for cross-runner
 model-backed nodes when the runner/profile provides an OpenCode-compatible
 `model` or `host_models.opencode` value. Otherwise generated instructions
 dispatch to that runner's CLI instead of inventing a host model.
+The installer creates one command surface per configured entrypoint.
 
-| Host        | Generated files                                        | Invocation           |
-| ----------- | ------------------------------------------------------ | -------------------- |
-| Claude Code | `.claude/commands/pipe.md`, `.claude/agents/*.md`      | `/pipe <task>`       |
-| Codex       | `.agents/skills/pipe/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>`       |
-| OpenCode    | `.opencode/commands/pipe.md`, `.opencode/agents/*.md`  | `/pipe <task>`       |
-| Kimi        | `.kimi/skills/pipe/SKILL.md`, `.kimi/agents/*.yaml`    | `/skill:pipe <task>` |
-| Pi          | `.pi/prompts/pipe.md`                                  | `/pipe <task>`       |
+| Host        | Generated files                                                   | Invocation                         |
+| ----------- | ----------------------------------------------------------------- | ---------------------------------- |
+| Claude Code | `.claude/commands/<entrypoint>.md`, `.claude/agents/*.md`         | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
+| Codex       | `.agents/skills/<entrypoint>/SKILL.md`, `.codex/agents/*.toml`    | `$pipe <task>`, `$inspect <task>`, `$epic <task>` |
+| OpenCode    | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`     | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
+| Kimi        | `.kimi/commands/<entrypoint>.md`, `.kimi/agents/*.yaml`           | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
+| Pi          | `.pi/prompts/<entrypoint>.md`                                     | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
 
 The installer is idempotent, supports `--check` and `--dry-run`, and refuses to
 overwrite manually edited files unless `--force` is supplied.
@@ -196,6 +305,14 @@ runners:
 - Native subagent strategy is preferred when the selected runner can represent
   the configured semantics. Otherwise the runtime uses a subprocess boundary.
 - Parallel DAG batches run concurrently after dependencies and gates pass.
+- `kind: parallel` child sets are fixed in YAML; routing agents decide which
+  work belongs in each declared track, not how many tracks exist.
+- `kind: workflow` nodes invoke named workflows and can run in isolated
+  worktrees when `worktree_root` is set.
+- Worktree roots support `${runId}` and `${nodeId}` templates and should live
+  under `.pipeline/runs/` for generated run artifacts.
+- `drain-merge` merges passing worktree branches in declaration order and
+  reports conflicts for manual resolution.
 - Workflow execution can cap parallelism and enable fail-fast batch stopping.
 - Nodes can declare bounded retries, retry reasons, backoff, and execution
   timeouts.

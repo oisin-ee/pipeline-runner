@@ -457,6 +457,9 @@ workflows:
     });
     expect(codex.args).toContain("--model");
     expect(codex.args).toContain("agent-model");
+    expect(codex.args).toContain(
+      'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
+    );
     expect(codex.args).toContain('mcp_servers.docs.command="node"');
     expect(codex.args).toContain('mcp_servers.docs.args=["docs.js"]');
     expect(codex.args).toContain("--dangerously-bypass-approvals-and-sandbox");
@@ -519,6 +522,9 @@ workflows:
     expect(orchestrator.runnerId).toBe("codex");
     expect(orchestrator.args).toContain("--model");
     expect(orchestrator.args).toContain("orchestrator-model");
+    expect(orchestrator.args).toContain(
+      'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
+    );
     expect(orchestrator.args).toContain('mcp_servers.docs.command="node"');
   });
 

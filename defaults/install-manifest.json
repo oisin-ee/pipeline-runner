@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "source": "obra/superpowers",
+      "skills": [
+        "using-superpowers",
+        "writing-plans",
+        "dispatching-parallel-agents",
+        "requesting-code-review",
+        "receiving-code-review",
+        "verification-before-completion"
+      ]
+    },
+    {
+      "source": "addyosmani/agent-skills",
+      "skills": [
+        "context-engineering",
+        "source-driven-development",
+        "spec-driven-development",
+        "planning-and-task-breakdown",
+        "test-driven-development",
+        "incremental-implementation",
+        "debugging-and-error-recovery",
+        "code-review-and-quality",
+        "doubt-driven-development",
+        "security-and-hardening",
+        "performance-optimization",
+        "documentation-and-adrs",
+        "deprecation-and-migration"
+      ]
+    },
+    {
+      "source": "trailofbits/skills",
+      "skills": ["semgrep", "supply-chain-risk-auditor"]
+    },
+    {
+      "source": "vercel-labs/agent-skills",
+      "skills": ["vercel-react-best-practices", "web-design-guidelines"]
+    }
+  ],
+  "mcps": [
+    {
+      "name": "oisin-pipeline-backlog",
+      "transport": "stdio",
+      "command": "backlog",
+      "args": ["mcp", "start"]
+    },
+    {
+      "name": "oisin-pipeline-context7",
+      "transport": "remote",
+      "catalog": "context7"
+    },
+    {
+      "name": "oisin-pipeline-github-readonly",
+      "transport": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "ghcr.io/github/github-mcp-server",
+        "stdio",
+        "--read-only"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    {
+      "name": "oisin-pipeline-playwright",
+      "transport": "stdio",
+      "catalog": "playwright"
+    },
+    {
+      "name": "oisin-pipeline-qdrant",
+      "transport": "remote",
+      "url": "https://memory-mcp.momokaya.ee/mcp/",
+      "headers": {
+        "Authorization": {
+          "sources": [
+            { "env": "MOMOKAYA_MCP_AUTHORIZATION" },
+            { "env": "MEMORY_MCP_BASIC_AUTH", "prefix": "Basic " }
+          ]
+        }
+      }
+    },
+    {
+      "name": "oisin-pipeline-semgrep",
+      "transport": "stdio",
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "ghcr.io/semgrep/mcp", "-t", "stdio"]
+    },
+    {
+      "name": "oisin-pipeline-serena",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--project-from-cwd",
+        "--context=codex"
+      ]
+    }
+  ]
+}

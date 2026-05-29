@@ -11,6 +11,7 @@ dist
 
 .pipeline/worktrees/
 .pipeline/dogfood/
+.pipeline/runs/
 .claude/grounded-memory.json
 
 
@@ -26,6 +27,9 @@ rulesync.local.jsonc
 **/AGENTS.local.md
 **/AGENTS.md
 **/.agents/
+!.agents/
+!.agents/skills/
+!.agents/skills/**
 **/CLAUDE.md
 **/CLAUDE.local.md
 **/.claude/CLAUDE.md
@@ -35,6 +39,7 @@ rulesync.local.jsonc
 **/.claude/agents/
 **/.claude/skills/
 **/.mcp.json
+!.mcp.json
 **/.claude/memories/
 **/.claude/settings.local.json
 **/.claude/*.lock

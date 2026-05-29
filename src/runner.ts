@@ -520,9 +520,16 @@ function skillArgsFor(
   actor: ActorConfig | undefined,
   worktreePath: string
 ): string[] {
+  const shouldValidatePaths = existsSync(worktreePath);
   const paths = (actor?.skills ?? []).flatMap((id) => {
     const path = config?.skills[id]?.path;
-    return path ? [join(worktreePath, path)] : [];
+    const absolutePath = path ? join(worktreePath, path) : undefined;
+    if (!absolutePath) {
+      return [];
+    }
+    return shouldValidatePaths && !existsSync(absolutePath)
+      ? []
+      : [absolutePath];
   });
   if (paths.length === 0) {
     return [];
@@ -532,6 +539,14 @@ function skillArgsFor(
       "--skills-dir",
       path,
     ]);
+  }
+  if (runnerType === "codex") {
+    return [
+      "--config",
+      `skills.config=${tomlValue(
+        paths.map((path) => ({ enabled: true, path }))
+      )}`,
+    ];
   }
   if (runnerType === "pi") {
     return paths.flatMap((path) => ["--skill", path]);

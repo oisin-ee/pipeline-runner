@@ -14,13 +14,13 @@ pipe install-commands --host all --check
 
 ## Host Mappings
 
-| Host        | Generated resources                                    | Invocation           | Mechanical path                                                                                        |
-| ----------- | ------------------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------ |
-| Claude Code | `.claude/commands/pipe.md`, `.claude/agents/*.md`      | `/pipe <task>`       | Project command delegates to configured Claude agents.                                                 |
-| Codex       | `.agents/skills/pipe/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>`       | Skill instructs Codex to use generated Codex agents for Codex runner nodes.                            |
-| OpenCode    | `.opencode/commands/pipe.md`, `.opencode/agents/*.md`  | `/pipe <task>`       | Project command runs a primary orchestrator and native subagents when the requested model is resolved. |
-| Kimi        | `.kimi/skills/pipe/SKILL.md`, `.kimi/agents/*.yaml`    | `/skill:pipe <task>` | Kimi discovers project skills as `/skill:<name>` commands; Kimi agents are generated as YAML specs.    |
-| Pi          | `.pi/prompts/pipe.md`, `.pi/extensions/pipe.ts`        | `/pipe <task>`       | Pi discovers project prompt templates as slash commands; the generated extension is a no-op shim.      |
+| Host        | Generated resources                                               | Invocation                         | Mechanical path                                                                                        |
+| ----------- | ----------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Claude Code | `.claude/commands/<entrypoint>.md`, `.claude/agents/*.md`         | `/pipe <task>`, `/inspect <task>`  | Project commands delegate to configured Claude agents.                                                 |
+| Codex       | `.agents/skills/<entrypoint>/SKILL.md`, `.codex/agents/*.toml`    | `$pipe <task>`, `$inspect <task>`  | Skills instruct Codex to use generated Codex agents for Codex runner nodes.                            |
+| OpenCode    | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`     | `/pipe <task>`, `/inspect <task>`  | Project commands run a primary orchestrator and native subagents when the requested model is resolved. |
+| Kimi        | `.kimi/commands/<entrypoint>.md`, `.kimi/agents/*.yaml`           | `/pipe <task>`, `/inspect <task>`  | Kimi discovers generated command surfaces directly; Kimi agents are generated as YAML specs.           |
+| Pi          | `.pi/prompts/<entrypoint>.md`                                     | `/pipe <task>`, `/inspect <task>`  | Pi discovers project prompt templates as slash commands.                                               |
 
 ## Projection Rules
 

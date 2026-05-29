@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": ["info", "warn", "error", "critical"],
+            "type": "string"
+          }
+        },
+        "required": ["severity", "message"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "verdict": {
+      "enum": ["PASS", "FAIL"],
+      "type": "string"
+    }
+  },
+  "required": ["verdict", "findings"],
+  "type": "object"
+}

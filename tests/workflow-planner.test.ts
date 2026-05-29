@@ -1,17 +1,40 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
 import type { PipelineConfig } from "../src/config.js";
-import { parsePipelineConfigParts } from "../src/config.js";
-import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
+import { loadPipelineConfig } from "../src/config.js";
+import {
+  DEFAULT_SKILL_INSTALLS,
+  defaultPipelineScaffoldFiles,
+} from "../src/pipeline-init.js";
 import {
   compileWorkflowPlan,
   WorkflowPlannerError,
 } from "../src/workflow-planner.js";
 
+// Literal pipeline template tokens; interpolating the inner literal keeps the
+// "${" sequence out of the source so noTemplateCurlyInString stays satisfied.
+const WORKTREE_TEMPLATE = `.pipeline/worktrees/$${"{runId}"}/$${"{nodeId}"}`;
+
 const DEFAULT_FILES = defaultPipelineScaffoldFiles();
-const DEFAULT_CONFIG = parsePipelineConfigParts({
-  pipeline: DEFAULT_FILES[".pipeline/pipeline.yaml"] as string,
-  profiles: DEFAULT_FILES[".pipeline/profiles.yaml"] as string,
-  runners: DEFAULT_FILES[".pipeline/runners.yaml"] as string,
+const DEFAULT_PROJECT = mkdtempSync(
+  join(tmpdir(), "workflow-planner-default-")
+);
+for (const [path, content] of Object.entries(DEFAULT_FILES)) {
+  const target = join(DEFAULT_PROJECT, path);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, content);
+}
+for (const skill of DEFAULT_SKILL_INSTALLS.flatMap((spec) => spec.skills)) {
+  const target = join(DEFAULT_PROJECT, ".agents", "skills", skill, "SKILL.md");
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `---\nname: ${skill}\n---\n\n# ${skill}\n`);
+}
+const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT);
+
+afterAll(() => {
+  rmSync(DEFAULT_PROJECT, { force: true, recursive: true });
 });
 
 function capturePlannerError(action: () => unknown): WorkflowPlannerError {
@@ -40,17 +63,138 @@ describe("compileWorkflowPlan", () => {
       "research",
       "red",
       "green",
+      "acceptance",
       "verify",
       "learn",
     ]);
     expect(
       plan.parallelBatches.map((batch) => batch.map((node) => node.id))
-    ).toEqual([["research"], ["red"], ["green"], ["verify"], ["learn"]]);
+    ).toEqual([
+      ["research"],
+      ["red"],
+      ["green"],
+      ["acceptance"],
+      ["verify"],
+      ["learn"],
+    ]);
     expect(plan.topologicalOrder[0]).toMatchObject({
       dependents: ["red"],
       kind: "agent",
       needs: [],
       profile: "pipeline-researcher",
+    });
+  });
+
+  it("compiles the epic-drain entrypoint workflow with the implementation fanout", () => {
+    const config = loadPipelineConfig(process.cwd(), {
+      allowMissingLintFileReferences: true,
+    });
+
+    const plan = compileWorkflowPlan(config, "epic-drain");
+
+    expect(plan.topologicalOrder.map((node) => node.id)).toEqual([
+      "research",
+      "plan",
+      "implement",
+      "merge",
+      "review",
+    ]);
+    expect(
+      plan.parallelBatches.map((batch) => batch.map((node) => node.id))
+    ).toEqual([["research"], ["plan"], ["implement"], ["merge"], ["review"]]);
+    expect(plan.topologicalOrder[0]).toMatchObject({
+      id: "research",
+      kind: "agent",
+      profile: "pipeline-researcher",
+    });
+    expect(plan.topologicalOrder[1]).toMatchObject({
+      id: "plan",
+      kind: "agent",
+      needs: ["research"],
+      profile: "pipeline-epic-router",
+    });
+
+    const implement = plan.topologicalOrder[2];
+    expect(implement).toMatchObject({
+      id: "implement",
+      kind: "parallel",
+      needs: ["plan"],
+    });
+    expect(implement.children?.map((child) => child.id)).toEqual([
+      "test",
+      "frontend",
+      "backend",
+      "k8s",
+    ]);
+    const expectedChildWorkflows = {
+      test: "default",
+      frontend: "default",
+      backend: "default",
+      k8s: "infra",
+    };
+    for (const [track, childWorkflow] of Object.entries(
+      expectedChildWorkflows
+    )) {
+      expect(
+        implement.children?.find((child) => child.id === track)
+      ).toMatchObject({
+        id: track,
+        kind: "workflow",
+        workflow: childWorkflow,
+        worktreeRoot: `.pipeline/runs/\${runId}/${track}`,
+      });
+    }
+
+    expect(plan.topologicalOrder[3]).toMatchObject({
+      id: "merge",
+      builtin: "drain-merge",
+      kind: "builtin",
+      needs: ["implement"],
+    });
+    expect(plan.topologicalOrder[4]).toMatchObject({
+      id: "review",
+      kind: "agent",
+      needs: ["merge"],
+      profile: "pipeline-hardened-reviewer",
+    });
+    expect(plan.topologicalOrder[4].gates).toEqual([
+      { id: "review-verdict", kind: "verdict", target: "stdout" },
+    ]);
+  });
+
+  it("carries workflow-node worktree_root as planned worktreeRoot", () => {
+    const config = cloneConfig();
+    config.workflows.default.nodes = [
+      {
+        id: "child",
+        kind: "workflow",
+        workflow: "subflow",
+      } as PipelineConfig["workflows"][string]["nodes"][number] & {
+        worktree_root: string;
+      },
+    ];
+    (
+      config.workflows.default
+        .nodes[0] as PipelineConfig["workflows"][string]["nodes"][number] & {
+        worktree_root: string;
+      }
+    ).worktree_root = WORKTREE_TEMPLATE;
+    config.workflows.subflow = {
+      nodes: [
+        {
+          id: "research",
+          kind: "agent",
+          profile: "pipeline-researcher",
+        },
+      ],
+    };
+
+    const plan = compileWorkflowPlan(config);
+
+    expect(plan.topologicalOrder[0]).toMatchObject({
+      id: "child",
+      kind: "workflow",
+      worktreeRoot: WORKTREE_TEMPLATE,
     });
   });
 

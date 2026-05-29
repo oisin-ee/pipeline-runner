@@ -32,6 +32,7 @@ export class WorkflowPlannerError extends Error {
 export interface PlannedWorkflowNode {
   artifacts?: WorkflowNode["artifacts"];
   builtin?: string;
+  children?: PlannedWorkflowNode[];
   command?: string[];
   dependents: string[];
   gates?: WorkflowNode["gates"];
@@ -44,6 +45,8 @@ export interface PlannedWorkflowNode {
   profile?: string;
   retries?: WorkflowNode["retries"];
   timeoutMs?: number;
+  workflow?: string;
+  worktreeRoot?: string;
 }
 
 export interface WorkflowExecutionPlan {
@@ -298,6 +301,12 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
     artifacts: node.artifacts,
     builtin: "builtin" in node ? node.builtin : undefined,
     command: "command" in node ? node.command : undefined,
+    children:
+      node.kind === "parallel"
+        ? node.nodes.map((child, childIndex) =>
+            toPlannedNode(child, childIndex)
+          )
+        : undefined,
     dependents: [],
     gates: node.gates,
     hooks: node.hooks,
@@ -305,9 +314,11 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
     index,
     kind: node.kind,
     needs: node.needs ?? [],
-    nodes: "nodes" in node ? node.nodes : undefined,
+    nodes: node.kind === "group" ? node.nodes : undefined,
     profile: "profile" in node ? node.profile : undefined,
     retries: node.retries,
+    workflow: "workflow" in node ? node.workflow : undefined,
+    worktreeRoot: "worktree_root" in node ? node.worktree_root : undefined,
   };
   if (node.timeout_ms) {
     planned.timeoutMs = node.timeout_ms;

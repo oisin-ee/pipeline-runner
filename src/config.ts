@@ -18,7 +18,14 @@ const RUNNER_TYPES = [
   "pi",
   "command",
 ] as const;
-const NODE_KINDS = ["agent", "command", "builtin", "group"] as const;
+const NODE_KINDS = [
+  "agent",
+  "command",
+  "builtin",
+  "group",
+  "parallel",
+  "workflow",
+] as const;
 const HOOK_EVENTS = [
   "workflow.start",
   "workflow.success",
@@ -51,7 +58,7 @@ const GATE_KINDS = [
   "json_schema",
   "verdict",
 ] as const;
-const BUILTIN_GATES = ["duplication", "test", "typecheck"] as const;
+const BUILTIN_GATES = ["duplication", "semgrep", "test", "typecheck"] as const;
 const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
 
 export type PipelineConfigErrorCode =
@@ -420,32 +427,81 @@ const workflowNodeBaseSchema = z.object({
   timeout_ms: z.number().int().positive().optional(),
 });
 
-const workflowNodeSchema = z.discriminatedUnion("kind", [
-  workflowNodeBaseSchema
-    .extend({
-      kind: z.literal("agent"),
-      profile: z.string(),
-    })
-    .strict(),
-  workflowNodeBaseSchema
-    .extend({
-      command: z.array(z.string()),
-      kind: z.literal("command"),
-    })
-    .strict(),
-  workflowNodeBaseSchema
-    .extend({
-      builtin: z.string(),
-      kind: z.literal("builtin"),
-    })
-    .strict(),
-  workflowNodeBaseSchema
-    .extend({
-      kind: z.literal("group"),
-      nodes: z.array(z.string()).min(1),
-    })
-    .strict(),
-]);
+type WorkflowNodeBase = z.infer<typeof workflowNodeBaseSchema>;
+type AgentWorkflowNode = WorkflowNodeBase & {
+  kind: "agent";
+  profile: string;
+};
+type CommandWorkflowNode = WorkflowNodeBase & {
+  command: string[];
+  kind: "command";
+};
+type BuiltinWorkflowNode = WorkflowNodeBase & {
+  builtin: string;
+  kind: "builtin";
+};
+type GroupWorkflowNode = WorkflowNodeBase & {
+  kind: "group";
+  nodes: string[];
+};
+type ParallelWorkflowNode = WorkflowNodeBase & {
+  kind: "parallel";
+  nodes: WorkflowNode[];
+};
+type ChildWorkflowNode = WorkflowNodeBase & {
+  kind: "workflow";
+  workflow: string;
+  worktree_root?: string;
+};
+type WorkflowNode =
+  | AgentWorkflowNode
+  | CommandWorkflowNode
+  | BuiltinWorkflowNode
+  | GroupWorkflowNode
+  | ParallelWorkflowNode
+  | ChildWorkflowNode;
+
+const workflowNodeSchema: z.ZodType<WorkflowNode> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    workflowNodeBaseSchema
+      .extend({
+        kind: z.literal("agent"),
+        profile: z.string(),
+      })
+      .strict(),
+    workflowNodeBaseSchema
+      .extend({
+        command: z.array(z.string()),
+        kind: z.literal("command"),
+      })
+      .strict(),
+    workflowNodeBaseSchema
+      .extend({
+        builtin: z.string(),
+        kind: z.literal("builtin"),
+      })
+      .strict(),
+    workflowNodeBaseSchema
+      .extend({
+        kind: z.literal("group"),
+        nodes: z.array(z.string()).min(1),
+      })
+      .strict(),
+    workflowNodeBaseSchema
+      .extend({
+        kind: z.literal("parallel"),
+        nodes: z.array(workflowNodeSchema).min(1),
+      })
+      .strict(),
+    workflowNodeBaseSchema
+      .extend({
+        kind: z.literal("workflow"),
+        workflow: z.string(),
+        worktree_root: z.string().optional(),
+      })
+      .strict(),
+  ])
+);
 
 const workflowSchema = z
   .object({
@@ -517,7 +573,14 @@ export interface PipelineConfigParts {
   runners: string;
 }
 
-export function loadPipelineConfig(projectRoot: string): PipelineConfig {
+export interface PipelineConfigValidationOptions {
+  allowMissingLintFileReferences?: boolean;
+}
+
+export function loadPipelineConfig(
+  projectRoot: string,
+  options: PipelineConfigValidationOptions = {}
+): PipelineConfig {
   const paths = [
     PIPELINE_CONFIG_PATH,
     PROFILES_CONFIG_PATH,
@@ -546,8 +609,23 @@ export function loadPipelineConfig(projectRoot: string): PipelineConfig {
       profiles: readFileSync(join(projectRoot, PROFILES_CONFIG_PATH), "utf8"),
       runners: readFileSync(join(projectRoot, RUNNERS_CONFIG_PATH), "utf8"),
     },
-    projectRoot
+    projectRoot,
+    undefined,
+    options
   );
+}
+
+export function tryLoadPipelineConfig(
+  projectRoot: string,
+  options: PipelineConfigValidationOptions = {}
+): PipelineConfig | null {
+  if (!existsSync(join(projectRoot, PIPELINE_CONFIG_PATH))) {
+    if (existsSync(join(projectRoot, LEGACY_CONFIG_PATH))) {
+      return loadPipelineConfig(projectRoot, options);
+    }
+    return null;
+  }
+  return loadPipelineConfig(projectRoot, options);
 }
 
 export function parsePipelineConfigYaml(
@@ -577,7 +655,8 @@ export function parsePipelineConfigParts(
     pipeline: PIPELINE_CONFIG_PATH,
     profiles: PROFILES_CONFIG_PATH,
     runners: RUNNERS_CONFIG_PATH,
-  }
+  },
+  options: PipelineConfigValidationOptions = {}
 ): PipelineConfig {
   const runners = parseYamlAs(
     sources.runners,
@@ -614,7 +693,8 @@ export function parsePipelineConfigParts(
       version: 1,
       workflows: pipeline.workflows,
     },
-    projectRoot
+    projectRoot,
+    options
   );
 }
 
@@ -766,7 +846,8 @@ function normalizeMcpJsonServer(
 
 export function validatePipelineConfig(
   config: PipelineConfig,
-  projectRoot?: string
+  projectRoot?: string,
+  options: PipelineConfigValidationOptions = {}
 ): PipelineConfig {
   const issues: PipelineConfigIssue[] = [];
 
@@ -819,7 +900,15 @@ export function validatePipelineConfig(
       });
       continue;
     }
-    validateProfile(profileId, profile, runner, config, issues, projectRoot);
+    validateProfile(
+      profileId,
+      profile,
+      runner,
+      config,
+      issues,
+      projectRoot,
+      options
+    );
   }
 
   for (const [hookId, hook] of Object.entries(config.hooks)) {
@@ -838,15 +927,34 @@ export function validatePipelineConfig(
   }
 
   for (const [ruleId, rule] of Object.entries(config.rules)) {
-    validatePath(`rules.${ruleId}.path`, rule.path, projectRoot, issues);
+    validatePath(
+      `rules.${ruleId}.path`,
+      rule.path,
+      projectRoot,
+      issues,
+      options
+    );
   }
 
   for (const [skillId, skill] of Object.entries(config.skills)) {
-    validatePath(`skills.${skillId}.path`, skill.path, projectRoot, issues);
+    validatePath(
+      `skills.${skillId}.path`,
+      skill.path,
+      projectRoot,
+      issues,
+      options
+    );
   }
 
   for (const [workflowId, workflow] of Object.entries(config.workflows)) {
-    validateWorkflow(workflowId, workflow, config, issues, projectRoot);
+    validateWorkflow(
+      workflowId,
+      workflow,
+      config,
+      issues,
+      projectRoot,
+      options
+    );
   }
 
   if (issues.length > 0) {
@@ -876,7 +984,8 @@ function validateProfile(
   runner: PipelineConfig["runners"][string],
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
-  projectRoot?: string
+  projectRoot?: string,
+  options: PipelineConfigValidationOptions = {}
 ): void {
   validateActor(
     `profile '${profileId}'`,
@@ -885,7 +994,8 @@ function validateProfile(
     runner,
     config,
     issues,
-    projectRoot
+    projectRoot,
+    options
   );
   validateListCapability(
     `profiles.${profileId}.output.format`,
@@ -921,7 +1031,8 @@ function validateProfile(
     `profiles.${profileId}.output.schema_path`,
     profile.output?.schema_path,
     projectRoot,
-    issues
+    issues,
+    options
   );
 }
 
@@ -932,7 +1043,8 @@ function validateActor(
   runner: PipelineConfig["runners"][string],
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
-  projectRoot?: string
+  projectRoot?: string,
+  options: PipelineConfigValidationOptions = {}
 ): void {
   if (!(actor.instructions.path || actor.instructions.inline)) {
     issues.push({
@@ -944,7 +1056,8 @@ function validateActor(
     `${path}.instructions.path`,
     actor.instructions.path,
     projectRoot,
-    issues
+    issues,
+    options
   );
 
   validateReferences(
@@ -1018,7 +1131,8 @@ function validateWorkflow(
   workflow: PipelineConfig["workflows"][string],
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
-  projectRoot?: string
+  projectRoot?: string,
+  options: PipelineConfigValidationOptions = {}
 ): void {
   validateReferences(
     `workflows.${workflowId}.hooks`,
@@ -1041,7 +1155,7 @@ function validateWorkflow(
 
   for (const node of workflow.nodes) {
     validateWorkflowNode(workflowId, node, nodeIds, config, issues);
-    validateNodeGates(workflowId, node, issues, projectRoot);
+    validateNodeGates(workflowId, node, issues, projectRoot, options);
   }
 }
 
@@ -1074,6 +1188,9 @@ function validateWorkflowNode(
     issues
   );
   validateWorkflowNodeKind(workflowId, node, config, issues);
+  if (node.kind === "parallel") {
+    validateParallelWorkflowNode(workflowId, node, config, issues);
+  }
 }
 
 function validateWorkflowNodeKind(
@@ -1088,13 +1205,44 @@ function validateWorkflowNodeKind(
       message: `node '${node.id}' references missing profile '${node.profile}'`,
     });
   }
+  if (node.kind === "workflow" && !config.workflows[node.workflow]) {
+    issues.push({
+      path: `workflows.${workflowId}.nodes.${node.id}.workflow`,
+      message: `node '${node.id}' references missing workflow '${node.workflow}'`,
+    });
+  }
+}
+
+function validateParallelWorkflowNode(
+  workflowId: string,
+  node: Extract<
+    PipelineConfig["workflows"][string]["nodes"][number],
+    { kind: "parallel" }
+  >,
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[]
+): void {
+  const childIds = new Set<string>();
+  for (const child of node.nodes) {
+    if (childIds.has(child.id)) {
+      issues.push({
+        path: `workflows.${workflowId}.nodes.${node.id}.nodes.${child.id}`,
+        message: `parallel node '${node.id}' declares duplicate child node id '${child.id}'`,
+      });
+    }
+    childIds.add(child.id);
+  }
+  for (const child of node.nodes) {
+    validateWorkflowNode(workflowId, child, childIds, config, issues);
+  }
 }
 
 function validateNodeGates(
   workflowId: string,
   node: PipelineConfig["workflows"][string]["nodes"][number],
   issues: PipelineConfigIssue[],
-  projectRoot?: string
+  projectRoot?: string,
+  options: PipelineConfigValidationOptions = {}
 ): void {
   for (const [index, gate] of (node.gates ?? []).entries()) {
     const path = `workflows.${workflowId}.nodes.${node.id}.gates.${index}`;
@@ -1104,7 +1252,8 @@ function validateNodeGates(
         `${path}.schema_path`,
         gate.schema_path,
         projectRoot,
-        issues
+        issues,
+        options
       );
     }
   }
@@ -1197,17 +1346,36 @@ function validatePath(
   path: string,
   value: string | undefined,
   projectRoot: string | undefined,
-  issues: PipelineConfigIssue[]
+  issues: PipelineConfigIssue[],
+  options: PipelineConfigValidationOptions = {}
 ): void {
   if (!(value && projectRoot)) {
     return;
   }
   if (!existsSync(join(projectRoot, value))) {
+    if (
+      options.allowMissingLintFileReferences &&
+      isLintableMissingFileReferencePath(path)
+    ) {
+      return;
+    }
     issues.push({
       path,
       message: `referenced file '${value}' does not exist`,
     });
   }
+}
+
+const SKILLS_REGEX = /^skills\.[^.]+\.path$/;
+const PROFILES_INSTRUCTIONS_REGEX = /^profiles\.[^.]+\.instructions\.path$/;
+const PROFILES_OUTPUT_REGEX = /^profiles\.[^.]+\.output\.schema_path$/;
+
+function isLintableMissingFileReferencePath(path: string): boolean {
+  return (
+    SKILLS_REGEX.test(path) ||
+    PROFILES_INSTRUCTIONS_REGEX.test(path) ||
+    PROFILES_OUTPUT_REGEX.test(path)
+  );
 }
 
 function validationError(issues: PipelineConfigIssue[]): PipelineConfigError {
