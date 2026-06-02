@@ -1,12 +1,13 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("execa", () => ({
@@ -18,6 +19,7 @@ import { loadPipelineConfig } from "../src/config.js";
 import {
   DEFAULT_INSTALL_MANIFEST,
   DEFAULT_MCP_INSTALLS,
+  DEFAULT_SKILL_INSTALLS,
   installDefaultMcpsWithCli,
   PipelineMcpInstallError,
   type PipelineMcpInstaller,
@@ -25,7 +27,9 @@ import {
 import {
   defaultPipelineScaffoldFiles,
   initPipelineProject,
+  installDefaultSkillsWithCli,
   PipelineInitError,
+  type PipelineSkillInstaller,
 } from "../src/pipeline-init.js";
 
 const mockExeca = vi.mocked(execa);
@@ -62,6 +66,7 @@ describe("initPipelineProject", () => {
     initPipelineProject({
       cwd: dir,
       mcpInstaller: fakeMcpInstaller,
+      skillInstaller: fakeSkillInstaller,
       ...options,
     });
 
@@ -72,11 +77,13 @@ describe("initPipelineProject", () => {
     expect(result.files).toContain(".pipeline/profiles.yaml");
     expect(result.files).toContain(".pipeline/runners.yaml");
     expect(result.files).toContain(".mcp.json");
-    expect(result.files).not.toContain("skills-lock.json");
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(true);
+    expect(existsSync(join(dir, ".agents/skills/research/SKILL.md"))).toBe(
+      true
+    );
     const config = loadPipelineConfig(dir);
     expect(config.default_workflow).toBe("default");
     expect(config.entrypoints.epic).toMatchObject({
@@ -101,7 +108,7 @@ describe("initPipelineProject", () => {
     });
     expect(config.profiles["pipeline-thermo-nuclear-reviewer"]).toMatchObject({
       instructions: {
-        path: "~/dev/skills/.agents/skills/critique/SKILL.md",
+        path: ".agents/skills/critique/SKILL.md",
       },
       skills: ["critique"],
       output: {
@@ -214,15 +221,17 @@ describe("initPipelineProject", () => {
     ]);
   });
 
-  it("points default skills at the external skills repo", async () => {
+  it("installs and points default skills at project skill paths", async () => {
     await init();
 
     const config = loadPipelineConfig(dir);
     expect(config.skills.research.path).toBe(
-      "~/dev/skills/.agents/skills/research/SKILL.md"
+      ".agents/skills/research/SKILL.md"
     );
     expect(config.profiles["pipeline-researcher"].skills).toContain("research");
-    expect(existsSync(join(dir, ".agents", "skills"))).toBe(false);
+    expect(
+      readFileSync(join(dir, ".agents/skills/research/SKILL.md"), "utf8")
+    ).toContain("name: research");
   });
 
   it("keeps banned generated MCP defaults out of the scaffold", async () => {
@@ -248,6 +257,7 @@ describe("initPipelineProject", () => {
         );
         return Promise.resolve(undefined);
       },
+      skillInstaller: fakeSkillInstaller,
     });
 
     expect(registered).toEqual(
@@ -263,12 +273,26 @@ describe("initPipelineProject", () => {
       readFileSync("defaults/install-manifest.json", "utf8")
     ) as {
       mcps: unknown[];
+      skills: unknown[];
       version: number;
     };
 
     expect(DEFAULT_INSTALL_MANIFEST.version).toBe(1);
-    expect("skills" in manifest).toBe(false);
+    expect(DEFAULT_SKILL_INSTALLS).toEqual(manifest.skills);
     expect(DEFAULT_MCP_INSTALLS).toEqual(manifest.mcps);
+  });
+
+  it("installs default skills with the skills CLI", async () => {
+    await installDefaultSkillsWithCli(
+      [{ source: "oisincoveney/skills", args: ["--agent", "codex"] }],
+      dir
+    );
+
+    expect(mockExeca).toHaveBeenCalledWith(
+      "npx",
+      ["--yes", "skills", "add", "oisincoveney/skills", "--agent", "codex"],
+      expect.objectContaining({ cwd: dir })
+    );
   });
 
   it("declares the single memory basic auth source in the default MCP manifest", () => {
@@ -367,12 +391,26 @@ describe("initPipelineProject", () => {
       initPipelineProject({
         cwd: dir,
         mcpInstaller: () => Promise.reject(new Error("mcpm missing")),
+        skillInstaller: fakeSkillInstaller,
       })
     ).rejects.toThrow("mcpm missing");
 
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(existsSync(join(dir, ".agents", "skills"))).toBe(false);
+  });
+
+  it("does not write scaffold files when skill installation fails", async () => {
+    await expect(
+      initPipelineProject({
+        cwd: dir,
+        mcpInstaller: fakeMcpInstaller,
+        skillInstaller: () => Promise.reject(new Error("skills missing")),
+      })
+    ).rejects.toThrow("skills missing");
+
+    expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
+    expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
   });
 
   it("refuses to overwrite existing scaffold files without --overwrite", async () => {
@@ -430,3 +468,33 @@ describe("initPipelineProject", () => {
 });
 
 const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve(undefined);
+
+const DEFAULT_TEST_SKILLS = [
+  "critique",
+  "diagnose",
+  "doubt",
+  "execute",
+  "fix",
+  "grill",
+  "improve",
+  "library-first-development",
+  "migrate",
+  "optimize",
+  "quality-gate",
+  "research",
+  "scope",
+  "secure",
+  "spec",
+  "test",
+  "trace",
+  "verify",
+];
+
+const fakeSkillInstaller: PipelineSkillInstaller = (_specs, cwd) => {
+  for (const skill of DEFAULT_TEST_SKILLS) {
+    const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `---\nname: ${skill}\n---\n\n# ${skill}\n`);
+  }
+  return Promise.resolve();
+};

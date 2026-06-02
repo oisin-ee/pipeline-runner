@@ -29,4 +29,4 @@ filesystem: read-only
 network: inherit
 output: json_schema
 
-Instructions: ~/dev/skills/.agents/skills/critique/SKILL.md
+Instructions: .agents/skills/critique/SKILL.md

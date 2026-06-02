@@ -1276,7 +1276,7 @@ describe("epic-router asset bundle", () => {
 });
 
 describe("final review asset bundle", () => {
-  it("declares the external critique skills and reviewer profile contract", () => {
+  it("declares the installed critique skill and reviewer profile contract", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
       "utf8"
@@ -1287,7 +1287,7 @@ describe("final review asset bundle", () => {
     };
 
     expect(profilesConfig.skills?.critique).toEqual({
-      path: "~/dev/skills/.agents/skills/critique/SKILL.md",
+      path: ".agents/skills/critique/SKILL.md",
     });
 
     const profile =
@@ -1299,7 +1299,7 @@ describe("final review asset bundle", () => {
     expect(profile).toMatchObject({
       runner: "codex",
       instructions: {
-        path: "~/dev/skills/.agents/skills/critique/SKILL.md",
+        path: ".agents/skills/critique/SKILL.md",
       },
       skills: ["critique"],
       mcp_servers: ["serena", "semgrep", "github-readonly"],
@@ -1367,12 +1367,9 @@ describe("final review asset bundle", () => {
     ).toBe(false);
   });
 
-  it("uses the external critique skill as the reviewer instructions", () => {
+  it("uses the installed critique skill as the reviewer instructions", () => {
     const skill = readFileSync(
-      join(
-        process.env.HOME ?? "",
-        "dev/skills/.agents/skills/critique/SKILL.md"
-      ),
+      join(process.cwd(), ".agents/skills/critique/SKILL.md"),
       "utf8"
     );
 

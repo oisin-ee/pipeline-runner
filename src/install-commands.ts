@@ -687,14 +687,14 @@ function codexAgentSkillConfig(
 ): Record<string, unknown> {
   const skillConfig = (profile.skills ?? []).flatMap((id) => {
     const skillPath = config.skills[id]?.path;
-    const absoluteSkillPath = skillPath
+    const resolvedSkillPath = skillPath
       ? resolveFileReference(cwd, skillPath)
       : undefined;
-    return absoluteSkillPath && existsSync(absoluteSkillPath)
+    return skillPath && resolvedSkillPath && existsSync(resolvedSkillPath)
       ? [
           {
             enabled: true,
-            path: absoluteSkillPath.replaceAll("\\", "/"),
+            path: skillPath.replaceAll("\\", "/"),
           },
         ]
       : [];

@@ -1,6 +1,6 @@
 ---
 id: PIPE-39.2
-title: Add portable external skill path resolution
+title: Add project skill path resolution
 status: Done
 assignee: []
 created_date: '2026-06-02 16:33'
@@ -32,7 +32,7 @@ ordinal: 66000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Allow configured file references, especially skills.*.path, to point at the external ~/dev/skills repository without being joined under the project root. This establishes the shared path-resolution contract before default profiles switch away from repo-local .agents/skills copies.
+Allow configured file references, especially skills.*.path, to point at project-installed .agents/skills and still support explicit absolute or home-relative paths for advanced configurations. This establishes one shared path-resolution contract before default profiles move to project-local skill installs.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -41,7 +41,7 @@ Allow configured file references, especially skills.*.path, to point at the exte
 - [x] #2 Config validation accepts absolute skill paths without prefixing the project root.
 - [x] #3 Relative skill, rule, instruction, schema, and MCP ref paths continue to resolve relative to the project root.
 - [x] #4 Runtime skill loading uses the same resolver as config validation for Codex, Kimi, Pi, generated Codex native agent config, and pipeline runtime context rendering.
-- [x] #5 Tests cover relative, absolute, and ~/ skill paths, including the current failure case where join(projectRoot, value) incorrectly handles external paths.
+- [x] #5 Tests cover relative, absolute, and ~/ skill paths, including the failure case where file-reference resolution should not blindly prefix every configured path with the project root.
 <!-- AC:END -->
 
 
@@ -55,7 +55,7 @@ Create a small path-reference helper, for example src/path-refs.ts, that resolve
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented as part of PIPE-39. Verification: bun run check passed; bun run typecheck passed; bun run test passed with 277 tests passing and 15 live-runner tests skipped.
+Implemented as part of PIPE-39. Verification: bun run check passed; bun run typecheck passed; bun run test passed with 279 tests passing and 15 live-runner tests skipped.
 <!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done

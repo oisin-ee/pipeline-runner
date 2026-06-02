@@ -1,5 +1,11 @@
 {
   "version": 1,
+  "skills": [
+    {
+      "source": "oisincoveney/skills",
+      "args": ["--agent", "codex", "--skill", "*", "--yes", "--copy"]
+    }
+  ],
   "mcps": [
     {
       "name": "oisin-pipeline-backlog",

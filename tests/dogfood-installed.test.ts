@@ -298,7 +298,7 @@ describe("installed dogfood configuration", () => {
           );
           expect(
             content,
-            `${profileId} uses portable skill paths`
+            `${profileId} uses project-relative skill paths`
           ).not.toContain(`path = "${skillPath}"`);
         } else {
           expect(

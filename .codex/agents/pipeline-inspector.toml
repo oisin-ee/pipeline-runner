@@ -8,7 +8,7 @@ sandbox_mode = "read-only"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/skills/.agents/skills/research/SKILL.md"
+path = ".agents/skills/research/SKILL.md"
 
 [mcp_servers.serena]
 args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-serena" ]

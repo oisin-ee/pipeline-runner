@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { execa } from "execa";
 import {
   loadPipelineConfig,
   PIPELINE_CONFIG_PATH,
@@ -9,16 +10,24 @@ import {
 } from "./config.js";
 import {
   DEFAULT_MCP_INSTALLS,
+  DEFAULT_SKILL_INSTALLS,
   defaultMcpJson,
   installDefaultMcpsWithCli,
   type PipelineMcpInstaller,
   type PipelineMcpSkippedRegistration,
+  type PipelineSkillInstallSpec,
 } from "./mcp/bootstrap.js";
+
+export type PipelineSkillInstaller = (
+  specs: PipelineSkillInstallSpec[],
+  cwd: string
+) => Promise<void>;
 
 export interface PipelineInitOptions {
   cwd?: string;
   mcpInstaller?: PipelineMcpInstaller;
   overwrite?: boolean;
+  skillInstaller?: PipelineSkillInstaller;
 }
 
 export interface PipelineInitResult {
@@ -368,35 +377,35 @@ rules:
 
 skills:
   critique:
-    path: ~/dev/skills/.agents/skills/critique/SKILL.md
+    path: .agents/skills/critique/SKILL.md
   diagnose:
-    path: ~/dev/skills/.agents/skills/diagnose/SKILL.md
+    path: .agents/skills/diagnose/SKILL.md
   doubt:
-    path: ~/dev/skills/.agents/skills/doubt/SKILL.md
+    path: .agents/skills/doubt/SKILL.md
   fix:
-    path: ~/dev/skills/.agents/skills/fix/SKILL.md
+    path: .agents/skills/fix/SKILL.md
   improve:
-    path: ~/dev/skills/.agents/skills/improve/SKILL.md
+    path: .agents/skills/improve/SKILL.md
   library-first-development:
-    path: ~/dev/skills/.agents/skills/library-first-development/SKILL.md
+    path: .agents/skills/library-first-development/SKILL.md
   migrate:
-    path: ~/dev/skills/.agents/skills/migrate/SKILL.md
+    path: .agents/skills/migrate/SKILL.md
   optimize:
-    path: ~/dev/skills/.agents/skills/optimize/SKILL.md
+    path: .agents/skills/optimize/SKILL.md
   research:
-    path: ~/dev/skills/.agents/skills/research/SKILL.md
+    path: .agents/skills/research/SKILL.md
   scope:
-    path: ~/dev/skills/.agents/skills/scope/SKILL.md
+    path: .agents/skills/scope/SKILL.md
   secure:
-    path: ~/dev/skills/.agents/skills/secure/SKILL.md
+    path: .agents/skills/secure/SKILL.md
   spec:
-    path: ~/dev/skills/.agents/skills/spec/SKILL.md
+    path: .agents/skills/spec/SKILL.md
   test:
-    path: ~/dev/skills/.agents/skills/test/SKILL.md
+    path: .agents/skills/test/SKILL.md
   trace:
-    path: ~/dev/skills/.agents/skills/trace/SKILL.md
+    path: .agents/skills/trace/SKILL.md
   verify:
-    path: ~/dev/skills/.agents/skills/verify/SKILL.md
+    path: .agents/skills/verify/SKILL.md
 mcp_servers:
   serena:
     ref:
@@ -550,7 +559,7 @@ profiles:
     runner: codex
     description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions:
-      path: ~/dev/skills/.agents/skills/critique/SKILL.md
+      path: .agents/skills/critique/SKILL.md
     skills: [critique]
     mcp_servers: [serena, semgrep, github-readonly]
     tools: [read, list, grep, glob, bash]
@@ -922,6 +931,23 @@ export function defaultPipelineScaffoldFiles(): Record<string, string> {
   return { ".mcp.json": defaultMcpJson(), ...SCAFFOLD_FILES };
 }
 
+export async function installDefaultSkillsWithCli(
+  specs: PipelineSkillInstallSpec[],
+  cwd: string
+): Promise<void> {
+  for (const spec of specs) {
+    await execa(
+      "npx",
+      ["--yes", "skills", "add", spec.source, ...(spec.args ?? [])],
+      {
+        cwd,
+        stderr: "inherit",
+        stdout: "inherit",
+      }
+    );
+  }
+}
+
 export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
@@ -936,6 +962,8 @@ export async function initPipelineProject(
 
   const mcpInstaller = options.mcpInstaller ?? installDefaultMcpsWithCli;
   const mcpInstallResult = await mcpInstaller(DEFAULT_MCP_INSTALLS, cwd);
+  const skillInstaller = options.skillInstaller ?? installDefaultSkillsWithCli;
+  await skillInstaller(DEFAULT_SKILL_INSTALLS, cwd);
 
   for (const [path, content] of Object.entries(files)) {
     const target = join(cwd, path);

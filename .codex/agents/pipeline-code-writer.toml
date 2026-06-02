@@ -8,19 +8,19 @@ sandbox_mode = "workspace-write"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/skills/.agents/skills/trace/SKILL.md"
+path = ".agents/skills/trace/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/skills/.agents/skills/test/SKILL.md"
+path = ".agents/skills/test/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/skills/.agents/skills/fix/SKILL.md"
+path = ".agents/skills/fix/SKILL.md"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/skills/.agents/skills/library-first-development/SKILL.md"
+path = ".agents/skills/library-first-development/SKILL.md"
 
 [mcp_servers.serena]
 args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-serena" ]

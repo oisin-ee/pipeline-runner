@@ -51,7 +51,7 @@ Create src/mcp/bootstrap.ts and src/mcp/index.ts. Move the MCP-specific init typ
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented as part of PIPE-39. Verification: bun run check passed; bun run typecheck passed; bun run test passed with 277 tests passing and 15 live-runner tests skipped.
+Implemented as part of PIPE-39. Verification: bun run check passed; bun run typecheck passed; bun run test passed with 279 tests passing and 15 live-runner tests skipped.
 <!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done

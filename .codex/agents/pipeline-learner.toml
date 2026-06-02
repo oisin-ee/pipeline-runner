@@ -8,7 +8,7 @@ sandbox_mode = "read-only"
 
 [[skills.config]]
 enabled = true
-path = "/Users/oisin/dev/skills/.agents/skills/migrate/SKILL.md"
+path = ".agents/skills/migrate/SKILL.md"
 
 [mcp_servers.qdrant]
 args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-qdrant" ]

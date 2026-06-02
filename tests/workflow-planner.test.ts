@@ -23,6 +23,27 @@ for (const [path, content] of Object.entries(DEFAULT_FILES)) {
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
 }
+for (const skill of [
+  "critique",
+  "diagnose",
+  "doubt",
+  "fix",
+  "improve",
+  "library-first-development",
+  "migrate",
+  "optimize",
+  "research",
+  "scope",
+  "secure",
+  "spec",
+  "test",
+  "trace",
+  "verify",
+]) {
+  const target = join(DEFAULT_PROJECT, ".agents", "skills", skill, "SKILL.md");
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `---\nname: ${skill}\n---\n\n# ${skill}\n`);
+}
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT);
 
 afterAll(() => {

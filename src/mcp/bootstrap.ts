@@ -41,6 +41,11 @@ export type PipelineMcpInstaller = (
   cwd: string
 ) => Promise<PipelineMcpInstallResult | undefined>;
 
+export interface PipelineSkillInstallSpec {
+  args?: string[];
+  source: string;
+}
+
 export class PipelineMcpInstallError extends Error {
   constructor(message: string) {
     super(message);
@@ -172,14 +177,23 @@ export const pipelineMcpInstallSpecSchema = z
 const defaultInstallManifestSchema = z
   .object({
     mcps: z.array(pipelineMcpInstallSpecSchema),
-    skills: z.array(z.unknown()).optional(),
+    skills: z
+      .array(
+        z
+          .object({
+            args: z.array(z.string()).optional(),
+            source: z.string().min(1),
+          })
+          .strict()
+      )
+      .default([]),
     version: z.literal(1),
   })
   .strict();
 
 export interface DefaultInstallManifest {
   mcps: PipelineMcpInstallSpec[];
-  skills?: unknown[];
+  skills: PipelineSkillInstallSpec[];
   version: 1;
 }
 
@@ -202,6 +216,8 @@ function loadDefaultInstallManifest(): DefaultInstallManifest {
 export const DEFAULT_INSTALL_MANIFEST = loadDefaultInstallManifest();
 export const DEFAULT_MCP_INSTALLS: PipelineMcpInstallSpec[] =
   DEFAULT_INSTALL_MANIFEST.mcps;
+export const DEFAULT_SKILL_INSTALLS: PipelineSkillInstallSpec[] =
+  DEFAULT_INSTALL_MANIFEST.skills;
 
 export function defaultMcpJson(): string {
   return `${JSON.stringify(

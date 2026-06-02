@@ -38,6 +38,26 @@ const FAILED_TO_PARSE_PIPELINE_YAML_ESCAPED_RE =
   /Failed to parse \.pipeline\/pipeline\.yaml/;
 const MISSING_WORKFLOW_OR_NOT_DECLARED_RE = /missing workflow|not declared/;
 const ORIGINAL_MEMORY_MCP_BASIC_AUTH = process.env.MEMORY_MCP_BASIC_AUTH;
+const DEFAULT_TEST_SKILLS = [
+  "critique",
+  "diagnose",
+  "doubt",
+  "execute",
+  "fix",
+  "grill",
+  "improve",
+  "library-first-development",
+  "migrate",
+  "optimize",
+  "quality-gate",
+  "research",
+  "scope",
+  "secure",
+  "spec",
+  "test",
+  "trace",
+  "verify",
+];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -73,9 +93,12 @@ function installMockSkills(args: string[], cwd = process.cwd()): void {
   if (skillIndex < 0) {
     return;
   }
-  const skills = args
+  const requestedSkills = args
     .slice(skillIndex + 1)
     .filter((arg) => !arg.startsWith("-"));
+  const skills = requestedSkills.includes("*")
+    ? DEFAULT_TEST_SKILLS
+    : requestedSkills;
   const lock: Record<string, unknown> = { skills: {}, version: 1 };
   for (const skill of skills) {
     const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
