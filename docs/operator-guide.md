@@ -116,6 +116,77 @@ pipe install-commands --host all --force
 
 Host choices are `all`, `claude`, `opencode`, `codex`, `kimi`, and `pi`.
 
+`pipe runner-job`
+
+Runs the in-pod backend worker entrypoint. The job reads
+`OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`, executes the selected workflow in
+`PIPELINE_TARGET_PATH` or the current directory, and appends runtime events to
+the exact `eventSink.url` provided by the console payload.
+
+The runner job does not call the Kubernetes API. Validation errors exit `64`,
+startup errors exit `70`, runtime failure exits `1`, cancellation exits `130`,
+and SIGTERM/SIGINT cancellation exits `130`.
+
+Local dry run:
+
+```shell
+export PIPELINE_TARGET_PATH=/path/to/target/repo
+export OISIN_PIPELINE_EVENT_AUTH_TOKEN=dev-token
+export OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{"eventSink":{"authHeader":"Authorization","url":"http://127.0.0.1:3000/api/pipeline/runs/run-uid-1/events"},"run":{"projectId":"alpha","requestedBy":"@agent","runId":"run-uid-1"},"selector":{"workflowId":"default"},"task":{"prompt":"PIPE-38","taskId":"PIPE-38"}}'
+pipe runner-job
+```
+
+Kubernetes dry run shape:
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: pipeline-run-alpha-
+  labels:
+    kueue.x-k8s.io/queue-name: momokaya-runner
+    pipeline.oisin.dev/project: alpha
+    pipeline.oisin.dev/run-id: run-uid-1
+    pipeline.oisin.dev/source: pipeline-console
+    pipeline.oisin.dev/task: PIPE-38
+    pipeline.oisin.dev/workflow: default
+spec:
+  template:
+    spec:
+      serviceAccountName: pipeline-runner
+      restartPolicy: Never
+      containers:
+        - name: runner
+          image: ghcr.io/oisin-ee/oisin-pipeline-runner:latest
+          env:
+            - name: OISIN_PIPELINE_RUNNER_PAYLOAD_JSON
+              value: '{"eventSink":{"authHeader":"Authorization","url":"https://console.example/api/pipeline/runs/run-uid-1/events"},"run":{"projectId":"alpha","runId":"run-uid-1"},"selector":{"workflowId":"default"},"task":{"prompt":"PIPE-38","taskId":"PIPE-38"}}'
+```
+
+The runner image is configured in `pipeline-console` as
+`pipeline.runner.image`. Console runner settings include queue name, service
+account, CPU/memory requests and limits, active deadline, TTL, backoff limit,
+event sink URL, and auth header. The runner-side
+`OISIN_PIPELINE_EVENT_AUTH_TOKEN` or `PIPELINE_EVENT_API_TOKEN` must match the
+console API `PIPELINE_EVENT_API_TOKEN`.
+
+Troubleshooting:
+
+- Missing payload: set `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`; exit code is `64`.
+- Invalid auth: confirm the runner token matches the console API token; 401/403
+  event sink responses are terminal.
+- Missing target config: set `PIPELINE_TARGET_PATH` to a repo containing
+  `.pipeline/pipeline.yaml`; exit code is `64`.
+- Missing agent CLI: run `pipe doctor` or install the CLI required by the
+  selected runner profile before starting work.
+- Cancellation: console deletes the Job; the runner handles SIGTERM/SIGINT with
+  `AbortSignal`, records cancellation/final result events, flushes, and exits
+  `130`.
+
+The runner does not own the console database, event store, Job builder, Kueue
+watcher, or UI. Do not add a runner-side Kubernetes API kind, database, console
+deployment per run, or separate language stack for this integration.
+
 Generated invocations include:
 
 ```text

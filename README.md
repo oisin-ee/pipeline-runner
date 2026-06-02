@@ -107,6 +107,21 @@ pipe "Implement PIPE-123 user-facing behavior"
 Use `PIPELINE_TARGET_PATH=/path/to/worktree` when invoking from outside the
 target repository.
 
+## Pipeline Console Runner Image
+
+`oisin-pipeline` is also the runner package/image used by `pipeline-console`.
+The console owns Kubernetes Job creation, run listing, cancellation, event
+storage, Kueue discovery, and UI rendering. This package owns the in-container
+`runner-job` command: payload validation, existing runtime invocation, event
+translation, authenticated event posting, signal cancellation, and final event
+flushing.
+
+The console starts the image with `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON` and the
+runner-side event token. The payload contract is documented in
+[`docs/pipeline-console-runner-contract.md`](docs/pipeline-console-runner-contract.md).
+Use `PIPELINE_TARGET_PATH=/path/to/worktree` when the checked-out target repo is
+mounted somewhere other than the process working directory.
+
 ## Minimal YAML
 
 `.pipeline/runners.yaml`:

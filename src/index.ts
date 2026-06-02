@@ -17,6 +17,7 @@ import {
   installCommands,
   parseCommandHost,
 } from "./install-commands.js";
+import { runKubernetesRunnerJob } from "./kubernetes-runner.js";
 import {
   DEFAULT_MCPM_ARGS,
   DEFAULT_MCPM_COMMAND,
@@ -302,6 +303,7 @@ const BUILTIN_PIPE_COMMANDS = new Set([
   "doctor",
   "init",
   "install-commands",
+  "runner-job",
 ]);
 
 export function createCliProgram(): Command {
@@ -434,6 +436,14 @@ export function createCliProgram(): Command {
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
       });
       console.log(formatInstallCommandsResult(result));
+    });
+
+  program
+    .command("runner-job")
+    .description("Run an in-pod pipeline runner job from the console payload")
+    .action(async () => {
+      const exitCode = await runKubernetesRunnerJob();
+      process.exitCode = exitCode;
     });
 
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
@@ -731,6 +741,12 @@ if (isCliEntrypoint(process.argv)) {
     if (err instanceof CommanderError) {
       process.exit(err.exitCode);
     }
+    if (hasExitCode(err)) {
+      if (err.message) {
+        console.error(err.message);
+      }
+      process.exit(err.exitCode);
+    }
     if (err instanceof Error) {
       if (err instanceof PipelineConfigError) {
         console.error(formatConfigError(err));
@@ -742,6 +758,14 @@ if (isCliEntrypoint(process.argv)) {
     console.error(String(err));
     process.exit(1);
   });
+}
+
+function hasExitCode(err: unknown): err is Error & { exitCode: number } {
+  return (
+    err instanceof Error &&
+    "exitCode" in err &&
+    typeof (err as { exitCode?: unknown }).exitCode === "number"
+  );
 }
 
 function formatWorkflowPlan(
