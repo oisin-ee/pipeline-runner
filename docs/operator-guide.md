@@ -126,6 +126,23 @@ Codex:                 $pipe, $inspect, $epic
 Set `PIPELINE_TARGET_PATH=/path/to/repo` when invoking the CLI from outside the
 target worktree.
 
+## Runner Image Verification
+
+Before publishing `ghcr.io/oisin-ee/oisin-pipeline-runner`, verify the package
+and image wiring:
+
+```shell
+bun run build
+bun run typecheck
+bun run test
+bun run test:image
+```
+
+`bun run test:image` builds the local runner image and runs a malformed
+`OISIN_PIPELINE_RUNNER_PAYLOAD_JSON` through the default `runner-job` command.
+The smoke test passes only when the container reaches runner validation and
+exits with code `64`.
+
 ## How The Package Works
 
 The runtime is config-driven. These three files are the source of truth:
