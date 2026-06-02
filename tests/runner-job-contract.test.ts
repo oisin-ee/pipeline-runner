@@ -156,10 +156,10 @@ describe("runner-job payload contract", () => {
   });
 
   it("maps runtime events into the RunnerEventRecord fields accepted by console", async () => {
-    const { mapRuntimeEventToRunnerEventRecord } = await loadContractModule();
+    const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
 
     const mapped = [
-      mapRuntimeEventToRunnerEventRecord(
+      ...mapRuntimeEventToRunnerEventRecords(
         {
           edges: [{ source: "red", target: "green" }],
           nodes: [
@@ -176,7 +176,7 @@ describe("runner-job payload contract", () => {
         },
         { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
       ),
-      mapRuntimeEventToRunnerEventRecord(
+      ...mapRuntimeEventToRunnerEventRecords(
         {
           attempt: 1,
           nodeId: "red",
@@ -184,9 +184,9 @@ describe("runner-job payload contract", () => {
           runnerId: "codex",
           type: "node.start",
         },
-        { runId: "run_123", sequence: 2, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 3, timestamp: TIMESTAMP }
       ),
-      mapRuntimeEventToRunnerEventRecord(
+      ...mapRuntimeEventToRunnerEventRecords(
         {
           evidence: ["RED failed as expected"],
           gateId: "RED",
@@ -196,9 +196,9 @@ describe("runner-job payload contract", () => {
           reason: "targeted tests failed",
           type: "gate.finish",
         },
-        { runId: "run_123", sequence: 3, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 4, timestamp: TIMESTAMP }
       ),
-      mapRuntimeEventToRunnerEventRecord(
+      ...mapRuntimeEventToRunnerEventRecords(
         {
           nodeId: "red",
           passed: true,
@@ -206,9 +206,9 @@ describe("runner-job payload contract", () => {
           required: true,
           type: "artifact.check.finish",
         },
-        { runId: "run_123", sequence: 4, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 5, timestamp: TIMESTAMP }
       ),
-      mapRuntimeEventToRunnerEventRecord(
+      ...mapRuntimeEventToRunnerEventRecords(
         {
           attempt: 1,
           format: "text",
@@ -216,15 +216,15 @@ describe("runner-job payload contract", () => {
           output: "failing-test evidence",
           type: "node.output.recorded",
         },
-        { runId: "run_123", sequence: 5, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 6, timestamp: TIMESTAMP }
       ),
-      mapRuntimeEventToRunnerEventRecord(
+      ...mapRuntimeEventToRunnerEventRecords(
         {
           outcome: "PASS",
           type: "workflow.finish",
           workflowId: "default",
         },
-        { runId: "run_123", sequence: 6, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 7, timestamp: TIMESTAMP }
       ),
     ];
 
@@ -248,6 +248,16 @@ describe("runner-job payload contract", () => {
         },
       },
       {
+        at: TIMESTAMP,
+        edge: {
+          id: "red:green",
+          source: "red",
+          target: "green",
+        },
+        sequence: 2,
+        type: "workflow.edge",
+      },
+      {
         node: {
           attempt: 1,
           nodeId: "red",
@@ -256,7 +266,7 @@ describe("runner-job payload contract", () => {
           status: "running",
         },
         at: TIMESTAMP,
-        sequence: 2,
+        sequence: 3,
         type: "node.start",
       },
       {
@@ -271,7 +281,7 @@ describe("runner-job payload contract", () => {
           status: "failed",
         },
         at: TIMESTAMP,
-        sequence: 3,
+        sequence: 4,
         type: "gate.finish",
       },
       {
@@ -286,7 +296,7 @@ describe("runner-job payload contract", () => {
           uri: "tests/runner-job-contract.test.ts",
         },
         at: TIMESTAMP,
-        sequence: 4,
+        sequence: 5,
         type: "artifact.check.finish",
       },
       {
@@ -298,7 +308,7 @@ describe("runner-job payload contract", () => {
           output: "failing-test evidence",
         },
         at: TIMESTAMP,
-        sequence: 5,
+        sequence: 6,
         type: "node.output.recorded",
       },
       {
@@ -307,7 +317,7 @@ describe("runner-job payload contract", () => {
           workflowId: "default",
         },
         at: TIMESTAMP,
-        sequence: 6,
+        sequence: 7,
         type: "workflow.finish",
       },
     ]);

@@ -221,22 +221,17 @@ describe("runner event sink", () => {
   });
 
   it("maps runtime events to the top-level fields consumed by console", async () => {
-    const {
-      mapRuntimeEventToRunnerEventRecord,
-      mapRuntimeEventToRunnerEventRecords,
-    } = await loadContractModule();
+    const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
+    const singleRecord = (event: Record<string, unknown>) => {
+      const records = mapRuntimeEventToRunnerEventRecords(event, {
+        runId: "run_123",
+        sequence: 1,
+        timestamp: TIMESTAMP,
+      });
+      expect(records).toHaveLength(1);
+      return records[0];
+    };
 
-    expect(
-      mapRuntimeEventToRunnerEventRecord(
-        {
-          edges: [{ source: "red", target: "green" }],
-          nodes: [{ id: "red", kind: "agent", needs: [] }],
-          type: "workflow.planned",
-          workflowId: "default",
-        },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
-    ).toMatchObject({ workflowPlan: { workflowId: "default" } });
     expect(
       mapRuntimeEventToRunnerEventRecords(
         {
@@ -249,6 +244,8 @@ describe("runner event sink", () => {
       )
     ).toEqual([
       expect.objectContaining({
+        sequence: 1,
+        type: "workflow.planned",
         workflowPlan: {
           workflowId: "default",
           edges: [{ source: "red", target: "green" }],
@@ -262,36 +259,27 @@ describe("runner event sink", () => {
       }),
     ]);
     expect(
-      mapRuntimeEventToRunnerEventRecord(
-        { attempt: 1, nodeId: "red", type: "node.start" },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+      singleRecord({ attempt: 1, nodeId: "red", type: "node.start" })
     ).toMatchObject({ node: { nodeId: "red", status: "running" } });
     expect(
-      mapRuntimeEventToRunnerEventRecord(
-        {
-          gateId: "RED",
-          kind: "command",
-          nodeId: "red",
-          passed: true,
-          type: "gate.finish",
-        },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+      singleRecord({
+        gateId: "RED",
+        kind: "command",
+        nodeId: "red",
+        passed: true,
+        type: "gate.finish",
+      })
     ).toMatchObject({
       gate: { gateId: "RED", passed: true, status: "passed" },
     });
     expect(
-      mapRuntimeEventToRunnerEventRecord(
-        {
-          nodeId: "red",
-          passed: true,
-          path: "tests/runner-event-sink.test.ts",
-          required: true,
-          type: "artifact.check.finish",
-        },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+      singleRecord({
+        nodeId: "red",
+        passed: true,
+        path: "tests/runner-event-sink.test.ts",
+        required: true,
+        type: "artifact.check.finish",
+      })
     ).toMatchObject({
       artifact: {
         path: "tests/runner-event-sink.test.ts",
@@ -300,16 +288,13 @@ describe("runner event sink", () => {
       },
     });
     expect(
-      mapRuntimeEventToRunnerEventRecord(
-        {
-          attempt: 1,
-          format: "text",
-          nodeId: "red",
-          output: "targeted failing tests",
-          type: "node.output.recorded",
-        },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+      singleRecord({
+        attempt: 1,
+        format: "text",
+        nodeId: "red",
+        output: "targeted failing tests",
+        type: "node.output.recorded",
+      })
     ).toMatchObject({
       log: {
         message: "targeted failing tests",
@@ -318,20 +303,18 @@ describe("runner event sink", () => {
       },
     });
     expect(
-      mapRuntimeEventToRunnerEventRecord(
-        { outcome: "FAIL", type: "workflow.finish", workflowId: "default" },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+      singleRecord({
+        outcome: "FAIL",
+        type: "workflow.finish",
+        workflowId: "default",
+      })
     ).toMatchObject({ finalResult: { outcome: "FAIL" } });
     expect(
-      mapRuntimeEventToRunnerEventRecord(
-        {
-          outcome: "CANCELLED",
-          type: "workflow.finish",
-          workflowId: "default",
-        },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+      singleRecord({
+        outcome: "CANCELLED",
+        type: "workflow.finish",
+        workflowId: "default",
+      })
     ).toMatchObject({ finalResult: { outcome: "CANCELLED" } });
   });
 

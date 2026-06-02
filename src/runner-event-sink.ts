@@ -2,7 +2,6 @@ import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
 import {
   mapRuntimeEventToRunnerEventRecords as mapRuntimeEventRecords,
   type RunnerEventRecord,
-  resolveRunnerEventSinkAuthToken,
 } from "./runner-job-contract.js";
 
 type FetchLike = (
@@ -12,9 +11,8 @@ type FetchLike = (
 
 export interface RunnerEventSinkOptions {
   authHeader?: string;
-  authToken?: string;
+  authToken: string;
   batchSize?: number;
-  env?: Record<string, string | undefined>;
   fetch?: FetchLike;
   maxRetries?: number;
   now?: () => Date;
@@ -57,22 +55,20 @@ export function createRunnerEventSink(
   if (!fetchImpl) {
     throw new Error("Runner event sink requires fetch support");
   }
+  if (!options.authToken.trim()) {
+    throw new Error("Runner event sink requires an auth token");
+  }
 
   const queue: RunnerEventRecord[] = [];
   let nextSequence = 1;
 
-  const nextRecord = (
-    type: string,
-    payload: Omit<RunnerEventRecord, "at" | "sequence" | "type">
-  ): void => {
+  const nextEnvelope = (): Pick<RunnerEventRecord, "at" | "sequence"> => {
     const sequence = nextSequence;
     nextSequence += 1;
-    queue.push({
-      ...payload,
+    return {
       at: timestamp(options.now),
       sequence,
-      type,
-    });
+    };
   };
 
   const recordRuntimeEvent = (event: PipelineRuntimeEvent): void => {
@@ -97,18 +93,22 @@ export function createRunnerEventSink(
     fail: flush,
     flush,
     recordCancellation(workflowId) {
-      nextRecord("run.cancelled", {
+      queue.push({
+        ...nextEnvelope(),
         log: {
           level: "warn",
           message:
             "Runner received a termination signal and cancelled the run.",
         },
+        type: "run.cancelled",
       });
-      nextRecord("workflow.finish", {
+      queue.push({
+        ...nextEnvelope(),
         finalResult: {
           outcome: "CANCELLED",
           workflowId,
         },
+        type: "workflow.finish",
       });
     },
     recordFinalResult(outcome, workflowId) {
@@ -157,10 +157,7 @@ async function postBatchAttempt(
     const response = await fetchImpl(options.url, {
       method: "POST",
       headers: {
-        [options.authHeader ?? "Authorization"]: `Bearer ${
-          options.authToken ??
-          resolveRunnerEventSinkAuthToken({ env: options.env })
-        }`,
+        [options.authHeader ?? "Authorization"]: `Bearer ${options.authToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ events }),

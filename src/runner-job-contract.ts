@@ -70,18 +70,132 @@ export interface RunnerEventMappingContext {
   timestamp: string;
 }
 
-export interface RunnerEventRecord {
-  artifact?: Record<string, unknown>;
+export interface RunnerWorkflowNodeDetails {
+  id: string;
+  kind: string;
+  needs: string[];
+  profile?: string;
+  runnerId?: string;
+}
+
+export interface RunnerWorkflowEdgeDetails {
+  source: string;
+  target: string;
+}
+
+export interface RunnerWorkflowPlanDetails {
+  edges?: RunnerWorkflowEdgeDetails[];
+  nodeIds?: string[];
+  nodes?: RunnerWorkflowNodeDetails[];
+  workflowId: string;
+}
+
+export interface RunnerWorkflowEdgeRecordDetails {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export type RunnerNodeStatus =
+  | "agent-finished"
+  | "agent-running"
+  | "failed"
+  | "passed"
+  | "running";
+
+export interface RunnerNodeDetails {
+  attempt: number;
+  exitCode?: number;
+  nodeId: string;
+  profile?: string;
+  runnerId?: string;
+  status: RunnerNodeStatus;
+}
+
+export type RunnerGateStatus = "failed" | "passed" | "running";
+
+export interface RunnerGateDetails {
+  event?: string;
+  evidence?: string[];
+  gateId?: string;
+  hookId?: string;
+  kind?: string;
+  label?: string;
+  nodeId?: string;
+  passed?: boolean;
+  reason?: string;
+  required?: boolean;
+  status: RunnerGateStatus;
+  workflowId?: string;
+}
+
+export type RunnerArtifactStatus = "failed" | "passed" | "running";
+
+export interface RunnerArtifactDetails {
+  kind: "artifact";
+  label: string;
+  nodeId: string;
+  passed?: boolean;
+  path: string;
+  reason?: string;
+  required: boolean;
+  status: RunnerArtifactStatus;
+  uri: string;
+}
+
+export type RunnerLogLevel = "info" | "warn";
+
+export interface RunnerLogDetails {
+  attempt?: number;
+  format?: string;
+  level: RunnerLogLevel;
+  message: string;
+  nodeId?: string;
+  output?: unknown;
+  passed?: boolean;
+  reason?: string;
+}
+
+export interface RunnerFinalResultDetails {
+  outcome: "CANCELLED" | "FAIL" | "PASS";
+  workflowId: string;
+}
+
+interface RunnerEventEnvelope {
   at?: string;
-  edge?: Record<string, unknown>;
-  finalResult?: Record<string, unknown>;
-  gate?: Record<string, unknown>;
-  log?: Record<string, unknown>;
-  node?: Record<string, unknown>;
   sequence: number;
   type: string;
-  workflowPlan?: Record<string, unknown>;
 }
+
+export type RunnerEventRecord =
+  | (RunnerEventEnvelope & {
+      type: "workflow.planned" | "workflow.start";
+      workflowPlan: RunnerWorkflowPlanDetails;
+    })
+  | (RunnerEventEnvelope & {
+      edge: RunnerWorkflowEdgeRecordDetails;
+      type: "workflow.edge";
+    })
+  | (RunnerEventEnvelope & {
+      node: RunnerNodeDetails;
+      type: "agent.finish" | "agent.start" | "node.finish" | "node.start";
+    })
+  | (RunnerEventEnvelope & {
+      gate: RunnerGateDetails;
+      type: "gate.finish" | "gate.start" | "hook.finish" | "hook.start";
+    })
+  | (RunnerEventEnvelope & {
+      artifact: RunnerArtifactDetails;
+      type: "artifact.check.finish" | "artifact.check.start";
+    })
+  | (RunnerEventEnvelope & {
+      log: RunnerLogDetails;
+      type: "node.output.recorded" | "output.repair" | "run.cancelled";
+    })
+  | (RunnerEventEnvelope & {
+      finalResult: RunnerFinalResultDetails;
+      type: "workflow.finish";
+    });
 
 const EVENT_AUTH_TOKEN_ENV_KEYS = [
   "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
@@ -166,49 +280,45 @@ export function parseRunnerJobPayload(rawPayload: string): RunnerJobPayload {
   return result.data;
 }
 
-export function mapRuntimeEventToRunnerEventRecord(
-  event: PipelineRuntimeEvent,
-  context: RunnerEventMappingContext
-): RunnerEventRecord {
-  return mapRuntimeEventToRunnerEventRecords(event, context)[0];
-}
-
 export function mapRuntimeEventToRunnerEventRecords(
   event: PipelineRuntimeEvent,
   context: RunnerEventMappingContext
 ): RunnerEventRecord[] {
-  const record: RunnerEventRecord = {
-    sequence: context.sequence ?? 1,
-    type: event.type,
+  const record = {
     at: context.timestamp,
+    sequence: context.sequence ?? 1,
   };
 
   switch (event.type) {
     case "workflow.planned": {
-      const planRecord = {
+      const planRecord: RunnerEventRecord = {
         ...record,
+        type: event.type,
         workflowPlan: {
           edges: event.edges,
           nodes: event.nodes,
           workflowId: event.workflowId,
         },
       };
-      const edgeRecords = event.edges.map((edge, index) => ({
-        at: context.timestamp,
-        edge: {
-          id: `${edge.source}:${edge.target}`,
-          source: edge.source,
-          target: edge.target,
-        },
-        sequence: (context.sequence ?? 1) + index + 1,
-        type: "workflow.edge",
-      }));
+      const edgeRecords: RunnerEventRecord[] = event.edges.map(
+        (edge, index) => ({
+          at: context.timestamp,
+          edge: {
+            id: `${edge.source}:${edge.target}`,
+            source: edge.source,
+            target: edge.target,
+          },
+          sequence: (context.sequence ?? 1) + index + 1,
+          type: "workflow.edge",
+        })
+      );
       return [planRecord, ...edgeRecords];
     }
     case "workflow.start":
       return [
         {
           ...record,
+          type: event.type,
           workflowPlan: {
             nodeIds: event.nodeIds,
             workflowId: event.workflowId,
@@ -219,6 +329,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           node: omitUndefined({
             attempt: event.attempt,
             nodeId: event.nodeId,
@@ -232,6 +343,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           node: omitUndefined({
             attempt: event.attempt,
             exitCode: event.exitCode,
@@ -246,6 +358,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           node: omitUndefined({
             attempt: event.attempt,
             nodeId: event.nodeId,
@@ -259,6 +372,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           node: omitUndefined({
             attempt: event.attempt,
             exitCode: event.exitCode,
@@ -273,6 +387,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           gate: {
             gateId: event.gateId,
             label: event.gateId,
@@ -286,6 +401,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           gate: omitUndefined({
             evidence: event.evidence,
             gateId: event.gateId,
@@ -302,6 +418,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           artifact: {
             kind: "artifact",
             label: event.path,
@@ -317,6 +434,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           artifact: omitUndefined({
             kind: "artifact",
             label: event.path,
@@ -334,6 +452,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           gate: omitUndefined({
             event: event.event,
             gateId: event.gateId,
@@ -349,6 +468,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           gate: omitUndefined({
             event: event.event,
             gateId: event.gateId,
@@ -366,6 +486,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           log: omitUndefined({
             format: event.format,
             level: event.parseError ? "warn" : "info",
@@ -379,6 +500,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           log: omitUndefined({
             attempt: event.attempt,
             level: event.passed ? "info" : "warn",
@@ -395,6 +517,7 @@ export function mapRuntimeEventToRunnerEventRecords(
       return [
         {
           ...record,
+          type: event.type,
           finalResult: {
             outcome: event.outcome,
             workflowId: event.workflowId,
@@ -402,7 +525,7 @@ export function mapRuntimeEventToRunnerEventRecords(
         },
       ];
     default:
-      return [record];
+      return assertNever(event);
   }
 }
 
@@ -444,16 +567,20 @@ function formatRunnerJobPayloadIssues(
     .join("; ");
 }
 
-function omitUndefined(
-  value: Record<string, unknown | undefined>
-): Record<string, unknown> {
+function omitUndefined<const T extends Record<string, unknown | undefined>>(
+  value: T
+): { [K in keyof T]: Exclude<T[K], undefined> } {
   return Object.fromEntries(
     Object.entries(value).filter(([, item]) => item !== undefined)
-  );
+  ) as { [K in keyof T]: Exclude<T[K], undefined> };
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled runtime event: ${String(value)}`);
 }
