@@ -1,0 +1,15 @@
+.git
+.github
+.pipeline/runs
+backlog
+coverage
+dist
+node_modules
+
+.DS_Store
+*.log
+*.tmp
+
+.pipeline/run-state
+.pipeline/test-output
+tmp
