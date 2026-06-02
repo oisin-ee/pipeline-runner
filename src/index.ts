@@ -18,9 +18,8 @@ import {
   parseCommandHost,
 } from "./install-commands.js";
 import { runKubernetesRunnerJob } from "./kubernetes-runner.js";
+import { DEFAULT_MCPM_ARGS, DEFAULT_MCPM_COMMAND } from "./mcp/bootstrap.js";
 import {
-  DEFAULT_MCPM_ARGS,
-  DEFAULT_MCPM_COMMAND,
   formatPipelineInitResult,
   initPipelineProject,
 } from "./pipeline-init.js";

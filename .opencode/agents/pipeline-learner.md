@@ -21,7 +21,7 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: documentation-and-adrs, deprecation-and-migration
+skills: migrate
 mcp_servers: qdrant, backlog
 filesystem: read-only
 network: inherit

@@ -1,13 +1,12 @@
 import {
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("execa", () => ({
@@ -19,14 +18,14 @@ import { loadPipelineConfig } from "../src/config.js";
 import {
   DEFAULT_INSTALL_MANIFEST,
   DEFAULT_MCP_INSTALLS,
-  DEFAULT_SKILL_INSTALLS,
-  defaultPipelineScaffoldFiles,
-  initPipelineProject,
   installDefaultMcpsWithCli,
-  PipelineInitError,
   PipelineMcpInstallError,
   type PipelineMcpInstaller,
-  type PipelineSkillInstaller,
+} from "../src/mcp/bootstrap.js";
+import {
+  defaultPipelineScaffoldFiles,
+  initPipelineProject,
+  PipelineInitError,
 } from "../src/pipeline-init.js";
 
 const mockExeca = vi.mocked(execa);
@@ -63,7 +62,6 @@ describe("initPipelineProject", () => {
     initPipelineProject({
       cwd: dir,
       mcpInstaller: fakeMcpInstaller,
-      skillInstaller: fakeSkillInstaller,
       ...options,
     });
 
@@ -74,13 +72,7 @@ describe("initPipelineProject", () => {
     expect(result.files).toContain(".pipeline/profiles.yaml");
     expect(result.files).toContain(".pipeline/runners.yaml");
     expect(result.files).toContain(".mcp.json");
-    expect(result.files).toContain(
-      ".agents/skills/context-engineering/SKILL.md"
-    );
-    expect(result.files).toContain(
-      ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md"
-    );
-    expect(result.files).toContain("skills-lock.json");
+    expect(result.files).not.toContain("skills-lock.json");
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
@@ -109,9 +101,9 @@ describe("initPipelineProject", () => {
     });
     expect(config.profiles["pipeline-thermo-nuclear-reviewer"]).toMatchObject({
       instructions: {
-        path: ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
+        path: "~/dev/skills/.agents/skills/critique/SKILL.md",
       },
-      skills: ["thermo-nuclear-code-quality-review"],
+      skills: ["critique"],
       output: {
         format: "json_schema",
         schema_path: ".pipeline/schemas/review.schema.json",
@@ -145,11 +137,6 @@ describe("initPipelineProject", () => {
       ".pipeline/schemas/review.schema.json",
       ".pipeline/schemas/verify.schema.json",
       ".pipeline/schemas/learn.schema.json",
-      ".agents/skills/using-superpowers/SKILL.md",
-      ".agents/skills/context-engineering/SKILL.md",
-      ".agents/skills/semgrep/SKILL.md",
-      ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
-      ".agents/skills/vercel-react-best-practices/SKILL.md",
       ".pipeline/host-resources/claude.md",
       ".pipeline/host-resources/codex.md",
       ".pipeline/host-resources/opencode.md",
@@ -227,23 +214,15 @@ describe("initPipelineProject", () => {
     ]);
   });
 
-  it("installs concrete repo-local external skill files", async () => {
+  it("points default skills at the external skills repo", async () => {
     await init();
 
     const config = loadPipelineConfig(dir);
-    expect(config.skills["context-engineering"].path).toBe(
-      ".agents/skills/context-engineering/SKILL.md"
+    expect(config.skills.research.path).toBe(
+      "~/dev/skills/.agents/skills/research/SKILL.md"
     );
-    expect(config.profiles["pipeline-researcher"].skills).toContain(
-      "context-engineering"
-    );
-    const skill = readFileSync(
-      join(dir, ".agents/skills/context-engineering/SKILL.md"),
-      "utf8"
-    );
-    expect(skill).toContain("name: context-engineering");
-    expect(skill).toContain("repository: addyosmani/agent-skills");
-    expect(skill).not.toContain("pipeline-context-engineering");
+    expect(config.profiles["pipeline-researcher"].skills).toContain("research");
+    expect(existsSync(join(dir, ".agents", "skills"))).toBe(false);
   });
 
   it("keeps banned generated MCP defaults out of the scaffold", async () => {
@@ -269,7 +248,6 @@ describe("initPipelineProject", () => {
         );
         return Promise.resolve(undefined);
       },
-      skillInstaller: fakeSkillInstaller,
     });
 
     expect(registered).toEqual(
@@ -285,12 +263,11 @@ describe("initPipelineProject", () => {
       readFileSync("defaults/install-manifest.json", "utf8")
     ) as {
       mcps: unknown[];
-      skills: unknown[];
       version: number;
     };
 
     expect(DEFAULT_INSTALL_MANIFEST.version).toBe(1);
-    expect(DEFAULT_SKILL_INSTALLS).toEqual(manifest.skills);
+    expect("skills" in manifest).toBe(false);
     expect(DEFAULT_MCP_INSTALLS).toEqual(manifest.mcps);
   });
 
@@ -390,26 +367,12 @@ describe("initPipelineProject", () => {
       initPipelineProject({
         cwd: dir,
         mcpInstaller: () => Promise.reject(new Error("mcpm missing")),
-        skillInstaller: fakeSkillInstaller,
       })
     ).rejects.toThrow("mcpm missing");
 
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(existsSync(join(dir, ".agents", "skills"))).toBe(false);
-  });
-
-  it("does not write scaffold files when skill installation fails", async () => {
-    await expect(
-      initPipelineProject({
-        cwd: dir,
-        mcpInstaller: fakeMcpInstaller,
-        skillInstaller: () => Promise.reject(new Error("skills missing")),
-      })
-    ).rejects.toThrow("skills missing");
-
-    expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
-    expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
   });
 
   it("refuses to overwrite existing scaffold files without --overwrite", async () => {
@@ -465,33 +428,5 @@ describe("initPipelineProject", () => {
     ]);
   });
 });
-
-const fakeSkillInstaller: PipelineSkillInstaller = (specs, cwd) => {
-  const lock: Record<string, unknown> = { skills: {}, version: 1 };
-  for (const spec of specs) {
-    for (const skill of spec.skills) {
-      const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(
-        path,
-        [
-          "---",
-          `name: ${skill}`,
-          "x-pipeline-source:",
-          `  repository: ${spec.source}`,
-          "---",
-          "",
-          `# ${skill}`,
-          "",
-        ].join("\n")
-      );
-      (lock.skills as Record<string, unknown>)[skill] = {
-        source: spec.source,
-      };
-    }
-  }
-  writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
-  return Promise.resolve();
-};
 
 const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve(undefined);

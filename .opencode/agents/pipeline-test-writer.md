@@ -21,7 +21,7 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash, edit, write
 rules: test-first
-skills: test-driven-development
+skills: test
 mcp_servers: serena, context7
 filesystem: workspace-write
 network: inherit

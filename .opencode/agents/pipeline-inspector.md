@@ -21,7 +21,7 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: context-engineering, source-driven-development
+skills: research
 mcp_servers: serena, context7
 filesystem: read-only
 network: inherit

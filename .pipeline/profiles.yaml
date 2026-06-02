@@ -7,54 +7,36 @@ rules:
     path: .pipeline/rules/verification.md
 
 skills:
-  using-superpowers:
-    path: .agents/skills/using-superpowers/SKILL.md
-  writing-plans:
-    path: .agents/skills/writing-plans/SKILL.md
-  dispatching-parallel-agents:
-    path: .agents/skills/dispatching-parallel-agents/SKILL.md
-  test-driven-development:
-    path: .agents/skills/test-driven-development/SKILL.md
-  requesting-code-review:
-    path: .agents/skills/requesting-code-review/SKILL.md
-  receiving-code-review:
-    path: .agents/skills/receiving-code-review/SKILL.md
-  verification-before-completion:
-    path: .agents/skills/verification-before-completion/SKILL.md
-  context-engineering:
-    path: .agents/skills/context-engineering/SKILL.md
-  source-driven-development:
-    path: .agents/skills/source-driven-development/SKILL.md
-  spec-driven-development:
-    path: .agents/skills/spec-driven-development/SKILL.md
-  planning-and-task-breakdown:
-    path: .agents/skills/planning-and-task-breakdown/SKILL.md
-  incremental-implementation:
-    path: .agents/skills/incremental-implementation/SKILL.md
-  debugging-and-error-recovery:
-    path: .agents/skills/debugging-and-error-recovery/SKILL.md
-  thermo-nuclear-code-quality-review:
-    path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
-  code-review-and-quality:
-    path: .agents/skills/code-review-and-quality/SKILL.md
-  doubt-driven-development:
-    path: .agents/skills/doubt-driven-development/SKILL.md
-  security-and-hardening:
-    path: .agents/skills/security-and-hardening/SKILL.md
-  performance-optimization:
-    path: .agents/skills/performance-optimization/SKILL.md
-  documentation-and-adrs:
-    path: .agents/skills/documentation-and-adrs/SKILL.md
-  deprecation-and-migration:
-    path: .agents/skills/deprecation-and-migration/SKILL.md
-  semgrep:
-    path: .agents/skills/semgrep/SKILL.md
-  supply-chain-risk-auditor:
-    path: .agents/skills/supply-chain-risk-auditor/SKILL.md
-  vercel-react-best-practices:
-    path: .agents/skills/vercel-react-best-practices/SKILL.md
-  web-design-guidelines:
-    path: .agents/skills/web-design-guidelines/SKILL.md
+  critique:
+    path: ~/dev/skills/.agents/skills/critique/SKILL.md
+  diagnose:
+    path: ~/dev/skills/.agents/skills/diagnose/SKILL.md
+  doubt:
+    path: ~/dev/skills/.agents/skills/doubt/SKILL.md
+  fix:
+    path: ~/dev/skills/.agents/skills/fix/SKILL.md
+  improve:
+    path: ~/dev/skills/.agents/skills/improve/SKILL.md
+  library-first-development:
+    path: ~/dev/skills/.agents/skills/library-first-development/SKILL.md
+  migrate:
+    path: ~/dev/skills/.agents/skills/migrate/SKILL.md
+  optimize:
+    path: ~/dev/skills/.agents/skills/optimize/SKILL.md
+  research:
+    path: ~/dev/skills/.agents/skills/research/SKILL.md
+  scope:
+    path: ~/dev/skills/.agents/skills/scope/SKILL.md
+  secure:
+    path: ~/dev/skills/.agents/skills/secure/SKILL.md
+  spec:
+    path: ~/dev/skills/.agents/skills/spec/SKILL.md
+  test:
+    path: ~/dev/skills/.agents/skills/test/SKILL.md
+  trace:
+    path: ~/dev/skills/.agents/skills/trace/SKILL.md
+  verify:
+    path: ~/dev/skills/.agents/skills/verify/SKILL.md
 mcp_servers:
   serena:
     ref:
@@ -84,14 +66,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first, verification]
-    skills:
-      [
-        using-superpowers,
-        writing-plans,
-        dispatching-parallel-agents,
-        planning-and-task-breakdown,
-        doubt-driven-development,
-      ]
+    skills: [scope, doubt]
     mcp_servers: [backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -106,13 +81,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/researcher.md
     rules: [test-first]
-    skills:
-      [
-        context-engineering,
-        source-driven-development,
-        spec-driven-development,
-        planning-and-task-breakdown,
-      ]
+    skills: [research, spec, scope]
     mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -132,7 +101,7 @@ profiles:
     description: Inspect the repository without modifying files.
     instructions:
       path: .pipeline/prompts/inspector.md
-    skills: [context-engineering, source-driven-development]
+    skills: [research]
     mcp_servers: [serena, context7]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -149,7 +118,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/test-writer.md
     rules: [test-first]
-    skills: [test-driven-development]
+    skills: [test]
     mcp_servers: [serena, context7]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
@@ -166,13 +135,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/code-writer.md
     rules: [test-first]
-    skills:
-      [
-        incremental-implementation,
-        source-driven-development,
-        debugging-and-error-recovery,
-        test-driven-development,
-      ]
+    skills: [trace, test, fix, library-first-development]
     mcp_servers: [serena, context7, semgrep]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
@@ -208,13 +171,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/acceptance-reviewer.md
     rules: [verification]
-    skills:
-      [
-        requesting-code-review,
-        receiving-code-review,
-        code-review-and-quality,
-        doubt-driven-development,
-      ]
+    skills: [critique, doubt]
     mcp_servers: [serena, context7, semgrep, github-readonly, playwright]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -233,8 +190,8 @@ profiles:
     runner: codex
     description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions:
-      path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
-    skills: [thermo-nuclear-code-quality-review]
+      path: ~/dev/skills/.agents/skills/critique/SKILL.md
+    skills: [critique]
     mcp_servers: [serena, semgrep, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -255,13 +212,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/verifier.md
     rules: [verification]
-    skills:
-      [
-        verification-before-completion,
-        code-review-and-quality,
-        security-and-hardening,
-        performance-optimization,
-      ]
+    skills: [verify, critique, secure, optimize]
     mcp_servers: [serena, semgrep, github-readonly, playwright]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -281,7 +232,7 @@ profiles:
     description: Store durable lessons from the completed run.
     instructions:
       path: .pipeline/prompts/learner.md
-    skills: [documentation-and-adrs, deprecation-and-migration]
+    skills: [migrate]
     mcp_servers: [qdrant, backlog]
     tools: [read, list, grep, glob, bash]
     filesystem:

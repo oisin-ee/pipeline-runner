@@ -1275,8 +1275,8 @@ describe("epic-router asset bundle", () => {
   });
 });
 
-describe("thermo-nuclear review asset bundle", () => {
-  it("declares the thermo-nuclear skill and reviewer profile contract", () => {
+describe("final review asset bundle", () => {
+  it("declares the external critique skills and reviewer profile contract", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
       "utf8"
@@ -1286,10 +1286,8 @@ describe("thermo-nuclear review asset bundle", () => {
       profiles?: Record<string, any>;
     };
 
-    expect(
-      profilesConfig.skills?.["thermo-nuclear-code-quality-review"]
-    ).toEqual({
-      path: ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
+    expect(profilesConfig.skills?.critique).toEqual({
+      path: "~/dev/skills/.agents/skills/critique/SKILL.md",
     });
 
     const profile =
@@ -1301,9 +1299,9 @@ describe("thermo-nuclear review asset bundle", () => {
     expect(profile).toMatchObject({
       runner: "codex",
       instructions: {
-        path: ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
+        path: "~/dev/skills/.agents/skills/critique/SKILL.md",
       },
-      skills: ["thermo-nuclear-code-quality-review"],
+      skills: ["critique"],
       mcp_servers: ["serena", "semgrep", "github-readonly"],
       filesystem: {
         mode: "read-only",
@@ -1323,7 +1321,7 @@ describe("thermo-nuclear review asset bundle", () => {
     expect(profile.tools).toEqual(["read", "list", "grep", "glob", "bash"]);
   });
 
-  it("validates the thermo-nuclear review output schema contract", () => {
+  it("validates the final review output schema contract", () => {
     const schema = JSON.parse(
       readFileSync(
         join(process.cwd(), ".pipeline/schemas/review.schema.json"),
@@ -1369,18 +1367,16 @@ describe("thermo-nuclear review asset bundle", () => {
     ).toBe(false);
   });
 
-  it("uses the thermo-nuclear review skill itself as the reviewer instructions", () => {
+  it("uses the external critique skill as the reviewer instructions", () => {
     const skill = readFileSync(
       join(
-        process.cwd(),
-        ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md"
+        process.env.HOME ?? "",
+        "dev/skills/.agents/skills/critique/SKILL.md"
       ),
       "utf8"
     );
 
-    expect(skill).toContain("name: thermo-nuclear-code-quality-review");
-    expect(skill).toContain("Thermo-Nuclear Code Quality Review");
-    expect(skill).toContain("extremely strict maintainability review");
-    expect(skill).toContain("spaghetti");
+    expect(skill).toContain("name: critique");
+    expect(skill).toContain("Code Review");
   });
 });

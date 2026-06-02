@@ -10,7 +10,9 @@ artifacts.
 
 - Bun 1.1 or newer
 - Node.js 22.13 or newer
-- `npx`, `backlog`, `uvx`, and Docker on `PATH` for default skill and MCP setup
+- `backlog`, `uvx`, and Docker on `PATH` for default MCP setup
+- The `oisincoveney/skills` checkout at `~/dev/skills`; default profiles point
+  at `~/dev/skills/.agents/skills/<skill>/SKILL.md`
 - At least one configured runner CLI on `PATH`: `codex`, `claude`,
   `opencode`, `kimi`, `pi`, or a declared command runner
 
@@ -28,11 +30,12 @@ Scaffold the default YAML workflow:
 pipe init
 ```
 
-`pipe init` installs default skills with the `skills` CLI and registers default
-MCP servers with the MCPM CLI from https://mcpm.sh/. The package invokes MCPM
-through `uvx --python 3.12 mcpm`, so generated `.mcp.json` entries do not depend
-on a globally installed `mcpm` binary. The default Qdrant/memory MCP is the
-Momokaya remote endpoint
+`pipe init` writes opinionated defaults that reference the external
+`~/dev/skills` repository and registers default MCP servers with the MCPM CLI
+from https://mcpm.sh/. It does not copy or install reusable skills into the
+target repository. The package invokes MCPM through `uvx --python 3.12 mcpm`,
+so generated `.mcp.json` entries do not depend on a globally installed `mcpm`
+binary. The default Qdrant/memory MCP is the Momokaya remote endpoint
 `https://memory-mcp.momokaya.ee/mcp/`.
 
 The default GitHub MCP registration uses GitHub's official container in
@@ -274,9 +277,10 @@ branches share a base SHA, and merges passing branches into an integration
 branch in declaration order. It reports merge conflicts; it does not resolve
 them automatically.
 
-The `thermo-nuclear-code-quality-review` skill is installed from
-`cursor/plugins` and registered at
-`.agents/skills/thermo-nuclear-code-quality-review/SKILL.md`.
+Default profile skills are resolved from `~/dev/skills`. Runtime MCP projection
+and host-specific isolation policy live in `src/mcp`; see
+[`docs/mcp-host-isolation.md`](docs/mcp-host-isolation.md) and
+[`docs/mcp-gateway.md`](docs/mcp-gateway.md).
 
 ## Generated Host Resources
 

@@ -423,6 +423,9 @@ mcp_servers:
     command: node
     args: ["docs.js"]
     env: { DOCS_TOKEN: test-token }
+  unused:
+    command: node
+    args: ["unused.js"]
 profiles:
   orchestrator:
     runner: codex
@@ -457,11 +460,13 @@ workflows:
     });
     expect(codex.args).toContain("--model");
     expect(codex.args).toContain("agent-model");
+    expect(codex.args).toContain("--ignore-user-config");
     expect(codex.args).toContain(
       'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
     );
     expect(codex.args).toContain('mcp_servers.docs.command="node"');
     expect(codex.args).toContain('mcp_servers.docs.args=["docs.js"]');
+    expect(codex.args.join("\n")).not.toContain("unused.js");
     expect(codex.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(codex.args).not.toContain("--sandbox");
     expect(codex.args).not.toContain('approval_policy="never"');
@@ -488,6 +493,7 @@ workflows:
     const opencodeConfig = readFileSync(opencode.env.OPENCODE_CONFIG, "utf8");
     expect(opencodeConfig).toContain('"docs"');
     expect(opencodeConfig).toContain('"environment"');
+    expect(JSON.parse(opencodeConfig).mcp.unused).toEqual({ enabled: false });
 
     const kimi = createRunnerLaunchPlan(config, {
       profileId: "kimi-agent",
@@ -522,6 +528,7 @@ workflows:
     expect(orchestrator.runnerId).toBe("codex");
     expect(orchestrator.args).toContain("--model");
     expect(orchestrator.args).toContain("orchestrator-model");
+    expect(orchestrator.args).toContain("--ignore-user-config");
     expect(orchestrator.args).toContain(
       'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
     );

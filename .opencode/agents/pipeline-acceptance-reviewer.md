@@ -21,7 +21,7 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: verification
-skills: requesting-code-review, receiving-code-review, code-review-and-quality, doubt-driven-development
+skills: critique, doubt
 mcp_servers: serena, context7, semgrep, github-readonly, playwright
 filesystem: read-only
 network: inherit

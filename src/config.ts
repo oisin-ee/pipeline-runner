@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { parseDocument } from "yaml";
 import { z } from "zod";
+import { resolveFileReference } from "./path-refs.js";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
@@ -759,9 +760,7 @@ function resolveMcpServerRef(
     ]);
   }
 
-  const filePath = isAbsolute(ref.path)
-    ? ref.path
-    : join(projectRoot, ref.path);
+  const filePath = resolveFileReference(projectRoot, ref.path);
   if (!existsSync(filePath)) {
     throw validationError([
       {
@@ -1352,7 +1351,7 @@ function validatePath(
   if (!(value && projectRoot)) {
     return;
   }
-  if (!existsSync(join(projectRoot, value))) {
+  if (!existsSync(resolveFileReference(projectRoot, value))) {
     if (
       options.allowMissingLintFileReferences &&
       isLintableMissingFileReferencePath(path)

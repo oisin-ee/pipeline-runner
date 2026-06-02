@@ -21,7 +21,7 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: test-first
-skills: context-engineering, source-driven-development, spec-driven-development, planning-and-task-breakdown
+skills: research, spec, scope
 mcp_servers: serena, context7, backlog, qdrant, github-readonly
 filesystem: read-only
 network: inherit

@@ -21,7 +21,7 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: verification
-skills: verification-before-completion, code-review-and-quality, security-and-hardening, performance-optimization
+skills: verify, critique, secure, optimize
 mcp_servers: serena, semgrep, github-readonly, playwright
 filesystem: read-only
 network: inherit

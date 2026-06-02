@@ -1,18 +1,10 @@
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config.js";
-
-const TOML_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
+import { buildMcpLaunchPlan, tomlValue } from "./mcp/launch-plan.js";
+import { resolveFileReference } from "./path-refs.js";
 
 export type Harness = "claude" | "codex" | "kimi" | "opencode" | "pi";
 export type AgentRole =
@@ -131,7 +123,6 @@ function optionalModelArgs(
 
 type ProfileConfig = PipelineConfig["profiles"][string];
 type ActorConfig = ProfileConfig;
-type McpServerConfig = PipelineConfig["mcp_servers"][string];
 
 interface NativeArgOptions {
   actor?: ActorConfig;
@@ -151,7 +142,13 @@ function harnessArgv(
   options: NativeArgOptions = {}
 ): string[] {
   const tools = options.actor?.tools ?? [];
-  const mcpArgs = mcpArgsFor(harness, options.config, options.actor);
+  const mcp = buildMcpLaunchPlan({
+    actor: options.actor,
+    config: options.config,
+    nodeId: options.nodeId ?? "agent",
+    runnerType: harness,
+    worktreePath,
+  });
   const skillArgs = skillArgsFor(
     harness,
     options.config,
@@ -166,7 +163,7 @@ function harnessArgv(
         "--print",
         ...optionalModelArgs(harness, options.runner, options.actor),
         ...claudeToolArgs(tools),
-        ...mcpArgs,
+        ...mcp.args,
         ...skillArgs,
         "--dangerously-skip-permissions",
         "-p",
@@ -179,7 +176,7 @@ function harnessArgv(
         "-C",
         worktreePath,
         ...optionalModelArgs(harness, options.runner, options.actor),
-        ...mcpArgs,
+        ...mcp.args,
         ...skillArgs,
         "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
@@ -192,7 +189,7 @@ function harnessArgv(
             "--format",
             "json",
             ...optionalModelArgs(harness, options.runner, options.actor),
-            ...mcpArgs,
+            ...mcp.args,
             ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
@@ -206,7 +203,7 @@ function harnessArgv(
             "--format",
             "json",
             ...optionalModelArgs(harness, options.runner, options.actor),
-            ...mcpArgs,
+            ...mcp.args,
             ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
@@ -219,7 +216,7 @@ function harnessArgv(
         "--work-dir",
         worktreePath,
         ...optionalModelArgs(harness, options.runner, options.actor),
-        ...mcpArgs,
+        ...mcp.args,
         ...skillArgs,
         "--yolo",
         "--final-message-only",
@@ -410,13 +407,14 @@ function createActorLaunchPlan(
 
   const command = runner.command ?? runner.type;
   const timeoutMs = Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000);
-  const env = runnerEnv(
-    runner.type,
-    config,
+  const mcp = buildMcpLaunchPlan({
     actor,
-    input.worktreePath,
-    input.nodeId
-  );
+    config,
+    nodeId: input.nodeId,
+    runnerType: runner.type,
+    worktreePath: input.worktreePath,
+  });
+  const env = mcp.env;
   const base = {
     cwd: input.worktreePath,
     env,
@@ -523,7 +521,9 @@ function skillArgsFor(
   const shouldValidatePaths = existsSync(worktreePath);
   const paths = (actor?.skills ?? []).flatMap((id) => {
     const path = config?.skills[id]?.path;
-    const absolutePath = path ? join(worktreePath, path) : undefined;
+    const absolutePath = path
+      ? resolveFileReference(worktreePath, path)
+      : undefined;
     if (!absolutePath) {
       return [];
     }
@@ -552,222 +552,6 @@ function skillArgsFor(
     return paths.flatMap((path) => ["--skill", path]);
   }
   return [];
-}
-
-function selectedMcpServers(
-  config: PipelineConfig | undefined,
-  actor: ActorConfig | undefined
-): Record<string, McpServerConfig> {
-  return Object.fromEntries(
-    (actor?.mcp_servers ?? []).flatMap((id) => {
-      const server = config?.mcp_servers[id];
-      return server ? [[id, server] as const] : [];
-    })
-  );
-}
-
-function mcpArgsFor(
-  runnerType: RunnerType,
-  config: PipelineConfig | undefined,
-  actor: ActorConfig | undefined
-): string[] {
-  const servers = selectedMcpServers(config, actor);
-  if (Object.keys(servers).length === 0) {
-    return [];
-  }
-  if (runnerType === "claude") {
-    return [
-      "--mcp-config",
-      JSON.stringify(toClaudeMcpConfig(servers)),
-      "--strict-mcp-config",
-    ];
-  }
-  if (runnerType === "kimi") {
-    return ["--mcp-config", JSON.stringify(toKimiMcpConfig(servers))];
-  }
-  if (runnerType === "codex") {
-    return codexMcpArgs(servers);
-  }
-  return [];
-}
-
-function runnerEnv(
-  runnerType: RunnerType,
-  config: PipelineConfig,
-  actor: ActorConfig | undefined,
-  worktreePath: string,
-  nodeId: string
-): Record<string, string> {
-  const servers = selectedMcpServers(config, actor);
-  if (runnerType !== "opencode" || Object.keys(servers).length === 0) {
-    return {};
-  }
-  const dir = mkdtempSync(join(tmpdir(), "pipeline-opencode-mcp-"));
-  const path = join(dir, `${nodeId}.json`);
-  writeFileSync(path, JSON.stringify(toOpenCodeMcpConfig(servers)));
-  return {
-    OPENCODE_CONFIG: path,
-    PIPELINE_WORKTREE: worktreePath,
-  };
-}
-
-function isRemoteMcpServer(
-  server: McpServerConfig
-): server is McpServerConfig & { url: string } {
-  return typeof server.url === "string";
-}
-
-function headersWithBearerTokenEnv(
-  server: McpServerConfig & { bearer_token_env_var?: string },
-  renderTokenRef: (envVar: string) => string
-): Record<string, string> | undefined {
-  const headers = { ...(server.headers ?? {}) };
-  if (server.bearer_token_env_var) {
-    headers.Authorization = `Bearer ${renderTokenRef(server.bearer_token_env_var)}`;
-  }
-  return Object.keys(headers).length > 0 ? headers : undefined;
-}
-
-function toClaudeMcpConfig(servers: Record<string, McpServerConfig>): {
-  mcpServers: Record<string, Record<string, unknown>>;
-} {
-  return {
-    mcpServers: Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => {
-        if (isRemoteMcpServer(server)) {
-          const headers = headersWithBearerTokenEnv(
-            server,
-            (envVar) => `\${${envVar}}`
-          );
-          return [
-            id,
-            {
-              type: "http",
-              url: server.url,
-              ...(headers ? { headers } : {}),
-            },
-          ];
-        }
-        return [
-          id,
-          {
-            command: server.command,
-            ...(server.args ? { args: server.args } : {}),
-            ...(server.env ? { env: server.env } : {}),
-          },
-        ];
-      })
-    ),
-  };
-}
-
-function toKimiMcpConfig(servers: Record<string, McpServerConfig>): {
-  mcpServers: Record<string, Record<string, unknown>>;
-} {
-  return {
-    mcpServers: Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => [
-        id,
-        isRemoteMcpServer(server)
-          ? {
-              url: server.url,
-              ...(server.headers ? { headers: server.headers } : {}),
-              ...(server.bearer_token_env_var
-                ? { bearerTokenEnvVar: server.bearer_token_env_var }
-                : {}),
-            }
-          : {
-              command: server.command,
-              ...(server.args ? { args: server.args } : {}),
-              ...(server.env ? { env: server.env } : {}),
-            },
-      ])
-    ),
-  };
-}
-
-function toOpenCodeMcpConfig(servers: Record<string, McpServerConfig>): {
-  mcp: Record<string, Record<string, unknown>>;
-} {
-  return {
-    mcp: Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => {
-        if (isRemoteMcpServer(server)) {
-          const headers = headersWithBearerTokenEnv(
-            server,
-            (envVar) => `{env:${envVar}}`
-          );
-          return [
-            id,
-            {
-              enabled: true,
-              ...(headers ? { headers } : {}),
-              type: "remote",
-              url: server.url,
-            },
-          ];
-        }
-        return [
-          id,
-          {
-            command: [server.command, ...(server.args ?? [])],
-            enabled: true,
-            ...(server.env ? { environment: server.env } : {}),
-            type: "local",
-          },
-        ];
-      })
-    ),
-  };
-}
-
-function codexMcpArgs(servers: Record<string, McpServerConfig>): string[] {
-  return Object.entries(servers).flatMap(([id, server]) => {
-    if (isRemoteMcpServer(server)) {
-      return [
-        "--config",
-        `mcp_servers.${id}.url=${tomlValue(server.url)}`,
-        ...(server.headers
-          ? [
-              "--config",
-              `mcp_servers.${id}.http_headers=${tomlValue(server.headers)}`,
-            ]
-          : []),
-        ...(server.bearer_token_env_var
-          ? [
-              "--config",
-              `mcp_servers.${id}.bearer_token_env_var=${tomlValue(server.bearer_token_env_var)}`,
-            ]
-          : []),
-      ];
-    }
-    return [
-      "--config",
-      `mcp_servers.${id}.command=${tomlValue(server.command)}`,
-      ...(server.args
-        ? ["--config", `mcp_servers.${id}.args=${tomlValue(server.args)}`]
-        : []),
-      ...(server.env
-        ? ["--config", `mcp_servers.${id}.env=${tomlValue(server.env)}`]
-        : []),
-    ];
-  });
-}
-
-function tomlValue(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(tomlValue).join(", ")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{ ${Object.entries(value)
-      .map(([key, item]) => `${tomlKey(key)} = ${tomlValue(item)}`)
-      .join(", ")} }`;
-  }
-  return JSON.stringify(value);
-}
-
-function tomlKey(key: string): string {
-  return TOML_BARE_KEY_PATTERN.test(key) ? key : JSON.stringify(key);
 }
 
 function nativeStrategy(

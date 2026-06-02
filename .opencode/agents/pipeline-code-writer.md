@@ -21,7 +21,7 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash, edit, write
 rules: test-first
-skills: incremental-implementation, source-driven-development, debugging-and-error-recovery, test-driven-development
+skills: trace, test, fix, library-first-development
 mcp_servers: serena, context7, semgrep
 filesystem: workspace-write
 network: inherit

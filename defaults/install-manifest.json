@@ -1,48 +1,5 @@
 {
   "version": 1,
-  "skills": [
-    {
-      "source": "obra/superpowers",
-      "skills": [
-        "using-superpowers",
-        "writing-plans",
-        "dispatching-parallel-agents",
-        "requesting-code-review",
-        "receiving-code-review",
-        "verification-before-completion"
-      ]
-    },
-    {
-      "source": "addyosmani/agent-skills",
-      "skills": [
-        "context-engineering",
-        "source-driven-development",
-        "spec-driven-development",
-        "planning-and-task-breakdown",
-        "test-driven-development",
-        "incremental-implementation",
-        "debugging-and-error-recovery",
-        "code-review-and-quality",
-        "doubt-driven-development",
-        "security-and-hardening",
-        "performance-optimization",
-        "documentation-and-adrs",
-        "deprecation-and-migration"
-      ]
-    },
-    {
-      "source": "cursor/plugins",
-      "skills": ["thermo-nuclear-code-quality-review"]
-    },
-    {
-      "source": "trailofbits/skills",
-      "skills": ["semgrep", "supply-chain-risk-auditor"]
-    },
-    {
-      "source": "vercel-labs/agent-skills",
-      "skills": ["vercel-react-best-practices", "web-design-guidelines"]
-    }
-  ],
   "mcps": [
     {
       "name": "oisin-pipeline-backlog",

@@ -19,6 +19,7 @@ import {
   runTests,
   runTypecheck,
 } from "./gates.js";
+import { resolveFileReference } from "./path-refs.js";
 import {
   type AgentResult,
   createRunnerLaunchPlan,
@@ -2150,7 +2151,10 @@ function readInstructions(
     return instructions.inline;
   }
   if (instructions.path) {
-    return readFileSync(join(worktreePath, instructions.path), "utf8");
+    return readFileSync(
+      resolveFileReference(worktreePath, instructions.path),
+      "utf8"
+    );
   }
   return "";
 }
@@ -2170,7 +2174,10 @@ function renderPathReferences(
     ...ids.map((id) => {
       const ref = registry[id];
       const path = ref?.path ?? "";
-      const content = readFileSync(join(worktreePath, path), "utf8").trimEnd();
+      const content = readFileSync(
+        resolveFileReference(worktreePath, path),
+        "utf8"
+      ).trimEnd();
       return [`## ${id}`, `Path: ${path}`, "", content].join("\n");
     }),
   ].join("\n");

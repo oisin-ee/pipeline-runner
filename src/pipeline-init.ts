@@ -1,75 +1,30 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { execa } from "execa";
-import { z } from "zod";
 import {
   loadPipelineConfig,
   PIPELINE_CONFIG_PATH,
   PROFILES_CONFIG_PATH,
   RUNNERS_CONFIG_PATH,
 } from "./config.js";
+import {
+  DEFAULT_MCP_INSTALLS,
+  defaultMcpJson,
+  installDefaultMcpsWithCli,
+  type PipelineMcpInstaller,
+  type PipelineMcpSkippedRegistration,
+} from "./mcp/bootstrap.js";
 
 export interface PipelineInitOptions {
   cwd?: string;
   mcpInstaller?: PipelineMcpInstaller;
   overwrite?: boolean;
-  skillInstaller?: PipelineSkillInstaller;
 }
 
 export interface PipelineInitResult {
   files: string[];
   skippedMcps: PipelineMcpSkippedRegistration[];
 }
-
-export interface PipelineSkillInstallSpec {
-  skills: string[];
-  source: string;
-}
-
-export type PipelineSkillInstaller = (
-  specs: PipelineSkillInstallSpec[],
-  cwd: string
-) => Promise<void>;
-
-export interface PipelineMcpInstallSpec {
-  args?: string[];
-  catalog?: string;
-  command?: string;
-  env?: Record<string, string>;
-  headers?: Record<string, PipelineMcpHeaderValue>;
-  name: string;
-  optionalRegistration?: boolean;
-  transport: "remote" | "stdio";
-  url?: string;
-}
-
-export interface PipelineMcpHeaderSource {
-  env: string;
-  prefix?: string;
-  suffix?: string;
-}
-
-export type PipelineMcpHeaderValue = string | PipelineMcpHeaderValueSpec;
-
-export interface PipelineMcpHeaderValueSpec {
-  sources: PipelineMcpHeaderSource[];
-}
-
-export interface PipelineMcpSkippedRegistration {
-  missingEnv: string[];
-  name: string;
-  reason: string;
-}
-
-export interface PipelineMcpInstallResult {
-  skipped: PipelineMcpSkippedRegistration[];
-}
-
-export type PipelineMcpInstaller = (
-  specs: PipelineMcpInstallSpec[],
-  cwd: string
-) => Promise<PipelineMcpInstallResult | undefined>;
 
 export class PipelineInitError extends Error {
   conflicts: string[];
@@ -86,184 +41,6 @@ export class PipelineInitError extends Error {
     this.conflicts = conflicts;
   }
 }
-
-export class PipelineSkillInstallError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PipelineSkillInstallError";
-  }
-}
-
-export class PipelineMcpInstallError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PipelineMcpInstallError";
-  }
-}
-
-class PipelineMcpMissingCredentialError extends PipelineMcpInstallError {
-  headerName: string;
-  missingEnv: string[];
-  serverName: string;
-
-  constructor(serverName: string, headerName: string, missingEnv: string[]) {
-    super(
-      [
-        `MCP server ${serverName} requires ${headerName} credentials before it can be registered.`,
-        `Set ${missingEnv.join(" or ")} and re-run pipeline init.`,
-      ].join("\n")
-    );
-    this.name = "PipelineMcpMissingCredentialError";
-    this.serverName = serverName;
-    this.headerName = headerName;
-    this.missingEnv = missingEnv;
-  }
-}
-
-export class PipelineDefaultManifestError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PipelineDefaultManifestError";
-  }
-}
-
-export const DEFAULT_MCPM_COMMAND = "uvx";
-export const DEFAULT_MCPM_ARGS = ["--python", "3.12", "mcpm"];
-const DEFAULT_INSTALL_MANIFEST_URL = new URL(
-  "../defaults/install-manifest.json",
-  import.meta.url
-);
-
-const pipelineSkillInstallSpecSchema = z
-  .object({
-    skills: z.array(z.string().min(1)).min(1),
-    source: z.string().min(1),
-  })
-  .strict();
-
-const pipelineMcpHeaderSourceSchema = z
-  .object({
-    env: z.string().min(1),
-    prefix: z.string().optional(),
-    suffix: z.string().optional(),
-  })
-  .strict();
-
-const pipelineMcpHeaderValueSchema = z.union([
-  z.string(),
-  z
-    .object({
-      sources: z.array(pipelineMcpHeaderSourceSchema).min(1),
-    })
-    .strict(),
-]);
-
-const pipelineMcpInstallSpecSchema = z
-  .object({
-    args: z.array(z.string()).optional(),
-    catalog: z.string().min(1).optional(),
-    command: z.string().min(1).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-    headers: z.record(z.string(), pipelineMcpHeaderValueSchema).optional(),
-    name: z.string().min(1),
-    optionalRegistration: z.boolean().optional(),
-    transport: z.enum(["remote", "stdio"]),
-    url: z.string().url().optional(),
-  })
-  .strict()
-  .superRefine((spec, ctx) => {
-    if (spec.catalog) {
-      return;
-    }
-    if (spec.transport === "remote") {
-      if (!spec.url) {
-        ctx.addIssue({
-          code: "custom",
-          message: "remote MCP install spec must declare url or catalog",
-          path: ["url"],
-        });
-      }
-      if (spec.command) {
-        ctx.addIssue({
-          code: "custom",
-          message: "remote MCP install spec cannot declare command",
-          path: ["command"],
-        });
-      }
-      if (spec.args) {
-        ctx.addIssue({
-          code: "custom",
-          message: "remote MCP install spec cannot declare args",
-          path: ["args"],
-        });
-      }
-      if (spec.env) {
-        ctx.addIssue({
-          code: "custom",
-          message: "remote MCP install spec cannot declare env",
-          path: ["env"],
-        });
-      }
-      return;
-    }
-    if (!spec.command) {
-      ctx.addIssue({
-        code: "custom",
-        message: "stdio MCP install spec must declare command or catalog",
-        path: ["command"],
-      });
-    }
-    if (spec.headers) {
-      ctx.addIssue({
-        code: "custom",
-        message: "stdio MCP install spec cannot declare headers",
-        path: ["headers"],
-      });
-    }
-    if (spec.url) {
-      ctx.addIssue({
-        code: "custom",
-        message: "stdio MCP install spec cannot declare url",
-        path: ["url"],
-      });
-    }
-  });
-
-const defaultInstallManifestSchema = z
-  .object({
-    mcps: z.array(pipelineMcpInstallSpecSchema),
-    skills: z.array(pipelineSkillInstallSpecSchema),
-    version: z.literal(1),
-  })
-  .strict();
-
-interface DefaultInstallManifest {
-  mcps: PipelineMcpInstallSpec[];
-  skills: PipelineSkillInstallSpec[];
-  version: 1;
-}
-
-function loadDefaultInstallManifest(): DefaultInstallManifest {
-  const raw = JSON.parse(readFileSync(DEFAULT_INSTALL_MANIFEST_URL, "utf8"));
-  const parsed = defaultInstallManifestSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new PipelineDefaultManifestError(
-      [
-        "Invalid defaults/install-manifest.json.",
-        ...parsed.error.issues.map((issue) =>
-          [issue.path.join("."), issue.message].filter(Boolean).join(": ")
-        ),
-      ].join("\n")
-    );
-  }
-  return parsed.data;
-}
-
-export const DEFAULT_INSTALL_MANIFEST = loadDefaultInstallManifest();
-export const DEFAULT_SKILL_INSTALLS: PipelineSkillInstallSpec[] =
-  DEFAULT_INSTALL_MANIFEST.skills;
-export const DEFAULT_MCP_INSTALLS: PipelineMcpInstallSpec[] =
-  DEFAULT_INSTALL_MANIFEST.mcps;
 
 const DEFAULT_PIPELINE_YAML = `version: 1
 default_workflow: default
@@ -581,32 +358,6 @@ runners:
       output_formats: [text, json]
 `;
 
-function defaultMcpJson(): string {
-  return `${JSON.stringify(
-    {
-      mcpServers: Object.fromEntries(
-        [
-          ["backlog", "oisin-pipeline-backlog"],
-          ["context7", "oisin-pipeline-context7"],
-          ["github-readonly", "oisin-pipeline-github-readonly"],
-          ["playwright", "oisin-pipeline-playwright"],
-          ["qdrant", "oisin-pipeline-qdrant"],
-          ["semgrep", "oisin-pipeline-semgrep"],
-          ["serena", "oisin-pipeline-serena"],
-        ].map(([server, installName]) => [
-          server,
-          {
-            args: [...DEFAULT_MCPM_ARGS, "run", installName],
-            command: DEFAULT_MCPM_COMMAND,
-          },
-        ])
-      ),
-    },
-    null,
-    2
-  )}\n`;
-}
-
 const DEFAULT_PROFILES_YAML = `version: 1
 
 rules:
@@ -616,54 +367,36 @@ rules:
     path: .pipeline/rules/verification.md
 
 skills:
-  using-superpowers:
-    path: .agents/skills/using-superpowers/SKILL.md
-  writing-plans:
-    path: .agents/skills/writing-plans/SKILL.md
-  dispatching-parallel-agents:
-    path: .agents/skills/dispatching-parallel-agents/SKILL.md
-  test-driven-development:
-    path: .agents/skills/test-driven-development/SKILL.md
-  requesting-code-review:
-    path: .agents/skills/requesting-code-review/SKILL.md
-  receiving-code-review:
-    path: .agents/skills/receiving-code-review/SKILL.md
-  verification-before-completion:
-    path: .agents/skills/verification-before-completion/SKILL.md
-  context-engineering:
-    path: .agents/skills/context-engineering/SKILL.md
-  source-driven-development:
-    path: .agents/skills/source-driven-development/SKILL.md
-  spec-driven-development:
-    path: .agents/skills/spec-driven-development/SKILL.md
-  planning-and-task-breakdown:
-    path: .agents/skills/planning-and-task-breakdown/SKILL.md
-  incremental-implementation:
-    path: .agents/skills/incremental-implementation/SKILL.md
-  debugging-and-error-recovery:
-    path: .agents/skills/debugging-and-error-recovery/SKILL.md
-  thermo-nuclear-code-quality-review:
-    path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
-  code-review-and-quality:
-    path: .agents/skills/code-review-and-quality/SKILL.md
-  doubt-driven-development:
-    path: .agents/skills/doubt-driven-development/SKILL.md
-  security-and-hardening:
-    path: .agents/skills/security-and-hardening/SKILL.md
-  performance-optimization:
-    path: .agents/skills/performance-optimization/SKILL.md
-  documentation-and-adrs:
-    path: .agents/skills/documentation-and-adrs/SKILL.md
-  deprecation-and-migration:
-    path: .agents/skills/deprecation-and-migration/SKILL.md
-  semgrep:
-    path: .agents/skills/semgrep/SKILL.md
-  supply-chain-risk-auditor:
-    path: .agents/skills/supply-chain-risk-auditor/SKILL.md
-  vercel-react-best-practices:
-    path: .agents/skills/vercel-react-best-practices/SKILL.md
-  web-design-guidelines:
-    path: .agents/skills/web-design-guidelines/SKILL.md
+  critique:
+    path: ~/dev/skills/.agents/skills/critique/SKILL.md
+  diagnose:
+    path: ~/dev/skills/.agents/skills/diagnose/SKILL.md
+  doubt:
+    path: ~/dev/skills/.agents/skills/doubt/SKILL.md
+  fix:
+    path: ~/dev/skills/.agents/skills/fix/SKILL.md
+  improve:
+    path: ~/dev/skills/.agents/skills/improve/SKILL.md
+  library-first-development:
+    path: ~/dev/skills/.agents/skills/library-first-development/SKILL.md
+  migrate:
+    path: ~/dev/skills/.agents/skills/migrate/SKILL.md
+  optimize:
+    path: ~/dev/skills/.agents/skills/optimize/SKILL.md
+  research:
+    path: ~/dev/skills/.agents/skills/research/SKILL.md
+  scope:
+    path: ~/dev/skills/.agents/skills/scope/SKILL.md
+  secure:
+    path: ~/dev/skills/.agents/skills/secure/SKILL.md
+  spec:
+    path: ~/dev/skills/.agents/skills/spec/SKILL.md
+  test:
+    path: ~/dev/skills/.agents/skills/test/SKILL.md
+  trace:
+    path: ~/dev/skills/.agents/skills/trace/SKILL.md
+  verify:
+    path: ~/dev/skills/.agents/skills/verify/SKILL.md
 mcp_servers:
   serena:
     ref:
@@ -693,14 +426,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first, verification]
-    skills:
-      [
-        using-superpowers,
-        writing-plans,
-        dispatching-parallel-agents,
-        planning-and-task-breakdown,
-        doubt-driven-development,
-      ]
+    skills: [scope, doubt]
     mcp_servers: [backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -715,13 +441,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/researcher.md
     rules: [test-first]
-    skills:
-      [
-        context-engineering,
-        source-driven-development,
-        spec-driven-development,
-        planning-and-task-breakdown,
-      ]
+    skills: [research, spec, scope]
     mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -741,7 +461,7 @@ profiles:
     description: Inspect the repository without modifying files.
     instructions:
       path: .pipeline/prompts/inspector.md
-    skills: [context-engineering, source-driven-development]
+    skills: [research]
     mcp_servers: [serena, context7]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -758,7 +478,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/test-writer.md
     rules: [test-first]
-    skills: [test-driven-development]
+    skills: [test]
     mcp_servers: [serena, context7]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
@@ -794,13 +514,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/code-writer.md
     rules: [test-first]
-    skills:
-      [
-        incremental-implementation,
-        source-driven-development,
-        debugging-and-error-recovery,
-        test-driven-development,
-      ]
+    skills: [trace, test, fix, library-first-development]
     mcp_servers: [serena, context7, semgrep]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
@@ -817,13 +531,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/acceptance-reviewer.md
     rules: [verification]
-    skills:
-      [
-        requesting-code-review,
-        receiving-code-review,
-        code-review-and-quality,
-        doubt-driven-development,
-      ]
+    skills: [critique, doubt]
     mcp_servers: [serena, context7, semgrep, github-readonly, playwright]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -842,8 +550,8 @@ profiles:
     runner: codex
     description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions:
-      path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
-    skills: [thermo-nuclear-code-quality-review]
+      path: ~/dev/skills/.agents/skills/critique/SKILL.md
+    skills: [critique]
     mcp_servers: [serena, semgrep, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -864,13 +572,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/verifier.md
     rules: [verification]
-    skills:
-      [
-        verification-before-completion,
-        code-review-and-quality,
-        security-and-hardening,
-        performance-optimization,
-      ]
+    skills: [verify, critique, secure, optimize]
     mcp_servers: [serena, semgrep, github-readonly, playwright]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -890,7 +592,7 @@ profiles:
     description: Store durable lessons from the completed run.
     instructions:
       path: .pipeline/prompts/learner.md
-    skills: [documentation-and-adrs, deprecation-and-migration]
+    skills: [migrate]
     mcp_servers: [qdrant, backlog]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -1216,248 +918,6 @@ const SCAFFOLD_FILES: Record<string, string> = {
   ".pipeline/host-resources/pi.md": hostResourceInput("Pi"),
 };
 
-function defaultSkillPaths(): string[] {
-  return [
-    ...new Set(
-      DEFAULT_SKILL_INSTALLS.flatMap((install) =>
-        install.skills.map((skill) => `.agents/skills/${skill}/SKILL.md`)
-      )
-    ),
-  ].sort();
-}
-
-export async function installDefaultSkillsWithCli(
-  specs: PipelineSkillInstallSpec[],
-  cwd: string
-): Promise<void> {
-  for (const spec of specs) {
-    try {
-      await execa(
-        "npx",
-        [
-          "-y",
-          "skills",
-          "add",
-          spec.source,
-          "--agent",
-          "codex",
-          "--copy",
-          "-y",
-          "--skill",
-          ...spec.skills,
-        ],
-        {
-          cwd,
-          stdin: "ignore",
-        }
-      );
-    } catch (err) {
-      const error = err as {
-        stderr?: string;
-        stdout?: string;
-        shortMessage?: string;
-      };
-      throw new PipelineSkillInstallError(
-        [
-          `Failed to install skills from ${spec.source}.`,
-          error.shortMessage,
-          error.stderr,
-          error.stdout,
-        ]
-          .filter(Boolean)
-          .join("\n")
-      );
-    }
-  }
-}
-
-export async function installDefaultMcpsWithCli(
-  specs: PipelineMcpInstallSpec[],
-  cwd: string
-): Promise<PipelineMcpInstallResult> {
-  const skipped: PipelineMcpSkippedRegistration[] = [];
-  for (const spec of specs) {
-    const install = mcpInstallArgs(spec);
-    if ("skipped" in install) {
-      skipped.push(install.skipped);
-      continue;
-    }
-    try {
-      await execa(
-        DEFAULT_MCPM_COMMAND,
-        [...DEFAULT_MCPM_ARGS, ...install.args],
-        {
-          cwd,
-          env: {
-            MCPM_FORCE: "true",
-            MCPM_JSON_OUTPUT: "true",
-            MCPM_NON_INTERACTIVE: "true",
-          },
-          stdin: "ignore",
-        }
-      );
-    } catch (err) {
-      const error = err as {
-        stderr?: string;
-        stdout?: string;
-        shortMessage?: string;
-      };
-      throw new PipelineMcpInstallError(
-        [
-          `Failed to register MCP server ${spec.name} with MCPM.`,
-          "Pipeline init runs MCPM through `uvx --python 3.12 mcpm`.",
-          "Install uv/uvx from https://docs.astral.sh/uv/ and re-run pipeline init.",
-          redactMcpInstallOutput(error.shortMessage, install.redactions),
-          redactMcpInstallOutput(error.stderr, install.redactions),
-          redactMcpInstallOutput(error.stdout, install.redactions),
-        ]
-          .filter(Boolean)
-          .join("\n")
-      );
-    }
-  }
-  return { skipped };
-}
-
-interface McpInstallArgs {
-  args: string[];
-  redactions: string[];
-}
-
-interface McpSkippedInstall {
-  skipped: PipelineMcpSkippedRegistration;
-}
-
-function mcpInstallArgs(
-  spec: PipelineMcpInstallSpec
-): McpInstallArgs | McpSkippedInstall {
-  if (spec.catalog) {
-    return {
-      args: ["install", spec.catalog, "--force", "--alias", spec.name],
-      redactions: [],
-    };
-  }
-  const args = ["new", spec.name, "--type", spec.transport, "--force"];
-  if (spec.transport === "remote") {
-    if (!spec.url) {
-      throw new PipelineMcpInstallError(
-        `MCP server ${spec.name} is remote but has no url.`
-      );
-    }
-    const redactions: string[] = [];
-    try {
-      const headers = Object.entries(spec.headers ?? {}).flatMap(
-        ([key, value]) => {
-          const headerValue = resolveMcpHeaderValue(spec.name, key, value);
-          redactions.push(headerValue);
-          return ["--headers", `${key}=${headerValue}`];
-        }
-      );
-      return {
-        args: [...args, "--url", spec.url, ...headers],
-        redactions,
-      };
-    } catch (err) {
-      if (
-        spec.optionalRegistration &&
-        err instanceof PipelineMcpMissingCredentialError
-      ) {
-        return {
-          skipped: {
-            missingEnv: err.missingEnv,
-            name: spec.name,
-            reason: `missing ${err.headerName} credentials`,
-          },
-        };
-      }
-      throw err;
-    }
-  }
-  if (!spec.command) {
-    throw new PipelineMcpInstallError(
-      `MCP server ${spec.name} is stdio but has no command.`
-    );
-  }
-  return {
-    args: [
-      ...args,
-      "--command",
-      spec.command,
-      ...(spec.args?.length ? ["--args", spec.args.join(" ")] : []),
-      ...Object.entries(spec.env ?? {}).flatMap(([key, value]) => [
-        "--env",
-        `${key}=${value}`,
-      ]),
-    ],
-    redactions: [],
-  };
-}
-
-const MCP_CREDENTIAL_PATTERN = /^\S+\s+(.+)$/;
-
-function redactMcpInstallOutput(
-  value: string | undefined,
-  redactions: string[]
-): string | undefined {
-  if (!value) {
-    return value;
-  }
-  const sensitiveValues = redactions
-    .flatMap((item) => {
-      const trimmed = item.trim();
-      const credential = trimmed.match(MCP_CREDENTIAL_PATTERN)?.[1]?.trim();
-      return credential ? [trimmed, credential] : [trimmed];
-    })
-    .filter((item) => item.length > 0);
-  const escaped = [...new Set(sensitiveValues)]
-    .sort((a, b) => b.length - a.length)
-    .map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const sensitivePattern =
-    escaped.length > 0 ? new RegExp(escaped.join("|"), "g") : null;
-  const redacted = sensitivePattern
-    ? value.replace(sensitivePattern, "[REDACTED]")
-    : value;
-  return redacted.replace(
-    /Authorization=[^\r\n'"]+/gi,
-    "Authorization=[REDACTED]"
-  );
-}
-
-function resolveMcpHeaderValue(
-  serverName: string,
-  headerName: string,
-  header: PipelineMcpHeaderValue
-): string {
-  if (typeof header === "string") {
-    return header;
-  }
-  for (const source of header.sources ?? []) {
-    const rawValue = process.env[source.env];
-    if (rawValue && rawValue.trim().length > 0) {
-      return `${source.prefix ?? ""}${rawValue}${source.suffix ?? ""}`;
-    }
-  }
-  throw new PipelineMcpMissingCredentialError(
-    serverName,
-    headerName,
-    header.sources.map((source) => source.env)
-  );
-}
-
-function assertDefaultSkillsInstalled(cwd: string): string[] {
-  const paths = defaultSkillPaths();
-  const missing = paths.filter((path) => !existsSync(join(cwd, path)));
-  if (missing.length > 0) {
-    throw new PipelineSkillInstallError(
-      [
-        "skills CLI did not install every default pipeline skill.",
-        ...missing.map((path) => `- ${path}`),
-      ].join("\n")
-    );
-  }
-  return paths;
-}
-
 export function defaultPipelineScaffoldFiles(): Record<string, string> {
   return { ".mcp.json": defaultMcpJson(), ...SCAFFOLD_FILES };
 }
@@ -1476,9 +936,6 @@ export async function initPipelineProject(
 
   const mcpInstaller = options.mcpInstaller ?? installDefaultMcpsWithCli;
   const mcpInstallResult = await mcpInstaller(DEFAULT_MCP_INSTALLS, cwd);
-  const skillInstaller = options.skillInstaller ?? installDefaultSkillsWithCli;
-  await skillInstaller(DEFAULT_SKILL_INSTALLS, cwd);
-  const skillPaths = assertDefaultSkillsInstalled(cwd);
 
   for (const [path, content] of Object.entries(files)) {
     const target = join(cwd, path);
@@ -1486,15 +943,9 @@ export async function initPipelineProject(
     await writeFile(target, content);
   }
 
-  const generatedPaths = [
-    ...paths,
-    ...skillPaths,
-    ...(existsSync(join(cwd, "skills-lock.json")) ? ["skills-lock.json"] : []),
-  ];
-
   loadPipelineConfig(cwd);
   return {
-    files: generatedPaths,
+    files: paths,
     skippedMcps: mcpInstallResult?.skipped ?? [],
   };
 }

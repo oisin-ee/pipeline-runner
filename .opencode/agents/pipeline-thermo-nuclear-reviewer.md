@@ -23,10 +23,10 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: thermo-nuclear-code-quality-review
+skills: critique
 mcp_servers: serena, semgrep, github-readonly
 filesystem: read-only
 network: inherit
 output: json_schema
 
-Instructions: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
+Instructions: ~/dev/skills/.agents/skills/critique/SKILL.md

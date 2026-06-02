@@ -4,10 +4,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { PipelineConfig } from "../src/config.js";
 import { loadPipelineConfig } from "../src/config.js";
-import {
-  DEFAULT_SKILL_INSTALLS,
-  defaultPipelineScaffoldFiles,
-} from "../src/pipeline-init.js";
+import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 import {
   compileWorkflowPlan,
   WorkflowPlannerError,
@@ -25,11 +22,6 @@ for (const [path, content] of Object.entries(DEFAULT_FILES)) {
   const target = join(DEFAULT_PROJECT, path);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
-}
-for (const skill of DEFAULT_SKILL_INSTALLS.flatMap((spec) => spec.skills)) {
-  const target = join(DEFAULT_PROJECT, ".agents", "skills", skill, "SKILL.md");
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, `---\nname: ${skill}\n---\n\n# ${skill}\n`);
 }
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT);
 

@@ -13,7 +13,7 @@ Configured orchestrator:
 model: default
 tools: read, list, grep, glob, bash
 rules: test-first, verification
-skills: using-superpowers, writing-plans, dispatching-parallel-agents, planning-and-task-breakdown, doubt-driven-development
+skills: scope, doubt
 mcp_servers: backlog, qdrant, github-readonly
 filesystem: read-only
 network: inherit
