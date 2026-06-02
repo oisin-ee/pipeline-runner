@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
@@ -954,7 +954,10 @@ export async function initPipelineProject(
   const cwd = options.cwd ?? process.cwd();
   const files = defaultPipelineScaffoldFiles();
   const paths = Object.keys(files);
-  const conflicts = paths.filter((path) => existsSync(join(cwd, path)));
+  const conflicts = paths.filter((path) => {
+    const target = join(cwd, path);
+    return existsSync(target) && readFileSync(target, "utf8") !== files[path];
+  });
 
   if (conflicts.length > 0 && !options.overwrite) {
     throw new PipelineInitError(conflicts);

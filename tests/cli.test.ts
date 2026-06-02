@@ -1216,6 +1216,43 @@ describe("pipe", () => {
     }
   });
 
+  it("allows init to repair a partial pipeline scaffold", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-partial-init-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      writeCliProjectFile(
+        dir,
+        ".pipeline/pipeline.yaml",
+        "version: 1\ndefault_workflow: default\nworkflows: {}\n"
+      );
+      process.env.PIPELINE_TARGET_PATH = dir;
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "init",
+        "--overwrite",
+      ]);
+
+      expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
+      expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
+      expect(
+        log.mock.calls.map(([message]) => String(message)).join("\n")
+      ).toContain("Initialized pipeline scaffold:");
+    } finally {
+      log.mockRestore();
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("validates and explains the initialized YAML plan", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-plan-"));

@@ -307,9 +307,7 @@ const BUILTIN_PIPE_COMMANDS = new Set([
 
 export function createCliProgram(): Command {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-  const configuredPipeline = tryLoadPipelineConfig(cwd, {
-    allowMissingLintFileReferences: true,
-  });
+  const configuredPipeline = tryLoadConfiguredEntrypoints(cwd);
   const program = new Command();
   program
     .name("@oisincoveney/pipeline")
@@ -461,6 +459,19 @@ export function createCliProgram(): Command {
   }
 
   return program;
+}
+
+function tryLoadConfiguredEntrypoints(cwd: string): PipelineConfig | null {
+  try {
+    return tryLoadPipelineConfig(cwd, {
+      allowMissingLintFileReferences: true,
+    });
+  } catch (err) {
+    if (err instanceof PipelineConfigError) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 function registerConfiguredEntrypointCommands(

@@ -415,8 +415,22 @@ describe("initPipelineProject", () => {
 
   it("refuses to overwrite existing scaffold files without --overwrite", async () => {
     await init();
+    writeFileSync(join(dir, ".pipeline", "pipeline.yaml"), "custom: true\n");
 
     await expect(init()).rejects.toThrow(PipelineInitError);
+  });
+
+  it("allows identical scaffold files when completing a partial init", async () => {
+    mkdirSync(join(dir, ".pipeline"), { recursive: true });
+    writeFileSync(
+      join(dir, ".pipeline", "pipeline.yaml"),
+      defaultPipelineScaffoldFiles()[".pipeline/pipeline.yaml"]
+    );
+
+    await init();
+
+    expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
+    expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
   });
 
   it("overwrites existing scaffold files when requested", async () => {
