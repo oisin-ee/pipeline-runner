@@ -27,10 +27,10 @@ const DOCKER_LOGIN_ACTION_RE = /docker\/login-action/i;
 const DOCKER_BUILD_PUSH_ACTION_RE = /docker\/build-push-action/i;
 const GITHUB_SHA_EXPRESSION = ["$", "{{ github.sha }}"].join("");
 const SHA_IMAGE_TAG = [
-  "ghcr.io/oisin-ee/oisin-pipeline-runner:",
+  "ghcr.io/oisin-ee/pipeline-runner:",
   GITHUB_SHA_EXPRESSION,
 ].join("");
-const LATEST_IMAGE_TAG = "ghcr.io/oisin-ee/oisin-pipeline-runner:latest";
+const LATEST_IMAGE_TAG = "ghcr.io/oisin-ee/pipeline-runner:latest";
 
 function readProjectFile(path: string): string {
   return readFileSync(join(root, path), "utf8");
@@ -146,7 +146,7 @@ describe("runner image publishing workflow", () => {
     expect(serialize(imageJobs)).not.toMatch(IMAGE_JOB_FORBIDDEN_RELEASE_RE);
   });
 
-  it("pushes ghcr.io/oisin-ee/oisin-pipeline-runner with git SHA and latest tags", () => {
+  it("pushes ghcr.io/oisin-ee/pipeline-runner with git SHA and latest tags", () => {
     const imagePublishing = serialize(imagePublishingJobs());
     const workflow = readProjectFile(".github/workflows/publish.yml");
 

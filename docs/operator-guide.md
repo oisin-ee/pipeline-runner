@@ -157,7 +157,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: runner
-          image: ghcr.io/oisin-ee/oisin-pipeline-runner:latest
+          image: ghcr.io/oisin-ee/pipeline-runner:latest
           env:
             - name: OISIN_PIPELINE_RUNNER_PAYLOAD_JSON
               value: '{"eventSink":{"authHeader":"Authorization","url":"https://console.example/api/pipeline/runs/run-uid-1/events"},"run":{"projectId":"alpha","runId":"run-uid-1"},"selector":{"workflowId":"default"},"task":{"prompt":"PIPE-38","taskId":"PIPE-38"}}'
@@ -199,7 +199,7 @@ target worktree.
 
 ## Runner Image Verification
 
-Before publishing `ghcr.io/oisin-ee/oisin-pipeline-runner`, verify the package
+Before publishing `ghcr.io/oisin-ee/pipeline-runner`, verify the package
 and image wiring:
 
 ```shell

@@ -75,5 +75,5 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/oisin-ee/oisin-pipeline-runner:${{ github.sha }}
-            ghcr.io/oisin-ee/oisin-pipeline-runner:latest
+            ghcr.io/oisin-ee/pipeline-runner:${{ github.sha }}
+            ghcr.io/oisin-ee/pipeline-runner:latest

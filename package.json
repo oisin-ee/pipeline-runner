@@ -72,7 +72,7 @@
   "scripts": {
     "build:cli": "tsdown",
     "test": "vitest run",
-    "test:image": "docker build -t oisin-pipeline-runner:test . && docker run --rm -e OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{}' -e OISIN_PIPELINE_EVENT_AUTH_TOKEN=test oisin-pipeline-runner:test runner-job; test $? -eq 64",
+    "test:image": "docker build -t pipeline-runner:test . && docker run --rm -e OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{}' -e OISIN_PIPELINE_EVENT_AUTH_TOKEN=test pipeline-runner:test runner-job; test $? -eq 64",
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
     "typecheck": "tsc --noEmit",
