@@ -89,6 +89,9 @@ schedules:
   pipe-schedule:
     baseline: pipe
     planner_profile: pipeline-schedule-planner
+  epic-schedule:
+    baseline: epic
+    planner_profile: pipeline-schedule-planner
 
 workflows:
   inspect:

@@ -1726,7 +1726,7 @@ async function executeWorkflowNode(
     runId: context.runId,
     signal: context.signal,
     task: context.task,
-    taskContext: context.taskContext,
+    taskContext: effectiveTaskContext(node, context),
     workflowId: node.workflow,
     worktreePath: worktree.worktreePath ?? context.worktreePath,
   });
@@ -2214,7 +2214,7 @@ function renderAgentPrompt(
     `Workflow: ${context.workflowId}`,
     `Node: ${node.id}`,
     node.profile ? `Profile: ${node.profile}` : "",
-    renderTaskContext(context.taskContext),
+    renderTaskContext(effectiveTaskContext(node, context)),
     "",
     "Declared grants:",
     `- tools: ${(profile?.tools ?? []).join(", ") || "none"}`,
@@ -2243,6 +2243,13 @@ function renderAgentPrompt(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function effectiveTaskContext(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): PipelineTaskContext | undefined {
+  return node.taskContext ?? context.taskContext;
 }
 
 function inheritedOutputSections(
@@ -3090,6 +3097,7 @@ function evaluateGate(
   attempt: NodeAttemptResult
 ): RuntimeGateResult | Promise<RuntimeGateResult> {
   const gateId = gate.id ?? `${gate.kind}:${nodeId}`;
+  const node = context.plan.graph.node(nodeId);
   switch (gate.kind) {
     case "command":
       return evaluateCommandGate(gate, gateId, nodeId, context);
@@ -3100,7 +3108,14 @@ function evaluateGate(
     case "verdict":
       return evaluateVerdictGate(gate, gateId, nodeId, context, attempt);
     case "acceptance":
-      return evaluateAcceptanceGate(gate, gateId, nodeId, context, attempt);
+      return evaluateAcceptanceGate(
+        gate,
+        gateId,
+        nodeId,
+        context,
+        attempt,
+        node
+      );
     case "changed_files":
       return evaluateChangedFilesGate(gate, gateId, nodeId, context);
     case "json_schema":
@@ -3253,9 +3268,12 @@ function evaluateAcceptanceGate(
   gateId: string,
   nodeId: string,
   context: RuntimeContext,
-  attempt: NodeAttemptResult
+  attempt: NodeAttemptResult,
+  node?: PlannedWorkflowNode
 ): RuntimeGateResult {
-  const expected = context.taskContext?.acceptanceCriteria ?? [];
+  const expected =
+    (node ? effectiveTaskContext(node, context) : context.taskContext)
+      ?.acceptanceCriteria ?? [];
   if (expected.length === 0) {
     return {
       evidence: ["no acceptance criteria in task context"],
@@ -3768,7 +3786,9 @@ function hookPayload(
     },
     failure,
     task: context.task,
-    taskContext: context.taskContext,
+    taskContext: node
+      ? effectiveTaskContext(node, context)
+      : context.taskContext,
   };
 }
 

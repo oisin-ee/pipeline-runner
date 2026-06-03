@@ -44,9 +44,17 @@ export interface PlannedWorkflowNode {
   nodes?: string[];
   profile?: string;
   retries?: WorkflowNode["retries"];
+  taskContext?: PlannedWorkflowTaskContext;
   timeoutMs?: number;
   workflow?: string;
   worktreeRoot?: string;
+}
+
+export interface PlannedWorkflowTaskContext {
+  acceptanceCriteria?: Array<{ id: string; text: string }>;
+  description?: string;
+  id?: string;
+  title?: string;
 }
 
 export interface WorkflowExecutionPlan {
@@ -317,11 +325,39 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
     nodes: node.kind === "group" ? node.nodes : undefined,
     profile: "profile" in node ? node.profile : undefined,
     retries: node.retries,
+    taskContext: plannedTaskContext(node.task_context),
     workflow: "workflow" in node ? node.workflow : undefined,
     worktreeRoot: "worktree_root" in node ? node.worktree_root : undefined,
   };
   if (node.timeout_ms) {
     planned.timeoutMs = node.timeout_ms;
+  }
+  return planned;
+}
+
+function plannedTaskContext(
+  taskContext: WorkflowNode["task_context"]
+): PlannedWorkflowTaskContext | undefined {
+  if (!taskContext) {
+    return;
+  }
+  const planned: PlannedWorkflowTaskContext = {};
+  if (taskContext.acceptance_criteria) {
+    planned.acceptanceCriteria = taskContext.acceptance_criteria.map(
+      (criterion) => ({
+        id: criterion.id,
+        text: criterion.text,
+      })
+    );
+  }
+  if (taskContext.description) {
+    planned.description = taskContext.description;
+  }
+  if (taskContext.id) {
+    planned.id = taskContext.id;
+  }
+  if (taskContext.title) {
+    planned.title = taskContext.title;
   }
   return planned;
 }

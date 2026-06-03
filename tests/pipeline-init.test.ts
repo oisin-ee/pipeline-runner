@@ -93,6 +93,10 @@ describe("initPipelineProject", () => {
       baseline: "epic",
       planner_profile: "pipeline-schedule-planner",
     });
+    expect(config.schedules["pipe-schedule"]).toMatchObject({
+      baseline: "pipe",
+      planner_profile: "pipeline-schedule-planner",
+    });
     expect(config.workflows["epic-drain"].nodes.map((node) => node.id)).toEqual(
       ["research", "plan", "implement", "merge", "review"]
     );
@@ -176,6 +180,12 @@ describe("initPipelineProject", () => {
     ).toContain(
       "Call `qdrant-store` with collection_name equal to the repository directory basename"
     );
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("constrained agent graph");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("Assign exactly one implementation branch to each work unit");
   });
 
   it("tells verifier agents not to replace deterministic gates and treats configured gates as authoritative", () => {

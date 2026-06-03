@@ -211,6 +211,69 @@ describe("compileWorkflowPlan", () => {
     });
   });
 
+  it("preserves workflow-node task_context on planned nodes and parallel children", () => {
+    const config = cloneConfig();
+    config.workflows.default.nodes = [
+      {
+        id: "child",
+        kind: "workflow",
+        nodes: undefined,
+        task_context: {
+          id: "PIPE-41.7",
+          title: "Node context",
+          description: "Use this child ticket.",
+          acceptance_criteria: [
+            { id: "1", text: "Pass node context to child workflow." },
+          ],
+        },
+        workflow: "subflow",
+      } as PipelineConfig["workflows"][string]["nodes"][number],
+      {
+        id: "fanout",
+        kind: "parallel",
+        nodes: [
+          {
+            id: "branch-a",
+            kind: "agent",
+            profile: "pipeline-researcher",
+            task_context: {
+              id: "PIPE-41.8",
+              title: "Branch context",
+              acceptance_criteria: [
+                { id: "1", text: "Preserve child branch context." },
+              ],
+            },
+          },
+        ],
+      } as PipelineConfig["workflows"][string]["nodes"][number],
+    ];
+    config.workflows.subflow = {
+      nodes: [
+        {
+          id: "research",
+          kind: "agent",
+          profile: "pipeline-researcher",
+        },
+      ],
+    };
+
+    const plan = compileWorkflowPlan(config);
+
+    expect(plan.topologicalOrder[0].taskContext).toEqual({
+      id: "PIPE-41.7",
+      title: "Node context",
+      description: "Use this child ticket.",
+      acceptanceCriteria: [
+        { id: "1", text: "Pass node context to child workflow." },
+      ],
+    });
+    expect(plan.topologicalOrder[1].children?.[0]?.taskContext).toEqual({
+      id: "PIPE-41.8",
+      title: "Branch context",
+      acceptanceCriteria: [{ id: "1", text: "Preserve child branch context." }],
+    });
+  });
+
   it("identifies independent nodes as parallelizable with deterministic ordering", () => {
     const config = cloneConfig();
     config.workflows.parallel = {

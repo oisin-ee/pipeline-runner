@@ -261,6 +261,20 @@ Current `epic-drain` workflow:
 research -> plan -> implement(parallel: test, frontend, backend, k8s) -> merge -> review
 ```
 
+Scheduled entrypoints use their `baseline` as the seed artifact and ask
+`pipeline-schedule-planner` to produce a constrained agent graph. When you run
+`pipe run --entrypoint epic PIPE-41`, the scheduler extracts `PIPE-41`, loads
+its Backlog child tickets, passes those work units plus the allowed
+profiles/workflows to the planner, validates the returned
+`kind: pipeline-schedule` DAG, writes
+`.pipeline/runs/<runId>/schedule.yaml`, and stops for approval. Execute the
+approved artifact separately with `pipe run --schedule <schedule.yaml>`.
+
+Agent-generated schedules must assign each backlog child ticket exactly once
+with node-level `task_context`, embed every referenced workflow in the artifact,
+use only configured profiles/workflows, and keep implementation branches behind
+acceptance, verification, or review coverage.
+
 Workflow nodes are strict by `kind`:
 
 - `kind: agent` launches a configured profile.
@@ -270,8 +284,9 @@ Workflow nodes are strict by `kind`:
   worktree.
 - `kind: parallel` runs a fixed set of child nodes concurrently.
 
-Structural parallelism is fixed in YAML. Routing agents can decide which work
-belongs to each declared track, but they do not create new tracks dynamically.
+Structural parallelism in checked-in workflows is fixed in YAML. Scheduled
+epics can generate a constrained approval-time DAG, but they still cannot
+invent profiles, workflows, or node-level skill overrides.
 
 `kind: workflow` worktrees support `${runId}` and `${nodeId}`:
 

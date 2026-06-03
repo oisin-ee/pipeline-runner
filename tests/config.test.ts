@@ -595,6 +595,13 @@ workflows:
       - id: research
         kind: agent
         profile: researcher
+        task_context:
+          id: PIPE-41.7
+          title: Propagate node-level task context
+          description: Carry child ticket context into this node.
+          acceptance_criteria:
+            - id: "1"
+              text: Agent prompts include node-specific context.
         gates:
           - id: verdict-pass
             kind: verdict
@@ -612,9 +619,76 @@ workflows:
 
     expect(config.entrypoints.quick).toMatchObject({ workflow: "default" });
     expect(config.task_context?.type).toBe("markdown");
+    expect(config.workflows.default.nodes[0]).toMatchObject({
+      task_context: {
+        id: "PIPE-41.7",
+        title: "Propagate node-level task context",
+        description: "Carry child ticket context into this node.",
+        acceptance_criteria: [
+          { id: "1", text: "Agent prompts include node-specific context." },
+        ],
+      },
+    });
     expect(
       config.workflows.default.nodes[0].gates?.map((gate) => gate.kind)
     ).toEqual(["verdict", "acceptance", "changed_files"]);
+  });
+
+  it("rejects obsolete schedule planner_strategy config", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `
+version: 1
+default_workflow: default
+schedules:
+  epic-schedule:
+    baseline: epic
+    planner_strategy: agent_graph
+    planner_profile: researcher
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+`,
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("planner_strategy");
+    expect(error.message).toContain("Unrecognized key");
+  });
+
+  it("accepts schedule policies without planner_strategy", () => {
+    const config = parseParts({
+      pipeline: `
+version: 1
+default_workflow: default
+schedules:
+  pipe-schedule:
+    baseline: pipe
+    planner_profile: researcher
+  epic-schedule:
+    baseline: epic
+    planner_profile: researcher
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+`,
+    });
+
+    expect(config.schedules["epic-schedule"]).toMatchObject({
+      baseline: "epic",
+      planner_profile: "researcher",
+    });
   });
 
   it("accepts drain-merge as a workflow builtin but not as a builtin gate", () => {

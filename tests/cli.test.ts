@@ -234,6 +234,9 @@ profiles:
   pipeline-thermo-nuclear-reviewer:
     runner: local
     instructions: { inline: Review }
+  pipeline-schedule-planner:
+    runner: local
+    instructions: { inline: Plan schedule }
 `,
     ".pipeline/pipeline.yaml": `
 version: 1
@@ -250,6 +253,7 @@ orchestrator:
 schedules:
   pipe-schedule:
     baseline: pipe
+    planner_profile: pipeline-schedule-planner
 workflows:
   inspect:
     nodes:
@@ -1083,6 +1087,25 @@ describe("pipe", () => {
     try {
       writeScheduledCliConfig(dir);
       process.env.PIPELINE_TARGET_PATH = dir;
+      mockExeca.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout: `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-cli
+source_entrypoint: pipe
+task: ship it
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: inspect
+        kind: command
+        command: [inspect-bin]
+`,
+      } as any);
 
       await runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"]);
 
@@ -1091,7 +1114,7 @@ describe("pipe", () => {
         .join("\n");
       expect(output).toContain("Schedule generated:");
       expect(output).toContain("pipe run --schedule");
-      expect(execaCommands()).toEqual([]);
+      expect(execaCommands()).toEqual(["scheduled-runner"]);
       const schedulePath = output.match(SCHEDULE_GENERATED_PATH_RE)?.at(1);
       expect(schedulePath).toBeDefined();
       expect(existsSync(schedulePath ?? "")).toBe(true);

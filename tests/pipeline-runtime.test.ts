@@ -483,6 +483,93 @@ describe("runPipelineFromConfig", () => {
     expect(seen[1].args.join("\n")).toContain("Node: b");
   });
 
+  it("renders node-specific task context in agent prompts", async () => {
+    const project = tempProject();
+    const config = baseConfig();
+    config.workflows.default.nodes[0] = {
+      ...config.workflows.default.nodes[0],
+      task_context: {
+        id: "PIPE-41.7",
+        title: "Propagate node context",
+        description: "Use the node ticket instead of the parent task.",
+        acceptance_criteria: [
+          { id: "1", text: "The prompt includes node context." },
+        ],
+      },
+    } as (typeof config.workflows.default.nodes)[number];
+    const seen: RunnerLaunchPlan[] = [];
+
+    await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return { exitCode: 0, stdout: "ok" };
+      },
+      task: "PIPE-41",
+      taskContext: {
+        id: "PIPE-41",
+        title: "Parent epic",
+        acceptanceCriteria: [{ id: "P", text: "Parent criterion" }],
+      },
+      worktreePath: project,
+    });
+
+    const prompt = seen[0].args.join("\n");
+    expect(prompt).toContain("ID: PIPE-41.7");
+    expect(prompt).toContain("Title: Propagate node context");
+    expect(prompt).toContain("- 1: The prompt includes node context.");
+    expect(prompt).not.toContain("Parent criterion");
+  });
+
+  it("passes workflow-node task context into nested workflow execution", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  child-flow:
+    nodes:
+      - id: child-agent
+        kind: agent
+        profile: a
+`);
+    config.workflows.default.nodes = [
+      {
+        id: "child",
+        kind: "workflow",
+        task_context: {
+          id: "PIPE-41.8",
+          title: "Resolved child ticket",
+          acceptance_criteria: [
+            { id: "1", text: "Nested agents receive child context." },
+          ],
+        },
+        workflow: "child-flow",
+      } as (typeof config.workflows.default.nodes)[number],
+    ];
+    const seen: RunnerLaunchPlan[] = [];
+
+    await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return { exitCode: 0, stdout: "ok" };
+      },
+      task: "PIPE-41",
+      taskContext: {
+        id: "PIPE-41",
+        title: "Parent epic",
+        acceptanceCriteria: [{ id: "P", text: "Parent criterion" }],
+      },
+      worktreePath: project,
+    });
+
+    const prompt = seen
+      .find((plan) => plan.nodeId === "child-agent")
+      ?.args.join("\n");
+    expect(prompt).toContain("ID: PIPE-41.8");
+    expect(prompt).toContain("Title: Resolved child ticket");
+    expect(prompt).toContain("- 1: Nested agents receive child context.");
+    expect(prompt).not.toContain("Parent criterion");
+  });
+
   it("loads configured rules, skills, and MCP servers into agent boundaries", async () => {
     const project = tempProject();
     writeProjectFile(project, "rules/test-first.md", "Always write tests.");

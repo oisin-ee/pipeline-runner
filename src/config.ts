@@ -405,6 +405,24 @@ const taskContextResolverSchema = z
   })
   .passthrough();
 
+const nodeTaskContextSchema = z
+  .object({
+    acceptance_criteria: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            text: z.string().min(1),
+          })
+          .strict()
+      )
+      .optional(),
+    description: z.string().optional(),
+    id: z.string().min(1).optional(),
+    title: z.string().optional(),
+  })
+  .strict();
+
 const entrypointBaseSchema = z.object({
   description: z.string().optional(),
   task_context: taskContextResolverSchema.optional(),
@@ -439,6 +457,7 @@ const workflowNodeBaseSchema = z.object({
   id: z.string(),
   needs: z.array(z.string()).optional(),
   retries: retriesSchema.optional(),
+  task_context: nodeTaskContextSchema.optional(),
   timeout_ms: z.number().int().positive().optional(),
 });
 

@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../src/config.js";
 import {
@@ -10,6 +10,8 @@ import {
 } from "../src/schedule-planner.js";
 
 const EXTERNAL_WORKFLOW_RE = /external workflow/i;
+const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
+const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
 
 const RUNNERS = `
 version: 1
@@ -61,6 +63,18 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
+  pipeline-acceptance-reviewer:
+    runner: codex
+    instructions: { inline: Acceptance }
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only }
+    network: { mode: inherit }
+  pipeline-thermo-nuclear-reviewer:
+    runner: codex
+    instructions: { inline: Review }
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only }
+    network: { mode: inherit }
   pipeline-learner:
     runner: codex
     instructions: { inline: Learn }
@@ -76,11 +90,17 @@ entrypoints:
   pipe:
     schedule: default-schedule
     description: Generated schedule
+  epic:
+    schedule: epic-schedule
+    description: Generated epic schedule
 orchestrator:
   profile: orchestrator
 schedules:
   default-schedule:
     baseline: pipe
+    planner_profile: pipeline-schedule-planner
+  epic-schedule:
+    baseline: epic
     planner_profile: pipeline-schedule-planner
 workflows:
   inspect:
@@ -93,6 +113,23 @@ workflows:
       - id: research
         kind: agent
         profile: pipeline-researcher
+  execute-slice:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [implement]
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [acceptance]
 `;
 
 function config() {
@@ -101,6 +138,21 @@ function config() {
     profiles: PROFILES,
     runners: RUNNERS,
   });
+}
+
+function writeBacklogTask(
+  root: string,
+  id: string,
+  title: string,
+  body: string
+): void {
+  const path = join(root, "backlog", "tasks", `${id.toLowerCase()} - task.md`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${id.includes(".") ? "PIPE-41" : ""}\n---\n\n${body}`,
+    "utf8"
+  );
 }
 
 describe("schedule artifacts", () => {
@@ -213,6 +265,224 @@ workflows:
       expect(
         result.artifact.workflows.root.nodes.map((node) => node.id)
       ).toEqual(["research", "implement", "verify"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("gives agent_graph planners backlog work units and allowed primitives", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
+    writeBacklogTask(
+      dir,
+      "PIPE-41",
+      "Agent-driven workflow scheduling",
+      "## Description\n\nParent epic."
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.7",
+      "Propagate node context",
+      "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->"
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.8",
+      "Resolve backlog children",
+      "## Description\n\nLoad child tickets.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Work units come from Backlog.\n<!-- AC:END -->"
+    );
+    const seenPrompts: string[] = [];
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-epic
+source_entrypoint: epic
+task: PIPE-41
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: implement
+        kind: parallel
+        needs: [research]
+        nodes:
+          - id: pipe-41-7
+            kind: workflow
+            workflow: execute-slice
+            worktree_root: .pipeline/runs/\${runId}/pipe-41-7
+            task_context:
+              id: PIPE-41.7
+              title: Propagate node context
+              description: Carry context.
+              acceptance_criteria:
+                - id: "1"
+                  text: Prompts include task context.
+          - id: pipe-41-8
+            kind: workflow
+            workflow: execute-slice
+            worktree_root: .pipeline/runs/\${runId}/pipe-41-8
+            task_context:
+              id: PIPE-41.8
+              title: Resolve backlog children
+              description: Load child tickets.
+              acceptance_criteria:
+                - id: "1"
+                  text: Work units come from Backlog.
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [implement]
+      - id: review
+        kind: agent
+        profile: pipeline-thermo-nuclear-reviewer
+        needs: [merge]
+  execute-slice:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [implement]
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [acceptance]
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "epic",
+        executor: (plan) => {
+          seenPrompts.push(plan.args.join("\n"));
+          return { exitCode: 0, stdout: schedule };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-epic",
+        task: "PIPE-41",
+        worktreePath: dir,
+      });
+
+      expect(seenPrompts[0]).toContain("Planner mode: constrained agent graph");
+      expect(seenPrompts[0]).toContain("Backlog work units:");
+      expect(seenPrompts[0]).toContain("Backlog parent context:");
+      expect(seenPrompts[0]).toContain("Agent-driven workflow scheduling");
+      expect(seenPrompts[0]).toContain("PIPE-41.7");
+      expect(seenPrompts[0]).toContain("PIPE-41.8");
+      expect(seenPrompts[0]).toContain("Allowed profiles:");
+      expect(seenPrompts[0]).toContain("pipeline-code-writer");
+      expect(seenPrompts[0]).toContain("Allowed workflows:");
+      expect(result.artifact.workflows.root.nodes[1]).toMatchObject({
+        id: "implement",
+        kind: "parallel",
+      });
+      expect(() =>
+        compileScheduleArtifact(config(), result.artifact, dir)
+      ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects agent_graph schedules that skip backlog work units", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
+    writeBacklogTask(
+      dir,
+      "PIPE-41",
+      "Agent-driven workflow scheduling",
+      "## Description\n\nParent epic."
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.7",
+      "Propagate node context",
+      "## Description\n\nCarry context."
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.8",
+      "Resolve backlog children",
+      "## Description\n\nLoad child tickets."
+    );
+    const shortcut = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-epic
+source_entrypoint: epic
+task: PIPE-41
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+        task_context:
+          id: PIPE-41.7
+          title: Propagate node context
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [implement]
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "epic",
+          executor: () => ({ exitCode: 0, stdout: shortcut }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-epic",
+          task: "PIPE-41",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(MISSING_WORK_UNIT_RE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects agent_graph implementation nodes without downstream verification or review", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
+    const shortcut = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-epic
+source_entrypoint: epic
+task: Ad hoc epic
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "epic",
+          executor: () => ({ exitCode: 0, stdout: shortcut }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-epic",
+          task: "Ad hoc epic",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(DOWNSTREAM_COVERAGE_RE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
