@@ -3,7 +3,6 @@ description: >-
   Perform the final thermo-nuclear code quality review of the integration
   branch.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: deny

@@ -1,7 +1,6 @@
 ---
 description: Inspect the repository without modifying files.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: deny

@@ -110,11 +110,11 @@ Generates host-native command surfaces from the YAML config.
 ```shell
 pipe install-commands --host all
 pipe install-commands --host codex --check
-pipe install-commands --host claude --dry-run
+pipe install-commands --host opencode --dry-run
 pipe install-commands --host all --force
 ```
 
-Host choices are `all`, `claude`, `opencode`, `codex`, `kimi`, and `pi`.
+Host choices are `all`, `opencode`, and `codex`.
 
 `pipe runner-job`
 
@@ -190,8 +190,8 @@ deployment per run, or separate language stack for this integration.
 Generated invocations include:
 
 ```text
-Claude/OpenCode/Kimi/Pi: /pipe, /inspect, /epic
-Codex:                 $pipe, $inspect, $epic
+OpenCode: /pipe, /inspect, /epic
+Codex:    $pipe, $inspect, $epic
 ```
 
 Set `PIPELINE_TARGET_PATH=/path/to/repo` when invoking the CLI from outside the

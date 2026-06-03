@@ -1,7 +1,6 @@
 ---
 description: 'Verify checks, implementation fit, and final evidence.'
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: deny

@@ -9,7 +9,7 @@ Playwright, Qdrant, or Neon.
 ## Target Shape
 
 ```text
-Codex/OpenCode/Claude/Kimi/Pi
+Codex/OpenCode
         |
         | profile-scoped MCP config
         v
@@ -30,8 +30,8 @@ MCP-specific code belongs in `src/mcp`:
 
 - `bootstrap.ts`: default MCPM registration, generated `.mcp.json`, and install
   manifest parsing.
-- `launch-plan.ts`: runtime host projection for Codex, OpenCode, Claude, and
-  Kimi, including profile-scoped server selection.
+- `launch-plan.ts`: runtime host projection for Codex and OpenCode, including
+  profile-scoped server selection.
 - `native-config.ts`: generated native Codex agent MCP config.
 
 The rest of the runtime should consume those functions instead of hand-rendering

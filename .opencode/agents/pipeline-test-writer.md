@@ -1,7 +1,6 @@
 ---
 description: Add focused failing tests for the requested behavior.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: allow

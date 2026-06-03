@@ -230,8 +230,6 @@ describe("installed dogfood configuration", () => {
       expect(content).toContain(`Run workflow \`${surface.workflowId}\``);
     }
 
-    expect(existsSync(join(root, ".kimi/skills/pipe/SKILL.md"))).toBe(false);
-
     const pipelineOrchestratorContent = readFileSync(
       join(root, ".opencode/agents/pipeline-orchestrator.md"),
       "utf8"
@@ -269,8 +267,9 @@ describe("installed dogfood configuration", () => {
       const nativeAgentPath = nativeAgentPathFor(runner, profileId);
       if (nativeAgentPath) {
         const content = readFileSync(join(root, nativeAgentPath), "utf8");
-        if (nativeAgentPath.endsWith(".yaml")) {
-          expect(content).toContain("system_prompt_path:");
+        if (nativeAgentPath.endsWith(".toml")) {
+          expect(content).toContain(`name = "${profileId}"`);
+          expect(content).toContain("developer_instructions = ");
         } else {
           expect(content).toContain("Configured grants:");
         }
@@ -283,29 +282,23 @@ describe("installed dogfood configuration", () => {
         continue;
       }
 
-      const pluginAgentContent = readFileSync(
-        join(root, `.agents/plugins/oisin-pipeline/agents/${profileId}.md`),
+      const codexAgentContent = readFileSync(
+        join(root, `.codex/agents/${profileId}.toml`),
         "utf8"
       );
       const projectCodexConfig = readFileSync(
         join(root, ".codex/config.toml"),
         "utf8"
       );
-      expect(pluginAgentContent).toContain(`name: ${profileId}`);
-      expect(pluginAgentContent).toContain("Configured grants:");
-      expect(pluginAgentContent).toContain(
-        `filesystem: ${profile.filesystem?.mode}`
-      );
-      expect(pluginAgentContent).toContain(`output: ${profile.output?.format}`);
-      if (profile.output?.schema_path) {
-        expect(pluginAgentContent).toContain(
-          `output_schema_path: ${profile.output.schema_path}`
-        );
-      }
-      expect(projectCodexConfig).toContain(`[agents.${profileId}]`);
+      expect(codexAgentContent).toContain(`name = "${profileId}"`);
+      expect(codexAgentContent).toContain("developer_instructions = ");
+      expect(codexAgentContent).toContain("[mcp_servers");
       expect(projectCodexConfig).toContain(
-        `path = ".agents/plugins/oisin-pipeline/agents/${profileId}.md"`
+        "# @oisincoveney/pipeline:codex-agents:start"
       );
+      expect(projectCodexConfig).toContain("[agents]");
+      expect(projectCodexConfig).toContain("max_depth = 1");
+      expect(projectCodexConfig).not.toContain(`[agents.${profileId}]`);
       for (const skillId of profile.skills ?? []) {
         const skill = config.skills[skillId];
         expect(skill, `${profileId} skill ${skillId}`).toBeTruthy();
@@ -313,16 +306,16 @@ describe("installed dogfood configuration", () => {
         const installedSkillPath = skill.path.replaceAll("\\", "/");
         if (existsSync(skillPath)) {
           expect(
-            pluginAgentContent,
+            codexAgentContent,
             `${profileId} names skill ${skillId}`
-          ).toContain(`skills: ${(profile.skills ?? []).join(", ")}`);
+          ).toContain("[[skills.config]]");
           expect(
-            pluginAgentContent,
+            codexAgentContent,
             `${profileId} uses project-relative skill context`
           ).not.toContain(skillPath);
         } else {
           expect(
-            pluginAgentContent,
+            codexAgentContent,
             `${profileId} skips missing lint-only skill ${skillId}`
           ).not.toContain(installedSkillPath);
         }
@@ -332,8 +325,8 @@ describe("installed dogfood configuration", () => {
           config.mcp_servers[mcpId],
           `${profileId} MCP ${mcpId}`
         ).toBeTruthy();
-        expect(pluginAgentContent, `${profileId} names MCP ${mcpId}`).toContain(
-          `mcp_servers: ${(profile.mcp_servers ?? []).join(", ")}`
+        expect(codexAgentContent, `${profileId} names MCP ${mcpId}`).toContain(
+          `[mcp_servers.${mcpId}]`
         );
       }
 
@@ -451,11 +444,6 @@ function entrypointCommandSurfaces(
     ([entrypointId, entrypoint]) => [
       {
         invocation: `/${entrypointId} <task description>`,
-        path: `.claude/commands/${entrypointId}.md`,
-        workflowId: entrypoint.workflow,
-      },
-      {
-        invocation: `/${entrypointId} <task description>`,
         path: `.opencode/commands/${entrypointId}.md`,
         workflowId: entrypoint.workflow,
       },
@@ -469,16 +457,6 @@ function entrypointCommandSurfaces(
         path: `.agents/plugins/oisin-pipeline/commands/${entrypointId}.md`,
         workflowId: entrypoint.workflow,
       },
-      {
-        invocation: `/${entrypointId} <task description>`,
-        path: `.kimi/commands/${entrypointId}.md`,
-        workflowId: entrypoint.workflow,
-      },
-      {
-        invocation: `/${entrypointId} <task description>`,
-        path: `.pi/prompts/${entrypointId}.md`,
-        workflowId: entrypoint.workflow,
-      },
     ]
   );
 }
@@ -487,17 +465,11 @@ function nativeAgentPathFor(
   runner: string | undefined,
   profileId: string
 ): string | undefined {
-  if (runner === "claude") {
-    return `.claude/agents/${profileId}.md`;
-  }
   if (runner === "opencode") {
     return `.opencode/agents/${profileId}.md`;
   }
   if (runner === "codex") {
-    return `.agents/plugins/oisin-pipeline/agents/${profileId}.md`;
-  }
-  if (runner === "kimi") {
-    return `.kimi/agents/${profileId}.yaml`;
+    return `.codex/agents/${profileId}.toml`;
   }
   return;
 }

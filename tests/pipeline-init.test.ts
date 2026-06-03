@@ -144,11 +144,8 @@ describe("initPipelineProject", () => {
       ".pipeline/schemas/review.schema.json",
       ".pipeline/schemas/verify.schema.json",
       ".pipeline/schemas/learn.schema.json",
-      ".pipeline/host-resources/claude.md",
       ".pipeline/host-resources/codex.md",
       ".pipeline/host-resources/opencode.md",
-      ".pipeline/host-resources/kimi.md",
-      ".pipeline/host-resources/pi.md",
     ]) {
       expect(existsSync(join(dir, path))).toBe(true);
     }
@@ -452,11 +449,8 @@ describe("initPipelineProject", () => {
     );
     expect(files).toEqual([
       ".mcp.json",
-      ".pipeline/host-resources/claude.md",
       ".pipeline/host-resources/codex.md",
-      ".pipeline/host-resources/kimi.md",
       ".pipeline/host-resources/opencode.md",
-      ".pipeline/host-resources/pi.md",
       ".pipeline/pipeline.yaml",
       ".pipeline/profiles.yaml",
       ".pipeline/prompts/acceptance-reviewer.md",

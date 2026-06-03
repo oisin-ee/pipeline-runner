@@ -14,25 +14,20 @@ pipe install-commands --host all --check
 
 ## Host Mappings
 
-| Host        | Generated resources                                               | Invocation                         | Mechanical path                                                                                        |
-| ----------- | ----------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Claude Code | `.claude/commands/<entrypoint>.md`, `.claude/agents/*.md`         | `/pipe <task>`, `/inspect <task>`  | Project commands delegate to configured Claude agents.                                                 |
-| Codex       | `.agents/skills/<entrypoint>/SKILL.md`, `.codex/agents/*.toml`    | `$pipe <task>`, `$inspect <task>`  | Skills instruct Codex to use generated Codex agents for Codex runner nodes.                            |
-| OpenCode    | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`     | `/pipe <task>`, `/inspect <task>`  | Project commands run a primary orchestrator and native subagents when the requested model is resolved. |
-| Kimi        | `.kimi/commands/<entrypoint>.md`, `.kimi/agents/*.yaml`           | `/pipe <task>`, `/inspect <task>`  | Kimi discovers generated command surfaces directly; Kimi agents are generated as YAML specs.           |
-| Pi          | `.pi/prompts/<entrypoint>.md`                                     | `/pipe <task>`, `/inspect <task>`  | Pi discovers project prompt templates as slash commands.                                               |
+| Host     | Generated resources                                            | Invocation                        | Mechanical path                                                                                       |
+| -------- | -------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Codex    | `.agents/skills/<entrypoint>/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>`, `$inspect <task>` | Skills instruct Codex to use generated Codex agents for Codex runner nodes and OpenCode CLI for OpenCode runner nodes. |
+| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`  | `/pipe <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents.                            |
 
 ## Projection Rules
 
 - Profile names, descriptions, instructions, tools, rules, skills, MCP servers,
   filesystem mode, network mode, and output contracts are read from YAML.
-- Exact native dispatch is used when a node runner matches the host.
-- OpenCode can run mixed native subagents when the node runner has a resolved
-  model from `profile.host_models.opencode`, `runner.host_models.opencode`,
-  `profile.model`, or `runner.model`.
-- Cross-runner nodes that cannot be represented natively are dispatched through
-  that runner's CLI. Instruction-only translation is not runner-correct and is
-  not used as an implicit fallback.
+- Codex runner nodes are Codex native agents.
+- OpenCode runner nodes are OpenCode native agents.
+- Codex-hosted workflows dispatch OpenCode runner nodes through the OpenCode CLI.
+- Unsupported runner or host mappings fail closed. Instruction-only translation
+  and generic worker substitution are not used as implicit fallbacks.
 - Host-specific formats can omit unsupported capabilities, but they must not
   grant broader access than requested.
 - Regeneration is idempotent for generated files. Manual edits are protected

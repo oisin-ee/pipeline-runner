@@ -49,18 +49,18 @@ function writeFixtureWorktree(worktreePath: string): void {
     join(worktreePath, ".pipeline", "runners.yaml"),
     `version: 1
 runners:
-  claude:
-    type: claude
-    command: claude
+  codex:
+    type: codex
+    command: codex
     capabilities:
       native_subagents: true
       rules: false
-      skills: false
-      mcp_servers: false
+      skills: true
+      mcp_servers: true
       tools: [read, list, grep, glob, bash, edit, write]
       filesystem: [read-only, workspace-write]
       network: [inherit]
-      output_formats: [text, json]
+      output_formats: [text, json, jsonl, json_schema]
 `
   );
   writeFileSync(
@@ -68,40 +68,40 @@ runners:
     `version: 1
 profiles:
   orchestrator:
-    runner: claude
+    runner: codex
     instructions:
       inline: Coordinate the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   researcher:
-    runner: claude
+    runner: codex
     instructions:
       inline: You are a researcher for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     output: { format: text }
   test-writer:
-    runner: claude
+    runner: codex
     instructions:
       inline: You are a test-writer for the tracer pipeline.
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write }
     output: { format: text }
   code-writer:
-    runner: claude
+    runner: codex
     instructions:
       inline: You are a code-writer for the tracer pipeline.
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write }
     output: { format: text }
   verifier:
-    runner: claude
+    runner: codex
     instructions:
       inline: You are a code verifier for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     output: { format: text }
   learner:
-    runner: claude
+    runner: codex
     instructions:
       inline: You are the LEARN phase for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
@@ -197,7 +197,7 @@ if (args[0] === "task" && args[1] === "create") {
 
   writeExecutable(
     env.binPath,
-    "claude",
+    "codex",
     `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
@@ -210,7 +210,7 @@ function log(entry) {
 }
 
 const args = process.argv.slice(2);
-const prompt = args[args.indexOf("-p") + 1] || "";
+const prompt = args.at(-1) || "";
 log({ type: "role", args, prompt, cwd: process.cwd() });
 
 if (
@@ -260,7 +260,7 @@ if (prompt.includes("You are a code verifier")) {
   process.exit(0);
 }
 
-process.stderr.write("Unknown claude prompt");
+process.stderr.write("Unknown codex prompt");
 process.exit(1);
 `
   );

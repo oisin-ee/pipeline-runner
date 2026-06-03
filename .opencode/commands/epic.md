@@ -23,9 +23,9 @@ Instructions: .pipeline/prompts/orchestrator.md
 
 Run workflow `epic-drain` for the user task.
 OpenCode native routes:
-- research: Task tool subagent_type=pipeline-researcher model=gpt-5.5 runner=codex needs=none
-- plan: Task tool subagent_type=pipeline-epic-router model=gpt-5.5 runner=codex needs=research
-- review: Task tool subagent_type=pipeline-thermo-nuclear-reviewer model=gpt-5.5 runner=codex needs=merge
+- research: Task tool subagent_type=pipeline-researcher runner=codex needs=none
+- plan: Task tool subagent_type=pipeline-epic-router runner=codex needs=research
+- review: Task tool subagent_type=pipeline-thermo-nuclear-reviewer runner=codex needs=merge
 
 For each native node prompt include:
 - user task

@@ -1,0 +1,4 @@
+# @oisincoveney/pipeline:codex-agents:start
+[agents]
+max_depth = 1
+# @oisincoveney/pipeline:codex-agents:end

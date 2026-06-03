@@ -1,7 +1,6 @@
 ---
 description: Implement production code until the failing tests pass.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: allow

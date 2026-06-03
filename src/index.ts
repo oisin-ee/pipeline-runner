@@ -432,7 +432,7 @@ export function createCliProgram(): Command {
     )
     .addOption(
       new Option("--host <host>", "host command set to install")
-        .choices(["all", "claude", "opencode", "codex", "kimi", "pi"])
+        .choices(["all", "opencode", "codex"])
         .default("all")
         .argParser(parseCommandHost)
     )

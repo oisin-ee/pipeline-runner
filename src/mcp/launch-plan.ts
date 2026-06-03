@@ -57,16 +57,6 @@ function mcpArgsFor(
   if (Object.keys(servers).length === 0) {
     return [];
   }
-  if (runnerType === "claude") {
-    return [
-      "--mcp-config",
-      JSON.stringify(toClaudeMcpConfig(servers)),
-      "--strict-mcp-config",
-    ];
-  }
-  if (runnerType === "kimi") {
-    return ["--mcp-config", JSON.stringify(toKimiMcpConfig(servers))];
-  }
   return [];
 }
 
@@ -107,64 +97,6 @@ function headersWithBearerTokenEnv(
     headers.Authorization = `Bearer ${renderTokenRef(server.bearer_token_env_var)}`;
   }
   return Object.keys(headers).length > 0 ? headers : undefined;
-}
-
-function toClaudeMcpConfig(servers: Record<string, McpServerConfig>): {
-  mcpServers: Record<string, Record<string, unknown>>;
-} {
-  return {
-    mcpServers: Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => {
-        if (isRemoteMcpServer(server)) {
-          const headers = headersWithBearerTokenEnv(
-            server,
-            (envVar) => `\${${envVar}}`
-          );
-          return [
-            id,
-            {
-              type: "http",
-              url: server.url,
-              ...(headers ? { headers } : {}),
-            },
-          ];
-        }
-        return [
-          id,
-          {
-            command: server.command,
-            ...(server.args ? { args: server.args } : {}),
-            ...(server.env ? { env: server.env } : {}),
-          },
-        ];
-      })
-    ),
-  };
-}
-
-function toKimiMcpConfig(servers: Record<string, McpServerConfig>): {
-  mcpServers: Record<string, Record<string, unknown>>;
-} {
-  return {
-    mcpServers: Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => [
-        id,
-        isRemoteMcpServer(server)
-          ? {
-              url: server.url,
-              ...(server.headers ? { headers: server.headers } : {}),
-              ...(server.bearer_token_env_var
-                ? { bearerTokenEnvVar: server.bearer_token_env_var }
-                : {}),
-            }
-          : {
-              command: server.command,
-              ...(server.args ? { args: server.args } : {}),
-              ...(server.env ? { env: server.env } : {}),
-            },
-      ])
-    ),
-  };
 }
 
 function toOpenCodeMcpConfig(

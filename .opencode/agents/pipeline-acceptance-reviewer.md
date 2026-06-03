@@ -1,7 +1,6 @@
 ---
 description: Audit the finished change against every acceptance criterion.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: deny

@@ -1,7 +1,6 @@
 ---
 description: Route epic sub-tickets into fixed implementation tracks.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: deny

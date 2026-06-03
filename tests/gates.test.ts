@@ -310,11 +310,8 @@ describe("runJscpd", () => {
 
     for (const ignoredPath of [
       "**/node_modules/**",
-      "**/.claude/**",
       "**/.codex/**",
-      "**/.kimi/**",
       "**/.opencode/**",
-      "**/.pi/**",
       "**/.pipeline/host-resources/**",
       "**/.pipeline/skills/**",
       "**/.agents/skills/**",

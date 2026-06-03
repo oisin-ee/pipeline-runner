@@ -307,18 +307,6 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
-  claude:
-    type: claude
-    command: claude
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json, json_schema]
   opencode:
     type: opencode
     command: opencode
@@ -331,30 +319,6 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
-  kimi:
-    type: kimi
-    command: kimi
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: false
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json]
-  pi:
-    type: pi
-    command: pi
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: false
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json]
   command:
     type: command
     capabilities:
@@ -827,11 +791,8 @@ const SCAFFOLD_FILES: Record<string, string> = {
   ".pipeline/schemas/verify.schema.json": `${VERIFY_SCHEMA}\n`,
   ".pipeline/schemas/review.schema.json": `${REVIEW_SCHEMA}\n`,
   ".pipeline/schemas/learn.schema.json": `${LEARN_SCHEMA}\n`,
-  ".pipeline/host-resources/claude.md": hostResourceInput("Claude Code"),
   ".pipeline/host-resources/codex.md": hostResourceInput("Codex"),
   ".pipeline/host-resources/opencode.md": hostResourceInput("OpenCode"),
-  ".pipeline/host-resources/kimi.md": hostResourceInput("Kimi"),
-  ".pipeline/host-resources/pi.md": hostResourceInput("Pi"),
 };
 
 export function defaultPipelineScaffoldFiles(): Record<string, string> {

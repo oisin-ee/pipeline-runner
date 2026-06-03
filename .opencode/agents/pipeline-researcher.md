@@ -1,7 +1,6 @@
 ---
 description: Research the requested task and produce structured findings.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: deny

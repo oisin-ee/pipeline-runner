@@ -1,7 +1,6 @@
 ---
 description: Store durable lessons from the completed run.
 mode: subagent
-model: gpt-5.5
 permission:
   bash: allow
   edit: deny

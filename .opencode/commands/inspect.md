@@ -21,7 +21,7 @@ Instructions: .pipeline/prompts/orchestrator.md
 
 Run workflow `inspect` for the user task.
 OpenCode native routes:
-- inspect: Task tool subagent_type=pipeline-inspector model=gpt-5.5 runner=codex needs=none
+- inspect: Task tool subagent_type=pipeline-inspector runner=codex needs=none
 
 For each native node prompt include:
 - user task

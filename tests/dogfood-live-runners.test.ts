@@ -12,7 +12,7 @@ const RUN_LIVE = process.env.PIPELINE_LIVE_RUNNERS === "1";
 const describeLive = RUN_LIVE ? describe : describe.skip;
 const FILESYSTEM_MODE_RE = /^(read-only|workspace-write)$/;
 
-const LIVE_HARNESSES = ["codex", "claude", "kimi", "opencode", "pi"] as const;
+const LIVE_HARNESSES = ["codex", "opencode"] as const;
 type LiveHarness = (typeof LIVE_HARNESSES)[number];
 
 type OutputFormat = "json" | "json_schema" | "jsonl" | "text";
@@ -27,28 +27,12 @@ interface HarnessSmokeSpec {
 }
 
 const HARNESS_SPECS: Record<LiveHarness, HarnessSmokeSpec> = {
-  claude: {
-    filesystemModes: ["read-only", "workspace-write"],
-    mcpServers: true,
-    outputFormats: ["text", "json", "json_schema"],
-    rules: true,
-    skills: false,
-    tools: ["read", "list", "grep", "glob", "bash", "edit", "write"],
-  },
   codex: {
     filesystemModes: ["read-only", "workspace-write"],
     mcpServers: true,
     outputFormats: ["text", "json", "jsonl", "json_schema"],
     rules: true,
     skills: true,
-    tools: ["read", "list", "grep", "glob", "bash", "edit", "write"],
-  },
-  kimi: {
-    filesystemModes: ["read-only", "workspace-write"],
-    mcpServers: false,
-    outputFormats: ["text", "json"],
-    rules: true,
-    skills: false,
     tools: ["read", "list", "grep", "glob", "bash", "edit", "write"],
   },
   opencode: {
@@ -58,14 +42,6 @@ const HARNESS_SPECS: Record<LiveHarness, HarnessSmokeSpec> = {
     rules: true,
     skills: false,
     tools: ["read", "list", "grep", "glob", "bash", "edit", "write", "task"],
-  },
-  pi: {
-    filesystemModes: ["read-only", "workspace-write"],
-    mcpServers: false,
-    outputFormats: ["text", "json"],
-    rules: true,
-    skills: true,
-    tools: ["read", "list", "grep", "glob", "bash", "edit", "write"],
   },
 };
 
@@ -325,18 +301,6 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
-  claude:
-    type: claude
-    command: claude
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json, json_schema]
   opencode:
     type: opencode
     command: opencode
@@ -350,30 +314,6 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
-  kimi:
-    type: kimi
-    command: kimi
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: false
-      mcp_servers: false
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json]
-  pi:
-    type: pi
-    command: pi
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: true
-      mcp_servers: false
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json]
 `,
     },
     project
@@ -412,21 +352,14 @@ function assertLaunchPlanContainsGrants(
     "tool grants were not attached",
     diagnostic
   );
-  if (profile?.runner === "codex" || profile?.runner === "pi") {
+  if (profile?.runner === "codex") {
     assertSmoke(
       arrayEquals(profile.skills, ["live-skill"]),
       `${profile.runner} skill grant was not attached`,
       diagnostic
     );
   }
-  if (profile?.runner === "kimi" || profile?.runner === "pi") {
-    assertSmoke(
-      arrayEquals(profile.mcp_servers ?? [], []),
-      `${profile.runner} should not receive MCP grants`,
-      diagnostic
-    );
-  }
-  if (profile?.runner !== "kimi" && profile?.runner !== "pi") {
+  if (profile?.runner === "codex" || profile?.runner === "opencode") {
     assertSmoke(
       arrayEquals(profile?.mcp_servers, ["live-mcp"]),
       "MCP grant was not attached",

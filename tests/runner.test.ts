@@ -30,50 +30,6 @@ function parseTestConfig(parts: {
   return parsePipelineConfigParts(parts);
 }
 
-describe("spawnAgent — claude harness", () => {
-  it("invokes claude --print with bypass permissions (no contextFile)", async () => {
-    mockExeca.mockReturnValue(makeSimpleResult("claude output", 0));
-
-    const result = await spawnAgent(
-      "claude",
-      "researcher",
-      "do the thing",
-      null,
-      "/tmp/wt"
-    );
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "claude",
-      ["--print", "--dangerously-skip-permissions", "-p", "do the thing"],
-      expect.objectContaining({ cwd: "/tmp/wt" })
-    );
-    expect(result).toEqual(
-      expect.objectContaining({ stdout: "claude output", exitCode: 0 })
-    );
-  });
-
-  it("prepends loaded context when contextFile is provided (claude argv)", async () => {
-    mockExeca.mockReturnValue(makeSimpleResult("ok", 0));
-
-    // Use a fake fs read by writing a temp file.
-    const { writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "runner-test-"));
-    const ctx = join(dir, "ctx.md");
-    writeFileSync(ctx, "CONTEXT");
-
-    try {
-      await spawnAgent("claude", "researcher", "write code", ctx, "/tmp/wt");
-      const args = mockExeca.mock.calls[0][1] as string[];
-      const promptIdx = args.indexOf("-p") + 1;
-      expect(args[promptIdx]).toBe("CONTEXT\nwrite code");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
 describe("spawnAgent — codex harness", () => {
   it("invokes codex exec with bypass approvals and sandbox flag", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("codex output", 0));
@@ -217,39 +173,6 @@ describe("spawnAgent — opencode harness", () => {
   });
 });
 
-describe("spawnAgent — pi harness", () => {
-  it("invokes pi --print --no-session with context in prompt", async () => {
-    mockExeca.mockReturnValue(makeSimpleResult('{"type":"agent_end"}', 0));
-    const { writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "runner-test-"));
-    const ctx = join(dir, "ctx.md");
-    writeFileSync(ctx, "CONTEXT");
-
-    try {
-      const result = await spawnAgent(
-        "pi",
-        "researcher",
-        "research this",
-        ctx,
-        "/tmp/wt"
-      );
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        "pi",
-        ["--print", "--no-session", "CONTEXT\nresearch this"],
-        expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
-      );
-
-      expect(result.stdout).toContain("agent_end");
-      expect(result.exitCode).toBe(0);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
 describe("createRunnerLaunchPlan", () => {
   const CONFIG = parseTestConfig({
     runners: `
@@ -262,30 +185,12 @@ runners:
     capabilities:
       native_subagents: true
       output_formats: [text, json, jsonl, json_schema]
-  claude:
-    type: claude
-    command: claude
-    capabilities:
-      native_subagents: true
-      output_formats: [text, json]
   opencode:
     type: opencode
     command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text, json, jsonl]
-  kimi:
-    type: kimi
-    command: kimi
-    capabilities:
-      native_subagents: true
-      output_formats: [text, json]
-  pi:
-    type: pi
-    command: pi
-    capabilities:
-      native_subagents: true
-      output_formats: [text, json]
   shell:
     type: command
     command: node
@@ -303,10 +208,7 @@ profiles:
     instructions: { inline: Orchestrate }
     tools: []
   codex-agent: { runner: codex, model: agent-codex, instructions: { inline: Codex }, output: { format: jsonl } }
-  claude-agent: { runner: claude, instructions: { inline: Claude }, output: { format: text } }
   opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, output: { format: json } }
-  kimi-agent: { runner: kimi, instructions: { inline: Kimi }, output: { format: text } }
-  pi-agent: { runner: pi, instructions: { inline: Pi }, output: { format: json } }
   command-agent: { runner: shell, instructions: { inline: Shell }, output: { format: text } }
 `,
     pipeline: `
@@ -323,10 +225,7 @@ workflows:
 
   it.each([
     ["codex-agent", "codex", "native", "codex"],
-    ["claude-agent", "claude", "native", "claude"],
     ["opencode-agent", "opencode", "native", "opencode"],
-    ["kimi-agent", "kimi", "native", "kimi"],
-    ["pi-agent", "pi", "native", "pi"],
     ["command-agent", "shell", "subprocess", "node"],
   ])("creates a deterministic launch plan for %s", (profileId, runnerId, strategy, command) => {
     const plan = createRunnerLaunchPlan(CONFIG, {
@@ -353,11 +252,11 @@ workflows:
 
   it("rejects unsupported output contracts before execution", () => {
     const bad = structuredClone(CONFIG);
-    bad.profiles["claude-agent"].output = { format: "jsonl" };
+    bad.profiles["opencode-agent"].output = { format: "json_schema" };
 
     expect(() =>
       createRunnerLaunchPlan(bad, {
-        profileId: "claude-agent",
+        profileId: "opencode-agent",
         nodeId: "node",
         prompt: "do work",
         worktreePath: "/tmp/wt",
@@ -381,36 +280,12 @@ runners:
       mcp_servers: true
       tools: [read]
       output_formats: [text]
-  claude:
-    type: claude
-    command: claude
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      tools: [read, bash]
-      output_formats: [text]
   opencode:
     type: opencode
     command: opencode
     capabilities:
       native_subagents: true
       mcp_servers: true
-      output_formats: [text]
-  kimi:
-    type: kimi
-    command: kimi
-    capabilities:
-      native_subagents: true
-      skills: true
-      mcp_servers: true
-      output_formats: [text]
-  pi:
-    type: pi
-    command: pi
-    capabilities:
-      native_subagents: true
-      skills: true
-      tools: [read, bash]
       output_formats: [text]
 `,
       profiles: `
@@ -435,10 +310,7 @@ profiles:
     mcp_servers: [docs]
     tools: [read]
   codex-agent: { runner: codex, model: agent-model, instructions: { inline: Codex }, skills: [research], mcp_servers: [docs] }
-  claude-agent: { runner: claude, instructions: { inline: Claude }, mcp_servers: [docs], tools: [read, bash] }
   opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [docs] }
-  kimi-agent: { runner: kimi, instructions: { inline: Kimi }, skills: [research], mcp_servers: [docs] }
-  pi-agent: { runner: pi, instructions: { inline: Pi }, skills: [research], tools: [read, bash] }
 `,
       pipeline: `
 version: 1
@@ -471,18 +343,6 @@ workflows:
     expect(codex.args).not.toContain("--sandbox");
     expect(codex.args).not.toContain('approval_policy="never"');
 
-    const claude = createRunnerLaunchPlan(config, {
-      profileId: "claude-agent",
-      nodeId: "claude",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    expect(claude.args).toContain("--tools");
-    expect(claude.args).toContain("Read,Bash");
-    expect(claude.args).toContain("--mcp-config");
-    expect(claude.args.join(" ")).toContain('"mcpServers"');
-    expect(claude.args).toContain("--dangerously-skip-permissions");
-
     const opencode = createRunnerLaunchPlan(config, {
       profileId: "opencode-agent",
       nodeId: "opencode",
@@ -494,30 +354,6 @@ workflows:
     expect(opencodeConfig).toContain('"docs"');
     expect(opencodeConfig).toContain('"environment"');
     expect(JSON.parse(opencodeConfig).mcp.unused).toEqual({ enabled: false });
-
-    const kimi = createRunnerLaunchPlan(config, {
-      profileId: "kimi-agent",
-      nodeId: "kimi",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    expect(kimi.args).toContain("--print");
-    expect(kimi.args).toContain("--skills-dir");
-    expect(kimi.args).toContain("/tmp/wt/.agents/skills/research");
-    expect(kimi.args).toContain("--mcp-config");
-    expect(kimi.args).toContain("--yolo");
-    expect(kimi.args).toContain("--final-message-only");
-
-    const pi = createRunnerLaunchPlan(config, {
-      profileId: "pi-agent",
-      nodeId: "pi",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    expect(pi.args).toContain("--tools");
-    expect(pi.args).toContain("read,bash");
-    expect(pi.args).toContain("--skill");
-    expect(pi.args).toContain("/tmp/wt/.agents/skills/research/SKILL.md");
 
     const orchestrator = createOrchestratorLaunchPlan(config, {
       nodeId: "orchestrator",
@@ -652,23 +488,9 @@ runners:
       native_subagents: true
       mcp_servers: true
       output_formats: [text]
-  claude:
-    type: claude
-    command: claude
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
   opencode:
     type: opencode
     command: opencode
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-  kimi:
-    type: kimi
-    command: kimi
     capabilities:
       native_subagents: true
       mcp_servers: true
@@ -689,9 +511,7 @@ profiles:
     runner: codex
     instructions: { inline: Orchestrate }
   codex-agent: { runner: codex, instructions: { inline: Codex }, mcp_servers: [memory, secure-memory] }
-  claude-agent: { runner: claude, instructions: { inline: Claude }, mcp_servers: [memory, secure-memory] }
   opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [memory, secure-memory] }
-  kimi-agent: { runner: kimi, instructions: { inline: Kimi }, mcp_servers: [memory, secure-memory] }
 `,
       pipeline: `
 version: 1
@@ -719,41 +539,6 @@ workflows:
     );
     expect(codex.args).toContain(
       'mcp_servers.secure-memory.bearer_token_env_var="MEMORY_MCP_TOKEN"'
-    );
-
-    const claude = createRunnerLaunchPlan(config, {
-      profileId: "claude-agent",
-      nodeId: "claude",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    const claudeConfig = JSON.parse(
-      claude.args[claude.args.indexOf("--mcp-config") + 1] as string
-    );
-    expect(claudeConfig.mcpServers.memory).toEqual({
-      headers: { "X-Memory-Region": "eu" },
-      type: "http",
-      url: "https://memory-mcp.momokaya.ee/mcp/",
-    });
-    expect(claudeConfig.mcpServers["secure-memory"].headers).toEqual({
-      Authorization: ["Bearer", ["$", "{MEMORY_MCP_TOKEN}"].join("")].join(" "),
-    });
-
-    const kimi = createRunnerLaunchPlan(config, {
-      profileId: "kimi-agent",
-      nodeId: "kimi",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    const kimiConfig = JSON.parse(
-      kimi.args[kimi.args.indexOf("--mcp-config") + 1] as string
-    );
-    expect(kimiConfig.mcpServers.memory).toEqual({
-      headers: { "X-Memory-Region": "eu" },
-      url: "https://memory-mcp.momokaya.ee/mcp/",
-    });
-    expect(kimiConfig.mcpServers["secure-memory"].bearerTokenEnvVar).toBe(
-      "MEMORY_MCP_TOKEN"
     );
 
     const opencode = createRunnerLaunchPlan(config, {

@@ -1,12 +1,12 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config.js";
 import { buildMcpLaunchPlan, tomlValue } from "./mcp/launch-plan.js";
 import { resolveFileReference } from "./path-refs.js";
 
-export type Harness = "claude" | "codex" | "kimi" | "opencode" | "pi";
+export type Harness = "codex" | "opencode";
 export type AgentRole =
   | "researcher"
   | "test-writer"
@@ -135,13 +135,12 @@ interface NativeArgOptions {
  * Per-harness argv shape, excluding the leading harness binary name.
  */
 function harnessArgv(
-  harness: Exclude<Harness, "pi">,
+  harness: Harness,
   prompt: string,
   worktreePath: string,
   contextFile: string | null,
   options: NativeArgOptions = {}
 ): string[] {
-  const tools = options.actor?.tools ?? [];
   const mcp = buildMcpLaunchPlan({
     actor: options.actor,
     config: options.config,
@@ -156,19 +155,6 @@ function harnessArgv(
     worktreePath
   );
   switch (harness) {
-    case "claude":
-      // Claude's --print mode just takes one big prompt; we prepend the
-      // context the way spawnClaude used to.
-      return [
-        "--print",
-        ...optionalModelArgs(harness, options.runner, options.actor),
-        ...claudeToolArgs(tools),
-        ...mcp.args,
-        ...skillArgs,
-        "--dangerously-skip-permissions",
-        "-p",
-        prompt,
-      ];
     case "codex":
       return [
         "exec",
@@ -210,19 +196,6 @@ function harnessArgv(
             worktreePath,
             prompt,
           ];
-    case "kimi":
-      return [
-        "--print",
-        "--work-dir",
-        worktreePath,
-        ...optionalModelArgs(harness, options.runner, options.actor),
-        ...mcp.args,
-        ...skillArgs,
-        "--yolo",
-        "--final-message-only",
-        "--prompt",
-        prompt,
-      ];
     default: {
       const _exhaustive: never = harness;
       throw new Error(
@@ -241,19 +214,6 @@ async function execaHarness(
   contextFile: string | null,
   worktreePath: string
 ): Promise<AgentResult> {
-  if (harness === "pi") {
-    return execaHarnessPi(prompt, contextFile, worktreePath);
-  }
-
-  // Claude reads stdin as part of `--print` only when piped; we prepend the
-  // loaded context to the prompt string instead (matches the prior spawnClaude
-  // semantics).
-  let effectivePrompt = prompt;
-  if (harness === "claude") {
-    const context = await loadContext(contextFile);
-    effectivePrompt = context ? `${context}\n${prompt}` : prompt;
-  }
-
   if (harness === "opencode") {
     ensureOpencodeGitExcludes(worktreePath);
   }
@@ -264,58 +224,13 @@ async function execaHarness(
       ? await loadContext(contextFile)
       : undefined;
 
-  const argv = harnessArgv(harness, effectivePrompt, worktreePath, contextFile);
+  const argv = harnessArgv(harness, prompt, worktreePath, contextFile);
   try {
     const result = await execa(harness, argv, {
       cwd: worktreePath,
       stdin: input === undefined ? "ignore" : "pipe",
       timeout: Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000),
       ...(input === undefined ? {} : { input }),
-    });
-    return {
-      argv,
-      exitCode: result.exitCode ?? 0,
-      stderr: result.stderr ?? "",
-      stdout: result.stdout,
-    };
-  } catch (err) {
-    const e = err as {
-      exitCode?: number;
-      stderr?: string;
-      stdout?: string;
-      timedOut?: boolean;
-    };
-    return {
-      argv,
-      exitCode: e.exitCode ?? 1,
-      stderr: e.stderr ?? "",
-      stdout: e.stdout ?? "",
-      timedOut: Boolean(e.timedOut),
-    };
-  }
-}
-
-/**
- * Pi-specific path.
- */
-async function execaHarnessPi(
-  prompt: string,
-  contextFile: string | null,
-  worktreePath: string
-): Promise<AgentResult> {
-  const context = await loadContext(contextFile);
-  const effectivePrompt = context ? `${context}\n${prompt}` : prompt;
-  const argv = [
-    "--print",
-    ...optionalModelArgs("pi"),
-    "--no-session",
-    effectivePrompt,
-  ];
-  try {
-    const result = await execa("pi", argv, {
-      cwd: worktreePath,
-      stdin: "ignore",
-      timeout: Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000),
     });
     return {
       argv,
@@ -443,73 +358,21 @@ function createActorLaunchPlan(
   const strategy = nativeStrategy(config, input, runnerId);
   return {
     ...base,
-    args:
-      runner.type === "pi"
-        ? piArgv(input.prompt, config, actor, input.worktreePath, runner)
-        : harnessArgv(
-            runner.type,
-            input.prompt,
-            input.worktreePath,
-            input.contextFile ?? null,
-            {
-              actor,
-              config,
-              nodeId: input.nodeId,
-              runner,
-            }
-          ),
+    args: harnessArgv(
+      runner.type,
+      input.prompt,
+      input.worktreePath,
+      input.contextFile ?? null,
+      {
+        actor,
+        config,
+        nodeId: input.nodeId,
+        runner,
+      }
+    ),
     command,
     strategy,
   };
-}
-
-function piArgv(
-  prompt: string,
-  config?: PipelineConfig,
-  actor?: ActorConfig,
-  worktreePath = process.cwd(),
-  runner?: PipelineConfig["runners"][string]
-): string[] {
-  return [
-    "--print",
-    ...optionalModelArgs("pi", runner, actor),
-    ...piToolArgs(actor?.tools ?? []),
-    ...skillArgsFor("pi", config, actor, worktreePath),
-    "--no-session",
-    prompt,
-  ];
-}
-
-function claudeToolArgs(tools: string[]): string[] {
-  const mapped = tools.flatMap((tool) => {
-    const value = new Map([
-      ["bash", "Bash"],
-      ["edit", "Edit"],
-      ["glob", "Glob"],
-      ["grep", "Grep"],
-      ["list", "LS"],
-      ["read", "Read"],
-      ["write", "Write"],
-    ]).get(tool);
-    return value ? [value] : [];
-  });
-  return mapped.length > 0 ? ["--tools", mapped.join(",")] : [];
-}
-
-function piToolArgs(tools: string[]): string[] {
-  const mapped = tools.flatMap((tool) => {
-    const value = new Map([
-      ["bash", "bash"],
-      ["edit", "edit"],
-      ["glob", "find"],
-      ["grep", "grep"],
-      ["list", "ls"],
-      ["read", "read"],
-      ["write", "write"],
-    ]).get(tool);
-    return value ? [value] : [];
-  });
-  return mapped.length > 0 ? ["--tools", mapped.join(",")] : [];
 }
 
 function skillArgsFor(
@@ -534,12 +397,6 @@ function skillArgsFor(
   if (paths.length === 0) {
     return [];
   }
-  if (runnerType === "kimi") {
-    return [...new Set(paths.map((path) => dirname(path)))].flatMap((path) => [
-      "--skills-dir",
-      path,
-    ]);
-  }
   if (runnerType === "codex") {
     return [
       "--config",
@@ -547,9 +404,6 @@ function skillArgsFor(
         paths.map((path) => ({ enabled: true, path }))
       )}`,
     ];
-  }
-  if (runnerType === "pi") {
-    return paths.flatMap((path) => ["--skill", path]);
   }
   return [];
 }

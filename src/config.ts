@@ -12,14 +12,7 @@ const LEGACY_CONFIG_PATH = ".pipeline/config.toml";
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 
-const RUNNER_TYPES = [
-  "claude",
-  "codex",
-  "opencode",
-  "kimi",
-  "pi",
-  "command",
-] as const;
+const RUNNER_TYPES = ["codex", "opencode", "command"] as const;
 const NODE_KINDS = [
   "agent",
   "command",
