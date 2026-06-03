@@ -7,6 +7,8 @@ rules:
     path: .pipeline/rules/verification.md
 
 skills:
+  schedule-graph-shaping:
+    path: .pipeline/skills/schedule-graph-shaping/SKILL.md
   critique:
     path: .agents/skills/critique/SKILL.md
   diagnose:
@@ -117,7 +119,7 @@ profiles:
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions:
       path: .pipeline/prompts/schedule-planner.md
-    skills: [research, scope]
+    skills: [schedule-graph-shaping]
     mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:

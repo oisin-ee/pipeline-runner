@@ -349,6 +349,8 @@ rules:
     path: .pipeline/rules/verification.md
 
 skills:
+  schedule-graph-shaping:
+    path: .pipeline/skills/schedule-graph-shaping/SKILL.md
   critique:
     path: .agents/skills/critique/SKILL.md
   diagnose:
@@ -459,7 +461,7 @@ profiles:
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions:
       path: .pipeline/prompts/schedule-planner.md
-    skills: [research, scope]
+    skills: [schedule-graph-shaping]
     mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
     tools: [read, list, grep, glob, bash]
     filesystem:
@@ -696,6 +698,62 @@ const SCAFFOLD_FILES: Record<string, string> = {
   [PIPELINE_CONFIG_PATH]: DEFAULT_PIPELINE_YAML,
   [PROFILES_CONFIG_PATH]: DEFAULT_PROFILES_YAML,
   [RUNNERS_CONFIG_PATH]: DEFAULT_RUNNERS_YAML,
+  ".pipeline/skills/schedule-graph-shaping/SKILL.md": [
+    "---",
+    "name: schedule-graph-shaping",
+    "description: Use when generating or reviewing pipeline schedule graphs for a task or epic. Shapes explicit root DAGs by grouping related tickets and verification work by goal, dependency, and evidence instead of defaulting to one full RED/GREEN/VERIFY chain per ticket.",
+    "---",
+    "",
+    "# Schedule Graph Shaping",
+    "",
+    "Use this when producing a `pipeline-schedule` YAML artifact.",
+    "",
+    "## Contract",
+    "",
+    "- Return only the artifact requested by the schedule planner. Do not add prose.",
+    "- Generate exactly one workflow named `root`.",
+    "- Do not use `kind: workflow` or embed configured workflow copies such as `default`, `infra`, `track`, or `epic-drain`.",
+    "- Every generated agent node must declare a configured `profile`.",
+    "- Node IDs must be stable lowercase kebab-case and match `^[a-z][a-z0-9-]*$`.",
+    "- Do not invent profiles, node-level skills, or unconfigured gates.",
+    "",
+    "## Shaping Procedure",
+    "",
+    "1. Cluster work units by intent before drawing nodes.",
+    "   Group tickets that validate the same behavior, touch the same subsystem, share acceptance evidence, or must land in a fixed order.",
+    "",
+    "2. Use RED nodes for test strategy, not ticket counting.",
+    "   One RED node can cover several GREEN tickets when they share the same failing test suite or behavior contract. Split RED nodes only when the tests are meaningfully independent or different profiles are needed.",
+    "",
+    "3. Use GREEN nodes for independently implementable slices.",
+    "   A GREEN node may cover one ticket or a coherent group of tickets. Split GREEN nodes when the work can run in parallel, has different dependencies, has materially different ownership/risk, or would make one node too broad to review.",
+    "",
+    "4. Use acceptance nodes for user-visible outcomes.",
+    "   One acceptance node can cover multiple implementation nodes when they produce the same visible outcome or acceptance checklist.",
+    "",
+    "5. Use verifier nodes for shared evidence.",
+    "   One verifier can validate multiple tickets when the same real repository commands and checks prove them. Split verifiers only when evidence differs, one area needs specialized inspection, or a dependency boundary requires earlier proof.",
+    "",
+    "6. Preserve necessary serial order.",
+    "   Dependencies from the backlog, shared migrations/schema changes, public API changes, and foundational refactors should gate downstream implementation. Independent clusters should fan out and then fan in to shared acceptance, verifier, merge, or review nodes.",
+    "",
+    "## Task Context",
+    "",
+    "- Assign every backlog work unit to at least one explicit generated agent node with `task_context.id`.",
+    "- Prefer assigning ticket-specific context to GREEN nodes.",
+    "- RED, acceptance, and verifier nodes may omit `task_context` when they cover a group; include it only when the node is genuinely ticket-specific.",
+    "",
+    "## Efficiency Checks",
+    "",
+    "Before returning the graph, ask:",
+    "",
+    "- Did I create a RED/GREEN/VERIFY chain just because a ticket exists?",
+    "- Can several GREEN nodes share one RED node without losing test-first behavior?",
+    "- Can several GREEN nodes share one verifier because the same commands prove them?",
+    "- Are independent implementation slices parallelized?",
+    "- Are serial edges based on real dependencies rather than habit?",
+    "",
+  ].join("\n"),
   ".pipeline/prompts/orchestrator.md": [
     "You are the orchestrator for the pipeline.",
     "Use `.pipeline/pipeline.yaml` as the source of truth for workflow order, profiles, gates, hooks, and artifacts.",
@@ -730,11 +788,18 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "",
     "Generate a constrained agent graph as a specialized `pipeline-schedule` YAML artifact for the user task.",
     "",
-    "Keep the graph auditable: every workflow must be embedded in the artifact, every `kind: workflow` reference must point to an embedded workflow, and execution must include research, implementation, and verification.",
+    "Keep the graph auditable: execution must include research, implementation, and verification.",
     "",
-    "Use the provided backlog work units as the source of truth when present. Assign exactly one implementation branch to each work unit, include its `task_context`, use only allowed configured profiles/workflows, and ensure implementation work has downstream acceptance, verification, or review coverage. Do not invent profiles, workflows, or node-level skill overrides.",
+    "Generate exactly one workflow named `root`. Do not embed `default`, `epic-drain`, `infra`, `track`, or other configured workflow copies. Use explicit generated agent, builtin, command, parallel, or group nodes. Do not use `kind: workflow`.",
     "",
-    "Return only YAML. Do not wrap it in Markdown fences. Do not modify files. Do not invoke other agents.",
+    "Use the provided backlog work units as the source of truth when present. Assign each work unit to explicit generated agent nodes with only its `task_context.id`, use only allowed configured profiles, and ensure implementation work has downstream acceptance, verification, or review coverage. Do not invent profiles or node-level skill overrides.",
+    "Do not copy backlog descriptions or acceptance criteria into output; the scheduler hydrates them from the assigned `task_context.id` after parsing.",
+    "",
+    "Shape the graph by intent, not by ticket count. Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket unless each step needs ticket-specific evidence. Use one RED node for a group of tickets when they share a test strategy, fan out to parallel GREEN implementation nodes where the work can be implemented independently, and fan back in to shared acceptance or verifier nodes when the same acceptance checklist or real repository commands prove the group. Only serialize ticket nodes when the backlog, a shared migration/schema/API dependency, or implementation risk requires it.",
+    "",
+    "Return exactly one YAML document and nothing else. Do not wrap it in Markdown fences. Do not include commentary, plans, task lists, or explanations. Do not modify files. Do not invoke other agents.",
+    "",
+    "Use block-style YAML for objects and arrays. Do not use compact inline mappings like `{ id: PIPE-41.1, title: ... }`. Quote scalar strings that contain punctuation such as `:`, `#`, `[`, `]`, `{`, or `}`.",
     "",
   ].join("\n"),
   ".pipeline/prompts/test-writer.md": [

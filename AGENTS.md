@@ -21,3 +21,14 @@ Use Qdrant collection `oisin-pipeline` for this repository.
 - Include metadata with at least `repo`, `phase`, `workflow` or `entrypoint`, `task`, and `outcome` when storing lessons.
 
 <!-- @oisincoveney/pipeline:agents:end -->
+
+## Verification Standard
+
+When the user asks to test, verify, or make sure something works, that means
+test it through real repository usage. Do not treat isolated unit tests,
+synthetic/ad hoc scripts, mocked paths, or partial proxies as sufficient.
+Exercise the actual CLI, generated command surfaces, installed/dogfood flows,
+build, and representative end-to-end paths that a user or pipeline run would
+exercise. If the real pipeline/user path cannot be run, say it was not fully
+verified and do not claim that it works. Report exactly which real-usage
+commands were run and what they proved.

@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { alg } from "@dagrejs/graphlib";
 import { afterAll, describe, expect, it } from "vitest";
 import type { PipelineConfig } from "../src/config.js";
 import { loadPipelineConfig } from "../src/config.js";
@@ -64,6 +65,91 @@ function capturePlannerError(action: () => unknown): WorkflowPlannerError {
 
 function cloneConfig(config: PipelineConfig = DEFAULT_CONFIG): PipelineConfig {
   return structuredClone(config);
+}
+
+function commandNode(
+  id: string,
+  needs?: string[]
+): PipelineConfig["workflows"][string]["nodes"][number] {
+  return {
+    command: ["echo", id],
+    id,
+    kind: "command",
+    ...(needs ? { needs } : {}),
+  };
+}
+
+function deterministicDagNodes(
+  size: number,
+  seed: number
+): PipelineConfig["workflows"][string]["nodes"] {
+  let state = seed;
+  const random = () => {
+    state = (state * 1_664_525 + 1_013_904_223) % 2 ** 32;
+    return state / 2 ** 32;
+  };
+  return Array.from({ length: size }, (_, index) => {
+    const needs: string[] = [];
+    for (let candidate = 0; candidate < index; candidate++) {
+      if (random() < 0.12) {
+        needs.push(`node-${candidate}`);
+      }
+    }
+    return commandNode(`node-${index}`, needs.length > 0 ? needs : undefined);
+  });
+}
+
+function batchIds(plan: ReturnType<typeof compileWorkflowPlan>): string[][] {
+  return plan.parallelBatches.map((batch) => batch.map((node) => node.id));
+}
+
+function dependentIds(
+  plan: ReturnType<typeof compileWorkflowPlan>
+): Record<string, string[]> {
+  return Object.fromEntries(
+    plan.topologicalOrder.map((node) => [node.id, node.dependents])
+  );
+}
+
+function graphlibSuccessorIds(
+  plan: ReturnType<typeof compileWorkflowPlan>
+): Record<string, string[]> {
+  return Object.fromEntries(
+    plan.topologicalOrder.map((node) => [
+      node.id,
+      plan.graph.successors(node.id) ?? [],
+    ])
+  );
+}
+
+function graphlibReferenceBatchIds(
+  plan: ReturnType<typeof compileWorkflowPlan>
+): string[][] {
+  const completed = new Set<string>();
+  const remaining = [...plan.topologicalOrder];
+  const batches: string[][] = [];
+
+  while (remaining.length > 0) {
+    const batch = remaining.filter((node) =>
+      (plan.graph.predecessors(node.id) ?? []).every((need) =>
+        completed.has(need)
+      )
+    );
+    batch.sort((a, b) => a.index - b.index);
+    batches.push(batch.map((node) => node.id));
+    for (const node of batch) {
+      completed.add(node.id);
+      remaining.splice(remaining.indexOf(node), 1);
+    }
+  }
+
+  return batches;
+}
+
+function graphlibReferenceTopologicalOrder(
+  plan: ReturnType<typeof compileWorkflowPlan>
+): string[] {
+  return alg.topsort(plan.graph);
 }
 
 describe("compileWorkflowPlan", () => {
@@ -373,6 +459,148 @@ describe("compileWorkflowPlan", () => {
     expect(
       plan.parallelBatches.map((batch) => batch.map((node) => node.id))
     ).toEqual([["left", "right"], ["quality"]]);
+  });
+
+  it("matches graphlib-derived batches and dependents for representative DAG shapes", () => {
+    const cases: Array<{
+      name: string;
+      nodes: PipelineConfig["workflows"][string]["nodes"];
+    }> = [
+      {
+        name: "diamond fanout/fanin",
+        nodes: [
+          commandNode("root"),
+          commandNode("left", ["root"]),
+          commandNode("right", ["root"]),
+          commandNode("join", ["left", "right"]),
+          commandNode("tail", ["join"]),
+        ],
+      },
+      {
+        name: "staggered fanout with independent root",
+        nodes: [
+          commandNode("alpha"),
+          commandNode("beta"),
+          commandNode("alpha-left", ["alpha"]),
+          commandNode("alpha-right", ["alpha"]),
+          commandNode("mixed", ["beta", "alpha-left"]),
+          commandNode("final", ["alpha-right", "mixed"]),
+        ],
+      },
+      {
+        name: "duplicate needs are collapsed like graph edges",
+        nodes: [
+          commandNode("seed"),
+          commandNode("deduped", ["seed", "seed"]),
+          commandNode("consumer", ["seed", "deduped", "deduped"]),
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const config = cloneConfig();
+      config.workflows.default.nodes = testCase.nodes;
+
+      const plan = compileWorkflowPlan(config);
+
+      expect(batchIds(plan), testCase.name).toEqual(
+        graphlibReferenceBatchIds(plan)
+      );
+      expect(dependentIds(plan), testCase.name).toEqual(
+        graphlibSuccessorIds(plan)
+      );
+    }
+  });
+
+  it("matches graphlib topological order for representative DAG shapes", () => {
+    const cases: Array<{
+      name: string;
+      nodes: PipelineConfig["workflows"][string]["nodes"];
+    }> = [
+      {
+        name: "diamond fanout/fanin",
+        nodes: [
+          commandNode("root"),
+          commandNode("left", ["root"]),
+          commandNode("right", ["root"]),
+          commandNode("join", ["left", "right"]),
+        ],
+      },
+      {
+        name: "staggered fanout with independent root",
+        nodes: [
+          commandNode("alpha"),
+          commandNode("beta"),
+          commandNode("alpha-left", ["alpha"]),
+          commandNode("alpha-right", ["alpha"]),
+          commandNode("mixed", ["beta", "alpha-left"]),
+          commandNode("final", ["alpha-right", "mixed"]),
+        ],
+      },
+      {
+        name: "shared dependencies",
+        nodes: [
+          commandNode("a"),
+          commandNode("b"),
+          commandNode("c", ["a", "b"]),
+          commandNode("d", ["a"]),
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const config = cloneConfig();
+      config.workflows.default.nodes = testCase.nodes;
+
+      const plan = compileWorkflowPlan(config);
+
+      expect(
+        plan.topologicalOrder.map((node) => node.id),
+        testCase.name
+      ).toEqual(graphlibReferenceTopologicalOrder(plan));
+    }
+  });
+
+  it("matches graphlib planning metadata for deterministic generated DAGs", () => {
+    for (const size of [1, 2, 5, 10, 25, 50]) {
+      for (const seed of [1, 2, 3, 5, 8, 13, 21]) {
+        const config = cloneConfig();
+        config.workflows.default.nodes = deterministicDagNodes(size, seed);
+
+        const plan = compileWorkflowPlan(config);
+        const caseName = `size=${size} seed=${seed}`;
+
+        expect(
+          plan.topologicalOrder.map((node) => node.id),
+          caseName
+        ).toEqual(graphlibReferenceTopologicalOrder(plan));
+        expect(batchIds(plan), caseName).toEqual(
+          graphlibReferenceBatchIds(plan)
+        );
+        expect(dependentIds(plan), caseName).toEqual(
+          graphlibSuccessorIds(plan)
+        );
+      }
+    }
+  });
+
+  it("compiles long generated dependency chains without recursive topsort overflow", () => {
+    const config = cloneConfig();
+    config.workflows.default.nodes = Array.from(
+      { length: 10_000 },
+      (_, index) =>
+        commandNode(
+          `node-${index}`,
+          index === 0 ? undefined : [`node-${index - 1}`]
+        )
+    );
+
+    const plan = compileWorkflowPlan(config);
+
+    expect(plan.topologicalOrder).toHaveLength(10_000);
+    expect(plan.parallelBatches).toHaveLength(10_000);
+    expect(plan.topologicalOrder.at(0)?.id).toBe("node-0");
+    expect(plan.topologicalOrder.at(-1)?.id).toBe("node-9999");
   });
 
   it("normalizes workflow execution settings", () => {

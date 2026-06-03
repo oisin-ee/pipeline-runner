@@ -187,6 +187,7 @@ export async function generateScheduleArtifact(
 
   const baseline = baselineScheduleArtifact({
     baseline: policy.baseline,
+    config: options.config,
     entrypointId: options.entrypointId,
     generatedAt: options.generatedAt ?? new Date(),
     runId: options.runId,
@@ -195,10 +196,13 @@ export async function generateScheduleArtifact(
   const planningContext: SchedulePlanningContext = {
     ...loadBacklogPlanningContext(options.task, options.worktreePath),
   };
-  const artifact = await planScheduleArtifact(
-    baseline,
-    policy.planner_profile,
-    options,
+  const artifact = hydrateScheduleTaskContexts(
+    await planScheduleArtifact(
+      baseline,
+      policy.planner_profile,
+      options,
+      planningContext
+    ),
     planningContext
   );
   validateScheduleArtifact(options.config, artifact, planningContext);
@@ -214,6 +218,19 @@ export function scheduleArtifactPath(
   scheduleId: string
 ): string {
   return join(worktreePath, ".pipeline", "runs", scheduleId, "schedule.yaml");
+}
+
+function schedulePlannerOutputPath(
+  worktreePath: string,
+  scheduleId: string
+): string {
+  return join(
+    worktreePath,
+    ".pipeline",
+    "runs",
+    scheduleId,
+    "planner-output.txt"
+  );
 }
 
 function scheduleWorkflowId(scheduleId: string, workflowId: string): string {
@@ -254,25 +271,79 @@ function rewriteNodeReferences(
 
 function baselineScheduleArtifact(input: {
   baseline: ScheduleBaseline;
+  config: PipelineConfig;
   entrypointId: string;
   generatedAt: Date;
   runId?: string;
   task: string;
 }): ScheduleArtifact {
   const scheduleId = input.runId ?? defaultScheduleId(input.generatedAt);
+  const baseline = baselineWorkflows(input.baseline, input.config);
   return {
     generated_at: input.generatedAt.toISOString(),
     kind: SCHEDULE_KIND,
-    root_workflow: "root",
+    root_workflow: baseline.rootWorkflow,
     schedule_id: scheduleId,
     source_entrypoint: input.entrypointId,
     task: input.task,
     version: 1,
-    workflows:
-      input.baseline === "epic"
-        ? epicBaselineWorkflow()
-        : pipeBaselineWorkflow(),
+    workflows: baseline.workflows,
   };
+}
+
+function baselineWorkflows(
+  baseline: ScheduleBaseline,
+  config: PipelineConfig
+): { rootWorkflow: string; workflows: ScheduleArtifact["workflows"] } {
+  if (baseline === "pipe") {
+    const workflow = config.workflows.default;
+    return workflow
+      ? {
+          rootWorkflow: "root",
+          workflows: configuredWorkflowClosureWithRootAlias(config, "default"),
+        }
+      : { rootWorkflow: "root", workflows: pipeBaselineWorkflow() };
+  }
+
+  return { rootWorkflow: "root", workflows: epicBaselineWorkflow() };
+}
+
+function configuredWorkflowClosure(
+  config: PipelineConfig,
+  rootWorkflowId: string
+): ScheduleArtifact["workflows"] {
+  const workflows: ScheduleArtifact["workflows"] = {};
+  const queue = [rootWorkflowId];
+  while (queue.length > 0) {
+    const workflowId = queue.shift();
+    if (!workflowId || workflows[workflowId]) {
+      continue;
+    }
+    const workflow = config.workflows[workflowId];
+    if (!workflow) {
+      continue;
+    }
+    workflows[workflowId] = structuredClone(workflow);
+    for (const node of allWorkflowNodes({ [workflowId]: workflow })) {
+      if (node.kind === "workflow") {
+        queue.push(node.workflow);
+      }
+    }
+  }
+  return workflows;
+}
+
+function configuredWorkflowClosureWithRootAlias(
+  config: PipelineConfig,
+  rootWorkflowId: string
+): ScheduleArtifact["workflows"] {
+  const workflows = configuredWorkflowClosure(config, rootWorkflowId);
+  const rootWorkflow = workflows[rootWorkflowId];
+  if (!rootWorkflow) {
+    return workflows;
+  }
+  const { [rootWorkflowId]: _, ...embeddedWorkflows } = workflows;
+  return { root: rootWorkflow, ...embeddedWorkflows };
 }
 
 function pipeBaselineWorkflow(): ScheduleArtifact["workflows"] {
@@ -312,25 +383,89 @@ function pipeBaselineWorkflow(): ScheduleArtifact["workflows"] {
 function epicBaselineWorkflow(): ScheduleArtifact["workflows"] {
   return {
     root: {
-      description: "Generated epic schedule.",
+      description: "Generated explicit epic schedule seed.",
       nodes: [
         { id: "research", kind: "agent", profile: "pipeline-researcher" },
         {
-          id: "implement",
-          kind: "parallel",
+          id: "plan",
+          kind: "agent",
           needs: ["research"],
-          nodes: [
-            implementationTrack("test"),
-            implementationTrack("frontend"),
-            implementationTrack("backend"),
-            implementationTrack("k8s"),
+          profile: "pipeline-epic-router",
+        },
+        {
+          gates: [
+            {
+              changed_files: {
+                allow: [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                  "**/*.snap",
+                ],
+                require_any: [
+                  "**/*.test.*",
+                  "**/*.spec.*",
+                  "**/*_test.*",
+                  "**/__tests__/**",
+                  "test/**",
+                  "tests/**",
+                ],
+              },
+              id: "red-test-file-policy",
+              kind: "changed_files",
+            },
           ],
+          id: "example-ticket-red",
+          kind: "agent",
+          needs: ["plan"],
+          profile: "pipeline-test-writer",
+        },
+        {
+          id: "example-ticket-green",
+          kind: "agent",
+          needs: ["example-ticket-red"],
+          profile: "pipeline-code-writer",
+        },
+        {
+          gates: [
+            {
+              id: "acceptance-coverage",
+              kind: "acceptance",
+              required: false,
+              target: "stdout",
+            },
+            { id: "acceptance-verdict", kind: "verdict", target: "stdout" },
+          ],
+          id: "example-ticket-acceptance",
+          kind: "agent",
+          needs: ["example-ticket-green"],
+          profile: "pipeline-acceptance-reviewer",
+        },
+        {
+          gates: [
+            { builtin: "typecheck", id: "verify-typecheck", kind: "builtin" },
+            { builtin: "test", id: "verify-tests", kind: "builtin" },
+            { builtin: "semgrep", id: "verify-semgrep", kind: "builtin" },
+            {
+              builtin: "duplication",
+              id: "verify-duplication",
+              kind: "builtin",
+            },
+            { id: "verify-verdict", kind: "verdict", target: "stdout" },
+          ],
+          id: "example-ticket-verify",
+          kind: "agent",
+          needs: ["example-ticket-acceptance"],
+          profile: "pipeline-verifier",
         },
         {
           builtin: "drain-merge",
           id: "merge",
           kind: "builtin",
-          needs: ["implement"],
+          needs: ["example-ticket-verify"],
         },
         {
           gates: [{ id: "review-verdict", kind: "verdict", target: "stdout" }],
@@ -341,44 +476,6 @@ function epicBaselineWorkflow(): ScheduleArtifact["workflows"] {
         },
       ],
     },
-    track: {
-      description: "Generated implementation track.",
-      nodes: [
-        { id: "research", kind: "agent", profile: "pipeline-researcher" },
-        {
-          id: "implement",
-          kind: "agent",
-          needs: ["research"],
-          profile: "pipeline-code-writer",
-        },
-        {
-          gates: [
-            { builtin: "typecheck", id: "verify-typecheck", kind: "builtin" },
-            { builtin: "test", id: "verify-tests", kind: "builtin" },
-            { kind: "verdict", id: "verify-verdict", target: "stdout" },
-          ],
-          id: "verify",
-          kind: "agent",
-          needs: ["implement"],
-          profile: "pipeline-verifier",
-        },
-        {
-          id: "learn",
-          kind: "agent",
-          needs: ["verify"],
-          profile: "pipeline-learner",
-        },
-      ],
-    },
-  };
-}
-
-function implementationTrack(id: string): WorkflowNode {
-  return {
-    id,
-    kind: "workflow",
-    workflow: "track",
-    worktree_root: `.pipeline/runs/\${runId}/${id}`,
   };
 }
 
@@ -407,7 +504,22 @@ async function planScheduleArtifact(
   if (!source) {
     throw new ScheduleArtifactError("schedule planner returned empty output");
   }
-  return parseScheduleArtifact(source, "planner output");
+  try {
+    return parseScheduleArtifact(source, "planner output");
+  } catch (err) {
+    if (!(err instanceof ScheduleArtifactError)) {
+      throw err;
+    }
+    const outputPath = schedulePlannerOutputPath(
+      options.worktreePath,
+      baseline.schedule_id
+    );
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, source, "utf8");
+    throw new ScheduleArtifactError(
+      `${err.message}\nPlanner output saved: ${outputPath}`
+    );
+  }
 }
 
 async function runSchedulePlanner(
@@ -443,25 +555,27 @@ function plannerPrompt(
     "Planner mode: constrained agent graph",
     `Task: ${task}`,
     "Return only YAML matching kind: pipeline-schedule.",
-    "Preserve version, kind, schedule_id, source_entrypoint, task, generated_at, and root_workflow unless a graph change requires new workflow ids.",
-    "Every workflow reference must point at a workflow embedded in the artifact.",
-    "Use only the allowed configured profiles and workflows listed below. Do not invent profile ids, workflow ids, or node-level skill overrides.",
-    "Assign exactly one implementation branch to each backlog work unit. Put that unit's task_context on the branch workflow node or on its implementation node.",
+    "Preserve version, kind, schedule_id, source_entrypoint, task, and generated_at. Keep root_workflow: root.",
+    "Generate exactly one workflow named root. Do not embed default, epic-drain, infra, track, or other configured workflow copies.",
+    "Use only explicit generated agent, builtin, command, parallel, or group nodes. Do not use kind: workflow.",
+    "Every agent node must declare one configured profile id. Do not invent profile ids or node-level skill overrides.",
+    "Assign each backlog work unit to explicit generated agent nodes with task_context.id. The scheduler hydrates title, description, and acceptance_criteria after parsing.",
+    "Do not copy backlog descriptions or acceptance criteria into task_context output.",
     "Implementation work must have downstream acceptance, verification, or review coverage in the generated DAG.",
+    "Shape the graph by intent, not by ticket count. Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket unless each step needs ticket-specific evidence.",
+    "Use one RED node for a group of tickets when they share a test strategy, then fan out to parallel GREEN implementation nodes where the work can be implemented independently.",
+    "Use one acceptance or verifier node for multiple GREEN nodes when the same acceptance checklist or real repository commands prove the group.",
+    "Only serialize ticket nodes when the backlog, a shared migration/schema/API dependency, or implementation risk requires it.",
     "",
     "Allowed profiles:",
     ...Object.keys(config.profiles)
       .sort()
       .map((id) => `- ${id}`),
     "",
-    "Allowed workflows:",
-    ...Object.keys(config.workflows)
-      .sort()
-      .map((id) => `- ${id}`),
-    "",
     "Gate recipes:",
-    "- RED/test coverage may use changed_files gates on test-writing nodes.",
-    "- Acceptance coverage may use acceptance and verdict gates.",
+    "- Prefer preserving valid gates from the baseline workflows instead of recreating them.",
+    "- RED/test coverage may use changed_files gates on test-writing nodes. A changed_files gate must include a changed_files object with allow and/or require_any glob arrays.",
+    "- Acceptance coverage may use acceptance and verdict gates. Acceptance gates may use target: stdout and required: false.",
     "- Verification may use builtin typecheck, test, semgrep, duplication, plus verdict gates.",
     "",
     "Backlog work units:",
@@ -485,6 +599,9 @@ function validateScheduleArtifact(
   planningContext: SchedulePlanningContext
 ): void {
   const issues = [
+    ...generatedRootWorkflowIssues(artifact),
+    ...workflowReferenceNodeIssues(artifact),
+    ...workflowAssignedWorkUnitIssues(artifact, planningContext.workUnits),
     ...missingAssignedWorkUnitIssues(artifact, planningContext.workUnits),
     ...invalidWorkflowPrimitiveIssues(config, artifact),
     ...implementationCoverageIssues(artifact),
@@ -497,6 +614,112 @@ function validateScheduleArtifact(
       ].join("\n")
     );
   }
+}
+
+function generatedRootWorkflowIssues(artifact: ScheduleArtifact): string[] {
+  const workflowIds = Object.keys(artifact.workflows);
+  const issues: string[] = [];
+  if (artifact.root_workflow !== "root") {
+    issues.push("generated schedules must use root_workflow 'root'");
+  }
+  if (workflowIds.length !== 1 || !artifact.workflows.root) {
+    issues.push(
+      "generated schedules must embed exactly one task-specific workflow named 'root'"
+    );
+  }
+  return issues;
+}
+
+function workflowReferenceNodeIssues(artifact: ScheduleArtifact): string[] {
+  const workflowNodes = allWorkflowNodes(artifact.workflows).filter(
+    (node) => node.kind === "workflow"
+  );
+  return workflowNodes.length > 0
+    ? [
+        `generated schedules must use explicit agent/builtin nodes, not workflow-reference nodes: ${workflowNodes.map((node) => node.id).join(", ")}`,
+      ]
+    : [];
+}
+
+function workflowAssignedWorkUnitIssues(
+  artifact: ScheduleArtifact,
+  workUnits: BacklogWorkUnit[]
+): string[] {
+  if (workUnits.length === 0) {
+    return [];
+  }
+  const workUnitIds = new Set(workUnits.map((unit) => unit.id));
+  const workflowAssignments = allWorkflowNodes(artifact.workflows)
+    .filter((node) => node.kind === "workflow")
+    .filter((node) => {
+      const id = node.task_context?.id;
+      return id ? workUnitIds.has(id) : false;
+    });
+  return workflowAssignments.length > 0
+    ? [
+        `backlog work unit assignments must use explicit generated agent nodes, not workflow-reference nodes: ${workflowAssignments.map((node) => node.id).join(", ")}`,
+      ]
+    : [];
+}
+
+function hydrateScheduleTaskContexts(
+  artifact: ScheduleArtifact,
+  planningContext: SchedulePlanningContext
+): ScheduleArtifact {
+  const contexts = new Map(
+    [planningContext.parentWorkUnit, ...planningContext.workUnits]
+      .filter((unit): unit is BacklogWorkUnit => Boolean(unit))
+      .map((unit) => [unit.id, backlogWorkUnitTaskContext(unit)])
+  );
+  if (contexts.size === 0) {
+    return artifact;
+  }
+  return {
+    ...artifact,
+    workflows: Object.fromEntries(
+      Object.entries(artifact.workflows).map(([id, workflow]) => [
+        id,
+        {
+          ...workflow,
+          nodes: workflow.nodes.map((node) =>
+            hydrateWorkflowNodeTaskContext(node, contexts)
+          ),
+        },
+      ])
+    ),
+  };
+}
+
+function backlogWorkUnitTaskContext(
+  unit: BacklogWorkUnit
+): NonNullable<WorkflowNode["task_context"]> {
+  return {
+    ...(unit.acceptance_criteria.length > 0
+      ? { acceptance_criteria: unit.acceptance_criteria }
+      : {}),
+    ...(unit.description ? { description: unit.description } : {}),
+    id: unit.id,
+    ...(unit.title ? { title: unit.title } : {}),
+  };
+}
+
+function hydrateWorkflowNodeTaskContext(
+  node: WorkflowNode,
+  contexts: Map<string, NonNullable<WorkflowNode["task_context"]>>
+): WorkflowNode {
+  const context = node.task_context?.id
+    ? contexts.get(node.task_context.id)
+    : undefined;
+  const hydrated = context ? { ...node, task_context: context } : node;
+  if (hydrated.kind !== "parallel") {
+    return hydrated;
+  }
+  return {
+    ...hydrated,
+    nodes: hydrated.nodes.map((child) =>
+      hydrateWorkflowNodeTaskContext(child, contexts)
+    ),
+  };
 }
 
 function missingAssignedWorkUnitIssues(
@@ -543,14 +766,17 @@ function invalidWorkflowPrimitiveIssues(
 }
 
 function implementationCoverageIssues(artifact: ScheduleArtifact): string[] {
-  return Object.entries(artifact.workflows).flatMap(([workflowId, workflow]) =>
-    workflow.nodes
-      .filter(isImplementationNode)
-      .filter((node) => !hasDownstreamCoverage(node.id, workflow.nodes))
-      .map(
-        (node) =>
-          `implementation node '${workflowId}.${node.id}' is without downstream verification or review`
-      )
+  return Object.entries(artifact.workflows).flatMap(
+    ([workflowId, workflow]) => {
+      const dependentsByNeed = workflowDependentsByNeed(workflow.nodes);
+      return workflow.nodes
+        .filter(isImplementationNode)
+        .filter((node) => !hasDownstreamCoverage(node.id, dependentsByNeed))
+        .map(
+          (node) =>
+            `implementation node '${workflowId}.${node.id}' is without downstream verification or review`
+        );
+    }
   );
 }
 
@@ -558,16 +784,25 @@ function isImplementationNode(node: WorkflowNode): boolean {
   return node.kind === "agent" && node.profile === "pipeline-code-writer";
 }
 
-function hasDownstreamCoverage(nodeId: string, nodes: WorkflowNode[]): boolean {
-  const byNeed = new Map<string, WorkflowNode[]>();
+function workflowDependentsByNeed(
+  nodes: WorkflowNode[]
+): Map<string, WorkflowNode[]> {
+  const dependentsByNeed = new Map<string, WorkflowNode[]>();
   for (const node of nodes) {
     for (const need of node.needs ?? []) {
-      const dependents = byNeed.get(need) ?? [];
+      const dependents = dependentsByNeed.get(need) ?? [];
       dependents.push(node);
-      byNeed.set(need, dependents);
+      dependentsByNeed.set(need, dependents);
     }
   }
-  const queue = [...(byNeed.get(nodeId) ?? [])];
+  return dependentsByNeed;
+}
+
+function hasDownstreamCoverage(
+  nodeId: string,
+  dependentsByNeed: Map<string, WorkflowNode[]>
+): boolean {
+  const queue = [...(dependentsByNeed.get(nodeId) ?? [])];
   const seen = new Set<string>();
   while (queue.length > 0) {
     const node = queue.shift();
@@ -578,7 +813,7 @@ function hasDownstreamCoverage(nodeId: string, nodes: WorkflowNode[]): boolean {
     if (isCoverageNode(node)) {
       return true;
     }
-    queue.push(...(byNeed.get(node.id) ?? []));
+    queue.push(...(dependentsByNeed.get(node.id) ?? []));
   }
   return false;
 }
@@ -624,9 +859,13 @@ function loadBacklogPlanningContext(
     .filter((taskFile) => taskFile.parentTaskId === ticketId)
     .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
     .map((taskFile) => taskFile.workUnit);
+  let plannedWorkUnits = workUnits;
+  if (plannedWorkUnits.length === 0 && parentWorkUnit) {
+    plannedWorkUnits = [parentWorkUnit];
+  }
   return {
     ...(parentWorkUnit ? { parentWorkUnit } : {}),
-    workUnits,
+    workUnits: plannedWorkUnits,
   };
 }
 

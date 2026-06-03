@@ -3,7 +3,7 @@ interface TicketResult {
   ticketId: string | null;
 }
 
-const TICKET_RE = /^([A-Z]+-\d+)\b\s*(.*)$/s;
+const TICKET_RE = /^([A-Z]+-\d+(?:\.\d+)*)\b\s*(.*)$/s;
 
 /**
  * Extract a Backlog.md ticket id (e.g. "PIPE-42") from the start of a free-form

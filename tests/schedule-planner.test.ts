@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,6 +19,9 @@ import {
 const EXTERNAL_WORKFLOW_RE = /external workflow/i;
 const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
+const PLANNER_OUTPUT_SAVED_RE = /Planner output saved: .*planner-output\.txt/s;
+const WORKFLOW_TASK_ASSIGNMENT_RE =
+  /backlog work unit assignments must use explicit generated agent nodes/i;
 
 const RUNNERS = `
 version: 1
@@ -51,6 +61,12 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
+  pipeline-test-writer:
+    runner: codex
+    instructions: { inline: Test }
+    tools: [read, edit, write, bash]
+    filesystem: { mode: workspace-write }
+    network: { mode: inherit }
   pipeline-code-writer:
     runner: codex
     instructions: { inline: Implement }
@@ -66,6 +82,12 @@ profiles:
   pipeline-acceptance-reviewer:
     runner: codex
     instructions: { inline: Acceptance }
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only }
+    network: { mode: inherit }
+  pipeline-epic-router:
+    runner: codex
+    instructions: { inline: Route }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
@@ -113,6 +135,79 @@ workflows:
       - id: research
         kind: agent
         profile: pipeline-researcher
+      - id: red
+        kind: agent
+        profile: pipeline-test-writer
+        needs: [research]
+        gates:
+          - id: red-test-file-policy
+            kind: changed_files
+            changed_files:
+              allow: ["**/*.test.*", "tests/**"]
+              require_any: ["**/*.test.*", "tests/**"]
+      - id: green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [red]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [green]
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+            required: false
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [acceptance]
+        gates:
+          - id: verify-typecheck
+            kind: builtin
+            builtin: typecheck
+          - id: verify-tests
+            kind: builtin
+            builtin: test
+          - id: verify-verdict
+            kind: verdict
+            target: stdout
+      - id: learn
+        kind: agent
+        profile: pipeline-learner
+        needs: [verify]
+  epic-drain:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: plan
+        kind: agent
+        profile: pipeline-epic-router
+        needs: [research]
+      - id: implement
+        kind: parallel
+        needs: [plan]
+        nodes:
+          - id: test
+            kind: workflow
+            workflow: default
+            worktree_root: .pipeline/runs/\${runId}/test
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [implement]
+      - id: review
+        kind: agent
+        profile: pipeline-thermo-nuclear-reviewer
+        needs: [merge]
+        gates:
+          - id: review-verdict
+            kind: verdict
+            target: stdout
   execute-slice:
     nodes:
       - id: research
@@ -270,6 +365,43 @@ workflows:
     }
   });
 
+  it("preserves malformed planner output for real failure diagnosis", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-invalid-"));
+    const malformed = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-invalid
+source_entrypoint: pipe
+task: Bad: compact scalar
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "pipe",
+          executor: () => ({ exitCode: 0, stdout: malformed }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-invalid",
+          task: "Bad compact scalar",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(PLANNER_OUTPUT_SAVED_RE);
+
+      const outputPath = join(
+        dir,
+        ".pipeline",
+        "runs",
+        "run-invalid",
+        "planner-output.txt"
+      );
+      expect(existsSync(outputPath)).toBe(true);
+      expect(readFileSync(outputPath, "utf8")).toBe(malformed.trim());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("gives agent_graph planners backlog work units and allowed primitives", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
     writeBacklogTask(
@@ -305,57 +437,38 @@ workflows:
       - id: research
         kind: agent
         profile: pipeline-researcher
-      - id: implement
-        kind: parallel
+      - id: scheduler-context-red
+        kind: agent
+        profile: pipeline-test-writer
         needs: [research]
-        nodes:
-          - id: pipe-41-7
-            kind: workflow
-            workflow: execute-slice
-            worktree_root: .pipeline/runs/\${runId}/pipe-41-7
-            task_context:
-              id: PIPE-41.7
-              title: Propagate node context
-              description: Carry context.
-              acceptance_criteria:
-                - id: "1"
-                  text: Prompts include task context.
-          - id: pipe-41-8
-            kind: workflow
-            workflow: execute-slice
-            worktree_root: .pipeline/runs/\${runId}/pipe-41-8
-            task_context:
-              id: PIPE-41.8
-              title: Resolve backlog children
-              description: Load child tickets.
-              acceptance_criteria:
-                - id: "1"
-                  text: Work units come from Backlog.
+      - id: pipe-41-7-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [scheduler-context-red]
+        task_context:
+          id: PIPE-41.7
+      - id: pipe-41-8-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [scheduler-context-red]
+        task_context:
+          id: PIPE-41.8
+      - id: scheduler-context-acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [pipe-41-7-green, pipe-41-8-green]
+      - id: scheduler-context-verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [scheduler-context-acceptance]
       - id: merge
         kind: builtin
         builtin: drain-merge
-        needs: [implement]
+        needs: [scheduler-context-verify]
       - id: review
         kind: agent
         profile: pipeline-thermo-nuclear-reviewer
         needs: [merge]
-  execute-slice:
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: implement
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [research]
-      - id: acceptance
-        kind: agent
-        profile: pipeline-acceptance-reviewer
-        needs: [implement]
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [acceptance]
 `;
 
     try {
@@ -380,14 +493,219 @@ workflows:
       expect(seenPrompts[0]).toContain("PIPE-41.8");
       expect(seenPrompts[0]).toContain("Allowed profiles:");
       expect(seenPrompts[0]).toContain("pipeline-code-writer");
-      expect(seenPrompts[0]).toContain("Allowed workflows:");
-      expect(result.artifact.workflows.root.nodes[1]).toMatchObject({
-        id: "implement",
-        kind: "parallel",
-      });
+      expect(seenPrompts[0]).not.toContain("Allowed workflows:");
+      expect(seenPrompts[0]).toContain("Do not use kind: workflow");
+      expect(seenPrompts[0]).toContain("root_workflow: root");
+      expect(seenPrompts[0]).toContain("Shape the graph by intent");
+      expect(seenPrompts[0]).toContain(
+        "Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket"
+      );
+      expect(seenPrompts[0]).toContain("red-test-file-policy");
+      expect(seenPrompts[0]).toContain("changed_files:");
+      expect(seenPrompts[0]).toContain("require_any:");
+      expect(Object.keys(result.artifact.workflows)).toEqual(["root"]);
+      expect(result.artifact.workflows.root.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "scheduler-context-red",
+            kind: "agent",
+            profile: "pipeline-test-writer",
+          }),
+          expect.objectContaining({
+            id: "pipe-41-7-green",
+            kind: "agent",
+            profile: "pipeline-code-writer",
+            task_context: expect.objectContaining({
+              acceptance_criteria: [
+                { id: "1", text: "Prompts include task context." },
+              ],
+              description: "Carry context.",
+              id: "PIPE-41.7",
+              title: "Propagate node context",
+            }),
+          }),
+          expect.objectContaining({
+            id: "pipe-41-8-green",
+            kind: "agent",
+            profile: "pipeline-code-writer",
+            task_context: expect.objectContaining({
+              acceptance_criteria: [
+                { id: "1", text: "Work units come from Backlog." },
+              ],
+              description: "Load child tickets.",
+              id: "PIPE-41.8",
+              title: "Resolve backlog children",
+            }),
+          }),
+          expect.objectContaining({
+            id: "merge",
+            kind: "builtin",
+            needs: ["scheduler-context-verify"],
+          }),
+          expect.objectContaining({
+            id: "scheduler-context-acceptance",
+            kind: "agent",
+            needs: ["pipe-41-7-green", "pipe-41-8-green"],
+            profile: "pipeline-acceptance-reviewer",
+          }),
+          expect.objectContaining({
+            id: "scheduler-context-verify",
+            kind: "agent",
+            needs: ["scheduler-context-acceptance"],
+            profile: "pipeline-verifier",
+          }),
+        ])
+      );
       expect(() =>
         compileScheduleArtifact(config(), result.artifact, dir)
       ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects backlog assignments hidden behind workflow-reference nodes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-workflow-ref-"));
+    writeBacklogTask(
+      dir,
+      "PIPE-41",
+      "Agent-driven workflow scheduling",
+      "## Description\n\nParent epic."
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.7",
+      "Propagate node context",
+      "## Description\n\nCarry context."
+    );
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-epic
+source_entrypoint: epic
+task: PIPE-41
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: pipe-41-7
+        kind: workflow
+        workflow: default
+        task_context:
+          id: PIPE-41.7
+  default:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [implement]
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "epic",
+          executor: () => ({ exitCode: 0, stdout: schedule }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-epic",
+          task: "PIPE-41",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(WORKFLOW_TASK_ASSIGNMENT_RE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses an exact child ticket as the only work unit for single-ticket schedules", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-single-ticket-"));
+    writeBacklogTask(
+      dir,
+      "PIPE-41",
+      "Agent-driven workflow scheduling",
+      "## Description\n\nParent epic."
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.7",
+      "Propagate node context",
+      "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->"
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.8",
+      "Resolve backlog children",
+      "## Description\n\nLoad child tickets."
+    );
+    const seenPrompts: string[] = [];
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-single
+source_entrypoint: pipe
+task: PIPE-41.7
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: pipe-41-7-red
+        kind: agent
+        profile: pipeline-test-writer
+        needs: [research]
+        task_context:
+          id: PIPE-41.7
+      - id: pipe-41-7-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pipe-41-7-red]
+        task_context:
+          id: PIPE-41.7
+      - id: pipe-41-7-verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [pipe-41-7-green]
+        task_context:
+          id: PIPE-41.7
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "pipe",
+        executor: (plan) => {
+          seenPrompts.push(plan.args.join("\n"));
+          return { exitCode: 0, stdout: schedule };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-single",
+        task: "PIPE-41.7",
+        worktreePath: dir,
+      });
+
+      const prompt = seenPrompts[0] ?? "";
+      expect(prompt).toContain("id: PIPE-41.7");
+      expect(prompt).not.toContain("id: PIPE-41.8");
+      expect(result.artifact.workflows.root.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "pipe-41-7-green",
+            profile: "pipeline-code-writer",
+            task_context: expect.objectContaining({
+              id: "PIPE-41.7",
+              title: "Propagate node context",
+            }),
+          }),
+        ])
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -486,5 +804,43 @@ workflows:
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("accepts implementation nodes with multi-hop downstream verification coverage", () => {
+    const artifact = parseScheduleArtifact(`
+version: 1
+kind: pipeline-schedule
+schedule_id: run-covered
+source_entrypoint: pipe
+task: Covered implementation
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement-a
+        kind: agent
+        profile: pipeline-code-writer
+      - id: implement-b
+        kind: agent
+        profile: pipeline-code-writer
+      - id: aggregate
+        kind: command
+        command: [echo, aggregate]
+        needs: [implement-a, implement-b]
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [aggregate]
+`);
+
+    const compiled = compileScheduleArtifact(config(), artifact);
+
+    expect(compiled.plan.topologicalOrder.map((node) => node.id)).toEqual([
+      "implement-a",
+      "implement-b",
+      "aggregate",
+      "verify",
+    ]);
   });
 });

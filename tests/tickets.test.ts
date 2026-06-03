@@ -16,6 +16,13 @@ describe("parseTicketAndDescription", () => {
     });
   });
 
+  it("keeps dotted child ticket ids intact", () => {
+    expect(parseTicketAndDescription("PIPE-41.7 propagate context")).toEqual({
+      ticketId: "PIPE-41.7",
+      description: "propagate context",
+    });
+  });
+
   it("returns null ticket id when no prefix", () => {
     expect(parseTicketAndDescription("ad-hoc task description")).toEqual({
       ticketId: null,

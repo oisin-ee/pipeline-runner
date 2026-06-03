@@ -1,4 +1,4 @@
-import { alg, Graph } from "@dagrejs/graphlib";
+import { Graph } from "@dagrejs/graphlib";
 import type { PipelineConfig, WorkflowNodeKind } from "./config.js";
 
 export type WorkflowPlannerErrorCode =
@@ -94,10 +94,10 @@ export function compileWorkflowPlan(
   }
 
   const graph = createWorkflowGraph(nodes);
-  const topologicalOrder = alg
-    .topsort(graph)
-    .map((nodeId) => graph.node(nodeId));
-  const parallelBatches = buildParallelBatches(topologicalOrder, graph);
+  const topologicalOrder = topologicalOrderForPlan(graph).map((nodeId) =>
+    graph.node(nodeId)
+  );
+  const parallelBatches = buildParallelBatches(topologicalOrder);
 
   return {
     execution: workflowExecution(workflow),
@@ -249,8 +249,7 @@ function cycleIssues(
   nodes: WorkflowNode[],
   nodeIds: Set<string>
 ): WorkflowPlannerIssue[] {
-  const graph = createWorkflowGraph(nodes, nodeIds);
-  return alg.findCycles(graph).map((cycle) => {
+  return dependencyCycles(nodes, nodeIds).map((cycle) => {
     const id = cycle[0] ?? "nodes";
     return {
       path: `workflows.${workflowId}.nodes.${id}.needs`,
@@ -259,23 +258,223 @@ function cycleIssues(
   });
 }
 
-function buildParallelBatches(
-  topologicalOrder: PlannedWorkflowNode[],
+function dependencyCycles(
+  nodes: WorkflowNode[],
+  nodeIds: Set<string>
+): string[][] {
+  const dependentsByNeed = dependentsByNeedMap(nodes, nodeIds);
+  const state = new Map<string, "done" | "visiting">();
+  const path: string[] = [];
+  const pathIndex = new Map<string, number>();
+  const cycles: string[][] = [];
+  const cycleKeys = new Set<string>();
+
+  for (const node of nodes) {
+    if (state.has(node.id)) {
+      continue;
+    }
+    visitForCycles(node.id, {
+      cycleKeys,
+      cycles,
+      dependentsByNeed,
+      path,
+      pathIndex,
+      state,
+    });
+  }
+
+  return cycles;
+}
+
+interface CycleVisitState {
+  cycleKeys: Set<string>;
+  cycles: string[][];
+  dependentsByNeed: Map<string, string[]>;
+  path: string[];
+  pathIndex: Map<string, number>;
+  state: Map<string, "done" | "visiting">;
+}
+
+function visitForCycles(startId: string, visitState: CycleVisitState): void {
+  const frames: Array<{ index: number; nodeId: string }> = [
+    { index: 0, nodeId: startId },
+  ];
+  markVisiting(startId, visitState);
+
+  while (frames.length > 0) {
+    const frame = frames.at(-1);
+    if (!frame) {
+      return;
+    }
+    const dependents = visitState.dependentsByNeed.get(frame.nodeId) ?? [];
+    const dependentId = dependents[frame.index];
+    if (!dependentId) {
+      markDone(frame.nodeId, visitState);
+      frames.pop();
+      continue;
+    }
+    frame.index += 1;
+    const dependentState = visitState.state.get(dependentId);
+    if (dependentState === "visiting") {
+      recordCycle(dependentId, visitState);
+      continue;
+    }
+    if (dependentState === "done") {
+      continue;
+    }
+    markVisiting(dependentId, visitState);
+    frames.push({ index: 0, nodeId: dependentId });
+  }
+}
+
+function markVisiting(nodeId: string, visitState: CycleVisitState): void {
+  visitState.state.set(nodeId, "visiting");
+  visitState.pathIndex.set(nodeId, visitState.path.length);
+  visitState.path.push(nodeId);
+}
+
+function markDone(nodeId: string, visitState: CycleVisitState): void {
+  visitState.state.set(nodeId, "done");
+  visitState.pathIndex.delete(nodeId);
+  visitState.path.pop();
+}
+
+function recordCycle(nodeId: string, visitState: CycleVisitState): void {
+  const startIndex = visitState.pathIndex.get(nodeId);
+  if (startIndex === undefined) {
+    return;
+  }
+  const cycle = visitState.path.slice(startIndex);
+  const key = [...cycle].sort().join("\0");
+  if (visitState.cycleKeys.has(key)) {
+    return;
+  }
+  visitState.cycleKeys.add(key);
+  visitState.cycles.push(cycle);
+}
+
+function dependentsByNeedMap(
+  nodes: WorkflowNode[],
+  nodeIds: Set<string>
+): Map<string, string[]> {
+  const dependentsByNeed = new Map<string, string[]>();
+  for (const node of nodes) {
+    for (const need of uniqueStrings(node.needs ?? [])) {
+      if (!nodeIds.has(need)) {
+        continue;
+      }
+      const dependents = dependentsByNeed.get(need) ?? [];
+      dependents.push(node.id);
+      dependentsByNeed.set(need, dependents);
+    }
+  }
+  return dependentsByNeed;
+}
+
+function topologicalOrderForPlan(
   graph: Graph<undefined, PlannedWorkflowNode>
+): string[] {
+  // Keep graphlib's DFS/sink ordering while avoiding its recursive topsort
+  // stack overflow on long generated workflow chains.
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const results: string[] = [];
+
+  for (const sink of graph.sinks()) {
+    visitForTopologicalOrder(sink, graph, visited, inStack, results);
+  }
+
+  if (visited.size !== graph.nodeCount()) {
+    throw new Error("workflow graph contains a dependency cycle");
+  }
+
+  return results;
+}
+
+function visitForTopologicalOrder(
+  startId: string,
+  graph: Graph<undefined, PlannedWorkflowNode>,
+  visited: Set<string>,
+  inStack: Set<string>,
+  results: string[]
+): void {
+  const frames: Array<{
+    index: number;
+    nodeId: string;
+    predecessors: string[];
+  }> = [];
+  pushTopologicalFrame(startId, graph, visited, inStack, frames);
+
+  while (frames.length > 0) {
+    const frame = frames.at(-1);
+    if (!frame) {
+      return;
+    }
+    const predecessorId = frame.predecessors[frame.index];
+    if (!predecessorId) {
+      inStack.delete(frame.nodeId);
+      results.push(frame.nodeId);
+      frames.pop();
+      continue;
+    }
+    frame.index += 1;
+    if (inStack.has(predecessorId)) {
+      throw new Error("workflow graph contains a dependency cycle");
+    }
+    if (visited.has(predecessorId)) {
+      continue;
+    }
+    pushTopologicalFrame(predecessorId, graph, visited, inStack, frames);
+  }
+}
+
+function pushTopologicalFrame(
+  nodeId: string,
+  graph: Graph<undefined, PlannedWorkflowNode>,
+  visited: Set<string>,
+  inStack: Set<string>,
+  frames: Array<{ index: number; nodeId: string; predecessors: string[] }>
+): void {
+  visited.add(nodeId);
+  inStack.add(nodeId);
+  frames.push({
+    index: 0,
+    nodeId,
+    predecessors: graph.predecessors(nodeId) ?? [],
+  });
+}
+
+function buildParallelBatches(
+  topologicalOrder: PlannedWorkflowNode[]
 ): PlannedWorkflowNode[][] {
-  const completed = new Set<string>();
-  const remaining = [...topologicalOrder];
+  const nodeIds = new Set(topologicalOrder.map((node) => node.id));
+  const byId = new Map(topologicalOrder.map((node) => [node.id, node]));
+  const remainingNeeds = new Map(
+    topologicalOrder.map((node) => [
+      node.id,
+      uniqueExistingNeeds(node, nodeIds).length,
+    ])
+  );
+  let ready = topologicalOrder.filter(
+    (node) => (remainingNeeds.get(node.id) ?? 0) === 0
+  );
   const batches: PlannedWorkflowNode[][] = [];
 
-  while (remaining.length > 0) {
-    const batch = remaining.filter((node) =>
-      (graph.predecessors(node.id) ?? []).every((need) => completed.has(need))
-    );
-    batch.sort((a, b) => a.index - b.index);
+  while (ready.length > 0) {
+    const batch = ready.sort((a, b) => a.index - b.index);
     batches.push(batch);
+    ready = [];
     for (const node of batch) {
-      completed.add(node.id);
-      remaining.splice(remaining.indexOf(node), 1);
+      for (const dependentId of node.dependents) {
+        const remaining = (remainingNeeds.get(dependentId) ?? 0) - 1;
+        remainingNeeds.set(dependentId, remaining);
+        if (remaining === 0) {
+          const dependent = byId.get(dependentId);
+          if (dependent) {
+            ready.push(dependent);
+          }
+        }
+      }
     }
   }
 
@@ -290,18 +489,31 @@ function createWorkflowGraph(
   for (const [index, node] of nodes.entries()) {
     graph.setNode(node.id, toPlannedNode(node, index));
   }
+  const dependentIds = new Map<string, Set<string>>();
   for (const node of nodes) {
     for (const need of node.needs ?? []) {
       if (nodeIds.has(need)) {
         graph.setEdge(need, node.id);
+        const dependents = dependentIds.get(need) ?? new Set<string>();
+        dependents.add(node.id);
+        dependentIds.set(need, dependents);
       }
     }
   }
-  for (const node of graph.nodes()) {
-    const planned = graph.node(node);
-    planned.dependents = graph.successors(node) ?? [];
+  for (const [nodeId, dependents] of dependentIds) {
+    const planned = graph.node(nodeId);
+    if (planned) {
+      planned.dependents = [...dependents];
+    }
   }
   return graph;
+}
+
+function uniqueExistingNeeds(
+  node: PlannedWorkflowNode,
+  nodeIds: Set<string>
+): string[] {
+  return uniqueStrings(node.needs.filter((need) => nodeIds.has(need)));
 }
 
 function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {

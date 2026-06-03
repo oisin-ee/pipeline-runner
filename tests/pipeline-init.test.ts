@@ -124,6 +124,12 @@ describe("initPipelineProject", () => {
         schema_path: ".pipeline/schemas/review.schema.json",
       },
     });
+    expect(config.skills["schedule-graph-shaping"]).toMatchObject({
+      path: ".pipeline/skills/schedule-graph-shaping/SKILL.md",
+    });
+    expect(config.profiles["pipeline-schedule-planner"].skills).toEqual([
+      "schedule-graph-shaping",
+    ]);
     expect(config.runners.codex.model).toBe("gpt-5.5");
     expect(config.mcp_servers.serena).toMatchObject({
       args: ["--python", "3.12", "mcpm", "run", "oisin-pipeline-serena"],
@@ -152,6 +158,7 @@ describe("initPipelineProject", () => {
       ".pipeline/schemas/review.schema.json",
       ".pipeline/schemas/verify.schema.json",
       ".pipeline/schemas/learn.schema.json",
+      ".pipeline/skills/schedule-graph-shaping/SKILL.md",
       ".pipeline/host-resources/codex.md",
       ".pipeline/host-resources/opencode.md",
     ]) {
@@ -185,7 +192,37 @@ describe("initPipelineProject", () => {
     ).toContain("constrained agent graph");
     expect(
       readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("Assign exactly one implementation branch to each work unit");
+    ).toContain("Assign each work unit to explicit generated agent nodes");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("Generate exactly one workflow named `root`");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("Do not use `kind: workflow`");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("task_context.id");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("scheduler hydrates them");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("Shape the graph by intent, not by ticket count.");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("Return exactly one YAML document and nothing else");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
+    ).toContain("Do not use compact inline mappings");
+    expect(
+      readFileSync(
+        join(dir, ".pipeline/skills/schedule-graph-shaping/SKILL.md"),
+        "utf8"
+      )
+    ).toContain("Use RED nodes for test strategy, not ticket counting.");
+    expect(
+      readFileSync(join(dir, ".pipeline/profiles.yaml"), "utf8")
+    ).not.toContain("skills: [research, scope]");
   });
 
   it("tells verifier agents not to replace deterministic gates and treats configured gates as authoritative", () => {
@@ -499,6 +536,7 @@ describe("initPipelineProject", () => {
       ".pipeline/schemas/research.schema.json",
       ".pipeline/schemas/review.schema.json",
       ".pipeline/schemas/verify.schema.json",
+      ".pipeline/skills/schedule-graph-shaping/SKILL.md",
     ]);
   });
 });
