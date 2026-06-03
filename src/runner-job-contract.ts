@@ -155,6 +155,7 @@ export interface RunnerLogDetails {
   output?: unknown;
   passed?: boolean;
   reason?: string;
+  workflowId?: string;
 }
 
 export interface RunnerFinalResultDetails {
@@ -191,7 +192,11 @@ export type RunnerEventRecord =
     })
   | (RunnerEventEnvelope & {
       log: RunnerLogDetails;
-      type: "node.output.recorded" | "output.repair" | "run.cancelled";
+      type:
+        | "node.output.recorded"
+        | "output.repair"
+        | "run.cancelled"
+        | "runtime.observability";
     })
   | (RunnerEventEnvelope & {
       finalResult: RunnerFinalResultDetails;
@@ -511,6 +516,19 @@ export function mapRuntimeEventToRunnerEventRecords(
             nodeId: event.nodeId,
             passed: event.passed,
             reason: event.reason,
+          }),
+        },
+      ];
+    case "runtime.observability":
+      return [
+        {
+          ...record,
+          type: event.type,
+          log: omitUndefined({
+            level: event.level,
+            message: `Runtime observed: ${event.name} - ${event.summary}`,
+            nodeId: event.nodeId,
+            workflowId: event.workflowId,
           }),
         },
       ];

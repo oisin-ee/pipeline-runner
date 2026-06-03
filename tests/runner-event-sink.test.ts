@@ -358,6 +358,57 @@ describe("runner event sink", () => {
     ]);
   });
 
+  it("serializes runtime observability events without raw inspection payloads", async () => {
+    const { createRunnerEventSink } = await loadSinkModule();
+    const fetchMock = vi.fn(async () => okResponse());
+    const sink = createRunnerEventSink({
+      authToken: "console-token",
+      fetch: fetchMock,
+      now: () => new Date(TIMESTAMP),
+      runId: "run_123",
+      url: EVENT_SINK_URL,
+    });
+
+    sink.recordRuntimeEvent({
+      actor: {
+        id: "pipeline.node.run-123.default.red",
+        kind: "node",
+        systemId: "pipeline.run-123",
+      },
+      level: "info",
+      name: "runtime.actor.snapshot",
+      nodeId: "red",
+      summary: "node actor pipeline.node.run-123.default.red snapshot recorded",
+      type: "runtime.observability",
+      workflowId: "default",
+    });
+
+    await sink.flush();
+
+    const bodies = await parseBodies(fetchMock);
+    expect(bodies).toEqual([
+      {
+        events: [
+          {
+            at: TIMESTAMP,
+            log: {
+              level: "info",
+              message:
+                "Runtime observed: runtime.actor.snapshot - node actor pipeline.node.run-123.default.red snapshot recorded",
+              nodeId: "red",
+              workflowId: "default",
+            },
+            sequence: 1,
+            type: "runtime.observability",
+          },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(bodies)).not.toContain("secret-token");
+    expect(JSON.stringify(bodies)).not.toContain('snapshot":{"');
+    expect(JSON.stringify(bodies)).not.toContain("@xstate");
+  });
+
   it("flushes a runtime CANCELLED final result and preserves it after a failed flush", async () => {
     const { createRunnerEventSink } = await loadSinkModule();
     const fetchMock = vi

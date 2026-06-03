@@ -123,6 +123,7 @@ function formatRuntimeProgressMessage(event: PipelineRuntimeEvent): string {
     formatWorkflowProgress(event) ??
     formatAgentProgress(event) ??
     formatCheckProgress(event) ??
+    formatObservabilityProgress(event) ??
     formatRepairProgress(event)
   );
 }
@@ -189,6 +190,17 @@ function formatRepairProgress(event: PipelineRuntimeEvent): string {
       return `Output repair ${event.passed ? "passed" : "failed"}: ${event.nodeId} attempt=${event.attempt}${event.reason ? ` (${event.reason})` : ""}`;
     default:
       throw new Error(`Unhandled runtime event: ${event.type}`);
+  }
+}
+
+function formatObservabilityProgress(
+  event: PipelineRuntimeEvent
+): string | null {
+  switch (event.type) {
+    case "runtime.observability":
+      return `Runtime observed: ${event.name} - ${event.summary}`;
+    default:
+      return null;
   }
 }
 

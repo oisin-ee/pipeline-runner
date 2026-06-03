@@ -332,4 +332,40 @@ describe("runner-job payload contract", () => {
       },
     ]);
   });
+
+  it("maps runtime observability events into stable runner logs", async () => {
+    const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
+
+    const mapped = mapRuntimeEventToRunnerEventRecords(
+      {
+        actor: {
+          id: "pipeline.node.run-123.default.red",
+          kind: "node",
+          systemId: "pipeline.run-123",
+        },
+        level: "warn",
+        name: "runtime.retry.exhausted",
+        nodeId: "red",
+        summary: "node red retry exhausted after attempt 3 (exit_nonzero)",
+        type: "runtime.observability",
+        workflowId: "default",
+      },
+      { runId: "run_123", sequence: 8, timestamp: TIMESTAMP }
+    );
+
+    expect(mapped).toEqual([
+      {
+        at: TIMESTAMP,
+        log: {
+          level: "warn",
+          message:
+            "Runtime observed: runtime.retry.exhausted - node red retry exhausted after attempt 3 (exit_nonzero)",
+          nodeId: "red",
+          workflowId: "default",
+        },
+        sequence: 8,
+        type: "runtime.observability",
+      },
+    ]);
+  });
 });

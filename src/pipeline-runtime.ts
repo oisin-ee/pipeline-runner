@@ -30,7 +30,9 @@ import {
 } from "./runner.js";
 import {
   type RetryReason,
+  type RuntimeActorDescriptor,
   type RuntimeObservabilityEmitter,
+  type RuntimeObservabilityEvent,
   runtimeActorId,
 } from "./runtime-machines/contracts.js";
 import { gateEvaluationMachine } from "./runtime-machines/gate-machine.js";
@@ -160,6 +162,8 @@ export interface PipelineRuntimeResult {
   plan: WorkflowExecutionPlan;
 }
 
+export type PipelineRuntimeObservabilityLevel = "info" | "warn";
+
 export type PipelineRuntimeEvent = { parentNodeId?: string } & (
   | {
       edges: { source: string; target: string }[];
@@ -274,6 +278,15 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
       passed: boolean;
       reason?: string;
       type: "output.repair";
+    }
+  | {
+      actor: RuntimeActorDescriptor;
+      level: PipelineRuntimeObservabilityLevel;
+      name: RuntimeObservabilityEvent["type"];
+      nodeId?: string;
+      summary: string;
+      type: "runtime.observability";
+      workflowId: string;
     }
   | {
       outcome: PipelineRuntimeResult["outcome"];
@@ -423,6 +436,9 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
   const runId =
     options.runId ??
     (planReferencesRunIdTemplate(plan) ? generateRuntimeRunId() : undefined);
+  const observability = options.reporter
+    ? createPublicRuntimeObservabilityEmitter(options.reporter, workflowId)
+    : undefined;
   return {
     agentInvocations: [],
     ...(runId ? { runId } : {}),
@@ -446,6 +462,7 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     nodeSnapshots: new Map(),
     nodeStates: initialNodeStates(plan),
     nodeActors: new Map(),
+    ...(observability ? { observability } : {}),
     plan,
     preserveSuccessfulWorkflowWorktrees: false,
     ...(options.reporter ? { reporter: options.reporter } : {}),
@@ -455,6 +472,114 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     workflowId,
     worktreePath,
   };
+}
+
+function createPublicRuntimeObservabilityEmitter(
+  reporter: (event: PipelineRuntimeEvent) => void,
+  workflowId: string
+): RuntimeObservabilityEmitter {
+  return (event) => {
+    reporter(runtimeObservabilityEventToPipelineEvent(event, workflowId));
+  };
+}
+
+function runtimeObservabilityEventToPipelineEvent(
+  event: RuntimeObservabilityEvent,
+  workflowId: string
+): PipelineRuntimeEvent {
+  const nodeId = runtimeObservabilityNodeId(event);
+  return {
+    actor: event.actor,
+    level: runtimeObservabilityLevel(event),
+    name: event.type,
+    ...(nodeId ? { nodeId } : {}),
+    summary: runtimeObservabilitySummary(event),
+    type: "runtime.observability",
+    workflowId,
+  };
+}
+
+function runtimeObservabilityLevel(
+  event: RuntimeObservabilityEvent
+): PipelineRuntimeObservabilityLevel {
+  switch (event.type) {
+    case "runtime.gate.cancelled":
+    case "runtime.gate.failed":
+    case "runtime.hook.failed":
+    case "runtime.hook.timedOut":
+    case "runtime.retry.exhausted":
+      return "warn";
+    default:
+      return "info";
+  }
+}
+
+function runtimeObservabilityNodeId(
+  event: RuntimeObservabilityEvent
+): string | undefined {
+  switch (event.type) {
+    case "runtime.gate.cancelled":
+    case "runtime.gate.failed":
+    case "runtime.gate.finished":
+    case "runtime.gate.started":
+    case "runtime.hook.failed":
+    case "runtime.hook.finished":
+    case "runtime.hook.skipped":
+    case "runtime.hook.started":
+    case "runtime.hook.timedOut":
+    case "runtime.node.finished":
+    case "runtime.node.started":
+    case "runtime.retry.exhausted":
+    case "runtime.retry.scheduled":
+      return event.nodeId;
+    default:
+      return;
+  }
+}
+
+function runtimeObservabilitySummary(event: RuntimeObservabilityEvent): string {
+  switch (event.type) {
+    case "runtime.actor.event":
+      return `${event.actor.kind} actor ${event.actor.id} received ${event.eventType}`;
+    case "runtime.actor.snapshot":
+      return `${event.actor.kind} actor ${event.actor.id} snapshot recorded`;
+    case "runtime.gate.cancelled":
+      return `gate ${event.gateId} cancelled for node ${event.nodeId}: ${event.reason}`;
+    case "runtime.gate.failed":
+      return `gate ${event.gateId} failed for node ${event.nodeId}: ${event.reason}`;
+    case "runtime.gate.finished":
+      return `gate ${event.gateId} ${event.passed ? "passed" : "failed"} for node ${event.nodeId}${event.reason ? `: ${event.reason}` : ""}`;
+    case "runtime.gate.started":
+      return `gate ${event.gateId} started for node ${event.nodeId}`;
+    case "runtime.hook.failed":
+      return `hook ${event.hookId} failed${event.nodeId ? ` for node ${event.nodeId}` : ""}: ${event.reason}`;
+    case "runtime.hook.finished":
+      return `hook ${event.hookId} ${event.passed ? "passed" : "failed"}${event.nodeId ? ` for node ${event.nodeId}` : ""}${event.reason ? `: ${event.reason}` : ""}`;
+    case "runtime.hook.skipped":
+      return `hook ${event.hookId} skipped${event.nodeId ? ` for node ${event.nodeId}` : ""}: ${event.reason}`;
+    case "runtime.hook.started":
+      return `hook ${event.hookId} started${event.nodeId ? ` for node ${event.nodeId}` : ""}`;
+    case "runtime.hook.timedOut":
+      return `hook ${event.hookId} timed out${event.nodeId ? ` for node ${event.nodeId}` : ""}: ${event.reason}`;
+    case "runtime.node.finished":
+      return `node ${event.nodeId} finished with status ${event.status}`;
+    case "runtime.node.started":
+      return `node ${event.nodeId} started`;
+    case "runtime.retry.exhausted":
+      return `node ${event.nodeId} retry exhausted after attempt ${event.attempt} (${event.reason})`;
+    case "runtime.retry.scheduled":
+      return `node ${event.nodeId} retry scheduled for attempt ${event.attempt} (${event.reason})`;
+    case "runtime.state.enter":
+      return `${event.actor.kind} actor ${event.actor.id} entered ${event.state}`;
+    case "runtime.state.exit":
+      return `${event.actor.kind} actor ${event.actor.id} exited ${event.state}`;
+    default:
+      return assertNeverRuntimeObservabilityEvent(event);
+  }
+}
+
+function assertNeverRuntimeObservabilityEvent(event: never): never {
+  throw new Error(`Unhandled runtime observability event: ${String(event)}`);
 }
 
 function runtimeMaxParallelNodes(
@@ -808,6 +933,30 @@ function recordNodeEvent(
   const actor = nodeActor(context, nodeId);
   actor.send(event);
   context.nodeStates.set(nodeId, actor.getSnapshot().context.state);
+  if (event.type === "RETRYING") {
+    context.observability?.({
+      actor: runtimeNodeActorDescriptor(context, nodeId),
+      attempt: event.attempt + 1,
+      nodeId,
+      reason: event.retryReason,
+      timestamp: event.at,
+      type: "runtime.retry.scheduled",
+    });
+  }
+}
+
+function runtimeNodeActorDescriptor(
+  context: RuntimeContext,
+  nodeId: string
+): RuntimeActorDescriptor {
+  return {
+    id: runtimeActorId("node", {
+      nodeId,
+      runId: context.runId,
+      workflowId: context.workflowId,
+    }),
+    kind: "node",
+  };
 }
 
 function now(): string {
@@ -939,6 +1088,16 @@ async function executeNode(
     reason: `node exited with code ${last.exitCode}`,
     retryReason: nodeRetryReason(last),
   };
+  if (retryPolicy.maxAttempts > 1) {
+    context.observability?.({
+      actor: runtimeNodeActorDescriptor(context, node.id),
+      attempt: retry.attempt,
+      nodeId: node.id,
+      reason: retry.retryReason,
+      timestamp: now(),
+      type: "runtime.retry.exhausted",
+    });
+  }
   await dispatchHooks(
     context,
     "node.error",
@@ -2854,6 +3013,12 @@ function emitNodeStart(
     ...(node.profile ? { profile: node.profile } : {}),
     ...(profile?.runner ? { runnerId: profile.runner } : {}),
   });
+  context.observability?.({
+    actor: runtimeNodeActorDescriptor(context, node.id),
+    nodeId: node.id,
+    timestamp: now(),
+    type: "runtime.node.started",
+  });
 }
 
 function emitNodeFinish(
@@ -2874,6 +3039,13 @@ function emitNodeFinish(
     ...(profile?.runner ? { runnerId: profile.runner } : {}),
     status: result.status,
     type: "node.finish",
+  });
+  context.observability?.({
+    actor: runtimeNodeActorDescriptor(context, result.nodeId),
+    nodeId: result.nodeId,
+    status: result.status,
+    timestamp: now(),
+    type: "runtime.node.finished",
   });
 }
 

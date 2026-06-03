@@ -889,6 +889,20 @@ describe("pipe", () => {
         type: "node.start",
       });
       reporter?.({
+        actor: {
+          id: "pipeline.node.run-123.custom.inspect",
+          kind: "node",
+          systemId: "pipeline.run-123",
+        },
+        level: "info",
+        name: "runtime.state.enter",
+        nodeId: "inspect",
+        summary:
+          "node actor pipeline.node.run-123.custom.inspect entered running",
+        type: "runtime.observability",
+        workflowId: "custom",
+      });
+      reporter?.({
         attempt: 1,
         exitCode: 0,
         nodeId: "inspect",
@@ -952,6 +966,9 @@ describe("pipe", () => {
     expect(progress).toContain("Pipeline starting: custom (inspect)");
     expect(progress).toContain(
       "Node starting: inspect runner=codex profile=pipeline-inspector attempt=1"
+    );
+    expect(progress).toContain(
+      "Runtime observed: runtime.state.enter - node actor pipeline.node.run-123.custom.inspect entered running"
     );
     expect(progress).toContain("Node finished: inspect passed exit=0");
     expect(progress).toContain("Pipeline finished: custom PASS");

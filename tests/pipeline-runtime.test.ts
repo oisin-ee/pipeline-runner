@@ -5,7 +5,10 @@ import { dirname, join, resolve } from "node:path";
 import { execa } from "execa";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parsePipelineConfigParts } from "../src/config.js";
-import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
+import {
+  type PipelineRuntimeEvent,
+  runPipelineFromConfig,
+} from "../src/pipeline-runtime.js";
 import type { RunnerLaunchPlan } from "../src/runner.js";
 
 vi.mock("execa", () => ({
@@ -780,6 +783,100 @@ workflows:
     expect(result.nodes[0]).toMatchObject({ attempts: 2, status: "passed" });
   });
 
+  it("emits stable actor observability for hooks, gates, and retry scheduling", async () => {
+    const project = tempProject();
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+    tools: []
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+`,
+      pipeline: `
+version: 1
+default_workflow: retry-observability
+hooks:
+  announce:
+    event: workflow.start
+    kind: command
+    command: [hook-bin]
+    required: true
+orchestrator:
+  profile: orchestrator
+workflows:
+  retry-observability:
+    hooks: [announce]
+    nodes:
+      - id: flaky
+        kind: agent
+        profile: a
+        retries: { max_attempts: 2 }
+        gates:
+          - id: retry-gate
+            kind: command
+            command: [check-flaky]
+`,
+    });
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "hook", stderr: "" })
+      .mockRejectedValueOnce({ exitCode: 1, stdout: "no", stderr: "" })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "yes", stderr: "" });
+    const events: PipelineRuntimeEvent[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ flaky: "done" }),
+      reporter: (event) => events.push(event),
+      task: "retry observability",
+      workflowId: "retry-observability",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(
+      events.filter((event) => event.type === "runtime.observability")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "runtime.hook.started",
+          summary: "hook announce started",
+          type: "runtime.observability",
+          workflowId: "retry-observability",
+        }),
+        expect.objectContaining({
+          name: "runtime.gate.started",
+          nodeId: "flaky",
+          summary: "gate retry-gate started for node flaky",
+          type: "runtime.observability",
+        }),
+        expect.objectContaining({
+          level: "info",
+          name: "runtime.retry.scheduled",
+          nodeId: "flaky",
+          summary: "node flaky retry scheduled for attempt 2 (gate_failure)",
+          type: "runtime.observability",
+        }),
+      ])
+    );
+    expect(JSON.stringify(events)).not.toContain("@xstate");
+    expect(JSON.stringify(events)).not.toContain('snapshot":{"');
+  });
+
   it("runs the default builtin semgrep gate through uvx", async () => {
     const project = tempProject();
     delete process.env.PIPELINE_SEMGREP_COMMAND;
@@ -837,10 +934,12 @@ workflows:
             command: [check-flaky]
 `);
     mockExeca.mockRejectedValueOnce({ exitCode: 1, stdout: "no", stderr: "" });
+    const events: PipelineRuntimeEvent[] = [];
 
     const result = await runPipelineFromConfig({
       config,
       executor: executor({ flaky: "done" }),
+      reporter: (event) => events.push(event),
       task: "retry",
       workflowId: "retry-flow",
       worktreePath: project,
@@ -849,6 +948,19 @@ workflows:
     expect(result.outcome).toBe("FAIL");
     expect(result.nodes[0]).toMatchObject({ attempts: 1, status: "failed" });
     expect(mockExeca).toHaveBeenCalledTimes(1);
+    expect(
+      events.filter((event) => event.type === "runtime.observability")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: "warn",
+          name: "runtime.retry.exhausted",
+          nodeId: "flaky",
+          summary: "node flaky retry exhausted after attempt 1 (gate_failure)",
+          type: "runtime.observability",
+        }),
+      ])
+    );
   });
 
   it("applies node timeout to agent and command execution", async () => {
