@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import matter from "gray-matter";
 import { stringify as stringifyToml } from "smol-toml";
 import { loadPipelineConfig, type PipelineConfig } from "./config.js";
@@ -17,6 +17,8 @@ const OWNER_YAML_MARKER_PREFIX = "# @oisincoveney/pipeline:";
 const CODEX_PLUGIN_COMMAND_ROOT = ".agents/plugins/oisin-pipeline/commands";
 const CODEX_AGENT_CONFIG_START = "# @oisincoveney/pipeline:codex-agents:start";
 const CODEX_AGENT_CONFIG_END = "# @oisincoveney/pipeline:codex-agents:end";
+const CODEX_AGENTS_MD_START = "<!-- @oisincoveney/pipeline:agents:start -->";
+const CODEX_AGENTS_MD_END = "<!-- @oisincoveney/pipeline:agents:end -->";
 const ENTRYPOINT_PATH_PATTERNS: Record<ActiveCommandHost, RegExp[]> = {
   codex: [
     /^\.agents\/skills\/([^/]+)\/SKILL\.md$/,
@@ -491,7 +493,10 @@ function opencodePermission(
   };
 }
 
-function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
+function opencodeDefinitions(
+  config: PipelineConfig,
+  cwd: string
+): CommandDefinition[] {
   return [
     ...entrypointCommandDefinitions("opencode", config, (id, entrypoint) => ({
       content: markdown(
@@ -560,6 +565,7 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
       invocation: invocationForHost("opencode"),
       path: `.opencode/agents/${id}.md`,
     })),
+    projectAgentsMdDefinition(cwd, "opencode"),
   ];
 }
 
@@ -611,11 +617,54 @@ function codexDefinitions(
       invocation: codexPluginInvocation(id),
       path: `${CODEX_PLUGIN_COMMAND_ROOT}/${id}.md`,
     })),
+    projectAgentsMdDefinition(cwd, "codex"),
     ...nativeCodexProfiles.map(([id, profile]) =>
       codexTomlAgentDefinition(config, cwd, id, profile)
     ),
     codexProjectConfigAgentDefinition(),
   ];
+}
+
+function projectAgentsMdDefinition(
+  cwd: string,
+  host: ActiveCommandHost
+): CommandDefinition {
+  const repoName = basename(cwd);
+  return {
+    block: {
+      end: CODEX_AGENTS_MD_END,
+      start: CODEX_AGENTS_MD_START,
+    },
+    content: [
+      CODEX_AGENTS_MD_START,
+      GENERATED_MARKER,
+      `${OWNER_MARKER_PREFIX}host=codex -->`,
+      `${OWNER_MARKER_PREFIX}host=opencode -->`,
+      "",
+      "## Pipeline Guidance",
+      "",
+      "This repository is configured with `@oisincoveney/pipeline`.",
+      "",
+      "- Use `$pipe`, `$inspect`, or `$epic` for Codex skill entrypoints when the user asks for pipeline workflows.",
+      "- Use `/pipe`, `/inspect`, or `/epic` for Codex or OpenCode slash-command entrypoints when available.",
+      "- Load and follow the relevant skill from `.agents/skills` before doing specialized work.",
+      "- Prefer the generated pipeline profiles and command surfaces over ad hoc subagent prompts.",
+      "",
+      "## Pipeline Memory",
+      "",
+      `Use Qdrant collection \`${repoName}\` for this repository.`,
+      "",
+      `- Call \`qdrant-find\` before research with \`collection_name: ${repoName}\` unless the user explicitly disables memory.`,
+      `- Call \`qdrant-store\` during LEARN with \`collection_name: ${repoName}\` for durable lessons worth reusing.`,
+      "- Include metadata with at least `repo`, `phase`, `workflow` or `entrypoint`, `task`, and `outcome` when storing lessons.",
+      "",
+      CODEX_AGENTS_MD_END,
+      "",
+    ].join("\n"),
+    host,
+    invocation: invocationForHost(host),
+    path: "AGENTS.md",
+  };
 }
 
 function codexTomlAgentDefinition(
@@ -754,10 +803,23 @@ function definitionsFor(
 ): CommandDefinition[] {
   const definitions: Record<ActiveCommandHost, () => CommandDefinition[]> = {
     codex: () => codexDefinitions(config, cwd),
-    opencode: () => opencodeDefinitions(config),
+    opencode: () => opencodeDefinitions(config, cwd),
   };
   const hosts = host === "all" ? COMMAND_HOSTS : [host];
-  return hosts.flatMap((name) => definitions[name]());
+  const rawDefinitions = hosts.flatMap((name) => definitions[name]());
+  return dedupeDefinitionsByPath(rawDefinitions);
+}
+
+function dedupeDefinitionsByPath(
+  definitions: CommandDefinition[]
+): CommandDefinition[] {
+  const lastIndexes = new Map<string, number>();
+  definitions.forEach((definition, index) => {
+    lastIndexes.set(definition.path, index);
+  });
+  return definitions.filter(
+    (definition, index) => lastIndexes.get(definition.path) === index
+  );
 }
 
 function selectedHosts(host: CommandHostSelection): ActiveCommandHost[] {

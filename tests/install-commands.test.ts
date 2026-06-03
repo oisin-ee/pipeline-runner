@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
 import { installCommands, parseCommandHost } from "../src/install-commands.js";
@@ -102,6 +102,7 @@ describe("installCommands", () => {
       ".agents/plugins/oisin-pipeline/commands/pipe.md",
       ".agents/plugins/oisin-pipeline/commands/inspect.md",
       ".agents/plugins/oisin-pipeline/commands/epic.md",
+      "AGENTS.md",
       ".codex/agents/pipeline-acceptance-reviewer.toml",
       ".codex/agents/pipeline-code-writer.toml",
       ".codex/agents/pipeline-epic-router.toml",
@@ -137,6 +138,75 @@ describe("installCommands", () => {
       }
       expect(content).not.toContain("version=");
     }
+  });
+
+  it("generates a Codex AGENTS.md managed block with repo-scoped pipeline memory guidance", async () => {
+    await installCommands({ cwd: dir, host: "codex" });
+
+    const content = readFileSync(join(dir, "AGENTS.md"), "utf8");
+    expect(content).toContain("<!-- @oisincoveney/pipeline:agents:start -->");
+    expect(content).toContain("<!-- @oisincoveney/pipeline:agents:end -->");
+    expect(content).toContain(
+      "This repository is configured with `@oisincoveney/pipeline`."
+    );
+    expect(content).toContain("Use `$pipe`, `$inspect`, or `$epic`");
+    expect(content).toContain("Use `/pipe`, `/inspect`, or `/epic`");
+    expect(content).toContain(
+      "Load and follow the relevant skill from `.agents/skills`"
+    );
+    expect(content).toContain("Call `qdrant-find` before research");
+    expect(content).toContain("Call `qdrant-store` during LEARN");
+    expect(content).toContain(`collection_name: ${basename(dir)}`);
+    expect(content).toContain("metadata");
+    expect(content).toContain("repo");
+    expect(content).toContain("phase");
+    expect(content).toContain("outcome");
+  });
+
+  it("generates the shared AGENTS.md managed block for OpenCode-only installs", async () => {
+    const result = await installCommands({ cwd: dir, host: "opencode" });
+
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        action: "create",
+        host: "opencode",
+        path: "AGENTS.md",
+      })
+    );
+    const content = readFileSync(join(dir, "AGENTS.md"), "utf8");
+    expect(content).toContain("<!-- @oisincoveney/pipeline:host=opencode -->");
+    expect(content).toContain(
+      "Use `/pipe`, `/inspect`, or `/epic` for Codex or OpenCode"
+    );
+    expect(content).toContain(`collection_name: ${basename(dir)}`);
+  });
+
+  it("updates only the managed AGENTS.md block and preserves project-authored instructions", async () => {
+    writeFileSync(
+      join(dir, "AGENTS.md"),
+      ["# Project rules", "", "- Keep this custom rule.", ""].join("\n")
+    );
+
+    await installCommands({ cwd: dir, host: "codex" });
+    const first = readFileSync(join(dir, "AGENTS.md"), "utf8");
+
+    expect(first).toContain("# Project rules");
+    expect(first).toContain("- Keep this custom rule.");
+    expect(first).toContain("<!-- @oisincoveney/pipeline:agents:start -->");
+
+    const checked = await installCommands({
+      check: true,
+      cwd: dir,
+      host: "codex",
+    });
+    expect(checked.items).toContainEqual(
+      expect.objectContaining({
+        action: "unchanged",
+        host: "codex",
+        path: "AGENTS.md",
+      })
+    );
+    expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toBe(first);
   });
 
   it("generates entrypoint-aware inspect dispatch bodies", async () => {

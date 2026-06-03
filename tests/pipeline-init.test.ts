@@ -163,6 +163,19 @@ describe("initPipelineProject", () => {
     ).toContain(
       "Include typecheck evidence only when a typecheck command exists"
     );
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/researcher.md"), "utf8")
+    ).toContain(
+      "Call `qdrant-find` before local inspection when the qdrant MCP server is available."
+    );
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/researcher.md"), "utf8")
+    ).toContain("collection_name equal to the repository directory basename");
+    expect(
+      readFileSync(join(dir, ".pipeline/prompts/learner.md"), "utf8")
+    ).toContain(
+      "Call `qdrant-store` with collection_name equal to the repository directory basename"
+    );
   });
 
   it("tells verifier agents not to replace deterministic gates and treats configured gates as authoritative", () => {

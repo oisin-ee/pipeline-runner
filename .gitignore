@@ -27,6 +27,7 @@ rulesync.local.jsonc
 !.agents/skills/
 !.agents/skills/**
 **/AGENTS.md
+!/AGENTS.md
 **/.codex/AGENTS.md
 **/.codex/rules/
 **/.codex/commands/
