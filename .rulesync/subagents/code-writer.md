@@ -2,7 +2,7 @@
 name: code-writer
 targets: ["*"]
 description: "Writes implementation to make failing tests pass. Restricted to src/ files only."
-claudecode:
+codexcli:
   model: inherit
 ---
 

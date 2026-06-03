@@ -12,7 +12,7 @@ milestone: m-0
 dependencies:
   - PIPE-31.1
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - 'src/pipeline-runtime.ts:384'
   - 'src/pipeline-runtime.ts:1141'
 modified_files:
@@ -106,7 +106,7 @@ Depends on PIPE-31.1 (`kind: workflow` primitive) — extends it.
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"1. `kind: workflow`" (the `worktree_root` clause) and §"Open items resolved during implementation" (base SHA pinning, env safety, `.pipeline/` symlink).
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"1. `kind: workflow`" (the `worktree_root` clause) and §"Open items resolved during implementation" (base SHA pinning, env safety, `.pipeline/` symlink).
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

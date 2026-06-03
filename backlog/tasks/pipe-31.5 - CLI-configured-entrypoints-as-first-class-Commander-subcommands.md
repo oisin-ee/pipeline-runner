@@ -11,7 +11,7 @@ labels:
 milestone: m-0
 dependencies: []
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - 'src/index.ts:284'
   - 'src/index.ts:404'
 modified_files:
@@ -105,7 +105,7 @@ None inside this epic. Sequencing: `pipe validate` lint extensions (PIPE-31.6) f
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"CLI: entrypoints as first-class subcommands".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"CLI: entrypoints as first-class subcommands".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

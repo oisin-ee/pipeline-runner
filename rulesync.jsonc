@@ -1,6 +1,6 @@
 {
   "$schema": "https://github.com/dyoshikawa/rulesync/releases/latest/download/config-schema.json",
-  "targets": ["agentsmd", "claudecode", "codexcli", "cursor", "opencode", "pi"],
+  "targets": ["agentsmd", "codexcli", "cursor", "opencode", "pi"],
   "features": ["rules", "subagents"],
   "outputRoots": ["."],
   "delete": false,

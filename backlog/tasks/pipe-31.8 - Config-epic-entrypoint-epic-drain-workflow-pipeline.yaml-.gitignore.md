@@ -17,7 +17,7 @@ dependencies:
   - PIPE-31.9
   - PIPE-31.10
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - .pipeline/pipeline.yaml
   - .gitignore
 modified_files:
@@ -31,7 +31,7 @@ modified_files:
   - tests/workflow-planner.test.ts
   - tests/install-commands.test.ts
   - tests/dogfood-installed.test.ts
-  - .claude/commands/epic.md
+  - .codex/commands/epic.md
   - .opencode/commands/epic.md
   - .opencode/agents/pipeline-epic-router.md
   - .opencode/agents/pipeline-hardened-reviewer.md
@@ -141,7 +141,7 @@ Note: PIPE-31.9 and PIPE-31.10 are independent of each other and of the runtime 
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"Worked example — epic drain" and §"Profile and skill additions for the example".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"Worked example — epic drain" and §"Profile and skill additions for the example".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

@@ -6,7 +6,7 @@
       "!!**/.agents",
       "!!**/report",
       "!!**/backlog",
-      "!!**/.claude",
+      "!!**/.codex",
       "!!**/.gemini",
       "!!**/.qwen"
     ]

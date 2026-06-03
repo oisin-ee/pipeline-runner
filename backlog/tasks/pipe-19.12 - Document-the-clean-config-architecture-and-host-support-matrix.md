@@ -40,7 +40,7 @@ Write user-facing and maintainer-facing documentation for the new YAML-only pipe
 <!-- AC:BEGIN -->
 - [x] #1 Docs include a complete default pipeline YAML example and a minimal custom workflow example.
 - [x] #2 Docs explain top-level registries versus per-agent grants for rules, skills, MCP servers, tools, filesystem, and network policies.
-- [x] #3 Docs include a host support matrix for Claude, Codex, OpenCode, Kimi, Pi, and command runners.
+- [x] #3 Docs include a host support matrix for Codex, Codex, OpenCode, Kimi, Pi, and command runners.
 - [x] #4 Docs explain native-preferred execution and the guarantee that multi-agent workflows use real separate agent boundaries.
 - [x] #5 Docs include troubleshooting guidance for config validation, missing host capabilities, missing Pi subagents support, gate failures, and schema output failures.
 <!-- AC:END -->

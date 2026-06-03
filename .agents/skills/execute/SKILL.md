@@ -49,7 +49,7 @@ CLI-first does not mean blindly accepting generated code. It means the framework
 Read before editing:
 
 1. The request, ticket, issue, or acceptance criteria.
-2. The relevant rules file (`AGENTS.md`, `CLAUDE.md`, local docs).
+2. The relevant rules file (`AGENTS.md`, `AGENTS.md`, local docs).
 3. Existing code paths and tests around the behaviour.
 4. Dependency files and framework versions when APIs matter.
 5. Domain glossary / ADRs when present, so names and decisions match the project.

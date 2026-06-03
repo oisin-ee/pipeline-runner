@@ -12,7 +12,7 @@ milestone: m-0
 dependencies:
   - PIPE-31.5
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - 'src/index.ts:315'
 modified_files:
   - src/config.ts
@@ -81,7 +81,7 @@ Depends on PIPE-31.5 (entrypoint-as-subcommand) — the entrypoint-shadowing lin
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"Linting via existing `pipe validate`".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"Linting via existing `pipe validate`".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

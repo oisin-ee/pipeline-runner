@@ -23,8 +23,8 @@ references:
   - src/install-commands.ts
   - docs/pipeline-smoke-recovery-plan.md
 documentation:
-  - 'https://code.claude.com/docs/en/sub-agents'
-  - 'https://code.claude.com/docs/en/agent-sdk/subagents'
+  - 'https://code.codex.com/docs/en/sub-agents'
+  - 'https://code.codex.com/docs/en/agent-sdk/subagents'
   - 'https://developers.openai.com/codex/subagents/'
   - 'https://developers.openai.com/codex/noninteractive'
   - 'https://opencode.ai/docs/agents/'
@@ -58,7 +58,7 @@ ordinal: 19000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Redesign oisin-pipeline around one authoritative YAML workflow config, replacing hardcoded phases, profiles, prompt constants, and host-specific assumptions with explicit runners, agents, capabilities, gates, hooks, and native-preferred multi-agent execution. The goal is a clean v1 architecture with no backwards compatibility requirement: `.pipeline/pipeline.yaml` is required at runtime, `pipe init` scaffolds the default pipeline, and every configured agent boundary executes as a real separate agent or native subagent. Key locked decisions: YAML only; no JSON/TOML config support; no legacy `.pipeline/config.toml`; no profiles; no built-in Backlog tracking/status sink; workflows are DAGs of agent/command/builtin/group nodes; deterministic gates run outside the model; hooks are declarative command/builtin callbacks; skills, MCP servers, rules, tools, filesystem, and network access are explicit capabilities declared in config and granted per agent. Native host behavior should be used wherever it preserves configured semantics for Claude, Codex, OpenCode, Kimi, and Pi; subprocess-per-agent is allowed only as the fallback that still preserves real multi-agent execution.
+Redesign oisin-pipeline around one authoritative YAML workflow config, replacing hardcoded phases, profiles, prompt constants, and host-specific assumptions with explicit runners, agents, capabilities, gates, hooks, and native-preferred multi-agent execution. The goal is a clean v1 architecture with no backwards compatibility requirement: `.pipeline/pipeline.yaml` is required at runtime, `pipe init` scaffolds the default pipeline, and every configured agent boundary executes as a real separate agent or native subagent. Key locked decisions: YAML only; no JSON/TOML config support; no legacy `.pipeline/config.toml`; no profiles; no built-in Backlog tracking/status sink; workflows are DAGs of agent/command/builtin/group nodes; deterministic gates run outside the model; hooks are declarative command/builtin callbacks; skills, MCP servers, rules, tools, filesystem, and network access are explicit capabilities declared in config and granted per agent. Native host behavior should be used wherever it preserves configured semantics for Codex, Codex, OpenCode, Kimi, and Pi; subprocess-per-agent is allowed only as the fallback that still preserves real multi-agent execution.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -70,7 +70,7 @@ Redesign oisin-pipeline around one authoritative YAML workflow config, replacing
 - [x] #5 Agents can explicitly declare runner, instructions, rules, skills, MCP server access, tools, filesystem policy, network policy, and output contracts.
 - [x] #6 Deterministic gates decide pass/fail/retry outside the model and support tests, typecheck, schema checks, command exit expectations, and custom commands.
 - [x] #7 Declarative hooks can run on workflow/node/gate lifecycle events without arbitrary in-process JS or TS callbacks.
-- [x] #8 Generated Claude, Codex, OpenCode, Kimi, and Pi resources derive from the YAML config as the single source of truth.
+- [x] #8 Generated Codex, Codex, OpenCode, Kimi, and Pi resources derive from the YAML config as the single source of truth.
 - [x] #9 All legacy profile resolution and hardcoded phase coupling is removed from the active runtime path.
 - [x] #10 The redesign is covered by parser, planner, adapter, gate, hook, and CLI tests, including a test that prevents merged single-prompt execution for multi-agent workflows.
 <!-- AC:END -->

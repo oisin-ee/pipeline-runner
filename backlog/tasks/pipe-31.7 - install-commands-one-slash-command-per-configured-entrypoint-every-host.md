@@ -12,7 +12,7 @@ milestone: m-0
 dependencies:
   - PIPE-31.5
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - 'src/install-commands.ts:440'
   - 'src/install-commands.ts:502'
   - 'src/install-commands.ts:571'
@@ -26,8 +26,8 @@ modified_files:
   - tests/dogfood-installed.test.ts
   - README.md
   - docs/slash-command-adapter-contract.md
-  - .claude/commands/pipe.md
-  - .claude/commands/inspect.md
+  - .codex/commands/pipe.md
+  - .codex/commands/inspect.md
   - .opencode/commands/pipe.md
   - .opencode/commands/inspect.md
   - .agents/skills/pipe/SKILL.md
@@ -47,7 +47,7 @@ ordinal: 7000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 ## What
 
-Replace the hardcoded single `pipe` entry in each per-host generator (`claudeDefinitions`, `opencodeDefinitions`, `codexDefinitions`, `kimiDefinitions`, `piDefinitions` in `src/install-commands.ts`) with a `.map` over `Object.entries(config.entrypoints)`. Each entrypoint produces its own slash command at the host-specific path. The body still uses the existing `orchestratorBlock` + `dispatchBlock` builders, but `dispatchBlock` is threaded with the entrypoint id so the generated body invokes `pipe <id> ...` instead of always `pipe ...`.
+Replace the hardcoded single `pipe` entry in each per-host generator (`codexDefinitions`, `opencodeDefinitions`, `codexDefinitions`, `kimiDefinitions`, `piDefinitions` in `src/install-commands.ts`) with a `.map` over `Object.entries(config.entrypoints)`. Each entrypoint produces its own slash command at the host-specific path. The body still uses the existing `orchestratorBlock` + `dispatchBlock` builders, but `dispatchBlock` is threaded with the entrypoint id so the generated body invokes `pipe <id> ...` instead of always `pipe ...`.
 
 ## Why
 
@@ -57,7 +57,7 @@ Without this, adding `epic` (or any future entrypoint) to `pipeline.yaml` doesn'
 
 `src/install-commands.ts` — touch points:
 
-- `claudeDefinitions(config)` at `:440` → loop over `config.entrypoints` and emit one definition per entrypoint with `.claude/commands/<id>.md`.
+- `codexDefinitions(config)` at `:440` → loop over `config.entrypoints` and emit one definition per entrypoint with `.codex/commands/<id>.md`.
 - `opencodeDefinitions(config)` at `:502` → same shape for `.opencode/commands/<id>.md`.
 - `codexDefinitions(config)` at `:571` → same shape; codex command paths follow the existing `codexDefinitions` convention (verify on read).
 - `kimiDefinitions(config)` at `:681` → same shape for `.kimi/commands/<id>.md`.
@@ -88,12 +88,12 @@ Soft dep on PIPE-31.5 (entrypoint-as-subcommand) so that the generated `pipe <id
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"install-commands: one slash command per entrypoint".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"install-commands: one slash command per entrypoint".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 Each per-host generator (`claudeDefinitions`, `opencodeDefinitions`, `codexDefinitions`, `kimiDefinitions`, `piDefinitions`) iterates `Object.entries(config.entrypoints)` instead of hardcoding `pipe`
+- [x] #1 Each per-host generator (`codexDefinitions`, `opencodeDefinitions`, `codexDefinitions`, `kimiDefinitions`, `piDefinitions`) iterates `Object.entries(config.entrypoints)` instead of hardcoding `pipe`
 - [x] #2 Each entrypoint produces a slash command file at the host's expected path with filename `<id>.md`
 - [x] #3 `dispatchBlock` threaded with entrypoint id; generated body invokes `pipe <id> <description>` not bare `pipe <description>`
 - [x] #4 `invocationForHost` generalized to handle any entrypoint id, replacing the hardcoded `/pipe`

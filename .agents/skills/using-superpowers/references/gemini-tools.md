@@ -1,6 +1,6 @@
 # Gemini CLI Tool Mapping
 
-Skills use Claude Code tool names. When you encounter these in a skill, use your platform equivalent:
+Skills use Codex tool names. When you encounter these in a skill, use your platform equivalent:
 
 | Skill references | Gemini CLI equivalent |
 |-----------------|----------------------|
@@ -40,7 +40,7 @@ Gemini CLI supports parallel subagent dispatch. When a skill asks you to dispatc
 
 ## Additional Gemini CLI tools
 
-These tools are available in Gemini CLI but have no Claude Code equivalent:
+These tools are available in Gemini CLI but have no Codex equivalent:
 
 | Tool | Purpose |
 |------|---------|

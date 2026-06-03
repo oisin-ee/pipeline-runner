@@ -15,7 +15,7 @@ dependencies:
   - PIPE-19.8
 references:
   - src/install-commands.ts
-  - .claude/agents
+  - .codex/agents
   - .codex/agents
   - .opencode/agents
   - .pi/extensions
@@ -31,12 +31,12 @@ ordinal: 26000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Update host resource generation so Claude, Codex, OpenCode, Kimi, and Pi resources are derived from `.pipeline/pipeline.yaml`. Generated resources should be host-specific projections of the same runner/agent/workflow definitions, not separate hand-maintained profile systems.
+Update host resource generation so Codex, Codex, OpenCode, Kimi, and Pi resources are derived from `.pipeline/pipeline.yaml`. Generated resources should be host-specific projections of the same runner/agent/workflow definitions, not separate hand-maintained profile systems.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 Claude resource generation represents configured agents, instructions, tools, MCP access, skills, and model settings as native Claude artifacts where supported.
+- [x] #1 Codex resource generation represents configured agents, instructions, tools, MCP access, skills, and model settings as native Codex artifacts where supported.
 - [x] #2 Codex resource generation emits `.codex/agents` entries derived from YAML agents and preserves configured model, sandbox, MCP, and skills settings where supported.
 - [x] #3 OpenCode resource generation emits command and agent files using native primary/subagent modes and permissions derived from YAML.
 - [x] #4 Kimi resource generation emits agent files or launch specs that can use native subagents and model overrides.
@@ -46,5 +46,5 @@ Update host resource generation so Claude, Codex, OpenCode, Kimi, and Pi resourc
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Regenerated host resource projection from YAML for Claude, Codex, OpenCode, Kimi, and Pi, including configured agents, grants, workflow shape, and Pi subagent validation.
+Regenerated host resource projection from YAML for Codex, Codex, OpenCode, Kimi, and Pi, including configured agents, grants, workflow shape, and Pi subagent validation.
 <!-- SECTION:FINAL_SUMMARY:END -->

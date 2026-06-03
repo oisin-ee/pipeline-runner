@@ -33,10 +33,10 @@ Move profile MCP server selection and host-specific runtime launch rendering out
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 src/runner.ts no longer defines selectedMcpServers, mcpArgsFor, toClaudeMcpConfig, toKimiMcpConfig, toOpenCodeMcpConfig, codexMcpArgs, isRemoteMcpServer, or bearer-header rendering.
-- [x] #2 A public MCP launch-plan API returns args and env for Codex, Claude, Kimi, and OpenCode from the same selected profile MCP server set.
+- [x] #1 src/runner.ts no longer defines selectedMcpServers, mcpArgsFor, toCodexMcpConfig, toKimiMcpConfig, toOpenCodeMcpConfig, codexMcpArgs, isRemoteMcpServer, or bearer-header rendering.
+- [x] #2 A public MCP launch-plan API returns args and env for Codex, Codex, Kimi, and OpenCode from the same selected profile MCP server set.
 - [x] #3 OpenCode remains first-class: the launch plan still writes the expected temporary config file or equivalent env payload and preserves existing local/remote MCP rendering.
-- [x] #4 Codex, Claude, Kimi, and OpenCode tests for stdio MCP servers, imported .mcp.json refs, and remote HTTP MCP servers continue to assert the same rendered behavior.
+- [x] #4 Codex, Codex, Kimi, and OpenCode tests for stdio MCP servers, imported .mcp.json refs, and remote HTTP MCP servers continue to assert the same rendered behavior.
 - [x] #5 The module interface is deep enough that callers do not need to know transport-specific header, bearer token, command, args, or OpenCode temp-file details.
 <!-- AC:END -->
 

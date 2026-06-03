@@ -12,7 +12,7 @@ milestone: m-0
 dependencies:
   - PIPE-31.1
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - 'src/config.ts:423'
   - 'src/pipeline-runtime.ts:1190'
   - 'src/pipeline-runtime.ts:498'
@@ -97,7 +97,7 @@ Depends on PIPE-31.1 (`kind: workflow` primitive) landing first so the nested-co
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"2. `kind: parallel`".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"2. `kind: parallel`".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

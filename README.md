@@ -11,8 +11,8 @@ artifacts.
 - Bun 1.1 or newer
 - Node.js 22.13 or newer
 - `npx`, `backlog`, `uvx`, and Docker on `PATH` for default skills and MCP setup
-- At least one configured runner CLI on `PATH`: `codex`, `claude`,
-  `opencode`, `kimi`, `pi`, or a declared command runner
+- At least one configured runner CLI on `PATH`: `codex`, `opencode`, `kimi`,
+  `pi`, or a declared command runner
 
 Install dependencies:
 
@@ -307,7 +307,6 @@ The installer creates one command surface per configured entrypoint.
 
 | Host        | Generated files                                                   | Invocation                         |
 | ----------- | ----------------------------------------------------------------- | ---------------------------------- |
-| Claude Code | `.claude/commands/<entrypoint>.md`, `.claude/agents/*.md`         | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
 | Codex       | `.agents/skills/<entrypoint>/SKILL.md`, `.agents/plugins/oisin-pipeline/commands/<entrypoint>.md`, `.agents/plugins/oisin-pipeline/agents/*.md`, `.codex/config.toml` | `$pipe <task>`, `$inspect <task>`, `$epic <task>`, `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
 | OpenCode    | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`     | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
 | Kimi        | `.kimi/commands/<entrypoint>.md`, `.kimi/agents/*.yaml`           | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |

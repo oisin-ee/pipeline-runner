@@ -35,7 +35,7 @@ Add a deterministic end-to-end tracer bullet that proves the pipeline can run th
 - [x] #2 The tracer-bullet run exercises knowledge injection, RED, GREEN, VERIFY, LEARN, and backlog phase creation/status updates.
 - [x] #3 The test asserts final PASS and validates the expected research or knowledge artifacts are written.
 - [x] #4 A failure-path tracer proves the run reports FAIL and leaves phase status evidence correctly.
-- [x] #5 The tracer-bullet test runs in CI/local verification without requiring Claude, Codex, OpenCode, Pi, or network access.
+- [x] #5 The tracer-bullet test runs in CI/local verification without requiring Codex, Codex, OpenCode, Pi, or network access.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -52,5 +52,5 @@ Implementation plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Added deterministic tracer-bullet E2E coverage using real child-process execution with temporary fake executables on PATH for `claude`, `backlog`, `bunx`, and `tsc`; no real AI CLI or network access is required. The tracer covers PASS and VERIFY-failure paths through `workNext`, knowledge context and research artifacts, learned outcome artifacts, backlog phase creation/status updates, and failure notes. Strengthened after review to avoid mocking `execa`, proving the actual runner subprocess path. Verification passed on main: `bunx vitest run tests/tracer-bullet.test.ts`, `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`.
+Added deterministic tracer-bullet E2E coverage using real child-process execution with temporary fake executables on PATH for `codex`, `backlog`, `bunx`, and `tsc`; no real AI CLI or network access is required. The tracer covers PASS and VERIFY-failure paths through `workNext`, knowledge context and research artifacts, learned outcome artifacts, backlog phase creation/status updates, and failure notes. Strengthened after review to avoid mocking `execa`, proving the actual runner subprocess path. Verification passed on main: `bunx vitest run tests/tracer-bullet.test.ts`, `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`.
 <!-- SECTION:FINAL_SUMMARY:END -->

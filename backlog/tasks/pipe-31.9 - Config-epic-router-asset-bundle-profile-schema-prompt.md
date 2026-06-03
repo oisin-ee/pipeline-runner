@@ -11,7 +11,7 @@ labels:
 milestone: m-0
 dependencies: []
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - .pipeline/profiles.yaml
   - .pipeline/schemas/
   - .pipeline/prompts/
@@ -136,7 +136,7 @@ Independent of other config tasks. The workflow that uses this profile (PIPE-31.
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"Profile and skill additions for the example" and §"How parallelism is decided".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"Profile and skill additions for the example" and §"How parallelism is decided".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

@@ -13,7 +13,7 @@ dependencies:
   - PIPE-31.2
   - PIPE-31.3
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - 'src/config.ts:54'
   - src/gates.ts
   - 'src/pipeline-runtime.ts:1141'
@@ -96,7 +96,7 @@ Depends on:
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"The one project builtin: `drain-merge`".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"The one project builtin: `drain-merge`".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

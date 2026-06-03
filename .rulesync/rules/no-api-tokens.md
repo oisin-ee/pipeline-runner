@@ -1,21 +1,20 @@
 ---
 root: false
 targets: ["*"]
-description: "All AI interactions go through harness CLIs. Never call Anthropic/OpenAI APIs directly."
+description: "All AI interactions go through harness CLIs. Never call provider APIs directly."
 globs: ["**/*"]
 ---
 
 ## Rule
-Do not import or instantiate AI provider SDKs (`@anthropic-ai/sdk`, `openai`, `new Anthropic()`).
+Do not import or instantiate AI provider SDKs (`openai`, `new OpenAI()`).
 
 ## Intent
-The pipeline uses harness CLIs (claude, codex, opencode, pi) so it works across all supported harnesses without hardcoding a provider. API tokens are not stored in this project.
+The pipeline uses harness CLIs (codex, opencode, pi) so it works across all supported harnesses without hardcoding a provider. API tokens are not stored in this project.
 
 ## DO
 - Use `spawnAgent(harness, role, prompt, ...)` from `src/mastra/runner.ts`
 - Let the harness handle auth
 
 ## DON'T
-- `import Anthropic from '@anthropic-ai/sdk'`
 - `new OpenAI({ apiKey: ... })`
-- `fetch('https://api.anthropic.com/...')`
+- `fetch('https://api.openai.com/...')`

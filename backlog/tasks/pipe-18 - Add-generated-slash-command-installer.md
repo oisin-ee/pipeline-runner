@@ -29,5 +29,5 @@ ordinal: 18000
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Added Commander-based CLI dispatch for work-next and install-commands. Implemented generated command installation for Claude Code, OpenCode, Codex, and Pi with package-owned markers, idempotent updates, dry-run, check, and force semantics. Added tests covering all-host installation, idempotency, check failures, dry-run, manual-edit protection, and force overwrite. Verified with full tests, typecheck, Ultracite check, build, npm publish dry-run, and packed consumer install proof.
+Added Commander-based CLI dispatch for work-next and install-commands. Implemented generated command installation for Codex, OpenCode, Codex, and Pi with package-owned markers, idempotent updates, dry-run, check, and force semantics. Added tests covering all-host installation, idempotency, check failures, dry-run, manual-edit protection, and force overwrite. Verified with full tests, typecheck, Ultracite check, build, npm publish dry-run, and packed consumer install proof.
 <!-- SECTION:FINAL_SUMMARY:END -->

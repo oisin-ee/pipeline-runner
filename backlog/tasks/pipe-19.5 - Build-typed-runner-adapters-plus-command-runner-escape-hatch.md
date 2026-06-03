@@ -25,7 +25,7 @@ ordinal: 24000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Create the runner abstraction used by agent nodes. Built-in runner adapters should cover Codex, Claude, OpenCode, Kimi, and Pi with typed fields for model, reasoning/thinking, sandbox/permissions, cwd, env, output mode, and timeout. A `command` runner should support arbitrary CLIs only when capabilities and output behavior are declared explicitly.
+Create the runner abstraction used by agent nodes. Built-in runner adapters should cover Codex, Codex, OpenCode, Kimi, and Pi with typed fields for model, reasoning/thinking, sandbox/permissions, cwd, env, output mode, and timeout. A `command` runner should support arbitrary CLIs only when capabilities and output behavior are declared explicitly.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -34,11 +34,11 @@ Create the runner abstraction used by agent nodes. Built-in runner adapters shou
 - [x] #2 Built-in runner adapters can produce deterministic launch plans without calling external model services in tests.
 - [x] #3 The command runner supports argv-style commands and declares its capabilities explicitly.
 - [x] #4 Runner output contracts can support plain text, JSON, JSONL/streaming JSON, and schema-validated structured output where available.
-- [x] #5 Tests cover Codex, Claude, OpenCode, Kimi, Pi, and command runner launch planning.
+- [x] #5 Tests cover Codex, Codex, OpenCode, Kimi, Pi, and command runner launch planning.
 <!-- AC:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Added typed launch planning for Codex, Claude, OpenCode, Kimi, Pi, and command runners with explicit output capability validation and deterministic tests.
+Added typed launch planning for Codex, Codex, OpenCode, Kimi, Pi, and command runners with explicit output capability validation and deterministic tests.
 <!-- SECTION:FINAL_SUMMARY:END -->

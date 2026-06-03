@@ -11,7 +11,7 @@ labels:
 milestone: m-0
 dependencies: []
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
   - 'src/config.ts:423'
   - 'src/pipeline-runtime.ts:1190'
   - 'src/pipeline-runtime.ts:1199'
@@ -91,7 +91,7 @@ Use the existing `executor` injection pattern.
 
 ## Reference
 
-`/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md` §"1. `kind: workflow`".
+`/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"1. `kind: workflow`".
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

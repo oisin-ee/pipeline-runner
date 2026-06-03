@@ -11,7 +11,7 @@ labels:
 milestone: m-0
 dependencies: []
 references:
-  - /Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md
+  - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
 modified_files:
   - src/pipeline-runtime.ts
   - src/workflow-planner.ts
@@ -84,7 +84,7 @@ An earlier proposal used a `fanout` node whose count and shape came from a prior
 
 ## Reference
 
-Source plan: `/Users/oisin/.claude/plans/right-now-we-have-parallel-abelson.md`. Each subtask carries the slice of the plan it owns.
+Source plan: `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md`. Each subtask carries the slice of the plan it owns.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
