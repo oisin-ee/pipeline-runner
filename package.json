@@ -9,12 +9,12 @@
     "ky": "^2.0.2",
     "micromatch": "^4.0.8",
     "p-limit": "^7.3.0",
-    "p-retry": "^8.0.0",
     "package-manager-detector": "^1.6.0",
     "secure-json-parse": "^4.1.0",
     "simple-git": "^3.36.0",
     "smol-toml": "^1.6.1",
     "ts-pattern": "^5.9.0",
+    "xstate": "^5.31.1",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },

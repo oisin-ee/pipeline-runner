@@ -6,9 +6,8 @@ import addFormats from "ajv-formats";
 import { execa } from "execa";
 import micromatch from "micromatch";
 import pLimit from "p-limit";
-import pRetry from "p-retry";
 import simpleGit from "simple-git";
-import { match } from "ts-pattern";
+import { createActor, waitFor } from "xstate";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -29,6 +28,17 @@ import {
   type RunnerLaunchPlan,
   runLaunchPlan,
 } from "./runner.js";
+import {
+  type RetryReason,
+  type RuntimeObservabilityEmitter,
+  runtimeActorId,
+} from "./runtime-machines/contracts.js";
+import { gateEvaluationMachine } from "./runtime-machines/gate-machine.js";
+import { hookInvocationMachine } from "./runtime-machines/hook-machine.js";
+import {
+  type NodeExecutionActor,
+  nodeExecutionMachine,
+} from "./runtime-machines/node-machine.js";
 import { parseJson as parseSafeJson } from "./safe-json.js";
 import {
   compileWorkflowPlan,
@@ -304,8 +314,10 @@ interface RuntimeContext {
   inheritedOutputNodeIds: Set<string>;
   lastOutputByNode: Map<string, string>;
   maxParallelNodes?: number;
+  nodeActors: Map<string, NodeExecutionActor>;
   nodeSnapshots: Map<string, ChangedFilesSnapshot>;
   nodeStates: Map<string, NodeExecutionState>;
+  observability?: RuntimeObservabilityEmitter;
   plan: WorkflowExecutionPlan;
   preserveSuccessfulWorkflowWorktrees?: boolean;
   reporter?: (event: PipelineRuntimeEvent) => void;
@@ -343,8 +355,6 @@ interface NodeAttemptCycleResult {
   retry?: NodeAttemptRetry;
 }
 
-type RetryReason = "exit_nonzero" | "gate_failure" | "timeout";
-
 interface NodeAttemptRetry {
   attempt: number;
   evidence: string[];
@@ -352,27 +362,6 @@ interface NodeAttemptRetry {
   reason: string;
   retryReason: RetryReason;
 }
-
-type NodeStateEvent =
-  | { at: string; attempt: number; type: "NODE_STARTED" }
-  | { at: string; type: "NODE_READY" }
-  | {
-      at: string;
-      exitCode: number;
-      output: string;
-      type: "NODE_OUTPUT";
-    }
-  | { at: string; type: "GATES_STARTED" }
-  | { at: string; gates: RuntimeGateResult[]; type: "GATES_FINISHED" }
-  | { at: string; result: RuntimeNodeResult; type: "NODE_PASSED" }
-  | {
-      at: string;
-      failure: RuntimeFailure;
-      result: RuntimeNodeResult;
-      type: "NODE_FAILED";
-    }
-  | { at: string; failure: RuntimeFailure; type: "NODE_CANCELLED" }
-  | { at: string; reason: string; type: "NODE_SKIPPED" };
 
 interface JsonSchemaValidationResult {
   evidence: string[];
@@ -456,6 +445,7 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     maxParallelNodes: runtimeMaxParallelNodes(options, plan),
     nodeSnapshots: new Map(),
     nodeStates: initialNodeStates(plan),
+    nodeActors: new Map(),
     plan,
     preserveSuccessfulWorkflowWorktrees: false,
     ...(options.reporter ? { reporter: options.reporter } : {}),
@@ -608,7 +598,7 @@ function executeWorkflowBatch(
   context: RuntimeContext
 ): Promise<RuntimeNodeResult[]> {
   for (const node of batch) {
-    transitionNode(context, node.id, { at: now(), type: "NODE_READY" });
+    recordNodeEvent(context, node.id, { at: now(), type: "READY" });
   }
   if (context.plan.execution.failFast) {
     return executeFailFastWorkflowBatch(batch, context);
@@ -646,10 +636,10 @@ function skipRemainingBatchNodes(
 ): void {
   const reason = `skipped because workflow fail_fast stopped after node '${failedNodeId}' failed`;
   for (const node of batch.slice(startIndex)) {
-    transitionNode(context, node.id, {
+    recordNodeEvent(context, node.id, {
       at: now(),
       reason,
-      type: "NODE_SKIPPED",
+      type: "SKIPPED",
     });
   }
 }
@@ -778,85 +768,46 @@ function initialNodeStates(
   );
 }
 
-function transitionNode(
+function nodeActor(
   context: RuntimeContext,
-  nodeId: string,
-  event: NodeStateEvent
-): void {
-  const current = context.nodeStates.get(nodeId);
-  if (!current) {
-    return;
+  nodeId: string
+): NodeExecutionActor {
+  const existing = context.nodeActors.get(nodeId);
+  if (existing) {
+    return existing;
   }
-  context.nodeStates.set(nodeId, reduceNodeState(current, event));
+  const actor = createActor(nodeExecutionMachine, {
+    id: runtimeActorId("node", {
+      nodeId,
+      runId: context.runId,
+      workflowId: context.workflowId,
+    }),
+    input: {
+      actor: {
+        id: runtimeActorId("node", {
+          nodeId,
+          runId: context.runId,
+          workflowId: context.workflowId,
+        }),
+        kind: "node",
+      },
+      nodeId,
+    },
+  });
+  actor.start();
+  context.nodeActors.set(nodeId, actor);
+  context.nodeStates.set(nodeId, actor.getSnapshot().context.state);
+  return actor;
 }
 
-function reduceNodeState(
-  state: NodeExecutionState,
-  event: NodeStateEvent
-): NodeExecutionState {
-  return match(event)
-    .returnType<NodeExecutionState>()
-    .with({ type: "NODE_READY" }, ({ at }) => ({
-      ...state,
-      startedAt: state.startedAt ? state.startedAt : at,
-      status: state.status === "pending" ? "ready" : state.status,
-    }))
-    .with({ type: "NODE_STARTED" }, ({ at, attempt }) => ({
-      ...state,
-      attempts: attempt,
-      startedAt: state.startedAt ? state.startedAt : at,
-      status: "running",
-    }))
-    .with({ type: "NODE_OUTPUT" }, ({ exitCode, output }) => ({
-      ...state,
-      exitCode,
-      output,
-    }))
-    .with({ type: "GATES_STARTED" }, () => ({
-      ...state,
-      status: "gating",
-    }))
-    .with({ type: "GATES_FINISHED" }, ({ gates }) => ({
-      ...state,
-      gates,
-    }))
-    .with({ type: "NODE_PASSED" }, ({ at, result }) => ({
-      ...state,
-      attempts: result.attempts,
-      evidence: result.evidence,
-      exitCode: result.exitCode,
-      finishedAt: at,
-      output: result.output,
-      status: "passed",
-    }))
-    .with({ type: "NODE_FAILED" }, ({ at, failure, result }) => ({
-      ...state,
-      attempts: result.attempts,
-      evidence: result.evidence,
-      exitCode: result.exitCode,
-      failure,
-      finishedAt: at,
-      output: result.output,
-      status: "failed",
-    }))
-    .with({ type: "NODE_CANCELLED" }, ({ at, failure }) => ({
-      ...state,
-      failure,
-      finishedAt: at,
-      status: "cancelled",
-    }))
-    .with({ type: "NODE_SKIPPED" }, ({ at, reason }) => ({
-      ...state,
-      failure: {
-        evidence: [reason],
-        gate: state.id,
-        nodeId: state.id,
-        reason,
-      },
-      finishedAt: at,
-      status: "skipped",
-    }))
-    .exhaustive();
+function recordNodeEvent(
+  context: RuntimeContext,
+  nodeId: string,
+  event: Parameters<NodeExecutionActor["send"]>[0]
+): void {
+  const actor = nodeActor(context, nodeId);
+  actor.send(event);
+  context.nodeStates.set(nodeId, actor.getSnapshot().context.state);
 }
 
 function now(): string {
@@ -924,59 +875,51 @@ async function executeNode(
   };
   let retry: NodeAttemptRetry | undefined;
 
-  try {
-    const result = await pRetry(
-      async (attempt) => {
-        const cycle = await executeNodeAttemptCycle(
-          node,
-          context,
-          attempt,
-          last
-        );
-        last = cycle.last;
-        retry = cycle.retry;
-        if (cycle.result) {
-          return cycle.result;
-        }
-        if (!cycle.retry) {
-          throw new NodeAttemptRetryError({
-            attempt,
-            evidence: last.evidence,
-            gate: node.id,
-            reason: `node exited with code ${last.exitCode}`,
-            retryReason: nodeRetryReason(last),
-          });
-        }
-        throw new NodeAttemptRetryError(cycle.retry);
-      },
-      {
-        factor: retryPolicy.multiplier,
-        minTimeout: retryPolicy.backoffMs,
-        randomize: false,
-        retries: retryPolicy.maxAttempts - 1,
-        signal: context.signal,
-        shouldRetry: ({ error }) =>
-          error instanceof NodeAttemptRetryError &&
-          retryPolicy.retryOn.has(error.retry.retryReason),
-        unref: true,
+  for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
+    try {
+      const cycle = await executeNodeAttemptCycle(node, context, attempt, last);
+      last = cycle.last;
+      retry =
+        cycle.retry ??
+        (cycle.result
+          ? undefined
+          : {
+              attempt,
+              evidence: last.evidence,
+              gate: node.id,
+              reason: `node exited with code ${last.exitCode}`,
+              retryReason: nodeRetryReason(last),
+            });
+      if (cycle.result) {
+        emitNodeFinish(context, cycle.result);
+        return cycle.result;
       }
-    );
-    emitNodeFinish(context, result);
-    return result;
-  } catch (err) {
-    if (err instanceof NodeAttemptRetryError) {
-      retry = err.retry;
-    } else if (isCancelled(context)) {
+      if (!shouldScheduleRetry(retry, retryPolicy, attempt)) {
+        break;
+      }
+      recordNodeEvent(context, node.id, {
+        at: now(),
+        attempt,
+        evidence: retry.evidence,
+        gate: retry.gate,
+        reason: retry.reason,
+        retryReason: retry.retryReason,
+        type: "RETRYING",
+      });
+      await waitForRetryDelay(retryPolicy, attempt, context.signal);
+    } catch (err) {
+      if (isCancelled(context)) {
+        retry = {
+          attempt,
+          evidence: [...last.evidence, ...cancelledFailure().evidence],
+          gate: node.id,
+          reason: "pipeline cancelled",
+          retryReason: "timeout",
+        };
+        break;
+      }
       retry = {
-        attempt: Math.max(1, retry?.attempt ?? 1),
-        evidence: [...last.evidence, ...cancelledFailure().evidence],
-        gate: node.id,
-        reason: "pipeline cancelled",
-        retryReason: "timeout",
-      };
-    } else {
-      retry = {
-        attempt: Math.max(1, retry?.attempt ?? 1),
+        attempt,
         evidence: [
           ...last.evidence,
           err instanceof Error ? err.message : String(err),
@@ -985,9 +928,17 @@ async function executeNode(
         reason: err instanceof Error ? err.message : "node retry failed",
         retryReason: nodeRetryReason(last),
       };
+      break;
     }
   }
 
+  retry ??= {
+    attempt: Math.max(1, retryPolicy.maxAttempts),
+    evidence: last.evidence,
+    gate: node.id,
+    reason: `node exited with code ${last.exitCode}`,
+    retryReason: nodeRetryReason(last),
+  };
   await dispatchHooks(
     context,
     "node.error",
@@ -1005,14 +956,25 @@ async function executeNode(
     retry.evidence,
     last.output
   );
-  transitionNode(context, node.id, {
+  recordNodeEvent(context, node.id, {
     at: now(),
     failure: nodeRuntimeFailure(result),
     result,
-    type: "NODE_FAILED",
+    type: "FAILED",
   });
   emitNodeFinish(context, result);
   return result;
+}
+
+function shouldScheduleRetry(
+  retry: NodeAttemptRetry | undefined,
+  retryPolicy: NodeRetryPolicy,
+  attempt: number
+): retry is NodeAttemptRetry {
+  return (
+    Boolean(retry && retryPolicy.retryOn.has(retry.retryReason)) &&
+    attempt < retryPolicy.maxAttempts
+  );
 }
 
 interface NodeRetryPolicy {
@@ -1020,16 +982,6 @@ interface NodeRetryPolicy {
   maxAttempts: number;
   multiplier: number;
   retryOn: Set<RetryReason>;
-}
-
-class NodeAttemptRetryError extends Error {
-  retry: NodeAttemptRetry;
-
-  constructor(retry: NodeAttemptRetry) {
-    super(retry.reason);
-    this.name = "NodeAttemptRetryError";
-    this.retry = retry;
-  }
 }
 
 function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
@@ -1052,6 +1004,31 @@ function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
   };
 }
 
+async function waitForRetryDelay(
+  retryPolicy: NodeRetryPolicy,
+  attempt: number,
+  signal?: AbortSignal
+): Promise<void> {
+  const delayMs =
+    retryPolicy.backoffMs *
+    Math.max(1, retryPolicy.multiplier) ** Math.max(0, attempt - 1);
+  if (delayMs <= 0 || signal?.aborted) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, delayMs);
+    timeout.unref?.();
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true }
+    );
+  });
+}
+
 async function executeNodeAttemptCycle(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
@@ -1071,10 +1048,10 @@ async function executeNodeAttemptCycle(
   }
 
   emitNodeStart(context, node, attempt);
-  transitionNode(context, node.id, {
+  recordNodeEvent(context, node.id, {
     at: now(),
     attempt,
-    type: "NODE_STARTED",
+    type: "STARTED",
   });
   const startHook = await dispatchHooks(context, "node.start", undefined, node);
   if (startHook) {
@@ -1084,11 +1061,11 @@ async function executeNodeAttemptCycle(
       startHook.evidence,
       previous.output
     );
-    transitionNode(context, node.id, {
+    recordNodeEvent(context, node.id, {
       at: now(),
       failure: nodeRuntimeFailure(result),
       result,
-      type: "NODE_FAILED",
+      type: "FAILED",
     });
     return {
       last: previous,
@@ -1107,16 +1084,30 @@ async function executeNodeAttemptCycle(
     };
   }
 
+  recordNodeEvent(context, node.id, {
+    at: now(),
+    type: "START_HOOKS_FINISHED",
+  });
   context.nodeSnapshots.set(
     node.id,
     await snapshotChangedFiles(context.worktreePath)
   );
-  const last = await executeNodeAttempt(node, context, attempt);
-  transitionNode(context, node.id, {
+  recordNodeEvent(context, node.id, {
     at: now(),
+    type: "SNAPSHOT_BEFORE_FINISHED",
+  });
+  recordNodeEvent(context, node.id, {
+    at: now(),
+    type: "RUNNER_STARTED",
+  });
+  const last = await executeNodeAttempt(node, context, attempt);
+  recordNodeEvent(context, node.id, {
+    at: now(),
+    evidence: last.evidence,
     exitCode: last.exitCode,
     output: last.output,
-    type: "NODE_OUTPUT",
+    timedOut: last.timedOut,
+    type: "RUNNER_FINISHED",
   });
   const afterSnapshot = await snapshotChangedFiles(context.worktreePath);
   const beforeSnapshot = context.nodeSnapshots.get(node.id);
@@ -1128,6 +1119,14 @@ async function executeNodeAttemptCycle(
   }
   context.lastOutputByNode.set(node.id, last.output);
   emitNodeOutputRecorded(context, node, attempt, last.output);
+  recordNodeEvent(context, node.id, {
+    at: now(),
+    type: "OUTPUT_RECORDED",
+  });
+  recordNodeEvent(context, node.id, {
+    at: now(),
+    type: "SNAPSHOT_AFTER_FINISHED",
+  });
   const cancelledAfterAttempt = cancelledNodeResult(
     context,
     node.id,
@@ -1138,9 +1137,9 @@ async function executeNodeAttemptCycle(
     return { last, result: cancelledAfterAttempt };
   }
 
-  transitionNode(context, node.id, { at: now(), type: "GATES_STARTED" });
+  recordNodeEvent(context, node.id, { at: now(), type: "GATES_STARTED" });
   const gateResults = await evaluateNodeGates(node, context, last);
-  transitionNode(context, node.id, {
+  recordNodeEvent(context, node.id, {
     at: now(),
     gates: gateResults,
     type: "GATES_FINISHED",
@@ -1170,11 +1169,11 @@ async function executeNodeAttemptCycle(
         successHook.evidence,
         last.output
       );
-      transitionNode(context, node.id, {
+      recordNodeEvent(context, node.id, {
         at: now(),
         failure: nodeRuntimeFailure(result),
         result,
-        type: "NODE_FAILED",
+        type: "FAILED",
       });
       return { last, result };
     }
@@ -1195,10 +1194,10 @@ async function executeNodeAttemptCycle(
       output: last.output,
       status: "passed",
     };
-    transitionNode(context, node.id, {
+    recordNodeEvent(context, node.id, {
       at: now(),
       result,
-      type: "NODE_PASSED",
+      type: "PASSED",
     });
     return { last, result };
   }
@@ -1249,10 +1248,10 @@ function cancelledNodeResult(
     output: last.output,
     status: last.exitCode === 0 ? "passed" : "failed",
   };
-  transitionNode(context, nodeId, {
+  recordNodeEvent(context, nodeId, {
     at: now(),
     failure: cancelledFailure(),
-    type: "NODE_CANCELLED",
+    type: "CANCELLED",
   });
   return result;
 }
@@ -1406,6 +1405,7 @@ function createParallelChildContext(
     inheritedOutputNodeIds: new Set(context.lastOutputByNode.keys()),
     lastOutputByNode: new Map(context.lastOutputByNode),
     nodeSnapshots: new Map(),
+    nodeActors: new Map(),
     nodeStates: new Map(
       children.map((child) => [
         child.id,
@@ -1469,7 +1469,7 @@ function executeParallelChildren(
   context: RuntimeContext
 ): Promise<RuntimeNodeResult[]> {
   for (const child of children) {
-    transitionNode(context, child.id, { at: now(), type: "NODE_READY" });
+    recordNodeEvent(context, child.id, { at: now(), type: "READY" });
   }
   if (!context.maxParallelNodes) {
     return Promise.all(children.map((child) => executeNode(child, context)));
@@ -1486,7 +1486,7 @@ async function executeFailFastParallelChildren(
   abortController: AbortController
 ): Promise<RuntimeNodeResult[]> {
   for (const child of children) {
-    transitionNode(context, child.id, { at: now(), type: "NODE_READY" });
+    recordNodeEvent(context, child.id, { at: now(), type: "READY" });
   }
   const limit = pLimit({
     concurrency: context.maxParallelNodes ?? children.length,
@@ -2661,7 +2661,13 @@ async function evaluateNodeGates(
       break;
     }
     emitGateStart(context, node.id, gate, gateId);
-    const result = await evaluateGate(gate, node.id, context, attempt);
+    const result = await runGateEvaluationActor(
+      gate,
+      gateId,
+      node.id,
+      context,
+      attempt
+    );
     context.gates.push(result);
     results.push(result);
     emitGateFinish(context, gate, result);
@@ -2673,6 +2679,48 @@ async function evaluateNodeGates(
     }
   }
   return results;
+}
+
+async function runGateEvaluationActor(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext,
+  attempt: NodeAttemptResult
+): Promise<RuntimeGateResult> {
+  const actor = createActor(gateEvaluationMachine, {
+    id: runtimeActorId("gate", {
+      gateId,
+      nodeId,
+      runId: context.runId,
+      workflowId: context.workflowId,
+    }),
+    input: {
+      actor: {
+        id: runtimeActorId("gate", {
+          gateId,
+          nodeId,
+          runId: context.runId,
+          workflowId: context.workflowId,
+        }),
+        kind: "gate",
+      },
+      emit: context.observability,
+      evaluate: () => evaluateGate(gate, nodeId, context, attempt),
+      gateId,
+      kind: gate.kind,
+      nodeId,
+    },
+  });
+  actor.start();
+  actor.send({ type: "START" });
+  const snapshot = await waitFor(actor, (state) => state.status === "done");
+  actor.stop();
+  const result = snapshot.context.result;
+  if (!result) {
+    throw new Error(`gate '${gateId}' finished without a result`);
+  }
+  return result;
 }
 
 function nodeGateSpecs(
@@ -3356,10 +3404,10 @@ async function dispatchHooks(
       continue;
     }
     emitHookStart(context, event, hookId, hook, node, gateId);
-    const result = await executeHook(
-      hook,
-      hookId,
+    const result = await runHookInvocationActor(
       context,
+      hookId,
+      hook,
       failure,
       node,
       gateId
@@ -3374,6 +3422,65 @@ async function dispatchHooks(
     }
   }
   return null;
+}
+
+async function runHookInvocationActor(
+  context: RuntimeContext,
+  hookId: string,
+  hook: HookSpec,
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): Promise<RuntimeFailure | null> {
+  const actor = createActor(hookInvocationMachine, {
+    id: runtimeActorId("hook", {
+      hookId,
+      nodeId: node?.id,
+      runId: context.runId,
+      workflowId: context.workflowId,
+    }),
+    input: {
+      actor: {
+        id: runtimeActorId("hook", {
+          hookId,
+          nodeId: node?.id,
+          runId: context.runId,
+          workflowId: context.workflowId,
+        }),
+        kind: "hook",
+      },
+      emit: context.observability,
+      execute: async () => {
+        const hookFailure = await executeHook(
+          hook,
+          hookId,
+          context,
+          failure,
+          node,
+          gateId
+        );
+        return hookFailure
+          ? {
+              failure: hookFailure,
+              reason: hookFailure.reason,
+              status: hookFailure.evidence.some((item) =>
+                item.toLowerCase().includes("timed out")
+              )
+                ? ("timedOut" as const)
+                : ("failed" as const),
+            }
+          : { status: "passed" as const };
+      },
+      hookId,
+      nodeId: node?.id,
+      required: hook.required === true,
+    },
+  });
+  actor.start();
+  actor.send({ type: "START" });
+  const snapshot = await waitFor(actor, (state) => state.status === "done");
+  actor.stop();
+  return snapshot.context.result?.failure ?? null;
 }
 
 function hookIdsForContext(
