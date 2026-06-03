@@ -32,7 +32,7 @@
   "name": "@oisincoveney/pipeline",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/oisincoveney/agent-pipeline.git"
+    "url": "git+https://github.com/oisin-ee/pipeline-runner.git"
   },
   "publishConfig": {
     "access": "public"
