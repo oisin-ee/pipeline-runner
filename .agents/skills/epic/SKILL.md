@@ -21,23 +21,7 @@ hooks: generated-defaults-audit
 
 Instructions: .pipeline/prompts/orchestrator.md
 
-Run workflow `epic-drain` for the user task.
-Codex native routes:
-- research: spawn_agent agent_type=pipeline-researcher model=gpt-5.5 runner=codex needs=none
-- plan: spawn_agent agent_type=pipeline-epic-router model=gpt-5.5 runner=codex needs=research
-- review: spawn_agent agent_type=pipeline-thermo-nuclear-reviewer model=gpt-5.5 runner=codex needs=merge
-
-For each native node prompt include:
-- user task
-- workflow id: epic-drain
-- node id
-- profile id
-- runner id
-- profile instructions reference
-- profile grants
-- dependency outputs
-
-Only gates declared in `.pipeline/pipeline.yaml` are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
-If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.
-Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.
-Do not substitute the generic Codex worker for configured profiles.
+Generate a schedule for entrypoint `epic` and the user task.
+The schedule policy is `epic-schedule`.
+Run `pipe run --entrypoint epic <task description>` to write the schedule artifact, then stop for approval.
+Do not execute workflow nodes until the user runs `pipe run --schedule <schedule.yaml>`.

@@ -19,26 +19,7 @@ hooks: generated-defaults-audit
 
 Instructions: .pipeline/prompts/orchestrator.md
 
-Run workflow `default` for the user task.
-Codex native routes:
-- research: spawn_agent agent_type=pipeline-researcher model=gpt-5.5 runner=codex needs=none
-- red: spawn_agent agent_type=pipeline-test-writer model=gpt-5.5 runner=codex needs=research
-- green: spawn_agent agent_type=pipeline-code-writer model=gpt-5.5 runner=codex needs=red
-- acceptance: spawn_agent agent_type=pipeline-acceptance-reviewer model=gpt-5.5 runner=codex needs=green
-- verify: spawn_agent agent_type=pipeline-verifier model=gpt-5.5 runner=codex needs=acceptance
-- learn: spawn_agent agent_type=pipeline-learner model=gpt-5.5 runner=codex needs=verify
-
-For each native node prompt include:
-- user task
-- workflow id: default
-- node id
-- profile id
-- runner id
-- profile instructions reference
-- profile grants
-- dependency outputs
-
-Only gates declared in `.pipeline/pipeline.yaml` are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
-If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.
-Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.
-Do not substitute the generic Codex worker for configured profiles.
+Generate a schedule for entrypoint `pipe` and the user task.
+The schedule policy is `pipe-schedule`.
+Run `pipe run --entrypoint pipe <task description>` to write the schedule artifact, then stop for approval.
+Do not execute workflow nodes until the user runs `pipe run --schedule <schedule.yaml>`.

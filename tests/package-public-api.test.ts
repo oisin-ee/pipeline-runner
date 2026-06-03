@@ -84,8 +84,10 @@ describe("package public app-facing API", () => {
     expect(readme).toContain("@oisincoveney/pipeline/config");
     expect(readme).toContain("@oisincoveney/pipeline/planner");
     expect(readme).toContain("@oisincoveney/pipeline/runtime");
+    expect(readme).toContain("@oisincoveney/pipeline/schedule");
     expect(readme).toContain("loadPipelineConfig");
     expect(readme).toContain("compileWorkflowPlan");
+    expect(readme).toContain("compileScheduleArtifact");
     expect(readme).toContain("runPipelineFromConfig");
     expect(readme).toContain("PipelineRuntimeResult");
   });
@@ -122,6 +124,11 @@ import {
   type PipelineRuntimeOptions,
   type PipelineRuntimeResult,
 } from "@oisincoveney/pipeline/runtime";
+import {
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+  type ScheduleArtifact,
+} from "@oisincoveney/pipeline/schedule";
 
 const parts: PipelineConfigParts = {
   pipeline: "version: 1\\ndefault_workflow: smoke\\norchestrator: { profile: orchestrator }\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
@@ -131,6 +138,11 @@ const parts: PipelineConfigParts = {
 
 const config: PipelineConfig = parsePipelineConfigParts(parts, "/tmp/project");
 const plan: WorkflowExecutionPlan = compileWorkflowPlan(config, "smoke");
+const scheduleArtifact: ScheduleArtifact = parseScheduleArtifact("version: 1\\nkind: pipeline-schedule\\nschedule_id: smoke-a\\nsource_entrypoint: pipe\\ntask: consumer compile smoke\\ngenerated_at: 2026-06-03T12:00:00.000Z\\nroot_workflow: root\\nworkflows:\\n  root:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n");
+const scheduledPlan: WorkflowExecutionPlan = compileScheduleArtifact(
+  config,
+  scheduleArtifact
+).plan;
 const firstNode: PlannedWorkflowNode = plan.topologicalOrder[0];
 const runnerType: RunnerType = "command";
 const nodeKind: WorkflowNodeKind = firstNode.kind;
@@ -158,6 +170,7 @@ void eventType;
 void formattedError;
 void runnerType;
 void nodeKind;
+void scheduledPlan;
 `,
       "utf8"
     );
@@ -183,6 +196,7 @@ void nodeKind;
 import { PipelineConfigError, loadPipelineConfig, parsePipelineConfigParts } from "@oisincoveney/pipeline/config";
 import { WorkflowPlannerError, compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
 import { formatConfigError, runPipelineFromConfig } from "@oisincoveney/pipeline/runtime";
+import { compileScheduleArtifact, parseScheduleArtifact } from "@oisincoveney/pipeline/schedule";
 
 const values = [
   PipelineConfigError,
@@ -190,6 +204,8 @@ const values = [
   parsePipelineConfigParts,
   WorkflowPlannerError,
   compileWorkflowPlan,
+  compileScheduleArtifact,
+  parseScheduleArtifact,
   formatConfigError,
   runPipelineFromConfig,
 ];

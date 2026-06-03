@@ -65,6 +65,10 @@
     "./runtime": {
       "types": "./dist/pipeline-runtime.d.ts",
       "import": "./dist/pipeline-runtime.js"
+    },
+    "./schedule": {
+      "types": "./dist/schedule-planner.d.ts",
+      "import": "./dist/schedule-planner.js"
     }
   },
   "files": [

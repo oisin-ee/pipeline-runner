@@ -57,13 +57,13 @@ default_workflow: default
 
 entrypoints:
   pipe:
-    workflow: default
+    schedule: pipe-schedule
     description: Full pipeline
   inspect:
     workflow: inspect
     description: Read-only repository inspection
   epic:
-    workflow: epic-drain
+    schedule: epic-schedule
     description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
 
 orchestrator:
@@ -93,6 +93,14 @@ hooks:
     trusted: true
     timeout_ms: 5000
     output_limit_bytes: 4096
+
+schedules:
+  pipe-schedule:
+    baseline: pipe
+    planner_profile: pipeline-schedule-planner
+  epic-schedule:
+    baseline: epic
+    planner_profile: pipeline-schedule-planner
 
 workflows:
   inspect:
@@ -446,6 +454,22 @@ profiles:
       mode: inherit
     output:
       format: text
+  pipeline-schedule-planner:
+    runner: codex
+    description: Refine a baseline schedule into a specialized approved-plan artifact.
+    instructions:
+      path: .pipeline/prompts/schedule-planner.md
+    skills: [research, scope]
+    mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
   pipeline-test-writer:
     runner: codex
     description: Add focused failing tests for the requested behavior.
@@ -696,6 +720,18 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "Do not recursively inspect route trees or generated output.",
     "Report the app structure, available checks, important files, and notable risks from the sampled evidence.",
     "Do not modify files.",
+    "",
+  ].join("\n"),
+  ".pipeline/prompts/schedule-planner.md": [
+    "# Schedule planner",
+    "",
+    "Refine the provided baseline into a specialized `pipeline-schedule` YAML artifact for the user task.",
+    "",
+    "Keep the graph auditable: every workflow must be embedded in the artifact, every `kind: workflow` reference must point to an embedded workflow, and execution must include research, implementation, and verification.",
+    "",
+    "Use parallel branches only when they reduce coordination risk. Preserve configured profile ids, gates, hooks, retries, artifacts, and worktree policy unless the task clearly needs a different valid graph.",
+    "",
+    "Return only YAML. Do not wrap it in Markdown fences. Do not modify files. Do not invoke other agents.",
     "",
   ].join("\n"),
   ".pipeline/prompts/test-writer.md": [

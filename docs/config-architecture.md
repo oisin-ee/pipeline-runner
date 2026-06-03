@@ -4,7 +4,7 @@ The v1 pipeline is YAML-only and is split into three required files:
 
 - `.pipeline/runners.yaml` declares runner adapters and capabilities.
 - `.pipeline/profiles.yaml` declares reusable profiles, rules, skills, and MCP servers.
-- `.pipeline/pipeline.yaml` declares the orchestrator profile, entrypoints, hooks, workflows, gates, and artifacts.
+- `.pipeline/pipeline.yaml` declares the orchestrator profile, entrypoints, schedules, hooks, workflows, gates, and artifacts.
 
 Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
 prompt constants.
@@ -76,7 +76,7 @@ default_workflow: default
 
 entrypoints:
   pipe:
-    workflow: default
+    schedule: pipe-schedule
     description: Full pipeline
 
 orchestrator:
@@ -84,6 +84,11 @@ orchestrator:
   hooks: []
 
 hooks: {}
+
+schedules:
+  pipe-schedule:
+    baseline: pipe
+    planner_profile: pipeline-schedule-planner
 
 workflows:
   inspect:

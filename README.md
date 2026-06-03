@@ -72,10 +72,17 @@ Inspect the execution plan before running:
 pipe explain-plan
 ```
 
-Run the default workflow:
+Generate the default schedule artifact:
 
 ```shell
-pipe run "Implement PIPE-123 user-facing behavior"
+pipe "Implement PIPE-123 user-facing behavior"
+```
+
+This writes `.pipeline/runs/<runId>/schedule.yaml` and stops for approval. Run
+the approved artifact explicitly:
+
+```shell
+pipe run --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-123 user-facing behavior"
 ```
 
 Run a read-only repository inspection:
@@ -96,9 +103,9 @@ Run an epic drain workflow:
 pipe epic PIPE-31
 ```
 
-The `epic` entrypoint routes an epic's child tickets into fixed specialist
-tracks, runs those tracks in parallel, merges passing branches, and then runs a
-thermo-nuclear code quality review.
+The `epic` entrypoint generates a specialized schedule for the epic, writes the
+schedule artifact, and stops. Execution uses the same `pipe run --schedule`
+approval boundary as `pipe`.
 
 The `pipe` binary also accepts the task directly:
 
@@ -201,8 +208,9 @@ workflows:
 ```
 
 Projects can also declare `entrypoints` in `.pipeline/pipeline.yaml` to expose
-stable app or CLI names that resolve to workflows. Direct `--workflow` selection
-remains available and takes precedence over `--entrypoint` when both are set.
+stable app or CLI names that resolve to workflows or schedule policies. Direct
+`--workflow` selection remains available and takes precedence over `--entrypoint`
+when both are set.
 
 The default scaffold includes a full research, red, green, verify, learn
 workflow. See `docs/config-architecture.md` for a complete example and the host
@@ -347,7 +355,7 @@ runners:
 
 ## App-Facing API
 
-External apps can import the stable config, planner, and runtime surfaces
+External apps can import the stable config, planner, schedule, and runtime surfaces
 without deep-importing private source paths:
 
 ```ts
@@ -356,6 +364,10 @@ import {
   parsePipelineConfigParts,
 } from "@oisincoveney/pipeline/config";
 import { compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
+import {
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+} from "@oisincoveney/pipeline/schedule";
 import {
   runPipelineFromConfig,
   type PipelineRuntimeResult,

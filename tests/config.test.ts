@@ -610,7 +610,7 @@ workflows:
 `,
     });
 
-    expect(config.entrypoints.quick.workflow).toBe("default");
+    expect(config.entrypoints.quick).toMatchObject({ workflow: "default" });
     expect(config.task_context?.type).toBe("markdown");
     expect(
       config.workflows.default.nodes[0].gates?.map((gate) => gate.kind)
@@ -689,6 +689,61 @@ workflows:
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain(
       "entrypoint 'bad' references missing workflow"
+    );
+  });
+
+  it("rejects scheduled entrypoints pointing at missing schedule policies", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `
+version: 1
+default_workflow: default
+entrypoints:
+  bad:
+    schedule: missing-schedule
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+`,
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain(
+      "entrypoint 'bad' references missing schedule"
+    );
+  });
+
+  it("rejects schedules pointing at missing planner profiles", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `
+version: 1
+default_workflow: default
+schedules:
+  bad-schedule:
+    baseline: pipe
+    planner_profile: missing-planner
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+`,
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain(
+      "schedule 'bad-schedule' references missing planner profile"
     );
   });
 
@@ -1068,13 +1123,24 @@ describe("epic entrypoint integration", () => {
     );
   }
 
-  it("declares the epic entrypoint and epic-drain workflow contract", () => {
+  it("declares scheduled pipe/epic entrypoints and keeps the epic-drain workflow available", () => {
     const config = readRepoPipelineYaml();
 
     expect(config.entrypoints?.epic).toEqual({
-      workflow: "epic-drain",
+      schedule: "epic-schedule",
       description:
         "Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.",
+    });
+    expect(config.entrypoints?.pipe).toMatchObject({
+      schedule: "pipe-schedule",
+    });
+    expect(config.schedules?.["pipe-schedule"]).toMatchObject({
+      baseline: "pipe",
+      planner_profile: "pipeline-schedule-planner",
+    });
+    expect(config.schedules?.["epic-schedule"]).toMatchObject({
+      baseline: "epic",
+      planner_profile: "pipeline-schedule-planner",
     });
 
     const workflow = config.workflows?.["epic-drain"];

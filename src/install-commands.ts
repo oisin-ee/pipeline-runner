@@ -338,6 +338,23 @@ function dispatchBlock(
     .join("\n");
 }
 
+function entrypointDispatchBlock(
+  host: ActiveCommandHost,
+  config: PipelineConfig,
+  id: string,
+  entrypoint: PipelineConfig["entrypoints"][string]
+): string | undefined {
+  if ("workflow" in entrypoint) {
+    return dispatchBlock(host, config, entrypoint.workflow);
+  }
+  return [
+    `Generate a schedule for entrypoint \`${id}\` and the user task.`,
+    `The schedule policy is \`${entrypoint.schedule}\`.`,
+    `Run \`pipe run --entrypoint ${id} <task description>\` to write the schedule artifact, then stop for approval.`,
+    "Do not execute workflow nodes until the user runs `pipe run --schedule <schedule.yaml>`.",
+  ].join("\n");
+}
+
 function nativeDispatchBlock(
   host: ActiveCommandHost,
   routes: AgentDispatchRoute[]
@@ -489,7 +506,7 @@ function opencodeDefinitions(config: PipelineConfig): CommandDefinition[] {
           "",
           orchestratorBlock(config),
           "",
-          dispatchBlock("opencode", config, entrypoint.workflow),
+          entrypointDispatchBlock("opencode", config, id, entrypoint),
         ]).join("\n")
       ),
       host: "opencode",
@@ -565,7 +582,7 @@ function codexDefinitions(
           "",
           orchestratorBlock(config),
           "",
-          dispatchBlock("codex", config, entrypoint.workflow),
+          entrypointDispatchBlock("codex", config, id, entrypoint),
         ]).join("\n")
       ),
       host: "codex",
@@ -587,7 +604,7 @@ function codexDefinitions(
           "",
           orchestratorBlock(config),
           "",
-          dispatchBlock("codex", config, entrypoint.workflow),
+          entrypointDispatchBlock("codex", config, id, entrypoint),
         ]).join("\n")
       ),
       host: "codex",

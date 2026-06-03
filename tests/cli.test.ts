@@ -33,6 +33,7 @@ const PLAN_PLAN_RE = /- plan kind=agent needs=research/;
 const PLAN_IMPLEMENT_RE = /- implement kind=parallel needs=plan/;
 const PLAN_MERGE_RE = /- merge kind=builtin needs=implement/;
 const PLAN_REVIEW_RE = /- review kind=agent needs=merge/;
+const SCHEDULE_GENERATED_PATH_RE = /Schedule generated: (.*schedule\.yaml)/;
 const WARNING_RE = /warning/i;
 const FAILED_TO_PARSE_PIPELINE_YAML_ESCAPED_RE =
   /Failed to parse \.pipeline\/pipeline\.yaml/;
@@ -196,6 +197,65 @@ workflows:
       - id: validate-node
         kind: command
         command: [validate-entrypoint-bin]
+`,
+  });
+}
+
+function writeScheduledCliConfig(root: string): void {
+  writeProjectFileSet(root, {
+    ".pipeline/runners.yaml": `
+version: 1
+runners:
+  local:
+    type: command
+    command: scheduled-runner
+    capabilities:
+      native_subagents: false
+      output_formats: [text]
+`,
+    ".pipeline/profiles.yaml": `
+version: 1
+profiles:
+  orchestrator:
+    runner: local
+    instructions: { inline: Orchestrate }
+  pipeline-researcher:
+    runner: local
+    instructions: { inline: Research }
+  pipeline-code-writer:
+    runner: local
+    instructions: { inline: Implement }
+  pipeline-verifier:
+    runner: local
+    instructions: { inline: Verify }
+  pipeline-learner:
+    runner: local
+    instructions: { inline: Learn }
+  pipeline-thermo-nuclear-reviewer:
+    runner: local
+    instructions: { inline: Review }
+`,
+    ".pipeline/pipeline.yaml": `
+version: 1
+default_workflow: inspect
+entrypoints:
+  pipe:
+    schedule: pipe-schedule
+    description: Generated pipe schedule
+  inspect:
+    workflow: inspect
+    description: Inspect static workflow
+orchestrator:
+  profile: orchestrator
+schedules:
+  pipe-schedule:
+    baseline: pipe
+workflows:
+  inspect:
+    nodes:
+      - id: inspect
+        kind: command
+        command: [inspect-bin]
 `,
   });
 }
@@ -1011,6 +1071,174 @@ describe("pipe", () => {
     );
   });
 
+  it("generates a schedule artifact and stops for scheduled pipe entrypoints", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-plan-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      writeScheduledCliConfig(dir);
+      process.env.PIPELINE_TARGET_PATH = dir;
+
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"]);
+
+      const output = log.mock.calls
+        .map(([message]) => String(message))
+        .join("\n");
+      expect(output).toContain("Schedule generated:");
+      expect(output).toContain("pipe run --schedule");
+      expect(execaCommands()).toEqual([]);
+      const schedulePath = output.match(SCHEDULE_GENERATED_PATH_RE)?.at(1);
+      expect(schedulePath).toBeDefined();
+      expect(existsSync(schedulePath ?? "")).toBe(true);
+      expect(readFileSync(schedulePath ?? "", "utf8")).toContain(
+        "kind: pipeline-schedule"
+      );
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("executes an approved schedule artifact via run --schedule", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-run-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      writeScheduledCliConfig(dir);
+      process.env.PIPELINE_TARGET_PATH = dir;
+      const schedulePath = join(dir, "approved-schedule.yaml");
+      writeFileSync(
+        schedulePath,
+        `
+version: 1
+kind: pipeline-schedule
+schedule_id: approved-a
+source_entrypoint: pipe
+task: Ship it
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: scheduled
+        kind: command
+        command: [scheduled-bin]
+`
+      );
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "run",
+        "--schedule",
+        schedulePath,
+        "Ship",
+        "it",
+      ]);
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        "scheduled-bin",
+        [],
+        expect.objectContaining({ cwd: dir })
+      );
+      const output = log.mock.calls
+        .map(([message]) => String(message))
+        .join("\n");
+      expect(output).toContain("Workflow: schedule-approved-a-root");
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates and explains an approved schedule artifact", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-inspect-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      writeScheduledCliConfig(dir);
+      process.env.PIPELINE_TARGET_PATH = dir;
+      const schedulePath = join(dir, "approved-schedule.yaml");
+      writeFileSync(
+        schedulePath,
+        `
+version: 1
+kind: pipeline-schedule
+schedule_id: approved-b
+source_entrypoint: pipe
+task: Inspect it
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: scheduled
+        kind: command
+        command: [scheduled-bin]
+`
+      );
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "validate",
+        "--schedule",
+        schedulePath,
+      ]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "explain-plan",
+        "--schedule",
+        schedulePath,
+      ]);
+
+      const output = log.mock.calls
+        .map(([message]) => String(message))
+        .join("\n");
+      expect(output).toContain("OK: schedule-approved-b-root (1 nodes)");
+      expect(output).toContain("Workflow: schedule-approved-b-root");
+      expect(output).toContain("- scheduled kind=command needs=none");
+      expect(execaCommands()).toEqual([]);
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("dispatches pipe entrypoint subcommands to the configured entrypoint workflow", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-entrypoint-"));
@@ -1306,7 +1534,7 @@ describe("pipe", () => {
     }
   });
 
-  it("validates the epic entrypoint without treating current warnings as fatal", async () => {
+  it("validates the epic-drain workflow without treating current warnings as fatal", async () => {
     const { runCli } = await import("../src/index.js");
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -1322,8 +1550,8 @@ describe("pipe", () => {
           "node",
           "/repo/node_modules/.bin/pipe",
           "validate",
-          "--entrypoint",
-          "epic",
+          "--workflow",
+          "epic-drain",
         ]);
       } catch (err) {
         thrown = err;
@@ -1358,7 +1586,7 @@ describe("pipe", () => {
     }
   });
 
-  it("explains the epic entrypoint topology including parallel implementation children", async () => {
+  it("explains the epic-drain workflow topology including parallel implementation children", async () => {
     const { runCli } = await import("../src/index.js");
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -1374,8 +1602,8 @@ describe("pipe", () => {
           "node",
           "/repo/node_modules/.bin/pipe",
           "explain-plan",
-          "--entrypoint",
-          "epic",
+          "--workflow",
+          "epic-drain",
         ]);
       } catch (err) {
         thrown = err;
@@ -2110,8 +2338,8 @@ workflows:
       },
     });
 
-    await expect(pipe("ship it", { pipelineRunner })).rejects.toThrow(
-      FAILURE_DETAILS_RE
-    );
+    await expect(
+      pipe("ship it", { pipelineRunner, workflow: "default" })
+    ).rejects.toThrow(FAILURE_DETAILS_RE);
   });
 });

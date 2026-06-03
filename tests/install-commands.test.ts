@@ -199,28 +199,17 @@ describe("installCommands", () => {
       "red: Task tool subagent_type=pipeline-test-writer runner=codex needs=research"
     );
     expect(codexSkill).toContain("$pipe <task description>");
-    expect(codexSkill).toContain(
-      "green: spawn_agent agent_type=pipeline-code-writer model=gpt-5.5 runner=codex needs=red"
-    );
+    expect(codexSkill).toContain("The schedule policy is `pipe-schedule`.");
+    expect(codexSkill).toContain("pipe run --schedule <schedule.yaml>");
     expect(codexSkill).not.toContain("agent_type=worker");
     expect(codexSkill).not.toContain("codex CLI profile=");
     expect(codexPluginEpic).toContain("/epic <task description>");
     expect(codexPluginEpic).toContain(
-      "research: spawn_agent agent_type=pipeline-researcher model=gpt-5.5 runner=codex needs=none"
+      "The schedule policy is `epic-schedule`."
     );
-    expect(codexPluginEpic).toContain(
-      "plan: spawn_agent agent_type=pipeline-epic-router model=gpt-5.5 runner=codex needs=research"
-    );
-    expect(codexPluginEpic).toContain(
-      "review: spawn_agent agent_type=pipeline-thermo-nuclear-reviewer model=gpt-5.5 runner=codex needs=merge"
-    );
+    expect(codexPluginEpic).toContain("pipe run --schedule <schedule.yaml>");
 
-    for (const content of [
-      opencodeCommand,
-      opencodeOrchestrator,
-      codexSkill,
-      codexPluginEpic,
-    ]) {
+    for (const content of [opencodeOrchestrator]) {
       expect(content).toContain("Do not use `pipe`, `oisin-pipeline`");
       expect(content).not.toContain("bunx @oisincoveney/pipeline");
     }
@@ -457,9 +446,7 @@ describe("installCommands", () => {
     expect(testWriter).not.toContain("\nmodel: openai/gpt-5.3-codex\n");
     expect(
       readFileSync(join(dir, ".opencode/commands/pipe.md"), "utf8")
-    ).toContain(
-      "green: Task tool subagent_type=pipeline-code-writer runner=codex needs=red"
-    );
+    ).toContain("The schedule policy is `pipe-schedule`.");
   });
 
   it("fails closed instead of inventing invalid Codex named agents when no Codex model resolves", async () => {

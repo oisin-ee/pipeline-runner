@@ -3,13 +3,13 @@ default_workflow: default
 
 entrypoints:
   pipe:
-    workflow: default
+    schedule: pipe-schedule
     description: Full pipeline
   inspect:
     workflow: inspect
     description: Read-only repository inspection
   epic:
-    workflow: epic-drain
+    schedule: epic-schedule
     description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
 
 orchestrator:
@@ -39,6 +39,14 @@ hooks:
     trusted: true
     timeout_ms: 5000
     output_limit_bytes: 4096
+
+schedules:
+  pipe-schedule:
+    baseline: pipe
+    planner_profile: pipeline-schedule-planner
+  epic-schedule:
+    baseline: epic
+    planner_profile: pipeline-schedule-planner
 
 workflows:
   inspect:

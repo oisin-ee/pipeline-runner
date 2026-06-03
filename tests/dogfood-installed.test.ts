@@ -227,7 +227,7 @@ describe("installed dogfood configuration", () => {
         `hooks: ${(config.orchestrator.hooks ?? []).join(", ")}`
       );
       expect(content).toContain(surface.invocation);
-      expect(content).toContain(`Run workflow \`${surface.workflowId}\``);
+      expect(content).toContain(surface.targetId);
     }
 
     const pipelineOrchestratorContent = readFileSync(
@@ -527,17 +527,20 @@ function entrypointCommandSurfaces(
       {
         invocation: `/${entrypointId} <task description>`,
         path: `.opencode/commands/${entrypointId}.md`,
-        workflowId: entrypoint.workflow,
+        targetId:
+          "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
       },
       {
         invocation: `$${entrypointId} <task description>`,
         path: `.agents/skills/${entrypointId}/SKILL.md`,
-        workflowId: entrypoint.workflow,
+        targetId:
+          "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
       },
       {
         invocation: `/${entrypointId} <task description>`,
         path: `.agents/plugins/oisin-pipeline/commands/${entrypointId}.md`,
-        workflowId: entrypoint.workflow,
+        targetId:
+          "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
       },
     ]
   );

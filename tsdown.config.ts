@@ -8,6 +8,7 @@ export default defineConfig({
     index: "src/index.ts",
     "pipeline-runtime": "src/pipeline-runtime.ts",
     runner: "src/runner.ts",
+    "schedule-planner": "src/schedule-planner.ts",
     "workflow-planner": "src/workflow-planner.ts",
   },
   fixedExtension: false,
