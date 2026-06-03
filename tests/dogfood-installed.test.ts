@@ -466,6 +466,11 @@ function entrypointCommandSurfaces(
       },
       {
         invocation: `/${entrypointId} <task description>`,
+        path: `.agents/plugins/oisin-pipeline/commands/${entrypointId}.md`,
+        workflowId: entrypoint.workflow,
+      },
+      {
+        invocation: `/${entrypointId} <task description>`,
         path: `.kimi/commands/${entrypointId}.md`,
         workflowId: entrypoint.workflow,
       },

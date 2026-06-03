@@ -40,6 +40,8 @@ const ENTRYPOINT_COMMAND_SURFACES = [
   ".opencode/commands/inspect.md",
   ".agents/skills/pipe/SKILL.md",
   ".agents/skills/inspect/SKILL.md",
+  ".agents/plugins/oisin-pipeline/commands/pipe.md",
+  ".agents/plugins/oisin-pipeline/commands/inspect.md",
   ".kimi/commands/pipe.md",
   ".kimi/commands/inspect.md",
   ".pi/prompts/pipe.md",
@@ -130,6 +132,9 @@ describe("installCommands", () => {
       ".agents/skills/pipe/SKILL.md",
       ".agents/skills/inspect/SKILL.md",
       ".agents/skills/epic/SKILL.md",
+      ".agents/plugins/oisin-pipeline/commands/pipe.md",
+      ".agents/plugins/oisin-pipeline/commands/inspect.md",
+      ".agents/plugins/oisin-pipeline/commands/epic.md",
       ".agents/plugins/oisin-pipeline/agents/pipeline-acceptance-reviewer.md",
       ".agents/plugins/oisin-pipeline/agents/pipeline-code-writer.md",
       ".agents/plugins/oisin-pipeline/agents/pipeline-epic-router.md",
@@ -205,6 +210,11 @@ describe("installCommands", () => {
         path: ".agents/skills/inspect/SKILL.md",
       },
       {
+        forbidden: "/pipe <task description>",
+        invocation: "/inspect <task description>",
+        path: ".agents/plugins/oisin-pipeline/commands/inspect.md",
+      },
+      {
         forbidden: "/skill:pipe <task description>",
         invocation: "/inspect <task description>",
         path: ".kimi/commands/inspect.md",
@@ -245,6 +255,10 @@ describe("installCommands", () => {
       join(dir, ".agents/skills/pipe/SKILL.md"),
       "utf8"
     );
+    const codexPluginEpic = readFileSync(
+      join(dir, ".agents/plugins/oisin-pipeline/commands/epic.md"),
+      "utf8"
+    );
     const piPrompt = readFileSync(join(dir, ".pi/prompts/pipe.md"), "utf8");
 
     expect(claudeCommand).toContain("pipeline-researcher");
@@ -265,6 +279,18 @@ describe("installCommands", () => {
       "If a node returns targeted evidence and has no configured blocking gate"
     );
     expect(codexSkill).not.toContain("agent_type=worker");
+    expect(codexPluginEpic).toContain("/epic <task description>");
+    expect(codexPluginEpic).toContain(
+      "research: spawn_agent agent_type=pipeline-researcher model=gpt-5.5 runner=codex needs=none"
+    );
+    expect(codexPluginEpic).toContain(
+      "plan: spawn_agent agent_type=pipeline-epic-router model=gpt-5.5 runner=codex needs=research"
+    );
+    expect(codexPluginEpic).toContain(
+      "review: spawn_agent agent_type=pipeline-thermo-nuclear-reviewer model=gpt-5.5 runner=codex needs=merge"
+    );
+    expect(codexPluginEpic).not.toContain("pipe epic");
+    expect(codexPluginEpic).not.toContain("```bash");
     expect(existsSync(join(dir, ".pi/extensions/pipe.ts"))).toBe(false);
     expect(piPrompt).toContain("pipeline-researcher");
     expect(piPrompt).toContain("pipeline-test-writer");
@@ -276,6 +302,7 @@ describe("installCommands", () => {
       opencodeCommand,
       opencodeOrchestrator,
       codexSkill,
+      codexPluginEpic,
       piPrompt,
     ]) {
       expect(content).toContain("Do not use `pipe`, `oisin-pipeline`");
@@ -512,6 +539,7 @@ describe("installCommands", () => {
       ".claude/commands/inspect.md",
       ".opencode/commands/inspect.md",
       ".agents/skills/inspect/SKILL.md",
+      ".agents/plugins/oisin-pipeline/commands/inspect.md",
       ".kimi/commands/inspect.md",
       ".pi/prompts/inspect.md",
     ]) {
