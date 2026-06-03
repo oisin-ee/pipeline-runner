@@ -72,8 +72,8 @@ orchestrator MCP set * subagent count * host config layers
 
 With a gateway, the runtime launches zero local upstream MCP processes for most
 agents. Codex receives `--ignore-user-config` plus the profile-selected gateway
-entry. OpenCode receives a temporary `OPENCODE_CONFIG` containing the selected
-gateway entry and disabled entries for other pipeline-known MCP ids.
+entry. OpenCode runs with isolated XDG/config roots and receives inline
+`OPENCODE_CONFIG_CONTENT` containing only the selected gateway entry.
 
 ## Candidate Gateway Implementations
 

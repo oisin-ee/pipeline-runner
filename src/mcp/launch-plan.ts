@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineConfig, RunnerType } from "../config.js";
@@ -10,7 +10,7 @@ type McpServerConfig = PipelineConfig["mcp_servers"][string];
 
 export interface McpLaunchPlan {
   args: string[];
-  env: Record<string, string>;
+  env: Record<string, string | undefined>;
   selectedServers: Record<string, McpServerConfig>;
 }
 
@@ -63,22 +63,25 @@ function mcpArgsFor(
 function mcpEnvFor(
   input: McpLaunchPlanInput,
   servers: Record<string, McpServerConfig>
-): Record<string, string> {
-  const declaredServers = input.config?.mcp_servers ?? {};
-  if (
-    input.runnerType !== "opencode" ||
-    (Object.keys(servers).length === 0 &&
-      Object.keys(declaredServers).length === 0)
-  ) {
+): Record<string, string | undefined> {
+  if (input.runnerType !== "opencode" || !input.config) {
     return {};
   }
-  const config = toOpenCodeMcpConfig(servers, declaredServers);
-  const dir = mkdtempSync(join(tmpdir(), "pipeline-opencode-mcp-"));
-  const path = join(dir, `${input.nodeId}.json`);
-  writeFileSync(path, JSON.stringify(config));
+  const config = toOpenCodeMcpConfig(servers);
+  const dir = mkdtempSync(join(tmpdir(), "pipeline-opencode-runtime-"));
   return {
-    OPENCODE_CONFIG: path,
+    OPENCODE_AUTH_CONTENT: undefined,
+    OPENCODE_CONFIG: undefined,
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
+    OPENCODE_CONFIG_DIR: undefined,
+    OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+    OPENCODE_TEST_HOME: join(dir, "home"),
+    PIPELINE_OPENCODE_RUNTIME_DIR: dir,
     PIPELINE_WORKTREE: input.worktreePath,
+    XDG_CACHE_HOME: join(dir, "cache"),
+    XDG_CONFIG_HOME: join(dir, "config"),
+    XDG_DATA_HOME: join(dir, "data"),
+    XDG_STATE_HOME: join(dir, "state"),
   };
 }
 
@@ -100,19 +103,14 @@ function headersWithBearerTokenEnv(
 }
 
 function toOpenCodeMcpConfig(
-  selectedServers: Record<string, McpServerConfig>,
-  declaredServers: Record<string, McpServerConfig>
+  selectedServers: Record<string, McpServerConfig>
 ): {
+  $schema: string;
   mcp: Record<string, Record<string, unknown>>;
 } {
-  const disabledServers = Object.fromEntries(
-    Object.keys(declaredServers)
-      .filter((id) => !selectedServers[id])
-      .map((id) => [id, { enabled: false }])
-  );
   return {
+    $schema: "https://opencode.ai/config.json",
     mcp: {
-      ...disabledServers,
       ...Object.fromEntries(
         Object.entries(selectedServers).map(([id, server]) => {
           if (isRemoteMcpServer(server)) {

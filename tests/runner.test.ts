@@ -9,6 +9,7 @@ import { parsePipelineConfigParts } from "../src/config.ts";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
+  runLaunchPlan,
   spawnAgent,
 } from "../src/runner.ts";
 
@@ -28,6 +29,17 @@ function parseTestConfig(parts: {
   runners: string;
 }) {
   return parsePipelineConfigParts(parts);
+}
+
+function requiredEnv(
+  env: Record<string, string | undefined>,
+  key: string
+): string {
+  const value = env[key];
+  if (!value) {
+    throw new Error(`Expected ${key} to be set`);
+  }
+  return value;
 }
 
 describe("spawnAgent — codex harness", () => {
@@ -264,8 +276,7 @@ workflows:
     ).toThrow("does not support output format");
   });
 
-  it("hydrates tools, skills, and MCP servers into native runner launch plans", async () => {
-    const { readFileSync } = await import("node:fs");
+  it("hydrates tools, skills, and MCP servers into native runner launch plans", () => {
     const config = parseTestConfig({
       runners: `
 version: 1
@@ -349,11 +360,26 @@ workflows:
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });
-    expect(opencode.env.OPENCODE_CONFIG).toBeTruthy();
-    const opencodeConfig = readFileSync(opencode.env.OPENCODE_CONFIG, "utf8");
-    expect(opencodeConfig).toContain('"docs"');
-    expect(opencodeConfig).toContain('"environment"');
-    expect(JSON.parse(opencodeConfig).mcp.unused).toEqual({ enabled: false });
+    expect(opencode.env.OPENCODE_CONFIG).toBeUndefined();
+    expect(opencode.env.OPENCODE_CONFIG_DIR).toBeUndefined();
+    expect(opencode.env.OPENCODE_AUTH_CONTENT).toBeUndefined();
+    expect(opencode.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
+    expect(opencode.env.OPENCODE_CONFIG_CONTENT).toBeTruthy();
+    expect(opencode.env.OPENCODE_TEST_HOME).toBeTruthy();
+    expect(opencode.env.XDG_CONFIG_HOME).toBeTruthy();
+    expect(opencode.env.XDG_DATA_HOME).toBeTruthy();
+    expect(opencode.env.XDG_STATE_HOME).toBeTruthy();
+    expect(opencode.env.XDG_CACHE_HOME).toBeTruthy();
+    const opencodeConfig = JSON.parse(
+      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
+    );
+    expect(opencodeConfig.mcp.docs).toEqual({
+      command: ["node", "docs.js"],
+      enabled: true,
+      environment: { DOCS_TOKEN: "test-token" },
+      type: "local",
+    });
+    expect(opencodeConfig.mcp.unused).toBeUndefined();
 
     const orchestrator = createOrchestratorLaunchPlan(config, {
       nodeId: "orchestrator",
@@ -372,9 +398,7 @@ workflows:
   });
 
   it("hydrates imported mcp-json servers into native runner launch plans", async () => {
-    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import(
-      "node:fs"
-    );
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const project = mkdtempSync(join(tmpdir(), "pipeline-runner-mcp-"));
@@ -463,7 +487,7 @@ workflows:
         worktreePath: project,
       });
       const opencodeConfig = JSON.parse(
-        readFileSync(opencode.env.OPENCODE_CONFIG, "utf8")
+        requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
       );
       expect(opencodeConfig.mcp.serena).toEqual({
         command: ["uvx", "--from", "git+https://github.com/oraios/serena"],
@@ -475,8 +499,7 @@ workflows:
     }
   });
 
-  it("renders remote HTTP MCP servers for each native runner", async () => {
-    const { readFileSync } = await import("node:fs");
+  it("renders remote HTTP MCP servers for each native runner", () => {
     const config = parseTestConfig({
       runners: `
 version: 1
@@ -548,7 +571,7 @@ workflows:
       worktreePath: "/tmp/wt",
     });
     const opencodeConfig = JSON.parse(
-      readFileSync(opencode.env.OPENCODE_CONFIG, "utf8")
+      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
     );
     expect(opencodeConfig.mcp.memory).toEqual({
       enabled: true,
@@ -560,6 +583,168 @@ workflows:
       Authorization: "Bearer {env:MEMORY_MCP_TOKEN}",
     });
     expect(opencodeConfig.mcp["secure-memory"].command).toBeUndefined();
+  });
+
+  it("isolates opencode launch config even when the profile has no MCP grants", () => {
+    const config = parseTestConfig({
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+mcp_servers:
+  unused:
+    command: node
+    args: ["unused.js"]
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  no-mcp-agent:
+    runner: opencode
+    instructions: { inline: OpenCode }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: no-mcp-agent }
+`,
+    });
+
+    const opencode = createRunnerLaunchPlan(config, {
+      profileId: "no-mcp-agent",
+      nodeId: "opencode-no-mcp",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const opencodeConfig = JSON.parse(
+      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
+    );
+
+    expect(opencode.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
+    expect(opencode.env.OPENCODE_CONFIG).toBeUndefined();
+    expect(opencode.env.OPENCODE_CONFIG_CONTENT).toBeTruthy();
+    expect(opencodeConfig.mcp).toEqual({});
+  });
+
+  it("cleans opencode runtime directories after launch plan execution", async () => {
+    const { existsSync } = await import("node:fs");
+    mockExeca.mockReturnValueOnce(makeSimpleResult("opencode output", 0));
+    const config = parseTestConfig({
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  no-mcp-agent:
+    runner: opencode
+    instructions: { inline: OpenCode }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: no-mcp-agent }
+`,
+    });
+    const plan = createRunnerLaunchPlan(config, {
+      profileId: "no-mcp-agent",
+      nodeId: "opencode-cleanup",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const runtimeDir = requiredEnv(plan.env, "PIPELINE_OPENCODE_RUNTIME_DIR");
+    expect(runtimeDir).toBeTruthy();
+    expect(existsSync(runtimeDir)).toBe(true);
+
+    await runLaunchPlan(plan);
+
+    expect(existsSync(runtimeDir)).toBe(false);
+  });
+
+  it("cleans opencode runtime directories when launch plan execution fails", async () => {
+    const { existsSync } = await import("node:fs");
+    mockExeca.mockRejectedValueOnce({
+      exitCode: 2,
+      stderr: "opencode failed",
+      stdout: "",
+    });
+    const config = parseTestConfig({
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  no-mcp-agent:
+    runner: opencode
+    instructions: { inline: OpenCode }
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: no-mcp-agent }
+`,
+    });
+    const plan = createRunnerLaunchPlan(config, {
+      profileId: "no-mcp-agent",
+      nodeId: "opencode-cleanup-fail",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const runtimeDir = requiredEnv(plan.env, "PIPELINE_OPENCODE_RUNTIME_DIR");
+    expect(existsSync(runtimeDir)).toBe(true);
+
+    const result = await runLaunchPlan(plan);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("opencode failed");
+    expect(existsSync(runtimeDir)).toBe(false);
   });
 
   it("falls back from actor model to runner model for launch plans", () => {

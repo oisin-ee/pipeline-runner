@@ -19,21 +19,27 @@ Reference: https://developers.openai.com/codex/config-basic
 
 ## OpenCode
 
-OpenCode configuration is merged from multiple layers. Pipeline-managed
-OpenCode launches provide a temporary config file through `OPENCODE_CONFIG`
-containing the selected profile MCP servers. The generated config also writes
-`enabled: false` entries for MCP server ids declared by this pipeline config
-but not selected by the current profile.
+OpenCode configuration is merged from multiple layers, so `OPENCODE_CONFIG`
+alone is not an isolation boundary. Pipeline-managed OpenCode launches create
+an isolated temporary runtime root, set `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
+`XDG_STATE_HOME`, `XDG_CACHE_HOME`, and `OPENCODE_TEST_HOME` inside it, disable
+project config with `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and pass the selected
+profile MCP servers through `OPENCODE_CONFIG_CONTENT`.
 
-This prevents leakage from pipeline-known MCP ids. OpenCode does not currently
-offer a documented `run` flag equivalent to Codex `--ignore-user-config`, so
-arbitrary global or managed MCP servers outside the pipeline's declared ids may
-still be present unless the operator isolates OpenCode's config home or the
-host adds stronger isolation support.
+The generated inline config contains only the profile-selected MCP server ids.
+Unselected pipeline MCP ids are omitted rather than rendered as disabled
+entries, because enabled MCP servers can be started during OpenCode MCP service
+initialization before per-message tool filtering.
+
+Strict isolation means pipeline-managed OpenCode launches do not read the
+user's normal OpenCode account or MCP auth files. Provider credentials should be
+available through provider environment variables. Admin-managed OpenCode config
+outside the user/project config layers may still require container isolation or
+upstream host support.
 
 References:
-- https://dev.opencode.ai/docs/config/
-- https://thdxr.dev.opencode.ai/docs/mcp-servers/
+- https://opencode.ai/docs/config/
+- https://dev.opencode.ai/docs/mcp-servers/
 
 For the shared remote/gateway deployment model that avoids starting duplicate
 upstream MCP processes per agent, see [`mcp-gateway.md`](mcp-gateway.md).

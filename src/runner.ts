@@ -1,4 +1,10 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -45,7 +51,7 @@ export interface RunnerLaunchPlan {
   args: string[];
   command: string;
   cwd: string;
-  env: Record<string, string>;
+  env: Record<string, string | undefined>;
   nodeId: string;
   outputFormat: string;
   profileId?: string;
@@ -436,19 +442,20 @@ export async function runLaunchPlan(
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions = {}
 ): Promise<AgentResult> {
+  let result: AgentResult;
   try {
-    const result = await execa(plan.command, plan.args, {
+    const subprocess = await execa(plan.command, plan.args, {
       cancelSignal: options.signal,
       cwd: plan.cwd,
       env: plan.env,
       stdin: "ignore",
       timeout: plan.timeoutMs,
     });
-    return {
+    result = {
       argv: plan.args,
-      exitCode: result.exitCode ?? 0,
-      stderr: result.stderr ?? "",
-      stdout: result.stdout ?? "",
+      exitCode: subprocess.exitCode ?? 0,
+      stderr: subprocess.stderr ?? "",
+      stdout: subprocess.stdout ?? "",
     };
   } catch (err) {
     const e = err as {
@@ -457,13 +464,36 @@ export async function runLaunchPlan(
       stdout?: string;
       timedOut?: boolean;
     };
-    return {
+    result = {
       argv: plan.args,
       exitCode: e.exitCode ?? 1,
       stderr: e.stderr ?? "",
       stdout: e.stdout ?? "",
       timedOut: Boolean(e.timedOut),
     };
+  }
+  const cleanupError = cleanupOpencodeRuntimeDir(plan);
+  if (!cleanupError) {
+    return result;
+  }
+  return {
+    ...result,
+    stderr: [result.stderr, cleanupError].filter(Boolean).join("\n"),
+  };
+}
+
+function cleanupOpencodeRuntimeDir(plan: RunnerLaunchPlan): string | undefined {
+  const runtimeDir = plan.env.PIPELINE_OPENCODE_RUNTIME_DIR;
+  if (!runtimeDir || process.env.PIPELINE_KEEP_OPENCODE_RUNTIME_DIR === "1") {
+    return;
+  }
+  try {
+    rmSync(runtimeDir, { force: true, recursive: true });
+    return;
+  } catch (err) {
+    return `Failed to remove OpenCode runtime dir ${runtimeDir}: ${
+      err instanceof Error ? err.message : String(err)
+    }`;
   }
 }
 

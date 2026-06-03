@@ -423,6 +423,88 @@ describe("installed dogfood configuration", () => {
       tools: ["bash"],
     });
   });
+
+  it("loads an opencode profile with strict isolated MCP launch config", () => {
+    const project = tempProject();
+    writeProjectFile(
+      project,
+      ".pipeline/runners.yaml",
+      `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      tools: [read]
+      output_formats: [text]
+`
+    );
+    writeProjectFile(
+      project,
+      ".pipeline/profiles.yaml",
+      `
+version: 1
+mcp_servers:
+  selected:
+    command: node
+    args: [selected.js]
+  unused:
+    command: node
+    args: [unused.js]
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate. }
+  opencode-agent:
+    runner: opencode
+    instructions: { inline: Use selected MCP only. }
+    mcp_servers: [selected]
+`
+    );
+    writeProjectFile(
+      project,
+      ".pipeline/pipeline.yaml",
+      `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: inspect
+        kind: agent
+        profile: opencode-agent
+`
+    );
+
+    const config = loadPipelineConfig(project);
+    const launch = createRunnerLaunchPlan(config, {
+      nodeId: "inspect",
+      profileId: "opencode-agent",
+      prompt: "verify configured grants",
+      worktreePath: project,
+    });
+    const opencodeConfigContent = launch.env.OPENCODE_CONFIG_CONTENT;
+    if (!opencodeConfigContent) {
+      throw new Error("Expected OPENCODE_CONFIG_CONTENT to be set");
+    }
+    const opencodeConfig = JSON.parse(opencodeConfigContent);
+
+    expect(launch.env.OPENCODE_CONFIG).toBeUndefined();
+    expect(launch.env.OPENCODE_CONFIG_DIR).toBeUndefined();
+    expect(launch.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
+    expect(launch.env.XDG_CONFIG_HOME).toContain("pipeline-opencode-runtime-");
+    expect(opencodeConfig.mcp.selected).toEqual({
+      command: ["node", "selected.js"],
+      enabled: true,
+      type: "local",
+    });
+    expect(opencodeConfig.mcp.unused).toBeUndefined();
+  });
 });
 
 function workflowProfileIds(config: ReturnType<typeof loadPipelineConfig>) {
