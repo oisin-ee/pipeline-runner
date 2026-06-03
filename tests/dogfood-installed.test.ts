@@ -283,9 +283,28 @@ describe("installed dogfood configuration", () => {
         continue;
       }
 
-      const content = readFileSync(
-        join(root, `.codex/agents/${profileId}.toml`),
+      const pluginAgentContent = readFileSync(
+        join(root, `.agents/plugins/oisin-pipeline/agents/${profileId}.md`),
         "utf8"
+      );
+      const projectCodexConfig = readFileSync(
+        join(root, ".codex/config.toml"),
+        "utf8"
+      );
+      expect(pluginAgentContent).toContain(`name: ${profileId}`);
+      expect(pluginAgentContent).toContain("Configured grants:");
+      expect(pluginAgentContent).toContain(
+        `filesystem: ${profile.filesystem?.mode}`
+      );
+      expect(pluginAgentContent).toContain(`output: ${profile.output?.format}`);
+      if (profile.output?.schema_path) {
+        expect(pluginAgentContent).toContain(
+          `output_schema_path: ${profile.output.schema_path}`
+        );
+      }
+      expect(projectCodexConfig).toContain(`[agents.${profileId}]`);
+      expect(projectCodexConfig).toContain(
+        `path = ".agents/plugins/oisin-pipeline/agents/${profileId}.md"`
       );
       for (const skillId of profile.skills ?? []) {
         const skill = config.skills[skillId];
@@ -293,18 +312,19 @@ describe("installed dogfood configuration", () => {
         const skillPath = join(root, skill.path);
         const installedSkillPath = skill.path.replaceAll("\\", "/");
         if (existsSync(skillPath)) {
-          expect(content, `${profileId} loads skill ${skillId}`).toContain(
-            `path = "${installedSkillPath}"`
-          );
           expect(
-            content,
-            `${profileId} uses project-relative skill paths`
-          ).not.toContain(`path = "${skillPath}"`);
+            pluginAgentContent,
+            `${profileId} names skill ${skillId}`
+          ).toContain(`skills: ${(profile.skills ?? []).join(", ")}`);
+          expect(
+            pluginAgentContent,
+            `${profileId} uses project-relative skill context`
+          ).not.toContain(skillPath);
         } else {
           expect(
-            content,
+            pluginAgentContent,
             `${profileId} skips missing lint-only skill ${skillId}`
-          ).not.toContain(`path = "${installedSkillPath}"`);
+          ).not.toContain(installedSkillPath);
         }
       }
       for (const mcpId of profile.mcp_servers ?? []) {
@@ -312,8 +332,8 @@ describe("installed dogfood configuration", () => {
           config.mcp_servers[mcpId],
           `${profileId} MCP ${mcpId}`
         ).toBeTruthy();
-        expect(content, `${profileId} loads MCP ${mcpId}`).toContain(
-          `[mcp_servers.${mcpId}]`
+        expect(pluginAgentContent, `${profileId} names MCP ${mcpId}`).toContain(
+          `mcp_servers: ${(profile.mcp_servers ?? []).join(", ")}`
         );
       }
 
@@ -469,7 +489,7 @@ function nativeAgentPathFor(
     return `.opencode/agents/${profileId}.md`;
   }
   if (runner === "codex") {
-    return `.codex/agents/${profileId}.toml`;
+    return `.agents/plugins/oisin-pipeline/agents/${profileId}.md`;
   }
   if (runner === "kimi") {
     return `.kimi/agents/${profileId}.yaml`;

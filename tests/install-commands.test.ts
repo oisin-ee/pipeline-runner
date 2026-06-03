@@ -130,15 +130,16 @@ describe("installCommands", () => {
       ".agents/skills/pipe/SKILL.md",
       ".agents/skills/inspect/SKILL.md",
       ".agents/skills/epic/SKILL.md",
-      ".codex/agents/pipeline-acceptance-reviewer.toml",
-      ".codex/agents/pipeline-code-writer.toml",
-      ".codex/agents/pipeline-epic-router.toml",
-      ".codex/agents/pipeline-inspector.toml",
-      ".codex/agents/pipeline-learner.toml",
-      ".codex/agents/pipeline-researcher.toml",
-      ".codex/agents/pipeline-test-writer.toml",
-      ".codex/agents/pipeline-thermo-nuclear-reviewer.toml",
-      ".codex/agents/pipeline-verifier.toml",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-acceptance-reviewer.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-code-writer.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-epic-router.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-inspector.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-learner.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-researcher.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-test-writer.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-thermo-nuclear-reviewer.md",
+      ".agents/plugins/oisin-pipeline/agents/pipeline-verifier.md",
+      ".codex/config.toml",
       ".kimi/commands/pipe.md",
       ".kimi/commands/inspect.md",
       ".kimi/commands/epic.md",
@@ -289,8 +290,12 @@ describe("installCommands", () => {
   it("generates discoverable agent configuration for each agent host", async () => {
     await installCommands({ cwd: dir, host: "all" });
 
-    const codexResearcher = readFileSync(
-      join(dir, ".codex/agents/pipeline-researcher.toml"),
+    const codexPluginResearcher = readFileSync(
+      join(dir, ".agents/plugins/oisin-pipeline/agents/pipeline-researcher.md"),
+      "utf8"
+    );
+    const codexProjectConfig = readFileSync(
+      join(dir, ".codex/config.toml"),
       "utf8"
     );
     expect(
@@ -299,24 +304,28 @@ describe("installCommands", () => {
         "utf8"
       )
     ).toContain("mode: primary");
-    expect(codexResearcher).toContain('name = "pipeline-researcher"');
-    expect(codexResearcher).toContain('model = "gpt-5.5"');
-    expect(codexResearcher).toContain("[[skills.config]]");
-    expect(codexResearcher).toContain(
-      'path = ".agents/skills/research/SKILL.md"'
+    expect(codexPluginResearcher).toContain("name: pipeline-researcher");
+    expect(codexPluginResearcher).toContain(
+      "You are the configured Pipeline profile `pipeline-researcher`."
     );
-    expect(codexResearcher).toContain("[mcp_servers.serena]");
-    expect(codexResearcher).toContain('command = "uvx"');
-    expect(codexResearcher).toContain(
-      'args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-serena" ]'
+    expect(codexPluginResearcher).toContain("mcp_servers: serena, context7");
+    expect(codexPluginResearcher).toContain("filesystem: read-only");
+    expect(codexPluginResearcher).toContain("output: json_schema");
+    expect(codexPluginResearcher).toContain(
+      "output_schema_path: .pipeline/schemas/research.schema.json"
     );
-    expect(codexResearcher).toContain("[mcp_servers.context7]");
-    expect(codexResearcher).toContain(
-      'args = [ "--python", "3.12", "mcpm", "run", "oisin-pipeline-context7" ]'
+    expect(codexPluginResearcher).toContain("Profile instructions:");
+    expect(codexProjectConfig).toContain(
+      "# @oisincoveney/pipeline:codex-agents:start"
     );
-    expect(
-      readFileSync(join(dir, ".codex/agents/pipeline-code-writer.toml"), "utf8")
-    ).toContain("[mcp_servers.semgrep]");
+    expect(codexProjectConfig).toContain("[agents.pipeline-researcher]");
+    expect(codexProjectConfig).toContain(
+      'description = "Research the requested task and produce structured findings."'
+    );
+    expect(codexProjectConfig).toContain('model = "gpt-5.5"');
+    expect(codexProjectConfig).toContain(
+      'path = ".agents/plugins/oisin-pipeline/agents/pipeline-researcher.md"'
+    );
     expect(existsSync(join(dir, ".claude/agents/pipeline-researcher.md"))).toBe(
       false
     );
@@ -342,9 +351,53 @@ describe("installCommands", () => {
     expect(existsSync(join(dir, ".agents/skills/pipe/SKILL.md"))).toBe(true);
     expect(existsSync(join(dir, ".agents/skills/inspect/SKILL.md"))).toBe(true);
     expect(
-      existsSync(join(dir, ".codex/agents/pipeline-researcher.toml"))
+      existsSync(
+        join(
+          dir,
+          ".agents/plugins/oisin-pipeline/agents/pipeline-researcher.md"
+        )
+      )
     ).toBe(true);
-    expect(existsSync(join(dir, ".codex/agents/pipeline-inspector.toml"))).toBe(
+    expect(existsSync(join(dir, ".codex/config.toml"))).toBe(true);
+    expect(
+      existsSync(
+        join(dir, ".agents/plugins/oisin-pipeline/agents/pipeline-inspector.md")
+      )
+    ).toBe(true);
+  });
+
+  it("preserves existing Codex project config while registering native agents", async () => {
+    mkdirSync(join(dir, ".codex"), { recursive: true });
+    writeFileSync(
+      join(dir, ".codex/config.toml"),
+      [
+        "[mcp_servers.existing]",
+        'command = "existing-mcp"',
+        "",
+        "[features]",
+        "hooks = true",
+        "",
+      ].join("\n")
+    );
+
+    await installCommands({ cwd: dir, host: "codex" });
+
+    const content = readFileSync(join(dir, ".codex/config.toml"), "utf8");
+    expect(content).toContain("[mcp_servers.existing]");
+    expect(content).toContain('command = "existing-mcp"');
+    expect(content).toContain("[features]");
+    expect(content).toContain("hooks = true");
+    expect(content).toContain("[agents.pipeline-researcher]");
+    expect(content).toContain(
+      'path = ".agents/plugins/oisin-pipeline/agents/pipeline-researcher.md"'
+    );
+
+    const checked = await installCommands({
+      check: true,
+      cwd: dir,
+      host: "codex",
+    });
+    expect(checked.items.every((item) => item.action === "unchanged")).toBe(
       true
     );
   });
@@ -467,9 +520,7 @@ describe("installCommands", () => {
       );
       expect(existsSync(join(dir, path))).toBe(false);
     }
-    expect(existsSync(join(dir, ".codex/agents/pipeline-inspector.toml"))).toBe(
-      true
-    );
+    expect(existsSync(join(dir, ".codex/config.toml"))).toBe(true);
     expect(
       existsSync(join(dir, ".opencode/agents/pipeline-inspector.md"))
     ).toBe(true);
@@ -556,7 +607,12 @@ describe("installCommands", () => {
     await installCommands({ cwd: dir, host: "codex" });
 
     expect(
-      existsSync(join(dir, ".codex/agents/pipeline-researcher.toml"))
+      existsSync(
+        join(
+          dir,
+          ".agents/plugins/oisin-pipeline/agents/pipeline-researcher.md"
+        )
+      )
     ).toBe(false);
     expect(
       readFileSync(join(dir, ".agents/skills/pipe/SKILL.md"), "utf8")
@@ -832,7 +888,13 @@ profiles:
       })
     );
     expect(
-      readFileSync(join(dir, ".codex/agents/pipeline-researcher.toml"), "utf8")
+      readFileSync(
+        join(
+          dir,
+          ".agents/plugins/oisin-pipeline/agents/pipeline-researcher.md"
+        ),
+        "utf8"
+      )
     ).not.toContain(".agents/skills/missing-lint-skill/SKILL.md");
   });
 

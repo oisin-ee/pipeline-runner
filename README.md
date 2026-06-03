@@ -300,7 +300,7 @@ The installer creates one command surface per configured entrypoint.
 | Host        | Generated files                                                   | Invocation                         |
 | ----------- | ----------------------------------------------------------------- | ---------------------------------- |
 | Claude Code | `.claude/commands/<entrypoint>.md`, `.claude/agents/*.md`         | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
-| Codex       | `.agents/skills/<entrypoint>/SKILL.md`, `.codex/agents/*.toml`    | `$pipe <task>`, `$inspect <task>`, `$epic <task>` |
+| Codex       | `.agents/skills/<entrypoint>/SKILL.md`, `.agents/plugins/oisin-pipeline/agents/*.md`, `.codex/config.toml` | `$pipe <task>`, `$inspect <task>`, `$epic <task>` |
 | OpenCode    | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`     | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
 | Kimi        | `.kimi/commands/<entrypoint>.md`, `.kimi/agents/*.yaml`           | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
 | Pi          | `.pi/prompts/<entrypoint>.md`                                     | `/pipe <task>`, `/inspect <task>`, `/epic <task>` |
