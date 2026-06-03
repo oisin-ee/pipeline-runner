@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
+import { z } from "zod";
 import {
   loadPipelineConfig,
   PIPELINE_CONFIG_PATH,
@@ -618,183 +619,89 @@ profiles:
         max_attempts: 1
 `;
 
-const RESEARCH_SCHEMA = JSON.stringify(
-  {
-    additionalProperties: false,
-    properties: {
-      ac: { items: { type: "string" }, type: "array" },
-      files: { items: { type: "string" }, type: "array" },
-      findings: { items: { type: "string" }, type: "array" },
-      risks: { items: { type: "string" }, type: "array" },
-      target: { type: "string" },
-    },
-    required: ["findings", "ac"],
-    type: "object",
-  },
-  null,
-  2
+const VERDICT_SCHEMA = z.enum(["PASS", "FAIL"]);
+const STRING_ARRAY_SCHEMA = z.array(z.string());
+const EPIC_TRACK_ITEM_SCHEMA = z.object({
+  id: z.string(),
+  rationale: z.string().optional(),
+  title: z.string().optional(),
+});
+
+function zodJsonSchema(schema: z.ZodType): string {
+  return JSON.stringify(
+    z.toJSONSchema(schema, { target: "draft-07" }),
+    null,
+    2
+  );
+}
+
+const RESEARCH_SCHEMA = zodJsonSchema(
+  z.object({
+    ac: STRING_ARRAY_SCHEMA,
+    files: STRING_ARRAY_SCHEMA.optional(),
+    findings: STRING_ARRAY_SCHEMA,
+    risks: STRING_ARRAY_SCHEMA.optional(),
+    target: z.string().optional(),
+  })
 );
 
-const VERIFY_SCHEMA = JSON.stringify(
-  {
-    additionalProperties: false,
-    properties: {
-      evidence: { items: { type: "string" }, type: "array" },
-      verdict: { enum: ["PASS", "FAIL"], type: "string" },
-      violations: { items: { type: "string" }, type: "array" },
-    },
-    required: ["verdict", "evidence"],
-    type: "object",
-  },
-  null,
-  2
+const VERIFY_SCHEMA = zodJsonSchema(
+  z.object({
+    evidence: STRING_ARRAY_SCHEMA,
+    verdict: VERDICT_SCHEMA,
+    violations: STRING_ARRAY_SCHEMA.optional(),
+  })
 );
 
-const LEARN_SCHEMA = JSON.stringify(
-  {
-    additionalProperties: false,
-    properties: {
-      evidence: { items: { type: "string" }, type: "array" },
-      qdrant: {
-        additionalProperties: false,
-        properties: {
-          attempted: { type: "boolean" },
-          succeeded: { type: "boolean" },
-        },
-        required: ["attempted", "succeeded"],
-        type: "object",
-      },
-    },
-    required: ["qdrant", "evidence"],
-    type: "object",
-  },
-  null,
-  2
+const LEARN_SCHEMA = zodJsonSchema(
+  z.object({
+    evidence: STRING_ARRAY_SCHEMA,
+    qdrant: z.object({
+      attempted: z.boolean(),
+      succeeded: z.boolean(),
+    }),
+  })
 );
 
-const ACCEPTANCE_SCHEMA = JSON.stringify(
-  {
-    additionalProperties: false,
-    properties: {
-      acceptance: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            evidence: { items: { type: "string" }, type: "array" },
-            id: { type: "string" },
-            verdict: { enum: ["PASS", "FAIL"], type: "string" },
-          },
-          required: ["id", "verdict", "evidence"],
-          type: "object",
-        },
-        type: "array",
-      },
-      evidence: { items: { type: "string" }, type: "array" },
-      verdict: { enum: ["PASS", "FAIL"], type: "string" },
-      violations: { items: { type: "string" }, type: "array" },
-    },
-    required: ["verdict", "evidence", "acceptance"],
-    type: "object",
-  },
-  null,
-  2
+const ACCEPTANCE_SCHEMA = zodJsonSchema(
+  z.object({
+    acceptance: z.array(
+      z.object({
+        evidence: STRING_ARRAY_SCHEMA,
+        id: z.string(),
+        verdict: VERDICT_SCHEMA,
+      })
+    ),
+    evidence: STRING_ARRAY_SCHEMA,
+    verdict: VERDICT_SCHEMA,
+    violations: STRING_ARRAY_SCHEMA.optional(),
+  })
 );
 
-const EPIC_PLAN_SCHEMA = JSON.stringify(
-  {
-    additionalProperties: false,
-    properties: {
-      backend: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            id: { type: "string" },
-            rationale: { type: "string" },
-            title: { type: "string" },
-          },
-          required: ["id"],
-          type: "object",
-        },
-        type: "array",
-      },
-      frontend: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            id: { type: "string" },
-            rationale: { type: "string" },
-            title: { type: "string" },
-          },
-          required: ["id"],
-          type: "object",
-        },
-        type: "array",
-      },
-      k8s: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            id: { type: "string" },
-            rationale: { type: "string" },
-            title: { type: "string" },
-          },
-          required: ["id"],
-          type: "object",
-        },
-        type: "array",
-      },
-      rationale: { type: "string" },
-      test: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            id: { type: "string" },
-            rationale: { type: "string" },
-            title: { type: "string" },
-          },
-          required: ["id"],
-          type: "object",
-        },
-        type: "array",
-      },
-    },
-    required: ["test", "frontend", "backend", "k8s"],
-    type: "object",
-  },
-  null,
-  2
+const EPIC_PLAN_SCHEMA = zodJsonSchema(
+  z.object({
+    backend: z.array(EPIC_TRACK_ITEM_SCHEMA),
+    frontend: z.array(EPIC_TRACK_ITEM_SCHEMA),
+    k8s: z.array(EPIC_TRACK_ITEM_SCHEMA),
+    rationale: z.string().optional(),
+    test: z.array(EPIC_TRACK_ITEM_SCHEMA),
+  })
 );
 
-const REVIEW_SCHEMA = JSON.stringify(
-  {
-    additionalProperties: false,
-    properties: {
-      findings: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            file: { type: "string" },
-            line: { minimum: 1, type: "integer" },
-            message: { type: "string" },
-            rule: { type: "string" },
-            severity: {
-              enum: ["info", "warn", "error", "critical"],
-              type: "string",
-            },
-          },
-          required: ["severity", "message"],
-          type: "object",
-        },
-        type: "array",
-      },
-      summary: { type: "string" },
-      verdict: { enum: ["PASS", "FAIL"], type: "string" },
-    },
-    required: ["verdict", "findings"],
-    type: "object",
-  },
-  null,
-  2
+const REVIEW_SCHEMA = zodJsonSchema(
+  z.object({
+    findings: z.array(
+      z.object({
+        file: z.string().optional(),
+        line: z.number().int().min(1).optional(),
+        message: z.string(),
+        rule: z.string().optional(),
+        severity: z.enum(["info", "warn", "error", "critical"]),
+      })
+    ),
+    summary: z.string().optional(),
+    verdict: VERDICT_SCHEMA,
+  })
 );
 
 const SCAFFOLD_FILES: Record<string, string> = {

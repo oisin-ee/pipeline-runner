@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { resolveCommand } from "package-manager-detector/commands";
 import { detect } from "package-manager-detector/detect";
+import { parseJson } from "./safe-json.js";
 
 export interface TestResult {
   exitCode: number;
@@ -35,8 +36,9 @@ interface ProjectCommand {
 
 function readPackageScripts(worktreePath: string): Record<string, string> {
   try {
-    const pkg = JSON.parse(
-      readFileSync(join(worktreePath, "package.json"), "utf-8")
+    const pkg = parseJson(
+      readFileSync(join(worktreePath, "package.json"), "utf-8"),
+      "package.json"
     ) as {
       scripts?: Record<string, string>;
     };
@@ -200,7 +202,9 @@ const JSCPD_DEFAULT_IGNORES = [
 
 function parseJscpdOutput(output: string): { violations: GateViolation[] } {
   try {
-    const data = JSON.parse(output) as { duplicates?: JscpdDuplicate[] };
+    const data = parseJson(output, "jscpd output") as {
+      duplicates?: JscpdDuplicate[];
+    };
     const violations: GateViolation[] = (data?.duplicates ?? []).map((dup) => ({
       file: dup?.firstFile?.name ?? "unknown",
       line: dup?.firstFile?.start,

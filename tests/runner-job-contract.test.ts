@@ -9,6 +9,7 @@ const UNSUPPORTED_SELECTOR_RE =
 const INVALID_EVENT_SINK_URL_RE = /eventSink\.url.*valid URL/i;
 const AUTH_TOKEN_ENV_RE =
   /OISIN_PIPELINE_EVENT_AUTH_TOKEN|PIPELINE_EVENT_API_TOKEN/i;
+const PROTOTYPE_POLLUTION_RE = /proto/i;
 
 function validPayload(): Record<string, unknown> {
   return {
@@ -105,6 +106,15 @@ describe("runner-job payload contract", () => {
 
     expect(() => parseRunnerJobPayload(JSON.stringify(payload))).toThrow(
       UNSUPPORTED_SELECTOR_RE
+    );
+  });
+
+  it("rejects prototype-polluting runner payload JSON", async () => {
+    const { parseRunnerJobPayload } = await loadContractModule();
+    const payload = `{"__proto__":{"polluted":true},"eventSink":{"authHeader":"Authorization","url":"${EVENT_SINK_URL}"},"run":{"projectId":"project_123","requestedBy":"user_456","runId":"run_123"},"selector":{"workflowId":"default"},"task":{"prompt":"Ship PIPE-38","taskId":"PIPE-38"}}`;
+
+    expect(() => parseRunnerJobPayload(payload)).toThrow(
+      PROTOTYPE_POLLUTION_RE
     );
   });
 

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { execa } from "execa";
 import { z } from "zod";
+import { parseJson } from "../safe-json.js";
 
 export interface PipelineMcpInstallSpec {
   args?: string[];
@@ -198,7 +199,10 @@ export interface DefaultInstallManifest {
 }
 
 function loadDefaultInstallManifest(): DefaultInstallManifest {
-  const raw = JSON.parse(readFileSync(DEFAULT_INSTALL_MANIFEST_URL, "utf8"));
+  const raw = parseJson(
+    readFileSync(DEFAULT_INSTALL_MANIFEST_URL, "utf8"),
+    "defaults/install-manifest.json"
+  );
   const parsed = defaultInstallManifestSchema.safeParse(raw);
   if (!parsed.success) {
     throw new PipelineDefaultManifestError(

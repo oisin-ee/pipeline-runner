@@ -1,3 +1,4 @@
+import ky, { isHTTPError } from "ky";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
 import {
   mapRuntimeEventToRunnerEventRecords as mapRuntimeEventRecords,
@@ -35,7 +36,9 @@ export interface RunnerEventSink {
 const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_MAX_RETRIES = 0;
 const DEFAULT_RETRY_DELAY_MS = 250;
-const AUTH_FAILURE_RE = /Event sink responded with (401|403)/i;
+const RETRYABLE_STATUS_CODES = [
+  408, 429, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511,
+];
 
 class EventSinkHttpError extends Error {
   readonly status: number;
@@ -128,73 +131,48 @@ async function postBatch(
     0,
     options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
   );
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    const result = await postBatchAttempt(options, fetchImpl, events);
-    if (result === null) {
-      return;
-    }
-    if (shouldStopRetrying(result, attempt, maxRetries)) {
-      throw result;
-    }
-    lastError = result;
-
-    if (retryDelayMs > 0) {
-      await sleep(retryDelayMs);
-    }
-  }
-
-  throw lastError ?? new Error("Event sink flush failed");
-}
-
-async function postBatchAttempt(
-  options: RunnerEventSinkOptions,
-  fetchImpl: FetchLike,
-  events: RunnerEventRecord[]
-): Promise<Error | null> {
   try {
-    const response = await fetchImpl(options.url, {
-      method: "POST",
+    await ky.post(options.url, {
+      fetch: kyFetchAdapter(fetchImpl),
       headers: {
         [options.authHeader ?? "Authorization"]: `Bearer ${options.authToken}`,
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify({ events }),
+      json: { events },
+      retry: {
+        delay: () => retryDelayMs,
+        limit: maxRetries,
+        methods: ["post"],
+        retryOnTimeout: true,
+        statusCodes: RETRYABLE_STATUS_CODES,
+      },
     });
-
-    if (response.ok) {
-      return null;
-    }
-
-    const message = await response.text();
-    return new EventSinkHttpError(
-      response.status,
-      `Event sink responded with ${response.status}${message ? `: ${message}` : ""}`
-    );
   } catch (err) {
-    return err instanceof Error ? err : new Error(String(err));
+    if (isHTTPError(err)) {
+      let data = "";
+      if (typeof err.data === "string") {
+        data = err.data;
+      } else if (err.data !== undefined) {
+        data = JSON.stringify(err.data);
+      }
+      throw new EventSinkHttpError(
+        err.response.status,
+        `Event sink responded with ${err.response.status}${data ? `: ${data}` : ""}`
+      );
+    }
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
-function shouldStopRetrying(
-  error: Error,
-  attempt: number,
-  maxRetries: number
-): boolean {
-  return (
-    AUTH_FAILURE_RE.test(error.message) ||
-    (error instanceof EventSinkHttpError && !isRetryableStatus(error.status)) ||
-    attempt === maxRetries
-  );
-}
-
-function isRetryableStatus(status: number): boolean {
-  return status === 408 || status === 429 || status >= 500;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function kyFetchAdapter(fetchImpl: FetchLike): typeof fetch {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    return fetchImpl(request.url, {
+      body: await request.clone().text(),
+      headers: request.headers,
+      method: request.method,
+      signal: request.signal,
+    });
+  };
 }
 
 function timestamp(now: RunnerEventSinkOptions["now"]): string {

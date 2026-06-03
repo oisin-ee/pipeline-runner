@@ -942,6 +942,11 @@ workflows:
         kind: agent
         profile: structured
 `);
+    config.profiles.structured.output = {
+      format: "json_schema",
+      repair: { enabled: false },
+      schema_path: "schema.json",
+    };
 
     const result = await runPipelineFromConfig({
       config,
@@ -956,6 +961,47 @@ workflows:
       kind: "json_schema",
       passed: false,
     });
+  });
+
+  it("applies JSON schema format validators to structured output", async () => {
+    const project = tempProject();
+    writeProjectFile(
+      project,
+      "schema.json",
+      JSON.stringify({
+        additionalProperties: false,
+        properties: { id: { format: "uuid", type: "string" } },
+        required: ["id"],
+        type: "object",
+      })
+    );
+    const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+    config.profiles.structured.output = {
+      format: "json_schema",
+      repair: { enabled: false },
+      schema_path: "schema.json",
+    };
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ structured: '{"id":"not-a-uuid"}' }),
+      task: "schema format",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.gates[0]).toMatchObject({
+      kind: "json_schema",
+      passed: false,
+    });
+    expect(result.gates[0].evidence.join("\n")).toContain("uuid");
   });
 
   it("validates JSON schema gates against the final Codex message instead of raw JSONL events", async () => {

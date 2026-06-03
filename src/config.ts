@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parseDocument } from "yaml";
 import { z } from "zod";
 import { resolveFileReference } from "./path-refs.js";
+import { parseJson } from "./safe-json.js";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
@@ -802,7 +803,7 @@ function parseMcpJsonFile(
 ): z.infer<typeof mcpJsonFileSchema> {
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(filePath, "utf8"));
+    raw = parseJson(readFileSync(filePath, "utf8"), `MCP config ${ref.path}`);
   } catch (err) {
     throw new PipelineConfigError(
       "PIPELINE_CONFIG_PARSE_ERROR",

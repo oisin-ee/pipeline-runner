@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
+import { parseJson } from "./safe-json.js";
 
 export const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 
@@ -267,7 +268,7 @@ export function createRunnerJobPayloadEnv(
 export function parseRunnerJobPayload(rawPayload: string): RunnerJobPayload {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(rawPayload);
+    parsed = parseJson(rawPayload, "runner payload JSON");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Malformed runner payload JSON: ${message}`);

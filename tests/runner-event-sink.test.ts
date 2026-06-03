@@ -5,19 +5,11 @@ const TIMESTAMP = "2026-06-02T09:00:00.000Z";
 const CONSOLE_UNAVAILABLE_RE = /console unavailable/i;
 
 function okResponse(): Response {
-  return {
-    ok: true,
-    status: 200,
-    text: () => Promise.resolve(""),
-  } as Response;
+  return new Response("", { status: 200 });
 }
 
 function responseWithStatus(status: number): Response {
-  return {
-    ok: false,
-    status,
-    text: () => Promise.resolve(`status ${status}`),
-  } as Response;
+  return new Response(`status ${status}`, { status });
 }
 
 function loadSinkModule(): Promise<Record<string, any>> {
@@ -28,10 +20,19 @@ function loadContractModule(): Promise<Record<string, any>> {
   return import("../src/runner-job-contract.js");
 }
 
-function parseBodies(fetchMock: ReturnType<typeof vi.fn>): any[] {
-  return fetchMock.mock.calls.map(([, init]) =>
-    JSON.parse(String((init as RequestInit).body))
-  );
+function requestFromCall(call: unknown[]): Request {
+  const [input, init] = call as [RequestInfo | URL, RequestInit | undefined];
+  return new Request(input, init);
+}
+
+async function parseBodies(
+  fetchMock: ReturnType<typeof vi.fn>
+): Promise<any[]> {
+  const bodies: any[] = [];
+  for (const call of fetchMock.mock.calls) {
+    bodies.push(JSON.parse(await requestFromCall(call).text()));
+  }
+  return bodies;
 }
 
 describe("runner event sink", () => {
@@ -72,18 +73,16 @@ describe("runner event sink", () => {
     await sink.flush();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      EVENT_SINK_URL,
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: "Bearer console-token",
-          "Content-Type": "application/json",
-        }),
-        method: "POST",
-      })
+    const firstRequest = await requestFromCall(fetchMock.mock.calls[0]);
+    expect(firstRequest.url).toBe(EVENT_SINK_URL);
+    expect(firstRequest.method).toBe("POST");
+    expect(firstRequest.headers.get("Authorization")).toBe(
+      "Bearer console-token"
     );
-    expect(parseBodies(fetchMock)).toEqual([
+    expect(firstRequest.headers.get("Content-Type")).toContain(
+      "application/json"
+    );
+    expect(await parseBodies(fetchMock)).toEqual([
       {
         events: [
           {
@@ -135,7 +134,7 @@ describe("runner event sink", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(responseWithStatus(503))
-      .mockRejectedValueOnce(new Error("socket reset"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValueOnce(okResponse());
     const sink = createRunnerEventSink({
       authToken: "console-token",
@@ -178,7 +177,7 @@ describe("runner event sink", () => {
     });
 
     await expect(sink.flush()).rejects.toThrow(
-      new RegExp(`event sink.*${status}`, "i")
+      new RegExp(`event sink.*${status}: status ${status}`, "i")
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -207,12 +206,12 @@ describe("runner event sink", () => {
     await sink.flush();
 
     expect(
-      parseBodies(fetchMock).flatMap((body) =>
+      (await parseBodies(fetchMock)).flatMap((body) =>
         body.events.map((event: { sequence: number }) => event.sequence)
       )
     ).toEqual([1, 2, 3, 4]);
     expect(
-      parseBodies(fetchMock).flatMap((body) =>
+      (await parseBodies(fetchMock)).flatMap((body) =>
         body.events.map(
           (event: { node: { nodeId: string } }) => event.node.nodeId
         )
@@ -332,7 +331,7 @@ describe("runner event sink", () => {
     sink.recordCancellation("default");
     await sink.flush();
 
-    expect(parseBodies(fetchMock)).toEqual([
+    expect(await parseBodies(fetchMock)).toEqual([
       {
         events: [
           {
@@ -382,7 +381,7 @@ describe("runner event sink", () => {
     await expect(sink.flush()).rejects.toThrow(CONSOLE_UNAVAILABLE_RE);
     await sink.flush();
 
-    expect(parseBodies(fetchMock)[1]).toEqual({
+    expect((await parseBodies(fetchMock))[1]).toEqual({
       events: [
         {
           finalResult: {

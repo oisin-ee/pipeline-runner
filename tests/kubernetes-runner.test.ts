@@ -175,13 +175,15 @@ describe("kubernetes runner-job entrypoint", () => {
 
     expect(exitCode).toBe(0);
     expect(pipelineRunner).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(
-      EVENT_SINK_URL,
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: "Bearer console-token",
-        }),
-      })
+    const calls = fetchMock.mock.calls as unknown as [
+      string,
+      RequestInit | undefined,
+    ][];
+    const [url, init] = calls[0];
+    expect(url).toBe(EVENT_SINK_URL);
+    expect(init?.headers).toBeInstanceOf(Headers);
+    expect((init?.headers as Headers).get("Authorization")).toBe(
+      "Bearer console-token"
     );
   });
 

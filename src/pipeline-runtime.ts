@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import Ajv, { type ErrorObject } from "ajv";
+import Ajv, { type AnySchema, type ErrorObject } from "ajv";
+import addFormats from "ajv-formats";
 import { execa } from "execa";
 import micromatch from "micromatch";
 import pLimit from "p-limit";
+import pRetry from "p-retry";
 import simpleGit from "simple-git";
 import { match } from "ts-pattern";
 import {
@@ -27,6 +29,7 @@ import {
   type RunnerLaunchPlan,
   runLaunchPlan,
 } from "./runner.js";
+import { parseJson as parseSafeJson } from "./safe-json.js";
 import {
   compileWorkflowPlan,
   type PlannedWorkflowNode,
@@ -56,7 +59,16 @@ const RUN_ID_TOKEN_RE = /\$\{runId\}/g;
 const NODE_ID_TOKEN_RE = /\$\{nodeId\}/g;
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
-const jsonSchemaValidator = new Ajv({ allErrors: true, strict: false });
+const jsonSchemaValidator = addFormats(
+  new Ajv({ allErrors: true, strict: false })
+);
+const jsonSchemaValidatorCache = new Map<
+  string,
+  {
+    source: string;
+    validate: ReturnType<typeof jsonSchemaValidator.compile>;
+  }
+>();
 
 export interface AcceptanceCriterion {
   id: string;
@@ -328,9 +340,18 @@ interface CommandExecutionOptions {
 interface NodeAttemptCycleResult {
   last: NodeAttemptResult;
   result?: RuntimeNodeResult;
+  retry?: NodeAttemptRetry;
 }
 
 type RetryReason = "exit_nonzero" | "gate_failure" | "timeout";
+
+interface NodeAttemptRetry {
+  attempt: number;
+  evidence: string[];
+  gate: string;
+  reason: string;
+  retryReason: RetryReason;
+}
 
 type NodeStateEvent =
   | { at: string; attempt: number; type: "NODE_STARTED" }
@@ -901,28 +922,95 @@ async function executeNode(
     exitCode: 1,
     output: "",
   };
+  let retry: NodeAttemptRetry | undefined;
 
-  for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
-    const cycle = await executeNodeAttemptCycle(
-      node,
-      context,
-      attempt,
-      retryPolicy,
-      last
+  try {
+    const result = await pRetry(
+      async (attempt) => {
+        const cycle = await executeNodeAttemptCycle(
+          node,
+          context,
+          attempt,
+          last
+        );
+        last = cycle.last;
+        retry = cycle.retry;
+        if (cycle.result) {
+          return cycle.result;
+        }
+        if (!cycle.retry) {
+          throw new NodeAttemptRetryError({
+            attempt,
+            evidence: last.evidence,
+            gate: node.id,
+            reason: `node exited with code ${last.exitCode}`,
+            retryReason: nodeRetryReason(last),
+          });
+        }
+        throw new NodeAttemptRetryError(cycle.retry);
+      },
+      {
+        factor: retryPolicy.multiplier,
+        minTimeout: retryPolicy.backoffMs,
+        randomize: false,
+        retries: retryPolicy.maxAttempts - 1,
+        signal: context.signal,
+        shouldRetry: ({ error }) =>
+          error instanceof NodeAttemptRetryError &&
+          retryPolicy.retryOn.has(error.retry.retryReason),
+        unref: true,
+      }
     );
-    last = cycle.last;
-    if (cycle.result) {
-      emitNodeFinish(context, cycle.result);
-      return cycle.result;
+    emitNodeFinish(context, result);
+    return result;
+  } catch (err) {
+    if (err instanceof NodeAttemptRetryError) {
+      retry = err.retry;
+    } else if (isCancelled(context)) {
+      retry = {
+        attempt: Math.max(1, retry?.attempt ?? 1),
+        evidence: [...last.evidence, ...cancelledFailure().evidence],
+        gate: node.id,
+        reason: "pipeline cancelled",
+        retryReason: "timeout",
+      };
+    } else {
+      retry = {
+        attempt: Math.max(1, retry?.attempt ?? 1),
+        evidence: [
+          ...last.evidence,
+          err instanceof Error ? err.message : String(err),
+        ],
+        gate: node.id,
+        reason: err instanceof Error ? err.message : "node retry failed",
+        retryReason: nodeRetryReason(last),
+      };
     }
   }
 
+  await dispatchHooks(
+    context,
+    "node.error",
+    {
+      evidence: retry.evidence,
+      gate: retry.gate,
+      nodeId: node.id,
+      reason: retry.reason,
+    },
+    node
+  );
   const result = nodeFailure(
     node.id,
-    retryPolicy.maxAttempts,
-    last.evidence,
+    retry.attempt,
+    retry.evidence,
     last.output
   );
+  transitionNode(context, node.id, {
+    at: now(),
+    failure: nodeRuntimeFailure(result),
+    result,
+    type: "NODE_FAILED",
+  });
   emitNodeFinish(context, result);
   return result;
 }
@@ -932,6 +1020,16 @@ interface NodeRetryPolicy {
   maxAttempts: number;
   multiplier: number;
   retryOn: Set<RetryReason>;
+}
+
+class NodeAttemptRetryError extends Error {
+  retry: NodeAttemptRetry;
+
+  constructor(retry: NodeAttemptRetry) {
+    super(retry.reason);
+    this.name = "NodeAttemptRetryError";
+    this.retry = retry;
+  }
 }
 
 function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
@@ -958,7 +1056,6 @@ async function executeNodeAttemptCycle(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  retryPolicy: NodeRetryPolicy,
   previous: NodeAttemptResult
 ): Promise<NodeAttemptCycleResult> {
   if (isCancelled(context)) {
@@ -1110,33 +1207,16 @@ async function executeNodeAttemptCycle(
     ? [...last.evidence, ...failedGate.evidence]
     : last.evidence.concat(`node exited with code ${last.exitCode}`);
   const retryReason = nodeRetryReason(last, failedGate);
-  if (
-    attempt === retryPolicy.maxAttempts ||
-    !retryPolicy.retryOn.has(retryReason)
-  ) {
-    await dispatchHooks(
-      context,
-      "node.error",
-      {
-        evidence,
-        gate: failedGate?.gateId ?? node.id,
-        nodeId: node.id,
-        reason: failedGate?.reason ?? `node exited with code ${last.exitCode}`,
-      },
-      node
-    );
-    const result = nodeFailure(node.id, attempt, evidence, last.output);
-    transitionNode(context, node.id, {
-      at: now(),
-      failure: nodeRuntimeFailure(result),
-      result,
-      type: "NODE_FAILED",
-    });
-    return { last, result };
-  }
-
-  await waitBeforeRetry(context, retryPolicy, attempt);
-  return { last };
+  return {
+    last,
+    retry: {
+      attempt,
+      evidence,
+      gate: failedGate?.gateId ?? node.id,
+      reason: failedGate?.reason ?? `node exited with code ${last.exitCode}`,
+      retryReason,
+    },
+  };
 }
 
 function nodeRetryReason(
@@ -1150,47 +1230,6 @@ function nodeRetryReason(
     return "gate_failure";
   }
   return "exit_nonzero";
-}
-
-async function waitBeforeRetry(
-  context: RuntimeContext,
-  retryPolicy: NodeRetryPolicy,
-  attempt: number
-): Promise<void> {
-  const duration = retryBackoffDuration(retryPolicy, attempt);
-  if (duration <= 0) {
-    return;
-  }
-  await sleep(duration, context.signal);
-}
-
-function retryBackoffDuration(
-  retryPolicy: NodeRetryPolicy,
-  attempt: number
-): number {
-  if (retryPolicy.backoffMs === 0) {
-    return 0;
-  }
-  return Math.round(
-    retryPolicy.backoffMs * retryPolicy.multiplier ** (attempt - 1)
-  );
-}
-
-function sleep(duration: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, duration);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        resolve();
-      },
-      { once: true }
-    );
-  });
 }
 
 function cancelledNodeResult(
@@ -2044,7 +2083,7 @@ function lastJsonLineValue(
       continue;
     }
     try {
-      const extracted = extract(JSON.parse(trimmed));
+      const extracted = extract(parseSafeJson(trimmed, "runner JSON event"));
       if (extracted) {
         latest = extracted;
       }
@@ -2584,7 +2623,7 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
     return {};
   }
   try {
-    const parsed = JSON.parse(value) as unknown;
+    const parsed = parseSafeJson(value, "runtime JSON object");
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : {};
@@ -2834,10 +2873,10 @@ function parseRuntimeOutput(
         output: output
           .split(LINE_RE)
           .filter((line) => line.trim().length > 0)
-          .map((line) => JSON.parse(line)),
+          .map((line) => parseSafeJson(line, "runtime JSONL line")),
       };
     }
-    return { output: JSON.parse(output) };
+    return { output: parseSafeJson(output, "runtime JSON output") };
   } catch (err) {
     return {
       error: err instanceof Error ? err.message : "failed to parse output",
@@ -2997,7 +3036,7 @@ function parseGateJson(
     return { evidence: source.evidence };
   }
   try {
-    return { value: JSON.parse(source.source ?? "") };
+    return { value: parseSafeJson(source.source ?? "", "gate JSON") };
   } catch (err) {
     return {
       evidence: err instanceof Error ? err.message : String(err),
@@ -3239,11 +3278,9 @@ function validateJsonSchemaSource(
   worktreePath: string
 ): JsonSchemaValidationResult {
   try {
-    const schema = JSON.parse(
-      readFileSync(join(worktreePath, schemaPath), "utf8")
-    );
-    const value = JSON.parse(source);
-    const validate = jsonSchemaValidator.compile(schema);
+    const schemaSource = readFileSync(join(worktreePath, schemaPath), "utf8");
+    const value = parseSafeJson(source, "JSON schema gate value");
+    const validate = compiledJsonSchemaValidator(schemaPath, schemaSource);
     const errors = validate(value)
       ? []
       : formatJsonSchemaErrors(validate.errors ?? []);
@@ -3262,6 +3299,27 @@ function validateJsonSchemaSource(
       reason: "JSON schema validation failed",
     };
   }
+}
+
+function compiledJsonSchemaValidator(
+  schemaPath: string,
+  schemaSource: string
+): ReturnType<typeof jsonSchemaValidator.compile> {
+  const cached = jsonSchemaValidatorCache.get(schemaPath);
+  if (cached?.source === schemaSource) {
+    return cached.validate;
+  }
+  const schema = parseSafeJson(schemaSource, `JSON schema ${schemaPath}`);
+  if (!isJsonSchema(schema)) {
+    throw new Error(`JSON schema ${schemaPath} must be an object or boolean`);
+  }
+  const validate = jsonSchemaValidator.compile(schema);
+  jsonSchemaValidatorCache.set(schemaPath, { source: schemaSource, validate });
+  return validate;
+}
+
+function isJsonSchema(value: unknown): value is AnySchema {
+  return typeof value === "boolean" || isRecord(value);
 }
 
 function readOptionalFile(path: string): string | null {
