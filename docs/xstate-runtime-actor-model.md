@@ -14,7 +14,7 @@ Actor IDs use `pipeline.<kind>.<runId>.<workflowId>.<nodeId>.<gateId|hookId>` wh
 
 ## States
 
-Workflow states: `planning`, `startingHooks`, `scheduling`, `runningBatch`, `failFastStopping`, `cancelling`, `completingHooks`, `passed`, `failed`, `cancelled`.
+Workflow states: `planning`, `startingHooks`, `checkingStartHooks`, `scheduling`, `runningBatch`, `evaluatingBatch`, `failureHooks`, `failureCompleteHooks`, `successHooks`, `completeHooks`, `checkingCompleteHooks`, `cancelling`, `passed`, `failed`, `cancelled`.
 
 Node states: `pending`, `ready`, `startingHooks`, `snapshotBefore`, `runnerStarting`, `runnerRunning`, `runnerFinished`, `outputRecording`, `snapshotAfter`, `gatesStarting`, `gatesRunning`, `gatesFinished`, `successHooks`, `retrying`, `passed`, `failed`, `cancelled`, `skipped`.
 
