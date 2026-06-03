@@ -15,11 +15,15 @@ const OWNER_MARKER_PREFIX = "<!-- @oisincoveney/pipeline:";
 const OWNER_TS_MARKER_PREFIX = "// @oisincoveney/pipeline:";
 const OWNER_YAML_MARKER_PREFIX = "# @oisincoveney/pipeline:";
 const CODEX_PLUGIN_AGENT_ROOT = ".agents/plugins/oisin-pipeline/agents";
+const CODEX_PLUGIN_COMMAND_ROOT = ".agents/plugins/oisin-pipeline/commands";
 const CODEX_AGENT_CONFIG_START = "# @oisincoveney/pipeline:codex-agents:start";
 const CODEX_AGENT_CONFIG_END = "# @oisincoveney/pipeline:codex-agents:end";
 const ENTRYPOINT_PATH_PATTERNS: Record<CommandHost, RegExp[]> = {
   claude: [/^\.claude\/commands\/([^/]+)\.md$/],
-  codex: [/^\.agents\/skills\/([^/]+)\/SKILL\.md$/],
+  codex: [
+    /^\.agents\/skills\/([^/]+)\/SKILL\.md$/,
+    /^\.agents\/plugins\/oisin-pipeline\/commands\/([^/]+)\.md$/,
+  ],
   kimi: [
     /^\.kimi\/commands\/([^/]+)\.md$/,
     /^\.kimi\/skills\/([^/]+)\/SKILL\.md$/,
@@ -668,6 +672,28 @@ function codexDefinitions(
       invocation: invocationForHost("codex", id),
       path: `.agents/skills/${id}/SKILL.md`,
     })),
+    ...entrypointCommandDefinitions("codex", config, (id, entrypoint) => ({
+      content: markdown(
+        {
+          "argument-hint": "<task description>",
+          description: entrypointDescription(id, entrypoint),
+        },
+        compactLines([
+          header("codex").trimEnd(),
+          "",
+          `Invoke this command with \`${codexPluginInvocation(id)}\`.`,
+          "",
+          "Use `$ARGUMENTS` as the user task. Require a non-empty task description.",
+          "",
+          orchestratorBlock(config),
+          "",
+          dispatchBlock("codex", config, entrypoint.workflow),
+        ]).join("\n")
+      ),
+      host: "codex",
+      invocation: codexPluginInvocation(id),
+      path: `${CODEX_PLUGIN_COMMAND_ROOT}/${id}.md`,
+    })),
     ...nativeCodexProfiles.map(([id, profile]) =>
       codexPluginAgentDefinition(config, cwd, id, profile)
     ),
@@ -1003,7 +1029,12 @@ function selectedHosts(host: CommandHostSelection): CommandHost[] {
 
 const GENERATED_RESOURCE_ROOTS: Record<CommandHost, string[]> = {
   claude: [".claude/commands", ".claude/agents"],
-  codex: [".agents/skills", ".codex/agents", CODEX_PLUGIN_AGENT_ROOT],
+  codex: [
+    ".agents/skills",
+    ".codex/agents",
+    CODEX_PLUGIN_AGENT_ROOT,
+    CODEX_PLUGIN_COMMAND_ROOT,
+  ],
   kimi: [".kimi/skills", ".kimi/agents", ".kimi/commands"],
   opencode: [".opencode/commands", ".opencode/agents"],
   pi: [".pi/prompts", ".pi/extensions"],
@@ -1096,6 +1127,10 @@ function invocationForHost(host: CommandHost, entrypointId = "pipe"): string {
     pi: "/",
   };
   return `${prefix[host]}${entrypointId} <task description>`;
+}
+
+function codexPluginInvocation(entrypointId: string): string {
+  return `/${entrypointId} <task description>`;
 }
 
 function actionFor(
