@@ -15,6 +15,7 @@ import {
   type RunnerLaunchPlan,
   runLaunchPlan,
 } from "./runner.js";
+import { normalizeRunnerOutput } from "./runner-output.js";
 import {
   compileWorkflowPlan,
   type WorkflowExecutionPlan,
@@ -376,7 +377,7 @@ async function refineScheduleArtifact(
       `schedule planner '${plannerProfile}' failed with exit ${result.exitCode}`
     );
   }
-  const source = result.stdout.trim();
+  const source = normalizeRunnerOutput(plan, result.stdout).output.trim();
   if (!source) {
     return baseline;
   }

@@ -1,7 +1,11 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../src/config.js";
 import {
   compileScheduleArtifact,
+  generateScheduleArtifact,
   parseScheduleArtifact,
 } from "../src/schedule-planner.js";
 
@@ -54,6 +58,12 @@ profiles:
   pipeline-verifier:
     runner: codex
     instructions: { inline: Verify }
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only }
+    network: { mode: inherit }
+  pipeline-learner:
+    runner: codex
+    instructions: { inline: Learn }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
@@ -150,5 +160,61 @@ workflows:
     expect(() => compileScheduleArtifact(config(), artifact)).toThrow(
       EXTERNAL_WORKFLOW_RE
     );
+  });
+
+  it("parses a planner schedule from codex JSONL agent output", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-jsonl-"));
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-jsonl
+source_entrypoint: pipe
+task: Implement generated schedules
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [implement]
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "pipe",
+        executor: () => ({
+          exitCode: 0,
+          stdout: [
+            JSON.stringify({ type: "turn.started" }),
+            JSON.stringify({
+              item: { text: schedule, type: "agent_message" },
+              type: "item.completed",
+            }),
+            JSON.stringify({ type: "turn.completed" }),
+          ].join("\n"),
+        }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-jsonl",
+        task: "Implement generated schedules",
+        worktreePath: dir,
+      });
+
+      expect(result.artifact.schedule_id).toBe("run-jsonl");
+      expect(
+        result.artifact.workflows.root.nodes.map((node) => node.id)
+      ).toEqual(["research", "implement", "verify"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
