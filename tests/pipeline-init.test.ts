@@ -87,7 +87,11 @@ describe("initPipelineProject", () => {
     const config = loadPipelineConfig(dir);
     expect(config.default_workflow).toBe("default");
     expect(config.entrypoints.epic).toMatchObject({
-      workflow: "epic-drain",
+      schedule: "epic-schedule",
+    });
+    expect(config.schedules["epic-schedule"]).toMatchObject({
+      baseline: "epic",
+      planner_profile: "pipeline-schedule-planner",
     });
     expect(config.workflows["epic-drain"].nodes.map((node) => node.id)).toEqual(
       ["research", "plan", "implement", "merge", "review"]
@@ -460,6 +464,7 @@ describe("initPipelineProject", () => {
       ".pipeline/prompts/learner.md",
       ".pipeline/prompts/orchestrator.md",
       ".pipeline/prompts/researcher.md",
+      ".pipeline/prompts/schedule-planner.md",
       ".pipeline/prompts/test-writer.md",
       ".pipeline/prompts/verifier.md",
       ".pipeline/rules/test-first.md",

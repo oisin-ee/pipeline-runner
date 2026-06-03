@@ -842,6 +842,11 @@ function resolveWorkflowSelection(
   if (!entrypoint) {
     throw new Error(`Unknown pipeline entrypoint '${entrypointId}'`);
   }
+  if ("schedule" in entrypoint) {
+    throw new Error(
+      `Pipeline entrypoint '${entrypointId}' generates schedule '${entrypoint.schedule}'; run an approved schedule artifact instead.`
+    );
+  }
   return entrypoint.workflow;
 }
 

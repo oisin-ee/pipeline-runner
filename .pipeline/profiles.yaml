@@ -112,6 +112,22 @@ profiles:
       mode: inherit
     output:
       format: text
+  pipeline-schedule-planner:
+    runner: codex
+    description: Refine a baseline schedule into a specialized approved-plan artifact.
+    instructions:
+      path: .pipeline/prompts/schedule-planner.md
+    skills: [research, scope]
+    mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
   pipeline-test-writer:
     runner: codex
     description: Add focused failing tests for the requested behavior.

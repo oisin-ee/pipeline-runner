@@ -55,6 +55,7 @@ const GATE_KINDS = [
 ] as const;
 const BUILTIN_GATES = ["duplication", "semgrep", "test", "typecheck"] as const;
 const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
+const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
 
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
@@ -404,11 +405,30 @@ const taskContextResolverSchema = z
   })
   .passthrough();
 
-const entrypointSchema = z
+const entrypointBaseSchema = z.object({
+  description: z.string().optional(),
+  task_context: taskContextResolverSchema.optional(),
+});
+
+const entrypointSchema = z.union([
+  entrypointBaseSchema
+    .extend({
+      workflow: z.string(),
+    })
+    .strict(),
+  entrypointBaseSchema
+    .extend({
+      schedule: z.string(),
+    })
+    .strict(),
+]);
+
+const schedulePolicySchema = z
   .object({
     description: z.string().optional(),
-    task_context: taskContextResolverSchema.optional(),
-    workflow: z.string(),
+    baseline: z.enum(SCHEDULE_BASELINES),
+    max_parallel_nodes: z.number().int().positive().optional(),
+    planner_profile: z.string().optional(),
   })
   .strict();
 
@@ -498,7 +518,7 @@ const workflowNodeSchema: z.ZodType<WorkflowNode> = z.lazy(() =>
   ])
 );
 
-const workflowSchema = z
+export const workflowSchema = z
   .object({
     description: z.string().optional(),
     execution: workflowExecutionSchema.optional(),
@@ -530,13 +550,14 @@ const pipelineFileSchema = z
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: strictRecord(hookSchema).default({}),
     orchestrator: orchestratorSchema,
+    schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     workflows: strictRecord(workflowSchema).default({}),
     version: z.literal(1),
   })
   .strict();
 
-const configSchema = z
+const configSchemaBase = z
   .object({
     default_workflow: z.string(),
     entrypoints: strictRecord(entrypointSchema).default({}),
@@ -546,6 +567,7 @@ const configSchema = z
     profiles: strictRecord(profileSchema).default({}),
     rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),
+    schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     version: z.literal(1),
@@ -553,11 +575,123 @@ const configSchema = z
   })
   .strict();
 
+const configSchema = configSchemaBase.superRefine(validateConfigReferences);
+
+type ConfigSchemaInput = z.infer<typeof configSchemaBase>;
+interface ConfigReferenceIssue {
+  message: string;
+  path: (number | string)[];
+}
+interface RegistryReferenceRule<TRecord> {
+  field: string;
+  message: (recordId: string, value: string) => string;
+  read: (record: TRecord) => string | undefined;
+  registry: Record<string, unknown>;
+}
+
+function validateConfigReferences(
+  config: ConfigSchemaInput,
+  ctx: z.RefinementCtx
+): void {
+  addConfigSchemaIssues(ctx, configReferenceIssues(config));
+}
+
+function configReferenceIssues(
+  config: ConfigSchemaInput
+): ConfigReferenceIssue[] {
+  return [
+    ...missingRegistryReferenceIssue({
+      message: (_field, value) => `default workflow '${value}' is not declared`,
+      path: ["default_workflow"],
+      registry: config.workflows,
+      value: config.default_workflow,
+    }),
+    ...registryReferenceIssues("entrypoints", config.entrypoints, [
+      {
+        field: "workflow",
+        message: (entrypointId, value) =>
+          `entrypoint '${entrypointId}' references missing workflow '${value}'`,
+        read: (entrypoint) =>
+          "workflow" in entrypoint ? entrypoint.workflow : undefined,
+        registry: config.workflows,
+      },
+      {
+        field: "schedule",
+        message: (entrypointId, value) =>
+          `entrypoint '${entrypointId}' references missing schedule '${value}'`,
+        read: (entrypoint) =>
+          "schedule" in entrypoint ? entrypoint.schedule : undefined,
+        registry: config.schedules,
+      },
+    ]),
+    ...registryReferenceIssues("schedules", config.schedules, [
+      {
+        field: "planner_profile",
+        message: (scheduleId, value) =>
+          `schedule '${scheduleId}' references missing planner profile '${value}'`,
+        read: (schedule) => schedule.planner_profile,
+        registry: config.profiles,
+      },
+    ]),
+  ];
+}
+
+function registryReferenceIssues<TRecord>(
+  registryPath: string,
+  records: Record<string, TRecord>,
+  rules: RegistryReferenceRule<TRecord>[]
+): ConfigReferenceIssue[] {
+  return Object.entries(records).flatMap(([recordId, record]) =>
+    rules.flatMap((rule) =>
+      missingRegistryReferenceIssue({
+        message: (_field, value) => rule.message(recordId, value),
+        path: [registryPath, recordId, rule.field],
+        registry: rule.registry,
+        value: rule.read(record),
+      })
+    )
+  );
+}
+
+function missingRegistryReferenceIssue({
+  message,
+  path,
+  registry,
+  value,
+}: {
+  message: (field: string, value: string) => string;
+  path: (number | string)[];
+  registry: Record<string, unknown>;
+  value: string | undefined;
+}): ConfigReferenceIssue[] {
+  return value && !Object.hasOwn(registry, value)
+    ? [{ message: message(String(path.at(-1)), value), path }]
+    : [];
+}
+
+function addConfigSchemaIssues(
+  ctx: z.RefinementCtx,
+  issues: ConfigReferenceIssue[]
+): void {
+  for (const issue of issues) {
+    addConfigSchemaIssue(ctx, issue.path, issue.message);
+  }
+}
+
+function addConfigSchemaIssue(
+  ctx: z.RefinementCtx,
+  path: (number | string)[],
+  message: string
+): void {
+  ctx.addIssue({ code: "custom", path, message });
+}
+
 export type PipelineConfig = z.infer<typeof configSchema>;
 export type RunnerType = (typeof RUNNER_TYPES)[number];
 export type WorkflowNodeKind = (typeof NODE_KINDS)[number];
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 export type GateKind = (typeof GATE_KINDS)[number];
+export type ScheduleBaseline = (typeof SCHEDULE_BASELINES)[number];
 type ConfigGateSpec = NonNullable<
   PipelineConfig["workflows"][string]["nodes"][number]["gates"]
 >[number];
@@ -683,6 +817,7 @@ export function parsePipelineConfigParts(
       profiles: profiles.profiles,
       rules: profiles.rules,
       runners: runners.runners,
+      schedules: pipeline.schedules,
       skills: profiles.skills,
       ...(pipeline.task_context ? { task_context: pipeline.task_context } : {}),
       version: 1,
@@ -838,10 +973,21 @@ function normalizeMcpJsonServer(
 }
 
 export function validatePipelineConfig(
-  config: PipelineConfig,
+  rawConfig: PipelineConfig,
   projectRoot?: string,
   options: PipelineConfigValidationOptions = {}
 ): PipelineConfig {
+  const parsed = configSchema.safeParse(rawConfig);
+  if (!parsed.success) {
+    throw validationError(
+      parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      }))
+    );
+  }
+
+  const config = parsed.data;
   const issues: PipelineConfigIssue[] = [];
 
   validateRegistryIds("runners", config.runners, issues);
@@ -852,21 +998,6 @@ export function validatePipelineConfig(
   validateRegistryIds("hooks", config.hooks, issues);
   validateRegistryIds("workflows", config.workflows, issues);
   validateRegistryIds("entrypoints", config.entrypoints, issues);
-
-  if (!config.workflows[config.default_workflow]) {
-    issues.push({
-      path: "default_workflow",
-      message: `default workflow '${config.default_workflow}' is not declared`,
-    });
-  }
-  for (const [entrypointId, entrypoint] of Object.entries(config.entrypoints)) {
-    if (!config.workflows[entrypoint.workflow]) {
-      issues.push({
-        path: `entrypoints.${entrypointId}.workflow`,
-        message: `entrypoint '${entrypointId}' references missing workflow '${entrypoint.workflow}'`,
-      });
-    }
-  }
 
   const orchestratorProfile = config.profiles[config.orchestrator.profile];
   if (orchestratorProfile) {

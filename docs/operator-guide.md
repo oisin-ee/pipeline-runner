@@ -14,8 +14,8 @@ oisin-pipeline ...
 
 `pipe "<task>"`
 
-Runs the default workflow directly. The `pipe` binary treats a non-command first
-argument as `run`.
+Generates a schedule artifact for the configured `pipe` schedule and stops for
+approval. The `pipe` binary treats a non-command first argument as `run`.
 
 ```shell
 pipe "Implement PIPE-123"
@@ -23,11 +23,13 @@ pipe "Implement PIPE-123"
 
 `pipe run "<task>"`
 
-Runs a workflow from `.pipeline/pipeline.yaml`. Without flags, this selects the
-configured `default_workflow`.
+Runs a static workflow from `.pipeline/pipeline.yaml`, or generates a schedule
+when the selected entrypoint is scheduled. Approved schedule artifacts execute
+only through `--schedule`.
 
 ```shell
 pipe run "Implement PIPE-123"
+pipe run --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-123"
 pipe run --workflow inspect "Inspect this repo"
 pipe run --entrypoint epic PIPE-31
 ```
@@ -51,9 +53,8 @@ pipe inspect "Explain the app structure and available checks"
 
 `pipe epic "<task-or-epic-id>"`
 
-Runs the `epic-drain` entrypoint. The current epic flow researches the epic,
-routes child tickets into fixed tracks, runs those tracks in parallel worktrees,
-drain-merges passing branches, and then runs hardened review.
+Generates a specialized epic schedule artifact and stops for approval. Execute
+the approved artifact with `pipe run --schedule <schedule.yaml>`.
 
 ```shell
 pipe epic PIPE-31
@@ -65,7 +66,7 @@ Validates the YAML config and compiles the selected workflow.
 
 ```shell
 pipe validate
-pipe validate --entrypoint epic
+pipe validate --schedule .pipeline/runs/<runId>/schedule.yaml
 pipe validate --workflow epic-drain
 pipe validate --strict
 pipe validate --no-lint
@@ -82,7 +83,7 @@ hooks, and artifacts.
 
 ```shell
 pipe explain-plan
-pipe explain-plan --entrypoint epic
+pipe explain-plan --schedule .pipeline/runs/<runId>/schedule.yaml
 pipe explain-plan --workflow inspect
 ```
 
@@ -229,11 +230,23 @@ Current entrypoints:
 ```yaml
 entrypoints:
   pipe:
-    workflow: default
+    schedule: pipe-schedule
   inspect:
     workflow: inspect
   epic:
-    workflow: epic-drain
+    schedule: epic-schedule
+```
+
+Current schedule policies:
+
+```yaml
+schedules:
+  pipe-schedule:
+    baseline: pipe
+    planner_profile: pipeline-schedule-planner
+  epic-schedule:
+    baseline: epic
+    planner_profile: pipeline-schedule-planner
 ```
 
 Current default workflow:

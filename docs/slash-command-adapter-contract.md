@@ -23,6 +23,8 @@ pipe install-commands --host all --check
 
 - Profile names, descriptions, instructions, tools, rules, skills, MCP servers,
   filesystem mode, network mode, and output contracts are read from YAML.
+- Scheduled entrypoints generate a reviewable schedule artifact first and do not
+  execute workflow nodes until `pipe run --schedule <schedule.yaml>` is invoked.
 - Codex runner nodes are Codex native agents.
 - OpenCode runner nodes are OpenCode native agents.
 - Codex-hosted workflows dispatch OpenCode runner nodes through the OpenCode CLI.
@@ -33,6 +35,7 @@ pipe install-commands --host all --check
 - Regeneration is idempotent for generated files. Manual edits are protected
   unless `--force` is supplied.
 
-The CLI runtime and generated host resources share the same workflow plan. Multi-agent
-workflows require separate agent boundaries; host resources must not collapse
-the workflow into a single prompt.
+The CLI runtime and generated host resources share either the same static
+workflow plan or the same approved schedule artifact. Multi-agent workflows
+require separate agent boundaries; host resources must not collapse the workflow
+into a single prompt.

@@ -19,25 +19,7 @@ hooks: generated-defaults-audit
 
 Instructions: .pipeline/prompts/orchestrator.md
 
-Run workflow `default` for the user task.
-OpenCode native routes:
-- research: Task tool subagent_type=pipeline-researcher runner=codex needs=none
-- red: Task tool subagent_type=pipeline-test-writer runner=codex needs=research
-- green: Task tool subagent_type=pipeline-code-writer runner=codex needs=red
-- acceptance: Task tool subagent_type=pipeline-acceptance-reviewer runner=codex needs=green
-- verify: Task tool subagent_type=pipeline-verifier runner=codex needs=acceptance
-- learn: Task tool subagent_type=pipeline-learner runner=codex needs=verify
-
-For each native node prompt include:
-- user task
-- workflow id: default
-- node id
-- profile id
-- runner id
-- profile instructions reference
-- profile grants
-- dependency outputs
-
-Only gates declared in `.pipeline/pipeline.yaml` are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
-If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.
-Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.
+Generate a schedule for entrypoint `pipe` and the user task.
+The schedule policy is `pipe-schedule`.
+Run `pipe run --entrypoint pipe <task description>` to write the schedule artifact, then stop for approval.
+Do not execute workflow nodes until the user runs `pipe run --schedule <schedule.yaml>`.

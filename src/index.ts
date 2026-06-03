@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Help, Option } from "commander";
@@ -34,6 +34,11 @@ import {
   createRunnerLaunchPlan,
 } from "./runner.js";
 import {
+  compileScheduleArtifact,
+  generateScheduleArtifact,
+  parseScheduleArtifact,
+} from "./schedule-planner.js";
+import {
   compileWorkflowPlan,
   type PlannedWorkflowNode,
 } from "./workflow-planner.js";
@@ -44,6 +49,7 @@ const LINE_RE = /\r?\n/;
 interface PipeOptions {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
+  schedule?: string;
   workflow?: string;
 }
 
@@ -65,6 +71,7 @@ export function pipe(
     return runConfiguredPipeline({
       pipelineRunner: runner,
       entrypoint: options.entrypoint,
+      schedule: options.schedule,
       task: description,
       workflow: options.workflow,
       worktreePath,
@@ -76,6 +83,7 @@ export function pipe(
 
 interface RunFlags {
   entrypoint?: string;
+  schedule?: string;
   workflow?: string;
 }
 
@@ -93,14 +101,63 @@ interface DoctorResult {
 interface RunInputs {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
+  schedule?: string;
   task: string;
   workflow?: string;
   worktreePath: string;
 }
 
 async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
+  const config = loadPipelineConfig(inputs.worktreePath, {
+    allowMissingLintFileReferences: true,
+  });
+  if (inputs.schedule) {
+    const compiled = compileScheduleArtifact(
+      config,
+      parseScheduleArtifact(
+        readFileSync(inputs.schedule, "utf8"),
+        inputs.schedule
+      ),
+      inputs.worktreePath
+    );
+    await runAndPrintPipeline({
+      ...inputs,
+      config: compiled.config,
+      workflow: compiled.workflowId,
+    });
+    return;
+  }
+
+  const scheduledEntrypoint = scheduledEntrypointId(
+    config,
+    inputs.workflow,
+    inputs.entrypoint
+  );
+  if (scheduledEntrypoint) {
+    const result = await generateScheduleArtifact({
+      config,
+      entrypointId: scheduledEntrypoint,
+      task: inputs.task,
+      worktreePath: inputs.worktreePath,
+    });
+    console.log(
+      [
+        `Schedule generated: ${result.path}`,
+        `Run after approval: pipe run --schedule ${result.path}`,
+      ].join("\n")
+    );
+    return;
+  }
+
+  await runAndPrintPipeline({ ...inputs, config });
+}
+
+async function runAndPrintPipeline(
+  inputs: RunInputs & { config: PipelineConfig }
+): Promise<void> {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
   const result = await runner({
+    config: inputs.config,
     reporter: formatRuntimeProgress,
     entrypoint: inputs.entrypoint,
     task: inputs.task,
@@ -111,6 +168,19 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
   if (result.outcome !== "PASS") {
     throw new Error(formatRuntimeFailure(result));
   }
+}
+
+function scheduledEntrypointId(
+  config: PipelineConfig,
+  workflowId: string | undefined,
+  entrypointId: string | undefined
+): string | null {
+  if (workflowId) {
+    return null;
+  }
+  const id = entrypointId ?? "pipe";
+  const entrypoint = config.entrypoints[id];
+  return entrypoint && "schedule" in entrypoint ? id : null;
 }
 
 function formatRuntimeProgress(event: PipelineRuntimeEvent): void {
@@ -295,6 +365,7 @@ interface InitFlags {
 interface ValidateFlags {
   entrypoint?: string;
   lint?: boolean;
+  schedule?: string;
   strict?: boolean;
   workflow?: string;
 }
@@ -329,6 +400,7 @@ export function createCliProgram(): Command {
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
     await pipe(descriptionParts.join(" "), {
       entrypoint: flags.entrypoint,
+      schedule: flags.schedule,
       workflow: flags.workflow,
     });
   };
@@ -338,6 +410,7 @@ export function createCliProgram(): Command {
     .description("Run a workflow from .pipeline/pipeline.yaml")
     .argument("<description...>", "task description")
     .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--schedule <schedule>", "approved schedule YAML to execute")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action(runAction);
 
@@ -346,6 +419,7 @@ export function createCliProgram(): Command {
     .description("Alias for run")
     .argument("<description...>", "task description")
     .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--schedule <schedule>", "approved schedule YAML to execute")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action(runAction);
 
@@ -355,6 +429,7 @@ export function createCliProgram(): Command {
       "Validate .pipeline/pipeline.yaml and compile the workflow plan"
     )
     .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--schedule <schedule>", "approved schedule YAML to validate")
     .option("--strict", "fail when validation lint warnings are emitted")
     .option("--no-lint", "skip validation lint warnings")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
@@ -363,10 +438,19 @@ export function createCliProgram(): Command {
       const config = loadPipelineConfig(cwd, {
         allowMissingLintFileReferences: true,
       });
-      const plan = compileWorkflowPlan(
-        config,
-        resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
-      );
+      const plan = flags.schedule
+        ? compileScheduleArtifact(
+            config,
+            parseScheduleArtifact(
+              readFileSync(flags.schedule, "utf8"),
+              flags.schedule
+            ),
+            cwd
+          ).plan
+        : compileWorkflowPlan(
+            config,
+            resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
+          );
       const warnings =
         flags.lint === false ? [] : lintPipelineConfig(config, cwd);
       for (const warning of warnings) {
@@ -386,19 +470,14 @@ export function createCliProgram(): Command {
     .command("explain-plan")
     .description("Explain workflow nodes, runners, gates, hooks, and artifacts")
     .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--schedule <schedule>", "approved schedule YAML to explain")
     .option("--workflow <workflow>", "workflow id from pipeline.yaml")
     .action((flags: ValidateFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const config = loadPipelineConfig(cwd, {
         allowMissingLintFileReferences: true,
       });
-      console.log(
-        formatWorkflowPlan(
-          config,
-          cwd,
-          resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
-        )
-      );
+      console.log(formatSelectedWorkflowPlan(config, cwd, flags));
     });
 
   program
@@ -796,6 +875,41 @@ function formatWorkflowPlan(
   workflowId?: string
 ): string {
   const plan = compileWorkflowPlan(config, workflowId);
+  return formatCompiledWorkflowPlan(config, worktreePath, plan);
+}
+
+function formatSelectedWorkflowPlan(
+  config: PipelineConfig,
+  worktreePath: string,
+  flags: ValidateFlags
+): string {
+  if (flags.schedule) {
+    const compiled = compileScheduleArtifact(
+      config,
+      parseScheduleArtifact(
+        readFileSync(flags.schedule, "utf8"),
+        flags.schedule
+      ),
+      worktreePath
+    );
+    return formatCompiledWorkflowPlan(
+      compiled.config,
+      worktreePath,
+      compiled.plan
+    );
+  }
+  return formatWorkflowPlan(
+    config,
+    worktreePath,
+    resolveWorkflowSelection(config, flags.workflow, flags.entrypoint)
+  );
+}
+
+function formatCompiledWorkflowPlan(
+  config: PipelineConfig,
+  worktreePath: string,
+  plan: ReturnType<typeof compileWorkflowPlan>
+): string {
   const workflow = config.workflows[plan.workflowId];
   const lines = [`Workflow: ${plan.workflowId}`];
   lines.push(formatOrchestratorPlan(config, worktreePath));
@@ -863,6 +977,11 @@ function resolveWorkflowSelection(
   const entrypoint = config.entrypoints[entrypointId];
   if (!entrypoint) {
     throw new Error(`Unknown pipeline entrypoint '${entrypointId}'`);
+  }
+  if ("schedule" in entrypoint) {
+    throw new Error(
+      `Pipeline entrypoint '${entrypointId}' generates schedule '${entrypoint.schedule}'; use the entrypoint to create a schedule, then run with --schedule.`
+    );
   }
   return entrypoint.workflow;
 }
