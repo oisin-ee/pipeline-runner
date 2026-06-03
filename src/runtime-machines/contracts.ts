@@ -96,6 +96,13 @@ export type GateStateName = (typeof gateStateNames)[number];
 
 export type RetryReason = "exit_nonzero" | "gate_failure" | "timeout";
 
+export interface NodeRetryPolicyContract {
+  backoffMs: number;
+  maxAttempts: number;
+  multiplier: number;
+  retryOn: RetryReason[];
+}
+
 export interface RuntimeActorIdParts {
   gateId?: string;
   hookId?: string;
@@ -152,6 +159,7 @@ export type NodeExecutionEvent =
       attempt: number;
       evidence: string[];
       gate: string;
+      policy: NodeRetryPolicyContract;
       reason: string;
       retryReason: RetryReason;
       type: "RETRYING";
@@ -169,6 +177,7 @@ export type NodeExecutionEvent =
 export type WorkflowSchedulerEvent =
   | { type: "START" }
   | { nodeId: string; result: RuntimeNodeResult; type: "NODE_DONE" }
+  | { type: "COMPLETE" }
   | { reason?: string; type: "CANCEL" };
 
 export interface RuntimeActorDescriptor {

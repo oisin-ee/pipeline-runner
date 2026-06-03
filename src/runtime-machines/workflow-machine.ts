@@ -1,4 +1,4 @@
-import { assign, fromPromise, setup } from "xstate";
+import { type ActorRefFrom, assign, fromPromise, setup } from "xstate";
 import type {
   RuntimeActorDescriptor,
   RuntimeNodeResult,
@@ -18,6 +18,7 @@ interface WorkflowSchedulerContext {
   completed: RuntimeNodeResult[];
   input: WorkflowSchedulerInput;
   queue: string[];
+  status: "cancelled" | "failed" | "passed" | "running" | "waiting";
 }
 
 export const workflowSchedulerMachine = setup({
@@ -51,6 +52,18 @@ export const workflowSchedulerMachine = setup({
           ? [...context.completed, event.result]
           : context.completed,
     }),
+    markRunning: assign({
+      status: () => "running" as const,
+    }),
+    markCancelled: assign({
+      status: () => "cancelled" as const,
+    }),
+    markFailed: assign({
+      status: () => "failed" as const,
+    }),
+    markPassed: assign({
+      status: () => "passed" as const,
+    }),
   },
   guards: {
     hasFailure: ({ context }) =>
@@ -64,10 +77,14 @@ export const workflowSchedulerMachine = setup({
     completed: [],
     input,
     queue: input.nodeIds,
+    status: "waiting",
   }),
   states: {
     planning: {
-      on: { CANCEL: "cancelling", START: "startingHooks" },
+      on: {
+        CANCEL: { actions: "markCancelled", target: "cancelling" },
+        START: { actions: "markRunning", target: "startingHooks" },
+      },
       tags: ["waiting"],
     },
     startingHooks: {
@@ -82,8 +99,9 @@ export const workflowSchedulerMachine = setup({
     },
     runningBatch: {
       on: {
-        CANCEL: "cancelling",
-        NODE_DONE: { actions: "markNodeDone", target: "completingHooks" },
+        CANCEL: { actions: "markCancelled", target: "cancelling" },
+        COMPLETE: "completingHooks",
+        NODE_DONE: { actions: "markNodeDone" },
       },
       tags: ["running"],
     },
@@ -97,7 +115,10 @@ export const workflowSchedulerMachine = setup({
     },
     completingHooks: {
       tags: ["hook", "running"],
-      always: [{ guard: "hasFailure", target: "failed" }, { target: "passed" }],
+      always: [
+        { actions: "markFailed", guard: "hasFailure", target: "failed" },
+        { actions: "markPassed", target: "passed" },
+      ],
     },
     passed: {
       tags: ["terminal"],
@@ -113,3 +134,7 @@ export const workflowSchedulerMachine = setup({
     },
   },
 });
+
+export type WorkflowSchedulerActor = ActorRefFrom<
+  typeof workflowSchedulerMachine
+>;

@@ -1,6 +1,7 @@
 import { type ActorRefFrom, assign, setup } from "xstate";
 import type {
   NodeExecutionEvent,
+  NodeRetryPolicyContract,
   RuntimeActorDescriptor,
   RuntimeFailure,
   RuntimeGateResult,
@@ -18,10 +19,13 @@ export interface ActorNodeExecutionState {
   output?: string;
   retry?: {
     attempt: number;
+    delayMs: number;
     evidence: string[];
+    exhausted: boolean;
     gate: string;
     reason: string;
     retryReason: string;
+    scheduled: boolean;
   };
   startedAt?: string;
   status:
@@ -122,13 +126,7 @@ export const nodeExecutionMachine = setup({
               ...context.state,
               attempts: event.attempt,
               evidence: event.evidence,
-              retry: {
-                attempt: event.attempt,
-                evidence: event.evidence,
-                gate: event.gate,
-                reason: event.reason,
-                retryReason: event.retryReason,
-              },
+              retry: nodeRetryDecision(event),
               status: "running" as const,
             }
           : context.state,
@@ -188,6 +186,9 @@ export const nodeExecutionMachine = setup({
     input,
     state: initialNodeExecutionState(input.nodeId),
   }),
+  on: {
+    CANCELLED: { actions: "markCancelled", target: ".cancelled" },
+  },
   states: {
     pending: {
       on: {
@@ -272,7 +273,10 @@ export const nodeExecutionMachine = setup({
       tags: ["hook", "running"],
     },
     retrying: {
-      on: { STARTED: { actions: "markStarted", target: "startingHooks" } },
+      on: {
+        FAILED: { actions: "markFailed", target: "failed" },
+        STARTED: { actions: "markStarted", target: "startingHooks" },
+      },
       tags: ["retrying", "running"],
     },
     passed: {
@@ -309,6 +313,34 @@ function stateFromResult(
     output: result.output,
     status,
   };
+}
+
+function nodeRetryDecision(
+  event: Extract<NodeExecutionEvent, { type: "RETRYING" }>
+): NonNullable<ActorNodeExecutionState["retry"]> {
+  const scheduled =
+    event.policy.retryOn.includes(event.retryReason) &&
+    event.attempt < event.policy.maxAttempts;
+  return {
+    attempt: event.attempt,
+    delayMs: scheduled ? retryDelayMs(event.policy, event.attempt) : 0,
+    evidence: event.evidence,
+    exhausted: !scheduled,
+    gate: event.gate,
+    reason: event.reason,
+    retryReason: event.retryReason,
+    scheduled,
+  };
+}
+
+function retryDelayMs(
+  policy: NodeRetryPolicyContract,
+  attempt: number
+): number {
+  return (
+    policy.backoffMs *
+    Math.max(1, policy.multiplier) ** Math.max(0, attempt - 1)
+  );
 }
 
 export type NodeExecutionActor = ActorRefFrom<typeof nodeExecutionMachine>;

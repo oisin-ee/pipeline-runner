@@ -29,6 +29,7 @@ import {
   runLaunchPlan,
 } from "./runner.js";
 import {
+  type NodeRetryPolicyContract,
   type RetryReason,
   type RuntimeActorDescriptor,
   type RuntimeObservabilityEmitter,
@@ -41,6 +42,14 @@ import {
   type NodeExecutionActor,
   nodeExecutionMachine,
 } from "./runtime-machines/node-machine.js";
+import {
+  type WorkflowSchedulerActor,
+  workflowSchedulerMachine,
+} from "./runtime-machines/workflow-machine.js";
+import {
+  createRuntimeInspectionBridge,
+  type XStateInspectionEvent,
+} from "./runtime-observability-inspection.js";
 import { parseJson as parseSafeJson } from "./safe-json.js";
 import {
   compileWorkflowPlan,
@@ -147,6 +156,16 @@ export interface NodeExecutionState {
   gates: RuntimeGateResult[];
   id: string;
   output?: string;
+  retry?: {
+    attempt: number;
+    delayMs: number;
+    evidence: string[];
+    exhausted: boolean;
+    gate: string;
+    reason: string;
+    retryReason: string;
+    scheduled: boolean;
+  };
   startedAt?: string;
   status: NodeStatus;
 }
@@ -338,6 +357,7 @@ interface RuntimeContext {
   signal?: AbortSignal;
   task: string;
   taskContext?: PipelineTaskContext;
+  workflowActor?: WorkflowSchedulerActor;
   workflowId: string;
   worktreePath: string;
 }
@@ -403,6 +423,8 @@ async function runPipelineWithContext(
   const nodes: RuntimeNodeResult[] = [];
 
   await pinWorkflowBaseSha(context);
+  const workflowActor = startWorkflowSchedulerActor(context);
+  context.workflowActor = workflowActor;
   emitWorkflowPlanned(context);
   emit(context, {
     nodeIds: context.plan.topologicalOrder.map((node) => node.id),
@@ -412,15 +434,68 @@ async function runPipelineWithContext(
 
   const startFailure = await workflowStartFailure(context, nodes);
   if (startFailure) {
+    finishWorkflowSchedulerActor(context, startFailure);
     return finishRuntime(context, startFailure);
   }
 
   const executionFailure = await executeWorkflowBatches(context, nodes);
   if (executionFailure) {
+    finishWorkflowSchedulerActor(context, executionFailure);
     return finishRuntime(context, executionFailure);
   }
 
-  return finishRuntime(context, await successfulRuntimeResult(context, nodes));
+  const result = await successfulRuntimeResult(context, nodes);
+  finishWorkflowSchedulerActor(context, result);
+  return finishRuntime(context, result);
+}
+
+function startWorkflowSchedulerActor(
+  context: RuntimeContext
+): WorkflowSchedulerActor {
+  const actor = createActor(workflowSchedulerMachine, {
+    id: runtimeActorId("workflow", {
+      runId: context.runId,
+      workflowId: context.workflowId,
+    }),
+    input: {
+      actor: {
+        id: runtimeActorId("workflow", {
+          runId: context.runId,
+          workflowId: context.workflowId,
+        }),
+        kind: "workflow",
+      },
+      failFast: context.plan.execution.failFast,
+      maxParallelNodes: context.maxParallelNodes,
+      nodeIds: context.plan.topologicalOrder.map((node) => node.id),
+    },
+    ...(runtimeInspection(context)
+      ? { inspect: runtimeInspection(context) }
+      : {}),
+  });
+  actor.start();
+  actor.send({ type: "START" });
+  return actor;
+}
+
+function finishWorkflowSchedulerActor(
+  context: RuntimeContext,
+  result: PipelineRuntimeResult
+): void {
+  if (!context.workflowActor) {
+    return;
+  }
+  if (context.workflowActor.getSnapshot().status !== "active") {
+    return;
+  }
+  if (result.outcome === "CANCELLED") {
+    context.workflowActor.send({
+      reason: "pipeline cancelled",
+      type: "CANCEL",
+    });
+    return;
+  }
+  context.workflowActor.send({ type: "COMPLETE" });
 }
 
 function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
@@ -582,6 +657,16 @@ function assertNeverRuntimeObservabilityEvent(event: never): never {
   throw new Error(`Unhandled runtime observability event: ${String(event)}`);
 }
 
+function runtimeInspection(
+  context: RuntimeContext
+): ((event: XStateInspectionEvent) => void) | undefined {
+  return context.observability
+    ? createRuntimeInspectionBridge({
+        emit: context.observability,
+      })
+    : undefined;
+}
+
 function runtimeMaxParallelNodes(
   options: PipelineRuntimeOptions,
   plan: WorkflowExecutionPlan
@@ -664,11 +749,26 @@ async function executeWorkflowBatches(
 ): Promise<PipelineRuntimeResult | null> {
   for (const batch of context.plan.parallelBatches) {
     if (isCancelled(context)) {
+      context.workflowActor?.send({
+        reason: "pipeline cancelled",
+        type: "CANCEL",
+      });
       return cancelledRuntimeResult(context, nodes);
     }
     const results = await executeWorkflowBatch(batch, context);
     nodes.push(...results);
+    for (const result of results) {
+      context.workflowActor?.send({
+        nodeId: result.nodeId,
+        result,
+        type: "NODE_DONE",
+      });
+    }
     if (isCancelled(context)) {
+      context.workflowActor?.send({
+        reason: "pipeline cancelled",
+        type: "CANCEL",
+      });
       return cancelledRuntimeResult(context, nodes);
     }
     const failed = results.find((result) => result.status === "failed");
@@ -918,6 +1018,9 @@ function nodeActor(
       },
       nodeId,
     },
+    ...(runtimeInspection(context)
+      ? { inspect: runtimeInspection(context) }
+      : {}),
   });
   actor.start();
   context.nodeActors.set(nodeId, actor);
@@ -934,13 +1037,19 @@ function recordNodeEvent(
   actor.send(event);
   context.nodeStates.set(nodeId, actor.getSnapshot().context.state);
   if (event.type === "RETRYING") {
+    const retry = actor.getSnapshot().context.state.retry;
+    if (!retry || event.policy.maxAttempts <= 1) {
+      return;
+    }
     context.observability?.({
       actor: runtimeNodeActorDescriptor(context, nodeId),
-      attempt: event.attempt + 1,
+      attempt: retry.scheduled ? event.attempt + 1 : event.attempt,
       nodeId,
       reason: event.retryReason,
       timestamp: event.at,
-      type: "runtime.retry.scheduled",
+      type: retry.scheduled
+        ? "runtime.retry.scheduled"
+        : "runtime.retry.exhausted",
     });
   }
 }
@@ -1028,34 +1137,26 @@ async function executeNode(
     try {
       const cycle = await executeNodeAttemptCycle(node, context, attempt, last);
       last = cycle.last;
-      retry =
-        cycle.retry ??
-        (cycle.result
-          ? undefined
-          : {
-              attempt,
-              evidence: last.evidence,
-              gate: node.id,
-              reason: `node exited with code ${last.exitCode}`,
-              retryReason: nodeRetryReason(last),
-            });
       if (cycle.result) {
         emitNodeFinish(context, cycle.result);
         return cycle.result;
       }
-      if (!shouldScheduleRetry(retry, retryPolicy, attempt)) {
-        break;
-      }
+      retry = retryCandidateForCycle(node, cycle, last, attempt);
       recordNodeEvent(context, node.id, {
         at: now(),
         attempt,
         evidence: retry.evidence,
         gate: retry.gate,
+        policy: retryPolicy,
         reason: retry.reason,
         retryReason: retry.retryReason,
         type: "RETRYING",
       });
-      await waitForRetryDelay(retryPolicy, attempt, context.signal);
+      const retryDecision = context.nodeStates.get(node.id)?.retry;
+      if (!retryDecision?.scheduled) {
+        break;
+      }
+      await waitForRetryDelay(retryDecision.delayMs, context.signal);
     } catch (err) {
       if (isCancelled(context)) {
         retry = {
@@ -1088,16 +1189,6 @@ async function executeNode(
     reason: `node exited with code ${last.exitCode}`,
     retryReason: nodeRetryReason(last),
   };
-  if (retryPolicy.maxAttempts > 1) {
-    context.observability?.({
-      actor: runtimeNodeActorDescriptor(context, node.id),
-      attempt: retry.attempt,
-      nodeId: node.id,
-      reason: retry.retryReason,
-      timestamp: now(),
-      type: "runtime.retry.exhausted",
-    });
-  }
   await dispatchHooks(
     context,
     "node.error",
@@ -1125,35 +1216,12 @@ async function executeNode(
   return result;
 }
 
-function shouldScheduleRetry(
-  retry: NodeAttemptRetry | undefined,
-  retryPolicy: NodeRetryPolicy,
-  attempt: number
-): retry is NodeAttemptRetry {
-  return (
-    Boolean(retry && retryPolicy.retryOn.has(retry.retryReason)) &&
-    attempt < retryPolicy.maxAttempts
-  );
-}
-
-interface NodeRetryPolicy {
-  backoffMs: number;
-  maxAttempts: number;
-  multiplier: number;
-  retryOn: Set<RetryReason>;
-}
+type NodeRetryPolicy = NodeRetryPolicyContract;
 
 function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
-  const retryOn = new Set<RetryReason>([
-    "exit_nonzero",
-    "gate_failure",
-    "timeout",
-  ]);
+  let retryOn: RetryReason[] = ["exit_nonzero", "gate_failure", "timeout"];
   if (node.retries?.retry_on) {
-    retryOn.clear();
-    for (const reason of node.retries.retry_on) {
-      retryOn.add(reason);
-    }
+    retryOn = [...node.retries.retry_on];
   }
   return {
     backoffMs: node.retries?.backoff_ms ? node.retries.backoff_ms : 0,
@@ -1164,13 +1232,9 @@ function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
 }
 
 async function waitForRetryDelay(
-  retryPolicy: NodeRetryPolicy,
-  attempt: number,
+  delayMs: number,
   signal?: AbortSignal
 ): Promise<void> {
-  const delayMs =
-    retryPolicy.backoffMs *
-    Math.max(1, retryPolicy.multiplier) ** Math.max(0, attempt - 1);
   if (delayMs <= 0 || signal?.aborted) {
     return;
   }
@@ -1388,6 +1452,23 @@ function nodeRetryReason(
     return "gate_failure";
   }
   return "exit_nonzero";
+}
+
+function retryCandidateForCycle(
+  node: PlannedWorkflowNode,
+  cycle: NodeAttemptCycleResult,
+  last: NodeAttemptResult,
+  attempt: number
+): NodeAttemptRetry {
+  return (
+    cycle.retry ?? {
+      attempt,
+      evidence: last.evidence,
+      gate: node.id,
+      reason: `node exited with code ${last.exitCode}`,
+      retryReason: nodeRetryReason(last),
+    }
+  );
 }
 
 function cancelledNodeResult(
@@ -2870,6 +2951,9 @@ async function runGateEvaluationActor(
       kind: gate.kind,
       nodeId,
     },
+    ...(runtimeInspection(context)
+      ? { inspect: runtimeInspection(context) }
+      : {}),
   });
   actor.start();
   actor.send({ type: "START" });
@@ -3647,6 +3731,9 @@ async function runHookInvocationActor(
       nodeId: node?.id,
       required: hook.required === true,
     },
+    ...(runtimeInspection(context)
+      ? { inspect: runtimeInspection(context) }
+      : {}),
   });
   actor.start();
   actor.send({ type: "START" });

@@ -7,33 +7,16 @@ import {
   emitRuntimeSnapshot,
 } from "./runtime-observability.js";
 
-export type XStateInspectionEvent =
-  | {
-      actorRef?: { id?: string; sessionId?: string };
-      rootId?: string;
-      type: "@xstate.actor";
-    }
-  | {
-      actorRef?: { id?: string; sessionId?: string };
-      event?: { type?: string };
-      rootId?: string;
-      sourceRef?: { id?: string; sessionId?: string };
-      type: "@xstate.event";
-    }
-  | {
-      actorRef?: { id?: string; sessionId?: string };
-      rootId?: string;
-      snapshot?: unknown;
-      type: "@xstate.snapshot";
-    }
-  | {
-      actorRef?: { id?: string; sessionId?: string };
-      event?: { type?: string };
-      rootId?: string;
-      transitions?: Array<{ eventType?: string; target?: string[] }>;
-      type: "@xstate.microstep";
-      value?: unknown;
-    };
+export interface XStateInspectionEvent {
+  actorRef?: { id?: string; sessionId?: string };
+  event?: { type?: string };
+  rootId?: string;
+  snapshot?: unknown;
+  sourceRef?: { id?: string; sessionId?: string };
+  transitions?: Array<{ eventType?: string; target?: string[] }>;
+  type: string;
+  value?: unknown;
+}
 
 export interface RuntimeInspectionBridgeOptions {
   emit: RuntimeObservabilityEmitter;
