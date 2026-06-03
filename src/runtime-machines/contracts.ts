@@ -39,11 +39,16 @@ export type RuntimeMachineTag = (typeof runtimeMachineTags)[number];
 export const workflowStateNames = [
   "planning",
   "startingHooks",
+  "checkingStartHooks",
   "scheduling",
   "runningBatch",
-  "failFastStopping",
+  "evaluatingBatch",
+  "failureHooks",
+  "failureCompleteHooks",
+  "successHooks",
+  "completeHooks",
+  "checkingCompleteHooks",
   "cancelling",
-  "completingHooks",
   "passed",
   "failed",
   "cancelled",
@@ -178,8 +183,6 @@ export type NodeExecutionEvent =
 
 export type WorkflowSchedulerEvent =
   | { type: "START" }
-  | { nodeId: string; result: RuntimeNodeResult; type: "NODE_DONE" }
-  | { type: "COMPLETE" }
   | { reason?: string; type: "CANCEL" };
 
 export type WorkflowSchedulerResult = PipelineRuntimeResult;

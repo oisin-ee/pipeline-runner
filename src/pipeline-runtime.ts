@@ -434,31 +434,6 @@ async function runPipelineWithContext(
   return finishRuntime(context, result);
 }
 
-async function runWorkflowLifecycle(
-  context: RuntimeContext
-): Promise<PipelineRuntimeResult> {
-  const nodes: RuntimeNodeResult[] = [];
-
-  emitWorkflowPlanned(context);
-  emit(context, {
-    nodeIds: context.plan.topologicalOrder.map((node) => node.id),
-    type: "workflow.start",
-    workflowId: context.workflowId,
-  });
-
-  const startFailure = await workflowStartFailure(context, nodes);
-  if (startFailure) {
-    return startFailure;
-  }
-
-  const executionFailure = await executeWorkflowBatches(context, nodes);
-  if (executionFailure) {
-    return executionFailure;
-  }
-
-  return successfulRuntimeResult(context, nodes);
-}
-
 function startWorkflowSchedulerActor(
   context: RuntimeContext
 ): WorkflowSchedulerActor {
@@ -478,10 +453,35 @@ function startWorkflowSchedulerActor(
         kind: "workflow",
         systemId,
       },
+      batches: context.plan.parallelBatches.map((batch) =>
+        batch.map((node) => node.id)
+      ),
+      buildResult: (outcome, nodes, failure) =>
+        workflowRuntimeResult(context, outcome, nodes, failure),
+      emitWorkflowPlanned: () => emitWorkflowPlanned(context),
+      emitWorkflowStarted: () =>
+        emit(context, {
+          nodeIds: context.plan.topologicalOrder.map((node) => node.id),
+          type: "workflow.start",
+          workflowId: context.workflowId,
+        }),
       failFast: context.plan.execution.failFast,
+      isCancelled: () => isCancelled(context),
+      markNodeReady: (nodeId) =>
+        recordNodeEvent(context, nodeId, { at: now(), type: "READY" }),
       maxParallelNodes: context.maxParallelNodes,
       nodeIds: context.plan.topologicalOrder.map((node) => node.id),
-      runWorkflow: () => runWorkflowLifecycle(context),
+      runNode: (nodeId) => executePlannedNode(nodeId, context),
+      runWorkflowHook: (event, failure) =>
+        dispatchHooks(context, event, failure),
+      shouldContinueAfterNodeResult: (result) =>
+        shouldContinueAfterNodeResult(result, context),
+      skipNode: (nodeId, reason) =>
+        recordNodeEvent(context, nodeId, {
+          at: now(),
+          reason,
+          type: "SKIPPED",
+        }),
     },
     ...(runtimeInspection(context)
       ? { inspect: runtimeInspection(context) }
@@ -727,62 +727,6 @@ function generateRuntimeRunId(): string {
   return `run-${randomUUID()}`;
 }
 
-async function workflowStartFailure(
-  context: RuntimeContext,
-  nodes: RuntimeNodeResult[]
-): Promise<PipelineRuntimeResult | null> {
-  if (isCancelled(context)) {
-    return cancelledRuntimeResult(context, nodes);
-  }
-
-  const startHook = await dispatchHooks(context, "workflow.start");
-  if (isCancelled(context)) {
-    return cancelledRuntimeResult(context, nodes);
-  }
-  if (startHook) {
-    return failedRuntimeResult(context, nodes, startHook);
-  }
-  return null;
-}
-
-async function executeWorkflowBatches(
-  context: RuntimeContext,
-  nodes: RuntimeNodeResult[]
-): Promise<PipelineRuntimeResult | null> {
-  for (const batch of context.plan.parallelBatches) {
-    if (isCancelled(context)) {
-      return cancelledRuntimeResult(context, nodes);
-    }
-    const results = await executeWorkflowBatch(batch, context);
-    nodes.push(...results);
-    for (const result of results) {
-      context.workflowActor?.send({
-        nodeId: result.nodeId,
-        result,
-        type: "NODE_DONE",
-      });
-    }
-    if (isCancelled(context)) {
-      return cancelledRuntimeResult(context, nodes);
-    }
-    const failed = results.find((result) => result.status === "failed");
-    if (failed) {
-      if (
-        results.every((result) =>
-          shouldContinueAfterNodeResult(result, context)
-        )
-      ) {
-        continue;
-      }
-      const failure = nodeRuntimeFailure(failed);
-      await dispatchHooks(context, "workflow.failure", failure);
-      await dispatchHooks(context, "workflow.complete", failure);
-      return failedRuntimeResult(context, nodes, failure);
-    }
-  }
-  return null;
-}
-
 function shouldContinueAfterNodeResult(
   result: RuntimeNodeResult,
   context: RuntimeContext
@@ -812,70 +756,40 @@ function isDrainMergeNode(node: PlannedWorkflowNode | undefined): boolean {
   return node?.kind === "builtin" && node.builtin === "drain-merge";
 }
 
-function executeWorkflowBatch(
-  batch: PlannedWorkflowNode[],
+function executePlannedNode(
+  nodeId: string,
   context: RuntimeContext
-): Promise<RuntimeNodeResult[]> {
-  for (const node of batch) {
-    recordNodeEvent(context, node.id, { at: now(), type: "READY" });
+): Promise<RuntimeNodeResult> {
+  const node = context.plan.graph.node(nodeId);
+  if (!node) {
+    throw new Error(`workflow scheduler referenced unknown node '${nodeId}'`);
   }
-  if (context.plan.execution.failFast) {
-    return executeFailFastWorkflowBatch(batch, context);
-  }
-  if (!context.maxParallelNodes) {
-    return Promise.all(batch.map((node) => executeNode(node, context)));
-  }
-  const limit = pLimit(context.maxParallelNodes);
-  return Promise.all(
-    batch.map((node) => limit(() => executeNode(node, context)))
-  );
+  return executeNode(node, context);
 }
 
-async function executeFailFastWorkflowBatch(
-  batch: PlannedWorkflowNode[],
-  context: RuntimeContext
-): Promise<RuntimeNodeResult[]> {
-  const results: RuntimeNodeResult[] = [];
-  for (const [index, node] of batch.entries()) {
-    const result = await executeNode(node, context);
-    results.push(result);
-    if (result.status === "failed") {
-      skipRemainingBatchNodes(batch, index + 1, context, result.nodeId);
-      return results;
-    }
-  }
-  return results;
-}
-
-function skipRemainingBatchNodes(
-  batch: PlannedWorkflowNode[],
-  startIndex: number,
+function workflowRuntimeResult(
   context: RuntimeContext,
-  failedNodeId: string
-): void {
-  const reason = `skipped because workflow fail_fast stopped after node '${failedNodeId}' failed`;
-  for (const node of batch.slice(startIndex)) {
-    recordNodeEvent(context, node.id, {
-      at: now(),
-      reason,
-      type: "SKIPPED",
-    });
-  }
-}
-
-async function successfulRuntimeResult(
-  context: RuntimeContext,
-  nodes: RuntimeNodeResult[]
-): Promise<PipelineRuntimeResult> {
-  const successHook = await dispatchHooks(context, "workflow.success");
-  const completeHook = await dispatchHooks(context, "workflow.complete");
-  if (isCancelled(context)) {
+  outcome: PipelineRuntimeResult["outcome"],
+  nodes: RuntimeNodeResult[],
+  failure?: RuntimeFailure
+): PipelineRuntimeResult {
+  if (outcome === "CANCELLED") {
     return cancelledRuntimeResult(context, nodes);
   }
-  const hookFailure = successHook ?? completeHook;
-  if (hookFailure) {
-    return failedRuntimeResult(context, nodes, hookFailure);
+  if (outcome === "FAIL") {
+    return failedRuntimeResult(
+      context,
+      nodes,
+      failure ?? workflowRuntimeFailure()
+    );
   }
+  return passedRuntimeResult(context, nodes);
+}
+
+function passedRuntimeResult(
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): PipelineRuntimeResult {
   return {
     agentInvocations: context.agentInvocations,
     failureDetails: [],
@@ -885,6 +799,14 @@ async function successfulRuntimeResult(
     nodes,
     outcome: "PASS",
     plan: context.plan,
+  };
+}
+
+function workflowRuntimeFailure(): RuntimeFailure {
+  return {
+    evidence: ["workflow failed without a specific failure"],
+    gate: "workflow",
+    reason: "workflow failed",
   };
 }
 
