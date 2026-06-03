@@ -1,11 +1,15 @@
 import type {
   RuntimeActorDescriptor,
+  RuntimeActorKind,
   RuntimeObservabilityEmitter,
 } from "./runtime-machines/contracts.js";
 import {
   emitRuntimeActorEvent,
   emitRuntimeSnapshot,
 } from "./runtime-observability.js";
+
+const RUNTIME_ACTOR_ID_RE =
+  /^pipeline\.(pipeline|workflow|node|gate|hook)(\.|$)/;
 
 export interface XStateInspectionEvent {
   actorRef?: { id?: string; sessionId?: string };
@@ -71,9 +75,15 @@ export function createRuntimeInspectionBridge(
 }
 
 function inspectionActor(event: XStateInspectionEvent): RuntimeActorDescriptor {
+  const id = event.actorRef?.id ?? event.actorRef?.sessionId ?? "unknown";
   return {
-    id: event.actorRef?.id ?? event.actorRef?.sessionId ?? "unknown",
-    kind: "pipeline",
+    id,
+    kind: inspectionActorKind(id),
     ...(event.rootId ? { systemId: event.rootId } : {}),
   };
+}
+
+function inspectionActorKind(id: string): RuntimeActorKind {
+  const match = RUNTIME_ACTOR_ID_RE.exec(id);
+  return match ? (match[1] as RuntimeActorKind) : "pipeline";
 }

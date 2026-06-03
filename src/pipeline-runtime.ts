@@ -420,11 +420,25 @@ export function runPipelineFromConfig(
 async function runPipelineWithContext(
   context: RuntimeContext
 ): Promise<PipelineRuntimeResult> {
-  const nodes: RuntimeNodeResult[] = [];
-
   await pinWorkflowBaseSha(context);
   const workflowActor = startWorkflowSchedulerActor(context);
-  context.workflowActor = workflowActor;
+  const snapshot = await waitFor(
+    workflowActor,
+    (state) => state.status === "done"
+  );
+  const result = snapshot.context.result;
+  if (!result) {
+    throw new Error("workflow scheduler finished without a runtime result");
+  }
+  workflowActor.stop();
+  return finishRuntime(context, result);
+}
+
+async function runWorkflowLifecycle(
+  context: RuntimeContext
+): Promise<PipelineRuntimeResult> {
+  const nodes: RuntimeNodeResult[] = [];
+
   emitWorkflowPlanned(context);
   emit(context, {
     nodeIds: context.plan.topologicalOrder.map((node) => node.id),
@@ -434,29 +448,27 @@ async function runPipelineWithContext(
 
   const startFailure = await workflowStartFailure(context, nodes);
   if (startFailure) {
-    finishWorkflowSchedulerActor(context, startFailure);
-    return finishRuntime(context, startFailure);
+    return startFailure;
   }
 
   const executionFailure = await executeWorkflowBatches(context, nodes);
   if (executionFailure) {
-    finishWorkflowSchedulerActor(context, executionFailure);
-    return finishRuntime(context, executionFailure);
+    return executionFailure;
   }
 
-  const result = await successfulRuntimeResult(context, nodes);
-  finishWorkflowSchedulerActor(context, result);
-  return finishRuntime(context, result);
+  return successfulRuntimeResult(context, nodes);
 }
 
 function startWorkflowSchedulerActor(
   context: RuntimeContext
 ): WorkflowSchedulerActor {
+  const systemId = runtimeSystemId(context);
   const actor = createActor(workflowSchedulerMachine, {
     id: runtimeActorId("workflow", {
       runId: context.runId,
       workflowId: context.workflowId,
     }),
+    systemId,
     input: {
       actor: {
         id: runtimeActorId("workflow", {
@@ -464,38 +476,21 @@ function startWorkflowSchedulerActor(
           workflowId: context.workflowId,
         }),
         kind: "workflow",
+        systemId,
       },
       failFast: context.plan.execution.failFast,
       maxParallelNodes: context.maxParallelNodes,
       nodeIds: context.plan.topologicalOrder.map((node) => node.id),
+      runWorkflow: () => runWorkflowLifecycle(context),
     },
     ...(runtimeInspection(context)
       ? { inspect: runtimeInspection(context) }
       : {}),
   });
+  context.workflowActor = actor;
   actor.start();
   actor.send({ type: "START" });
   return actor;
-}
-
-function finishWorkflowSchedulerActor(
-  context: RuntimeContext,
-  result: PipelineRuntimeResult
-): void {
-  if (!context.workflowActor) {
-    return;
-  }
-  if (context.workflowActor.getSnapshot().status !== "active") {
-    return;
-  }
-  if (result.outcome === "CANCELLED") {
-    context.workflowActor.send({
-      reason: "pipeline cancelled",
-      type: "CANCEL",
-    });
-    return;
-  }
-  context.workflowActor.send({ type: "COMPLETE" });
 }
 
 function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
@@ -667,6 +662,13 @@ function runtimeInspection(
     : undefined;
 }
 
+function runtimeSystemId(context: RuntimeContext): string {
+  return runtimeActorId("pipeline", {
+    runId: context.runId,
+    workflowId: context.workflowId,
+  });
+}
+
 function runtimeMaxParallelNodes(
   options: PipelineRuntimeOptions,
   plan: WorkflowExecutionPlan
@@ -749,10 +751,6 @@ async function executeWorkflowBatches(
 ): Promise<PipelineRuntimeResult | null> {
   for (const batch of context.plan.parallelBatches) {
     if (isCancelled(context)) {
-      context.workflowActor?.send({
-        reason: "pipeline cancelled",
-        type: "CANCEL",
-      });
       return cancelledRuntimeResult(context, nodes);
     }
     const results = await executeWorkflowBatch(batch, context);
@@ -765,10 +763,6 @@ async function executeWorkflowBatches(
       });
     }
     if (isCancelled(context)) {
-      context.workflowActor?.send({
-        reason: "pipeline cancelled",
-        type: "CANCEL",
-      });
       return cancelledRuntimeResult(context, nodes);
     }
     const failed = results.find((result) => result.status === "failed");
@@ -1015,6 +1009,7 @@ function nodeActor(
           workflowId: context.workflowId,
         }),
         kind: "node",
+        systemId: runtimeSystemId(context),
       },
       nodeId,
     },
@@ -1065,6 +1060,7 @@ function runtimeNodeActorDescriptor(
       workflowId: context.workflowId,
     }),
     kind: "node",
+    systemId: runtimeSystemId(context),
   };
 }
 
@@ -2944,6 +2940,7 @@ async function runGateEvaluationActor(
           workflowId: context.workflowId,
         }),
         kind: "gate",
+        systemId: runtimeSystemId(context),
       },
       emit: context.observability,
       evaluate: () => evaluateGate(gate, nodeId, context, attempt),
@@ -3704,6 +3701,7 @@ async function runHookInvocationActor(
           workflowId: context.workflowId,
         }),
         kind: "hook",
+        systemId: runtimeSystemId(context),
       },
       emit: context.observability,
       execute: async () => {

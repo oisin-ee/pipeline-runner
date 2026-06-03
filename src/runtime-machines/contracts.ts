@@ -1,10 +1,12 @@
 import type {
+  PipelineRuntimeResult,
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
 } from "../pipeline-runtime.js";
 
 export type {
+  PipelineRuntimeResult,
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
@@ -179,6 +181,8 @@ export type WorkflowSchedulerEvent =
   | { nodeId: string; result: RuntimeNodeResult; type: "NODE_DONE" }
   | { type: "COMPLETE" }
   | { reason?: string; type: "CANCEL" };
+
+export type WorkflowSchedulerResult = PipelineRuntimeResult;
 
 export interface RuntimeActorDescriptor {
   id: string;

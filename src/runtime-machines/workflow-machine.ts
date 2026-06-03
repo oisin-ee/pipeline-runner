@@ -3,6 +3,7 @@ import type {
   RuntimeActorDescriptor,
   RuntimeNodeResult,
   WorkflowSchedulerEvent,
+  WorkflowSchedulerResult,
 } from "./contracts.js";
 
 export interface WorkflowSchedulerInput {
@@ -10,7 +11,7 @@ export interface WorkflowSchedulerInput {
   failFast: boolean;
   maxParallelNodes?: number;
   nodeIds: string[];
-  runNode?: (nodeId: string) => Promise<RuntimeNodeResult> | RuntimeNodeResult;
+  runWorkflow: () => Promise<WorkflowSchedulerResult> | WorkflowSchedulerResult;
 }
 
 interface WorkflowSchedulerContext {
@@ -18,30 +19,30 @@ interface WorkflowSchedulerContext {
   completed: RuntimeNodeResult[];
   input: WorkflowSchedulerInput;
   queue: string[];
+  result?: WorkflowSchedulerResult;
   status: "cancelled" | "failed" | "passed" | "running" | "waiting";
 }
+
+type WorkflowMachineEvent =
+  | WorkflowSchedulerEvent
+  | {
+      output: WorkflowSchedulerResult;
+      type: "xstate.done.actor.runWorkflow";
+    }
+  | {
+      error: unknown;
+      type: "xstate.error.actor.runWorkflow";
+    };
 
 export const workflowSchedulerMachine = setup({
   types: {
     context: {} as WorkflowSchedulerContext,
-    events: {} as WorkflowSchedulerEvent,
+    events: {} as WorkflowMachineEvent,
     input: {} as WorkflowSchedulerInput,
   },
   actors: {
-    runWorkflowNode: fromPromise(
-      ({ input }: { input: WorkflowSchedulerInput }) =>
-        Promise.resolve(
-          input.runNode
-            ? input.runNode(input.nodeIds[0] ?? "")
-            : {
-                attempts: 1,
-                evidence: [],
-                exitCode: 0,
-                nodeId: input.nodeIds[0] ?? "",
-                output: "",
-                status: "passed" as const,
-              }
-        )
+    runWorkflow: fromPromise(({ input }: { input: WorkflowSchedulerInput }) =>
+      Promise.resolve(input.runWorkflow())
     ),
   },
   actions: {
@@ -64,10 +65,18 @@ export const workflowSchedulerMachine = setup({
     markPassed: assign({
       status: () => "passed" as const,
     }),
+    markResult: assign({
+      result: ({ event }) =>
+        event.type === "xstate.done.actor.runWorkflow"
+          ? event.output
+          : undefined,
+    }),
   },
   guards: {
     hasFailure: ({ context }) =>
+      context.result?.outcome === "FAIL" ||
       context.completed.some((node) => node.status === "failed"),
+    isCancelled: ({ context }) => context.result?.outcome === "CANCELLED",
   },
 }).createMachine({
   id: "workflowScheduler",
@@ -98,6 +107,19 @@ export const workflowSchedulerMachine = setup({
       always: "runningBatch",
     },
     runningBatch: {
+      invoke: {
+        id: "runWorkflow",
+        input: ({ context }) => context.input,
+        onDone: {
+          actions: "markResult",
+          target: "completingHooks",
+        },
+        onError: {
+          actions: "markFailed",
+          target: "failed",
+        },
+        src: "runWorkflow",
+      },
       on: {
         CANCEL: { actions: "markCancelled", target: "cancelling" },
         COMPLETE: "completingHooks",
@@ -116,6 +138,7 @@ export const workflowSchedulerMachine = setup({
     completingHooks: {
       tags: ["hook", "running"],
       always: [
+        { actions: "markCancelled", guard: "isCancelled", target: "cancelled" },
         { actions: "markFailed", guard: "hasFailure", target: "failed" },
         { actions: "markPassed", target: "passed" },
       ],
