@@ -1,10 +1,10 @@
 ---
 id: PIPE-41.12.1
 title: Expose Backlog child dependency metadata to schedule planning
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-04 09:27'
-updated_date: '2026-06-04 09:40'
+updated_date: '2026-06-04 09:48'
 labels:
   - pipeline
   - schedules
@@ -32,11 +32,11 @@ Make the schedule planner receive enough canonical Backlog context to preserve c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A Backlog child task's declared dependencies are parsed into the schedule planning work-unit context using Backlog task metadata, not by scraping arbitrary prose.
-- [ ] #2 The planner prompt serializes each work unit with its id, title, description, acceptance criteria, and dependency ids when dependencies exist.
-- [ ] #3 Single-ticket schedules such as `PIPE-41.7` still use only the exact requested ticket as the work unit and do not pull sibling dependencies into the prompt.
-- [ ] #4 Tests cover a PC-37-shaped fixture with at least one sequential dependency and two independent child tickets, and assert the planner prompt contains the dependency metadata.
-- [ ] #5 The implementation uses existing `gray-matter`, `yaml`, and Zod/config parsing patterns already in the repo; no new parser dependency or ad hoc markdown parser is introduced.
+- [x] #1 A Backlog child task's declared dependencies are parsed into the schedule planning work-unit context using Backlog task metadata, not by scraping arbitrary prose.
+- [x] #2 The planner prompt serializes each work unit with its id, title, description, acceptance criteria, and dependency ids when dependencies exist.
+- [x] #3 Single-ticket schedules such as `PIPE-41.7` still use only the exact requested ticket as the work unit and do not pull sibling dependencies into the prompt.
+- [x] #4 Tests cover a PC-37-shaped fixture with at least one sequential dependency and two independent child tickets, and assert the planner prompt contains the dependency metadata.
+- [x] #5 The implementation uses existing `gray-matter`, `yaml`, and Zod/config parsing patterns already in the repo; no new parser dependency or ad hoc markdown parser is introduced.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -54,3 +54,9 @@ Make the schedule planner receive enough canonical Backlog context to preserve c
 <!-- SECTION:NOTES:BEGIN -->
 Execution started via `$execute`: first slice is a failing test for Backlog child dependency metadata in schedule planning context, then a minimal implementation in `src/schedule-planner.ts`.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Backlog child dependency metadata is now part of schedule planning context. Child task frontmatter dependencies are loaded through the existing `gray-matter` Backlog task reader and serialized into planner work units alongside id, title, description, and acceptance criteria. Single-ticket schedules still use only the exact requested ticket as their work unit. Verification included focused schedule planner red/green coverage plus the full repository verification suite.
+<!-- SECTION:FINAL_SUMMARY:END -->

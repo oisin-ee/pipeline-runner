@@ -1,10 +1,10 @@
 ---
 id: PIPE-41.12
 title: Generate ticket-accurate epic schedules that validate in installed pipe
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-04 09:12'
-updated_date: '2026-06-04 09:28'
+updated_date: '2026-06-04 09:48'
 labels:
   - pipeline
   - schedules
@@ -46,11 +46,11 @@ Dogfooding PC-37 exposed a broken epic scheduling setup. Running the epic entryp
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The epic entrypoint reads the epic and its Backlog child tickets, then generates explicit schedule nodes for every child ticket rather than only generic test/frontend/backend/k8s tracks.
-- [ ] #2 Generated epic schedules preserve Backlog dependencies as node needs edges and fan out only independent child tickets.
-- [ ] #3 Generated schedules validate with the same installed pipe validate --schedule command users will run; source schema, generated artifact schema, and installed package behavior agree on whether task context is supported.
-- [ ] #4 If task_context is supported, generated schedules assign each work unit with task_context.id and hydrate title, description, and acceptance criteria; if unsupported, planner prompt and code do not mention it.
-- [ ] #5 Regression tests cover a multi-child epic shaped like PC-37, including sequential contract/API dependencies, parallel independent branches, final rollout verification, and rejection of a generic four-track-only schedule.
+- [x] #1 The epic entrypoint reads the epic and its Backlog child tickets, then generates explicit schedule nodes for every child ticket rather than only generic test/frontend/backend/k8s tracks.
+- [x] #2 Generated epic schedules preserve Backlog dependencies as node needs edges and fan out only independent child tickets.
+- [x] #3 Generated schedules validate with the same installed pipe validate --schedule command users will run; source schema, generated artifact schema, and installed package behavior agree on whether task context is supported.
+- [x] #4 If task_context is supported, generated schedules assign each work unit with task_context.id and hydrate title, description, and acceptance criteria; if unsupported, planner prompt and code do not mention it.
+- [x] #5 Regression tests cover a multi-child epic shaped like PC-37, including sequential contract/API dependencies, parallel independent branches, final rollout verification, and rejection of a generic four-track-only schedule.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -71,3 +71,9 @@ Dependency batches: `.1` first; `.2` and `.3` can run after `.1` but both touch 
 <!-- SECTION:NOTES:BEGIN -->
 Backlog grooming on 2026-06-04 left this task open intentionally. Earlier `PIPE-41.1` through `PIPE-41.11` work is complete and current repo verification passes, but this ticket tracks the newer PC-37 dogfood failure where installed pipe behavior and generated schedule shape drifted.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented ticket-accurate epic scheduling fixes for the PC-37 dogfood failure class. Schedule planning now carries Backlog child dependency metadata; generated schedule validation rejects missing child assignments and dependency-edge violations; `task_context` remains valid across source schema, generated prompt/defaults, public package exports, and CLI validation; and dogfood coverage proves a PC-37-shaped multi-child epic generates, validates, and explains a ticket-accurate schedule rather than generic tracks. Verification passed `bun run typecheck`, `bun run check`, `bun run build`, `bun run test`, `bun run test:dogfood`, `node dist/index.js validate --schedule .pipeline/runs/run-20260603204455/schedule.yaml`, `node dist/index.js explain-plan --schedule .pipeline/runs/run-20260603204455/schedule.yaml`, and `node dist/index.js validate --schedule .pipeline/runs/run-20260603204951/schedule.yaml`.
+<!-- SECTION:FINAL_SUMMARY:END -->

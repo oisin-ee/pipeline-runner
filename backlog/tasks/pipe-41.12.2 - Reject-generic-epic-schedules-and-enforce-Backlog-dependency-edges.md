@@ -1,10 +1,10 @@
 ---
 id: PIPE-41.12.2
 title: Reject generic epic schedules and enforce Backlog dependency edges
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-04 09:27'
-updated_date: '2026-06-04 09:41'
+updated_date: '2026-06-04 09:48'
 labels:
   - pipeline
   - schedules
@@ -31,12 +31,12 @@ Make generated epic schedules ticket-accurate when Backlog child work units are 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When a scheduled epic has Backlog child work units, generated schedules that contain only generic track nodes and omit child `task_context.id` assignments are rejected with an actionable error listing the missing child ids.
-- [ ] #2 For each Backlog child dependency, validation requires a directed schedule path from at least one node assigned the prerequisite ticket to every implementation node assigned the dependent ticket.
-- [ ] #3 Independent Backlog child tickets can still fan out in the same execution batch when no dependency path is declared between them.
-- [ ] #4 The schedule-planner prompt tells planners to preserve Backlog dependency ids as `needs` edges and to fan out only independent child tickets.
-- [ ] #5 Regression tests cover a PC-37-shaped graph with sequential contract/API dependencies, parallel independent implementation branches, and rejection of a generic four-track-only schedule.
-- [ ] #6 No compatibility fallback silently drops dependency metadata or converts invalid dependency graphs into serial all-ticket chains.
+- [x] #1 When a scheduled epic has Backlog child work units, generated schedules that contain only generic track nodes and omit child `task_context.id` assignments are rejected with an actionable error listing the missing child ids.
+- [x] #2 For each Backlog child dependency, validation requires a directed schedule path from at least one node assigned the prerequisite ticket to every implementation node assigned the dependent ticket.
+- [x] #3 Independent Backlog child tickets can still fan out in the same execution batch when no dependency path is declared between them.
+- [x] #4 The schedule-planner prompt tells planners to preserve Backlog dependency ids as `needs` edges and to fan out only independent child tickets.
+- [x] #5 Regression tests cover a PC-37-shaped graph with sequential contract/API dependencies, parallel independent implementation branches, and rejection of a generic four-track-only schedule.
+- [x] #6 No compatibility fallback silently drops dependency metadata or converts invalid dependency graphs into serial all-ticket chains.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -55,3 +55,9 @@ Make generated epic schedules ticket-accurate when Backlog child work units are 
 <!-- SECTION:NOTES:BEGIN -->
 Execution started after `PIPE-41.12.1` green test. Next red test targets generated schedule validation for Backlog child dependency edges.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Generated schedule validation now rejects Backlog child dependency violations and generic schedules that omit child assignments. The planner prompt instructs agents to preserve Backlog dependency ids as `needs` edges, and validation requires implementation nodes for dependent work units to have a directed path from prerequisite work-unit nodes while independent tickets can still fan out. Verification included PC-37-shaped positive/negative schedule planner tests and the full repository verification suite.
+<!-- SECTION:FINAL_SUMMARY:END -->

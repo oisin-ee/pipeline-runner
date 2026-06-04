@@ -1,10 +1,10 @@
 ---
 id: PIPE-41.12.4
 title: Verify ticket-accurate epic scheduling through built installed-pipe usage
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-04 09:28'
-updated_date: '2026-06-04 09:44'
+updated_date: '2026-06-04 09:48'
 labels:
   - pipeline
   - schedules
@@ -36,12 +36,12 @@ Add the real usage proof for the PC-37 failure class. Once schedule planning und
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A dogfood test creates or uses a PC-37-shaped Backlog fixture with at least six child tickets, including one sequential dependency chain, two independent branches, and one final rollout/verification child.
-- [ ] #2 The scheduled epic entrypoint generates a schedule artifact whose root workflow contains explicit nodes assigned to every child ticket id and no generic-only `test/frontend/backend/k8s` implementation plan.
-- [ ] #3 The generated schedule preserves Backlog child dependencies in the explained execution plan while independent child branches remain parallelizable.
-- [ ] #4 The generated schedule validates with the same built or installed `pipe validate --schedule <schedule.yaml>` command users run, not only by direct unit-level function calls.
-- [ ] #5 The dogfood path also runs `pipe explain-plan --schedule <schedule.yaml>` and asserts the relevant child ticket ids and dependency ordering are visible in output.
-- [ ] #6 The final verification instructions for this ticket include `bun run typecheck`, `bun run check`, `bun run build`, `bun run test`, `bun run test:dogfood`, and the exact built/installed CLI validate and explain commands used.
+- [x] #1 A dogfood test creates or uses a PC-37-shaped Backlog fixture with at least six child tickets, including one sequential dependency chain, two independent branches, and one final rollout/verification child.
+- [x] #2 The scheduled epic entrypoint generates a schedule artifact whose root workflow contains explicit nodes assigned to every child ticket id and no generic-only `test/frontend/backend/k8s` implementation plan.
+- [x] #3 The generated schedule preserves Backlog child dependencies in the explained execution plan while independent child branches remain parallelizable.
+- [x] #4 The generated schedule validates with the same built or installed `pipe validate --schedule <schedule.yaml>` command users run, not only by direct unit-level function calls.
+- [x] #5 The dogfood path also runs `pipe explain-plan --schedule <schedule.yaml>` and asserts the relevant child ticket ids and dependency ordering are visible in output.
+- [x] #6 The final verification instructions for this ticket include `bun run typecheck`, `bun run check`, `bun run build`, `bun run test`, `bun run test:dogfood`, and the exact built/installed CLI validate and explain commands used.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -60,3 +60,9 @@ Add the real usage proof for the PC-37 failure class. Once schedule planning und
 <!-- SECTION:NOTES:BEGIN -->
 Execution started after schedule graph validation and `task_context` CLI/public-package coverage were green. This slice will add the PC-37-shaped dogfood proof through CLI schedule generation, validation, and explain-plan.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added a PC-37-shaped dogfood test with six child tickets, sequential dependencies, independent parallel branches, and final rollout verification. The test generates a ticket-accurate schedule with hydrated `task_context`, verifies every child id is assigned, rejects the old generic-track-only shape, and runs CLI `validate --schedule` plus `explain-plan --schedule` against the generated artifact. Verification also included built CLI validation/explain against existing generated schedules.
+<!-- SECTION:FINAL_SUMMARY:END -->

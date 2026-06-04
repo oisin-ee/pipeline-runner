@@ -1,10 +1,10 @@
 ---
 id: PIPE-41
 title: Agent-driven workflow scheduling
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-03 18:24'
-updated_date: '2026-06-04 09:23'
+updated_date: '2026-06-04 09:48'
 labels:
   - epic
   - pipeline
@@ -37,7 +37,7 @@ When `$epic PIPE-41` runs, the scheduler should extract the epic id, load its Ba
 - [x] #4 Agent-generated schedules use only configured profiles/workflows, embed every workflow reference, and assign one implementation branch per backlog child ticket with `task_context`
 - [x] #5 Generated schedules reject cycles, missing embedded workflow references, invalid profile/workflow ids, missing assigned units, and implementation branches without downstream verification/review
 - [x] #6 `pipe run --entrypoint epic PIPE-41` writes `.pipeline/runs/<runId>/schedule.yaml` and stops for approval before any workflow node executes
-- [ ] #7 `PIPE-41.12` resolves the installed-pipe dogfood gap: generated epic schedules are ticket-accurate for multi-child epics such as PC-37 and validate with the installed `pipe validate --schedule` command.
+- [x] #7 `PIPE-41.12` resolves the installed-pipe dogfood gap: generated epic schedules are ticket-accurate for multi-child epics such as PC-37 and validate with the installed `pipe validate --schedule` command.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -60,3 +60,9 @@ Backlog grooming update on 2026-06-04: `PIPE-41.1` through `PIPE-41.11` are comp
 <!-- SECTION:NOTES:BEGIN -->
 Fresh grooming verification passed `bun run typecheck`, `bun run check`, `bun run build`, `bun run test` (24 test files, 331 tests), `bun run test:dogfood` (4 tests), `bun src/index.ts validate --schedule .pipeline/runs/run-20260603204455/schedule.yaml`, `bun src/index.ts explain-plan --schedule .pipeline/runs/run-20260603204455/schedule.yaml`, `bun src/index.ts validate --schedule .pipeline/runs/run-20260603204951/schedule.yaml`, and `bun src/index.ts explain-plan --schedule .pipeline/runs/run-20260603204951/schedule.yaml`. The parent remains open because `PIPE-41.12` covers a later installed-pipe dogfood issue not fully proven by those older generated artifacts.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Completed the agent-driven workflow scheduling epic including the installed-pipe dogfood follow-up. The final `PIPE-41.12` slice made epic schedules ticket-accurate for multi-child Backlog epics, preserved Backlog dependency edges, kept `task_context` valid across source and installed CLI paths, and added PC-37-shaped dogfood coverage. Fresh verification on 2026-06-04 passed typecheck, check, build, full tests, dogfood, and built CLI validate/explain schedule commands.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -3,10 +3,10 @@ id: PIPE-41.12.3
 title: >-
   Align task_context schema support across source, generated defaults, and
   installed CLI
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-04 09:27'
-updated_date: '2026-06-04 09:43'
+updated_date: '2026-06-04 09:48'
 labels:
   - pipeline
   - schedules
@@ -45,11 +45,11 @@ Eliminate the installed-pipe drift where a generated schedule containing `task_c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A schedule artifact containing node `task_context.id` plus hydrated title, description, and acceptance criteria parses and compiles through the same config/workflow schema used by `pipe validate --schedule`.
-- [ ] #2 The generated `pipe init` defaults and checked-in schedule planner prompt agree that planners output only `task_context.id` and the scheduler hydrates all other fields from Backlog.
-- [ ] #3 The public `@oisincoveney/pipeline/schedule` export accepts and compiles a schedule artifact with `task_context` from a separate consumer project after build.
-- [ ] #4 A CLI-level test validates and explains an approved schedule artifact containing `task_context` without reporting `Unrecognized key: task_context`.
-- [ ] #5 The implementation removes schema drift at the source of truth; it does not strip `task_context` from schedules as a compatibility workaround.
+- [x] #1 A schedule artifact containing node `task_context.id` plus hydrated title, description, and acceptance criteria parses and compiles through the same config/workflow schema used by `pipe validate --schedule`.
+- [x] #2 The generated `pipe init` defaults and checked-in schedule planner prompt agree that planners output only `task_context.id` and the scheduler hydrates all other fields from Backlog.
+- [x] #3 The public `@oisincoveney/pipeline/schedule` export accepts and compiles a schedule artifact with `task_context` from a separate consumer project after build.
+- [x] #4 A CLI-level test validates and explains an approved schedule artifact containing `task_context` without reporting `Unrecognized key: task_context`.
+- [x] #5 The implementation removes schema drift at the source of truth; it does not strip `task_context` from schedules as a compatibility workaround.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -67,3 +67,9 @@ Eliminate the installed-pipe drift where a generated schedule containing `task_c
 <!-- SECTION:NOTES:BEGIN -->
 Execution started after schedule dependency validation was green. This slice adds regression coverage for `task_context` through config/schema, CLI validate/explain, and public package import paths, with source changes only if the tests expose drift.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+`task_context` support is locked across config/schema, schedule parsing/compilation, CLI validate/explain, generated prompt/default guidance, and the public `@oisincoveney/pipeline/schedule` export. The fix preserves hydrated task context rather than stripping it for compatibility. Verification included `bun run test tests/config.test.ts tests/cli.test.ts tests/package-public-api.test.ts`, full tests, typecheck, check, build, and built CLI schedule validation.
+<!-- SECTION:FINAL_SUMMARY:END -->

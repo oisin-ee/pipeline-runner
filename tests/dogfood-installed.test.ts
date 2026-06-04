@@ -8,10 +8,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadPipelineConfig } from "../src/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
 import { createRunnerLaunchPlan } from "../src/runner.js";
+import {
+  generateScheduleArtifact,
+  parseScheduleArtifact,
+} from "../src/schedule-planner.js";
 import { compileWorkflowPlan } from "../src/workflow-planner.js";
 
 const tempDirs: string[] = [];
@@ -32,6 +37,75 @@ function writeProjectFile(root: string, path: string, content: string): void {
   const target = join(root, path);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
+}
+
+function writeBacklogTask(
+  root: string,
+  id: string,
+  title: string,
+  body: string,
+  options: { dependencies?: string[]; parentTaskId?: string } = {}
+): void {
+  const parentTaskId =
+    options.parentTaskId ?? (id.includes(".") ? "PC-37" : "");
+  const dependencies =
+    options.dependencies && options.dependencies.length > 0
+      ? `dependencies:\n${options.dependencies.map((dep) => `  - ${dep}`).join("\n")}\n`
+      : "";
+  writeProjectFile(
+    root,
+    `backlog/tasks/${id.toLowerCase()} - task.md`,
+    `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${parentTaskId}\n${dependencies}---\n\n${body}`
+  );
+}
+
+function writePc37BacklogFixture(root: string): void {
+  writeBacklogTask(
+    root,
+    "PC-37",
+    "Pipeline console rollout",
+    "## Description\n\nParent epic.",
+    { parentTaskId: "" }
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.1",
+    "Define runner contract",
+    "## Description\n\nDefine the runner contract."
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.2",
+    "Build API endpoint",
+    "## Description\n\nBuild the API endpoint.",
+    { dependencies: ["PC-37.1"] }
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.3",
+    "Build console view",
+    "## Description\n\nBuild the console view.",
+    { dependencies: ["PC-37.1"] }
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.4",
+    "Wire Kubernetes job",
+    "## Description\n\nWire Kubernetes job launch."
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.5",
+    "Document rollout",
+    "## Description\n\nDocument rollout steps."
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.6",
+    "Verify rollout",
+    "## Description\n\nVerify the rollout.",
+    { dependencies: ["PC-37.2", "PC-37.3", "PC-37.4", "PC-37.5"] }
+  );
 }
 
 function writeDogfoodProject(root: string): void {
@@ -358,6 +432,145 @@ describe("installed dogfood configuration", () => {
         );
       }
     }
+  });
+
+  it("validates and explains ticket-accurate epic schedules with task context through the CLI", async () => {
+    const project = tempProject();
+    writePc37BacklogFixture(project);
+    writeProjectFile(project, ".pipeline/rules/test-first.md", "Test first.");
+    writeProjectFile(
+      project,
+      ".pipeline/rules/verification.md",
+      "Verify real usage."
+    );
+    const config = loadPipelineConfig(process.cwd(), {
+      allowMissingLintFileReferences: true,
+    });
+    const plannerSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-pc37-dogfood
+source_entrypoint: epic
+task: PC-37
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: pc-37-1-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+        task_context:
+          id: PC-37.1
+      - id: pc-37-2-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pc-37-1-green]
+        task_context:
+          id: PC-37.2
+      - id: pc-37-3-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pc-37-1-green]
+        task_context:
+          id: PC-37.3
+      - id: pc-37-4-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+        task_context:
+          id: PC-37.4
+      - id: pc-37-5-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+        task_context:
+          id: PC-37.5
+      - id: pc-37-6-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pc-37-2-green, pc-37-3-green, pc-37-4-green, pc-37-5-green]
+        task_context:
+          id: PC-37.6
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [pc-37-6-green]
+`;
+
+    const generated = await generateScheduleArtifact({
+      config,
+      entrypointId: "epic",
+      executor: () => ({ exitCode: 0, stdout: plannerSchedule }),
+      generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+      runId: "run-pc37-dogfood",
+      task: "PC-37",
+      worktreePath: project,
+    });
+    const generatedSource = readFileSync(generated.path, "utf8");
+    const generatedArtifact = parseScheduleArtifact(
+      generatedSource,
+      generated.path
+    );
+    const generatedNodeIds = generatedArtifact.workflows.root.nodes.map(
+      (node) => node.id
+    );
+    const generatedTaskContextIds =
+      generatedArtifact.workflows.root.nodes.flatMap((node) =>
+        node.task_context?.id ? [node.task_context.id] : []
+      );
+
+    expect(generatedNodeIds).not.toEqual([
+      "research",
+      "plan",
+      "test",
+      "frontend",
+      "backend",
+      "k8s",
+      "merge",
+      "review",
+    ]);
+    expect(new Set(generatedTaskContextIds)).toEqual(
+      new Set([
+        "PC-37.1",
+        "PC-37.2",
+        "PC-37.3",
+        "PC-37.4",
+        "PC-37.5",
+        "PC-37.6",
+      ])
+    );
+    expect(generatedSource).toContain("title: Build API endpoint");
+    expect(generatedSource).toContain("task_context:");
+
+    const validate = await execa(
+      "bun",
+      ["src/index.ts", "validate", "--schedule", generated.path],
+      { cwd: process.cwd() }
+    );
+    const explain = await execa(
+      "bun",
+      ["src/index.ts", "explain-plan", "--schedule", generated.path],
+      { cwd: process.cwd() }
+    );
+
+    expect(validate.stdout).toContain(
+      "OK: schedule-run-pc37-dogfood-root (8 nodes)"
+    );
+    expect(validate.stderr).not.toContain("task_context");
+    expect(explain.stdout).toContain(
+      "Batches: [research] -> [pc-37-1-green, pc-37-4-green, pc-37-5-green] -> [pc-37-2-green, pc-37-3-green] -> [pc-37-6-green] -> [verify]"
+    );
+    expect(explain.stdout).toContain(
+      "- pc-37-2-green kind=agent needs=pc-37-1-green"
+    );
+    expect(explain.stdout).toContain(
+      "- pc-37-6-green kind=agent needs=pc-37-2-green,pc-37-3-green,pc-37-4-green,pc-37-5-green"
+    );
   });
 
   it("runs deterministic dogfood options as a repeatable test", async () => {
