@@ -25,5 +25,8 @@ RUN npm install -g \
   && command -v opencode \
   && command -v claude
 
-ENTRYPOINT ["oisin-pipeline"]
+COPY docker/runner-entrypoint.sh /usr/local/bin/runner-entrypoint
+RUN chmod 0755 /usr/local/bin/runner-entrypoint
+
+ENTRYPOINT ["runner-entrypoint", "oisin-pipeline"]
 CMD ["runner-job"]

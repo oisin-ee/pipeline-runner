@@ -20,7 +20,14 @@ const SOURCE_COPY_RE = /COPY\s+(?:src|package\.json|bun\.lock|defaults)\b/i;
 const BUN_BUILD_RE = /bun\s+(?:install|run\s+build(?::cli)?)/i;
 const GIT_RE = /\bgit\b/i;
 const RUNNER_JOB_ENTRYPOINT_RE =
-  /ENTRYPOINT\s+\["oisin-pipeline"\][\s\S]*CMD\s+\["runner-job"\]/i;
+  /ENTRYPOINT\s+\["runner-entrypoint",\s*"oisin-pipeline"\][\s\S]*CMD\s+\["runner-job"\]/i;
+const RUNNER_ENTRYPOINT_COPY_RE =
+  /COPY\s+docker\/runner-entrypoint\.sh\s+\/usr\/local\/bin\/runner-entrypoint/i;
+const CODEX_AUTH_MATERIALIZATION_RE =
+  /CODEX_AUTH_JSON[\s\S]*CODEX_HOME[\s\S]*auth\.json/;
+const OPENCODE_AUTH_MATERIALIZATION_RE =
+  /OPENCODE_AUTH_JSON[\s\S]*\.local\/share\/opencode\/auth\.json/;
+const PI_AUTH_MATERIALIZATION_RE = /PI_AUTH_JSON[\s\S]*\.pi\/agent\/auth\.json/;
 const PIPELINE_CONSOLE_RE = /pipeline-console|apps\/console/i;
 const DOCKER_BUILD_RE = /\bdocker\s+build\b/;
 const DOCKER_RUN_RE = /\bdocker\s+run\b/;
@@ -107,6 +114,17 @@ describe("runner container image packaging", () => {
     const dockerfile = readProjectFile("Dockerfile").replace(/\s+/g, " ");
 
     expect(dockerfile).toMatch(RUNNER_JOB_ENTRYPOINT_RE);
+  });
+
+  it("materializes agent auth JSON env vars before starting the package", () => {
+    const dockerfile = readProjectFile("Dockerfile");
+    const entrypoint = readProjectFile("docker/runner-entrypoint.sh");
+
+    expect(dockerfile).toMatch(RUNNER_ENTRYPOINT_COPY_RE);
+    expect(entrypoint).toMatch(CODEX_AUTH_MATERIALIZATION_RE);
+    expect(entrypoint).toMatch(OPENCODE_AUTH_MATERIALIZATION_RE);
+    expect(entrypoint).toMatch(PI_AUTH_MATERIALIZATION_RE);
+    expect(entrypoint).toContain('exec "$@"');
   });
 
   it("does not copy pipeline-console source into the runner image", () => {
