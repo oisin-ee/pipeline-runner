@@ -320,7 +320,7 @@ describe("installCommands", () => {
       "utf8"
     );
 
-    expect(codexResearcher).not.toContain('name = "pipeline-researcher"');
+    expect(codexResearcher).toContain('name = "pipeline-researcher"');
     expect(codexResearcher).toContain('model = "gpt-5.5"');
     expect(codexResearcher).toContain("developer_instructions =");
     expect(codexResearcher).not.toContain("[mcp_servers.pipeline-gateway]");
@@ -333,10 +333,15 @@ describe("installCommands", () => {
     expect(codexResearcher).toContain(
       'path = ".agents/skills/research/SKILL.md"'
     );
-    expect(codexEmpty).toContain("[mcp_servers]");
+    expect(codexEmpty).not.toContain("[mcp_servers");
+    expect(codexEmpty).toContain('name = "empty-agent"');
     expect(codexEmpty).toContain("[skills]\nconfig = []");
     expect(codexProjectConfig).toContain(
       "# @oisincoveney/pipeline:codex-agents:start"
+    );
+    expect(codexProjectConfig).toContain("[mcp_servers.pipeline-gateway]");
+    expect(codexProjectConfig).toContain(
+      "[mcp_servers.pipeline-gateway.env_http_headers]"
     );
     expect(codexProjectConfig).toContain("max_depth = 1");
     expect(codexProjectConfig).not.toContain("[agents.pipeline-researcher]");

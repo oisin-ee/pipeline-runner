@@ -677,7 +677,7 @@ workflows:
     expect(launchText).toContain("url: http://127.0.0.1:4483/mcp");
     expect(launchText).toContain("headers: Authorization");
     expect(launchText).toContain("bearer_token_env_var: none");
-    expect(launchText).toContain("mcp_servers.pipeline-gateway.url");
+    expect(launchText).not.toContain("mcp_servers.pipeline-gateway.url");
     expect(launchText).not.toContain("mcp_servers.docs.command");
     expect(launchText).not.toContain("mcp_servers.memory.url");
   });

@@ -9,8 +9,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config.js";
-import { buildMcpLaunchPlan, tomlValue } from "./mcp/launch-plan.js";
 import { resolveFileReference } from "./path-refs.js";
+import { tomlValue } from "./toml.js";
 
 export type Harness = "codex" | "opencode";
 export type AgentRole =
@@ -147,13 +147,6 @@ function harnessArgv(
   contextFile: string | null,
   options: NativeArgOptions = {}
 ): string[] {
-  const mcp = buildMcpLaunchPlan({
-    actor: options.actor,
-    config: options.config,
-    nodeId: options.nodeId ?? "agent",
-    runnerType: harness,
-    worktreePath,
-  });
   const skillArgs = skillArgsFor(
     harness,
     options.config,
@@ -168,7 +161,7 @@ function harnessArgv(
         "-C",
         worktreePath,
         ...optionalModelArgs(harness, options.runner, options.actor),
-        ...mcp.args,
+        ...(options.config ? ["--ignore-user-config"] : []),
         ...skillArgs,
         "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
@@ -181,7 +174,6 @@ function harnessArgv(
             "--format",
             "json",
             ...optionalModelArgs(harness, options.runner, options.actor),
-            ...mcp.args,
             ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
@@ -195,7 +187,6 @@ function harnessArgv(
             "--format",
             "json",
             ...optionalModelArgs(harness, options.runner, options.actor),
-            ...mcp.args,
             ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
@@ -328,14 +319,7 @@ function createActorLaunchPlan(
 
   const command = runner.command ?? runner.type;
   const timeoutMs = Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000);
-  const mcp = buildMcpLaunchPlan({
-    actor,
-    config,
-    nodeId: input.nodeId,
-    runnerType: runner.type,
-    worktreePath: input.worktreePath,
-  });
-  const env = mcp.env;
+  const env: Record<string, string | undefined> = {};
   const base = {
     cwd: input.worktreePath,
     env,

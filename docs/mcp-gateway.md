@@ -11,7 +11,7 @@ Playwright, Qdrant, or Neon.
 ```text
 Codex/OpenCode
         |
-        | profile-scoped MCP config
+        | project-level MCP config
         v
 pipeline MCP gateway
         |
@@ -21,9 +21,9 @@ Backlog / GitHub / Serena / Context7 / Playwright / Qdrant / Neon
 ```
 
 The gateway owns long-lived upstream connections and process lifecycle. The
-pipeline owns the host projection: profiles that need MCP declare the singleton
-`pipeline-gateway` grant, and every Codex/OpenCode session receives only that
-remote MCP server.
+pipeline owns the host projection: project host config declares only the
+singleton `pipeline-gateway` remote MCP server. Agents inherit that project
+config instead of receiving profile-scoped native MCP config.
 
 ## Folder Boundary
 
@@ -31,8 +31,6 @@ MCP-specific code belongs in `src/mcp`:
 
 - `gateway.ts`: hosted/local gateway config, diagnostics, and host config
   rewrites.
-- `launch-plan.ts`: runtime host projection for Codex and OpenCode.
-- `native-config.ts`: generated native Codex agent MCP config.
 
 The rest of the runtime should consume those functions instead of hand-rendering
 host-specific MCP config.
@@ -42,7 +40,8 @@ host-specific MCP config.
 1. Run or deploy a gateway that exposes one remote MCP endpoint.
 2. Configure the gateway with upstream servers and credentials.
 3. Configure `mcp_gateway` in `.pipeline/profiles.yaml`.
-4. Grant `pipeline-gateway` only to profiles that need MCP access.
+4. Run `pipe mcp gateway configure-host` to write the project Codex/OpenCode
+   host config.
 5. Keep high-risk upstream capabilities controlled by gateway-side policy, not
    by asking every agent host to independently start or filter servers.
 
@@ -73,10 +72,8 @@ orchestrator MCP set * subagent count * host config layers
 ```
 
 With a gateway, the runtime launches zero local upstream MCP processes for
-agents. Codex receives `--ignore-user-config` plus one
-`mcp_servers.pipeline-gateway` remote entry. OpenCode runs with isolated
-XDG/config roots and receives inline `OPENCODE_CONFIG_CONTENT` containing only
-`pipeline-gateway`.
+agents. Codex and OpenCode read the same project-level host config, which
+contains only `pipeline-gateway`.
 
 ## Candidate Gateway Implementations
 
@@ -87,6 +84,5 @@ Use an off-the-shelf aggregator when possible:
 Use `pipe mcp gateway doctor` to check required environment variables, gateway
 health, local ToolHive availability for local mode, and legacy direct MCP
 entries. Use `pipe mcp gateway configure-host` to rewrite project or global
-host config with a backup. For Codex, this removes persistent MCP entries and
-leaves gateway metadata as comments because the runtime injects the gateway
-with `--config` only for pipeline-launched agents.
+host config with a backup. For Codex and OpenCode, this removes direct
+upstream MCP entries and writes the singleton `pipeline-gateway` remote entry.

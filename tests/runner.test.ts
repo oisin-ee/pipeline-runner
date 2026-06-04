@@ -9,7 +9,6 @@ import { parsePipelineConfigParts } from "../src/config.ts";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
-  runLaunchPlan,
   spawnAgent,
 } from "../src/runner.ts";
 
@@ -31,17 +30,6 @@ function parseTestConfig(parts: {
   runners: string;
 }) {
   return parsePipelineConfigParts(parts);
-}
-
-function requiredEnv(
-  env: Record<string, string | undefined>,
-  key: string
-): string {
-  const value = env[key];
-  if (!value) {
-    throw new Error(`Expected ${key} to be set`);
-  }
-  return value;
 }
 
 describe("spawnAgent — codex harness", () => {
@@ -278,7 +266,7 @@ workflows:
     ).toThrow("does not support output format");
   });
 
-  it("hydrates tools, skills, and the singleton MCP gateway into native runner launch plans", () => {
+  it("hydrates tools and skills without injecting MCP into native runner launch plans", () => {
     const config = parseTestConfig({
       runners: `
 version: 1
@@ -346,14 +334,8 @@ workflows:
     expect(codex.args).toContain(
       'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
     );
-    expect(codex.args).toContain(
-      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
-    );
-    expect(codex.args).toContain(
-      'mcp_servers.pipeline-gateway.http_headers={ Authorization = "Basic test-gateway-token" }'
-    );
+    expect(codex.args.join("\n")).not.toContain("mcp_servers.");
     expect(codex.args.join("\n")).not.toContain("docs.js");
-    expect(codex.args.join("\n")).not.toContain("mcp_servers.docs");
     expect(codex.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(codex.args).not.toContain("--sandbox");
     expect(codex.args).not.toContain('approval_policy="never"');
@@ -364,27 +346,8 @@ workflows:
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });
-    expect(opencode.env.OPENCODE_CONFIG).toBeUndefined();
-    expect(opencode.env.OPENCODE_CONFIG_DIR).toBeUndefined();
-    expect(opencode.env.OPENCODE_AUTH_CONTENT).toBeUndefined();
-    expect(opencode.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
-    expect(opencode.env.OPENCODE_CONFIG_CONTENT).toBeTruthy();
-    expect(opencode.env.OPENCODE_TEST_HOME).toBeTruthy();
-    expect(opencode.env.XDG_CONFIG_HOME).toBeTruthy();
-    expect(opencode.env.XDG_DATA_HOME).toBeTruthy();
-    expect(opencode.env.XDG_STATE_HOME).toBeTruthy();
-    expect(opencode.env.XDG_CACHE_HOME).toBeTruthy();
-    const opencodeConfig = JSON.parse(
-      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
-    );
-    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
-      enabled: true,
-      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
-      type: "remote",
-      url: "http://127.0.0.1:8787/mcp",
-    });
-    expect(opencodeConfig.mcp.unused).toBeUndefined();
-    expect(opencodeConfig.mcp.docs).toBeUndefined();
+    expect(opencode.env).toEqual({});
+    expect(opencode.args.join("\n")).not.toContain("mcp_servers.");
 
     const orchestrator = createOrchestratorLaunchPlan(config, {
       nodeId: "orchestrator",
@@ -399,12 +362,10 @@ workflows:
     expect(orchestrator.args).toContain(
       'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
     );
-    expect(orchestrator.args).toContain(
-      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
-    );
+    expect(orchestrator.args.join("\n")).not.toContain("mcp_servers.");
   });
 
-  it("does not project upstream MCP server names into native runner launch plans", () => {
+  it("does not project any MCP server names into native runner launch plans", () => {
     const project = "/tmp/pipeline-runner-mcp";
     const config = parsePipelineConfigParts(
       {
@@ -467,9 +428,7 @@ workflows:
       prompt: "do work",
       worktreePath: project,
     });
-    expect(codex.args).toContain(
-      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
-    );
+    expect(codex.args.join("\n")).not.toContain("mcp_servers.pipeline-gateway");
     expect(codex.args.join("\n")).not.toContain("mcp_servers.serena");
     expect(codex.args.join("\n")).not.toContain(
       "git+https://github.com/oraios/serena"
@@ -481,446 +440,8 @@ workflows:
       prompt: "do work",
       worktreePath: project,
     });
-    const opencodeConfig = JSON.parse(
-      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
-    );
-    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
-      enabled: true,
-      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
-      type: "remote",
-      url: "http://127.0.0.1:8787/mcp",
-    });
-    expect(opencodeConfig.mcp.serena).toBeUndefined();
-  });
-
-  it("projects BasicAuth gateway headers for Codex and OpenCode", () => {
-    process.env.MEMORY_MCP_BASIC_AUTH = "dXNlcjpwYXNz";
-    const project = "/tmp/pipeline-runner-basic-mcp";
-    const config = parseTestConfig({
-      runners: `
-version: 1
-runners:
-  codex:
-    type: codex
-    command: codex
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      mcp_servers: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-mcp_gateway:
-  provider: toolhive
-  mode: hosted
-  url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
-profiles:
-  orchestrator:
-    runner: codex
-    instructions: { inline: Orchestrate }
-  codex-agent:
-    runner: codex
-    instructions: { inline: Codex }
-    mcp_servers: [pipeline-gateway]
-  opencode-agent:
-    runner: opencode
-    instructions: { inline: OpenCode }
-    mcp_servers: [pipeline-gateway]
-`,
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: codex-agent }
-`,
-    });
-
-    const codex = createRunnerLaunchPlan(config, {
-      profileId: "codex-agent",
-      nodeId: "codex",
-      prompt: "do work",
-      worktreePath: project,
-    });
-    expect(codex.args).toContain(
-      'mcp_servers.pipeline-gateway.http_headers={ Authorization = "Basic dXNlcjpwYXNz" }'
-    );
-    expect(codex.args.join("\n")).not.toContain("bearer_token_env_var");
-
-    const opencode = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
-      nodeId: "opencode",
-      prompt: "do work",
-      worktreePath: project,
-    });
-    const opencodeConfig = JSON.parse(
-      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
-    );
-    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
-      enabled: true,
-      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
-      type: "remote",
-      url: "http://127.0.0.1:8787/mcp",
-    });
-  });
-
-  it("keeps a Codex BasicAuth gateway placeholder when the auth env var is missing", () => {
-    const originalGatewayToken = process.env.MEMORY_MCP_BASIC_AUTH;
-    delete process.env.MEMORY_MCP_BASIC_AUTH;
-    const config = parseTestConfig({
-      runners: `
-version: 1
-runners:
-  codex:
-    type: codex
-    command: codex
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-mcp_gateway:
-  provider: toolhive
-  mode: hosted
-  url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
-profiles:
-  orchestrator:
-    runner: codex
-    instructions: { inline: Orchestrate }
-  codex-agent:
-    runner: codex
-    instructions: { inline: Codex }
-    mcp_servers: [pipeline-gateway]
-`,
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: codex-agent }
-`,
-    });
-
-    try {
-      const codex = createRunnerLaunchPlan(config, {
-        profileId: "codex-agent",
-        nodeId: "codex",
-        prompt: "do work",
-        worktreePath: "/tmp/wt",
-      });
-      expect(codex.args).toContain(
-        'mcp_servers.pipeline-gateway.http_headers={ Authorization = "Basic {env:MEMORY_MCP_BASIC_AUTH}" }'
-      );
-    } finally {
-      if (originalGatewayToken === undefined) {
-        delete process.env.MEMORY_MCP_BASIC_AUTH;
-      } else {
-        process.env.MEMORY_MCP_BASIC_AUTH = originalGatewayToken;
-      }
-    }
-  });
-
-  it("renders the gateway for each native runner", () => {
-    const config = parseTestConfig({
-      runners: `
-version: 1
-runners:
-  codex:
-    type: codex
-    command: codex
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-mcp_gateway:
-  provider: toolhive
-  mode: hosted
-  url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
-profiles:
-  orchestrator:
-    runner: codex
-    instructions: { inline: Orchestrate }
-  codex-agent: { runner: codex, instructions: { inline: Codex }, mcp_servers: [pipeline-gateway] }
-  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [pipeline-gateway] }
-`,
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: codex-agent }
-`,
-    });
-
-    const codex = createRunnerLaunchPlan(config, {
-      profileId: "codex-agent",
-      nodeId: "codex",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    expect(codex.args).toContain(
-      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
-    );
-    expect(codex.args.join("\n")).not.toContain("mcp_servers.memory");
-    expect(codex.args.join("\n")).not.toContain("MEMORY_MCP_TOKEN");
-
-    const opencode = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
-      nodeId: "opencode",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    const opencodeConfig = JSON.parse(
-      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
-    );
-    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
-      enabled: true,
-      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
-      type: "remote",
-      url: "http://127.0.0.1:8787/mcp",
-    });
-    expect(opencodeConfig.mcp.memory).toBeUndefined();
-    expect(opencodeConfig.mcp["secure-memory"]).toBeUndefined();
-  });
-
-  it("fails loudly when a profile needs MCP but the gateway URL env var is missing", () => {
-    delete process.env.PIPELINE_MCP_GATEWAY_URL;
-    const config = parseTestConfig({
-      runners: `
-version: 1
-runners:
-  codex:
-    type: codex
-    command: codex
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-mcp_gateway:
-  provider: toolhive
-  mode: hosted
-  url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
-profiles:
-  orchestrator:
-    runner: codex
-    instructions: { inline: Orchestrate }
-  codex-agent:
-    runner: codex
-    instructions: { inline: Codex }
-    mcp_servers: [pipeline-gateway]
-`,
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: codex-agent }
-`,
-    });
-
-    expect(() =>
-      createRunnerLaunchPlan(config, {
-        profileId: "codex-agent",
-        nodeId: "codex",
-        prompt: "do work",
-        worktreePath: "/tmp/wt",
-      })
-    ).toThrow("PIPELINE_MCP_GATEWAY_URL");
-  });
-
-  it("isolates opencode launch config even when the profile has no MCP grants", () => {
-    const config = parseTestConfig({
-      runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-  no-mcp-agent:
-    runner: opencode
-    instructions: { inline: OpenCode }
-`,
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: no-mcp-agent }
-`,
-    });
-
-    const opencode = createRunnerLaunchPlan(config, {
-      profileId: "no-mcp-agent",
-      nodeId: "opencode-no-mcp",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    const opencodeConfig = JSON.parse(
-      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
-    );
-
-    expect(opencode.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
-    expect(opencode.env.OPENCODE_CONFIG).toBeUndefined();
-    expect(opencode.env.OPENCODE_CONFIG_CONTENT).toBeTruthy();
-    expect(opencodeConfig.mcp).toEqual({});
-  });
-
-  it("cleans opencode runtime directories after launch plan execution", async () => {
-    const { existsSync } = await import("node:fs");
-    mockExeca.mockReturnValueOnce(makeSimpleResult("opencode output", 0));
-    const config = parseTestConfig({
-      runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-  no-mcp-agent:
-    runner: opencode
-    instructions: { inline: OpenCode }
-`,
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: no-mcp-agent }
-`,
-    });
-    const plan = createRunnerLaunchPlan(config, {
-      profileId: "no-mcp-agent",
-      nodeId: "opencode-cleanup",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    const runtimeDir = requiredEnv(plan.env, "PIPELINE_OPENCODE_RUNTIME_DIR");
-    expect(runtimeDir).toBeTruthy();
-    expect(existsSync(runtimeDir)).toBe(true);
-
-    await runLaunchPlan(plan);
-
-    expect(existsSync(runtimeDir)).toBe(false);
-  });
-
-  it("cleans opencode runtime directories when launch plan execution fails", async () => {
-    const { existsSync } = await import("node:fs");
-    mockExeca.mockRejectedValueOnce({
-      exitCode: 2,
-      stderr: "opencode failed",
-      stdout: "",
-    });
-    const config = parseTestConfig({
-      runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-  no-mcp-agent:
-    runner: opencode
-    instructions: { inline: OpenCode }
-`,
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: no-mcp-agent }
-`,
-    });
-    const plan = createRunnerLaunchPlan(config, {
-      profileId: "no-mcp-agent",
-      nodeId: "opencode-cleanup-fail",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    const runtimeDir = requiredEnv(plan.env, "PIPELINE_OPENCODE_RUNTIME_DIR");
-    expect(existsSync(runtimeDir)).toBe(true);
-
-    const result = await runLaunchPlan(plan);
-
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toBe("opencode failed");
-    expect(existsSync(runtimeDir)).toBe(false);
+    expect(opencode.env).toEqual({});
+    expect(opencode.args.join("\n")).not.toContain("mcp_servers.");
   });
 
   it("falls back from actor model to runner model for launch plans", () => {

@@ -2334,10 +2334,12 @@ workflows:
       const opencode = JSON.parse(
         readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
       );
+      expect(codex).toContain("[mcp_servers.pipeline-gateway]");
+      expect(codex).toContain('url = "https://gateway.example/mcp"');
       expect(codex).toContain(
-        "Codex pipeline runs receive MCP gateway config through runtime launch args"
+        "[mcp_servers.pipeline-gateway.env_http_headers]"
       );
-      expect(codex).toContain('# gateway_url = "https://gateway.example/mcp"');
+      expect(codex).toContain('Authorization = "MEMORY_MCP_BASIC_AUTH"');
       expect(codex).not.toContain("legacy");
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         enabled: true,

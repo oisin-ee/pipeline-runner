@@ -352,7 +352,7 @@ describe("installed dogfood configuration", () => {
       if (nativeAgentPath) {
         const content = readFileSync(join(root, nativeAgentPath), "utf8");
         if (nativeAgentPath.endsWith(".toml")) {
-          expect(content).not.toContain(`name = "${profileId}"`);
+          expect(content).toContain(`name = "${profileId}"`);
           expect(content).toContain("developer_instructions = ");
         } else {
           expect(content).toContain("Configured grants:");
@@ -374,11 +374,15 @@ describe("installed dogfood configuration", () => {
         join(root, ".codex/config.toml"),
         "utf8"
       );
-      expect(codexAgentContent).not.toContain(`name = "${profileId}"`);
+      expect(codexAgentContent).toContain(`name = "${profileId}"`);
       expect(codexAgentContent).toContain("developer_instructions = ");
       expect(codexAgentContent).not.toContain("[mcp_servers.");
       expect(projectCodexConfig).toContain(
         "# @oisincoveney/pipeline:codex-agents:start"
+      );
+      expect(projectCodexConfig).toContain("[mcp_servers.pipeline-gateway]");
+      expect(projectCodexConfig).toContain(
+        "[mcp_servers.pipeline-gateway.env_http_headers]"
       );
       expect(projectCodexConfig).toContain("[agents]");
       expect(projectCodexConfig).toContain("max_depth = 1");
@@ -442,9 +446,10 @@ describe("installed dogfood configuration", () => {
         }
       }
       for (const mcpId of profile.mcp_servers ?? []) {
-        expect(launchArgs, `${profileId} launches MCP ${mcpId}`).toContain(
-          `mcp_servers.${mcpId}.`
-        );
+        expect(
+          launchArgs,
+          `${profileId} uses project MCP ${mcpId}`
+        ).not.toContain(`mcp_servers.${mcpId}.`);
       }
     }
   });
@@ -656,7 +661,7 @@ workflows:
     });
   });
 
-  it("loads an opencode profile with strict isolated MCP launch config", () => {
+  it("loads an opencode profile without runtime MCP injection", () => {
     const project = tempProject();
     writeProjectFile(
       project,
@@ -718,24 +723,8 @@ workflows:
       prompt: "verify configured grants",
       worktreePath: project,
     });
-    const opencodeConfigContent = launch.env.OPENCODE_CONFIG_CONTENT;
-    if (!opencodeConfigContent) {
-      throw new Error("Expected OPENCODE_CONFIG_CONTENT to be set");
-    }
-    const opencodeConfig = JSON.parse(opencodeConfigContent);
-
-    expect(launch.env.OPENCODE_CONFIG).toBeUndefined();
-    expect(launch.env.OPENCODE_CONFIG_DIR).toBeUndefined();
-    expect(launch.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
-    expect(launch.env.XDG_CONFIG_HOME).toContain("pipeline-opencode-runtime-");
-    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
-      enabled: true,
-      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
-      type: "remote",
-      url: "http://127.0.0.1:4483/mcp",
-    });
-    expect(opencodeConfig.mcp.selected).toBeUndefined();
-    expect(opencodeConfig.mcp.unused).toBeUndefined();
+    expect(launch.env).toEqual({});
+    expect(launch.args.join("\n")).not.toContain("mcp_servers.");
   });
 });
 
