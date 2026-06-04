@@ -349,8 +349,8 @@ function entrypointDispatchBlock(
   return [
     `Generate a schedule for entrypoint \`${id}\` and the user task.`,
     `The schedule policy is \`${entrypoint.schedule}\`.`,
-    `Run \`pipe run --entrypoint ${id} <task description>\` to write the schedule artifact, then stop for approval.`,
-    "Do not execute workflow nodes until the user runs `pipe run --schedule <schedule.yaml>`.",
+    `Run \`pipe run --entrypoint ${id} <task description>\` to generate and execute the schedule artifact.`,
+    "Use `pipe run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.",
   ].join("\n");
 }
 

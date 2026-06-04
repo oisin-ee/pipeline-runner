@@ -52,7 +52,7 @@ ${extraWorkflow}
 }
 
 describe("runtime context", () => {
-  it("resolves workflow entrypoints and rejects schedules", () => {
+  it("resolves workflow entrypoints and rejects schedule entrypoints", () => {
     const config = configWithWorkflow();
 
     expect(resolveWorkflowSelection(config, undefined, "default-entry")).toBe(
@@ -61,7 +61,7 @@ describe("runtime context", () => {
     expect(() =>
       resolveWorkflowSelection(config, undefined, "nightly")
     ).toThrow(
-      "Pipeline entrypoint 'nightly' generates schedule 'nightly-schedule'; run an approved schedule artifact instead."
+      "Pipeline entrypoint 'nightly' generates schedule 'nightly-schedule'; run with --schedule <schedule.yaml> instead."
     );
     expect(() =>
       resolveWorkflowSelection(config, undefined, "missing")

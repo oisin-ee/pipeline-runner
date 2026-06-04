@@ -21,5 +21,5 @@ Instructions: .pipeline/prompts/orchestrator.md
 
 Generate a schedule for entrypoint `pipe` and the user task.
 The schedule policy is `pipe-schedule`.
-Run `pipe run --entrypoint pipe <task description>` to write the schedule artifact, then stop for approval.
-Do not execute workflow nodes until the user runs `pipe run --schedule <schedule.yaml>`.
+Run `pipe run --entrypoint pipe <task description>` to generate and execute the schedule artifact.
+Use `pipe run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.

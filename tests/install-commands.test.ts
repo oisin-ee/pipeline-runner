@@ -268,14 +268,17 @@ describe("installCommands", () => {
     );
     expect(codexSkill).toContain("$pipe <task description>");
     expect(codexSkill).toContain("The schedule policy is `pipe-schedule`.");
-    expect(codexSkill).toContain("pipe run --schedule <schedule.yaml>");
+    expect(codexSkill).toContain("generate and execute the schedule artifact");
+    expect(codexSkill).not.toContain("stop for approval");
     expect(codexSkill).not.toContain("agent_type=worker");
     expect(codexSkill).not.toContain("codex CLI profile=");
     expect(codexPluginEpic).toContain("/epic <task description>");
     expect(codexPluginEpic).toContain(
       "The schedule policy is `epic-schedule`."
     );
-    expect(codexPluginEpic).toContain("pipe run --schedule <schedule.yaml>");
+    expect(codexPluginEpic).toContain(
+      "generate and execute the schedule artifact"
+    );
 
     for (const content of [opencodeOrchestrator]) {
       expect(content).toContain("Do not use `pipe`, `oisin-pipeline`");

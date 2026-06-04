@@ -89,7 +89,7 @@ export function resolveWorkflowSelection(
   }
   if ("schedule" in entrypoint) {
     throw new Error(
-      `Pipeline entrypoint '${entrypointId}' generates schedule '${entrypoint.schedule}'; run an approved schedule artifact instead.`
+      `Pipeline entrypoint '${entrypointId}' generates schedule '${entrypoint.schedule}'; run with --schedule <schedule.yaml> instead.`
     );
   }
   return entrypoint.workflow;

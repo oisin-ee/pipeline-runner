@@ -147,12 +147,17 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
       task: inputs.task,
       worktreePath: inputs.worktreePath,
     });
-    console.log(
-      [
-        `Schedule generated: ${result.path}`,
-        `Run after approval: pipe run --schedule ${result.path}`,
-      ].join("\n")
+    console.log(`Schedule generated: ${result.path}`);
+    const compiled = compileScheduleArtifact(
+      config,
+      result.artifact,
+      inputs.worktreePath
     );
+    await runAndPrintPipeline({
+      ...inputs,
+      config: compiled.config,
+      workflow: compiled.workflowId,
+    });
     return;
   }
 

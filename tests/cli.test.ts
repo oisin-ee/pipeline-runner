@@ -1029,7 +1029,7 @@ describe("pipe", () => {
     );
   });
 
-  it("generates a schedule artifact and stops for scheduled pipe entrypoints", async () => {
+  it("generates and executes schedule artifacts for scheduled pipe entrypoints", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-plan-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1067,8 +1067,9 @@ workflows:
         .map(([message]) => String(message))
         .join("\n");
       expect(output).toContain("Schedule generated:");
-      expect(output).toContain("pipe run --schedule");
-      expect(execaCommands()).toEqual(["scheduled-runner"]);
+      expect(output).not.toContain("Run after approval:");
+      expect(output).toContain("Workflow: schedule-run-cli-root");
+      expect(execaCommands()).toEqual(["scheduled-runner", "inspect-bin"]);
       const schedulePath = output.match(SCHEDULE_GENERATED_PATH_RE)?.at(1);
       expect(schedulePath).toBeDefined();
       expect(existsSync(schedulePath ?? "")).toBe(true);
@@ -1087,7 +1088,7 @@ workflows:
     }
   });
 
-  it("executes an approved schedule artifact via run --schedule", async () => {
+  it("executes a schedule artifact via run --schedule", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-run-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1157,7 +1158,7 @@ workflows:
     }
   });
 
-  it("validates and explains an approved schedule artifact", async () => {
+  it("validates and explains a schedule artifact", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-inspect-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
