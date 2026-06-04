@@ -1,9 +1,10 @@
 ---
 id: PIPE-41
 title: Agent-driven workflow scheduling
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-03 18:24'
+updated_date: '2026-06-04 09:23'
 labels:
   - epic
   - pipeline
@@ -30,12 +31,13 @@ When `$epic PIPE-41` runs, the scheduler should extract the epic id, load its Ba
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `PIPE-41.1` through `PIPE-41.5` keep the profile/prompt/baseline regression hardening phase intact
-- [ ] #2 Schedule policies use their `baseline` only as the planner seed; there is no separate baseline-refinement strategy
-- [ ] #3 Scheduled epics resolve Backlog child tickets before prompt decomposition and pass those work units to the planner
-- [ ] #4 Agent-generated schedules use only configured profiles/workflows, embed every workflow reference, and assign one implementation branch per backlog child ticket with `task_context`
-- [ ] #5 Generated schedules reject cycles, missing embedded workflow references, invalid profile/workflow ids, missing assigned units, and implementation branches without downstream verification/review
-- [ ] #6 `pipe run --entrypoint epic PIPE-41` writes `.pipeline/runs/<runId>/schedule.yaml` and stops for approval before any workflow node executes
+- [x] #1 `PIPE-41.1` through `PIPE-41.5` keep the profile/prompt/baseline regression hardening phase intact
+- [x] #2 Schedule policies use their `baseline` only as the planner seed; there is no separate baseline-refinement strategy
+- [x] #3 Scheduled epics resolve Backlog child tickets before prompt decomposition and pass those work units to the planner
+- [x] #4 Agent-generated schedules use only configured profiles/workflows, embed every workflow reference, and assign one implementation branch per backlog child ticket with `task_context`
+- [x] #5 Generated schedules reject cycles, missing embedded workflow references, invalid profile/workflow ids, missing assigned units, and implementation branches without downstream verification/review
+- [x] #6 `pipe run --entrypoint epic PIPE-41` writes `.pipeline/runs/<runId>/schedule.yaml` and stops for approval before any workflow node executes
+- [ ] #7 `PIPE-41.12` resolves the installed-pipe dogfood gap: generated epic schedules are ticket-accurate for multi-child epics such as PC-37 and validate with the installed `pipe validate --schedule` command.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -49,4 +51,12 @@ Complete the baseline/profile hardening tickets first (`PIPE-41.1` through `PIPE
 4. `PIPE-41.9` implements constrained agent-graph schedule planning with allowed primitives and work units.
 5. `PIPE-41.10` validates generated schedule policy coverage.
 6. `PIPE-41.11` updates operator docs, generated defaults, and regression coverage for dynamic epic scheduling.
+
+Backlog grooming update on 2026-06-04: `PIPE-41.1` through `PIPE-41.11` are complete and verified. Keep the epic open for `PIPE-41.12`, which tracks the newer PC-37 dogfood failure where installed-pipe validation and generated epic schedule shape drifted.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fresh grooming verification passed `bun run typecheck`, `bun run check`, `bun run build`, `bun run test` (24 test files, 331 tests), `bun run test:dogfood` (4 tests), `bun src/index.ts validate --schedule .pipeline/runs/run-20260603204455/schedule.yaml`, `bun src/index.ts explain-plan --schedule .pipeline/runs/run-20260603204455/schedule.yaml`, `bun src/index.ts validate --schedule .pipeline/runs/run-20260603204951/schedule.yaml`, and `bun src/index.ts explain-plan --schedule .pipeline/runs/run-20260603204951/schedule.yaml`. The parent remains open because `PIPE-41.12` covers a later installed-pipe dogfood issue not fully proven by those older generated artifacts.
+<!-- SECTION:NOTES:END -->

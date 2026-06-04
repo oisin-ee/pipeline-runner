@@ -1,9 +1,10 @@
 ---
 id: PIPE-40
 title: 'Epic: XState v5 runtime actor system and observability'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-03 09:24'
+updated_date: '2026-06-04 09:22'
 labels:
   - epic
   - xstate
@@ -32,11 +33,11 @@ Replace the hand-rolled runtime execution lifecycle with an XState v5 actor syst
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Runtime execution is modeled as XState v5 actors using setup(...).createMachine(...).
-- [ ] #2 Node, hook, gate, workflow batch, retry, cancellation, and terminal phases are represented as explicit states.
-- [ ] #3 Raw XState inspection is available for diagnostics and mapped separately from stable public runtime events.
-- [ ] #4 Existing PipelineRuntimeResult and existing public PipelineRuntimeEvent behavior remains backward-compatible unless a subtask explicitly adds new events with tests.
-- [ ] #5 The old transitionNode/reduceNodeState/p-retry node orchestration path is removed by the end of the epic.
+- [x] #1 Runtime execution is modeled as XState v5 actors using setup(...).createMachine(...).
+- [x] #2 Node, hook, gate, workflow batch, retry, cancellation, and terminal phases are represented as explicit states.
+- [x] #3 Raw XState inspection is available for diagnostics and mapped separately from stable public runtime events.
+- [x] #4 Existing PipelineRuntimeResult and existing public PipelineRuntimeEvent behavior remains backward-compatible unless a subtask explicitly adds new events with tests.
+- [x] #5 The old transitionNode/reduceNodeState/p-retry node orchestration path is removed by the end of the epic.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -44,3 +45,9 @@ Replace the hand-rolled runtime execution lifecycle with an XState v5 actor syst
 <!-- SECTION:PLAN:BEGIN -->
 Implement in dependency-ordered slices: ADR and contracts, machine modules, observability bridge, node integration, hook/gate integration, workflow scheduler integration, cleanup, and documentation.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Completed the XState v5 runtime actor-system epic. Runtime lifecycle ownership moved to XState actors for workflow, node, hook, and gate execution; stable observability remains separated from raw XState inspection; public runtime behavior is preserved; obsolete imperative lifecycle and retry paths were removed; and the actor model is documented. Backlog grooming verification on 2026-06-04 passed `bun run typecheck`, `bun run check`, `bun run build`, `bun run test` (24 files, 331 tests), and `bun run test:dogfood` (4 tests).
+<!-- SECTION:FINAL_SUMMARY:END -->

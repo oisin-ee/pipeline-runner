@@ -1,9 +1,10 @@
 ---
 id: PIPE-41.5
 title: Add end-to-end regression coverage for generated skill-aware schedules
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-03 18:26'
+updated_date: '2026-06-04 09:22'
 labels:
   - pipeline
   - tests
@@ -33,11 +34,11 @@ Add a final regression layer that proves init, checked-in config, and schedule g
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `tests/config.test.ts` validates checked-in `pipe` and `epic` scheduled entrypoints still point at `pipe-schedule` and `epic-schedule` and that `epic-drain` remains available
-- [ ] #2 `tests/pipeline-init.test.ts` validates newly scaffolded profiles and prompts contain the skill-aware defaults from PIPE-41.1 and PIPE-41.2
-- [ ] #3 `tests/schedule-planner.test.ts` validates generated pipe and epic schedule artifacts compile through `compileScheduleArtifact` after planner output parsing
-- [ ] #4 No test relies on a brittle full YAML snapshot; assertions target node ids, dependencies, profile ids, and gate kinds
-- [ ] #5 Verification command for this ticket is `bun test tests/config.test.ts tests/pipeline-init.test.ts tests/schedule-planner.test.ts` or the repo-equivalent focused Vitest invocation
+- [x] #1 `tests/config.test.ts` validates checked-in `pipe` and `epic` scheduled entrypoints still point at `pipe-schedule` and `epic-schedule` and that `epic-drain` remains available
+- [x] #2 `tests/pipeline-init.test.ts` validates newly scaffolded profiles and prompts contain the skill-aware defaults from PIPE-41.1 and PIPE-41.2
+- [x] #3 `tests/schedule-planner.test.ts` validates generated pipe and epic schedule artifacts compile through `compileScheduleArtifact` after planner output parsing
+- [x] #4 No test relies on a brittle full YAML snapshot; assertions target node ids, dependencies, profile ids, and gate kinds
+- [x] #5 Verification command for this ticket is `bun test tests/config.test.ts tests/pipeline-init.test.ts tests/schedule-planner.test.ts` or the repo-equivalent focused Vitest invocation
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -45,3 +46,9 @@ Add a final regression layer that proves init, checked-in config, and schedule g
 <!-- SECTION:PLAN:BEGIN -->
 Review the tests added in dependent tickets and fill any missing cross-surface assertions. Prefer focused structural assertions over snapshots so small formatting changes do not break the suite.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added cross-surface regression coverage for checked-in config, scaffolded profiles/prompts, and generated schedule artifact compilation without brittle YAML snapshots. Verified during backlog grooming on 2026-06-04 with the full repository verification suite.
+<!-- SECTION:FINAL_SUMMARY:END -->

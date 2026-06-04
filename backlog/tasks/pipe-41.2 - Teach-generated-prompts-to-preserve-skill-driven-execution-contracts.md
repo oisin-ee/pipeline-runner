@@ -1,9 +1,10 @@
 ---
 id: PIPE-41.2
 title: Teach generated prompts to preserve skill-driven execution contracts
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-03 18:25'
+updated_date: '2026-06-04 09:22'
 labels:
   - pipeline
   - skills
@@ -32,11 +33,11 @@ Make the human-readable prompt layer match the new profile behavior so scheduled
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Checked-in `.pipeline/prompts/code-writer.md` names the `execute` contract: read context, choose the seam, use library-first/TDD, reject bandaids, and report targeted evidence
-- [ ] #2 Generated `src/pipeline-init.ts` code-writer prompt contains the same execute-contract guidance
-- [ ] #3 Checked-in `.pipeline/prompts/schedule-planner.md` tells planners to preserve research, test, implementation, acceptance, verification, and learning phases unless a valid graph change is justified
-- [ ] #4 Generated `src/pipeline-init.ts` schedule-planner prompt contains the same graph-preservation guidance
-- [ ] #5 Prompt tests assert the scaffolded prompt text contains the new contract language
+- [x] #1 Checked-in `.pipeline/prompts/code-writer.md` names the `execute` contract: read context, choose the seam, use library-first/TDD, reject bandaids, and report targeted evidence
+- [x] #2 Generated `src/pipeline-init.ts` code-writer prompt contains the same execute-contract guidance
+- [x] #3 Checked-in `.pipeline/prompts/schedule-planner.md` tells planners to preserve research, test, implementation, acceptance, verification, and learning phases unless a valid graph change is justified
+- [x] #4 Generated `src/pipeline-init.ts` schedule-planner prompt contains the same graph-preservation guidance
+- [x] #5 Prompt tests assert the scaffolded prompt text contains the new contract language
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -44,3 +45,9 @@ Make the human-readable prompt layer match the new profile behavior so scheduled
 <!-- SECTION:PLAN:BEGIN -->
 Update only prompt markdown and the prompt strings inside `src/pipeline-init.ts`. Keep profile ids and workflow ids unchanged. Add or adjust `tests/pipeline-init.test.ts` assertions for scaffolded prompt content.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Updated checked-in and scaffolded prompts to preserve skill-driven execution contracts and schedule graph preservation expectations. Verified during backlog grooming on 2026-06-04 with the full repository verification suite.
+<!-- SECTION:FINAL_SUMMARY:END -->
