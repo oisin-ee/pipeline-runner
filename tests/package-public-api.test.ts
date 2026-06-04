@@ -86,6 +86,7 @@ describe("package public app-facing API", () => {
     expect(readme).toContain("@oisincoveney/pipeline/runner-job-contract");
     expect(readme).toContain("@oisincoveney/pipeline/runtime");
     expect(readme).toContain("@oisincoveney/pipeline/schedule");
+    expect(readme).toContain("@oisincoveney/pipeline/hooks");
     expect(readme).toContain("buildRunnerJobPayload");
     expect(readme).toContain("loadPipelineConfig");
     expect(readme).toContain("compileWorkflowPlan");
@@ -137,6 +138,12 @@ import {
   parseRunnerJobPayload,
   type RunnerJobPayload,
 } from "@oisincoveney/pipeline/runner-job-contract";
+import {
+  defineHook,
+  parseHookResult,
+  type HookContext,
+  type HookResult,
+} from "@oisincoveney/pipeline/hooks";
 
 const parts: PipelineConfigParts = {
   pipeline: "version: 1\\ndefault_workflow: smoke\\norchestrator: { profile: orchestrator }\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
@@ -164,6 +171,15 @@ const taskContext: PipelineTaskContext = {
   acceptanceCriteria: [{ id: "AC1", text: "Compiles" }],
   id: "TASK-1",
 };
+const hook = defineHook((context: HookContext): HookResult => ({
+  outputs: { task: context.task },
+  status: "pass",
+  summary: "typed hook",
+}));
+const hookResult: HookResult = parseHookResult({
+  status: "pass",
+  summary: "parsed hook result",
+});
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
 const eventType = (event: PipelineRuntimeEvent) => event.type;
 const formattedError = formatConfigError(
@@ -192,6 +208,8 @@ void loadPipelineConfig;
 void WorkflowPlannerError;
 void result;
 void taskContext;
+void hook;
+void hookResult;
 void eventType;
 void formattedError;
 void runnerType;
@@ -226,6 +244,7 @@ import { WorkflowPlannerError, compileWorkflowPlan } from "@oisincoveney/pipelin
 import { formatConfigError, runPipelineFromConfig } from "@oisincoveney/pipeline/runtime";
 import { compileScheduleArtifact, parseScheduleArtifact } from "@oisincoveney/pipeline/schedule";
 import { RUNNER_JOB_CONTRACT_VERSION, buildRunnerJobPayload, parseRunnerJobPayload } from "@oisincoveney/pipeline/runner-job-contract";
+import { defineHook, parseHookResult } from "@oisincoveney/pipeline/hooks";
 
 const values = [
   PipelineConfigError,
@@ -239,6 +258,8 @@ const values = [
   runPipelineFromConfig,
   buildRunnerJobPayload,
   parseRunnerJobPayload,
+  defineHook,
+  parseHookResult,
 ];
 
 if (values.some((value) => typeof value !== "function")) {

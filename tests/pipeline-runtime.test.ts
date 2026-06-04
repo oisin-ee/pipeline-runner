@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execa } from "execa";
@@ -186,6 +192,19 @@ function executor(outputs: Record<string, string | string[]>) {
       ? (value[current] ?? value.at(-1) ?? "")
       : value;
     return { exitCode: stdout === "__FAIL__" ? 1 : 0, stdout };
+  };
+}
+
+function commandHookSuccess(stdout = "hook") {
+  return (_command: string, _args: string[], options?: unknown) => {
+    const env = (options as { env?: Record<string, string> } | undefined)?.env;
+    if (env?.PIPELINE_HOOK_RESULT) {
+      writeFileSync(
+        env.PIPELINE_HOOK_RESULT,
+        JSON.stringify({ status: "pass", summary: stdout })
+      );
+    }
+    return { exitCode: 0, stdout, stderr: "" };
   };
 }
 
@@ -734,6 +753,84 @@ workflows:
     expect(maxActive).toBe(1);
   });
 
+  it("starts descendants as soon as their own dependencies pass", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  dynamic:
+    nodes:
+      - { id: root, kind: agent, profile: a }
+      - { id: slow, kind: agent, profile: a, needs: [root] }
+      - { id: fast, kind: agent, profile: b, needs: [root] }
+      - { id: child-fast, kind: agent, profile: b, needs: [fast] }
+      - { id: join, kind: agent, profile: a, needs: [slow, child-fast] }
+`);
+    const starts = new Map<string, number>();
+    const finishes = new Map<string, number>();
+    const delays = new Map([
+      ["root", 0],
+      ["slow", 50],
+      ["fast", 0],
+      ["child-fast", 0],
+      ["join", 0],
+    ]);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: async (plan) => {
+        starts.set(plan.nodeId, performance.now());
+        await new Promise((resolve) =>
+          setTimeout(resolve, delays.get(plan.nodeId) ?? 0)
+        );
+        finishes.set(plan.nodeId, performance.now());
+        return { exitCode: 0, stdout: plan.nodeId };
+      },
+      task: "dynamic",
+      workflowId: "dynamic",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(starts.get("child-fast") ?? 0).toBeLessThan(
+      finishes.get("slow") ?? 0
+    );
+  });
+
+  it("continues independent ready branches after a non fail-fast failure", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  independent-failure:
+    execution:
+      fail_fast: false
+    nodes:
+      - { id: root, kind: agent, profile: a }
+      - { id: failing, kind: agent, profile: a, needs: [root] }
+      - { id: fast, kind: agent, profile: b, needs: [root] }
+      - { id: blocked, kind: agent, profile: a, needs: [failing] }
+      - { id: child-fast, kind: agent, profile: b, needs: [fast] }
+`);
+    const seen: string[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        return {
+          exitCode: plan.nodeId === "failing" ? 1 : 0,
+          stdout: plan.nodeId,
+        };
+      },
+      task: "independent failure",
+      workflowId: "independent-failure",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(seen).toContain("child-fast");
+    expect(seen).not.toContain("blocked");
+    expect(result.nodeStates.blocked).toMatchObject({ status: "pending" });
+    expect(result.nodeStates["child-fast"]).toMatchObject({ status: "passed" });
+  });
+
   it("uses workflow execution config to limit parallel node execution", async () => {
     const project = tempProject();
     const config = baseConfig(`
@@ -891,16 +988,20 @@ profiles:
 version: 1
 default_workflow: retry-observability
 hooks:
-  announce:
-    event: workflow.start
-    kind: command
-    command: [hook-bin]
-    required: true
+  functions:
+    announce:
+      kind: command
+      command: [hook-bin]
+      trusted: true
+  on:
+    workflow.start:
+      - id: announce
+        function: announce
+        failure: fail
 orchestrator:
   profile: orchestrator
 workflows:
   retry-observability:
-    hooks: [announce]
     nodes:
       - id: flaky
         kind: agent
@@ -913,7 +1014,7 @@ workflows:
 `,
     });
     mockExeca
-      .mockResolvedValueOnce({ exitCode: 0, stdout: "hook", stderr: "" })
+      .mockImplementationOnce(commandHookSuccess("hook"))
       .mockRejectedValueOnce({ exitCode: 1, stdout: "no", stderr: "" })
       .mockResolvedValueOnce({ exitCode: 0, stdout: "yes", stderr: "" });
     const events: PipelineRuntimeEvent[] = [];
@@ -3275,7 +3376,7 @@ workflows:
     ]);
   });
 
-  it("runs hooks with templating and required failure semantics", async () => {
+  it("runs command hooks with file input and required failure semantics", async () => {
     const project = tempProject();
     const config = parsePipelineConfigParts({
       runners: `
@@ -3303,16 +3404,20 @@ profiles:
 version: 1
 default_workflow: default
 hooks:
-  required-start:
-    event: node.start
-    kind: command
-    command: [hook-bin, "{{workflow.id}}", "{{node.id}}", "{{task}}"]
-    required: true
+  functions:
+    required-start:
+      kind: command
+      command: [hook-bin]
+      trusted: true
+  on:
+    node.start:
+      - id: required-start
+        function: required-start
+        failure: fail
 orchestrator:
   profile: orchestrator
 workflows:
   default:
-    hooks: [required-start]
     nodes:
       - id: a
         kind: agent
@@ -3336,8 +3441,14 @@ workflows:
     expect(result.hookFailures[0]).toMatchObject({ gate: "required-start" });
     expect(mockExeca).toHaveBeenCalledWith(
       "hook-bin",
-      ["default", "a", "hook task"],
-      expect.objectContaining({ cwd: project })
+      [],
+      expect.objectContaining({
+        cwd: project,
+        env: expect.objectContaining({
+          PIPELINE_HOOK_INPUT: expect.any(String),
+          PIPELINE_HOOK_RESULT: expect.any(String),
+        }),
+      })
     );
     expect(result.agentInvocations).toEqual([]);
   });
@@ -3369,29 +3480,34 @@ profiles:
 version: 1
 default_workflow: default
 hooks:
-  orchestrator-start:
-    event: workflow.start
-    kind: command
-    command: [hook-bin, orchestrator]
-    required: true
-  workflow-start:
-    event: workflow.start
-    kind: command
-    command: [hook-bin, workflow]
-    required: true
+  functions:
+    orchestrator-start:
+      kind: command
+      command: [hook-bin, orchestrator]
+      trusted: true
+    workflow-start:
+      kind: command
+      command: [hook-bin, workflow]
+      trusted: true
+  on:
+    workflow.start:
+      - id: orchestrator-start
+        function: orchestrator-start
+        failure: fail
+      - id: workflow-start
+        function: workflow-start
+        failure: fail
 orchestrator:
   profile: orchestrator
-  hooks: [orchestrator-start]
 workflows:
   default:
-    hooks: [orchestrator-start, workflow-start]
     nodes:
       - id: a
         kind: agent
         profile: a
 `,
     });
-    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
+    mockExeca.mockImplementation(commandHookSuccess("ok"));
 
     const result = await runPipelineFromConfig({
       config,
@@ -3434,19 +3550,22 @@ profiles:
 version: 1
 default_workflow: default
 hooks:
-  start:
-    event: workflow.start
-    kind: command
-    command: [hook-bin]
-    required: true
-    trusted: true
-    env:
-      passthrough: [PATH]
-      set: { HOOK_ONLY: "yes" }
-    output_limit_bytes: 4
+  functions:
+    start:
+      kind: command
+      command: [hook-bin]
+      trusted: true
+      env:
+        passthrough: [PATH]
+        set: { HOOK_ONLY: "yes" }
+      output_limit_bytes: 4
+  on:
+    workflow.start:
+      - id: start
+        function: start
+        failure: fail
 orchestrator:
   profile: orchestrator
-  hooks: [start]
 workflows:
   default:
     nodes:
@@ -3455,7 +3574,7 @@ workflows:
         profile: a
 `,
     });
-    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "abcdef", stderr: "" });
+    mockExeca.mockImplementation(commandHookSuccess("abcdef"));
 
     const result = await runPipelineFromConfig({
       config,
@@ -3474,9 +3593,13 @@ workflows:
       [],
       expect.objectContaining({
         cwd: project,
-        env: expect.objectContaining({ GLOBAL_HOOK: "1", HOOK_ONLY: "yes" }),
+        env: expect.objectContaining({
+          GLOBAL_HOOK: "1",
+          HOOK_ONLY: "yes",
+          PIPELINE_HOOK_INPUT: expect.any(String),
+          PIPELINE_HOOK_RESULT: expect.any(String),
+        }),
         extendEnv: false,
-        input: expect.stringContaining('"task":"hook payload"'),
         maxBuffer: 4,
       })
     );
@@ -3509,15 +3632,18 @@ profiles:
 version: 1
 default_workflow: default
 hooks:
-  start:
-    event: workflow.start
-    kind: command
-    command: [hook-bin]
-    required: true
-    trusted: false
+  functions:
+    start:
+      kind: command
+      command: [hook-bin]
+      trusted: false
+  on:
+    workflow.start:
+      - id: start
+        function: start
+        failure: fail
 orchestrator:
   profile: orchestrator
-  hooks: [start]
 workflows:
   default:
     nodes:
@@ -3540,6 +3666,233 @@ workflows:
       "command hook is not trusted"
     );
     expect(mockExeca).not.toHaveBeenCalled();
+  });
+
+  it("runs module hook functions and publishes validated return values", async () => {
+    const project = tempProject();
+    writeProjectFile(
+      project,
+      ".pipeline/hooks/audit.mjs",
+      `
+export default async function audit(ctx) {
+  return {
+    status: "pass",
+    summary: "Generated defaults are clean for " + ctx.workflow.id,
+    outputs: {
+      task: ctx.task,
+      workflowId: ctx.workflow.id,
+      custom: ctx.input.custom
+    }
+  };
+}
+`
+    );
+    writeProjectFile(
+      project,
+      ".pipeline/schemas/audit-result.schema.json",
+      JSON.stringify({
+        additionalProperties: true,
+        properties: {
+          outputs: {
+            additionalProperties: true,
+            properties: {
+              custom: { const: "value" },
+              workflowId: { const: "module-hooks" },
+            },
+            required: ["custom", "workflowId"],
+            type: "object",
+          },
+          status: { const: "pass" },
+        },
+        required: ["status", "outputs"],
+        type: "object",
+      })
+    );
+    const config = parsePipelineConfigParts(
+      {
+        runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+        profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+`,
+        pipeline: `
+version: 1
+default_workflow: module-hooks
+hooks:
+  functions:
+    audit:
+      kind: module
+      module: .pipeline/hooks/audit.mjs
+      returns:
+        schema: .pipeline/schemas/audit-result.schema.json
+  on:
+    workflow.start:
+      - id: audit-generated-defaults
+        function: audit
+        with:
+          custom: value
+        failure: fail
+        result:
+          publish: true
+          save_as: hooks.audit
+orchestrator:
+  profile: orchestrator
+workflows:
+  module-hooks:
+    nodes:
+      - id: a
+        kind: agent
+        profile: a
+`,
+      },
+      project
+    );
+    const events: PipelineRuntimeEvent[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ a: "ok" }),
+      reporter: (event) => events.push(event),
+      task: "module hook task",
+      workflowId: "module-hooks",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "workflow.start",
+          functionId: "audit",
+          hookId: "audit-generated-defaults",
+          outputs: {
+            custom: "value",
+            task: "module hook task",
+            workflowId: "module-hooks",
+          },
+          status: "pass",
+          summary: "Generated defaults are clean for module-hooks",
+          type: "hook.result",
+          workflowId: "module-hooks",
+        }),
+      ])
+    );
+  });
+
+  it("runs command hook functions with JSON input and result files", async () => {
+    const project = tempProject();
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  a:
+    runner: codex
+    instructions: { inline: Agent A }
+`,
+      pipeline: `
+version: 1
+default_workflow: command-hooks
+hooks:
+  functions:
+    publish:
+      kind: command
+      command: [node, .pipeline/hooks/publish.mjs]
+      trusted: true
+      protocol:
+        input: file
+        result: file
+  on:
+    node.finish:
+      - id: publish-node-summary
+        function: publish
+        where:
+          node: a
+        failure: ignore
+        result:
+          publish: true
+          save_as: hooks.publish
+          pass_to: downstream
+orchestrator:
+  profile: orchestrator
+workflows:
+  command-hooks:
+    nodes:
+      - id: a
+        kind: agent
+        profile: a
+`,
+    });
+    mockExeca.mockImplementationOnce((_command, _args, options) => {
+      const env = options?.env as Record<string, string>;
+      expect(env.PIPELINE_HOOK_INPUT).toBeTruthy();
+      expect(env.PIPELINE_HOOK_RESULT).toBeTruthy();
+      const payload = JSON.parse(readFileSync(env.PIPELINE_HOOK_INPUT, "utf8"));
+      expect(payload.node.id).toBe("a");
+      writeFileSync(
+        env.PIPELINE_HOOK_RESULT,
+        JSON.stringify({
+          outputs: { messageId: "msg_123" },
+          status: "pass",
+          summary: "Published node summary",
+        })
+      );
+      return { exitCode: 0, stdout: "ignored", stderr: "" };
+    });
+    const events: PipelineRuntimeEvent[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({ a: "ok" }),
+      reporter: (event) => events.push(event),
+      task: "command hook task",
+      workflowId: "command-hooks",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "node.finish",
+          functionId: "publish",
+          hookId: "publish-node-summary",
+          nodeId: "a",
+          outputs: { messageId: "msg_123" },
+          status: "pass",
+          summary: "Published node summary",
+          type: "hook.result",
+          workflowId: "command-hooks",
+        }),
+      ])
+    );
   });
 
   it("emits structured lifecycle events for workflow, hooks, nodes, agents, gates, and artifacts", async () => {
@@ -3570,16 +3923,20 @@ profiles:
 version: 1
 default_workflow: lifecycle
 hooks:
-  announce:
-    event: workflow.start
-    kind: command
-    command: [hook-bin, "{{workflow.id}}"]
-    required: true
+  functions:
+    announce:
+      kind: command
+      command: [hook-bin]
+      trusted: true
+  on:
+    workflow.start:
+      - id: announce
+        function: announce
+        failure: fail
 orchestrator:
   profile: orchestrator
 workflows:
   lifecycle:
-    hooks: [announce]
     nodes:
       - id: produce
         kind: agent
@@ -3592,7 +3949,7 @@ workflows:
             command: [check-bin, "{{task}}"]
 `,
     });
-    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
+    mockExeca.mockImplementation(commandHookSuccess("ok"));
     const events: Record<string, unknown>[] = [];
 
     const result = await runPipelineFromConfig({
@@ -3852,16 +4209,20 @@ profiles:
 version: 1
 default_workflow: signal-flow
 hooks:
-  start-hook:
-    event: workflow.start
-    kind: command
-    command: [hook-bin]
-    required: true
+  functions:
+    start-hook:
+      kind: command
+      command: [hook-bin]
+      trusted: true
+  on:
+    workflow.start:
+      - id: start-hook
+        function: start-hook
+        failure: fail
 orchestrator:
   profile: orchestrator
 workflows:
   signal-flow:
-    hooks: [start-hook]
     nodes:
       - id: command-node
         kind: command
@@ -3875,7 +4236,7 @@ workflows:
             builtin: test
 `,
     });
-    mockExeca.mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" });
+    mockExeca.mockImplementation(commandHookSuccess("ok"));
 
     const result = await runPipelineFromConfig({
       config,

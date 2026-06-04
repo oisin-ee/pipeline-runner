@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseTicketAndDescription } from "../src/task-ref.js";
+import {
+  extractTicketIds,
+  parseTicketAndDescription,
+} from "../src/task-ref.js";
 
 describe("parseTicketAndDescription", () => {
   it("extracts ticket id and remainder", () => {
@@ -28,5 +31,20 @@ describe("parseTicketAndDescription", () => {
       ticketId: null,
       description: "ad-hoc task description",
     });
+  });
+});
+
+describe("extractTicketIds", () => {
+  it("extracts every unique ticket reference from free-form task text", () => {
+    expect(
+      extractTicketIds("Execute PIPE-50 and PIPE-51, then re-check PIPE-50.1")
+    ).toEqual(["PIPE-50", "PIPE-51", "PIPE-50.1"]);
+  });
+
+  it("deduplicates repeated ticket references in first-seen order", () => {
+    expect(extractTicketIds("PIPE-50 PIPE-51 PIPE-50")).toEqual([
+      "PIPE-50",
+      "PIPE-51",
+    ]);
   });
 });

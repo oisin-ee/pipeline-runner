@@ -61,31 +61,35 @@ entrypoints:
 
 orchestrator:
   profile: orchestrator
-  hooks: [generated-defaults-audit]
 
 hooks:
-  generated-defaults-audit:
-    event: workflow.start
-    kind: command
-    command:
-      - node
-      - -e
-      - |
-        const fs = require("node:fs");
-        const files = [".pipeline/profiles.yaml"].filter((file) => fs.existsSync(file));
-        const text = files.map((file) => fs.readFileSync(file, "utf8")).join("\\n").toLowerCase();
-        const banned = ["atlassian", "jira", "linear", "confluence", "compass", "sentry", "deepwiki"];
-        const hits = banned.filter((item) => text.includes(item));
-        const githubUrls = [...text.matchAll(/https:\\/\\/api\\.githubcopilot\\.com\\/mcp[^"'\\s]*/g)].map((match) => match[0]);
-        const writeGithub = githubUrls.filter((url) => !url.includes("/readonly"));
-        if (hits.length || writeGithub.length) {
-          console.error(["Banned generated defaults detected.", hits.length ? "services=" + hits.join(",") : "", writeGithub.length ? "github=" + writeGithub.join(",") : ""].filter(Boolean).join(" "));
-          process.exit(1);
-        }
-    required: true
-    trusted: true
-    timeout_ms: 5000
-    output_limit_bytes: 4096
+  functions:
+    generated-defaults-audit:
+      kind: command
+      command:
+        - node
+        - -e
+        - |
+          const fs = require("node:fs");
+          const files = [".pipeline/profiles.yaml"].filter((file) => fs.existsSync(file));
+          const text = files.map((file) => fs.readFileSync(file, "utf8")).join("\\n").toLowerCase();
+          const banned = ["atlassian", "jira", "linear", "confluence", "compass", "sentry", "deepwiki"];
+          const hits = banned.filter((item) => text.includes(item));
+          const githubUrls = [...text.matchAll(/https:\\/\\/api\\.githubcopilot\\.com\\/mcp[^"'\\s]*/g)].map((match) => match[0]);
+          const writeGithub = githubUrls.filter((url) => !url.includes("/readonly"));
+          if (hits.length || writeGithub.length) {
+            console.error(["Banned generated defaults detected.", hits.length ? "services=" + hits.join(",") : "", writeGithub.length ? "github=" + writeGithub.join(",") : ""].filter(Boolean).join(" "));
+            process.exit(1);
+          }
+          fs.writeFileSync(process.env.PIPELINE_HOOK_RESULT, JSON.stringify({ status: "pass", summary: "Generated defaults audit passed" }));
+      trusted: true
+      timeout_ms: 5000
+      output_limit_bytes: 4096
+  on:
+    workflow.start:
+      - id: generated-defaults-audit
+        function: generated-defaults-audit
+        failure: fail
 
 schedules:
   pipe-schedule:

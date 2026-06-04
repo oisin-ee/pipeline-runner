@@ -74,8 +74,14 @@ beforeEach(() => {
   mockExeca.mockImplementation(((
     command: string,
     args?: string[],
-    options?: { cwd?: string }
+    options?: { cwd?: string; env?: Record<string, string> }
   ) => {
+    if (options?.env?.PIPELINE_HOOK_RESULT) {
+      writeFileSync(
+        options.env.PIPELINE_HOOK_RESULT,
+        JSON.stringify({ status: "pass", summary: command })
+      );
+    }
     if (
       command === "npx" &&
       Array.isArray(args) &&
@@ -163,31 +169,41 @@ entrypoints:
 orchestrator:
   profile: orchestrator
 hooks:
-  default-start:
-    event: workflow.start
-    kind: command
-    command: [default-start-bin, "{{workflow.id}}", "{{task}}"]
-    required: true
-  quick-start:
-    event: workflow.start
-    kind: command
-    command: [quick-start-bin, "{{workflow.id}}", "{{task}}"]
-    required: true
-  validate-start:
-    event: workflow.start
-    kind: command
-    command: [validate-start-bin, "{{workflow.id}}", "{{task}}"]
-    required: true
+  functions:
+    default-start:
+      kind: command
+      command: [default-start-bin]
+      trusted: true
+    quick-start:
+      kind: command
+      command: [quick-start-bin]
+      trusted: true
+    validate-start:
+      kind: command
+      command: [validate-start-bin]
+      trusted: true
+  on:
+    workflow.start:
+      - id: default-start
+        function: default-start
+        where: { workflow: default }
+        failure: fail
+      - id: quick-start
+        function: quick-start
+        where: { workflow: quick }
+        failure: fail
+      - id: validate-start
+        function: validate-start
+        where: { workflow: validate-entrypoint }
+        failure: fail
 workflows:
   default:
-    hooks: [default-start]
     nodes:
       - id: default-node
         kind: command
         command: [default-node-bin]
   quick:
     description: Quick custom workflow
-    hooks: [quick-start]
     nodes:
       - id: quick-node
         kind: command
@@ -200,7 +216,6 @@ workflows:
         command: [inspect-node-bin]
   validate-entrypoint:
     description: Validate entrypoint workflow
-    hooks: [validate-start]
     nodes:
       - id: validate-node
         kind: command
@@ -848,6 +863,10 @@ describe("pipe", () => {
       import: "./dist/config.js",
       types: "./dist/config.d.ts",
     });
+    expect(pkg.exports?.["./hooks"]).toEqual({
+      import: "./dist/hooks.js",
+      types: "./dist/hooks.d.ts",
+    });
     expect(pkg.exports?.["./planner"]).toEqual({
       import: "./dist/workflow-planner.js",
       types: "./dist/workflow-planner.d.ts",
@@ -1228,8 +1247,14 @@ workflows:
 
       expect(mockExeca).toHaveBeenCalledWith(
         "quick-start-bin",
-        ["quick", "ship it"],
-        expect.objectContaining({ cwd: dir })
+        [],
+        expect.objectContaining({
+          cwd: dir,
+          env: expect.objectContaining({
+            PIPELINE_HOOK_INPUT: expect.any(String),
+            PIPELINE_HOOK_RESULT: expect.any(String),
+          }),
+        })
       );
       expect(mockExeca).toHaveBeenCalledWith(
         "quick-node-bin",
@@ -1328,8 +1353,14 @@ workflows:
 
       expect(mockExeca).toHaveBeenCalledWith(
         "validate-start-bin",
-        ["validate-entrypoint", "ship collision"],
-        expect.objectContaining({ cwd: dir })
+        [],
+        expect.objectContaining({
+          cwd: dir,
+          env: expect.objectContaining({
+            PIPELINE_HOOK_INPUT: expect.any(String),
+            PIPELINE_HOOK_RESULT: expect.any(String),
+          }),
+        })
       );
       expect(mockExeca).toHaveBeenCalledWith(
         "validate-entrypoint-bin",

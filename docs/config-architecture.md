@@ -81,9 +81,10 @@ entrypoints:
 
 orchestrator:
   profile: orchestrator
-  hooks: []
 
-hooks: {}
+hooks:
+  functions: {}
+  on: {}
 
 schedules:
   pipe-schedule:

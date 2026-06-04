@@ -462,4 +462,47 @@ describe("runner-job payload contract", () => {
       },
     ]);
   });
+
+  it("maps hook result events into console hook result records", async () => {
+    const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
+
+    const mapped = mapRuntimeEventToRunnerEventRecords(
+      {
+        event: "node.finish",
+        functionId: "publish-console-summary",
+        hookId: "publish-verify-summary",
+        nodeId: "verify",
+        outputs: {
+          messageId: "msg_123",
+          url: "https://console.example.test/runs/run_123",
+        },
+        status: "pass",
+        summary: "Verification summary published",
+        type: "hook.result",
+        workflowId: "default",
+      },
+      { runId: "run_123", sequence: 9, timestamp: TIMESTAMP }
+    );
+
+    expect(mapped).toEqual([
+      {
+        at: TIMESTAMP,
+        hookResult: {
+          event: "node.finish",
+          functionId: "publish-console-summary",
+          hookId: "publish-verify-summary",
+          nodeId: "verify",
+          outputs: {
+            messageId: "msg_123",
+            url: "https://console.example.test/runs/run_123",
+          },
+          status: "pass",
+          summary: "Verification summary published",
+          workflowId: "default",
+        },
+        sequence: 9,
+        type: "hook.result",
+      },
+    ]);
+  });
 });

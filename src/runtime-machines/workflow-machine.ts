@@ -1,5 +1,12 @@
-import pLimit from "p-limit";
-import { type ActorRefFrom, assign, fromPromise, setup } from "xstate";
+import { alg, Graph } from "@dagrejs/graphlib";
+import {
+  type ActorRefFrom,
+  assign,
+  enqueueActions,
+  fromCallback,
+  fromPromise,
+  setup,
+} from "xstate";
 import type {
   RuntimeActorDescriptor,
   RuntimeFailure,
@@ -14,9 +21,15 @@ type WorkflowHookEvent =
   | "workflow.start"
   | "workflow.success";
 
+export interface WorkflowScheduleNode {
+  dependents: string[];
+  id: string;
+  index: number;
+  needs: string[];
+}
+
 export interface WorkflowSchedulerInput {
   actor: RuntimeActorDescriptor;
-  batches: string[][];
   buildResult: (
     outcome: WorkflowSchedulerResult["outcome"],
     nodes: RuntimeNodeResult[],
@@ -28,7 +41,7 @@ export interface WorkflowSchedulerInput {
   isCancelled: () => boolean;
   markNodeReady: (nodeId: string) => void;
   maxParallelNodes?: number;
-  nodeIds: string[];
+  nodes: WorkflowScheduleNode[];
   runNode: (nodeId: string) => Promise<RuntimeNodeResult>;
   runWorkflowHook: (
     event: WorkflowHookEvent,
@@ -40,15 +53,16 @@ export interface WorkflowSchedulerInput {
 
 interface WorkflowSchedulerContext {
   active: number;
-  batches: string[][];
-  batchIndex: number;
+  blocked: string[];
   completed: RuntimeNodeResult[];
   failure?: RuntimeFailure;
+  graph: Graph<undefined, WorkflowScheduleNode>;
   input: WorkflowSchedulerInput;
-  latestBatchResults: RuntimeNodeResult[];
+  latestNodeResult?: RuntimeNodeResult;
   nodes: RuntimeNodeResult[];
   queue: string[];
   result?: WorkflowSchedulerResult;
+  running: string[];
   status: "cancelled" | "failed" | "passed" | "running" | "waiting";
   successHookFailure?: RuntimeFailure;
 }
@@ -59,13 +73,9 @@ interface WorkflowHookInvocationInput {
   runWorkflowHook: WorkflowSchedulerInput["runWorkflowHook"];
 }
 
-interface WorkflowBatchInvocationInput {
-  batch: string[];
-  failFast: boolean;
-  markNodeReady: WorkflowSchedulerInput["markNodeReady"];
-  maxParallelNodes?: number;
+interface WorkflowNodeInvocationInput {
+  nodeId: string;
   runNode: WorkflowSchedulerInput["runNode"];
-  skipNode: WorkflowSchedulerInput["skipNode"];
 }
 
 type WorkflowMachineEvent =
@@ -87,12 +97,13 @@ type WorkflowMachineEvent =
         | "xstate.error.actor.workflowSuccessHook";
     }
   | {
-      output: RuntimeNodeResult[];
-      type: "xstate.done.actor.runBatch";
+      result: RuntimeNodeResult;
+      type: "NODE_DONE";
     }
   | {
       error: unknown;
-      type: "xstate.error.actor.runBatch";
+      nodeId: string;
+      type: "NODE_ERROR";
     };
 
 export const workflowSchedulerMachine = setup({
@@ -102,9 +113,25 @@ export const workflowSchedulerMachine = setup({
     input: {} as WorkflowSchedulerInput,
   },
   actors: {
-    runBatch: fromPromise(
-      ({ input }: { input: WorkflowBatchInvocationInput }) =>
-        runWorkflowBatch(input)
+    runNode: fromCallback<WorkflowMachineEvent, WorkflowNodeInvocationInput>(
+      ({ input, sendBack }) => {
+        let stopped = false;
+        input
+          .runNode(input.nodeId)
+          .then((result) => {
+            if (!stopped) {
+              sendBack({ result, type: "NODE_DONE" });
+            }
+          })
+          .catch((error: unknown) => {
+            if (!stopped) {
+              sendBack({ error, nodeId: input.nodeId, type: "NODE_ERROR" });
+            }
+          });
+        return () => {
+          stopped = true;
+        };
+      }
     ),
     runWorkflowHook: fromPromise(
       ({ input }: { input: WorkflowHookInvocationInput }) =>
@@ -112,8 +139,20 @@ export const workflowSchedulerMachine = setup({
     ),
   },
   actions: {
-    advanceBatch: assign({
-      batchIndex: ({ context }) => context.batchIndex + 1,
+    blockFailedNodeDescendants: assign({
+      blocked: ({ context }) =>
+        context.latestNodeResult &&
+        isBlockingFailure(context.latestNodeResult, context)
+          ? uniqueStrings([
+              ...context.blocked,
+              ...(context.input.failFast
+                ? unstartedNodeIds(context)
+                : unstartedBlockingDescendants(
+                    context.latestNodeResult.nodeId,
+                    context
+                  )),
+            ])
+          : context.blocked,
     }),
     buildCancelledResult: assign({
       result: ({ context }) =>
@@ -133,33 +172,39 @@ export const workflowSchedulerMachine = setup({
       context.input.emitWorkflowPlanned();
       context.input.emitWorkflowStarted();
     },
-    markBatchFailure: assign({
-      failure: ({ context }) =>
-        nodeRuntimeFailure(
-          context.latestBatchResults.find(
-            (result) => result.status === "failed"
-          )
-        ),
-    }),
-    markBatchRunning: assign({
+    markReadyNodesRunning: assign({
       active: ({ context }) =>
-        workflowBatchConcurrency(currentBatch(context), context.input),
+        context.running.length + nextLaunchableNodeIds(context).length,
       queue: ({ context }) =>
-        context.batches.slice(context.batchIndex + 1).flat(),
+        queuedReadyNodeIds(context, nextLaunchableNodeIds(context)),
+      running: ({ context }) => [
+        ...context.running,
+        ...nextLaunchableNodeIds(context),
+      ],
       status: () => "running" as const,
     }),
-    markBatchResults: assign({
-      active: () => 0,
-      completed: ({ context, event }) =>
-        event.type === "xstate.done.actor.runBatch"
-          ? [...context.completed, ...event.output]
-          : context.completed,
-      latestBatchResults: ({ event }) =>
-        event.type === "xstate.done.actor.runBatch" ? event.output : [],
-      nodes: ({ context, event }) =>
-        event.type === "xstate.done.actor.runBatch"
-          ? [...context.nodes, ...event.output]
-          : context.nodes,
+    spawnReadyNodeActors: enqueueActions(({ context, enqueue }) => {
+      const nodeIds = nextLaunchableNodeIds(context);
+      for (const nodeId of nodeIds) {
+        context.input.markNodeReady(nodeId);
+        enqueue.spawnChild("runNode", {
+          id: nodeRunActorId(nodeId),
+          input: {
+            nodeId,
+            runNode: context.input.runNode,
+          },
+        });
+      }
+    }),
+    stopErroredNodeActor: enqueueActions(({ event, enqueue }) => {
+      if (event.type === "NODE_ERROR") {
+        enqueue.stopChild(nodeRunActorId(event.nodeId));
+      }
+    }),
+    stopFinishedNodeActor: enqueueActions(({ event, enqueue }) => {
+      if (event.type === "NODE_DONE") {
+        enqueue.stopChild(nodeRunActorId(event.result.nodeId));
+      }
     }),
     markCancelled: assign({
       status: () => "cancelled" as const,
@@ -177,14 +222,42 @@ export const workflowSchedulerMachine = setup({
           ? workflowServiceFailure(event.error, "workflow.hook")
           : workflowServiceFailure("workflow hook failed", "workflow.hook"),
     }),
+    markNodeFailure: assign({
+      failure: ({ context }) =>
+        context.latestNodeResult &&
+        isBlockingFailure(context.latestNodeResult, context)
+          ? (context.failure ?? nodeRuntimeFailure(context.latestNodeResult))
+          : context.failure,
+    }),
+    markNodeResult: assign({
+      active: ({ context, event }) =>
+        event.type === "NODE_DONE"
+          ? Math.max(0, context.running.length - 1)
+          : context.active,
+      completed: ({ context, event }) =>
+        event.type === "NODE_DONE"
+          ? [...context.completed, event.result]
+          : context.completed,
+      latestNodeResult: ({ event }) =>
+        event.type === "NODE_DONE" ? event.result : undefined,
+      nodes: ({ context, event }) =>
+        event.type === "NODE_DONE"
+          ? [...context.nodes, event.result]
+          : context.nodes,
+      queue: ({ context }) => readyNodeIds(context),
+      running: ({ context, event }) =>
+        event.type === "NODE_DONE"
+          ? context.running.filter((nodeId) => nodeId !== event.result.nodeId)
+          : context.running,
+    }),
     markRunning: assign({
       status: () => "running" as const,
     }),
     markServiceFailure: assign({
       failure: ({ event }) =>
-        event.type === "xstate.error.actor.runBatch"
-          ? workflowServiceFailure(event.error, "workflow.batch")
-          : workflowServiceFailure("workflow service failed", "workflow.batch"),
+        event.type === "NODE_ERROR"
+          ? workflowServiceFailure(event.error, "workflow.node")
+          : workflowServiceFailure("workflow service failed", "workflow.node"),
     }),
     markStartHookFailure: assign({
       failure: ({ event }) =>
@@ -198,38 +271,47 @@ export const workflowSchedulerMachine = setup({
           ? (event.output ?? undefined)
           : undefined,
     }),
+    skipUnstartedAfterFailFast: ({ context }) => {
+      const failedNode = context.latestNodeResult;
+      if (
+        context.input.failFast &&
+        failedNode &&
+        isBlockingFailure(failedNode, context)
+      ) {
+        const reason = `skipped because workflow fail_fast stopped after node '${failedNode.nodeId}' failed`;
+        for (const nodeId of unstartedNodeIds(context)) {
+          context.input.skipNode(nodeId, reason);
+        }
+      }
+    },
   },
   guards: {
-    hasBlockingBatchFailure: ({ context }) => {
-      const failed = context.latestBatchResults.find(
-        (result) => result.status === "failed"
-      );
-      return (
-        Boolean(failed) &&
-        !context.latestBatchResults.every((result) =>
-          context.input.shouldContinueAfterNodeResult(result)
-        )
-      );
-    },
-    hasFailure: ({ context }) => Boolean(context.failure),
-    hasMoreBatches: ({ context }) =>
-      context.batchIndex < context.batches.length,
+    hasActiveNodes: ({ context }) => context.running.length > 0,
+    hasBlockingFailure: ({ context }) => Boolean(context.failure),
+    hasLaunchableNodes: ({ context }) =>
+      nextLaunchableNodeIds(context).length > 0,
     hasWorkflowHookFailure: ({ context }) =>
       Boolean(context.failure ?? context.successHookFailure),
     isCancelled: ({ context }) => context.input.isCancelled(),
+    isFailFastBlockingFailure: ({ context }) =>
+      context.input.failFast &&
+      Boolean(
+        context.latestNodeResult &&
+          isBlockingFailure(context.latestNodeResult, context)
+      ),
   },
 }).createMachine({
   id: "workflowScheduler",
   initial: "planning",
   context: ({ input }) => ({
     active: 0,
-    batchIndex: 0,
-    batches: input.batches,
+    blocked: [],
     completed: [],
+    graph: workflowScheduleGraph(input.nodes),
     input,
-    latestBatchResults: [],
     nodes: [],
-    queue: input.nodeIds,
+    queue: input.nodes.map((node) => node.id),
+    running: [],
     status: "waiting",
   }),
   states: {
@@ -266,7 +348,7 @@ export const workflowSchedulerMachine = setup({
     checkingStartHooks: {
       always: [
         { guard: "isCancelled", target: "cancelling" },
-        { guard: "hasFailure", target: "failed" },
+        { guard: "hasBlockingFailure", target: "failed" },
         { target: "scheduling" },
       ],
     },
@@ -274,51 +356,36 @@ export const workflowSchedulerMachine = setup({
       always: [
         { guard: "isCancelled", target: "cancelling" },
         {
-          actions: "markBatchRunning",
-          guard: "hasMoreBatches",
-          target: "runningBatch",
+          actions: ["spawnReadyNodeActors", "markReadyNodesRunning"],
+          guard: "hasLaunchableNodes",
+          target: "runningGraph",
         },
+        { guard: "hasActiveNodes", target: "runningGraph" },
+        { guard: "hasBlockingFailure", target: "failureHooks" },
         { target: "successHooks" },
       ],
       on: { CANCEL: "cancelling" },
       tags: ["running"],
     },
-    runningBatch: {
-      invoke: {
-        id: "runBatch",
-        input: ({ context }) => ({
-          batch: currentBatch(context),
-          failFast: context.input.failFast,
-          markNodeReady: context.input.markNodeReady,
-          maxParallelNodes: context.input.maxParallelNodes,
-          runNode: context.input.runNode,
-          skipNode: context.input.skipNode,
-        }),
-        onDone: {
-          actions: "markBatchResults",
-          target: "evaluatingBatch",
-        },
-        onError: {
-          actions: "markServiceFailure",
-          target: "failureHooks",
-        },
-        src: "runBatch",
-      },
+    runningGraph: {
       on: {
         CANCEL: { actions: "markCancelled", target: "cancelling" },
-      },
-      tags: ["running"],
-    },
-    evaluatingBatch: {
-      always: [
-        { guard: "isCancelled", target: "cancelling" },
-        {
-          actions: "markBatchFailure",
-          guard: "hasBlockingBatchFailure",
+        NODE_DONE: {
+          actions: [
+            "markNodeResult",
+            "stopFinishedNodeActor",
+            "markNodeFailure",
+            "skipUnstartedAfterFailFast",
+            "blockFailedNodeDescendants",
+          ],
+          target: "scheduling",
+        },
+        NODE_ERROR: {
+          actions: ["markServiceFailure", "stopErroredNodeActor"],
           target: "failureHooks",
         },
-        { actions: "advanceBatch", target: "scheduling" },
-      ],
+      },
+      tags: ["running"],
     },
     failureHooks: {
       invoke: {
@@ -429,65 +496,112 @@ export type WorkflowSchedulerActor = ActorRefFrom<
   typeof workflowSchedulerMachine
 >;
 
-function runWorkflowBatch(
-  input: WorkflowBatchInvocationInput
-): Promise<RuntimeNodeResult[]> {
-  for (const nodeId of input.batch) {
-    input.markNodeReady(nodeId);
+function workflowScheduleGraph(
+  nodes: WorkflowScheduleNode[]
+): Graph<undefined, WorkflowScheduleNode> {
+  const graph = new Graph<undefined, WorkflowScheduleNode>();
+  const orderedNodes = [...nodes].sort(compareScheduleNodeIndex);
+  for (const node of orderedNodes) {
+    graph.setNode(node.id, node);
   }
-  if (input.failFast) {
-    return runFailFastWorkflowBatch(input);
+  for (const node of orderedNodes) {
+    for (const need of node.needs) {
+      if (graph.hasNode(need)) {
+        graph.setEdge(need, node.id);
+      }
+    }
   }
-  if (!input.maxParallelNodes) {
-    return Promise.all(input.batch.map((nodeId) => input.runNode(nodeId)));
+  return graph;
+}
+
+function compareScheduleNodeIndex(
+  a: WorkflowScheduleNode,
+  b: WorkflowScheduleNode
+): number {
+  return a.index - b.index;
+}
+
+function nextLaunchableNodeIds(context: WorkflowSchedulerContext): string[] {
+  const capacity = workflowNodeCapacity(context);
+  if (capacity <= 0) {
+    return [];
   }
-  const limit = pLimit(input.maxParallelNodes);
-  return Promise.all(
-    input.batch.map((nodeId) => limit(() => input.runNode(nodeId)))
+  return readyNodeIds(context).slice(0, capacity);
+}
+
+function queuedReadyNodeIds(
+  context: WorkflowSchedulerContext,
+  launched: string[]
+): string[] {
+  const launchedSet = new Set(launched);
+  return readyNodeIds(context).filter((nodeId) => !launchedSet.has(nodeId));
+}
+
+function readyNodeIds(context: WorkflowSchedulerContext): string[] {
+  const blocked = new Set(context.blocked);
+  const completed = new Set(context.completed.map((result) => result.nodeId));
+  const running = new Set(context.running);
+  return context.input.nodes
+    .filter((node) => !completed.has(node.id))
+    .filter((node) => !running.has(node.id))
+    .filter((node) => !blocked.has(node.id))
+    .filter((node) =>
+      node.needs.every((need) => dependencyPassed(need, context))
+    )
+    .map((node) => node.id);
+}
+
+function dependencyPassed(
+  nodeId: string,
+  context: WorkflowSchedulerContext
+): boolean {
+  const result = context.completed.find((item) => item.nodeId === nodeId);
+  return result ? context.input.shouldContinueAfterNodeResult(result) : false;
+}
+
+function workflowNodeCapacity(context: WorkflowSchedulerContext): number {
+  const limit = context.input.failFast
+    ? 1
+    : (context.input.maxParallelNodes ?? context.input.nodes.length);
+  return Math.max(0, limit - context.running.length);
+}
+
+function isBlockingFailure(
+  result: RuntimeNodeResult,
+  context: WorkflowSchedulerContext
+): boolean {
+  return (
+    result.status === "failed" &&
+    !context.input.shouldContinueAfterNodeResult(result)
   );
 }
 
-async function runFailFastWorkflowBatch(
-  input: WorkflowBatchInvocationInput
-): Promise<RuntimeNodeResult[]> {
-  const results: RuntimeNodeResult[] = [];
-  for (const [index, nodeId] of input.batch.entries()) {
-    const result = await input.runNode(nodeId);
-    results.push(result);
-    if (result.status === "failed") {
-      skipRemainingBatchNodes(input, index + 1, result.nodeId);
-      return results;
-    }
-  }
-  return results;
+function unstartedBlockingDescendants(
+  nodeId: string,
+  context: WorkflowSchedulerContext
+): string[] {
+  const unstarted = new Set(unstartedNodeIds(context));
+  return alg
+    .preorder(context.graph, nodeId)
+    .slice(1)
+    .filter((descendantId) => unstarted.has(descendantId));
 }
 
-function skipRemainingBatchNodes(
-  input: WorkflowBatchInvocationInput,
-  startIndex: number,
-  failedNodeId: string
-): void {
-  const reason = `skipped because workflow fail_fast stopped after node '${failedNodeId}' failed`;
-  for (const nodeId of input.batch.slice(startIndex)) {
-    input.skipNode(nodeId, reason);
-  }
+function unstartedNodeIds(context: WorkflowSchedulerContext): string[] {
+  const completed = new Set(context.completed.map((result) => result.nodeId));
+  const running = new Set(context.running);
+  return context.input.nodes
+    .map((node) => node.id)
+    .filter((nodeId) => !completed.has(nodeId))
+    .filter((nodeId) => !running.has(nodeId));
 }
 
-function currentBatch(context: WorkflowSchedulerContext): string[] {
-  return context.batches[context.batchIndex] ?? [];
+function nodeRunActorId(nodeId: string): string {
+  return `runNode:${nodeId}`;
 }
 
-function workflowBatchConcurrency(
-  batch: string[],
-  input: WorkflowSchedulerInput
-): number {
-  if (batch.length === 0) {
-    return 0;
-  }
-  if (input.failFast) {
-    return 1;
-  }
-  return Math.min(batch.length, input.maxParallelNodes ?? batch.length);
+function uniqueStrings(items: string[]): string[] {
+  return [...new Set(items)];
 }
 
 function nodeRuntimeFailure(

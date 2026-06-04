@@ -916,6 +916,103 @@ workflows:
     }
   });
 
+  it("loads every referenced epic and descendant work unit for one generated graph", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-multi-epic-"));
+    writeBacklogTask(
+      dir,
+      "PIPE-50",
+      "First epic",
+      "## Description\n\nFirst parent.",
+      { parentTaskId: "" }
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-50.1",
+      "First root child",
+      "## Description\n\nFirst child.",
+      { parentTaskId: "PIPE-50" }
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-50.1.1",
+      "Nested first child",
+      "## Description\n\nNested first child.",
+      { parentTaskId: "PIPE-50.1" }
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-51",
+      "Second epic",
+      "## Description\n\nSecond parent.",
+      { parentTaskId: "" }
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-51.1",
+      "Second root child",
+      "## Description\n\nSecond child.",
+      { parentTaskId: "PIPE-51" }
+    );
+    const seenPrompts: string[] = [];
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-multi-epic
+source_entrypoint: epic
+task: Execute PIPE-50 and PIPE-51
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: pipe-50-1-green
+        kind: agent
+        profile: pipeline-code-writer
+        task_context:
+          id: PIPE-50.1
+      - id: pipe-50-1-1-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pipe-50-1-green]
+        task_context:
+          id: PIPE-50.1.1
+      - id: pipe-51-1-green
+        kind: agent
+        profile: pipeline-code-writer
+        task_context:
+          id: PIPE-51.1
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [pipe-50-1-1-green, pipe-51-1-green]
+`;
+
+    try {
+      await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "epic",
+        executor: (plan) => {
+          seenPrompts.push(plan.args.join("\n"));
+          return { exitCode: 0, stdout: schedule };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-multi-epic",
+        task: "Execute PIPE-50 and PIPE-51",
+        worktreePath: dir,
+      });
+
+      const prompt = seenPrompts[0] ?? "";
+      expect(prompt).toContain("id: PIPE-50.1");
+      expect(prompt).toContain("id: PIPE-50.1.1");
+      expect(prompt).toContain("id: PIPE-51.1");
+      expect(prompt).toContain(
+        "Only add needs edges for real dependencies, shared constraints, or verification/review fan-in."
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects agent_graph schedules that skip backlog work units", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
     writeBacklogTask(

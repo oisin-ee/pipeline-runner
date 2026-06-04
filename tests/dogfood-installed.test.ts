@@ -191,32 +191,41 @@ profiles:
 version: 1
 default_workflow: dogfood-options
 hooks:
-  workflow-start:
-    event: workflow.start
-    kind: command
-    command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'workflow.start ' + process.argv[1] + '\\\\n');", "{{workflow.id}}"]
-    required: true
-  node-start:
-    event: node.start
-    kind: command
-    command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'node.start ' + process.argv[1] + '\\\\n');", "{{node.id}}"]
-    required: true
-  optional-failure:
-    event: workflow.complete
-    kind: command
-    command: [node, -e, "process.exit(9)"]
-    required: false
+  functions:
+    workflow-start:
+      kind: command
+      command: [node, -e, "const fs=require('node:fs'); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'workflow.start\\\\n'); fs.writeFileSync(process.env.PIPELINE_HOOK_RESULT, JSON.stringify({status:'pass',summary:'workflow start'}));"]
+      trusted: true
+    node-start:
+      kind: command
+      command: [node, -e, "const fs=require('node:fs'); const input=JSON.parse(fs.readFileSync(process.env.PIPELINE_HOOK_INPUT,'utf8')); fs.mkdirSync('.pipeline/dogfood',{recursive:true}); fs.appendFileSync('.pipeline/dogfood/hooks.log', 'node.start ' + input.node.id + '\\\\n'); fs.writeFileSync(process.env.PIPELINE_HOOK_RESULT, JSON.stringify({status:'pass',summary:'node start'}));"]
+      trusted: true
+    optional-failure:
+      kind: command
+      command: [node, -e, "process.exit(9)"]
+      trusted: true
+  on:
+    workflow.start:
+      - id: workflow-start
+        function: workflow-start
+        failure: fail
+    node.start:
+      - id: node-start
+        function: node-start
+        where: { node: artifact }
+        failure: fail
+    workflow.complete:
+      - id: optional-failure
+        function: optional-failure
+        failure: ignore
 orchestrator:
   profile: orchestrator
-  hooks: [workflow-start]
 workflows:
   dogfood-options:
-    hooks: [workflow-start, optional-failure]
     nodes:
       - id: artifact
         kind: agent
         profile: artifact-writer
-        hooks: [node-start]
         artifacts:
           - path: .pipeline/dogfood/artifact.json
         gates:
@@ -299,7 +308,7 @@ describe("installed dogfood configuration", () => {
       expect(content).toContain(`filesystem: ${profile.filesystem?.mode}`);
       expect(content).toContain(`network: ${profile.network?.mode}`);
       expect(content).toContain(
-        `hooks: ${(config.orchestrator.hooks ?? []).join(", ")}`
+        `hooks: ${Object.keys(config.hooks.functions).join(", ")}`
       );
       expect(content).toContain(surface.invocation);
       expect(content).toContain(surface.targetId);
@@ -334,7 +343,7 @@ describe("installed dogfood configuration", () => {
       `network: ${profile.network?.mode}`
     );
     expect(pipelineOrchestratorContent).toContain(
-      `hooks: ${(config.orchestrator.hooks ?? []).join(", ")}`
+      `hooks: ${Object.keys(config.hooks.functions).join(", ")}`
     );
 
     for (const profileId of workflowProfileIds(config)) {
@@ -631,9 +640,13 @@ workflows:
     );
     expect(
       readFileSync(join(project, ".pipeline/dogfood/hooks.log"), "utf8")
-    ).toContain("workflow.start dogfood-options");
+    ).toContain("workflow.start");
     expect(configuredDogfoodOrchestrator(project)).toEqual({
-      hooks: ["workflow-start"],
+      hooks: expect.arrayContaining([
+        "workflow-start",
+        "node-start",
+        "optional-failure",
+      ]),
       mcp_servers: ["pipeline-gateway"],
       model: "dogfood-orchestrator-model",
       rules: ["orchestrator-rule"],
@@ -781,7 +794,7 @@ function configuredDogfoodOrchestrator(project: string) {
   const config = loadPipelineConfig(project);
   const profile = config.profiles[config.orchestrator.profile];
   return {
-    hooks: config.orchestrator.hooks,
+    hooks: Object.keys(config.hooks.functions),
     mcp_servers: profile.mcp_servers,
     model: profile.model,
     rules: profile.rules,

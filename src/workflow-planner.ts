@@ -36,7 +36,6 @@ export interface PlannedWorkflowNode {
   command?: string[];
   dependents: string[];
   gates?: WorkflowNode["gates"];
-  hooks?: string[];
   id: string;
   index: number;
   kind: WorkflowNodeKind;
@@ -529,7 +528,6 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
         : undefined,
     dependents: [],
     gates: node.gates,
-    hooks: node.hooks,
     id: node.id,
     index,
     kind: node.kind,

@@ -243,6 +243,19 @@ export interface RunnerFinalResultDetails {
   workflowId: string;
 }
 
+export interface RunnerHookResultDetails {
+  artifacts?: Array<{ contentType?: string; name: string; path: string }>;
+  event: string;
+  functionId: string;
+  gateId?: string;
+  hookId: string;
+  nodeId?: string;
+  outputs?: Record<string, unknown>;
+  status: "fail" | "pass" | "skip";
+  summary?: string;
+  workflowId: string;
+}
+
 interface RunnerEventEnvelope {
   at?: string;
   sequence: number;
@@ -265,6 +278,10 @@ export type RunnerEventRecord =
   | (RunnerEventEnvelope & {
       gate: RunnerGateDetails;
       type: "gate.finish" | "gate.start" | "hook.finish" | "hook.start";
+    })
+  | (RunnerEventEnvelope & {
+      hookResult: RunnerHookResultDetails;
+      type: "hook.result";
     })
   | (RunnerEventEnvelope & {
       artifact: RunnerArtifactDetails;
@@ -609,6 +626,25 @@ export function mapRuntimeEventToRunnerEventRecords(
             reason: event.reason,
             required: event.required,
             status: event.passed ? "passed" : "failed",
+            workflowId: event.workflowId,
+          }),
+        },
+      ];
+    case "hook.result":
+      return [
+        {
+          ...record,
+          type: event.type,
+          hookResult: omitUndefined({
+            artifacts: event.artifacts,
+            event: event.event,
+            functionId: event.functionId,
+            gateId: event.gateId,
+            hookId: event.hookId,
+            nodeId: event.nodeId,
+            outputs: event.outputs,
+            status: event.status,
+            summary: event.summary,
             workflowId: event.workflowId,
           }),
         },

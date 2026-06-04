@@ -188,7 +188,10 @@ default_workflow: default
 
 orchestrator:
   profile: orchestrator
-  hooks: []
+
+hooks:
+  functions: {}
+  on: {}
 
 workflows:
   default:
@@ -353,7 +356,7 @@ runners:
 - JSON Schema gates validate structure only. Use `verdict` and `acceptance`
   gates to enforce semantic pass/fail and per-criterion coverage.
 - Command hooks support host policy controls, sanitized environments, timeouts,
-  output limits, and JSON payloads on stdin.
+  output limits, and JSON file input/result payloads.
 
 ## App-Facing API
 
@@ -375,6 +378,16 @@ import {
   type PipelineRuntimeResult,
   type PipelineTaskContext,
 } from "@oisincoveney/pipeline/runtime";
+```
+
+Hook modules can import the typed helper and result contract:
+
+```ts
+import {
+  defineHook,
+  type HookContext,
+  type HookResult,
+} from "@oisincoveney/pipeline/hooks";
 ```
 
 Runner Job producers can import the shared payload contract:

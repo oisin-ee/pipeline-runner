@@ -5,6 +5,7 @@ export default defineConfig({
   dts: true,
   entry: {
     config: "src/config.ts",
+    hooks: "src/hooks.ts",
     index: "src/index.ts",
     "pipeline-runtime": "src/pipeline-runtime.ts",
     runner: "src/runner.ts",

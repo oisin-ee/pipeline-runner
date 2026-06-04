@@ -19,7 +19,6 @@ describe("workflowSchedulerMachine", () => {
     const hookEvents: string[] = [];
     const actor = createActor(workflowSchedulerMachine, {
       input: testInput({
-        batches: [["a"]],
         buildResult: (outcome, nodes, failure) =>
           runtimeResult(plan, outcome, nodes, failure),
         runNode: async (nodeId) => nodeResult(nodeId, "passed"),
@@ -46,18 +45,22 @@ describe("workflowSchedulerMachine", () => {
     ]);
   });
 
-  it("schedules batches through the machine maxParallelNodes limit", async () => {
+  it("schedules ready nodes through the machine maxParallelNodes limit", async () => {
     const plan = testPlan();
     const readyNodes: string[] = [];
     let active = 0;
     let maxActive = 0;
     const actor = createActor(workflowSchedulerMachine, {
       input: testInput({
-        batches: [["a", "b", "c"]],
         buildResult: (outcome, nodes, failure) =>
           runtimeResult(plan, outcome, nodes, failure),
         markNodeReady: (nodeId) => readyNodes.push(nodeId),
         maxParallelNodes: 2,
+        nodes: [
+          scheduleNode("a", 0),
+          scheduleNode("b", 1),
+          scheduleNode("c", 2),
+        ],
         runNode: async (nodeId) => {
           active += 1;
           maxActive = Math.max(maxActive, active);
@@ -79,15 +82,19 @@ describe("workflowSchedulerMachine", () => {
     ).toEqual(["a", "b", "c"]);
   });
 
-  it("stops a fail-fast batch and skips unstarted nodes", async () => {
+  it("stops a fail-fast workflow and skips unstarted nodes", async () => {
     const plan = testPlan();
     const skipped: Array<{ nodeId: string; reason: string }> = [];
     const actor = createActor(workflowSchedulerMachine, {
       input: testInput({
-        batches: [["a", "b", "c"]],
         buildResult: (outcome, nodes, failure) =>
           runtimeResult(plan, outcome, nodes, failure),
         failFast: true,
+        nodes: [
+          scheduleNode("a", 0),
+          scheduleNode("b", 1),
+          scheduleNode("c", 2),
+        ],
         runNode: async (nodeId) => nodeResult(nodeId, "failed"),
         skipNode: (nodeId, reason) => skipped.push({ nodeId, reason }),
       }),
@@ -118,13 +125,12 @@ describe("workflowSchedulerMachine", () => {
 });
 
 function testInput(overrides: Partial<WorkflowSchedulerInput>) {
-  const batches = overrides.batches ?? [["a"]];
+  const nodes = overrides.nodes ?? [scheduleNode("a", 0)];
   return {
     actor: {
       id: runtimeActorId("workflow", { workflowId: "default" }),
       kind: "workflow" as const,
     },
-    batches,
     buildResult:
       overrides.buildResult ??
       ((outcome, nodes, failure) =>
@@ -135,7 +141,7 @@ function testInput(overrides: Partial<WorkflowSchedulerInput>) {
     isCancelled: overrides.isCancelled ?? (() => false),
     markNodeReady: overrides.markNodeReady ?? (() => undefined),
     maxParallelNodes: overrides.maxParallelNodes,
-    nodeIds: batches.flat(),
+    nodes,
     runNode:
       overrides.runNode ?? (async (nodeId) => nodeResult(nodeId, "passed")),
     runWorkflowHook: overrides.runWorkflowHook ?? (async () => null),
@@ -143,6 +149,15 @@ function testInput(overrides: Partial<WorkflowSchedulerInput>) {
       overrides.shouldContinueAfterNodeResult ?? (() => false),
     skipNode: overrides.skipNode ?? (() => undefined),
   };
+}
+
+function scheduleNode(
+  id: string,
+  index: number,
+  needs: string[] = [],
+  dependents: string[] = []
+): WorkflowSchedulerInput["nodes"][number] {
+  return { dependents, id, index, needs };
 }
 
 function waitForDone(actor: ReturnType<typeof createActor>): Promise<void> {

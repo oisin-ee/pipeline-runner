@@ -1,6 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import Ajv, { type AnySchema, type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
 import { execa } from "execa";
@@ -9,6 +19,7 @@ import pLimit from "p-limit";
 import simpleGit from "simple-git";
 import { createActor, waitFor } from "xstate";
 import {
+  type HookEvent,
   loadPipelineConfig,
   type PipelineConfig,
   type PipelineConfigError,
@@ -20,6 +31,12 @@ import {
   runTests,
   runTypecheck,
 } from "./gates.js";
+import {
+  type HookContext,
+  type HookFunction,
+  type HookResult,
+  parseHookResult,
+} from "./hooks.js";
 import { gatewayServerForProfile } from "./mcp/gateway.js";
 import { resolveFileReference } from "./path-refs.js";
 import {
@@ -72,7 +89,9 @@ type JsonSourceGateSpec = Extract<
   { kind: "acceptance" | "json_schema" | "verdict" }
 >;
 type VerdictGateSpec = Extract<GateSpec, { kind: "verdict" }>;
-type HookSpec = PipelineConfig["hooks"][string];
+type HookConfig = PipelineConfig["hooks"];
+type HookFunctionSpec = HookConfig["functions"][string];
+type HookBinding = HookConfig["on"][string][number];
 const LINE_RE = /\r?\n/;
 // Matchers for the pipeline's own substitution tokens (literal "${runId}" /
 // "${nodeId}" text in worktree roots — not JS interpolation). Expressed as
@@ -274,7 +293,8 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
       type: "artifact.check.finish";
     }
   | {
-      event: HookSpec["event"];
+      event: HookEvent;
+      functionId: string;
       gateId?: string;
       hookId: string;
       nodeId?: string;
@@ -283,7 +303,8 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
       workflowId: string;
     }
   | {
-      event: HookSpec["event"];
+      event: HookEvent;
+      functionId: string;
       gateId?: string;
       hookId: string;
       nodeId?: string;
@@ -291,6 +312,19 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
       reason?: string;
       required: boolean;
       type: "hook.finish";
+      workflowId: string;
+    }
+  | {
+      artifacts?: HookResult["artifacts"];
+      event: HookEvent;
+      functionId: string;
+      gateId?: string;
+      hookId: string;
+      nodeId?: string;
+      outputs?: Record<string, unknown>;
+      status: HookResult["status"];
+      summary?: string;
+      type: "hook.result";
       workflowId: string;
     }
   | {
@@ -345,6 +379,7 @@ interface RuntimeContext {
   gates: RuntimeGateResult[];
   hookFailures: RuntimeFailure[];
   hookPolicy: Required<HookRuntimePolicy>;
+  hookResults: Map<string, HookResult>;
   inheritedOutputNodeIds: Set<string>;
   lastOutputByNode: Map<string, string>;
   maxParallelNodes?: number;
@@ -455,9 +490,6 @@ function startWorkflowSchedulerActor(
         kind: "workflow",
         systemId,
       },
-      batches: context.plan.parallelBatches.map((batch) =>
-        batch.map((node) => node.id)
-      ),
       buildResult: (outcome, nodes, failure) =>
         workflowRuntimeResult(context, outcome, nodes, failure),
       emitWorkflowPlanned: () => emitWorkflowPlanned(context),
@@ -472,18 +504,19 @@ function startWorkflowSchedulerActor(
       markNodeReady: (nodeId) =>
         recordNodeEvent(context, nodeId, { at: now(), type: "READY" }),
       maxParallelNodes: context.maxParallelNodes,
-      nodeIds: context.plan.topologicalOrder.map((node) => node.id),
+      nodes: context.plan.topologicalOrder.map((node) => ({
+        dependents: node.dependents,
+        id: node.id,
+        index: node.index,
+        needs: node.needs,
+      })),
       runNode: (nodeId) => executePlannedNode(nodeId, context),
       runWorkflowHook: (event, failure) =>
         dispatchHooks(context, event, failure),
       shouldContinueAfterNodeResult: (result) =>
         shouldContinueAfterNodeResult(result, context),
       skipNode: (nodeId, reason) =>
-        recordNodeEvent(context, nodeId, {
-          at: now(),
-          reason,
-          type: "SKIPPED",
-        }),
+        recordSkippedNodeState(context, nodeId, reason, now()),
     },
     ...(runtimeInspection(context)
       ? { inspect: runtimeInspection(context) }
@@ -518,6 +551,7 @@ function createRuntimeContext(options: PipelineRuntimeOptions): RuntimeContext {
     executor: options.executor ?? runLaunchPlan,
     gates: [],
     hookFailures: [],
+    hookResults: new Map(),
     inheritedOutputNodeIds: new Set(),
     hookPolicy: {
       allowCommandHooks: options.hookPolicy?.allowCommandHooks ?? true,
@@ -758,7 +792,7 @@ function isDrainMergeNode(node: PlannedWorkflowNode | undefined): boolean {
   return node?.kind === "builtin" && node.builtin === "drain-merge";
 }
 
-function executePlannedNode(
+async function executePlannedNode(
   nodeId: string,
   context: RuntimeContext
 ): Promise<RuntimeNodeResult> {
@@ -766,7 +800,14 @@ function executePlannedNode(
   if (!node) {
     throw new Error(`workflow scheduler referenced unknown node '${nodeId}'`);
   }
-  return executeNode(node, context);
+  const result = await executeNode(node, context);
+  await dispatchHooks(
+    context,
+    "node.finish",
+    result.status === "failed" ? nodeRuntimeFailure(result) : undefined,
+    node
+  );
+  return result;
 }
 
 function workflowRuntimeResult(
@@ -914,6 +955,34 @@ function initialNodeStates(
       },
     ])
   );
+}
+
+function recordSkippedNodeState(
+  context: RuntimeContext,
+  nodeId: string,
+  reason: string,
+  at: string
+): void {
+  const state =
+    context.nodeStates.get(nodeId) ??
+    ({
+      attempts: 0,
+      evidence: [],
+      gates: [],
+      id: nodeId,
+      status: "pending",
+    } satisfies NodeExecutionState);
+  context.nodeStates.set(nodeId, {
+    ...state,
+    failure: {
+      evidence: [reason],
+      gate: nodeId,
+      nodeId,
+      reason,
+    },
+    finishedAt: at,
+    status: "skipped",
+  });
 }
 
 function nodeActor(
@@ -1568,6 +1637,7 @@ function createParallelChildContext(
   return {
     ...context,
     inheritedOutputNodeIds: new Set(context.lastOutputByNode.keys()),
+    hookResults: new Map(context.hookResults),
     lastOutputByNode: new Map(context.lastOutputByNode),
     nodeSnapshots: new Map(),
     nodeActors: new Map(),
@@ -1732,6 +1802,7 @@ async function executeWorkflowNode(
     worktreePath: worktree.worktreePath ?? context.worktreePath,
   });
   childContext.baseSha = context.baseSha;
+  childContext.hookResults = new Map(context.hookResults);
   childContext.lastOutputByNode = workflowChildInheritedOutputs(node, context);
   childContext.inheritedOutputNodeIds = new Set(
     childContext.lastOutputByNode.keys()
@@ -3529,51 +3600,212 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function dispatchHooks(
   context: RuntimeContext,
-  event: HookSpec["event"],
+  event: HookEvent,
   failure?: RuntimeFailure,
   node?: PlannedWorkflowNode,
   gateId?: string
 ): Promise<RuntimeFailure | null> {
-  for (const hookId of hookIdsForContext(context, node)) {
+  for (const binding of hookBindingsForContext(context, event, node, gateId)) {
     if (isCancelled(context)) {
       return null;
     }
-    const hook = context.config.hooks[hookId];
-    if (!hook || hook.event !== event) {
-      continue;
-    }
-    emitHookStart(context, event, hookId, hook, node, gateId);
+    const hookFunction = context.config.hooks.functions[binding.function];
+    emitHookStart(context, event, binding, node, gateId);
     const result = await runHookInvocationActor(
       context,
-      hookId,
-      hook,
+      binding,
+      hookFunction,
+      event,
       failure,
       node,
       gateId
     );
-    emitHookFinish(context, event, hookId, hook, result, node, gateId);
-    if (result && hook.required === true) {
-      context.hookFailures.push(result);
-      return result;
+    emitHookFinish(context, event, binding, result.failure, node, gateId);
+    if (result.hookResult) {
+      recordHookResult(
+        context,
+        event,
+        binding,
+        result.hookResult,
+        node,
+        gateId
+      );
     }
-    if (result) {
-      context.hookFailures.push(result);
+    if (result.failure && binding.failure === "fail") {
+      context.hookFailures.push(result.failure);
+      return result.failure;
+    }
+    if (result.failure) {
+      context.hookFailures.push(result.failure);
     }
   }
   return null;
 }
 
+interface RuntimeHookInvocationResult {
+  failure?: RuntimeFailure;
+  hookResult?: HookResult;
+}
+
+function hookBindingsForContext(
+  context: RuntimeContext,
+  event: HookEvent,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): HookBinding[] {
+  return (context.config.hooks.on[event] ?? []).filter((binding) =>
+    hookBindingMatchesContext(binding, context.workflowId, node?.id, gateId)
+  );
+}
+
+function hookBindingMatchesContext(
+  binding: HookBinding,
+  workflowId: string,
+  nodeId?: string,
+  gateId?: string
+): boolean {
+  const where = binding.where;
+  return (
+    (!where?.workflow || where.workflow === workflowId) &&
+    (!where?.node || where.node === nodeId) &&
+    (!where?.gate || where.gate === gateId)
+  );
+}
+
+function recordHookResult(
+  context: RuntimeContext,
+  event: HookEvent,
+  binding: HookBinding,
+  result: HookResult,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): void {
+  if (binding.result?.save_as) {
+    context.hookResults.set(binding.result.save_as, result);
+  }
+  if (binding.result?.publish === true) {
+    emit(context, {
+      event,
+      functionId: binding.function,
+      hookId: binding.id,
+      status: result.status,
+      type: "hook.result",
+      workflowId: context.workflowId,
+      ...(result.artifacts ? { artifacts: result.artifacts } : {}),
+      ...(gateId ? { gateId } : {}),
+      ...(node ? { nodeId: node.id } : {}),
+      ...(result.outputs ? { outputs: result.outputs } : {}),
+      ...(result.summary ? { summary: result.summary } : {}),
+    });
+  }
+}
+
+function runtimeHookFailure(
+  binding: HookBinding,
+  reason: string,
+  evidence: string[],
+  node?: PlannedWorkflowNode
+): RuntimeFailure {
+  return {
+    evidence,
+    gate: binding.id,
+    nodeId: node?.id,
+    reason,
+  };
+}
+
+function hookResultFailure(
+  binding: HookBinding,
+  result: HookResult,
+  node?: PlannedWorkflowNode
+): RuntimeFailure | undefined {
+  if (result.status !== "fail") {
+    return;
+  }
+  return runtimeHookFailure(
+    binding,
+    result.summary ?? `hook '${binding.id}' failed`,
+    [result.summary ?? `hook '${binding.id}' returned fail`],
+    node
+  );
+}
+
+function validatedHookResult(
+  result: HookResult,
+  binding: HookBinding,
+  hookFunction: HookFunctionSpec,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): RuntimeHookInvocationResult {
+  const schema = hookFunction.returns?.schema;
+  if (!schema) {
+    return {
+      failure: hookResultFailure(binding, result, node),
+      hookResult: result,
+    };
+  }
+  const validation = validateJsonSchemaSource(
+    JSON.stringify(result),
+    schema,
+    context.worktreePath
+  );
+  if (!validation.passed) {
+    return {
+      failure: runtimeHookFailure(
+        binding,
+        validation.reason ?? "hook result schema validation failed",
+        validation.evidence,
+        node
+      ),
+      hookResult: result,
+    };
+  }
+  return {
+    failure: hookResultFailure(binding, result, node),
+    hookResult: result,
+  };
+}
+
+function parseAndValidateHookResult(
+  value: unknown,
+  binding: HookBinding,
+  hookFunction: HookFunctionSpec,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): RuntimeHookInvocationResult {
+  try {
+    return validatedHookResult(
+      parseHookResult(value),
+      binding,
+      hookFunction,
+      context,
+      node
+    );
+  } catch (err) {
+    return {
+      failure: runtimeHookFailure(
+        binding,
+        "hook result validation failed",
+        [err instanceof Error ? err.message : String(err)],
+        node
+      ),
+    };
+  }
+}
+
 async function runHookInvocationActor(
   context: RuntimeContext,
-  hookId: string,
-  hook: HookSpec,
+  binding: HookBinding,
+  hookFunction: HookFunctionSpec,
+  event: HookEvent,
   failure?: RuntimeFailure,
   node?: PlannedWorkflowNode,
   gateId?: string
-): Promise<RuntimeFailure | null> {
+): Promise<RuntimeHookInvocationResult> {
+  let invocationResult: RuntimeHookInvocationResult = {};
   const actor = createActor(hookInvocationMachine, {
     id: runtimeActorId("hook", {
-      hookId,
+      hookId: binding.id,
       nodeId: node?.id,
       runId: context.runId,
       workflowId: context.workflowId,
@@ -3581,7 +3813,7 @@ async function runHookInvocationActor(
     input: {
       actor: {
         id: runtimeActorId("hook", {
-          hookId,
+          hookId: binding.id,
           nodeId: node?.id,
           runId: context.runId,
           workflowId: context.workflowId,
@@ -3591,29 +3823,26 @@ async function runHookInvocationActor(
       },
       emit: context.observability,
       execute: async () => {
-        const hookFailure = await executeHook(
-          hook,
-          hookId,
+        invocationResult = await executeHookFunction(
+          hookFunction,
+          binding,
+          event,
           context,
           failure,
           node,
           gateId
         );
-        return hookFailure
+        return invocationResult.failure
           ? {
-              failure: hookFailure,
-              reason: hookFailure.reason,
-              status: hookFailure.evidence.some((item) =>
-                item.toLowerCase().includes("timed out")
-              )
-                ? ("timedOut" as const)
-                : ("failed" as const),
+              failure: invocationResult.failure,
+              reason: invocationResult.failure.reason,
+              status: "failed" as const,
             }
           : { status: "passed" as const };
       },
-      hookId,
+      hookId: binding.id,
       nodeId: node?.id,
-      required: hook.required === true,
+      required: binding.failure === "fail",
     },
     ...(runtimeInspection(context)
       ? { inspect: runtimeInspection(context) }
@@ -3623,39 +3852,288 @@ async function runHookInvocationActor(
   actor.send({ type: "START" });
   const snapshot = await waitFor(actor, (state) => state.status === "done");
   actor.stop();
-  return snapshot.context.result?.failure ?? null;
+  return snapshot.context.result?.failure
+    ? { ...invocationResult, failure: snapshot.context.result.failure }
+    : invocationResult;
 }
 
-function hookIdsForContext(
+function executeHookFunction(
+  hookFunction: HookFunctionSpec,
+  binding: HookBinding,
+  event: HookEvent,
   context: RuntimeContext,
-  node?: PlannedWorkflowNode
-): string[] {
-  const workflow = context.config.workflows[context.workflowId];
-  if (node) {
-    return uniqueHookIds([...(workflow?.hooks ?? []), ...(node.hooks ?? [])]);
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): Promise<RuntimeHookInvocationResult> | RuntimeHookInvocationResult {
+  switch (hookFunction.kind) {
+    case "module":
+      return executeModuleHookFunction(
+        hookFunction,
+        binding,
+        event,
+        context,
+        failure,
+        node,
+        gateId
+      );
+    case "command":
+      return executeCommandHookFunction(
+        hookFunction,
+        binding,
+        event,
+        context,
+        failure,
+        node,
+        gateId
+      );
+    default: {
+      const _exhaustive: never = hookFunction;
+      return {
+        failure: runtimeHookFailure(
+          binding,
+          "unsupported hook function",
+          [`unsupported hook function: ${String(_exhaustive)}`],
+          node
+        ),
+      };
+    }
   }
-  return uniqueHookIds([
-    ...(context.config.orchestrator.hooks ?? []),
-    ...(workflow?.hooks ?? []),
-  ]);
 }
 
-function uniqueHookIds(hookIds: string[]): string[] {
-  return [...new Set(hookIds)];
+async function executeModuleHookFunction(
+  hookFunction: Extract<HookFunctionSpec, { kind: "module" }>,
+  binding: HookBinding,
+  event: HookEvent,
+  context: RuntimeContext,
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): Promise<RuntimeHookInvocationResult> {
+  if (context.config.hooks.policy?.modules === "deny") {
+    return {
+      failure: runtimeHookFailure(
+        binding,
+        `hook '${binding.id}' failed`,
+        ["module hooks are disabled"],
+        node
+      ),
+    };
+  }
+  try {
+    const imported = await import(hookModuleSpecifier(hookFunction, context));
+    if (typeof imported.default !== "function") {
+      return {
+        failure: runtimeHookFailure(
+          binding,
+          `hook '${binding.id}' failed`,
+          ["module hook must default-export a function"],
+          node
+        ),
+      };
+    }
+    const output = await runWithTimeout(
+      () =>
+        (imported.default as HookFunction)(
+          hookContext(context, event, binding, failure, node, gateId)
+        ),
+      hookFunction.timeout_ms ?? context.hookPolicy.timeoutMs,
+      `hook '${binding.id}' timed out`
+    );
+    return parseAndValidateHookResult(
+      output,
+      binding,
+      hookFunction,
+      context,
+      node
+    );
+  } catch (err) {
+    return {
+      failure: runtimeHookFailure(
+        binding,
+        `hook '${binding.id}' failed`,
+        [err instanceof Error ? err.message : String(err)],
+        node
+      ),
+    };
+  }
+}
+
+function hookModuleSpecifier(
+  hookFunction: Extract<HookFunctionSpec, { kind: "module" }>,
+  context: RuntimeContext
+): string {
+  if (
+    hookFunction.module.startsWith(".") ||
+    hookFunction.module.startsWith("/")
+  ) {
+    return pathToFileURL(resolve(context.worktreePath, hookFunction.module))
+      .href;
+  }
+  return hookFunction.module;
+}
+
+async function executeCommandHookFunction(
+  hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
+  binding: HookBinding,
+  event: HookEvent,
+  context: RuntimeContext,
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): Promise<RuntimeHookInvocationResult> {
+  if (context.hookPolicy.allowCommandHooks === false) {
+    return {
+      failure: runtimeHookFailure(
+        binding,
+        `hook '${binding.id}' failed`,
+        ["command hooks are disabled"],
+        node
+      ),
+    };
+  }
+  if (
+    hookFunction.trusted !== true &&
+    (context.config.hooks.policy?.commands === "trusted-only" ||
+      context.hookPolicy.allowUntrustedCommandHooks === false)
+  ) {
+    return {
+      failure: runtimeHookFailure(
+        binding,
+        `hook '${binding.id}' failed`,
+        ["command hook is not trusted"],
+        node
+      ),
+    };
+  }
+  if (context.config.hooks.policy?.commands === "deny") {
+    return {
+      failure: runtimeHookFailure(
+        binding,
+        `hook '${binding.id}' failed`,
+        ["command hooks are disabled"],
+        node
+      ),
+    };
+  }
+  const tempDir = mkdtempSync(join(tmpdir(), "pipeline-hook-"));
+  const inputPath = join(tempDir, "input.json");
+  const resultPath = join(tempDir, "result.json");
+  try {
+    writeFileSync(
+      inputPath,
+      JSON.stringify(
+        hookContext(context, event, binding, failure, node, gateId)
+      )
+    );
+    const commandResult = await executeCommand(hookFunction.command, context, {
+      env: {
+        ...hookEnv(hookFunction, context),
+        PIPELINE_HOOK_INPUT: inputPath,
+        PIPELINE_HOOK_RESULT: resultPath,
+      },
+      extendEnv: false,
+      outputLimitBytes:
+        hookFunction.output_limit_bytes ?? context.hookPolicy.outputLimitBytes,
+      timeout: hookFunction.timeout_ms ?? context.hookPolicy.timeoutMs,
+    });
+    if (commandResult.exitCode !== 0) {
+      return {
+        failure: runtimeHookFailure(
+          binding,
+          `hook '${binding.id}' failed`,
+          commandResult.evidence,
+          node
+        ),
+      };
+    }
+    if (!existsSync(resultPath)) {
+      return {
+        failure: runtimeHookFailure(
+          binding,
+          `hook '${binding.id}' failed`,
+          ["command hook did not write PIPELINE_HOOK_RESULT"],
+          node
+        ),
+      };
+    }
+    return parseAndValidateHookResult(
+      parseSafeJson(readFileSync(resultPath, "utf8"), "hook result"),
+      binding,
+      hookFunction,
+      context,
+      node
+    );
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+}
+
+function hookContext(
+  context: RuntimeContext,
+  event: HookEvent,
+  binding: HookBinding,
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): HookContext {
+  const taskContext = node
+    ? effectiveTaskContext(node, context)
+    : context.taskContext;
+  return {
+    event: {
+      hookId: binding.id,
+      type: event,
+      workflowId: context.workflowId,
+      ...(gateId ? { gateId } : {}),
+      ...(node ? { nodeId: node.id } : {}),
+    },
+    input: binding.with ?? {},
+    results: Object.fromEntries(context.hookResults),
+    task: context.task,
+    workflow: { id: context.workflowId },
+    ...(failure ? { failure } : {}),
+    ...(node ? { node: { id: node.id } } : {}),
+    ...(taskContext ? { taskContext } : {}),
+  };
+}
+
+async function runWithTimeout<T>(
+  run: () => Promise<T> | T,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(run()),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(timeoutMessage)),
+          timeoutMs
+        );
+        timeout.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function emitHookStart(
   context: RuntimeContext,
-  event: HookSpec["event"],
-  hookId: string,
-  hook: HookSpec,
+  event: HookEvent,
+  binding: HookBinding,
   node?: PlannedWorkflowNode,
   gateId?: string
 ): void {
   emit(context, {
     event,
-    hookId,
-    required: hook.required === true,
+    functionId: binding.function,
+    hookId: binding.id,
+    required: binding.failure === "fail",
     type: "hook.start",
     workflowId: context.workflowId,
     ...(node ? { nodeId: node.id } : {}),
@@ -3665,18 +4143,18 @@ function emitHookStart(
 
 function emitHookFinish(
   context: RuntimeContext,
-  event: HookSpec["event"],
-  hookId: string,
-  hook: HookSpec,
-  result: RuntimeFailure | null,
+  event: HookEvent,
+  binding: HookBinding,
+  result: RuntimeFailure | undefined,
   node?: PlannedWorkflowNode,
   gateId?: string
 ): void {
   emit(context, {
     event,
-    hookId,
-    passed: result === null,
-    required: hook.required === true,
+    functionId: binding.function,
+    hookId: binding.id,
+    passed: result === undefined,
+    required: binding.failure === "fail",
     type: "hook.finish",
     workflowId: context.workflowId,
     ...(node ? { nodeId: node.id } : {}),
@@ -3685,74 +4163,8 @@ function emitHookFinish(
   });
 }
 
-async function executeHook(
-  hook: HookSpec,
-  hookId: string,
-  context: RuntimeContext,
-  failure?: RuntimeFailure,
-  node?: PlannedWorkflowNode,
-  gateId?: string
-): Promise<RuntimeFailure | null> {
-  if (hook.enabled === false) {
-    return null;
-  }
-  if (hook.kind === "builtin") {
-    if (hook.builtin === "log") {
-      return null;
-    }
-    return {
-      evidence: [`unsupported hook builtin '${hook.builtin ?? ""}'`],
-      gate: hookId,
-      nodeId: node?.id,
-      reason: `hook '${hookId}' failed`,
-    };
-  }
-  if (context.hookPolicy.allowCommandHooks === false) {
-    return hookPolicyFailure(hookId, node, "command hooks are disabled");
-  }
-  if (
-    hook.trusted === false &&
-    context.hookPolicy.allowUntrustedCommandHooks === false
-  ) {
-    return hookPolicyFailure(hookId, node, "command hook is not trusted");
-  }
-  const rendered = (hook.command ?? []).map((part) =>
-    renderTemplate(part, context, failure, node, gateId)
-  );
-  const result = await executeCommand(rendered, context, {
-    env: hookEnv(hook, context),
-    extendEnv: false,
-    input: JSON.stringify(hookPayload(context, failure, node, gateId)),
-    outputLimitBytes:
-      hook.output_limit_bytes ?? context.hookPolicy.outputLimitBytes,
-    timeout: hook.timeout_ms ?? context.hookPolicy.timeoutMs,
-  });
-  if (result.exitCode === 0) {
-    return null;
-  }
-  return {
-    evidence: result.evidence,
-    gate: hookId,
-    nodeId: node?.id,
-    reason: `hook '${hookId}' failed`,
-  };
-}
-
-function hookPolicyFailure(
-  hookId: string,
-  node: PlannedWorkflowNode | undefined,
-  reason: string
-): RuntimeFailure {
-  return {
-    evidence: [reason],
-    gate: hookId,
-    nodeId: node?.id,
-    reason: `hook '${hookId}' failed`,
-  };
-}
-
 function hookEnv(
-  hook: HookSpec,
+  hook: Extract<HookFunctionSpec, { kind: "command" }>,
   context: RuntimeContext
 ): Record<string, string> {
   const env: Record<string, string> = {};
@@ -3771,41 +4183,6 @@ function hookEnv(
     ...context.hookPolicy.env,
     ...(hook.env?.set ?? {}),
   };
-}
-
-function hookPayload(
-  context: RuntimeContext,
-  failure?: RuntimeFailure,
-  node?: PlannedWorkflowNode,
-  gateId?: string
-): Record<string, unknown> {
-  return {
-    event: {
-      gateId,
-      nodeId: node?.id,
-      workflowId: context.workflowId,
-    },
-    failure,
-    task: context.task,
-    taskContext: node
-      ? effectiveTaskContext(node, context)
-      : context.taskContext,
-  };
-}
-
-function renderTemplate(
-  value: string,
-  context: RuntimeContext,
-  failure?: RuntimeFailure,
-  node?: PlannedWorkflowNode,
-  gateId?: string
-): string {
-  return value
-    .replaceAll("{{workflow.id}}", context.workflowId)
-    .replaceAll("{{node.id}}", node?.id ?? "")
-    .replaceAll("{{gate.id}}", gateId ?? failure?.gate ?? "")
-    .replaceAll("{{task}}", context.task)
-    .replaceAll("{{reason}}", failure?.reason ?? "");
 }
 
 export function formatConfigError(err: PipelineConfigError): string {

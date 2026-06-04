@@ -102,7 +102,6 @@ version: 1
 default_workflow: default
 orchestrator:
   profile: orchestrator
-  hooks: [announce-complete]
 workflows:
   default:
     description: Default workflow.
@@ -121,12 +120,17 @@ workflows:
         profile: test-writer
         needs: [research]
 hooks:
-  announce-complete:
-    event: workflow.complete
-    kind: command
-    command: ["echo", "{{workflow.id}} complete"]
-    required: false
-    timeout_ms: 30000
+  functions:
+    announce-complete:
+      kind: command
+      command: ["echo", "complete"]
+      trusted: true
+      timeout_ms: 30000
+  on:
+    workflow.complete:
+      - id: announce-complete
+        function: announce-complete
+        failure: ignore
 `;
 
 const VALID_PARTS: PipelineConfigParts = {
@@ -409,19 +413,22 @@ entrypoints:
     workflow: default
     description: Quick pipeline
 hooks:
-  announce-complete:
-    event: workflow.complete
-    kind: command
-    command: ["echo", "done"]
-    env:
-      passthrough: [PATH]
-      set: { PIPELINE_HOOK: "1" }
-    output_limit_bytes: 1024
-    payload: stdin
-    trusted: true
+  functions:
+    announce-complete:
+      kind: command
+      command: ["echo", "done"]
+      env:
+        passthrough: [PATH]
+        set: { PIPELINE_HOOK: "1" }
+      output_limit_bytes: 1024
+      trusted: true
+  on:
+    workflow.complete:
+      - id: announce-complete
+        function: announce-complete
+        failure: ignore
 orchestrator:
   profile: orchestrator
-  hooks: [announce-complete]
 workflows:
   default:
     nodes:
@@ -946,14 +953,14 @@ workflows:
     const error = captureConfigError(() =>
       parseParts({
         pipeline: VALID_PIPELINE_YAML.replace(
-          "event: workflow.complete",
-          "event: workflow.done"
+          "workflow.complete:",
+          "workflow.done:"
         ),
       })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("Invalid option");
+    expect(error.message).toContain("unsupported hook event 'workflow.done'");
   });
 
   it("rejects tool grants outside runner capabilities", () => {

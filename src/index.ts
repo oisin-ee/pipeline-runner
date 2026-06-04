@@ -241,6 +241,8 @@ function formatAgentProgress(event: PipelineRuntimeEvent): string | null {
       return `Hook starting: ${event.hookId} event=${event.event}${event.nodeId ? ` node=${event.nodeId}` : ""}`;
     case "hook.finish":
       return `Hook ${event.passed ? "passed" : "failed"}: ${event.hookId}${event.reason ? ` (${event.reason})` : ""}`;
+    case "hook.result":
+      return `Hook result: ${event.hookId} ${event.status}${event.summary ? ` (${event.summary})` : ""}`;
     default:
       return null;
   }
@@ -1021,7 +1023,6 @@ function formatCompiledWorkflowPlan(
   worktreePath: string,
   plan: ReturnType<typeof compileWorkflowPlan>
 ): string {
-  const workflow = config.workflows[plan.workflowId];
   const lines = [`Workflow: ${plan.workflowId}`];
   lines.push(formatOrchestratorPlan(config, worktreePath));
   lines.push(
@@ -1037,8 +1038,14 @@ function formatCompiledWorkflowPlan(
     }
     lines.push(formatWorkflowPlanNode(node, config, worktreePath));
   }
-  if (workflow?.hooks?.length) {
-    lines.push(`Workflow hooks: ${workflow.hooks.join(", ")}`);
+  const workflowHooks = Object.entries(config.hooks.on).flatMap(
+    ([event, bindings]) =>
+      bindings
+        .filter((binding) => binding.where?.workflow === plan.workflowId)
+        .map((binding) => `${event}:${binding.id}`)
+  );
+  if (workflowHooks.length > 0) {
+    lines.push(`Workflow hooks: ${workflowHooks.join(", ")}`);
   }
   return lines.join("\n");
 }
@@ -1068,7 +1075,6 @@ function formatWorkflowPlanNode(
     node.artifacts?.length
       ? `artifacts=${node.artifacts.map((artifact) => artifact.path).join(",")}`
       : "artifacts=none",
-    node.hooks?.length ? `hooks=${node.hooks.join(",")}` : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1114,7 +1120,7 @@ function formatOrchestratorPlan(
     formatList("rules", orchestrator.rules),
     formatList("skills", orchestrator.skills),
     formatList("mcp_servers", orchestrator.mcp_servers),
-    formatList("hooks", config.orchestrator.hooks),
+    formatList("hooks", Object.keys(config.hooks.functions)),
   ]
     .filter(Boolean)
     .join(" ");

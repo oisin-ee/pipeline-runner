@@ -70,7 +70,7 @@ interface CommandDefinition {
 
 type EntrypointEntry = [string, PipelineConfig["entrypoints"][string]];
 type ProfileEntry = [string, PipelineConfig["profiles"][string]];
-type ActorConfig = PipelineConfig["profiles"][string] & { hooks?: string[] };
+type ActorConfig = PipelineConfig["profiles"][string];
 
 interface OpencodePermissionOptions {
   allowedTaskAgents?: string[];
@@ -166,7 +166,6 @@ function orchestratorProfile(config: PipelineConfig): ActorConfig {
   }
   return {
     ...profile,
-    hooks: config.orchestrator.hooks,
   };
 }
 
@@ -279,9 +278,6 @@ function grants(actor: ActorConfig): string {
     `mcp_servers: ${(actor.mcp_servers ?? []).join(", ") || "none"}`,
     `filesystem: ${actor.filesystem?.mode ?? "default"}`,
     `network: ${actor.network?.mode ?? "default"}`,
-    ...("hooks" in actor
-      ? [`hooks: ${(actor.hooks ?? []).join(", ") || "none"}`]
-      : []),
     ...("output" in actor ? [`output: ${actor.output?.format ?? "text"}`] : []),
   ].join("\n");
 }

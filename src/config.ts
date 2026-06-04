@@ -28,6 +28,7 @@ const HOOK_EVENTS = [
   "node.start",
   "node.success",
   "node.error",
+  "node.finish",
   "gate.failure",
 ] as const;
 const TOOL_NAMES = [
@@ -347,7 +348,6 @@ const profileSchema = z
 
 const orchestratorSchema = z
   .object({
-    hooks: z.array(z.string()).optional(),
     profile: z.string(),
   })
   .strict();
@@ -359,19 +359,96 @@ const hookEnvSchema = z
   })
   .strict();
 
-const hookSchema = z
+const hookPermissionsSchema = z
   .object({
-    builtin: z.string().optional(),
-    command: z.array(z.string()).optional(),
-    enabled: z.boolean().optional(),
+    filesystem: z.enum(FILESYSTEM_MODES).optional(),
+    network: z.enum(NETWORK_MODES).optional(),
+  })
+  .strict();
+
+const hookReturnsSchema = z
+  .object({
+    schema: z.string().min(1).optional(),
+  })
+  .strict();
+
+const moduleHookFunctionSchema = z
+  .object({
+    kind: z.literal("module"),
+    module: z.string().min(1),
+    permissions: hookPermissionsSchema.optional(),
+    returns: hookReturnsSchema.optional(),
+    timeout_ms: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const commandHookProtocolSchema = z
+  .object({
+    input: z.literal("file"),
+    result: z.literal("file"),
+  })
+  .strict();
+
+const commandHookFunctionSchema = z
+  .object({
+    command: z.array(z.string()).min(1),
     env: hookEnvSchema.optional(),
-    event: z.enum(HOOK_EVENTS),
-    kind: z.enum(["command", "builtin"]),
+    kind: z.literal("command"),
     output_limit_bytes: z.number().int().positive().optional(),
-    payload: z.enum(["stdin"]).optional(),
-    required: z.boolean().optional(),
+    protocol: commandHookProtocolSchema.default({
+      input: "file",
+      result: "file",
+    }),
+    returns: hookReturnsSchema.optional(),
     timeout_ms: z.number().int().positive().optional(),
     trusted: z.boolean().optional(),
+  })
+  .strict();
+
+const hookFunctionSchema = z.discriminatedUnion("kind", [
+  moduleHookFunctionSchema,
+  commandHookFunctionSchema,
+]);
+
+const hookBindingWhereSchema = z
+  .object({
+    gate: z.string().optional(),
+    node: z.string().optional(),
+    workflow: z.string().optional(),
+  })
+  .strict();
+
+const hookBindingResultSchema = z
+  .object({
+    pass_to: z.enum(["downstream"]).optional(),
+    publish: z.boolean().optional(),
+    save_as: z.string().min(1).optional(),
+  })
+  .strict();
+
+const hookBindingSchema = z
+  .object({
+    failure: z.enum(["fail", "ignore"]).default("ignore"),
+    function: z.string().min(1),
+    id: z.string().min(1),
+    result: hookBindingResultSchema.optional(),
+    where: hookBindingWhereSchema.optional(),
+    with: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+const hookPolicySchema = z
+  .object({
+    commands: z.enum(["allow", "trusted-only", "deny"]).optional(),
+    modules: z.enum(["allow", "deny"]).optional(),
+  })
+  .strict();
+
+const hooksConfigSchema = z
+  .object({
+    functions: strictRecord(hookFunctionSchema).default({}),
+    on: strictRecord(z.array(hookBindingSchema)).default({}),
+    policy: hookPolicySchema.optional(),
   })
   .strict();
 
@@ -429,7 +506,6 @@ const schedulePolicySchema = z
 const workflowNodeBaseSchema = z.object({
   artifacts: z.array(artifactSchema).optional(),
   gates: z.array(gateSchema).optional(),
-  hooks: z.array(z.string()).optional(),
   id: z.string(),
   needs: z.array(z.string()).optional(),
   retries: retriesSchema.optional(),
@@ -517,7 +593,6 @@ export const workflowSchema = z
   .object({
     description: z.string().optional(),
     execution: workflowExecutionSchema.optional(),
-    hooks: z.array(z.string()).optional(),
     nodes: z.array(workflowNodeSchema),
   })
   .strict();
@@ -544,7 +619,7 @@ const pipelineFileSchema = z
   .object({
     default_workflow: z.string(),
     entrypoints: strictRecord(entrypointSchema).default({}),
-    hooks: strictRecord(hookSchema).default({}),
+    hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     orchestrator: orchestratorSchema,
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
@@ -557,7 +632,7 @@ const configSchemaBase = z
   .object({
     default_workflow: z.string(),
     entrypoints: strictRecord(entrypointSchema).default({}),
-    hooks: strictRecord(hookSchema).default({}),
+    hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     mcp_gateway: mcpGatewaySchema.optional(),
     mcp_servers: strictRecord(mcpServerSchema).default({}),
     orchestrator: orchestratorSchema,
@@ -873,20 +948,12 @@ export function validatePipelineConfig(
   validateRegistryIds("rules", config.rules, issues);
   validateRegistryIds("skills", config.skills, issues);
   validateRegistryIds("mcp_servers", config.mcp_servers, issues);
-  validateRegistryIds("hooks", config.hooks, issues);
+  validateRegistryIds("hooks.functions", config.hooks.functions, issues);
   validateRegistryIds("workflows", config.workflows, issues);
   validateRegistryIds("entrypoints", config.entrypoints, issues);
 
   const orchestratorProfile = config.profiles[config.orchestrator.profile];
-  if (orchestratorProfile) {
-    validateReferences(
-      "orchestrator.hooks",
-      config.orchestrator.hooks,
-      config.hooks,
-      "hook",
-      issues
-    );
-  } else {
+  if (!orchestratorProfile) {
     issues.push({
       path: "orchestrator.profile",
       message: `orchestrator references missing profile '${config.orchestrator.profile}'`,
@@ -913,20 +980,7 @@ export function validatePipelineConfig(
     );
   }
 
-  for (const [hookId, hook] of Object.entries(config.hooks)) {
-    if (hook.kind === "command" && !hook.command) {
-      issues.push({
-        path: `hooks.${hookId}.command`,
-        message: `command hook '${hookId}' must declare command`,
-      });
-    }
-    if (hook.kind === "builtin" && !hook.builtin) {
-      issues.push({
-        path: `hooks.${hookId}.builtin`,
-        message: `builtin hook '${hookId}' must declare builtin`,
-      });
-    }
-  }
+  validateHookConfig(config, issues, projectRoot, options);
 
   for (const [ruleId, rule] of Object.entries(config.rules)) {
     validatePath(
@@ -976,6 +1030,49 @@ function validateRegistryIds(
         path: `${name}.${id}`,
         message: `registry id '${id}' must match ${ID_RE.source}`,
       });
+    }
+  }
+}
+
+function validateHookConfig(
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[],
+  projectRoot?: string,
+  options: PipelineConfigValidationOptions = {}
+): void {
+  const allowedEvents = new Set<string>(HOOK_EVENTS);
+  for (const [functionId, hookFunction] of Object.entries(
+    config.hooks.functions
+  )) {
+    validatePath(
+      `hooks.functions.${functionId}.returns.schema`,
+      hookFunction.returns?.schema,
+      projectRoot,
+      issues,
+      options
+    );
+  }
+  for (const [event, bindings] of Object.entries(config.hooks.on)) {
+    if (!allowedEvents.has(event)) {
+      issues.push({
+        path: `hooks.on.${event}`,
+        message: `unsupported hook event '${event}'`,
+      });
+      continue;
+    }
+    for (const [index, binding] of bindings.entries()) {
+      if (!ID_RE.test(binding.id)) {
+        issues.push({
+          path: `hooks.on.${event}.${index}.id`,
+          message: `hook binding id '${binding.id}' must match ${ID_RE.source}`,
+        });
+      }
+      if (!config.hooks.functions[binding.function]) {
+        issues.push({
+          path: `hooks.on.${event}.${index}.function`,
+          message: `hook binding '${binding.id}' references missing function '${binding.function}'`,
+        });
+      }
     }
   }
 }
@@ -1138,14 +1235,6 @@ function validateWorkflow(
   projectRoot?: string,
   options: PipelineConfigValidationOptions = {}
 ): void {
-  validateReferences(
-    `workflows.${workflowId}.hooks`,
-    workflow.hooks,
-    config.hooks,
-    "hook",
-    issues
-  );
-
   const nodeIds = new Set<string>();
   for (const node of workflow.nodes) {
     if (nodeIds.has(node.id)) {
@@ -1184,13 +1273,6 @@ function validateWorkflowNode(
       });
     }
   }
-  validateReferences(
-    `workflows.${workflowId}.nodes.${node.id}.hooks`,
-    node.hooks,
-    config.hooks,
-    "hook",
-    issues
-  );
   validateWorkflowNodeKind(workflowId, node, config, issues);
   if (node.kind === "parallel") {
     validateParallelWorkflowNode(workflowId, node, config, issues);

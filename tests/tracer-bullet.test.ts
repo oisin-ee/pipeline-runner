@@ -114,7 +114,9 @@ profiles:
 default_workflow: default
 orchestrator:
   profile: orchestrator
-  hooks: []
+hooks:
+  functions: {}
+  on: {}
 workflows:
   default:
     nodes:

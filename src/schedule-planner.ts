@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { alg, Graph } from "@dagrejs/graphlib";
 import matter from "gray-matter";
 import { parseDocument, stringify } from "yaml";
 import { z } from "zod";
@@ -18,7 +19,7 @@ import {
   runLaunchPlan,
 } from "./runner.js";
 import { normalizeRunnerOutput } from "./runner-output.js";
-import { parseTicketAndDescription } from "./task-ref.js";
+import { extractTicketIds } from "./task-ref.js";
 import {
   compileWorkflowPlan,
   type WorkflowExecutionPlan,
@@ -83,7 +84,7 @@ interface BacklogWorkUnit {
 }
 
 interface SchedulePlanningContext {
-  parentWorkUnit?: BacklogWorkUnit;
+  parentWorkUnits: BacklogWorkUnit[];
   workUnits: BacklogWorkUnit[];
 }
 
@@ -565,6 +566,7 @@ function plannerPrompt(
     "Implementation work must have downstream acceptance, verification, or review coverage in the generated DAG.",
     "Preserve Backlog dependency ids as schedule needs edges. A node assigned a dependent work unit must depend on the nodes assigned its prerequisite work units, directly or through an explicit path.",
     "Shape the graph by intent, not by ticket count. Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket unless each step needs ticket-specific evidence.",
+    "Only add needs edges for real dependencies, shared constraints, or verification/review fan-in.",
     "Use one RED node for a group of tickets when they share a test strategy, then fan out to parallel GREEN implementation nodes where the work can be implemented independently.",
     "Use one acceptance or verifier node for multiple GREEN nodes when the same acceptance checklist or real repository commands prove the group.",
     "Only serialize ticket nodes when the backlog, a shared migration/schema/API dependency, or implementation risk requires it.",
@@ -586,8 +588,8 @@ function plannerPrompt(
       : "No backlog child tickets were resolved; decompose the prompt conservatively.",
     "",
     "Backlog parent context:",
-    planningContext.parentWorkUnit
-      ? stringify(planningContext.parentWorkUnit)
+    planningContext.parentWorkUnits.length > 0
+      ? stringify(planningContext.parentWorkUnits)
       : "No backlog parent context was resolved.",
     "",
     "Baseline schedule:",
@@ -670,9 +672,9 @@ function hydrateScheduleTaskContexts(
   planningContext: SchedulePlanningContext
 ): ScheduleArtifact {
   const contexts = new Map(
-    [planningContext.parentWorkUnit, ...planningContext.workUnits]
-      .filter((unit): unit is BacklogWorkUnit => Boolean(unit))
-      .map((unit) => [unit.id, backlogWorkUnitTaskContext(unit)])
+    [...planningContext.parentWorkUnits, ...planningContext.workUnits].map(
+      (unit) => [unit.id, backlogWorkUnitTaskContext(unit)]
+    )
   );
   if (contexts.size === 0) {
     return artifact;
@@ -928,27 +930,85 @@ function flattenWorkflowNode(node: WorkflowNode): WorkflowNode[] {
 function loadBacklogPlanningContext(
   task: string,
   worktreePath: string
-): Pick<SchedulePlanningContext, "parentWorkUnit" | "workUnits"> {
-  const ticketId = parseTicketAndDescription(task).ticketId;
-  if (!ticketId) {
-    return { workUnits: [] };
+): SchedulePlanningContext {
+  const ticketIds = extractTicketIds(task);
+  if (ticketIds.length === 0) {
+    return { parentWorkUnits: [], workUnits: [] };
   }
   const tasks = readBacklogTasks(worktreePath);
-  const parentWorkUnit = tasks.find(
-    (taskFile) => taskFile.id === ticketId
-  )?.workUnit;
-  const workUnits = tasks
-    .filter((taskFile) => taskFile.parentTaskId === ticketId)
-    .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
-    .map((taskFile) => taskFile.workUnit);
-  let plannedWorkUnits = workUnits;
-  if (plannedWorkUnits.length === 0 && parentWorkUnit) {
-    plannedWorkUnits = [parentWorkUnit];
+  const tasksById = new Map(tasks.map((taskFile) => [taskFile.id, taskFile]));
+  const taskGraph = backlogTaskGraph(tasks);
+  const parentWorkUnits: BacklogWorkUnit[] = [];
+  const workUnits: BacklogWorkUnit[] = [];
+  const parentIds = new Set<string>();
+  const workUnitIds = new Set<string>();
+
+  for (const ticketId of ticketIds) {
+    const taskFile = tasksById.get(ticketId);
+    if (!taskFile) {
+      continue;
+    }
+    const descendants = descendantBacklogTasks(ticketId, taskGraph);
+    if (descendants.length === 0) {
+      addUniqueWorkUnit(taskFile.workUnit, workUnits, workUnitIds);
+      continue;
+    }
+    addUniqueWorkUnit(taskFile.workUnit, parentWorkUnits, parentIds);
+    for (const descendant of descendants) {
+      addUniqueWorkUnit(descendant.workUnit, workUnits, workUnitIds);
+    }
   }
+
   return {
-    ...(parentWorkUnit ? { parentWorkUnit } : {}),
-    workUnits: plannedWorkUnits,
+    parentWorkUnits,
+    workUnits,
   };
+}
+
+function backlogTaskGraph(
+  tasks: BacklogTaskFile[]
+): Graph<undefined, BacklogTaskFile> {
+  const graph = new Graph<undefined, BacklogTaskFile>();
+  const sortedTasks = [...tasks].sort(compareBacklogTaskIds);
+  for (const task of sortedTasks) {
+    graph.setNode(task.id, task);
+  }
+  for (const task of sortedTasks) {
+    if (task.parentTaskId && graph.hasNode(task.parentTaskId)) {
+      graph.setEdge(task.parentTaskId, task.id);
+    }
+  }
+  return graph;
+}
+
+function descendantBacklogTasks(
+  taskId: string,
+  taskGraph: Graph<undefined, BacklogTaskFile>
+): BacklogTaskFile[] {
+  if (!taskGraph.hasNode(taskId)) {
+    return [];
+  }
+  return alg
+    .preorder(taskGraph, taskId)
+    .slice(1)
+    .map((id) => taskGraph.node(id))
+    .filter((task): task is BacklogTaskFile => Boolean(task));
+}
+
+function compareBacklogTaskIds(a: BacklogTaskFile, b: BacklogTaskFile): number {
+  return a.id.localeCompare(b.id, undefined, { numeric: true });
+}
+
+function addUniqueWorkUnit(
+  workUnit: BacklogWorkUnit,
+  target: BacklogWorkUnit[],
+  seen: Set<string>
+): void {
+  if (seen.has(workUnit.id)) {
+    return;
+  }
+  seen.add(workUnit.id);
+  target.push(workUnit);
 }
 
 interface BacklogTaskFile {
