@@ -1166,6 +1166,13 @@ workflows:
       - id: scheduled
         kind: command
         command: [scheduled-bin]
+        task_context:
+          id: PC-37.2
+          title: Build API endpoint
+          description: Build the console API endpoint.
+          acceptance_criteria:
+            - id: "1"
+              text: Endpoint validates runner events.
 `
       );
 
@@ -1253,6 +1260,7 @@ workflows:
       expect(output).toContain("OK: schedule-approved-b-root (1 nodes)");
       expect(output).toContain("Workflow: schedule-approved-b-root");
       expect(output).toContain("- scheduled kind=command needs=none");
+      expect(output).not.toContain("Unrecognized key: task_context");
       expect(execaCommands()).toEqual([]);
     } finally {
       log.mockRestore();

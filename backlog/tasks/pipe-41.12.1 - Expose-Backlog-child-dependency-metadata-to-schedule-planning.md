@@ -1,10 +1,10 @@
 ---
 id: PIPE-41.12.1
 title: Expose Backlog child dependency metadata to schedule planning
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-04 09:27'
-updated_date: '2026-06-04 09:27'
+updated_date: '2026-06-04 09:40'
 labels:
   - pipeline
   - schedules
@@ -48,3 +48,9 @@ Make the schedule planner receive enough canonical Backlog context to preserve c
 4. Preserve the existing single-ticket behavior: dotted ids such as `PIPE-41.7` remain exact-ticket work units when they have no children.
 5. Run focused schedule planner tests and the repo validation commands required by the parent ticket.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Execution started via `$execute`: first slice is a failing test for Backlog child dependency metadata in schedule planning context, then a minimal implementation in `src/schedule-planner.ts`.
+<!-- SECTION:NOTES:END -->

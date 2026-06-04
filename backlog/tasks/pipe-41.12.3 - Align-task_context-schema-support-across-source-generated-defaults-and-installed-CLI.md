@@ -3,10 +3,10 @@ id: PIPE-41.12.3
 title: >-
   Align task_context schema support across source, generated defaults, and
   installed CLI
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-04 09:27'
-updated_date: '2026-06-04 09:27'
+updated_date: '2026-06-04 09:43'
 labels:
   - pipeline
   - schedules
@@ -61,3 +61,9 @@ Eliminate the installed-pipe drift where a generated schedule containing `task_c
 4. Keep planner-output guidance consistent: planner emits only ids, scheduler hydrates canonical context. Do not solve installed compatibility by deleting task context from generated artifacts.
 5. Run `bun test tests/config.test.ts tests/cli.test.ts tests/package-public-api.test.ts`, `bun run build`, and a built or installed `pipe validate --schedule` smoke before completion.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Execution started after schedule dependency validation was green. This slice adds regression coverage for `task_context` through config/schema, CLI validate/explain, and public package import paths, with source changes only if the tests expose drift.
+<!-- SECTION:NOTES:END -->

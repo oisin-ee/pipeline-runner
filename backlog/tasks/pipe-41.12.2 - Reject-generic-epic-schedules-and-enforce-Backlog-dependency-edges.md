@@ -1,10 +1,10 @@
 ---
 id: PIPE-41.12.2
 title: Reject generic epic schedules and enforce Backlog dependency edges
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-04 09:27'
-updated_date: '2026-06-04 09:27'
+updated_date: '2026-06-04 09:41'
 labels:
   - pipeline
   - schedules
@@ -49,3 +49,9 @@ Make generated epic schedules ticket-accurate when Backlog child work units are 
 5. Add PC-37-shaped positive and negative tests in `tests/schedule-planner.test.ts` for sequential and independent children.
 6. Run `bun test tests/schedule-planner.test.ts`, then the parent verification commands before completion.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Execution started after `PIPE-41.12.1` green test. Next red test targets generated schedule validation for Backlog child dependency edges.
+<!-- SECTION:NOTES:END -->

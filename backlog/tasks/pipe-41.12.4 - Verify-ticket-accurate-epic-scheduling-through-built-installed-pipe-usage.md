@@ -1,10 +1,10 @@
 ---
 id: PIPE-41.12.4
 title: Verify ticket-accurate epic scheduling through built installed-pipe usage
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-04 09:28'
-updated_date: '2026-06-04 09:28'
+updated_date: '2026-06-04 09:44'
 labels:
   - pipeline
   - schedules
@@ -54,3 +54,9 @@ Add the real usage proof for the PC-37 failure class. Once schedule planning und
 5. Assert the generated artifact is not generic-only by checking every child id appears as `task_context.id` and that old generic `test/frontend/backend/k8s` track-only shape is absent.
 6. Keep this ticket focused on proof and fixture quality. If it reveals a source behavior defect, fix it only if it belongs to `.2` or `.3`; otherwise stop and split a follow-up under `PIPE-41.12`.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Execution started after schedule graph validation and `task_context` CLI/public-package coverage were green. This slice will add the PC-37-shaped dogfood proof through CLI schedule generation, validation, and explain-plan.
+<!-- SECTION:NOTES:END -->

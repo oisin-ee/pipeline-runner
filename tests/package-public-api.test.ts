@@ -146,7 +146,7 @@ const parts: PipelineConfigParts = {
 
 const config: PipelineConfig = parsePipelineConfigParts(parts, "/tmp/project");
 const plan: WorkflowExecutionPlan = compileWorkflowPlan(config, "smoke");
-const scheduleArtifact: ScheduleArtifact = parseScheduleArtifact("version: 1\\nkind: pipeline-schedule\\nschedule_id: smoke-a\\nsource_entrypoint: pipe\\ntask: consumer compile smoke\\ngenerated_at: 2026-06-03T12:00:00.000Z\\nroot_workflow: root\\nworkflows:\\n  root:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n");
+const scheduleArtifact: ScheduleArtifact = parseScheduleArtifact("version: 1\\nkind: pipeline-schedule\\nschedule_id: smoke-a\\nsource_entrypoint: pipe\\ntask: consumer compile smoke\\ngenerated_at: 2026-06-03T12:00:00.000Z\\nroot_workflow: root\\nworkflows:\\n  root:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n        task_context:\\n          id: PC-37.2\\n          title: Build API endpoint\\n          description: Build the console API endpoint.\\n          acceptance_criteria:\\n            - id: \\"1\\"\\n              text: Endpoint validates runner events.\\n");
 const scheduledPlan: WorkflowExecutionPlan = compileScheduleArtifact(
   config,
   scheduleArtifact

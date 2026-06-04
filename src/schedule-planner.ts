@@ -76,6 +76,7 @@ type WorkflowNode = Workflow["nodes"][number];
 
 interface BacklogWorkUnit {
   acceptance_criteria: Array<{ id: string; text: string }>;
+  dependencies?: string[];
   description?: string;
   id: string;
   title?: string;
@@ -562,6 +563,7 @@ function plannerPrompt(
     "Assign each backlog work unit to explicit generated agent nodes with task_context.id. The scheduler hydrates title, description, and acceptance_criteria after parsing.",
     "Do not copy backlog descriptions or acceptance criteria into task_context output.",
     "Implementation work must have downstream acceptance, verification, or review coverage in the generated DAG.",
+    "Preserve Backlog dependency ids as schedule needs edges. A node assigned a dependent work unit must depend on the nodes assigned its prerequisite work units, directly or through an explicit path.",
     "Shape the graph by intent, not by ticket count. Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket unless each step needs ticket-specific evidence.",
     "Use one RED node for a group of tickets when they share a test strategy, then fan out to parallel GREEN implementation nodes where the work can be implemented independently.",
     "Use one acceptance or verifier node for multiple GREEN nodes when the same acceptance checklist or real repository commands prove the group.",
@@ -603,6 +605,7 @@ function validateScheduleArtifact(
     ...workflowReferenceNodeIssues(artifact),
     ...workflowAssignedWorkUnitIssues(artifact, planningContext.workUnits),
     ...missingAssignedWorkUnitIssues(artifact, planningContext.workUnits),
+    ...workUnitDependencyIssues(artifact, planningContext.workUnits),
     ...invalidWorkflowPrimitiveIssues(config, artifact),
     ...implementationCoverageIssues(artifact),
   ];
@@ -740,6 +743,85 @@ function missingAssignedWorkUnitIssues(
   return missing.length > 0
     ? [`missing assigned backlog work units: ${missing.join(", ")}`]
     : [];
+}
+
+function workUnitDependencyIssues(
+  artifact: ScheduleArtifact,
+  workUnits: BacklogWorkUnit[]
+): string[] {
+  if (workUnits.length === 0) {
+    return [];
+  }
+  const workUnitIds = new Set(workUnits.map((unit) => unit.id));
+  const dependenciesByUnit = new Map(
+    workUnits.map((unit) => [
+      unit.id,
+      (unit.dependencies ?? []).filter((id) => workUnitIds.has(id)),
+    ])
+  );
+  return Object.entries(artifact.workflows).flatMap(
+    ([workflowId, workflow]) => {
+      const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
+      const dependentsByNeed = workflowDependentsByNeed(nodes);
+      const nodesByWorkUnit = nodesByAssignedWorkUnit(nodes);
+      return nodes.filter(isImplementationNode).flatMap((node) => {
+        const dependentId = node.task_context?.id;
+        if (!dependentId) {
+          return [];
+        }
+        return (dependenciesByUnit.get(dependentId) ?? []).flatMap(
+          (prerequisiteId) => {
+            const prerequisiteNodes = nodesByWorkUnit.get(prerequisiteId) ?? [];
+            const hasDependencyPath = prerequisiteNodes.some((source) =>
+              hasPathToNode(source.id, node.id, dependentsByNeed)
+            );
+            return hasDependencyPath
+              ? []
+              : [
+                  `work unit dependency edge missing in '${workflowId}': '${dependentId}' node '${node.id}' must depend on prerequisite '${prerequisiteId}' nodes ${prerequisiteNodes.map((prerequisite) => `'${prerequisite.id}'`).join(", ")}`,
+                ];
+          }
+        );
+      });
+    }
+  );
+}
+
+function nodesByAssignedWorkUnit(
+  nodes: WorkflowNode[]
+): Map<string, WorkflowNode[]> {
+  const grouped = new Map<string, WorkflowNode[]>();
+  for (const node of nodes) {
+    const id = node.task_context?.id;
+    if (!id) {
+      continue;
+    }
+    const current = grouped.get(id) ?? [];
+    current.push(node);
+    grouped.set(id, current);
+  }
+  return grouped;
+}
+
+function hasPathToNode(
+  sourceId: string,
+  targetId: string,
+  dependentsByNeed: Map<string, WorkflowNode[]>
+): boolean {
+  const queue = [...(dependentsByNeed.get(sourceId) ?? [])];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node || seen.has(node.id)) {
+      continue;
+    }
+    if (node.id === targetId) {
+      return true;
+    }
+    seen.add(node.id);
+    queue.push(...(dependentsByNeed.get(node.id) ?? []));
+  }
+  return false;
 }
 
 function invalidWorkflowPrimitiveIssues(
@@ -897,6 +979,10 @@ function readBacklogTaskFile(path: string): BacklogTaskFile[] {
       parentTaskId: stringFrontmatter(parsed.data.parent_task_id),
       workUnit: {
         acceptance_criteria: acceptanceCriteriaFromMarkdown(parsed.content),
+        ...optionalStringArrayField(
+          "dependencies",
+          stringArrayFrontmatter(parsed.data.dependencies)
+        ),
         ...optionalStringField(
           "description",
           descriptionFromMarkdown(parsed.content)
@@ -912,11 +998,28 @@ function stringFrontmatter(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function stringArrayFrontmatter(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function optionalStringField<TKey extends string>(
   key: TKey,
   value: string | undefined
 ): Record<TKey, string> | Record<string, never> {
   return value ? ({ [key]: value } as Record<TKey, string>) : {};
+}
+
+function optionalStringArrayField<TKey extends string>(
+  key: TKey,
+  value: string[]
+): Record<TKey, string[]> | Record<string, never> {
+  return value.length > 0 ? ({ [key]: value } as Record<TKey, string[]>) : {};
 }
 
 function descriptionFromMarkdown(content: string): string | undefined {

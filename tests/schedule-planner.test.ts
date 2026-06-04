@@ -19,6 +19,8 @@ import {
 const EXTERNAL_WORKFLOW_RE = /external workflow/i;
 const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
+const WORK_UNIT_DEPENDENCY_RE =
+  /work unit dependency edge.*PC-37\.2.*PC-37\.1/s;
 const PLANNER_OUTPUT_SAVED_RE = /Planner output saved: .*planner-output\.txt/s;
 const WORKFLOW_TASK_ASSIGNMENT_RE =
   /backlog work unit assignments must use explicit generated agent nodes/i;
@@ -239,13 +241,20 @@ function writeBacklogTask(
   root: string,
   id: string,
   title: string,
-  body: string
+  body: string,
+  options: { dependencies?: string[]; parentTaskId?: string } = {}
 ): void {
   const path = join(root, "backlog", "tasks", `${id.toLowerCase()} - task.md`);
+  const parentTaskId =
+    options.parentTaskId ?? (id.includes(".") ? "PIPE-41" : "");
+  const dependencies =
+    options.dependencies && options.dependencies.length > 0
+      ? `dependencies:\n${options.dependencies.map((dep) => `  - ${dep}`).join("\n")}\n`
+      : "";
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
     path,
-    `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${id.includes(".") ? "PIPE-41" : ""}\n---\n\n${body}`,
+    `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${parentTaskId}\n${dependencies}---\n\n${body}`,
     "utf8"
   );
 }
@@ -559,6 +568,202 @@ workflows:
       expect(() =>
         compileScheduleArtifact(config(), result.artifact, dir)
       ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes Backlog child dependency metadata to the schedule planner", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-pc37-"));
+    writeBacklogTask(
+      dir,
+      "PC-37",
+      "Pipeline console rollout",
+      "## Description\n\nParent epic.",
+      { parentTaskId: "" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.1",
+      "Define runner contract",
+      "## Description\n\nDefine contract.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Contract is stable.\n<!-- AC:END -->",
+      { parentTaskId: "PC-37" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.2",
+      "Build API endpoint",
+      "## Description\n\nBuild endpoint.",
+      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.3",
+      "Build frontend view",
+      "## Description\n\nBuild frontend.",
+      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.4",
+      "Add rollout verification",
+      "## Description\n\nVerify rollout.",
+      { dependencies: ["PC-37.2", "PC-37.3"], parentTaskId: "PC-37" }
+    );
+    const seenPrompts: string[] = [];
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-pc37
+source_entrypoint: epic
+task: PC-37
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: pc-37-1-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+        task_context:
+          id: PC-37.1
+      - id: pc-37-2-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pc-37-1-green]
+        task_context:
+          id: PC-37.2
+      - id: pc-37-3-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pc-37-1-green]
+        task_context:
+          id: PC-37.3
+      - id: pc-37-4-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [pc-37-2-green, pc-37-3-green]
+        task_context:
+          id: PC-37.4
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [pc-37-4-green]
+`;
+
+    try {
+      await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "epic",
+        executor: (plan) => {
+          seenPrompts.push(plan.args.join("\n"));
+          return { exitCode: 0, stdout: schedule };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-pc37",
+        task: "PC-37",
+        worktreePath: dir,
+      });
+
+      const prompt = seenPrompts[0] ?? "";
+      expect(prompt).toContain(
+        "Preserve Backlog dependency ids as schedule needs edges"
+      );
+      expect(prompt).toContain("id: PC-37.2");
+      expect(prompt).toContain("dependencies:");
+      expect(prompt).toContain("- PC-37.1");
+      expect(prompt).toContain("id: PC-37.4");
+      expect(prompt).toContain("- PC-37.2");
+      expect(prompt).toContain("- PC-37.3");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects generated schedules that ignore Backlog child dependency edges", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-pc37-invalid-"));
+    writeBacklogTask(
+      dir,
+      "PC-37",
+      "Pipeline console rollout",
+      "## Description\n\nParent epic.",
+      { parentTaskId: "" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.1",
+      "Define runner contract",
+      "## Description\n\nDefine contract.",
+      { parentTaskId: "PC-37" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.2",
+      "Build API endpoint",
+      "## Description\n\nBuild endpoint.",
+      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.3",
+      "Build frontend view",
+      "## Description\n\nBuild frontend.",
+      { parentTaskId: "PC-37" }
+    );
+    const invalidSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-pc37-invalid
+source_entrypoint: epic
+task: PC-37
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: pc-37-1-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+        task_context:
+          id: PC-37.1
+      - id: pc-37-2-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+        task_context:
+          id: PC-37.2
+      - id: pc-37-3-green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research]
+        task_context:
+          id: PC-37.3
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [pc-37-1-green, pc-37-2-green, pc-37-3-green]
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "epic",
+          executor: () => ({ exitCode: 0, stdout: invalidSchedule }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-pc37-invalid",
+          task: "PC-37",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(WORK_UNIT_DEPENDENCY_RE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
