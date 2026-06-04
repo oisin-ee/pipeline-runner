@@ -4,7 +4,6 @@ import { basename, dirname, join, relative } from "node:path";
 import matter from "gray-matter";
 import { stringify as stringifyToml } from "smol-toml";
 import { loadPipelineConfig, type PipelineConfig } from "./config.js";
-import { codexNativeMcpConfig } from "./mcp/native-config.js";
 import { resolveFileReference } from "./path-refs.js";
 import { compileWorkflowPlan } from "./workflow-planner.js";
 
@@ -676,7 +675,6 @@ function codexTomlAgentDefinition(
   };
   const skillConfig = codexSkillConfig(config, cwd, profile);
   const agentConfig = {
-    name: id,
     description: profile.description ?? id,
     ...(profileWithResolvedModel.model
       ? { model: profileWithResolvedModel.model }
@@ -697,7 +695,6 @@ function codexTomlAgentDefinition(
       "",
       codexAgentInstructions(cwd, profile),
     ].join("\n"),
-    ...codexNativeMcpConfig(config, profile),
     skills: { config: skillConfig },
   };
   const mcpConfig =

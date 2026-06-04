@@ -320,12 +320,13 @@ describe("installCommands", () => {
       "utf8"
     );
 
-    expect(codexResearcher).toContain('name = "pipeline-researcher"');
+    expect(codexResearcher).not.toContain('name = "pipeline-researcher"');
     expect(codexResearcher).toContain('model = "gpt-5.5"');
     expect(codexResearcher).toContain("developer_instructions =");
-    expect(codexResearcher).toContain("[mcp_servers.pipeline-gateway]");
-    expect(codexResearcher).toContain('url = "http://127.0.0.1:4483/mcp"');
-    expect(codexResearcher).toContain(
+    expect(codexResearcher).not.toContain("[mcp_servers.pipeline-gateway]");
+    expect(codexResearcher).not.toContain('url = "http://127.0.0.1:4483/mcp"');
+    expect(codexResearcher).toContain("mcp_servers: pipeline-gateway");
+    expect(codexResearcher).not.toContain(
       'bearer_token_env_var = "PIPELINE_MCP_GATEWAY_TOKEN"'
     );
     expect(codexResearcher).not.toContain("[mcp_servers.serena]");

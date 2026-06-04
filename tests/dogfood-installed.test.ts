@@ -352,7 +352,7 @@ describe("installed dogfood configuration", () => {
       if (nativeAgentPath) {
         const content = readFileSync(join(root, nativeAgentPath), "utf8");
         if (nativeAgentPath.endsWith(".toml")) {
-          expect(content).toContain(`name = "${profileId}"`);
+          expect(content).not.toContain(`name = "${profileId}"`);
           expect(content).toContain("developer_instructions = ");
         } else {
           expect(content).toContain("Configured grants:");
@@ -374,9 +374,9 @@ describe("installed dogfood configuration", () => {
         join(root, ".codex/config.toml"),
         "utf8"
       );
-      expect(codexAgentContent).toContain(`name = "${profileId}"`);
+      expect(codexAgentContent).not.toContain(`name = "${profileId}"`);
       expect(codexAgentContent).toContain("developer_instructions = ");
-      expect(codexAgentContent).toContain("[mcp_servers");
+      expect(codexAgentContent).not.toContain("[mcp_servers.");
       expect(projectCodexConfig).toContain(
         "# @oisincoveney/pipeline:codex-agents:start"
       );
@@ -413,9 +413,10 @@ describe("installed dogfood configuration", () => {
             `${profileId} MCP ${mcpId}`
           ).toBeTruthy();
         }
-        expect(codexAgentContent, `${profileId} names MCP ${mcpId}`).toContain(
-          `[mcp_servers.${mcpId}]`
-        );
+        expect(
+          codexAgentContent,
+          `${profileId} does not start MCP ${mcpId} at host startup`
+        ).not.toContain(`[mcp_servers.${mcpId}]`);
       }
 
       const launch = createRunnerLaunchPlan(config, {

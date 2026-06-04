@@ -86,4 +86,6 @@ Use an off-the-shelf aggregator when possible:
 Use `pipe mcp gateway doctor` to check required environment variables, gateway
 health, local ToolHive availability for local mode, and legacy direct MCP
 entries. Use `pipe mcp gateway configure-host` to rewrite project or global
-Codex/OpenCode host config to gateway-only with a backup.
+host config with a backup. For Codex, this removes persistent MCP entries and
+leaves gateway metadata as comments because the runtime injects the gateway
+with `--config` only for pipeline-launched agents.
