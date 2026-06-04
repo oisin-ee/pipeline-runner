@@ -374,6 +374,64 @@ workflows:
     }
   });
 
+  it("canonicalizes generated planner node ids before validating the schedule", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-id-repair-"));
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-repair
+source_entrypoint: pipe
+task: Implement PIPE-44
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research_role_contract
+        kind: agent
+        profile: pipeline-researcher
+      - id: green_scheduler_roles
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [research_role_contract]
+      - id: verify_real_schedule_flows
+        kind: agent
+        profile: pipeline-verifier
+        needs: [green_scheduler_roles]
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "pipe",
+        executor: () => ({ exitCode: 0, stdout: schedule }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-repair",
+        task: "Implement PIPE-44",
+        worktreePath: dir,
+      });
+
+      expect(
+        result.artifact.workflows.root.nodes.map((node) => node.id)
+      ).toEqual([
+        "research-role-contract",
+        "green-scheduler-roles",
+        "verify-real-schedule-flows",
+      ]);
+      expect(result.artifact.workflows.root.nodes[1]).toMatchObject({
+        needs: ["research-role-contract"],
+      });
+      expect(result.artifact.workflows.root.nodes[2]).toMatchObject({
+        needs: ["green-scheduler-roles"],
+      });
+      expect(readFileSync(result.path, "utf8")).toContain(
+        "id: research-role-contract"
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("preserves malformed planner output for real failure diagnosis", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-invalid-"));
     const malformed = `

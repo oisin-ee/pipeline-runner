@@ -31,6 +31,9 @@ const DESCRIPTION_SECTION_RE = /## Description\s+([\s\S]*?)(?=\n## |\s*$)/;
 const ACCEPTANCE_SECTION_RE =
   /## Acceptance Criteria\s+([\s\S]*?)(?=\n## |\s*$)/;
 const ACCEPTANCE_ITEM_RE = /^\s*-\s*\[[ xX]\]\s*#?([\w.-]+)\s+(.+)$/;
+const GENERATED_ID_INVALID_CHARS_RE = /[^a-z0-9]+/g;
+const GENERATED_ID_TRIM_HYPHENS_RE = /^-+|-+$/g;
+const STARTS_WITH_ALPHA_RE = /^[a-z]/;
 const LINE_RE = /\r?\n/;
 
 const scheduleArtifactSchema = z
@@ -507,7 +510,9 @@ async function planScheduleArtifact(
     throw new ScheduleArtifactError("schedule planner returned empty output");
   }
   try {
-    return parseScheduleArtifact(source, "planner output");
+    return canonicalizeGeneratedScheduleIds(
+      parseScheduleArtifact(source, "planner output")
+    );
   } catch (err) {
     if (!(err instanceof ScheduleArtifactError)) {
       throw err;
@@ -558,6 +563,7 @@ function plannerPrompt(
     `Task: ${task}`,
     "Return only YAML matching kind: pipeline-schedule.",
     "Preserve version, kind, schedule_id, source_entrypoint, task, and generated_at. Keep root_workflow: root.",
+    "All workflow ids, node ids, gate ids, and needs references must match ^[a-z][a-z0-9-]*$: use lowercase hyphenated ids, never underscores.",
     "Generate exactly one workflow named root. Do not embed default, epic-drain, infra, track, or other configured workflow copies.",
     "Use only explicit generated agent, builtin, command, parallel, or group nodes. Do not use kind: workflow.",
     "Every agent node must declare one configured profile id. Do not invent profile ids or node-level skill overrides.",
@@ -595,6 +601,83 @@ function plannerPrompt(
     "Baseline schedule:",
     stringify(baseline),
   ].join("\n");
+}
+
+function canonicalizeGeneratedScheduleIds(
+  artifact: ScheduleArtifact
+): ScheduleArtifact {
+  return {
+    ...artifact,
+    workflows: Object.fromEntries(
+      Object.entries(artifact.workflows).map(([workflowId, workflow]) => [
+        workflowId,
+        canonicalizeWorkflowNodeIds(workflow),
+      ])
+    ),
+  };
+}
+
+function canonicalizeWorkflowNodeIds(workflow: Workflow): Workflow {
+  const nodeIdMap = new Map<string, string>();
+  const usedNodeIds = new Set<string>();
+  for (const node of workflow.nodes.flatMap(flattenWorkflowNode)) {
+    nodeIdMap.set(node.id, uniqueGeneratedId(node.id, usedNodeIds, "node"));
+  }
+  return {
+    ...workflow,
+    nodes: workflow.nodes.map((node) =>
+      rewriteGeneratedWorkflowNodeIds(node, nodeIdMap)
+    ),
+  };
+}
+
+function rewriteGeneratedWorkflowNodeIds(
+  node: WorkflowNode,
+  nodeIdMap: Map<string, string>
+): WorkflowNode {
+  const rewritten = {
+    ...node,
+    id: nodeIdMap.get(node.id) ?? node.id,
+    ...(node.needs
+      ? { needs: node.needs.map((need) => nodeIdMap.get(need) ?? need) }
+      : {}),
+  };
+  return rewritten.kind === "parallel"
+    ? {
+        ...rewritten,
+        nodes: rewritten.nodes.map((child) =>
+          rewriteGeneratedWorkflowNodeIds(child, nodeIdMap)
+        ),
+      }
+    : rewritten;
+}
+
+function uniqueGeneratedId(
+  value: string,
+  usedIds: Set<string>,
+  fallbackPrefix: string
+): string {
+  const base = generatedId(value, fallbackPrefix);
+  let candidate = base;
+  let suffix = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+
+function generatedId(value: string, fallbackPrefix: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replaceAll(GENERATED_ID_INVALID_CHARS_RE, "-")
+    .replaceAll(GENERATED_ID_TRIM_HYPHENS_RE, "");
+  if (STARTS_WITH_ALPHA_RE.test(slug)) {
+    return slug;
+  }
+  return slug ? `${fallbackPrefix}-${slug}` : fallbackPrefix;
 }
 
 function validateScheduleArtifact(
