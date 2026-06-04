@@ -3,14 +3,14 @@ import type {
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
-} from "../pipeline-runtime.js";
+} from "../runtime/contracts";
 
 export type {
   PipelineRuntimeResult,
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
-} from "../pipeline-runtime.js";
+} from "../runtime/contracts";
 
 export const runtimeActorKinds = [
   "pipeline",

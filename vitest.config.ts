@@ -4,6 +4,6 @@ export default defineConfig({
     environment: "node",
     exclude: [".agents/**", ".mastra/**", "node_modules/**"],
     globals: true,
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
   },
 });
