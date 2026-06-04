@@ -21,17 +21,17 @@ Backlog / GitHub / Serena / Context7 / Playwright / Qdrant / Neon
 ```
 
 The gateway owns long-lived upstream connections and process lifecycle. The
-pipeline owns per-profile grants: a profile may talk to the gateway, but only
-with the tool set declared in `.pipeline/profiles.yaml`.
+pipeline owns the host projection: profiles that need MCP declare the singleton
+`pipeline-gateway` grant, and every Codex/OpenCode session receives only that
+remote MCP server.
 
 ## Folder Boundary
 
 MCP-specific code belongs in `src/mcp`:
 
-- `bootstrap.ts`: default MCPM registration, generated `.mcp.json`, and install
-  manifest parsing.
-- `launch-plan.ts`: runtime host projection for Codex and OpenCode, including
-  profile-scoped server selection.
+- `gateway.ts`: hosted/local gateway config, diagnostics, and host config
+  rewrites.
+- `launch-plan.ts`: runtime host projection for Codex and OpenCode.
 - `native-config.ts`: generated native Codex agent MCP config.
 
 The rest of the runtime should consume those functions instead of hand-rendering
@@ -41,23 +41,24 @@ host-specific MCP config.
 
 1. Run or deploy a gateway that exposes one remote MCP endpoint.
 2. Configure the gateway with upstream servers and credentials.
-3. Register one pipeline MCP server id, for example `gateway`, in
-   `.pipeline/profiles.yaml`.
-4. Grant `gateway` only to profiles that need MCP access.
+3. Configure `mcp_gateway` in `.pipeline/profiles.yaml`.
+4. Grant `pipeline-gateway` only to profiles that need MCP access.
 5. Keep high-risk upstream capabilities controlled by gateway-side policy, not
    by asking every agent host to independently start or filter servers.
 
-Example profile registry:
+Example profile config:
 
 ```yaml
-mcp_servers:
-  gateway:
-    url: http://127.0.0.1:8787/mcp
-    bearer_token_env_var: PIPELINE_MCP_GATEWAY_TOKEN
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  default_profile: default
 
 profiles:
   pipeline-researcher:
-    mcp_servers: [gateway]
+    mcp_servers: [pipeline-gateway]
   pipeline-test-writer:
     mcp_servers: []
 ```
@@ -70,22 +71,19 @@ The failure mode seen in nested runs is multiplicative:
 orchestrator MCP set * subagent count * host config layers
 ```
 
-With a gateway, the runtime launches zero local upstream MCP processes for most
-agents. Codex receives `--ignore-user-config` plus the profile-selected gateway
-entry. OpenCode runs with isolated XDG/config roots and receives inline
-`OPENCODE_CONFIG_CONTENT` containing only the selected gateway entry.
+With a gateway, the runtime launches zero local upstream MCP processes for
+agents. Codex receives `--ignore-user-config` plus one
+`mcp_servers.pipeline-gateway` remote entry. OpenCode runs with isolated
+XDG/config roots and receives inline `OPENCODE_CONFIG_CONTENT` containing only
+`pipeline-gateway`.
 
 ## Candidate Gateway Implementations
 
 Use an off-the-shelf aggregator when possible:
 
-- ToolHive Gateway: local or Kubernetes MCP gateway with managed upstream
-  server lifecycle.
-- ContextForge MCP Gateway: central gateway/registry pattern for multiple MCP
-  servers.
-- A thin custom gateway: acceptable only if it mostly composes existing MCP
-  server processes and adds auth, routing, logging, and allow-list policy.
+- ToolHive vMCP gateway: hosted or local aggregation behind a single MCP URL.
 
-Whichever gateway is chosen, keep pipeline configuration host-agnostic: define
-remote MCP endpoints in `.pipeline/profiles.yaml`, then let `src/mcp` project
-that config into each host's native launch format.
+Use `pipe mcp gateway doctor` to check required environment variables, gateway
+health, local ToolHive availability for local mode, and legacy direct MCP
+entries. Use `pipe mcp gateway configure-host` to rewrite project or global
+Codex/OpenCode host config to gateway-only with a backup.

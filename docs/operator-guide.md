@@ -366,57 +366,27 @@ Skills are validated in two ways:
 The selected runner must also advertise `capabilities.skills: true`; otherwise
 validation rejects the profile grant.
 
-## Adding MCP Servers
+## Configuring MCP Gateway
 
-MCP servers are also declared in `.pipeline/profiles.yaml`, under the top-level
-`mcp_servers` registry.
+MCP access is host-level and gateway-only. Codex, OpenCode, pipeline agents,
+manual sessions, and CI all connect to one ToolHive/vMCP gateway URL. Do not
+start upstream MCP servers from individual sessions.
 
-For a local stdio MCP server:
-
-```yaml
-mcp_servers:
-  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]
-    env:
-      DOCS_TOKEN: token
-```
-
-For a remote HTTP MCP server:
+Use the same client config shape for hosted and local gateways:
 
 ```yaml
-mcp_servers:
-  memory:
-    url: https://memory-mcp.momokaya.ee/mcp/
-    bearer_token_env_var: MEMORY_MCP_TOKEN
-    headers:
-      X-Memory-Region: eu
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  default_profile: default
 ```
 
-Exactly one of `command` or `url` is required. `args` and `env` are only valid
-for command servers. `headers` and `bearer_token_env_var` are only valid for URL
-servers.
+For local development, use `mode: local`; sessions still connect to the gateway
+URL instead of direct upstream MCP servers.
 
-You can also reference an existing `.mcp.json` server:
-
-```yaml
-mcp_servers:
-  serena:
-    ref:
-      path: .mcp.json
-      id: serena
-```
-
-If `id` is omitted, the registry key is used:
-
-```yaml
-mcp_servers:
-  backlog:
-    ref:
-      path: .mcp.json
-```
-
-Grant MCP servers to profiles:
+Grant MCP to profiles with the singleton server name:
 
 ```yaml
 profiles:
@@ -424,15 +394,44 @@ profiles:
     runner: codex
     instructions:
       path: .pipeline/prompts/router.md
-    mcp_servers: [backlog, github-readonly]
-    tools: [read, list, grep, glob, bash]
-    filesystem:
-      mode: read-only
-    network:
-      mode: inherit
+    mcp_servers: [pipeline-gateway]
 ```
 
-Then use that profile from a node:
+Inspect or repair host config with:
+
+```shell
+pipe mcp gateway doctor
+pipe mcp gateway config
+pipe mcp gateway configure-host
+```
+
+For local gateway development:
+
+```shell
+pipe mcp gateway local-status
+pipe mcp gateway local-start
+```
+
+`configure-host` rewrites Codex/OpenCode config to the gateway-only shape:
+
+```toml
+[mcp_servers.pipeline-gateway]
+url = "https://gateway.example/mcp"
+bearer_token_env_var = "PIPELINE_MCP_GATEWAY_TOKEN"
+```
+
+OpenCode receives:
+
+```json
+{
+  "mcp": {
+    "pipeline-gateway": {
+      "type": "remote",
+      "url": "https://gateway.example/mcp"
+    }
+  }
+}
+```
 
 ```yaml
 workflows:
@@ -460,7 +459,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/security-reviewer.md
     skills: [security-and-hardening, semgrep]
-    mcp_servers: [serena, semgrep, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -515,38 +514,22 @@ profiles:
     skills: [accessibility-review]
 ```
 
-Adding an MCP server also has two steps:
+Adding MCP access has two steps: configure the gateway once and grant the
+singleton gateway server to profiles that need MCP.
 
 ```yaml
-mcp_servers:
-  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 
 profiles:
   pipeline-router:
     runner: codex
     instructions:
       path: .pipeline/prompts/router.md
-    mcp_servers: [docs]
-```
-
-Remote MCP servers use `url`:
-
-```yaml
-mcp_servers:
-  memory:
-    url: https://memory-mcp.momokaya.ee/mcp/
-    bearer_token_env_var: MEMORY_MCP_TOKEN
-```
-
-Existing MCP JSON entries can be imported by reference:
-
-```yaml
-mcp_servers:
-  backlog:
-    ref:
-      path: .mcp.json
+    mcp_servers: [pipeline-gateway]
 ```
 
 The selected runner must advertise the capability it is being asked to use:

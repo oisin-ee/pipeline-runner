@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { parseDocument } from "yaml";
 import { z } from "zod";
 import { resolveFileReference } from "./path-refs.js";
-import { parseJson } from "./safe-json.js";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
@@ -56,6 +55,7 @@ const GATE_KINDS = [
 const BUILTIN_GATES = ["duplication", "semgrep", "test", "typecheck"] as const;
 const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
 const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
+const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
@@ -190,39 +190,15 @@ const mcpServerSchema = z
     }
   });
 
-const mcpServerRefSchema = z
+const mcpGatewaySchema = z
   .object({
-    format: z.literal("mcp-json").default("mcp-json"),
-    id: z.string().min(1).optional(),
-    path: z.string().min(1),
+    default_profile: z.string().min(1).optional(),
+    mode: z.enum(["hosted", "local"]),
+    provider: z.literal("toolhive"),
+    token_env: z.string().min(1).default("PIPELINE_MCP_GATEWAY_TOKEN"),
+    url_env: z.string().min(1).default("PIPELINE_MCP_GATEWAY_URL"),
   })
   .strict();
-
-const mcpServerDefinitionSchema = z.union([
-  mcpServerSchema,
-  z
-    .object({
-      ref: mcpServerRefSchema,
-    })
-    .strict(),
-]);
-
-const mcpJsonServerSchema = z
-  .object({
-    args: z.array(z.string()).optional(),
-    bearer_token_env_var: z.string().min(1).optional(),
-    command: z.string().min(1).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-    headers: z.record(z.string(), z.string()).optional(),
-    url: z.string().min(1).optional(),
-  })
-  .passthrough();
-
-const mcpJsonFileSchema = z
-  .object({
-    mcpServers: strictRecord(mcpJsonServerSchema),
-  })
-  .passthrough();
 
 const instructionsSchema = z
   .object({
@@ -555,7 +531,8 @@ const runnersFileSchema = z
 
 const profilesFileSchema = z
   .object({
-    mcp_servers: strictRecord(mcpServerDefinitionSchema).default({}),
+    mcp_gateway: mcpGatewaySchema.optional(),
+    mcp_servers: strictRecord(z.never()).default({}),
     profiles: strictRecord(profileSchema).default({}),
     rules: strictRecord(pathRefSchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
@@ -581,6 +558,7 @@ const configSchemaBase = z
     default_workflow: z.string(),
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: strictRecord(hookSchema).default({}),
+    mcp_gateway: mcpGatewaySchema.optional(),
     mcp_servers: strictRecord(mcpServerSchema).default({}),
     orchestrator: orchestratorSchema,
     profiles: strictRecord(profileSchema).default({}),
@@ -821,17 +799,13 @@ export function parsePipelineConfigParts(
     sourcePaths.pipeline,
     pipelineFileSchema
   );
-  const mcpServers = resolveMcpServerDefinitions(
-    profiles.mcp_servers,
-    projectRoot
-  );
-
   return validatePipelineConfig(
     {
       default_workflow: pipeline.default_workflow,
       entrypoints: pipeline.entrypoints,
       hooks: pipeline.hooks,
-      mcp_servers: mcpServers,
+      ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
+      mcp_servers: profiles.mcp_servers,
       orchestrator: pipeline.orchestrator,
       profiles: profiles.profiles,
       rules: profiles.rules,
@@ -874,121 +848,6 @@ function parseYamlAs<T extends z.ZodTypeAny>(
     );
   }
   return parsed.data;
-}
-
-type McpServer = z.infer<typeof mcpServerSchema>;
-type McpServerDefinition = z.infer<typeof mcpServerDefinitionSchema>;
-type McpServerRef = z.infer<typeof mcpServerRefSchema>;
-
-function resolveMcpServerDefinitions(
-  registry: Record<string, McpServerDefinition>,
-  projectRoot: string | undefined
-): Record<string, McpServer> {
-  return Object.fromEntries(
-    Object.entries(registry).map(([id, definition]) => [
-      id,
-      "ref" in definition
-        ? resolveMcpServerRef(id, definition.ref, projectRoot)
-        : definition,
-    ])
-  );
-}
-
-function resolveMcpServerRef(
-  id: string,
-  ref: McpServerRef,
-  projectRoot: string | undefined
-): McpServer {
-  if (!projectRoot) {
-    throw validationError([
-      {
-        path: `mcp_servers.${id}.ref.path`,
-        message: "MCP server refs require a project root",
-      },
-    ]);
-  }
-
-  const filePath = resolveFileReference(projectRoot, ref.path);
-  if (!existsSync(filePath)) {
-    throw validationError([
-      {
-        path: `mcp_servers.${id}.ref.path`,
-        message: `referenced MCP config file '${ref.path}' does not exist`,
-      },
-    ]);
-  }
-
-  const parsed = parseMcpJsonFile(id, ref, filePath);
-  const importedId = ref.id ?? id;
-  const imported = parsed.mcpServers[importedId];
-  if (!imported) {
-    throw validationError([
-      {
-        path: `mcp_servers.${id}.ref.id`,
-        message: `MCP config '${ref.path}' does not declare server '${importedId}'`,
-      },
-    ]);
-  }
-
-  const normalized = normalizeMcpJsonServer(imported);
-  const result = mcpServerSchema.safeParse(normalized);
-  if (!result.success) {
-    throw validationError(
-      result.error.issues.map((issue) => ({
-        path: [`mcp_servers.${id}.ref`, ...issue.path].join("."),
-        message: issue.message,
-      }))
-    );
-  }
-  return result.data;
-}
-
-function parseMcpJsonFile(
-  id: string,
-  ref: McpServerRef,
-  filePath: string
-): z.infer<typeof mcpJsonFileSchema> {
-  let raw: unknown;
-  try {
-    raw = parseJson(readFileSync(filePath, "utf8"), `MCP config ${ref.path}`);
-  } catch (err) {
-    throw new PipelineConfigError(
-      "PIPELINE_CONFIG_PARSE_ERROR",
-      `Failed to parse MCP config ${ref.path}`,
-      [
-        {
-          path: `mcp_servers.${id}.ref.path`,
-          message: err instanceof Error ? err.message : String(err),
-        },
-      ]
-    );
-  }
-
-  const parsed = mcpJsonFileSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw validationError(
-      parsed.error.issues.map((issue) => ({
-        path: [`mcp_servers.${id}.ref`, ...issue.path].join("."),
-        message: issue.message,
-      }))
-    );
-  }
-  return parsed.data;
-}
-
-function normalizeMcpJsonServer(
-  server: z.infer<typeof mcpJsonServerSchema>
-): McpServer {
-  return {
-    ...(server.command ? { command: server.command } : {}),
-    ...(server.args ? { args: server.args } : {}),
-    ...(server.env ? { env: server.env } : {}),
-    ...(server.url ? { url: server.url } : {}),
-    ...(server.headers ? { headers: server.headers } : {}),
-    ...(server.bearer_token_env_var
-      ? { bearer_token_env_var: server.bearer_token_env_var }
-      : {}),
-  };
 }
 
 export function validatePipelineConfig(
@@ -1220,7 +1079,9 @@ function validateActor(
   validateReferences(
     `${path}.mcp_servers`,
     actor.mcp_servers,
-    config.mcp_servers,
+    config.mcp_gateway
+      ? { ...config.mcp_servers, [PIPELINE_GATEWAY_SERVER_ID]: {} }
+      : config.mcp_servers,
     "MCP server",
     issues
   );

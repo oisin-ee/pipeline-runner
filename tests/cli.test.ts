@@ -60,6 +60,14 @@ const DEFAULT_TEST_SKILLS = [
   "verify",
 ];
 
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.MEMORY_MCP_BASIC_AUTH = "test-basic-payload";
@@ -383,13 +391,11 @@ version: 1
 skills:
   thermo-nuclear-code-quality-review:
     path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
-mcp_servers:
-  serena:
-    command: serena-mcp
-  semgrep:
-    command: semgrep-mcp
-  github-readonly:
-    command: github-mcp
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: codex
@@ -402,7 +408,7 @@ profiles:
     instructions:
       path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
     skills: [thermo-nuclear-code-quality-review]
-    mcp_servers: [serena, semgrep, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -661,77 +667,16 @@ describe("pipe", () => {
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
 
       expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
-      expect(mockExeca).toHaveBeenCalledWith(
-        "uvx",
-        [
-          "--python",
-          "3.12",
-          "mcpm",
-          "new",
-          "oisin-pipeline-github-readonly",
-          "--type",
-          "stdio",
-          "--force",
-          "--command",
-          "docker",
-          "--args",
-          "run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server stdio --read-only",
-          "--env",
-          `GITHUB_PERSONAL_ACCESS_TOKEN=$${"{GITHUB_PERSONAL_ACCESS_TOKEN}"}`,
-        ],
-        expect.objectContaining({
-          cwd: dir,
-          env: expect.objectContaining({
-            MCPM_NON_INTERACTIVE: "true",
-          }),
-        })
-      );
-      expect(mockExeca).toHaveBeenCalledWith(
-        "uvx",
-        [
-          "--python",
-          "3.12",
-          "mcpm",
-          "new",
-          "oisin-pipeline-semgrep",
-          "--type",
-          "stdio",
-          "--force",
-          "--command",
-          "docker",
-          "--args",
-          "run -i --rm ghcr.io/semgrep/mcp -t stdio",
-        ],
-        expect.objectContaining({
-          cwd: dir,
-          env: expect.objectContaining({
-            MCPM_NON_INTERACTIVE: "true",
-          }),
-        })
-      );
-      expect(mockExeca).toHaveBeenCalledWith(
-        "uvx",
-        [
-          "--python",
-          "3.12",
-          "mcpm",
-          "new",
-          "oisin-pipeline-qdrant",
-          "--type",
-          "remote",
-          "--force",
-          "--url",
-          "https://memory-mcp.momokaya.ee/mcp/",
-          "--headers",
-          "Authorization=Basic test-basic-payload",
-        ],
-        expect.objectContaining({
-          cwd: dir,
-          env: expect.objectContaining({
-            MCPM_NON_INTERACTIVE: "true",
-          }),
-        })
-      );
+      expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+      expect(
+        readFileSync(join(dir, ".pipeline", "profiles.yaml"), "utf8")
+      ).toContain("mcp_gateway:");
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) =>
+            command === "uvx" && Array.isArray(args) && args.includes("mcpm")
+        )
+      ).toBe(false);
     } finally {
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;
@@ -742,7 +687,7 @@ describe("pipe", () => {
     }
   });
 
-  it("redacts resolved MCP authorization headers from MCPM registration failures", async () => {
+  it("does not run MCPM registration during init", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-redacted-mcp-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -755,14 +700,6 @@ describe("pipe", () => {
         args?: string[],
         options?: { cwd?: string }
       ) => {
-        if (args?.includes("oisin-pipeline-qdrant")) {
-          return Promise.reject({
-            shortMessage:
-              "Command failed: uvx --python 3.12 mcpm new oisin-pipeline-qdrant --headers Authorization=Basic memory-basic-payload",
-            stderr: "remote rejected Authorization=Basic memory-basic-payload",
-            stdout: "Basic memory-basic-payload",
-          });
-        }
         if (
           command === "npx" &&
           Array.isArray(args) &&
@@ -777,15 +714,14 @@ describe("pipe", () => {
         return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
       }) as any);
 
-      let message = "";
-      try {
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-      } catch (err) {
-        message = String((err as Error).message ?? err);
-      }
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
 
-      expect(message).toContain("Authorization=[REDACTED]");
-      expect(message).not.toContain("memory-basic-payload");
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) =>
+            command === "uvx" && Array.isArray(args) && args.includes("mcpm")
+        )
+      ).toBe(false);
     } finally {
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;
@@ -796,7 +732,7 @@ describe("pipe", () => {
     }
   });
 
-  it("skips only Qdrant MCPM registration when memory credentials are missing", async () => {
+  it("initializes gateway-only MCP config when memory credentials are missing", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-cli-init-missing-qdrant-")
@@ -818,22 +754,17 @@ describe("pipe", () => {
             args.includes("oisin-pipeline-qdrant")
         )
       ).toBe(false);
-      expect(existsSync(join(dir, ".mcp.json"))).toBe(true);
+      expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
       expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
-      expect(readFileSync(join(dir, ".mcp.json"), "utf8")).toContain(
-        "oisin-pipeline-qdrant"
-      );
       expect(
         readFileSync(join(dir, ".pipeline", "profiles.yaml"), "utf8")
-      ).toContain("qdrant");
+      ).toContain("mcp_servers: [pipeline-gateway]");
       expect(
         readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf8")
       ).toContain("learn");
       const output = log.mock.calls.flat().join("\n");
-      expect(output).toContain(
-        "Skipped MCPM registration for oisin-pipeline-qdrant"
-      );
-      expect(output).toContain("MEMORY_MCP_BASIC_AUTH");
+      expect(output).not.toContain("Skipped MCPM registration");
+      expect(output).not.toContain("MEMORY_MCP_BASIC_AUTH");
     } finally {
       log.mockRestore();
       if (originalTargetPath === undefined) {
@@ -1827,11 +1758,11 @@ runners:
 `,
         ".pipeline/profiles.yaml": `
 version: 1
-mcp_servers:
-  backlog:
-    command: backlog-mcp
-  github-readonly:
-    command: github-mcp
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: codex
@@ -1846,7 +1777,7 @@ profiles:
     runner: codex
     instructions:
       path: .pipeline/prompts/epic-router.md
-    mcp_servers: [backlog, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -2311,8 +2242,8 @@ workflows:
       process.env.PIPELINE_TARGET_PATH = dir;
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
       mockExeca.mockImplementation(((command: string) => {
-        if (command === "uvx") {
-          return Promise.reject({ shortMessage: "uvx mcpm failed" });
+        if (command === "opencode") {
+          return Promise.reject({ shortMessage: "opencode missing" });
         }
         return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
       }) as any);
@@ -2321,13 +2252,8 @@ workflows:
 
       expect(result.passed).toBe(false);
       expect(result.checks).toContainEqual({
-        detail: "uvx mcpm failed",
-        name: "uvx",
-        passed: false,
-      });
-      expect(result.checks).toContainEqual({
-        detail: "uvx mcpm failed",
-        name: "mcpm-cli",
+        detail: "opencode missing",
+        name: "opencode",
         passed: false,
       });
     } finally {
@@ -2336,6 +2262,143 @@ workflows:
       } else {
         process.env.PIPELINE_TARGET_PATH = originalTargetPath;
       }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("configures project host MCP config as gateway-only with backups", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-configure-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
+    const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_TOKEN;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      process.env.PIPELINE_MCP_GATEWAY_URL = "https://gateway.example/mcp";
+      process.env.PIPELINE_MCP_GATEWAY_TOKEN = "test-token";
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      mkdirSync(join(dir, ".codex"), { recursive: true });
+      mkdirSync(join(dir, ".opencode"), { recursive: true });
+      writeFileSync(
+        join(dir, ".codex/config.toml"),
+        ["[mcp_servers.legacy]", 'command = "uvx"', ""].join("\n")
+      );
+      writeFileSync(
+        join(dir, ".opencode/opencode.json"),
+        JSON.stringify({ mcp: { legacy: { type: "local" } } })
+      );
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "mcp",
+        "gateway",
+        "configure-host",
+      ]);
+
+      const codex = readFileSync(join(dir, ".codex/config.toml"), "utf8");
+      const opencode = JSON.parse(
+        readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
+      );
+      expect(codex).toContain("[mcp_servers.pipeline-gateway]");
+      expect(codex).toContain('url = "https://gateway.example/mcp"');
+      expect(codex).not.toContain("legacy");
+      expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
+        enabled: true,
+        type: "remote",
+        url: "https://gateway.example/mcp",
+      });
+      expect(opencode.mcp.legacy).toBeUndefined();
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain(".codex/config.toml");
+      expect(output).toContain(".opencode/opencode.json");
+      expect(output).toContain("backup=");
+    } finally {
+      log.mockRestore();
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
+      restoreEnv("PIPELINE_MCP_GATEWAY_TOKEN", originalGatewayToken);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("gateway doctor detects legacy direct MCP config", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-doctor-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
+    const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_TOKEN;
+    const originalFetch = global.fetch;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
+      process.env.PIPELINE_MCP_GATEWAY_TOKEN = "test-token";
+      global.fetch = vi.fn().mockResolvedValue({ status: 200 }) as any;
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      writeFileSync(
+        join(dir, ".mcp.json"),
+        JSON.stringify({ mcpServers: { legacy: { command: "uvx" } } })
+      );
+
+      await expect(
+        runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "mcp",
+          "gateway",
+          "doctor",
+        ])
+      ).rejects.toThrow("MCP gateway doctor checks failed.");
+
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain("legacy-direct-mcp");
+      expect(output).toContain(".mcp.json");
+    } finally {
+      log.mockRestore();
+      global.fetch = originalFetch;
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
+      restoreEnv("PIPELINE_MCP_GATEWAY_TOKEN", originalGatewayToken);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("starts local gateway with ToolHive vMCP for local mode", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-start-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "mcp",
+        "gateway",
+        "local-start",
+      ]);
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        "thv",
+        [
+          "vmcp",
+          "serve",
+          "--group",
+          "default",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "4483",
+        ],
+        expect.objectContaining({ cwd: dir })
+      );
+    } finally {
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       rmSync(dir, { recursive: true, force: true });
     }
   });

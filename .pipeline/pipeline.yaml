@@ -25,7 +25,7 @@ hooks:
       - -e
       - |
         const fs = require("node:fs");
-        const files = [".pipeline/profiles.yaml", ".mcp.json"].filter((file) => fs.existsSync(file));
+        const files = [".pipeline/profiles.yaml"].filter((file) => fs.existsSync(file));
         const text = files.map((file) => fs.readFileSync(file, "utf8")).join("\n").toLowerCase();
         const banned = ["atlassian", "jira", "linear", "confluence", "compass", "sentry", "deepwiki"];
         const hits = banned.filter((item) => text.includes(item));

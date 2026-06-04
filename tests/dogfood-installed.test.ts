@@ -158,10 +158,11 @@ rules:
 skills:
   orchestrator-skill:
     path: .agents/skills/orchestrator/SKILL.md
-mcp_servers:
-  knowledge-base:
-    command: node
-    args: [kb.js]
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: artifact-command
@@ -169,7 +170,7 @@ profiles:
     instructions: { inline: Coordinate deterministic dogfood. }
     rules: [orchestrator-rule]
     skills: [orchestrator-skill]
-    mcp_servers: [knowledge-base]
+    mcp_servers: [pipeline-gateway]
     tools: [bash]
     filesystem: { mode: workspace-write }
     network: { mode: disabled }
@@ -395,10 +396,14 @@ describe("installed dogfood configuration", () => {
         }
       }
       for (const mcpId of profile.mcp_servers ?? []) {
-        expect(
-          config.mcp_servers[mcpId],
-          `${profileId} MCP ${mcpId}`
-        ).toBeTruthy();
+        if (mcpId === "pipeline-gateway") {
+          expect(config.mcp_gateway, `${profileId} MCP gateway`).toBeTruthy();
+        } else {
+          expect(
+            config.mcp_servers[mcpId],
+            `${profileId} MCP ${mcpId}`
+          ).toBeTruthy();
+        }
         expect(codexAgentContent, `${profileId} names MCP ${mcpId}`).toContain(
           `[mcp_servers.${mcpId}]`
         );
@@ -629,7 +634,7 @@ workflows:
     ).toContain("workflow.start dogfood-options");
     expect(configuredDogfoodOrchestrator(project)).toEqual({
       hooks: ["workflow-start"],
-      mcp_servers: ["knowledge-base"],
+      mcp_servers: ["pipeline-gateway"],
       model: "dogfood-orchestrator-model",
       rules: ["orchestrator-rule"],
       skills: ["orchestrator-skill"],
@@ -660,13 +665,11 @@ runners:
       ".pipeline/profiles.yaml",
       `
 version: 1
-mcp_servers:
-  selected:
-    command: node
-    args: [selected.js]
-  unused:
-    command: node
-    args: [unused.js]
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: opencode
@@ -674,7 +677,7 @@ profiles:
   opencode-agent:
     runner: opencode
     instructions: { inline: Use selected MCP only. }
-    mcp_servers: [selected]
+    mcp_servers: [pipeline-gateway]
 `
     );
     writeProjectFile(
@@ -711,11 +714,13 @@ workflows:
     expect(launch.env.OPENCODE_CONFIG_DIR).toBeUndefined();
     expect(launch.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe("1");
     expect(launch.env.XDG_CONFIG_HOME).toContain("pipeline-opencode-runtime-");
-    expect(opencodeConfig.mcp.selected).toEqual({
-      command: ["node", "selected.js"],
+    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
-      type: "local",
+      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
+      type: "remote",
+      url: "http://127.0.0.1:4483/mcp",
     });
+    expect(opencodeConfig.mcp.selected).toBeUndefined();
     expect(opencodeConfig.mcp.unused).toBeUndefined();
   });
 });

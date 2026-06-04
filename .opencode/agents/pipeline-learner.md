@@ -21,7 +21,7 @@ model: default
 tools: read, list, grep, glob, bash
 rules: none
 skills: migrate
-mcp_servers: qdrant, backlog
+mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 output: json_schema

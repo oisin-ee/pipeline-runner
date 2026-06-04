@@ -12,7 +12,7 @@ model: default
 tools: read, list, grep, glob, bash
 rules: test-first, verification
 skills: scope, doubt
-mcp_servers: backlog, qdrant, github-readonly
+mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 hooks: generated-defaults-audit

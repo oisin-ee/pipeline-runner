@@ -1,4 +1,5 @@
 import type { PipelineConfig } from "../config.js";
+import { gatewayServerForProfile } from "./gateway.js";
 import { isRemoteMcpServer } from "./launch-plan.js";
 
 export function codexNativeMcpConfig(
@@ -6,10 +7,9 @@ export function codexNativeMcpConfig(
   profile: PipelineConfig["profiles"][string]
 ): Record<string, unknown> {
   const mcpServers = Object.fromEntries(
-    (profile.mcp_servers ?? []).flatMap((id) => {
-      const server = config.mcp_servers[id];
-      return server ? [[id, codexNativeMcpServerConfig(server)] as const] : [];
-    })
+    Object.entries(gatewayServerForProfile(config, profile)).map(
+      ([id, server]) => [id, codexNativeMcpServerConfig(server)] as const
+    )
   );
   return Object.keys(mcpServers).length > 0 ? { mcp_servers: mcpServers } : {};
 }

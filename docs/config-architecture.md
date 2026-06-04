@@ -135,52 +135,33 @@ receive explicit grants:
 
 - `rules`: named markdown rule files.
 - `skills`: named skill files.
-- `mcp_servers`: named MCP server definitions. Servers may be local stdio
-  commands or remote streamable HTTP endpoints.
+- `mcp_gateway`: hosted or local ToolHive/vMCP gateway connection metadata.
+- `mcp_servers`: profile grants should reference `pipeline-gateway` when MCP is
+  needed.
 - `tools`: allowed host tools only.
 - `filesystem`: read-only or workspace-write plus allow/deny paths.
 - `network`: inherited or disabled.
 - `output`: text, JSON, JSONL, or JSON Schema output.
 
-MCP servers support two strict shapes:
+MCP-enabled profiles use one gateway grant:
 
 ```yaml
-mcp_servers:
-  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]
-    env:
-      DOCS_TOKEN: token
-  memory:
-    url: https://memory-mcp.momokaya.ee/mcp/
-    bearer_token_env_var: MEMORY_MCP_TOKEN
-    headers:
-      X-Memory-Region: eu
-```
-
-Exactly one of `command` or `url` is required. `args` and `env` apply only to
-command servers. `headers` and `bearer_token_env_var` apply only to URL
-servers.
-
-MCP registry entries can also reference an existing MCP JSON config file. This
-keeps the pipeline config decoupled from whatever generated the MCP config:
-
-```yaml
-mcp_servers:
-  serena:
-    ref:
-      path: .mcp.json
-      id: serena
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  default_profile: default
 
 profiles:
   inspector:
     runner: codex
-    mcp_servers: [serena]
+    mcp_servers: [pipeline-gateway]
 ```
 
-`ref.path` is resolved from the repository root and currently supports the
-standard `mcp-json` shape: `{ "mcpServers": { "<id>": { ... } } }`. If `id` is
-omitted, the registry key is used.
+Host config generation renders exactly one remote MCP server named
+`pipeline-gateway`. Upstream MCP servers are managed by the ToolHive/vMCP
+gateway, not by Codex/OpenCode or pipeline worker sessions.
 
 JSON Schema outputs are hard contracts. The runtime validates normalized agent
 output before the node can pass. Schema outputs also get a bounded repair pass

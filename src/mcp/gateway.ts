@@ -1,0 +1,443 @@
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { execa } from "execa";
+import type { PipelineConfig } from "../config.js";
+
+export const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
+export const DEFAULT_LOCAL_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
+const LEGACY_CODEX_MCP_RE = /\[mcp_servers\.(?!pipeline-gateway\])/;
+const LEGACY_OPENCODE_MCP_RE = /"mcp"\s*:\s*{(?!\s*"pipeline-gateway")/s;
+const LEGACY_PIPELINE_MCP_RE = /path:\s*\.mcp\.json|uvx\s+mcpm|mcpm\s+run/;
+
+type ActorConfig = PipelineConfig["profiles"][string];
+type McpServerConfig = PipelineConfig["mcp_servers"][string];
+type McpGatewayConfig = NonNullable<PipelineConfig["mcp_gateway"]>;
+export type GatewayHostSelection = "all" | "codex" | "opencode";
+export type GatewayHostScope = "global" | "project";
+
+export interface GatewayDoctorCheck {
+  detail: string;
+  name: string;
+  passed: boolean;
+}
+
+export interface GatewayDoctorResult {
+  checks: GatewayDoctorCheck[];
+  passed: boolean;
+}
+
+export interface GatewayHostConfigResult {
+  backupPath?: string;
+  host: Exclude<GatewayHostSelection, "all">;
+  path: string;
+}
+
+export interface GatewayConfigureHostOptions {
+  cwd: string;
+  host: GatewayHostSelection;
+  scope: GatewayHostScope;
+}
+
+export class PipelineMcpGatewayError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PipelineMcpGatewayError";
+  }
+}
+
+export function profileNeedsMcpGateway(
+  actor: ActorConfig | undefined
+): boolean {
+  return (actor?.mcp_servers ?? []).length > 0;
+}
+
+export function gatewayServerForProfile(
+  config: PipelineConfig | undefined,
+  actor: ActorConfig | undefined,
+  env: NodeJS.ProcessEnv = process.env
+): Record<string, McpServerConfig> {
+  if (!(config && profileNeedsMcpGateway(actor))) {
+    return {};
+  }
+  return {
+    [PIPELINE_GATEWAY_SERVER_ID]: gatewayServer(config, env),
+  };
+}
+
+export function gatewayServer(
+  config: PipelineConfig,
+  env: NodeJS.ProcessEnv = process.env
+): McpServerConfig {
+  const gateway = configuredGateway(config);
+  const url = gatewayUrl(gateway, env);
+  return {
+    bearer_token_env_var: gateway.token_env,
+    url,
+  };
+}
+
+export function configuredGateway(config: PipelineConfig): McpGatewayConfig {
+  if (!config.mcp_gateway) {
+    throw new PipelineMcpGatewayError(
+      "Profiles that declare mcp_servers require top-level mcp_gateway configuration."
+    );
+  }
+  return config.mcp_gateway;
+}
+
+export function gatewayUrl(
+  gateway: McpGatewayConfig,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const url = env[gateway.url_env];
+  if (url) {
+    return url;
+  }
+  if (gateway.mode === "local") {
+    return DEFAULT_LOCAL_GATEWAY_URL;
+  }
+  throw new PipelineMcpGatewayError(
+    `MCP gateway URL is required. Set ${gateway.url_env}.`
+  );
+}
+
+export function renderGatewayConfig(config: PipelineConfig): string {
+  const gateway = configuredGateway(config);
+  return [
+    `provider: ${gateway.provider}`,
+    `mode: ${gateway.mode}`,
+    `url_env: ${gateway.url_env}`,
+    `token_env: ${gateway.token_env}`,
+    gateway.default_profile
+      ? `default_profile: ${gateway.default_profile}`
+      : "",
+    `resolved_url: ${gatewayUrl(gateway)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function renderCodexGatewayConfig(config: PipelineConfig): string {
+  const gateway = configuredGateway(config);
+  return [
+    "[mcp_servers.pipeline-gateway]",
+    `url = ${JSON.stringify(gatewayUrl(gateway))}`,
+    `bearer_token_env_var = ${JSON.stringify(gateway.token_env)}`,
+    "",
+  ].join("\n");
+}
+
+export function renderOpenCodeGatewayConfig(config: PipelineConfig): string {
+  const gateway = configuredGateway(config);
+  return `${JSON.stringify(
+    {
+      $schema: "https://opencode.ai/config.json",
+      mcp: {
+        [PIPELINE_GATEWAY_SERVER_ID]: {
+          enabled: true,
+          headers: {
+            Authorization: `Bearer {env:${gateway.token_env}}`,
+          },
+          type: "remote",
+          url: gatewayUrl(gateway),
+        },
+      },
+    },
+    null,
+    2
+  )}\n`;
+}
+
+export function configureGatewayHosts(
+  config: PipelineConfig,
+  options: GatewayConfigureHostOptions
+): GatewayHostConfigResult[] {
+  return selectedGatewayHosts(options.host).map((host) => {
+    const path = gatewayHostConfigPath(host, options.scope, options.cwd);
+    const content =
+      host === "codex"
+        ? renderCodexGatewayConfig(config)
+        : renderOpenCodeGatewayConfig(config);
+    const backupPath = backupIfExists(path);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+    return { backupPath, host, path };
+  });
+}
+
+export async function runGatewayDoctor(
+  config: PipelineConfig,
+  cwd: string
+): Promise<GatewayDoctorResult> {
+  const gateway = configuredGateway(config);
+  const checks: GatewayDoctorCheck[] = [
+    {
+      detail: `${gateway.provider}/${gateway.mode}`,
+      name: "gateway-config",
+      passed: true,
+    },
+    checkGatewayUrl(gateway),
+    checkGatewayToken(gateway),
+    ...(gateway.mode === "local" ? [await checkThv(cwd)] : []),
+    await checkGatewayHealth(gateway),
+    checkLegacyDirectMcp(cwd),
+  ];
+  return {
+    checks,
+    passed: checks.every((check) => check.passed),
+  };
+}
+
+export async function startLocalGateway(
+  config: PipelineConfig,
+  cwd: string
+): Promise<void> {
+  const gateway = configuredGateway(config);
+  if (gateway.mode !== "local") {
+    throw new PipelineMcpGatewayError(
+      "mcp gateway local-start is only valid when mcp_gateway.mode is local."
+    );
+  }
+  await execa(
+    "thv",
+    [
+      "vmcp",
+      "serve",
+      "--group",
+      gateway.default_profile ?? "default",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "4483",
+    ],
+    {
+      cwd,
+      env: await toolhiveEnv(cwd),
+      stderr: "inherit",
+      stdout: "inherit",
+    }
+  );
+}
+
+export async function localGatewayStatus(cwd: string): Promise<string> {
+  const result = await execa("thv", ["list"], {
+    cwd,
+    env: await toolhiveEnv(cwd),
+  });
+  return result.stdout.trim();
+}
+
+function selectedGatewayHosts(
+  host: GatewayHostSelection
+): Exclude<GatewayHostSelection, "all">[] {
+  return host === "all" ? ["codex", "opencode"] : [host];
+}
+
+function gatewayHostConfigPath(
+  host: Exclude<GatewayHostSelection, "all">,
+  scope: GatewayHostScope,
+  cwd: string
+): string {
+  if (host === "codex") {
+    return scope === "project"
+      ? join(cwd, ".codex", "config.toml")
+      : join(
+          process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+          "config.toml"
+        );
+  }
+  if (scope === "project") {
+    return join(cwd, ".opencode", "opencode.json");
+  }
+  return join(
+    process.env.OPENCODE_CONFIG_DIR ??
+      join(
+        process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+        "opencode"
+      ),
+    "opencode.json"
+  );
+}
+
+function backupIfExists(path: string): string | undefined {
+  if (!existsSync(path)) {
+    return;
+  }
+  const backupPath = `${path}.bak-${Date.now()}`;
+  copyFileSync(path, backupPath);
+  return backupPath;
+}
+
+function checkGatewayUrl(gateway: McpGatewayConfig): GatewayDoctorCheck {
+  try {
+    const url = gatewayUrl(gateway);
+    return { detail: url, name: "gateway-url", passed: true };
+  } catch (err) {
+    return {
+      detail: err instanceof Error ? err.message : String(err),
+      name: "gateway-url",
+      passed: false,
+    };
+  }
+}
+
+function checkGatewayToken(gateway: McpGatewayConfig): GatewayDoctorCheck {
+  return process.env[gateway.token_env]
+    ? { detail: gateway.token_env, name: "gateway-token", passed: true }
+    : {
+        detail: `Set ${gateway.token_env}.`,
+        name: "gateway-token",
+        passed: false,
+      };
+}
+
+async function checkThv(cwd: string): Promise<GatewayDoctorCheck> {
+  try {
+    await execa("thv", ["version"], {
+      cwd,
+      env: await toolhiveEnv(cwd),
+      stdin: "ignore",
+    });
+    return { detail: "available", name: "toolhive", passed: true };
+  } catch (err) {
+    const error = err as { shortMessage?: string; stderr?: string };
+    return {
+      detail: (error.shortMessage || error.stderr || "not available").trim(),
+      name: "toolhive",
+      passed: false,
+    };
+  }
+}
+
+async function toolhiveEnv(cwd: string): Promise<NodeJS.ProcessEnv> {
+  if (process.env.DOCKER_HOST) {
+    return process.env;
+  }
+  const dockerHost = await activeDockerHost(cwd);
+  return dockerHost ? { ...process.env, DOCKER_HOST: dockerHost } : process.env;
+}
+
+async function activeDockerHost(cwd: string): Promise<string | undefined> {
+  try {
+    const result = await execa("docker", ["context", "inspect"], {
+      cwd,
+      stdin: "ignore",
+    });
+    const contexts = JSON.parse(result.stdout) as Array<{
+      Endpoints?: { docker?: { Host?: unknown } };
+    }>;
+    const host = contexts[0]?.Endpoints?.docker?.Host;
+    return typeof host === "string" && host.length > 0 ? host : undefined;
+  } catch {
+    return;
+  }
+}
+
+async function checkGatewayHealth(
+  gateway: McpGatewayConfig
+): Promise<GatewayDoctorCheck> {
+  let url: string;
+  try {
+    url = gatewayUrl(gateway);
+  } catch (err) {
+    return {
+      detail: err instanceof Error ? err.message : String(err),
+      name: "gateway-health",
+      passed: false,
+    };
+  }
+  try {
+    const response = await firstHealthyGatewayResponse(url, gateway);
+    const passed = Boolean(response);
+    return {
+      detail: response
+        ? `HTTP ${response.status} ${response.url}`
+        : "gateway endpoint did not report healthy",
+      name: "gateway-health",
+      passed,
+    };
+  } catch (err) {
+    return {
+      detail: err instanceof Error ? err.message : String(err),
+      name: "gateway-health",
+      passed: false,
+    };
+  }
+}
+
+async function firstHealthyGatewayResponse(
+  url: string,
+  gateway: McpGatewayConfig
+): Promise<Response | undefined> {
+  for (const healthUrl of gatewayHealthUrls(url)) {
+    const response = await fetch(healthUrl, {
+      headers: {
+        Accept: "application/json, text/event-stream",
+        ...(process.env[gateway.token_env]
+          ? { Authorization: `Bearer ${process.env[gateway.token_env]}` }
+          : {}),
+      },
+      method: "GET",
+    });
+    if (
+      (response.status >= 200 && response.status < 300) ||
+      response.status === 405
+    ) {
+      return response;
+    }
+  }
+}
+
+function gatewayHealthUrls(url: string): string[] {
+  const urls: string[] = [];
+  try {
+    const parsed = new URL(url);
+    const healthUrl = new URL("/health", parsed).toString();
+    urls.push(healthUrl);
+  } catch {
+    // gatewayUrl validates URLs before this function is called.
+  }
+  if (!urls.includes(url)) {
+    urls.push(url);
+  }
+  return urls;
+}
+
+function checkLegacyDirectMcp(cwd: string): GatewayDoctorCheck {
+  const hits = [
+    legacyFileHit(cwd, ".mcp.json"),
+    legacyContentHit(cwd, ".codex/config.toml", LEGACY_CODEX_MCP_RE),
+    legacyContentHit(cwd, ".opencode/opencode.json", LEGACY_OPENCODE_MCP_RE),
+    legacyContentHit(cwd, ".pipeline/profiles.yaml", LEGACY_PIPELINE_MCP_RE),
+  ].filter((hit): hit is string => Boolean(hit));
+  return hits.length === 0
+    ? { detail: "none found", name: "legacy-direct-mcp", passed: true }
+    : {
+        detail: hits.join(", "),
+        name: "legacy-direct-mcp",
+        passed: false,
+      };
+}
+
+function legacyFileHit(cwd: string, path: string): string | undefined {
+  return existsSync(join(cwd, path)) ? path : undefined;
+}
+
+function legacyContentHit(
+  cwd: string,
+  path: string,
+  pattern: RegExp
+): string | undefined {
+  const fullPath = join(cwd, path);
+  if (!existsSync(fullPath)) {
+    return;
+  }
+  return pattern.test(readFileSync(fullPath, "utf8")) ? path : undefined;
+}

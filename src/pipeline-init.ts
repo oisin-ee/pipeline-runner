@@ -10,12 +10,7 @@ import {
   RUNNERS_CONFIG_PATH,
 } from "./config.js";
 import {
-  DEFAULT_MCP_INSTALLS,
   DEFAULT_SKILL_INSTALLS,
-  defaultMcpJson,
-  installDefaultMcpsWithCli,
-  type PipelineMcpInstaller,
-  type PipelineMcpSkippedRegistration,
   type PipelineSkillInstallSpec,
 } from "./mcp/bootstrap.js";
 
@@ -26,14 +21,12 @@ export type PipelineSkillInstaller = (
 
 export interface PipelineInitOptions {
   cwd?: string;
-  mcpInstaller?: PipelineMcpInstaller;
   overwrite?: boolean;
   skillInstaller?: PipelineSkillInstaller;
 }
 
 export interface PipelineInitResult {
   files: string[];
-  skippedMcps: PipelineMcpSkippedRegistration[];
 }
 
 export class PipelineInitError extends Error {
@@ -79,7 +72,7 @@ hooks:
       - -e
       - |
         const fs = require("node:fs");
-        const files = [".pipeline/profiles.yaml", ".mcp.json"].filter((file) => fs.existsSync(file));
+        const files = [".pipeline/profiles.yaml"].filter((file) => fs.existsSync(file));
         const text = files.map((file) => fs.readFileSync(file, "utf8")).join("\\n").toLowerCase();
         const banned = ["atlassian", "jira", "linear", "confluence", "compass", "sentry", "deepwiki"];
         const hits = banned.filter((item) => text.includes(item));
@@ -381,28 +374,12 @@ skills:
     path: .agents/skills/trace/SKILL.md
   verify:
     path: .agents/skills/verify/SKILL.md
-mcp_servers:
-  serena:
-    ref:
-      path: .mcp.json
-  context7:
-    ref:
-      path: .mcp.json
-  semgrep:
-    ref:
-      path: .mcp.json
-  backlog:
-    ref:
-      path: .mcp.json
-  qdrant:
-    ref:
-      path: .mcp.json
-  github-readonly:
-    ref:
-      path: .mcp.json
-  playwright:
-    ref:
-      path: .mcp.json
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  default_profile: default
 
 profiles:
   orchestrator:
@@ -411,7 +388,7 @@ profiles:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first, verification]
     skills: [scope, doubt]
-    mcp_servers: [backlog, qdrant, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -426,7 +403,7 @@ profiles:
       path: .pipeline/prompts/researcher.md
     rules: [test-first]
     skills: [research, spec, scope]
-    mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -446,7 +423,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/inspector.md
     skills: [research]
-    mcp_servers: [serena, context7]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -462,7 +439,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/schedule-planner.md
     skills: [schedule-graph-shaping]
-    mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -479,7 +456,7 @@ profiles:
       path: .pipeline/prompts/test-writer.md
     rules: [test-first]
     skills: [test]
-    mcp_servers: [serena, context7]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
       mode: workspace-write
@@ -494,7 +471,7 @@ profiles:
     description: Route epic sub-tickets into fixed implementation tracks.
     instructions:
       path: .pipeline/prompts/epic-router.md
-    mcp_servers: [backlog, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -515,7 +492,7 @@ profiles:
       path: .pipeline/prompts/code-writer.md
     rules: [test-first]
     skills: [trace, test, fix, library-first-development]
-    mcp_servers: [serena, context7, semgrep]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
       mode: workspace-write
@@ -532,7 +509,7 @@ profiles:
       path: .pipeline/prompts/acceptance-reviewer.md
     rules: [verification]
     skills: [critique, doubt]
-    mcp_servers: [serena, context7, semgrep, github-readonly, playwright]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -552,7 +529,7 @@ profiles:
     instructions:
       path: .agents/skills/critique/SKILL.md
     skills: [critique]
-    mcp_servers: [serena, semgrep, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -573,7 +550,7 @@ profiles:
       path: .pipeline/prompts/verifier.md
     rules: [verification]
     skills: [verify, critique, secure, optimize]
-    mcp_servers: [serena, semgrep, github-readonly, playwright]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -593,7 +570,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/learner.md
     skills: [migrate]
-    mcp_servers: [qdrant, backlog]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -903,7 +880,7 @@ const SCAFFOLD_FILES: Record<string, string> = {
 };
 
 export function defaultPipelineScaffoldFiles(): Record<string, string> {
-  return { ".mcp.json": defaultMcpJson(), ...SCAFFOLD_FILES };
+  return { ...SCAFFOLD_FILES };
 }
 
 export async function installDefaultSkillsWithCli(
@@ -938,8 +915,6 @@ export async function initPipelineProject(
     throw new PipelineInitError(conflicts);
   }
 
-  const mcpInstaller = options.mcpInstaller ?? installDefaultMcpsWithCli;
-  const mcpInstallResult = await mcpInstaller(DEFAULT_MCP_INSTALLS, cwd);
   const skillInstaller = options.skillInstaller ?? installDefaultSkillsWithCli;
   await skillInstaller(DEFAULT_SKILL_INSTALLS, cwd);
 
@@ -952,19 +927,13 @@ export async function initPipelineProject(
   loadPipelineConfig(cwd);
   return {
     files: paths,
-    skippedMcps: mcpInstallResult?.skipped ?? [],
   };
 }
 
 export function formatPipelineInitResult(result: PipelineInitResult): string {
-  const skippedMcps = result.skippedMcps ?? [];
   return [
     "Initialized pipeline scaffold:",
     ...result.files.map((path) => `create ${path}`),
-    ...skippedMcps.flatMap((skip) => [
-      `Skipped MCPM registration for ${skip.name}: ${skip.reason}.`,
-      `Set ${skip.missingEnv.join(" or ")} before retrying MCPM registration. The generated MCP entry remains in .mcp.json.`,
-    ]),
   ].join("\n");
 }
 

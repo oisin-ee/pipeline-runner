@@ -11,7 +11,6 @@ import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
 import { installCommands, parseCommandHost } from "../src/install-commands.js";
-import type { PipelineMcpInstaller } from "../src/mcp/bootstrap.js";
 import {
   initPipelineProject,
   type PipelineSkillInstaller,
@@ -69,7 +68,6 @@ describe("installCommands", () => {
     dir = mkdtempSync(join(tmpdir(), "pipeline-commands-"));
     await initPipelineProject({
       cwd: dir,
-      mcpInstaller: fakeMcpInstaller,
       skillInstaller: fakeSkillInstaller,
     });
   });
@@ -322,9 +320,14 @@ describe("installCommands", () => {
     expect(codexResearcher).toContain('name = "pipeline-researcher"');
     expect(codexResearcher).toContain('model = "gpt-5.5"');
     expect(codexResearcher).toContain("developer_instructions =");
-    expect(codexResearcher).toContain("[mcp_servers.serena]");
-    expect(codexResearcher).toContain("[mcp_servers.context7]");
-    expect(codexResearcher).toContain("[mcp_servers.backlog]");
+    expect(codexResearcher).toContain("[mcp_servers.pipeline-gateway]");
+    expect(codexResearcher).toContain('url = "http://127.0.0.1:4483/mcp"');
+    expect(codexResearcher).toContain(
+      'bearer_token_env_var = "PIPELINE_MCP_GATEWAY_TOKEN"'
+    );
+    expect(codexResearcher).not.toContain("[mcp_servers.serena]");
+    expect(codexResearcher).not.toContain("[mcp_servers.context7]");
+    expect(codexResearcher).not.toContain("[mcp_servers.backlog]");
     expect(codexResearcher).toContain("[[skills.config]]");
     expect(codexResearcher).toContain(
       'path = ".agents/skills/research/SKILL.md"'
@@ -632,17 +635,13 @@ profiles:
         ...(config.skills ?? {}),
         orchestrator: { path: ".agents/skills/orchestrator/SKILL.md" },
       };
-      config.mcp_servers = {
-        ...(config.mcp_servers ?? {}),
-        "knowledge-base": { args: ["kb.js"], command: "node" },
-      };
       const orchestrator = config.profiles?.orchestrator;
       if (!orchestrator) {
         throw new Error("Missing test orchestrator profile");
       }
       orchestrator.model = "gpt-5-orchestrator";
       orchestrator.skills = ["orchestrator"];
-      orchestrator.mcp_servers = ["knowledge-base"];
+      orchestrator.mcp_servers = ["pipeline-gateway"];
     });
 
     await installCommands({ cwd: dir, force: true, host: "all" });
@@ -657,7 +656,7 @@ profiles:
       expect(content).toContain("Configured orchestrator:");
       expect(content).toContain("model: gpt-5-orchestrator");
       expect(content).toContain("skills: orchestrator");
-      expect(content).toContain("mcp_servers: knowledge-base");
+      expect(content).toContain("mcp_servers: pipeline-gateway");
     }
   });
 
@@ -790,8 +789,6 @@ profiles:
     expect(() => parseCommandHost("bad")).toThrow('Unsupported host "bad"');
   });
 });
-
-const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve(undefined);
 
 const DEFAULT_TEST_SKILLS = [
   "critique",

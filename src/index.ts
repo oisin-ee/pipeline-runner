@@ -18,7 +18,14 @@ import {
   parseCommandHost,
 } from "./install-commands.js";
 import { runKubernetesRunnerJob } from "./kubernetes-runner.js";
-import { DEFAULT_MCPM_ARGS, DEFAULT_MCPM_COMMAND } from "./mcp/bootstrap.js";
+import {
+  configureGatewayHosts,
+  type GatewayHostScope,
+  localGatewayStatus,
+  renderGatewayConfig,
+  runGatewayDoctor,
+  startLocalGateway,
+} from "./mcp/gateway.js";
 import {
   formatPipelineInitResult,
   initPipelineProject,
@@ -362,6 +369,15 @@ interface InitFlags {
   overwrite?: boolean;
 }
 
+interface GatewayConfigureHostFlags {
+  host?: CommandHostSelection;
+  scope?: GatewayHostScope;
+}
+
+interface GatewayLocalStartFlags {
+  detach?: boolean;
+}
+
 interface ValidateFlags {
   entrypoint?: string;
   lint?: boolean;
@@ -385,6 +401,7 @@ const BUILTIN_PIPE_COMMANDS = new Set([
   "doctor",
   "init",
   "install-commands",
+  "mcp",
   "runner-job",
 ]);
 
@@ -492,6 +509,100 @@ export function createCliProgram(): Command {
       }
     });
 
+  const gatewayCommand = program
+    .command("mcp")
+    .description("Manage the hosted-first MCP gateway")
+    .command("gateway")
+    .description("Inspect and configure the pipeline MCP gateway");
+
+  gatewayCommand
+    .command("doctor")
+    .description(
+      "Check MCP gateway configuration and legacy direct MCP entries"
+    )
+    .action(async () => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const config = loadPipelineConfig(cwd, {
+        allowMissingLintFileReferences: true,
+      });
+      const result = await runGatewayDoctor(config, cwd);
+      console.log(formatDoctorResult(result));
+      if (!result.passed) {
+        throw new Error("MCP gateway doctor checks failed.");
+      }
+    });
+
+  gatewayCommand
+    .command("config")
+    .description("Print resolved MCP gateway client configuration")
+    .action(() => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const config = loadPipelineConfig(cwd, {
+        allowMissingLintFileReferences: true,
+      });
+      console.log(renderGatewayConfig(config));
+    });
+
+  gatewayCommand
+    .command("configure-host")
+    .description("Rewrite host MCP config to the singleton pipeline gateway")
+    .addOption(
+      new Option("--host <host>", "host config to update")
+        .choices(["all", "opencode", "codex"])
+        .default("all")
+        .argParser(parseCommandHost)
+    )
+    .addOption(
+      new Option("--scope <scope>", "config scope to update")
+        .choices(["project", "global"])
+        .default("project")
+        .argParser(parseGatewayHostScope)
+    )
+    .action((flags: GatewayConfigureHostFlags) => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const config = loadPipelineConfig(cwd, {
+        allowMissingLintFileReferences: true,
+      });
+      const result = configureGatewayHosts(config, {
+        cwd,
+        host: flags.host ?? "all",
+        scope: flags.scope ?? "project",
+      });
+      console.log(
+        result
+          .map((item) =>
+            [
+              `${item.host}: ${item.path}`,
+              item.backupPath ? `backup=${item.backupPath}` : "backup=none",
+            ].join(" ")
+          )
+          .join("\n")
+      );
+    });
+
+  gatewayCommand
+    .command("local-start")
+    .description("Start a local ToolHive vMCP gateway for local mode")
+    .option("--detach", "reserved for future background startup", false)
+    .action(async (flags: GatewayLocalStartFlags) => {
+      if (flags.detach) {
+        throw new Error("Detached local gateway startup is not implemented.");
+      }
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const config = loadPipelineConfig(cwd, {
+        allowMissingLintFileReferences: true,
+      });
+      await startLocalGateway(config, cwd);
+    });
+
+  gatewayCommand
+    .command("local-status")
+    .description("Show local ToolHive MCP server status")
+    .action(async () => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      console.log(await localGatewayStatus(cwd));
+    });
+
   program
     .command("init")
     .description("Scaffold the default .pipeline/pipeline.yaml workflow")
@@ -592,6 +703,13 @@ function registerConfiguredEntrypointCommands(
     reservedCommands.add(id);
   }
   return registered;
+}
+
+function parseGatewayHostScope(value: string): GatewayHostScope {
+  if (value === "project" || value === "global") {
+    return value;
+  }
+  throw new Error("scope must be project or global");
 }
 
 function lintPipelineConfig(
@@ -731,15 +849,8 @@ function shouldParsePipeArgsDirectly(
 export async function runDoctor(cwd: string): Promise<DoctorResult> {
   const commandChecks = await Promise.all([
     checkCommand("npx", ["--version"], cwd),
-    checkCommand("backlog", ["--version"], cwd),
-    checkCommand("uvx", ["--version"], cwd),
-    checkCommandWithRunner(
-      "mcpm-cli",
-      DEFAULT_MCPM_COMMAND,
-      [...DEFAULT_MCPM_ARGS, "--version"],
-      cwd
-    ),
     checkCommand("codex", ["--version"], cwd),
+    checkCommand("opencode", ["--version"], cwd),
   ]);
   const configCheck = checkPipelineConfig(cwd);
   const checks = [...commandChecks, configCheck];

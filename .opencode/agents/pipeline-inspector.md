@@ -21,7 +21,7 @@ model: default
 tools: read, list, grep, glob, bash
 rules: none
 skills: research
-mcp_servers: serena, context7
+mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 output: text

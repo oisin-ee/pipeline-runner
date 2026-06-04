@@ -21,7 +21,7 @@ model: default
 tools: read, list, grep, glob, bash
 rules: none
 skills: none
-mcp_servers: backlog, github-readonly
+mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 output: json_schema

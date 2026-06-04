@@ -20,6 +20,7 @@ import {
   runTests,
   runTypecheck,
 } from "./gates.js";
+import { gatewayServerForProfile } from "./mcp/gateway.js";
 import { resolveFileReference } from "./path-refs.js";
 import {
   type AgentResult,
@@ -2233,7 +2234,7 @@ function renderAgentPrompt(
       context.config.skills,
       context.worktreePath
     ),
-    renderMcpReferences(profile?.mcp_servers, context.config.mcp_servers),
+    renderMcpReferences(context.config, profile),
     "",
     ...inheritedOutputSections(node, context),
     "Dependency outputs:",
@@ -2333,17 +2334,17 @@ function renderPathReferences(
 }
 
 function renderMcpReferences(
-  ids: string[] | undefined,
-  registry: PipelineConfig["mcp_servers"]
+  config: PipelineConfig,
+  profile: PipelineConfig["profiles"][string] | undefined
 ): string {
-  if (!ids?.length) {
+  const servers = gatewayServerForProfile(config, profile);
+  if (Object.keys(servers).length === 0) {
     return "";
   }
   return [
     "",
     "Loaded MCP servers:",
-    ...ids.map((id) => {
-      const server = registry[id];
+    ...Object.entries(servers).map(([id, server]) => {
       if (server?.url) {
         return [
           `## ${id}`,

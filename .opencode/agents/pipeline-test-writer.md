@@ -21,7 +21,7 @@ model: default
 tools: read, list, grep, glob, bash, edit, write
 rules: test-first
 skills: test
-mcp_servers: serena, context7
+mcp_servers: pipeline-gateway
 filesystem: workspace-write
 network: inherit
 output: text

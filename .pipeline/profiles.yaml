@@ -39,28 +39,12 @@ skills:
     path: .agents/skills/trace/SKILL.md
   verify:
     path: .agents/skills/verify/SKILL.md
-mcp_servers:
-  serena:
-    ref:
-      path: .mcp.json
-  context7:
-    ref:
-      path: .mcp.json
-  semgrep:
-    ref:
-      path: .mcp.json
-  backlog:
-    ref:
-      path: .mcp.json
-  qdrant:
-    ref:
-      path: .mcp.json
-  github-readonly:
-    ref:
-      path: .mcp.json
-  playwright:
-    ref:
-      path: .mcp.json
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  default_profile: default
 
 profiles:
   orchestrator:
@@ -69,7 +53,7 @@ profiles:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first, verification]
     skills: [scope, doubt]
-    mcp_servers: [backlog, qdrant, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -84,7 +68,7 @@ profiles:
       path: .pipeline/prompts/researcher.md
     rules: [test-first]
     skills: [research, spec, scope]
-    mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -104,7 +88,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/inspector.md
     skills: [research]
-    mcp_servers: [serena, context7]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -120,7 +104,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/schedule-planner.md
     skills: [schedule-graph-shaping]
-    mcp_servers: [serena, context7, backlog, qdrant, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -137,7 +121,7 @@ profiles:
       path: .pipeline/prompts/test-writer.md
     rules: [test-first]
     skills: [test]
-    mcp_servers: [serena, context7]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
       mode: workspace-write
@@ -154,7 +138,7 @@ profiles:
       path: .pipeline/prompts/code-writer.md
     rules: [test-first]
     skills: [trace, test, fix, library-first-development]
-    mcp_servers: [serena, context7, semgrep]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem:
       mode: workspace-write
@@ -169,7 +153,7 @@ profiles:
     description: Route epic sub-tickets into fixed implementation tracks.
     instructions:
       path: .pipeline/prompts/epic-router.md
-    mcp_servers: [backlog, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -190,7 +174,7 @@ profiles:
       path: .pipeline/prompts/acceptance-reviewer.md
     rules: [verification]
     skills: [critique, doubt]
-    mcp_servers: [serena, context7, semgrep, github-readonly, playwright]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -210,7 +194,7 @@ profiles:
     instructions:
       path: .agents/skills/critique/SKILL.md
     skills: [critique]
-    mcp_servers: [serena, semgrep, github-readonly]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -231,7 +215,7 @@ profiles:
       path: .pipeline/prompts/verifier.md
     rules: [verification]
     skills: [verify, critique, secure, optimize]
-    mcp_servers: [serena, semgrep, github-readonly, playwright]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -251,7 +235,7 @@ profiles:
     instructions:
       path: .pipeline/prompts/learner.md
     skills: [migrate]
-    mcp_servers: [qdrant, backlog]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only

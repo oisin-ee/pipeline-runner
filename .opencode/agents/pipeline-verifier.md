@@ -21,7 +21,7 @@ model: default
 tools: read, list, grep, glob, bash
 rules: verification
 skills: verify, critique, secure, optimize
-mcp_servers: serena, semgrep, github-readonly, playwright
+mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 output: json_schema

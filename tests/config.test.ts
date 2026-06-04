@@ -47,10 +47,11 @@ rules:
 skills:
   repo-research:
     path: .agents/skills/repo-research/SKILL.md
-mcp_servers:
-  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: codex
@@ -59,7 +60,7 @@ profiles:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first]
     skills: [repo-research]
-    mcp_servers: [docs]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -75,7 +76,7 @@ profiles:
       path: .pipeline/prompts/researcher.md
     rules: [test-first]
     skills: [repo-research]
-    mcp_servers: [docs]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
@@ -251,205 +252,37 @@ describe("loadPipelineConfig", () => {
     );
   });
 
-  it("accepts remote HTTP MCP server definitions", () => {
-    const config = parseParts({
-      profiles: VALID_PROFILES_YAML.replace(
-        `mcp_servers:
-  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]`,
-        `mcp_servers:
-  docs:
-    url: https://memory-mcp.momokaya.ee/mcp/
-    headers:
-      X-Memory-Region: eu
-  secure-memory:
-    url: https://memory-mcp.momokaya.ee/mcp/
-    bearer_token_env_var: MEMORY_MCP_TOKEN`
-      ).replace("mcp_servers: [docs]", "mcp_servers: [secure-memory]"),
-    });
-
-    expect(config.mcp_servers.docs.url).toBe(
-      "https://memory-mcp.momokaya.ee/mcp/"
-    );
-    expect(config.mcp_servers.docs.headers).toEqual({
-      "X-Memory-Region": "eu",
-    });
-    expect(config.mcp_servers["secure-memory"].bearer_token_env_var).toBe(
-      "MEMORY_MCP_TOKEN"
-    );
-  });
-
-  it("resolves MCP server definitions from mcp-json config files", () => {
+  it("rejects direct MCP server registry entries in profiles config", () => {
     const profiles = VALID_PROFILES_YAML.replace(
+      "profiles:",
       `mcp_servers:
   docs:
     command: npx
-    args: ["-y", "@example/docs-mcp"]`,
+    args: ["-y", "@example/docs-mcp"]
+profiles:`
+    );
+
+    const error = captureConfigError(() => parseParts({ profiles }));
+
+    expect(error.message).toContain("mcp_servers.docs");
+  });
+
+  it("rejects mcp-json MCP server refs", () => {
+    const profiles = VALID_PROFILES_YAML.replace(
+      "profiles:",
       `mcp_servers:
   docs:
     ref:
       path: .mcp.json
-      id: serena`
+      id: serena
+profiles:`
     );
     const project = makeProject({ ...VALID_PARTS, profiles });
-    writeProjectFile(
-      project,
-      ".mcp.json",
-      JSON.stringify({
-        mcpServers: {
-          serena: {
-            command: "uvx",
-            args: [
-              "--from",
-              "git+https://github.com/oraios/serena",
-              "serena",
-              "start-mcp-server",
-            ],
-            env: {
-              SERENA_TEST: "1",
-            },
-          },
-        },
-      })
-    );
-
-    const config = loadPipelineConfig(project);
-
-    expect(config.mcp_servers.docs).toEqual({
-      command: "uvx",
-      args: [
-        "--from",
-        "git+https://github.com/oraios/serena",
-        "serena",
-        "start-mcp-server",
-      ],
-      env: {
-        SERENA_TEST: "1",
-      },
-    });
-    expect(config.profiles.researcher.mcp_servers).toEqual(["docs"]);
-  });
-
-  it("rejects MCP refs that point at missing mcp-json server ids", () => {
-    const profiles = VALID_PROFILES_YAML.replace(
-      `mcp_servers:
-  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]`,
-      `mcp_servers:
-  docs:
-    ref:
-      path: .mcp.json
-      id: missing`
-    );
-    const project = makeProject({ ...VALID_PARTS, profiles });
-    writeProjectFile(
-      project,
-      ".mcp.json",
-      JSON.stringify({
-        mcpServers: {
-          serena: {
-            command: "uvx",
-          },
-        },
-      })
-    );
+    writeProjectFile(project, ".mcp.json", JSON.stringify({ mcpServers: {} }));
 
     const error = captureConfigError(() => loadPipelineConfig(project));
 
-    expect(error.message).toContain(
-      "MCP config '.mcp.json' does not declare server 'missing'"
-    );
-  });
-
-  it("rejects invalid imported mcp-json server definitions", () => {
-    const profiles = VALID_PROFILES_YAML.replace(
-      `mcp_servers:
-  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]`,
-      `mcp_servers:
-  docs:
-    ref:
-      path: .mcp.json`
-    );
-    const project = makeProject({ ...VALID_PARTS, profiles });
-    writeProjectFile(
-      project,
-      ".mcp.json",
-      JSON.stringify({
-        mcpServers: {
-          docs: {
-            command: "uvx",
-            url: "https://memory-mcp.momokaya.ee/mcp/",
-          },
-        },
-      })
-    );
-
-    const error = captureConfigError(() => loadPipelineConfig(project));
-
-    expect(error.message).toContain("exactly one of command or url");
-  });
-
-  it("rejects invalid MCP server transport field combinations", () => {
-    const cases = [
-      {
-        message: "exactly one of command or url",
-        server: `
-    command: npx
-    url: https://memory-mcp.momokaya.ee/mcp/`,
-      },
-      {
-        message: "args are only valid for command MCP servers",
-        server: `
-    url: https://memory-mcp.momokaya.ee/mcp/
-    args: ["bad"]`,
-      },
-      {
-        message: "env is only valid for command MCP servers",
-        server: `
-    url: https://memory-mcp.momokaya.ee/mcp/
-    env: { BAD: value }`,
-      },
-      {
-        message: "headers are only valid for url MCP servers",
-        server: `
-    command: npx
-    headers: { X-Test: value }`,
-      },
-      {
-        message: "bearer_token_env_var is only valid for url MCP servers",
-        server: `
-    command: npx
-    bearer_token_env_var: MEMORY_MCP_TOKEN`,
-      },
-      {
-        message:
-          "headers.Authorization cannot be combined with bearer_token_env_var",
-        server: `
-    url: https://memory-mcp.momokaya.ee/mcp/
-    bearer_token_env_var: MEMORY_MCP_TOKEN
-    headers:
-      Authorization: Bearer token`,
-      },
-    ];
-
-    for (const item of cases) {
-      const error = captureConfigError(() =>
-        parseParts({
-          profiles: VALID_PROFILES_YAML.replace(
-            `  docs:
-    command: npx
-    args: ["-y", "@example/docs-mcp"]`,
-            `  docs:${item.server}`
-          ),
-        })
-      );
-
-      expect(error.message).toContain(item.message);
-    }
+    expect(error.message).toContain("mcp_servers.docs");
   });
 
   it("rejects missing required config files", () => {
@@ -532,7 +365,7 @@ describe("parsePipelineConfigParts", () => {
 
   it("validates orchestrator references and runner capabilities", () => {
     const profiles = VALID_PROFILES_YAML.replace(
-      "mcp_servers: [docs]\n    tools: [read, list, grep, glob, bash]\n    filesystem:",
+      "mcp_servers: [pipeline-gateway]\n    tools: [read, list, grep, glob, bash]\n    filesystem:",
       "mcp_servers: [missing]\n    tools: [read, write]\n    filesystem:"
     );
     const runners = VALID_RUNNERS_YAML.replace(
@@ -851,7 +684,7 @@ workflows:
       "rules: [missing]"
     )
       .replace("skills: [repo-research]", "skills: [missing]")
-      .replace("mcp_servers: [docs]", "mcp_servers: [missing]");
+      .replace("mcp_servers: [pipeline-gateway]", "mcp_servers: [missing]");
 
     const error = captureConfigError(() => parseParts({ profiles }));
 
@@ -1352,7 +1185,7 @@ describe("epic-router asset bundle", () => {
         },
       },
     });
-    expect(profile.mcp_servers).toEqual(["backlog", "github-readonly"]);
+    expect(profile.mcp_servers).toEqual(["pipeline-gateway"]);
     expect(profile.tools).toEqual(["read", "list", "grep", "glob", "bash"]);
   });
 
@@ -1442,7 +1275,7 @@ describe("final review asset bundle", () => {
         path: ".agents/skills/critique/SKILL.md",
       },
       skills: ["critique"],
-      mcp_servers: ["serena", "semgrep", "github-readonly"],
+      mcp_servers: ["pipeline-gateway"],
       filesystem: {
         mode: "read-only",
         allow: ["**/*"],

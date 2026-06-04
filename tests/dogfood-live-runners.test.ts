@@ -207,7 +207,6 @@ function makeProject(): string {
     ".agents/skills/live/SKILL.md",
     "# Live Smoke Skill\n\nReturn the requested JSON object exactly.\n"
   );
-  writeProjectFile(project, "mcp-server.cjs", MCP_SERVER);
   return project;
 }
 
@@ -223,7 +222,6 @@ function liveRunnerConfig(
   const { filesystem, format, harness, profileId } = spec;
   const harnessSpec = HARNESS_SPECS[harness];
   const nodeId = `run-${profileId}`;
-  const mcpScript = join(project, "mcp-server.cjs");
   return parsePipelineConfigParts(
     {
       pipeline: `
@@ -250,18 +248,18 @@ rules:
 skills:
   live-skill:
     path: .agents/skills/live/SKILL.md
-mcp_servers:
-  live-mcp:
-    command: ${JSON.stringify(process.execPath)}
-    args: [${JSON.stringify(mcpScript)}]
-    env: { PIPELINE_LIVE_MCP: smoke }
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: codex
     instructions: { inline: "Orchestrate the live runner smoke." }
     rules: [live-rule]
     skills: [live-skill]
-    mcp_servers: [live-mcp]
+    mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
@@ -277,7 +275,7 @@ profiles:
       )}
     ${harnessSpec.rules ? "rules: [live-rule]" : ""}
     ${harnessSpec.skills ? "skills: [live-skill]" : ""}
-    ${harnessSpec.mcpServers ? "mcp_servers: [live-mcp]" : ""}
+    ${harnessSpec.mcpServers ? "mcp_servers: [pipeline-gateway]" : ""}
     tools: [${(harnessSpec.tools ?? []).join(", ")}]
     filesystem: { mode: ${filesystem} }
     network: { mode: inherit }
@@ -304,7 +302,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: ${JSON.stringify(process.env.PIPELINE_OPENCODE_MODEL ?? "openai/gpt-5.4-mini-fast")}
+    model: ${JSON.stringify(process.env.PIPELINE_OPENCODE_MODEL ?? "opencode/deepseek-v4-flash-free")}
     capabilities:
       native_subagents: true
       rules: true
@@ -361,7 +359,7 @@ function assertLaunchPlanContainsGrants(
   }
   if (profile?.runner === "codex" || profile?.runner === "opencode") {
     assertSmoke(
-      arrayEquals(profile?.mcp_servers, ["live-mcp"]),
+      arrayEquals(profile?.mcp_servers, ["pipeline-gateway"]),
       "MCP grant was not attached",
       diagnostic
     );
@@ -426,84 +424,3 @@ function writeProjectFile(root: string, path: string, content: string): void {
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
 }
-
-const MCP_SERVER = String.raw`
-const stdin = process.stdin;
-let buffer = Buffer.alloc(0);
-
-stdin.on("data", (chunk) => {
-  buffer = Buffer.concat([buffer, chunk]);
-  processMessages();
-});
-
-function processMessages() {
-  while (true) {
-    const headerEnd = buffer.indexOf("\r\n\r\n");
-    if (headerEnd === -1) {
-      return;
-    }
-    const header = buffer.subarray(0, headerEnd).toString("utf8");
-    const match = /content-length:\s*(\d+)/i.exec(header);
-    if (!match) {
-      buffer = buffer.subarray(headerEnd + 4);
-      continue;
-    }
-    const length = Number(match[1]);
-    const bodyStart = headerEnd + 4;
-    const bodyEnd = bodyStart + length;
-    if (buffer.length < bodyEnd) {
-      return;
-    }
-    const body = buffer.subarray(bodyStart, bodyEnd).toString("utf8");
-    buffer = buffer.subarray(bodyEnd);
-    handleMessage(body);
-  }
-}
-
-function handleMessage(body) {
-  let message;
-  try {
-    message = JSON.parse(body);
-  } catch {
-    return;
-  }
-  if (message.id === undefined || message.id === null) {
-    return;
-  }
-  respond({
-    id: message.id,
-    jsonrpc: "2.0",
-    result: resultFor(message.method),
-  });
-}
-
-function resultFor(method) {
-  if (method === "initialize") {
-    return {
-      capabilities: {},
-      protocolVersion: "2024-11-05",
-      serverInfo: { name: "pipeline-live-smoke", version: "1.0.0" },
-    };
-  }
-  if (method === "tools/list") {
-    return { tools: [] };
-  }
-  if (method === "resources/list") {
-    return { resources: [] };
-  }
-  if (method === "prompts/list") {
-    return { prompts: [] };
-  }
-  if (method === "shutdown") {
-    return null;
-  }
-  return {};
-}
-
-function respond(message) {
-  const body = JSON.stringify(message);
-  process.stdout.write(
-    "Content-Length: " + Buffer.byteLength(body, "utf8") + "\r\n\r\n" + body
-  );
-}
-`.trimStart();

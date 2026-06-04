@@ -18,11 +18,7 @@ import { execa } from "execa";
 import { loadPipelineConfig } from "../src/config.js";
 import {
   DEFAULT_INSTALL_MANIFEST,
-  DEFAULT_MCP_INSTALLS,
   DEFAULT_SKILL_INSTALLS,
-  installDefaultMcpsWithCli,
-  PipelineMcpInstallError,
-  type PipelineMcpInstaller,
 } from "../src/mcp/bootstrap.js";
 import {
   defaultPipelineScaffoldFiles,
@@ -65,7 +61,6 @@ describe("initPipelineProject", () => {
   const init = (options: Parameters<typeof initPipelineProject>[0] = {}) =>
     initPipelineProject({
       cwd: dir,
-      mcpInstaller: fakeMcpInstaller,
       skillInstaller: fakeSkillInstaller,
       ...options,
     });
@@ -76,11 +71,11 @@ describe("initPipelineProject", () => {
     expect(result.files).toContain(".pipeline/pipeline.yaml");
     expect(result.files).toContain(".pipeline/profiles.yaml");
     expect(result.files).toContain(".pipeline/runners.yaml");
-    expect(result.files).toContain(".mcp.json");
+    expect(result.files).not.toContain(".mcp.json");
     expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
-    expect(existsSync(join(dir, ".mcp.json"))).toBe(true);
+    expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(existsSync(join(dir, ".agents/skills/research/SKILL.md"))).toBe(
       true
     );
@@ -131,14 +126,17 @@ describe("initPipelineProject", () => {
       "schedule-graph-shaping",
     ]);
     expect(config.runners.codex.model).toBe("gpt-5.5");
-    expect(config.mcp_servers.serena).toMatchObject({
-      args: ["--python", "3.12", "mcpm", "run", "oisin-pipeline-serena"],
-      command: "uvx",
+    expect(config.mcp_gateway).toMatchObject({
+      default_profile: "default",
+      mode: "local",
+      provider: "toolhive",
+      token_env: "PIPELINE_MCP_GATEWAY_TOKEN",
+      url_env: "PIPELINE_MCP_GATEWAY_URL",
     });
-    expect(config.mcp_servers.context7).toMatchObject({
-      args: ["--python", "3.12", "mcpm", "run", "oisin-pipeline-context7"],
-      command: "uvx",
-    });
+    expect(config.mcp_servers).toEqual({});
+    expect(config.profiles["pipeline-researcher"].mcp_servers).toEqual([
+      "pipeline-gateway",
+    ]);
   });
 
   it("scaffolds prompt files, schema files, and host resource inputs", async () => {
@@ -298,49 +296,29 @@ describe("initPipelineProject", () => {
   it("keeps banned generated MCP defaults out of the scaffold", async () => {
     await init();
 
-    const generated = [
-      readFileSync(join(dir, ".pipeline/profiles.yaml"), "utf8"),
-      readFileSync(join(dir, ".mcp.json"), "utf8"),
-    ].join("\n");
+    const generated = readFileSync(
+      join(dir, ".pipeline/profiles.yaml"),
+      "utf8"
+    );
     expect(generated).not.toMatch(BANNED_DEFAULTS_RE);
     expect(generated).not.toMatch(GITHUB_WRITE_MCP_RE);
-    expect(generated).toContain("oisin-pipeline-github-readonly");
-  });
-
-  it("registers default MCP servers through MCPM", async () => {
-    const registered: string[] = [];
-
-    await initPipelineProject({
-      cwd: dir,
-      mcpInstaller: (specs) => {
-        registered.push(
-          ...specs.map((spec) => `${spec.name}:${spec.url ?? ""}`)
-        );
-        return Promise.resolve(undefined);
-      },
-      skillInstaller: fakeSkillInstaller,
-    });
-
-    expect(registered).toEqual(
-      DEFAULT_MCP_INSTALLS.map((spec) => `${spec.name}:${spec.url ?? ""}`)
-    );
-    expect(registered).toContain(
-      "oisin-pipeline-qdrant:https://memory-mcp.momokaya.ee/mcp/"
-    );
+    expect(generated).toContain("mcp_gateway:");
+    expect(generated).toContain("mcp_servers: [pipeline-gateway]");
+    expect(generated).not.toContain("path: .mcp.json");
+    expect(generated).not.toContain("uvx");
   });
 
   it("loads default installs from the package manifest", () => {
     const manifest = JSON.parse(
       readFileSync("defaults/install-manifest.json", "utf8")
     ) as {
-      mcps: unknown[];
       skills: unknown[];
       version: number;
     };
 
     expect(DEFAULT_INSTALL_MANIFEST.version).toBe(1);
     expect(DEFAULT_SKILL_INSTALLS).toEqual(manifest.skills);
-    expect(DEFAULT_MCP_INSTALLS).toEqual(manifest.mcps);
+    expect("mcps" in manifest).toBe(false);
   });
 
   it("installs default skills with the skills CLI", async () => {
@@ -356,116 +334,10 @@ describe("initPipelineProject", () => {
     );
   });
 
-  it("declares the single memory basic auth source in the default MCP manifest", () => {
-    const manifest = JSON.parse(
-      readFileSync("defaults/install-manifest.json", "utf8")
-    ) as {
-      mcps: Array<{
-        headers?: {
-          Authorization?: {
-            sources?: Array<{ env?: string; prefix?: string }>;
-          };
-        };
-        name?: string;
-        transport?: string;
-        url?: string;
-      }>;
-    };
-    const manifestQdrant = manifest.mcps.find(
-      (spec) => spec.name === "oisin-pipeline-qdrant"
-    );
-    const defaultQdrant = DEFAULT_MCP_INSTALLS.find(
-      (spec) => spec.name === "oisin-pipeline-qdrant"
-    );
-
-    expect(defaultQdrant).toEqual(manifestQdrant);
-    expect(manifestQdrant).toMatchObject({
-      name: "oisin-pipeline-qdrant",
-      optionalRegistration: true,
-      transport: "remote",
-      url: "https://memory-mcp.momokaya.ee/mcp/",
-    });
-    expect(manifestQdrant?.headers?.Authorization?.sources).toEqual([
-      { env: "MEMORY_MCP_BASIC_AUTH", prefix: "Basic " },
-    ]);
-  });
-
-  it("redacts the resolved memory basic auth header from direct MCPM registration failures", async () => {
-    process.env.MEMORY_MCP_BASIC_AUTH = "memory-basic-payload";
-    mockExeca.mockImplementation(((_command: string, args?: string[]) => {
-      if (args?.includes("oisin-pipeline-qdrant")) {
-        return Promise.reject({
-          shortMessage:
-            "Command failed: uvx --python 3.12 mcpm new oisin-pipeline-qdrant --headers Authorization=Basic memory-basic-payload",
-          stderr: "remote rejected token memory-basic-payload",
-          stdout: "Basic memory-basic-payload",
-        });
-      }
-      return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
-    }) as any);
-
-    let thrown: unknown;
-    try {
-      await installDefaultMcpsWithCli(DEFAULT_MCP_INSTALLS, dir);
-    } catch (err) {
-      thrown = err;
-    }
-
-    expect(thrown).toBeInstanceOf(PipelineMcpInstallError);
-    const message = String((thrown as Error).message);
-    expect(message).toContain(
-      "Failed to register MCP server oisin-pipeline-qdrant with MCPM."
-    );
-    expect(message).toContain("Authorization=[REDACTED]");
-    expect(message).not.toContain("memory-basic-payload");
-    expect(message).not.toContain("Authorization=Basic memory-basic-payload");
-  });
-
-  it("skips optional Qdrant registration when memory credentials are missing", async () => {
-    delete process.env.MEMORY_MCP_BASIC_AUTH;
-
-    const result = await installDefaultMcpsWithCli(DEFAULT_MCP_INSTALLS, dir);
-
-    expect(
-      mockExeca.mock.calls.some(
-        ([_command, args]) =>
-          Array.isArray(args) && args.includes("oisin-pipeline-qdrant")
-      )
-    ).toBe(false);
-    expect(result.skipped).toEqual([
-      {
-        missingEnv: ["MEMORY_MCP_BASIC_AUTH"],
-        name: "oisin-pipeline-qdrant",
-        reason: "missing Authorization credentials",
-      },
-    ]);
-    expect(
-      mockExeca.mock.calls.some(
-        ([_command, args]) =>
-          Array.isArray(args) && args.includes("oisin-pipeline-backlog")
-      )
-    ).toBe(true);
-  });
-
-  it("does not write scaffold files when MCP registration fails", async () => {
-    await expect(
-      initPipelineProject({
-        cwd: dir,
-        mcpInstaller: () => Promise.reject(new Error("mcpm missing")),
-        skillInstaller: fakeSkillInstaller,
-      })
-    ).rejects.toThrow("mcpm missing");
-
-    expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(false);
-    expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-    expect(existsSync(join(dir, ".agents", "skills"))).toBe(false);
-  });
-
   it("does not write scaffold files when skill installation fails", async () => {
     await expect(
       initPipelineProject({
         cwd: dir,
-        mcpInstaller: fakeMcpInstaller,
         skillInstaller: () => Promise.reject(new Error("skills missing")),
       })
     ).rejects.toThrow("skills missing");
@@ -512,7 +384,6 @@ describe("initPipelineProject", () => {
       false
     );
     expect(files).toEqual([
-      ".mcp.json",
       ".pipeline/host-resources/codex.md",
       ".pipeline/host-resources/opencode.md",
       ".pipeline/pipeline.yaml",
@@ -540,8 +411,6 @@ describe("initPipelineProject", () => {
     ]);
   });
 });
-
-const fakeMcpInstaller: PipelineMcpInstaller = () => Promise.resolve(undefined);
 
 const DEFAULT_TEST_SKILLS = [
   "critique",

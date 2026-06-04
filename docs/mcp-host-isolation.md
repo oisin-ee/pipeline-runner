@@ -1,15 +1,15 @@
 # MCP Host Isolation
 
 `oisin-pipeline` treats `.pipeline/profiles.yaml` as the MCP source of truth.
-Each profile grants a small list of `mcp_servers`, and runtime launch planning
-must render only that profile-selected set for the target host.
+Profiles that need MCP grant `pipeline-gateway`; runtime launch planning renders
+exactly one remote MCP server for the target host.
 
 ## Codex
 
 Codex `exec` supports `--ignore-user-config`, which skips
 `$CODEX_HOME/config.toml` while continuing to use Codex auth. Pipeline-managed
-Codex launches use that flag and pass the selected MCP servers explicitly with
-`--config mcp_servers.<id>...` entries.
+Codex launches use that flag and pass the singleton gateway explicitly with
+`--config mcp_servers.pipeline-gateway...` entries.
 
 This prevents user-config MCP fan-out for pipeline-launched Codex agents. It
 does not claim to suppress every possible system, managed, plugin, or trusted
@@ -23,13 +23,13 @@ OpenCode configuration is merged from multiple layers, so `OPENCODE_CONFIG`
 alone is not an isolation boundary. Pipeline-managed OpenCode launches create
 an isolated temporary runtime root, set `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
 `XDG_STATE_HOME`, `XDG_CACHE_HOME`, and `OPENCODE_TEST_HOME` inside it, disable
-project config with `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and pass the selected
-profile MCP servers through `OPENCODE_CONFIG_CONTENT`.
+project config with `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and pass the
+`pipeline-gateway` remote server through `OPENCODE_CONFIG_CONTENT`.
 
-The generated inline config contains only the profile-selected MCP server ids.
-Unselected pipeline MCP ids are omitted rather than rendered as disabled
-entries, because enabled MCP servers can be started during OpenCode MCP service
-initialization before per-message tool filtering.
+The generated inline config contains only `pipeline-gateway`. Direct upstream
+MCP ids are omitted rather than rendered as disabled entries, because enabled
+MCP servers can be started during OpenCode MCP service initialization before
+per-message tool filtering.
 
 Strict isolation means pipeline-managed OpenCode launches do not read the
 user's normal OpenCode account or MCP auth files. Provider credentials should be

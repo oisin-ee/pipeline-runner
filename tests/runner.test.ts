@@ -21,6 +21,8 @@ function makeSimpleResult(stdout = "output", exitCode = 0) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:8787/mcp";
+  process.env.PIPELINE_MCP_GATEWAY_TOKEN = "test-gateway-token";
 });
 
 function parseTestConfig(parts: {
@@ -276,7 +278,7 @@ workflows:
     ).toThrow("does not support output format");
   });
 
-  it("hydrates tools, skills, and MCP servers into native runner launch plans", () => {
+  it("hydrates tools, skills, and the singleton MCP gateway into native runner launch plans", () => {
     const config = parseTestConfig({
       runners: `
 version: 1
@@ -304,24 +306,21 @@ version: 1
 skills:
   research:
     path: .agents/skills/research/SKILL.md
-mcp_servers:
-  docs:
-    command: node
-    args: ["docs.js"]
-    env: { DOCS_TOKEN: test-token }
-  unused:
-    command: node
-    args: ["unused.js"]
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: codex
     model: orchestrator-model
     instructions: { inline: Orchestrate }
     skills: [research]
-    mcp_servers: [docs]
+    mcp_servers: [pipeline-gateway]
     tools: [read]
-  codex-agent: { runner: codex, model: agent-model, instructions: { inline: Codex }, skills: [research], mcp_servers: [docs] }
-  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [docs] }
+  codex-agent: { runner: codex, model: agent-model, instructions: { inline: Codex }, skills: [research], mcp_servers: [pipeline-gateway] }
+  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [pipeline-gateway] }
 `,
       pipeline: `
 version: 1
@@ -347,9 +346,14 @@ workflows:
     expect(codex.args).toContain(
       'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
     );
-    expect(codex.args).toContain('mcp_servers.docs.command="node"');
-    expect(codex.args).toContain('mcp_servers.docs.args=["docs.js"]');
-    expect(codex.args.join("\n")).not.toContain("unused.js");
+    expect(codex.args).toContain(
+      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
+    );
+    expect(codex.args).toContain(
+      'mcp_servers.pipeline-gateway.bearer_token_env_var="PIPELINE_MCP_GATEWAY_TOKEN"'
+    );
+    expect(codex.args.join("\n")).not.toContain("docs.js");
+    expect(codex.args.join("\n")).not.toContain("mcp_servers.docs");
     expect(codex.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(codex.args).not.toContain("--sandbox");
     expect(codex.args).not.toContain('approval_policy="never"');
@@ -373,13 +377,14 @@ workflows:
     const opencodeConfig = JSON.parse(
       requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
     );
-    expect(opencodeConfig.mcp.docs).toEqual({
-      command: ["node", "docs.js"],
+    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
-      environment: { DOCS_TOKEN: "test-token" },
-      type: "local",
+      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
+      type: "remote",
+      url: "http://127.0.0.1:8787/mcp",
     });
     expect(opencodeConfig.mcp.unused).toBeUndefined();
+    expect(opencodeConfig.mcp.docs).toBeUndefined();
 
     const orchestrator = createOrchestratorLaunchPlan(config, {
       nodeId: "orchestrator",
@@ -394,30 +399,16 @@ workflows:
     expect(orchestrator.args).toContain(
       'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
     );
-    expect(orchestrator.args).toContain('mcp_servers.docs.command="node"');
+    expect(orchestrator.args).toContain(
+      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
+    );
   });
 
-  it("hydrates imported mcp-json servers into native runner launch plans", async () => {
-    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const project = mkdtempSync(join(tmpdir(), "pipeline-runner-mcp-"));
-    writeFileSync(
-      join(project, ".mcp.json"),
-      JSON.stringify({
-        mcpServers: {
-          serena: {
-            command: "uvx",
-            args: ["--from", "git+https://github.com/oraios/serena"],
-          },
-        },
-      })
-    );
-
-    try {
-      const config = parsePipelineConfigParts(
-        {
-          runners: `
+  it("does not project upstream MCP server names into native runner launch plans", () => {
+    const project = "/tmp/pipeline-runner-mcp";
+    const config = parsePipelineConfigParts(
+      {
+        runners: `
 version: 1
 runners:
   codex:
@@ -435,27 +426,28 @@ runners:
       mcp_servers: true
       output_formats: [text]
 `,
-          profiles: `
+        profiles: `
 version: 1
-mcp_servers:
-  serena:
-    ref:
-      path: .mcp.json
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: codex
     instructions: { inline: Orchestrate }
-    mcp_servers: [serena]
+    mcp_servers: [pipeline-gateway]
   codex-agent:
     runner: codex
     instructions: { inline: Codex }
-    mcp_servers: [serena]
+    mcp_servers: [pipeline-gateway]
   opencode-agent:
     runner: opencode
     instructions: { inline: OpenCode }
-    mcp_servers: [serena]
+    mcp_servers: [pipeline-gateway]
 `,
-          pipeline: `
+        pipeline: `
 version: 1
 default_workflow: default
 orchestrator:
@@ -465,41 +457,43 @@ workflows:
     nodes:
       - { id: run, kind: agent, profile: codex-agent }
 `,
-        },
-        project
-      );
+      },
+      project
+    );
 
-      const codex = createRunnerLaunchPlan(config, {
-        profileId: "codex-agent",
-        nodeId: "codex",
-        prompt: "do work",
-        worktreePath: project,
-      });
-      expect(codex.args).toContain('mcp_servers.serena.command="uvx"');
-      expect(codex.args).toContain(
-        'mcp_servers.serena.args=["--from", "git+https://github.com/oraios/serena"]'
-      );
+    const codex = createRunnerLaunchPlan(config, {
+      profileId: "codex-agent",
+      nodeId: "codex",
+      prompt: "do work",
+      worktreePath: project,
+    });
+    expect(codex.args).toContain(
+      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
+    );
+    expect(codex.args.join("\n")).not.toContain("mcp_servers.serena");
+    expect(codex.args.join("\n")).not.toContain(
+      "git+https://github.com/oraios/serena"
+    );
 
-      const opencode = createRunnerLaunchPlan(config, {
-        profileId: "opencode-agent",
-        nodeId: "opencode",
-        prompt: "do work",
-        worktreePath: project,
-      });
-      const opencodeConfig = JSON.parse(
-        requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
-      );
-      expect(opencodeConfig.mcp.serena).toEqual({
-        command: ["uvx", "--from", "git+https://github.com/oraios/serena"],
-        enabled: true,
-        type: "local",
-      });
-    } finally {
-      rmSync(project, { recursive: true, force: true });
-    }
+    const opencode = createRunnerLaunchPlan(config, {
+      profileId: "opencode-agent",
+      nodeId: "opencode",
+      prompt: "do work",
+      worktreePath: project,
+    });
+    const opencodeConfig = JSON.parse(
+      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
+    );
+    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
+      enabled: true,
+      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
+      type: "remote",
+      url: "http://127.0.0.1:8787/mcp",
+    });
+    expect(opencodeConfig.mcp.serena).toBeUndefined();
   });
 
-  it("renders remote HTTP MCP servers for each native runner", () => {
+  it("renders the gateway for each native runner", () => {
     const config = parseTestConfig({
       runners: `
 version: 1
@@ -521,20 +515,17 @@ runners:
 `,
       profiles: `
 version: 1
-mcp_servers:
-  memory:
-    url: https://memory-mcp.momokaya.ee/mcp/
-    headers:
-      X-Memory-Region: eu
-  secure-memory:
-    url: https://memory-mcp.momokaya.ee/mcp/
-    bearer_token_env_var: MEMORY_MCP_TOKEN
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
 profiles:
   orchestrator:
     runner: codex
     instructions: { inline: Orchestrate }
-  codex-agent: { runner: codex, instructions: { inline: Codex }, mcp_servers: [memory, secure-memory] }
-  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [memory, secure-memory] }
+  codex-agent: { runner: codex, instructions: { inline: Codex }, mcp_servers: [pipeline-gateway] }
+  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [pipeline-gateway] }
 `,
       pipeline: `
 version: 1
@@ -555,14 +546,10 @@ workflows:
       worktreePath: "/tmp/wt",
     });
     expect(codex.args).toContain(
-      'mcp_servers.memory.url="https://memory-mcp.momokaya.ee/mcp/"'
+      'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
     );
-    expect(codex.args).toContain(
-      'mcp_servers.memory.http_headers={ X-Memory-Region = "eu" }'
-    );
-    expect(codex.args).toContain(
-      'mcp_servers.secure-memory.bearer_token_env_var="MEMORY_MCP_TOKEN"'
-    );
+    expect(codex.args.join("\n")).not.toContain("mcp_servers.memory");
+    expect(codex.args.join("\n")).not.toContain("MEMORY_MCP_TOKEN");
 
     const opencode = createRunnerLaunchPlan(config, {
       profileId: "opencode-agent",
@@ -573,16 +560,66 @@ workflows:
     const opencodeConfig = JSON.parse(
       requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
     );
-    expect(opencodeConfig.mcp.memory).toEqual({
+    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
-      headers: { "X-Memory-Region": "eu" },
+      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
       type: "remote",
-      url: "https://memory-mcp.momokaya.ee/mcp/",
+      url: "http://127.0.0.1:8787/mcp",
     });
-    expect(opencodeConfig.mcp["secure-memory"].headers).toEqual({
-      Authorization: "Bearer {env:MEMORY_MCP_TOKEN}",
+    expect(opencodeConfig.mcp.memory).toBeUndefined();
+    expect(opencodeConfig.mcp["secure-memory"]).toBeUndefined();
+  });
+
+  it("fails loudly when a profile needs MCP but the gateway URL env var is missing", () => {
+    delete process.env.PIPELINE_MCP_GATEWAY_URL;
+    const config = parseTestConfig({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  codex-agent:
+    runner: codex
+    instructions: { inline: Codex }
+    mcp_servers: [pipeline-gateway]
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: codex-agent }
+`,
     });
-    expect(opencodeConfig.mcp["secure-memory"].command).toBeUndefined();
+
+    expect(() =>
+      createRunnerLaunchPlan(config, {
+        profileId: "codex-agent",
+        nodeId: "codex",
+        prompt: "do work",
+        worktreePath: "/tmp/wt",
+      })
+    ).toThrow("PIPELINE_MCP_GATEWAY_URL");
   });
 
   it("isolates opencode launch config even when the profile has no MCP grants", () => {
@@ -600,10 +637,6 @@ runners:
 `,
       profiles: `
 version: 1
-mcp_servers:
-  unused:
-    command: node
-    args: ["unused.js"]
 profiles:
   orchestrator:
     runner: opencode

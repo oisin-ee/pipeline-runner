@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineConfig, RunnerType } from "../config.js";
+import { gatewayServerForProfile } from "./gateway.js";
 
 const TOML_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -35,12 +36,7 @@ export function selectedMcpServers(
   config: PipelineConfig | undefined,
   actor: ActorConfig | undefined
 ): Record<string, McpServerConfig> {
-  return Object.fromEntries(
-    (actor?.mcp_servers ?? []).flatMap((id) => {
-      const server = config?.mcp_servers[id];
-      return server ? [[id, server] as const] : [];
-    })
-  );
+  return gatewayServerForProfile(config, actor);
 }
 
 function mcpArgsFor(
