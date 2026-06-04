@@ -378,8 +378,9 @@ Use the same client config shape for hosted and local gateways:
 mcp_gateway:
   provider: toolhive
   mode: hosted
+  url: https://pipeline-mcp.momokaya.ee/mcp/
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
   default_profile: default
 ```
 
@@ -422,7 +423,7 @@ startup:
 # Codex pipeline runs receive MCP gateway config through runtime launch args.
 # Persistent Codex MCP config is intentionally left empty to avoid startup-time MCP fan-out.
 # gateway_url = "https://gateway.example/mcp"
-# token_env = "PIPELINE_MCP_GATEWAY_TOKEN"
+# token_env = "MEMORY_MCP_BASIC_AUTH"
 ```
 
 OpenCode receives:
@@ -526,8 +527,9 @@ singleton gateway server to profiles that need MCP.
 mcp_gateway:
   provider: toolhive
   mode: hosted
+  url: https://pipeline-mcp.momokaya.ee/mcp/
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 
 profiles:
   pipeline-router:

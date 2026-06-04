@@ -197,7 +197,17 @@ const mcpGatewaySchema = z
     default_profile: z.string().min(1).optional(),
     mode: z.enum(["hosted", "local"]),
     provider: z.literal("toolhive"),
-    token_env: z.string().min(1).default("PIPELINE_MCP_GATEWAY_TOKEN"),
+    token_env: z.string().min(1).default("MEMORY_MCP_BASIC_AUTH"),
+    url: z
+      .string()
+      .url()
+      .refine(
+        (value) => ["http:", "https:"].includes(new URL(value).protocol),
+        {
+          message: "MCP gateway url must use http or https",
+        }
+      )
+      .optional(),
     url_env: z.string().min(1).default("PIPELINE_MCP_GATEWAY_URL"),
   })
   .strict();

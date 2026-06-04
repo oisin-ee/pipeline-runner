@@ -410,7 +410,7 @@ mcp_gateway:
   provider: toolhive
   mode: local
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: codex
@@ -1794,7 +1794,7 @@ mcp_gateway:
   provider: toolhive
   mode: local
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: codex
@@ -2303,13 +2303,13 @@ workflows:
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-configure-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
-    const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_TOKEN;
+    const originalGatewayToken = process.env.MEMORY_MCP_BASIC_AUTH;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
       process.env.PIPELINE_MCP_GATEWAY_URL = "https://gateway.example/mcp";
-      process.env.PIPELINE_MCP_GATEWAY_TOKEN = "test-token";
+      process.env.MEMORY_MCP_BASIC_AUTH = "test-token";
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
       mkdirSync(join(dir, ".codex"), { recursive: true });
       mkdirSync(join(dir, ".opencode"), { recursive: true });
@@ -2353,7 +2353,7 @@ workflows:
       log.mockRestore();
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
-      restoreEnv("PIPELINE_MCP_GATEWAY_TOKEN", originalGatewayToken);
+      restoreEnv("MEMORY_MCP_BASIC_AUTH", originalGatewayToken);
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -2363,14 +2363,14 @@ workflows:
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-doctor-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
-    const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_TOKEN;
+    const originalGatewayToken = process.env.MEMORY_MCP_BASIC_AUTH;
     const originalFetch = global.fetch;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
       process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
-      process.env.PIPELINE_MCP_GATEWAY_TOKEN = "test-token";
+      process.env.MEMORY_MCP_BASIC_AUTH = "test-token";
       global.fetch = vi.fn().mockResolvedValue({ status: 200 }) as any;
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
       writeFileSync(
@@ -2396,7 +2396,7 @@ workflows:
       global.fetch = originalFetch;
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
-      restoreEnv("PIPELINE_MCP_GATEWAY_TOKEN", originalGatewayToken);
+      restoreEnv("MEMORY_MCP_BASIC_AUTH", originalGatewayToken);
       rmSync(dir, { recursive: true, force: true });
     }
   });

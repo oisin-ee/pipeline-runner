@@ -2,7 +2,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineConfig, RunnerType } from "../config.js";
-import { gatewayServerForProfile } from "./gateway.js";
+import {
+  gatewayServerForProfile,
+  resolveHeaderEnvPlaceholders,
+} from "./gateway.js";
 
 const TOML_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -148,7 +151,9 @@ function codexMcpArgs(servers: Record<string, McpServerConfig>): string[] {
         ...(server.headers
           ? [
               "--config",
-              `mcp_servers.${id}.http_headers=${tomlValue(server.headers)}`,
+              `mcp_servers.${id}.http_headers=${tomlValue(
+                codexHttpHeaders(server.headers)
+              )}`,
             ]
           : []),
         ...(server.bearer_token_env_var
@@ -170,6 +175,17 @@ function codexMcpArgs(servers: Record<string, McpServerConfig>): string[] {
         : []),
     ];
   });
+}
+
+function codexHttpHeaders(
+  headers: Record<string, string>
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      resolveHeaderEnvPlaceholders(value),
+    ])
+  );
 }
 
 export function tomlValue(value: unknown): string {

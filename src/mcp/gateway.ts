@@ -12,6 +12,7 @@ import type { PipelineConfig } from "../config.js";
 
 export const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 export const DEFAULT_LOCAL_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
+const AUTHORIZATION_ENV_RE = /\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const LEGACY_CODEX_MCP_RE = /\[mcp_servers\./;
 const LEGACY_OPENCODE_MCP_RE = /"mcp"\s*:\s*{(?!\s*"pipeline-gateway")/s;
 const LEGACY_PIPELINE_MCP_RE = /path:\s*\.mcp\.json|uvx\s+mcpm|mcpm\s+run/;
@@ -78,7 +79,9 @@ export function gatewayServer(
   const gateway = configuredGateway(config);
   const url = gatewayUrl(gateway, env);
   return {
-    bearer_token_env_var: gateway.token_env,
+    headers: {
+      Authorization: gatewayAuthorizationHeader(gateway),
+    },
     url,
   };
 }
@@ -100,6 +103,9 @@ export function gatewayUrl(
   if (url) {
     return url;
   }
+  if (gateway.url) {
+    return gateway.url;
+  }
   if (gateway.mode === "local") {
     return DEFAULT_LOCAL_GATEWAY_URL;
   }
@@ -113,6 +119,7 @@ export function renderGatewayConfig(config: PipelineConfig): string {
   return [
     `provider: ${gateway.provider}`,
     `mode: ${gateway.mode}`,
+    gateway.url ? `url: ${gateway.url}` : "",
     `url_env: ${gateway.url_env}`,
     `token_env: ${gateway.token_env}`,
     gateway.default_profile
@@ -144,9 +151,7 @@ export function renderOpenCodeGatewayConfig(config: PipelineConfig): string {
       mcp: {
         [PIPELINE_GATEWAY_SERVER_ID]: {
           enabled: true,
-          headers: {
-            Authorization: `Bearer {env:${gateway.token_env}}`,
-          },
+          headers: gatewayOpenCodeHeaders(gateway),
           type: "remote",
           url: gatewayUrl(gateway),
         },
@@ -300,6 +305,28 @@ function checkGatewayToken(gateway: McpGatewayConfig): GatewayDoctorCheck {
       };
 }
 
+function gatewayAuthorizationHeader(gateway: McpGatewayConfig): string {
+  return `Basic {env:${gateway.token_env}}`;
+}
+
+export function resolveHeaderEnvPlaceholders(
+  value: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return value.replace(AUTHORIZATION_ENV_RE, (_match, envVar: string) => {
+    const resolved = env[envVar];
+    return resolved || `{env:${envVar}}`;
+  });
+}
+
+function gatewayOpenCodeHeaders(
+  gateway: McpGatewayConfig
+): Record<string, string> {
+  return {
+    Authorization: gatewayAuthorizationHeader(gateway),
+  };
+}
+
 async function checkThv(cwd: string): Promise<GatewayDoctorCheck> {
   try {
     await execa("thv", ["version"], {
@@ -378,13 +405,14 @@ async function firstHealthyGatewayResponse(
   url: string,
   gateway: McpGatewayConfig
 ): Promise<Response | undefined> {
+  const authorization = process.env[gateway.token_env]
+    ? `Basic ${process.env[gateway.token_env]}`
+    : undefined;
   for (const healthUrl of gatewayHealthUrls(url)) {
     const response = await fetch(healthUrl, {
       headers: {
         Accept: "application/json, text/event-stream",
-        ...(process.env[gateway.token_env]
-          ? { Authorization: `Bearer ${process.env[gateway.token_env]}` }
-          : {}),
+        ...(authorization ? { Authorization: authorization } : {}),
       },
       method: "GET",
     });

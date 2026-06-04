@@ -22,7 +22,7 @@ function makeSimpleResult(stdout = "output", exitCode = 0) {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:8787/mcp";
-  process.env.PIPELINE_MCP_GATEWAY_TOKEN = "test-gateway-token";
+  process.env.MEMORY_MCP_BASIC_AUTH = "test-gateway-token";
 });
 
 function parseTestConfig(parts: {
@@ -310,7 +310,7 @@ mcp_gateway:
   provider: toolhive
   mode: hosted
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: codex
@@ -350,7 +350,7 @@ workflows:
       'mcp_servers.pipeline-gateway.url="http://127.0.0.1:8787/mcp"'
     );
     expect(codex.args).toContain(
-      'mcp_servers.pipeline-gateway.bearer_token_env_var="PIPELINE_MCP_GATEWAY_TOKEN"'
+      'mcp_servers.pipeline-gateway.http_headers={ Authorization = "Basic test-gateway-token" }'
     );
     expect(codex.args.join("\n")).not.toContain("docs.js");
     expect(codex.args.join("\n")).not.toContain("mcp_servers.docs");
@@ -379,7 +379,7 @@ workflows:
     );
     expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
-      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
+      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
       type: "remote",
       url: "http://127.0.0.1:8787/mcp",
     });
@@ -432,7 +432,7 @@ mcp_gateway:
   provider: toolhive
   mode: hosted
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: codex
@@ -486,11 +486,154 @@ workflows:
     );
     expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
-      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
+      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
       type: "remote",
       url: "http://127.0.0.1:8787/mcp",
     });
     expect(opencodeConfig.mcp.serena).toBeUndefined();
+  });
+
+  it("projects BasicAuth gateway headers for Codex and OpenCode", () => {
+    process.env.MEMORY_MCP_BASIC_AUTH = "dXNlcjpwYXNz";
+    const project = "/tmp/pipeline-runner-basic-mcp";
+    const config = parseTestConfig({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      mcp_servers: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: MEMORY_MCP_BASIC_AUTH
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  codex-agent:
+    runner: codex
+    instructions: { inline: Codex }
+    mcp_servers: [pipeline-gateway]
+  opencode-agent:
+    runner: opencode
+    instructions: { inline: OpenCode }
+    mcp_servers: [pipeline-gateway]
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: codex-agent }
+`,
+    });
+
+    const codex = createRunnerLaunchPlan(config, {
+      profileId: "codex-agent",
+      nodeId: "codex",
+      prompt: "do work",
+      worktreePath: project,
+    });
+    expect(codex.args).toContain(
+      'mcp_servers.pipeline-gateway.http_headers={ Authorization = "Basic dXNlcjpwYXNz" }'
+    );
+    expect(codex.args.join("\n")).not.toContain("bearer_token_env_var");
+
+    const opencode = createRunnerLaunchPlan(config, {
+      profileId: "opencode-agent",
+      nodeId: "opencode",
+      prompt: "do work",
+      worktreePath: project,
+    });
+    const opencodeConfig = JSON.parse(
+      requiredEnv(opencode.env, "OPENCODE_CONFIG_CONTENT")
+    );
+    expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
+      enabled: true,
+      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
+      type: "remote",
+      url: "http://127.0.0.1:8787/mcp",
+    });
+  });
+
+  it("keeps a Codex BasicAuth gateway placeholder when the auth env var is missing", () => {
+    const originalGatewayToken = process.env.MEMORY_MCP_BASIC_AUTH;
+    delete process.env.MEMORY_MCP_BASIC_AUTH;
+    const config = parseTestConfig({
+      runners: `
+version: 1
+runners:
+  codex:
+    type: codex
+    command: codex
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  token_env: MEMORY_MCP_BASIC_AUTH
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: Orchestrate }
+  codex-agent:
+    runner: codex
+    instructions: { inline: Codex }
+    mcp_servers: [pipeline-gateway]
+`,
+      pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: codex-agent }
+`,
+    });
+
+    try {
+      const codex = createRunnerLaunchPlan(config, {
+        profileId: "codex-agent",
+        nodeId: "codex",
+        prompt: "do work",
+        worktreePath: "/tmp/wt",
+      });
+      expect(codex.args).toContain(
+        'mcp_servers.pipeline-gateway.http_headers={ Authorization = "Basic {env:MEMORY_MCP_BASIC_AUTH}" }'
+      );
+    } finally {
+      if (originalGatewayToken === undefined) {
+        delete process.env.MEMORY_MCP_BASIC_AUTH;
+      } else {
+        process.env.MEMORY_MCP_BASIC_AUTH = originalGatewayToken;
+      }
+    }
   });
 
   it("renders the gateway for each native runner", () => {
@@ -519,7 +662,7 @@ mcp_gateway:
   provider: toolhive
   mode: hosted
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: codex
@@ -562,7 +705,7 @@ workflows:
     );
     expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
-      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
+      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
       type: "remote",
       url: "http://127.0.0.1:8787/mcp",
     });
@@ -590,7 +733,7 @@ mcp_gateway:
   provider: toolhive
   mode: hosted
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: codex

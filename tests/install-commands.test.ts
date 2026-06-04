@@ -326,9 +326,6 @@ describe("installCommands", () => {
     expect(codexResearcher).not.toContain("[mcp_servers.pipeline-gateway]");
     expect(codexResearcher).not.toContain('url = "http://127.0.0.1:4483/mcp"');
     expect(codexResearcher).toContain("mcp_servers: pipeline-gateway");
-    expect(codexResearcher).not.toContain(
-      'bearer_token_env_var = "PIPELINE_MCP_GATEWAY_TOKEN"'
-    );
     expect(codexResearcher).not.toContain("[mcp_servers.serena]");
     expect(codexResearcher).not.toContain("[mcp_servers.context7]");
     expect(codexResearcher).not.toContain("[mcp_servers.backlog]");

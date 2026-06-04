@@ -130,7 +130,7 @@ describe("initPipelineProject", () => {
       default_profile: "default",
       mode: "local",
       provider: "toolhive",
-      token_env: "PIPELINE_MCP_GATEWAY_TOKEN",
+      token_env: "MEMORY_MCP_BASIC_AUTH",
       url_env: "PIPELINE_MCP_GATEWAY_URL",
     });
     expect(config.mcp_servers).toEqual({});

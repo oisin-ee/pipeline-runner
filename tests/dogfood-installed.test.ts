@@ -162,7 +162,7 @@ mcp_gateway:
   provider: toolhive
   mode: local
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: artifact-command
@@ -683,7 +683,7 @@ mcp_gateway:
   provider: toolhive
   mode: local
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: opencode
@@ -730,7 +730,7 @@ workflows:
     expect(launch.env.XDG_CONFIG_HOME).toContain("pipeline-opencode-runtime-");
     expect(opencodeConfig.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
-      headers: { Authorization: "Bearer {env:PIPELINE_MCP_GATEWAY_TOKEN}" },
+      headers: { Authorization: "Basic {env:MEMORY_MCP_BASIC_AUTH}" },
       type: "remote",
       url: "http://127.0.0.1:4483/mcp",
     });

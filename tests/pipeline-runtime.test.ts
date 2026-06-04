@@ -624,7 +624,7 @@ mcp_gateway:
   provider: toolhive
   mode: local
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: PIPELINE_MCP_GATEWAY_TOKEN
+  token_env: MEMORY_MCP_BASIC_AUTH
 profiles:
   orchestrator:
     runner: codex
@@ -675,9 +675,8 @@ workflows:
     expect(launchText).toContain("Loaded MCP servers:");
     expect(launchText).toContain("transport: http");
     expect(launchText).toContain("url: http://127.0.0.1:4483/mcp");
-    expect(launchText).toContain(
-      "bearer_token_env_var: PIPELINE_MCP_GATEWAY_TOKEN"
-    );
+    expect(launchText).toContain("headers: Authorization");
+    expect(launchText).toContain("bearer_token_env_var: none");
     expect(launchText).toContain("mcp_servers.pipeline-gateway.url");
     expect(launchText).not.toContain("mcp_servers.docs.command");
     expect(launchText).not.toContain("mcp_servers.memory.url");
