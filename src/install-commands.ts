@@ -304,6 +304,7 @@ function orchestratorBlock(config: PipelineConfig): string {
   return [
     "Configured orchestrator:",
     grants(orchestratorProfile(config)),
+    `hooks: ${Object.keys(config.hooks.functions).join(", ") || "none"}`,
     "",
     instructionsPointer(orchestratorProfile(config)),
   ].join("\n");

@@ -600,7 +600,7 @@ const EPIC_TRACK_ITEM_SCHEMA = z.object({
 
 function zodJsonSchema(schema: z.ZodType): string {
   return JSON.stringify(
-    z.toJSONSchema(schema, { target: "draft-07" }),
+    z.toJSONSchema(schema, { target: "draft-2020-12" }),
     null,
     2
   );

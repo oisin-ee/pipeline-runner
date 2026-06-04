@@ -29,6 +29,7 @@ skills: scope, doubt
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
+hooks: generated-defaults-audit
 
 Instructions: .pipeline/prompts/orchestrator.md
 
