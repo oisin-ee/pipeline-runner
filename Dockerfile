@@ -1,39 +1,29 @@
-FROM node:24-bookworm-slim AS build
-
-ENV BUN_INSTALL=/root/.bun
-ENV PATH="${BUN_INSTALL}/bin:${PATH}"
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl git unzip \
-  && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://bun.sh/install | bash
-
-WORKDIR /app
-
-COPY package.json bun.lock tsconfig.json tsdown.config.ts ./
-RUN bun install --frozen-lockfile
-
-COPY src ./src
-COPY defaults ./defaults
-RUN bun run build:cli
-
 FROM node:24-bookworm-slim AS runner
 
-WORKDIR /app
+ARG PIPELINE_PACKAGE_VERSION=1.11.1
+ARG CODEX_PACKAGE_VERSION=0.137.0
+ARG OPENCODE_PACKAGE_VERSION=1.15.13
+ARG CLAUDE_CODE_PACKAGE_VERSION=2.1.162
+
 ENV NODE_ENV=production
-ENV BUN_INSTALL=/root/.bun
-ENV PATH="${BUN_INSTALL}/bin:${PATH}"
+ENV NPM_CONFIG_AUDIT=false
+ENV NPM_CONFIG_FUND=false
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl git unzip \
-  && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://bun.sh/install | bash
+  && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
+  && rm -rf /var/lib/apt/lists/*
 
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN npm install -g \
+    "@oisincoveney/pipeline@${PIPELINE_PACKAGE_VERSION}" \
+    "@openai/codex@${CODEX_PACKAGE_VERSION}" \
+    "opencode-ai@${OPENCODE_PACKAGE_VERSION}" \
+    "@anthropic-ai/claude-code@${CLAUDE_CODE_PACKAGE_VERSION}" \
+  && npm cache clean --force \
+  && command -v oisin-pipeline \
+  && command -v codex \
+  && command -v opencode \
+  && command -v claude
 
-COPY --from=build /app/dist ./dist
-COPY defaults ./defaults
-
-ENTRYPOINT ["node", "dist/index.js"]
+ENTRYPOINT ["oisin-pipeline"]
 CMD ["runner-job"]
