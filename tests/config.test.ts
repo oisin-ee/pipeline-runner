@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import Ajv2020 from "ajv/dist/2020.js";
+import Ajv from "ajv";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -1203,7 +1203,7 @@ describe("epic-router asset bundle", () => {
         "utf8"
       )
     );
-    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    const ajv = new Ajv({ allErrors: true, strict: false });
     const validate = ajv.compile(schema);
 
     const goodPlan = {
@@ -1308,7 +1308,7 @@ describe("final review asset bundle", () => {
         "utf8"
       )
     );
-    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    const ajv = new Ajv({ allErrors: true, strict: false });
     const validate = ajv.compile(schema);
 
     expect(

@@ -75,6 +75,35 @@ describe("json validation runtime helpers", () => {
     });
   });
 
+  it("validates JSON values against draft-07 schema files", () => {
+    const project = tempProject();
+    mkdirSync(join(project, "schemas"));
+    writeFileSync(
+      join(project, "schemas", "research.schema.json"),
+      JSON.stringify({
+        $schema: "http://json-schema.org/draft-07/schema#",
+        additionalProperties: false,
+        properties: {
+          ac: { items: { type: "string" }, type: "array" },
+          findings: { items: { type: "string" }, type: "array" },
+        },
+        required: ["ac", "findings"],
+        type: "object",
+      })
+    );
+
+    expect(
+      validateJsonSchemaSource(
+        JSON.stringify({ ac: ["covered"], findings: ["ready"] }),
+        "schemas/research.schema.json",
+        project
+      )
+    ).toMatchObject({
+      evidence: ["JSON schema passed: schemas/research.schema.json"],
+      passed: true,
+    });
+  });
+
   it("parses objects defensively for runtime aggregate outputs", () => {
     expect(parseJsonObject('{"children":{}}')).toEqual({ children: {} });
     expect(parseJsonObject("[]")).toEqual({});
