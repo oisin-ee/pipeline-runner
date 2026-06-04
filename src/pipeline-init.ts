@@ -491,6 +491,7 @@ profiles:
         max_attempts: 1
   pipeline-code-writer:
     runner: codex
+    scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
     instructions:
       path: .pipeline/prompts/code-writer.md
@@ -508,6 +509,7 @@ profiles:
       format: text
   pipeline-acceptance-reviewer:
     runner: codex
+    scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
     instructions:
       path: .pipeline/prompts/acceptance-reviewer.md
@@ -529,6 +531,7 @@ profiles:
         max_attempts: 1
   pipeline-thermo-nuclear-reviewer:
     runner: codex
+    scheduling_roles: [coverage]
     description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions:
       path: .agents/skills/critique/SKILL.md
@@ -549,6 +552,7 @@ profiles:
         max_attempts: 1
   pipeline-verifier:
     runner: codex
+    scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
     instructions:
       path: .pipeline/prompts/verifier.md
@@ -773,7 +777,7 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "",
     "Generate exactly one workflow named `root`. Do not embed `default`, `epic-drain`, `infra`, `track`, or other configured workflow copies. Use explicit generated agent, builtin, command, parallel, or group nodes. Do not use `kind: workflow`.",
     "",
-    "Use the provided backlog work units as the source of truth when present. Assign each work unit to explicit generated agent nodes with only its `task_context.id`, use only allowed configured profiles, and ensure implementation work has downstream acceptance, verification, or review coverage. Do not invent profiles or node-level skill overrides.",
+    "Use the provided backlog work units as the source of truth when present. Assign each work unit to explicit generated agent nodes with only its `task_context.id`, use only allowed configured profiles, and ensure profiles with the `implementation` scheduling role have downstream profiles with the `coverage` scheduling role. Do not invent profiles or node-level skill overrides.",
     "Do not copy backlog descriptions or acceptance criteria into output; the scheduler hydrates them from the assigned `task_context.id` after parsing.",
     "Preserve Backlog dependency ids as schedule needs edges. A node assigned a dependent work unit must depend on the nodes assigned its prerequisite work units, directly or through an explicit path.",
     "",

@@ -56,6 +56,7 @@ const GATE_KINDS = [
 const BUILTIN_GATES = ["duplication", "semgrep", "test", "typecheck"] as const;
 const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
 const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
+const SCHEDULING_ROLES = ["coverage", "implementation"] as const;
 const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 
 export type PipelineConfigErrorCode =
@@ -341,6 +342,7 @@ const profileSchema = z
     output: outputSchema.optional(),
     rules: z.array(z.string()).optional(),
     runner: z.string(),
+    scheduling_roles: z.array(z.enum(SCHEDULING_ROLES)).optional(),
     skills: z.array(z.string()).optional(),
     tools: z.array(z.enum(TOOL_NAMES)).optional(),
   })
@@ -764,6 +766,7 @@ export type WorkflowNodeKind = (typeof NODE_KINDS)[number];
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 export type GateKind = (typeof GATE_KINDS)[number];
 export type ScheduleBaseline = (typeof SCHEDULE_BASELINES)[number];
+export type SchedulingRole = (typeof SCHEDULING_ROLES)[number];
 type ConfigGateSpec = NonNullable<
   PipelineConfig["workflows"][string]["nodes"][number]["gates"]
 >[number];

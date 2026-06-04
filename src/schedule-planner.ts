@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   type PipelineConfig,
   type ScheduleBaseline,
+  type SchedulingRole,
   validatePipelineConfig,
   workflowSchema,
 } from "./config.js";
@@ -569,7 +570,7 @@ function plannerPrompt(
     "Every agent node must declare one configured profile id. Do not invent profile ids or node-level skill overrides.",
     "Assign each backlog work unit to explicit generated agent nodes with task_context.id. The scheduler hydrates title, description, and acceptance_criteria after parsing.",
     "Do not copy backlog descriptions or acceptance criteria into task_context output.",
-    "Implementation work must have downstream acceptance, verification, or review coverage in the generated DAG.",
+    "Profiles with the implementation scheduling role must have downstream profiles with the coverage scheduling role in the generated DAG.",
     "Preserve Backlog dependency ids as schedule needs edges. A node assigned a dependent work unit must depend on the nodes assigned its prerequisite work units, directly or through an explicit path.",
     "Shape the graph by intent, not by ticket count. Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket unless each step needs ticket-specific evidence.",
     "Only add needs edges for real dependencies, shared constraints, or verification/review fan-in.",
@@ -580,7 +581,7 @@ function plannerPrompt(
     "Allowed profiles:",
     ...Object.keys(config.profiles)
       .sort()
-      .map((id) => `- ${id}`),
+      .map((id) => allowedProfilePromptLine(config, id)),
     "",
     "Gate recipes:",
     "- Prefer preserving valid gates from the baseline workflows instead of recreating them.",
@@ -601,6 +602,22 @@ function plannerPrompt(
     "Baseline schedule:",
     stringify(baseline),
   ].join("\n");
+}
+
+function allowedProfilePromptLine(config: PipelineConfig, id: string): string {
+  const roles = effectiveSchedulingRoles(config, id);
+  return roles.length > 0
+    ? `- ${id} (scheduling_roles: ${roles.join(", ")})`
+    : `- ${id}`;
+}
+
+function effectiveSchedulingRoles(
+  config: PipelineConfig,
+  profileId: string
+): SchedulingRole[] {
+  return [
+    ...new Set(config.profiles[profileId]?.scheduling_roles ?? []),
+  ].sort();
 }
 
 function canonicalizeGeneratedScheduleIds(
@@ -690,9 +707,9 @@ function validateScheduleArtifact(
     ...workflowReferenceNodeIssues(artifact),
     ...workflowAssignedWorkUnitIssues(artifact, planningContext.workUnits),
     ...missingAssignedWorkUnitIssues(artifact, planningContext.workUnits),
-    ...workUnitDependencyIssues(artifact, planningContext.workUnits),
+    ...workUnitDependencyIssues(config, artifact, planningContext.workUnits),
     ...invalidWorkflowPrimitiveIssues(config, artifact),
-    ...implementationCoverageIssues(artifact),
+    ...implementationCoverageIssues(config, artifact),
   ];
   if (issues.length > 0) {
     throw new ScheduleArtifactError(
@@ -831,6 +848,7 @@ function missingAssignedWorkUnitIssues(
 }
 
 function workUnitDependencyIssues(
+  config: PipelineConfig,
   artifact: ScheduleArtifact,
   workUnits: BacklogWorkUnit[]
 ): string[] {
@@ -849,25 +867,28 @@ function workUnitDependencyIssues(
       const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
       const dependentsByNeed = workflowDependentsByNeed(nodes);
       const nodesByWorkUnit = nodesByAssignedWorkUnit(nodes);
-      return nodes.filter(isImplementationNode).flatMap((node) => {
-        const dependentId = node.task_context?.id;
-        if (!dependentId) {
-          return [];
-        }
-        return (dependenciesByUnit.get(dependentId) ?? []).flatMap(
-          (prerequisiteId) => {
-            const prerequisiteNodes = nodesByWorkUnit.get(prerequisiteId) ?? [];
-            const hasDependencyPath = prerequisiteNodes.some((source) =>
-              hasPathToNode(source.id, node.id, dependentsByNeed)
-            );
-            return hasDependencyPath
-              ? []
-              : [
-                  `work unit dependency edge missing in '${workflowId}': '${dependentId}' node '${node.id}' must depend on prerequisite '${prerequisiteId}' nodes ${prerequisiteNodes.map((prerequisite) => `'${prerequisite.id}'`).join(", ")}`,
-                ];
+      return nodes
+        .filter((node) => isImplementationNode(config, node))
+        .flatMap((node) => {
+          const dependentId = node.task_context?.id;
+          if (!dependentId) {
+            return [];
           }
-        );
-      });
+          return (dependenciesByUnit.get(dependentId) ?? []).flatMap(
+            (prerequisiteId) => {
+              const prerequisiteNodes =
+                nodesByWorkUnit.get(prerequisiteId) ?? [];
+              const hasDependencyPath = prerequisiteNodes.some((source) =>
+                hasPathToNode(source.id, node.id, dependentsByNeed)
+              );
+              return hasDependencyPath
+                ? []
+                : [
+                    `work unit dependency edge missing in '${workflowId}': '${dependentId}' node '${node.id}' must depend on prerequisite '${prerequisiteId}' nodes ${prerequisiteNodes.map((prerequisite) => `'${prerequisite.id}'`).join(", ")}`,
+                  ];
+            }
+          );
+        });
     }
   );
 }
@@ -932,13 +953,19 @@ function invalidWorkflowPrimitiveIssues(
   });
 }
 
-function implementationCoverageIssues(artifact: ScheduleArtifact): string[] {
+function implementationCoverageIssues(
+  config: PipelineConfig,
+  artifact: ScheduleArtifact
+): string[] {
   return Object.entries(artifact.workflows).flatMap(
     ([workflowId, workflow]) => {
-      const dependentsByNeed = workflowDependentsByNeed(workflow.nodes);
-      return workflow.nodes
-        .filter(isImplementationNode)
-        .filter((node) => !hasDownstreamCoverage(node.id, dependentsByNeed))
+      const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
+      const dependentsByNeed = workflowDependentsByNeed(nodes);
+      return nodes
+        .filter((node) => isImplementationNode(config, node))
+        .filter(
+          (node) => !hasDownstreamCoverage(config, node.id, dependentsByNeed)
+        )
         .map(
           (node) =>
             `implementation node '${workflowId}.${node.id}' is without downstream verification or review`
@@ -947,8 +974,11 @@ function implementationCoverageIssues(artifact: ScheduleArtifact): string[] {
   );
 }
 
-function isImplementationNode(node: WorkflowNode): boolean {
-  return node.kind === "agent" && node.profile === "pipeline-code-writer";
+function isImplementationNode(
+  config: PipelineConfig,
+  node: WorkflowNode
+): boolean {
+  return hasSchedulingRole(config, node, "implementation");
 }
 
 function workflowDependentsByNeed(
@@ -966,6 +996,7 @@ function workflowDependentsByNeed(
 }
 
 function hasDownstreamCoverage(
+  config: PipelineConfig,
   nodeId: string,
   dependentsByNeed: Map<string, WorkflowNode[]>
 ): boolean {
@@ -977,7 +1008,7 @@ function hasDownstreamCoverage(
       continue;
     }
     seen.add(node.id);
-    if (isCoverageNode(node)) {
+    if (isCoverageNode(config, node)) {
       return true;
     }
     queue.push(...(dependentsByNeed.get(node.id) ?? []));
@@ -985,15 +1016,20 @@ function hasDownstreamCoverage(
   return false;
 }
 
-function isCoverageNode(node: WorkflowNode): boolean {
+function isCoverageNode(config: PipelineConfig, node: WorkflowNode): boolean {
+  return hasSchedulingRole(config, node, "coverage");
+}
+
+function hasSchedulingRole(
+  config: PipelineConfig,
+  node: WorkflowNode,
+  role: SchedulingRole
+): boolean {
   if (node.kind !== "agent") {
     return false;
   }
-  return [
-    "pipeline-acceptance-reviewer",
-    "pipeline-thermo-nuclear-reviewer",
-    "pipeline-verifier",
-  ].includes(node.profile);
+  const profile = config.profiles[node.profile];
+  return profile?.scheduling_roles?.includes(role) ?? false;
 }
 
 function allWorkflowNodes(

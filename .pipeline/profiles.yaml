@@ -152,6 +152,7 @@ profiles:
         max_attempts: 1
   pipeline-code-writer:
     runner: codex
+    scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
     instructions:
       path: .pipeline/prompts/code-writer.md
@@ -169,6 +170,7 @@ profiles:
       format: text
   pipeline-acceptance-reviewer:
     runner: codex
+    scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
     instructions:
       path: .pipeline/prompts/acceptance-reviewer.md
@@ -190,6 +192,7 @@ profiles:
         max_attempts: 1
   pipeline-thermo-nuclear-reviewer:
     runner: codex
+    scheduling_roles: [coverage]
     description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions:
       path: .agents/skills/critique/SKILL.md
@@ -210,6 +213,7 @@ profiles:
         max_attempts: 1
   pipeline-verifier:
     runner: codex
+    scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
     instructions:
       path: .pipeline/prompts/verifier.md

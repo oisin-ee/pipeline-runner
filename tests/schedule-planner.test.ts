@@ -9,7 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parsePipelineConfigParts } from "../src/config.js";
+import {
+  parsePipelineConfigParts,
+  type SchedulingRole,
+} from "../src/config.js";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
@@ -71,18 +74,21 @@ profiles:
     network: { mode: inherit }
   pipeline-code-writer:
     runner: codex
+    scheduling_roles: [implementation]
     instructions: { inline: Implement }
     tools: [read, edit, write, bash]
     filesystem: { mode: workspace-write }
     network: { mode: inherit }
   pipeline-verifier:
     runner: codex
+    scheduling_roles: [coverage]
     instructions: { inline: Verify }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   pipeline-acceptance-reviewer:
     runner: codex
+    scheduling_roles: [coverage]
     instructions: { inline: Acceptance }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
@@ -95,6 +101,7 @@ profiles:
     network: { mode: inherit }
   pipeline-thermo-nuclear-reviewer:
     runner: codex
+    scheduling_roles: [coverage]
     instructions: { inline: Review }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
@@ -237,6 +244,26 @@ function config() {
   });
 }
 
+function configWithSchedulingRoles(
+  roleProfiles: Array<{
+    baseProfileId: keyof ReturnType<typeof config>["profiles"];
+    profileId: string;
+    roles: SchedulingRole[];
+  }>
+): ReturnType<typeof config> {
+  const parsed = config();
+  for (const { baseProfileId, profileId, roles } of roleProfiles) {
+    parsed.profiles[profileId] = {
+      ...parsed.profiles[baseProfileId],
+      instructions: {
+        inline: `${profileId} test profile`,
+      },
+      scheduling_roles: roles,
+    };
+  }
+  return parsed;
+}
+
 function writeBacklogTask(
   root: string,
   id: string,
@@ -260,6 +287,77 @@ function writeBacklogTask(
 }
 
 describe("schedule artifacts", () => {
+  it("accepts explicit scheduling roles in profile config", () => {
+    const parsed = parsePipelineConfigParts({
+      pipeline: PIPELINE,
+      profiles: PROFILES,
+      runners: RUNNERS,
+    });
+
+    expect(
+      (
+        parsed.profiles["pipeline-code-writer"] as unknown as {
+          scheduling_roles: string[];
+        }
+      ).scheduling_roles
+    ).toEqual(["implementation"]);
+    expect(
+      (
+        parsed.profiles["pipeline-verifier"] as unknown as {
+          scheduling_roles: string[];
+        }
+      ).scheduling_roles
+    ).toEqual(["coverage"]);
+  });
+
+  it("does not infer scheduling roles from default profile ids", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-role-contract-"));
+    const profilesWithoutRoles = PROFILES.replaceAll(
+      "    scheduling_roles: [implementation]\n",
+      ""
+    ).replaceAll("    scheduling_roles: [coverage]\n", "");
+    const roleConfig = parsePipelineConfigParts({
+      pipeline: PIPELINE,
+      profiles: profilesWithoutRoles,
+      runners: RUNNERS,
+    });
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-role-contract
+source_entrypoint: pipe
+task: Role contract
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: roleConfig,
+          entrypointId: "pipe",
+          executor: () => ({ exitCode: 0, stdout: schedule }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-role-contract",
+          task: "Role contract",
+          worktreePath: dir,
+        })
+      ).resolves.toMatchObject({
+        artifact: {
+          schedule_id: "run-role-contract",
+        },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("compiles embedded workflows into an isolated execution plan", () => {
     const artifact = parseScheduleArtifact(`
 version: 1
@@ -1161,6 +1259,191 @@ workflows:
           worktreePath: dir,
         })
       ).rejects.toThrow(DOWNSTREAM_COVERAGE_RE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects custom implementation-role nodes without downstream verification or review", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-custom-implementation-")
+    );
+    const roleConfig = configWithSchedulingRoles([
+      {
+        baseProfileId: "pipeline-code-writer",
+        profileId: "custom-implementer",
+        roles: ["implementation"],
+      },
+    ]);
+    const shortcut = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-custom-implementation
+source_entrypoint: epic
+task: Ad hoc epic
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: custom-implementer
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: roleConfig,
+          entrypointId: "epic",
+          executor: () => ({ exitCode: 0, stdout: shortcut }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-custom-implementation",
+          task: "Ad hoc epic",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(DOWNSTREAM_COVERAGE_RE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts default implementation nodes covered by a custom coverage-role profile", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-custom-cover-"));
+    const roleConfig = configWithSchedulingRoles([
+      {
+        baseProfileId: "pipeline-code-writer",
+        profileId: "pipeline-code-writer",
+        roles: ["implementation"],
+      },
+      {
+        baseProfileId: "pipeline-verifier",
+        profileId: "custom-verifier",
+        roles: ["coverage"],
+      },
+    ]);
+    const covered = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-custom-cover
+source_entrypoint: pipe
+task: Covered implementation
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+      - id: verify
+        kind: agent
+        profile: custom-verifier
+        needs: [implement]
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: roleConfig,
+          entrypointId: "pipe",
+          executor: () => ({ exitCode: 0, stdout: covered }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-custom-cover",
+          task: "Covered implementation",
+          worktreePath: dir,
+        })
+      ).resolves.toMatchObject({
+        artifact: {
+          schedule_id: "run-custom-cover",
+        },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces Backlog dependency edges for custom implementation-role profiles", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-custom-dependency-")
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37",
+      "Pipeline console rollout",
+      "## Description\n\nParent epic.",
+      { parentTaskId: "" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.1",
+      "Define runner contract",
+      "## Description\n\nDefine contract.",
+      { parentTaskId: "PC-37" }
+    );
+    writeBacklogTask(
+      dir,
+      "PC-37.2",
+      "Build API endpoint",
+      "## Description\n\nBuild endpoint.",
+      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
+    );
+    const roleConfig = configWithSchedulingRoles([
+      {
+        baseProfileId: "pipeline-code-writer",
+        profileId: "custom-implementer",
+        roles: ["implementation"],
+      },
+      {
+        baseProfileId: "pipeline-verifier",
+        profileId: "custom-verifier",
+        roles: ["coverage"],
+      },
+    ]);
+    const invalidSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-custom-dependency
+source_entrypoint: epic
+task: PC-37
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: pc-37-1-green
+        kind: agent
+        profile: custom-implementer
+        needs: [research]
+        task_context:
+          id: PC-37.1
+      - id: pc-37-2-green
+        kind: agent
+        profile: custom-implementer
+        needs: [research]
+        task_context:
+          id: PC-37.2
+      - id: verify
+        kind: agent
+        profile: custom-verifier
+        needs: [pc-37-1-green, pc-37-2-green]
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: roleConfig,
+          entrypointId: "epic",
+          executor: () => ({ exitCode: 0, stdout: invalidSchedule }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-custom-dependency",
+          task: "PC-37",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(WORK_UNIT_DEPENDENCY_RE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
