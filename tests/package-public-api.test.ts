@@ -83,8 +83,10 @@ describe("package public app-facing API", () => {
 
     expect(readme).toContain("@oisincoveney/pipeline/config");
     expect(readme).toContain("@oisincoveney/pipeline/planner");
+    expect(readme).toContain("@oisincoveney/pipeline/runner-job-contract");
     expect(readme).toContain("@oisincoveney/pipeline/runtime");
     expect(readme).toContain("@oisincoveney/pipeline/schedule");
+    expect(readme).toContain("buildRunnerJobPayload");
     expect(readme).toContain("loadPipelineConfig");
     expect(readme).toContain("compileWorkflowPlan");
     expect(readme).toContain("compileScheduleArtifact");
@@ -129,6 +131,12 @@ import {
   parseScheduleArtifact,
   type ScheduleArtifact,
 } from "@oisincoveney/pipeline/schedule";
+import {
+  RUNNER_JOB_CONTRACT_VERSION,
+  buildRunnerJobPayload,
+  parseRunnerJobPayload,
+  type RunnerJobPayload,
+} from "@oisincoveney/pipeline/runner-job-contract";
 
 const parts: PipelineConfigParts = {
   pipeline: "version: 1\\ndefault_workflow: smoke\\norchestrator: { profile: orchestrator }\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
@@ -161,6 +169,24 @@ const eventType = (event: PipelineRuntimeEvent) => event.type;
 const formattedError = formatConfigError(
   new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing")
 );
+const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
+  eventSink: {
+    authHeader: "Authorization",
+    url: "https://console.example.test/api/pipeline/runner-events",
+  },
+  run: {
+    projectId: "project_123",
+    runId: "run_123",
+  },
+  task: {
+    prompt: "Ship PIPE-42",
+    taskId: "PIPE-42",
+  },
+  workflowId: "default",
+});
+const parsedPayload: RunnerJobPayload = parseRunnerJobPayload(
+  JSON.stringify(runnerPayload)
+);
 
 void loadPipelineConfig;
 void WorkflowPlannerError;
@@ -171,6 +197,8 @@ void formattedError;
 void runnerType;
 void nodeKind;
 void scheduledPlan;
+void RUNNER_JOB_CONTRACT_VERSION;
+void parsedPayload;
 `,
       "utf8"
     );
@@ -197,6 +225,7 @@ import { PipelineConfigError, loadPipelineConfig, parsePipelineConfigParts } fro
 import { WorkflowPlannerError, compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
 import { formatConfigError, runPipelineFromConfig } from "@oisincoveney/pipeline/runtime";
 import { compileScheduleArtifact, parseScheduleArtifact } from "@oisincoveney/pipeline/schedule";
+import { RUNNER_JOB_CONTRACT_VERSION, buildRunnerJobPayload, parseRunnerJobPayload } from "@oisincoveney/pipeline/runner-job-contract";
 
 const values = [
   PipelineConfigError,
@@ -208,10 +237,15 @@ const values = [
   parseScheduleArtifact,
   formatConfigError,
   runPipelineFromConfig,
+  buildRunnerJobPayload,
+  parseRunnerJobPayload,
 ];
 
 if (values.some((value) => typeof value !== "function")) {
   throw new Error("public API subpath did not expose expected runtime values");
+}
+if (typeof RUNNER_JOB_CONTRACT_VERSION !== "string") {
+  throw new Error("runner job contract version was not exported");
 }
 `,
       "utf8"

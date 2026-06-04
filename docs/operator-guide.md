@@ -133,7 +133,7 @@ Local dry run:
 ```shell
 export PIPELINE_TARGET_PATH=/path/to/target/repo
 export OISIN_PIPELINE_EVENT_AUTH_TOKEN=dev-token
-export OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{"eventSink":{"authHeader":"Authorization","url":"http://127.0.0.1:3000/api/pipeline/runs/run-uid-1/events"},"run":{"projectId":"alpha","requestedBy":"@agent","runId":"run-uid-1"},"selector":{"workflowId":"default"},"task":{"prompt":"PIPE-38","taskId":"PIPE-38"}}'
+export OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{"contractVersion":"1","eventSink":{"authHeader":"Authorization","url":"http://127.0.0.1:3000/api/pipeline/runs/run-uid-1/events"},"run":{"projectId":"alpha","requestedBy":"@agent","runId":"run-uid-1"},"selector":{"allowCommandHooks":true,"workflowId":"default"},"task":{"prompt":"PIPE-38","taskId":"PIPE-38"}}'
 pipe runner-job
 ```
 
@@ -161,7 +161,7 @@ spec:
           image: ghcr.io/oisin-ee/pipeline-runner:latest
           env:
             - name: OISIN_PIPELINE_RUNNER_PAYLOAD_JSON
-              value: '{"eventSink":{"authHeader":"Authorization","url":"https://console.example/api/pipeline/runs/run-uid-1/events"},"run":{"projectId":"alpha","runId":"run-uid-1"},"selector":{"workflowId":"default"},"task":{"prompt":"PIPE-38","taskId":"PIPE-38"}}'
+              value: '{"contractVersion":"1","eventSink":{"authHeader":"Authorization","url":"https://console.example/api/pipeline/runs/run-uid-1/events"},"run":{"projectId":"alpha","runId":"run-uid-1"},"selector":{"allowCommandHooks":true,"workflowId":"default"},"task":{"prompt":"PIPE-38","taskId":"PIPE-38"}}'
 ```
 
 The runner image is configured in `pipeline-console` as
@@ -171,9 +171,22 @@ event sink URL, and auth header. The runner-side
 `OISIN_PIPELINE_EVENT_AUTH_TOKEN` or `PIPELINE_EVENT_API_TOKEN` must match the
 console API `PIPELINE_EVENT_API_TOKEN`.
 
+The runner payload contract lives at
+`@oisincoveney/pipeline/runner-job-contract`. `pipeline-console` should create
+payloads with `buildRunnerJobPayload` and can use
+`runnerJobPayloadJsonSchema` for neutral validation or generated docs. The
+runner image labels `pipeline.oisin.dev.runner-contract-version` and
+`pipeline.oisin.dev.pipeline-package-version`, plus the console
+`runner.expectedContractVersion` setting and
+`pipeline.oisin.dev/runner-contract-version` Job label, give operators a fast
+way to detect image/dependency skew before starting Jobs.
+
 Troubleshooting:
 
 - Missing payload: set `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`; exit code is `64`.
+- Schema validation: unsupported selector fields or incompatible
+  `contractVersion` exit `64`; recoverable payloads also post
+  `runner.schema.validation` and a failing `workflow.finish` event.
 - Invalid auth: confirm the runner token matches the console API token; 401/403
   event sink responses are terminal.
 - Missing target config: set `PIPELINE_TARGET_PATH` to a repo containing

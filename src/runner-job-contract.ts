@@ -4,6 +4,7 @@ import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
 import { parseJson } from "./safe-json.js";
 
 export const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
+export const RUNNER_JOB_CONTRACT_VERSION = "1";
 
 export const runnerEventSinkConfigSchema = z
   .object({
@@ -22,20 +23,50 @@ export const runnerRunIdentitySchema = z
 
 export const runnerWorkflowSelectorSchema = z
   .object({
+    allowCommandHooks: z.boolean().default(true),
     workflowId: z.string().min(1),
   })
   .strict();
 
 export const runnerTaskPromptSchema = z
   .object({
+    filePath: z.string().min(1).optional(),
+    githubUrl: z.string().url().optional(),
     prompt: z.string().min(1),
     taskId: z.string().min(1),
+    title: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const runnerRepositoryContextSchema = z
+  .object({
+    branch: z.string().min(1),
+    cloneUrl: z.string().url(),
+    fullName: z.string().min(1),
+    owner: z.string().min(1),
+    repo: z.string().min(1),
+    sha: z.string().min(1),
+  })
+  .strict();
+
+export const runnerMomokayaContextSchema = z
+  .object({
+    automationNamespace: z.string().min(1).optional(),
+    previewEnabled: z.boolean(),
+    repoKey: z.string().min(1).optional(),
   })
   .strict();
 
 export const runnerJobPayloadSchema = z
   .object({
+    contractVersion: z
+      .literal(RUNNER_JOB_CONTRACT_VERSION, {
+        error: "runner job payload contract version must be 1",
+      })
+      .default(RUNNER_JOB_CONTRACT_VERSION),
     eventSink: runnerEventSinkConfigSchema,
+    momokaya: runnerMomokayaContextSchema.optional(),
+    repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema,
     selector: runnerWorkflowSelectorSchema,
     task: runnerTaskPromptSchema,
@@ -44,13 +75,62 @@ export const runnerJobPayloadSchema = z
 
 export type RunnerEventSinkConfig = z.infer<typeof runnerEventSinkConfigSchema>;
 export type RunnerJobPayload = z.infer<typeof runnerJobPayloadSchema>;
+export type RunnerMomokayaContext = z.infer<typeof runnerMomokayaContextSchema>;
+export type RunnerRepositoryContext = z.infer<
+  typeof runnerRepositoryContextSchema
+>;
 export type RunnerRunIdentity = z.infer<typeof runnerRunIdentitySchema>;
 export type RunnerTaskPrompt = z.infer<typeof runnerTaskPromptSchema>;
 export type RunnerWorkflowSelector = z.infer<
   typeof runnerWorkflowSelectorSchema
 >;
 
+export const runnerJobPayloadJsonSchema = z.toJSONSchema(
+  runnerJobPayloadSchema
+);
+
+export interface RunnerJobPayloadValidationIssue {
+  code: string;
+  message: string;
+  path: string;
+}
+
+export interface RecoverableRunnerJobPayloadEnvelope {
+  eventSink: RunnerEventSinkConfig;
+  run: RunnerRunIdentity;
+  workflowId: string;
+}
+
+export class RunnerJobPayloadValidationError extends Error {
+  readonly issues: RunnerJobPayloadValidationIssue[];
+
+  constructor(message: string, issues: RunnerJobPayloadValidationIssue[]) {
+    super(message);
+    this.name = "RunnerJobPayloadValidationError";
+    this.issues = issues;
+  }
+}
+
+export type RunnerJobPayloadParseResult =
+  | { ok: true; payload: RunnerJobPayload }
+  | {
+      error: RunnerJobPayloadValidationError;
+      ok: false;
+      recoverable?: RecoverableRunnerJobPayloadEnvelope;
+    };
+
+export interface BuildRunnerJobPayloadOptions {
+  allowCommandHooks?: boolean;
+  eventSink: RunnerEventSinkConfig;
+  momokaya?: RunnerMomokayaContext;
+  repository?: RunnerRepositoryContext;
+  run: RunnerRunIdentity;
+  task: RunnerTaskPrompt;
+  workflowId: string;
+}
+
 export interface CreateRunnerJobPayloadEnvOptions {
+  allowCommandHooks?: boolean;
   eventSinkUrl: string;
   projectId: string;
   requestedBy?: string;
@@ -196,6 +276,7 @@ export type RunnerEventRecord =
         | "node.output.recorded"
         | "output.repair"
         | "run.cancelled"
+        | "runner.schema.validation"
         | "runtime.observability";
     })
   | (RunnerEventEnvelope & {
@@ -246,7 +327,7 @@ export function resolveRunnerEventSinkAuthHeader(
 export function createRunnerJobPayloadEnv(
   options: CreateRunnerJobPayloadEnvOptions
 ): { name: typeof RUNNER_PAYLOAD_ENV; value: string } {
-  const payload = runnerJobPayloadSchema.parse({
+  const payload = buildRunnerJobPayload({
     eventSink: {
       authHeader: "Authorization",
       url: options.eventSinkUrl,
@@ -256,13 +337,12 @@ export function createRunnerJobPayloadEnv(
       requestedBy: options.requestedBy,
       runId: options.runId,
     },
-    selector: {
-      workflowId: options.workflowId,
-    },
+    allowCommandHooks: options.allowCommandHooks,
     task: {
       prompt: options.taskPrompt,
       taskId: options.taskId,
     },
+    workflowId: options.workflowId,
   });
   return {
     name: RUNNER_PAYLOAD_ENV,
@@ -270,20 +350,65 @@ export function createRunnerJobPayloadEnv(
   };
 }
 
+export function buildRunnerJobPayload(
+  options: BuildRunnerJobPayloadOptions
+): RunnerJobPayload {
+  return runnerJobPayloadSchema.parse({
+    contractVersion: RUNNER_JOB_CONTRACT_VERSION,
+    eventSink: options.eventSink,
+    momokaya: options.momokaya,
+    repository: options.repository,
+    run: options.run,
+    selector: {
+      allowCommandHooks: options.allowCommandHooks ?? true,
+      workflowId: options.workflowId,
+    },
+    task: options.task,
+  });
+}
+
 export function parseRunnerJobPayload(rawPayload: string): RunnerJobPayload {
+  const result = parseRunnerJobPayloadWithIssues(rawPayload);
+  if (!result.ok) {
+    throw result.error;
+  }
+  return result.payload;
+}
+
+export function parseRunnerJobPayloadWithIssues(
+  rawPayload: string
+): RunnerJobPayloadParseResult {
   let parsed: unknown;
   try {
     parsed = parseJson(rawPayload, "runner payload JSON");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Malformed runner payload JSON: ${message}`);
+    const error = new RunnerJobPayloadValidationError(
+      `Malformed runner payload JSON: ${message}`,
+      [
+        {
+          code: "invalid_json",
+          message,
+          path: "payload",
+        },
+      ]
+    );
+    return { error, ok: false };
   }
-
   const result = runnerJobPayloadSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(formatRunnerJobPayloadIssues(result.error, parsed));
+    const issues = runnerJobPayloadIssues(result.error);
+    const error = new RunnerJobPayloadValidationError(
+      formatRunnerJobPayloadIssues(issues, parsed),
+      issues
+    );
+    return {
+      error,
+      ok: false,
+      ...recoverablePayloadEnvelope(parsed),
+    };
   }
-  return result.data;
+  return { ok: true, payload: result.data };
 }
 
 export function mapRuntimeEventToRunnerEventRecords(
@@ -560,7 +685,7 @@ function formatLogMessage(output: unknown): string {
 }
 
 function formatRunnerJobPayloadIssues(
-  error: z.ZodError,
+  issues: RunnerJobPayloadValidationIssue[],
   payload: unknown
 ): string {
   const selector = readRecord(readRecord(payload)?.selector);
@@ -572,18 +697,83 @@ function formatRunnerJobPayloadIssues(
     return `Unsupported selector fields: ${Object.keys(selector).join(", ")}; selector.workflowId is required`;
   }
 
-  return error.issues
-    .map((issue) => {
-      const path = issue.path.join(".");
-      if (issue.code === "invalid_type" && issue.input === undefined) {
-        return `${path || "payload"} is required`;
-      }
-      if (path === "eventSink.url") {
-        return "eventSink.url must be a valid URL";
-      }
-      return `${path || "payload"}: ${issue.message}`;
-    })
+  return issues
+    .map((issue) => `${issue.path || "payload"}: ${issue.message}`)
     .join("; ");
+}
+
+function runnerJobPayloadIssues(
+  error: z.ZodError
+): RunnerJobPayloadValidationIssue[] {
+  return error.issues.flatMap((issue) => {
+    const path = issue.path.join(".");
+    if (issue.code === "unrecognized_keys" && Array.isArray(issue.keys)) {
+      return issue.keys.map((key) => ({
+        code: issue.code,
+        message: "Unrecognized key",
+        path: [path, key].filter(Boolean).join("."),
+      }));
+    }
+    if (issue.code === "invalid_type" && issue.input === undefined) {
+      return [
+        {
+          code: issue.code,
+          message: "is required",
+          path: path || "payload",
+        },
+      ];
+    }
+    if (path === "eventSink.url") {
+      return [
+        {
+          code: issue.code,
+          message: "must be a valid URL",
+          path,
+        },
+      ];
+    }
+    if (path === "contractVersion") {
+      return [
+        {
+          code: issue.code,
+          message: `runner job payload contract version must be ${RUNNER_JOB_CONTRACT_VERSION}`,
+          path,
+        },
+      ];
+    }
+    return [
+      {
+        code: issue.code,
+        message: issue.message,
+        path: path || "payload",
+      },
+    ];
+  });
+}
+
+function recoverablePayloadEnvelope(
+  payload: unknown
+):
+  | { recoverable: RecoverableRunnerJobPayloadEnvelope }
+  | Record<string, never> {
+  const envelope = readRecord(payload);
+  if (!envelope) {
+    return {};
+  }
+  const eventSink = runnerEventSinkConfigSchema.safeParse(envelope.eventSink);
+  const run = runnerRunIdentitySchema.safeParse(envelope.run);
+  const selector = readRecord(envelope.selector);
+  const workflowId = selector?.workflowId;
+  if (!(eventSink.success && run.success && typeof workflowId === "string")) {
+    return {};
+  }
+  return {
+    recoverable: {
+      eventSink: eventSink.data,
+      run: run.data,
+      workflowId,
+    },
+  };
 }
 
 function omitUndefined<const T extends Record<string, unknown | undefined>>(

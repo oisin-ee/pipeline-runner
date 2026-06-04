@@ -62,6 +62,10 @@
       "types": "./dist/runner.d.ts",
       "import": "./dist/runner.js"
     },
+    "./runner-job-contract": {
+      "types": "./dist/runner-job-contract.d.ts",
+      "import": "./dist/runner-job-contract.js"
+    },
     "./runtime": {
       "types": "./dist/pipeline-runtime.d.ts",
       "import": "./dist/pipeline-runtime.js"

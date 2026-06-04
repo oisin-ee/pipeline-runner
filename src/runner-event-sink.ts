@@ -31,6 +31,11 @@ export interface RunnerEventSink {
     workflowId: string
   ) => void;
   recordRuntimeEvent: (event: PipelineRuntimeEvent) => void;
+  recordSchemaValidationFailure: (
+    message: string,
+    issues: Array<{ message: string; path: string }>,
+    workflowId: string
+  ) => void;
 }
 
 const DEFAULT_BATCH_SIZE = 50;
@@ -118,6 +123,26 @@ export function createRunnerEventSink(
       recordRuntimeEvent({ outcome, type: "workflow.finish", workflowId });
     },
     recordRuntimeEvent,
+    recordSchemaValidationFailure(message, issues, workflowId) {
+      queue.push({
+        ...nextEnvelope(),
+        log: {
+          level: "warn",
+          message: `Runner payload schema validation failed: ${message}`,
+          output: { issues },
+          workflowId,
+        },
+        type: "runner.schema.validation",
+      });
+      queue.push({
+        ...nextEnvelope(),
+        finalResult: {
+          outcome: "FAIL",
+          workflowId,
+        },
+        type: "workflow.finish",
+      });
+    },
   };
 }
 

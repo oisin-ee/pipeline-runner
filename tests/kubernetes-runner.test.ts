@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
+const RUNNER_JOB_CONTRACT_VERSION = "1";
 const PAYLOAD_ENV_RE = /OISIN_PIPELINE_RUNNER_PAYLOAD_JSON/i;
 const MALFORMED_JSON_RE = /malformed|json/i;
 const EVENT_SINK_URL_RE = /eventSink\.url/i;
@@ -14,9 +15,12 @@ const MISSING_CONFIG_RE = /pipeline.*config|pipeline\.yaml/i;
 const KUBERNETES_API_RE = /kubernetes|api\/v1|apis\/batch/i;
 const FLUSH_FAILURE_RE = /console unavailable|event sink flush/i;
 const UNAUTHORIZED_RE = /unauthorized|401|event sink flush/i;
+const SCHEMA_VALIDATION_RE = /schema validation|selector\.unexpected/i;
+const SCHEMA_VALIDATION_MESSAGE_RE = /schema validation/i;
 
 function validPayload(): Record<string, unknown> {
   return {
+    contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     eventSink: {
       authHeader: "Authorization",
       url: EVENT_SINK_URL,
@@ -27,6 +31,7 @@ function validPayload(): Record<string, unknown> {
       runId: "run_123",
     },
     selector: {
+      allowCommandHooks: true,
       workflowId: "default",
     },
     task: {
@@ -148,6 +153,9 @@ describe("kubernetes runner-job entrypoint", () => {
     const pipelineRunner = vi.fn((options) => {
       expect(options).toEqual(
         expect.objectContaining({
+          hookPolicy: expect.objectContaining({
+            allowCommandHooks: true,
+          }),
           runId: "run_123",
           task: "Ship PIPE-38",
           workflowId: "default",
@@ -187,6 +195,43 @@ describe("kubernetes runner-job entrypoint", () => {
     );
   });
 
+  it("passes explicit console hook policy from the original failed selector shape", async () => {
+    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const fetchMock = vi.fn(async () => okResponse());
+    const pipelineRunner = vi.fn((options) => {
+      expect(options).toEqual(
+        expect.objectContaining({
+          hookPolicy: expect.objectContaining({
+            allowCommandHooks: false,
+          }),
+          task: "PC-1",
+          workflowId: "inspect",
+        })
+      );
+      return { ...runtimeResult("PASS"), plan: { workflowId: "inspect" } };
+    });
+
+    const exitCode = await runKubernetesRunnerJob({
+      cwd: "/workspace/run_123",
+      env: payloadEnv({
+        ...validPayload(),
+        selector: {
+          allowCommandHooks: false,
+          workflowId: "inspect",
+        },
+        task: {
+          prompt: "PC-1",
+          taskId: "PC-1",
+        },
+      }),
+      fetch: fetchMock,
+      pipelineRunner,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(pipelineRunner).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["PASS", 0],
     ["FAIL", 1],
@@ -222,6 +267,54 @@ describe("kubernetes runner-job entrypoint", () => {
     expect(exitCode).toBe(64);
     expect(pipelineRunner).not.toHaveBeenCalled();
     expect(io.stderrText()).toMatch(EVENT_SINK_URL_RE);
+  });
+
+  it("posts schema validation events when an invalid payload still has run and sink identity", async () => {
+    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const fetchMock = vi.fn(async () => okResponse());
+    const pipelineRunner = vi.fn();
+    const io = ioBuffers();
+    const payload = {
+      ...validPayload(),
+      selector: {
+        unexpected: "quick",
+        workflowId: "default",
+      },
+    };
+
+    const exitCode = await runKubernetesRunnerJob({
+      env: payloadEnv(payload),
+      fetch: fetchMock,
+      pipelineRunner,
+      stderr: io.stderr,
+      stdout: io.stdout,
+    });
+
+    expect(exitCode).toBe(64);
+    expect(pipelineRunner).not.toHaveBeenCalled();
+    expect(io.stderrText()).toMatch(SCHEMA_VALIDATION_RE);
+    expect(fetchMock.mock.calls[0]).toBeDefined();
+    const body = JSON.parse(
+      String(
+        (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body
+      )
+    ) as { events: Record<string, unknown>[] };
+    expect(body.events).toEqual([
+      expect.objectContaining({
+        log: expect.objectContaining({
+          level: "warn",
+          message: expect.stringMatching(SCHEMA_VALIDATION_MESSAGE_RE),
+        }),
+        type: "runner.schema.validation",
+      }),
+      expect.objectContaining({
+        finalResult: {
+          outcome: "FAIL",
+          workflowId: "default",
+        },
+        type: "workflow.finish",
+      }),
+    ]);
   });
 
   it("returns EX_SOFTWARE 70 when startup fails before a runtime result is available", async () => {

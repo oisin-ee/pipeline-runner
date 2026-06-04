@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
 const TIMESTAMP = "2026-06-02T09:00:00.000Z";
+const RUNNER_JOB_CONTRACT_VERSION = "1";
 const MISSING_RUN_ID_RE = /run\.runId.*required/i;
 const UNSUPPORTED_SELECTOR_RE =
   /unsupported selector.*entrypoint|selector\.workflowId/i;
@@ -10,9 +11,11 @@ const INVALID_EVENT_SINK_URL_RE = /eventSink\.url.*valid URL/i;
 const AUTH_TOKEN_ENV_RE =
   /OISIN_PIPELINE_EVENT_AUTH_TOKEN|PIPELINE_EVENT_API_TOKEN/i;
 const PROTOTYPE_POLLUTION_RE = /proto/i;
+const CONTRACT_VERSION_RE = /contract version/i;
 
 function validPayload(): Record<string, unknown> {
   return {
+    contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     eventSink: {
       authHeader: "Authorization",
       url: EVENT_SINK_URL,
@@ -23,6 +26,7 @@ function validPayload(): Record<string, unknown> {
       runId: "run_123",
     },
     selector: {
+      allowCommandHooks: true,
       workflowId: "default",
     },
     task: {
@@ -56,6 +60,51 @@ describe("runner-job payload contract", () => {
     });
   });
 
+  it("builds the public console-to-runner payload contract with hook policy defaults", async () => {
+    const { buildRunnerJobPayload } = await loadContractModule();
+
+    const payload = buildRunnerJobPayload({
+      eventSink: {
+        authHeader: "Authorization",
+        url: EVENT_SINK_URL,
+      },
+      run: {
+        projectId: "project_123",
+        requestedBy: "user_456",
+        runId: "run_123",
+      },
+      task: {
+        prompt: "Ship PIPE-38",
+        taskId: "PIPE-38",
+      },
+      workflowId: "default",
+    });
+
+    expect(payload).toEqual(validPayload());
+  });
+
+  it("parses the failed Momokaya payload shape with explicit command hooks disabled", async () => {
+    const { parseRunnerJobPayload } = await loadContractModule();
+    const payload = {
+      ...validPayload(),
+      selector: {
+        allowCommandHooks: false,
+        workflowId: "inspect",
+      },
+      task: {
+        prompt: "PC-1",
+        taskId: "PC-1",
+      },
+    };
+
+    const parsed = parseRunnerJobPayload(JSON.stringify(payload));
+
+    expect(parsed.selector).toEqual({
+      allowCommandHooks: false,
+      workflowId: "inspect",
+    });
+  });
+
   it("parses a valid runner payload without adding console-only fields", async () => {
     const { parseRunnerJobPayload } = await loadContractModule();
 
@@ -63,6 +112,7 @@ describe("runner-job payload contract", () => {
 
     expect(parsed).toEqual(validPayload());
     expect(Object.keys(parsed).sort()).toEqual([
+      "contractVersion",
       "eventSink",
       "run",
       "selector",
@@ -73,6 +123,23 @@ describe("runner-job payload contract", () => {
   it("exports schemas and types for each payload component", async () => {
     const contract = await loadContractModule();
 
+    expect(contract.RUNNER_JOB_CONTRACT_VERSION).toBe(
+      RUNNER_JOB_CONTRACT_VERSION
+    );
+    expect(contract.runnerJobPayloadJsonSchema).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        contractVersion: { type: "string" },
+        selector: {
+          additionalProperties: false,
+          properties: {
+            allowCommandHooks: { type: "boolean" },
+            workflowId: { type: "string" },
+          },
+        },
+      },
+      type: "object",
+    });
     expect(
       contract.runnerEventSinkConfigSchema.parse(validPayload().eventSink)
     ).toEqual(validPayload().eventSink);
@@ -107,6 +174,33 @@ describe("runner-job payload contract", () => {
     expect(() => parseRunnerJobPayload(JSON.stringify(payload))).toThrow(
       UNSUPPORTED_SELECTOR_RE
     );
+  });
+
+  it("rejects incompatible runner contract versions with structured issue details", async () => {
+    const { parseRunnerJobPayloadWithIssues } = await loadContractModule();
+    const payload = {
+      ...validPayload(),
+      contractVersion: "2",
+    };
+
+    const parsed = parseRunnerJobPayloadWithIssues(JSON.stringify(payload));
+
+    expect(parsed).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        issues: [
+          expect.objectContaining({
+            message: expect.stringMatching(CONTRACT_VERSION_RE),
+            path: "contractVersion",
+          }),
+        ],
+      }),
+      recoverable: {
+        eventSink: validPayload().eventSink,
+        run: validPayload().run,
+        workflowId: "default",
+      },
+    });
   });
 
   it("rejects prototype-polluting runner payload JSON", async () => {

@@ -22,6 +22,14 @@ Use Qdrant collection `oisin-pipeline` for this repository.
 
 <!-- @oisincoveney/pipeline:agents:end -->
 
+## Publishing Standard
+
+All package and container publishing for this repository is done through GitHub
+Actions. Do not publish locally with `npm publish`, `semantic-release`, Docker
+pushes, or other direct registry commands from a workstation. To release, commit
+and push the intended changes to the configured release branch and let the
+repository workflows publish artifacts.
+
 ## Verification Standard
 
 When the user asks to test, verify, or make sure something works, that means

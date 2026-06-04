@@ -6,9 +6,11 @@ import {
 } from "./pipeline-runtime.js";
 import { createRunnerEventSink } from "./runner-event-sink.js";
 import {
-  parseRunnerJobPayload,
+  parseRunnerJobPayloadWithIssues,
+  type RecoverableRunnerJobPayloadEnvelope,
   RUNNER_PAYLOAD_ENV,
   type RunnerJobPayload,
+  type RunnerJobPayloadValidationError,
   resolveRunnerEventSinkAuthToken,
 } from "./runner-job-contract.js";
 
@@ -38,7 +40,20 @@ interface PreparedRunnerJob {
 
 type PrepareRunnerJobResult =
   | { exitCode: number; job?: never }
+  | {
+      exitCode?: never;
+      job?: never;
+      validationFailure: PreparedValidationFailure;
+    }
   | { exitCode?: never; job: PreparedRunnerJob };
+
+interface PreparedValidationFailure {
+  authToken?: string;
+  env: Record<string, string | undefined>;
+  error: RunnerJobPayloadValidationError;
+  recoverable?: RecoverableRunnerJobPayloadEnvelope;
+  stderr: OutputStream;
+}
 
 export interface KubernetesRunnerJobOptions {
   cwd?: string;
@@ -63,6 +78,9 @@ export async function runKubernetesRunnerJob(
   const prepared = prepareRunnerJob(options);
   if (prepared.exitCode !== undefined) {
     return prepared.exitCode;
+  }
+  if ("validationFailure" in prepared) {
+    return reportPreparedValidationFailure(prepared.validationFailure, options);
   }
   const { authToken, env, payload, stderr } = prepared.job;
 
@@ -112,6 +130,9 @@ export async function runKubernetesRunnerJob(
       runId: payload.run.runId,
       signal: controller.signal,
       task: payload.task.prompt,
+      hookPolicy: {
+        allowCommandHooks: payload.selector.allowCommandHooks,
+      },
       workflowId: payload.selector.workflowId,
       worktreePath: env.PIPELINE_TARGET_PATH ?? options.cwd ?? process.cwd(),
     });
@@ -150,8 +171,17 @@ function prepareRunnerJob(
   }
 
   const payload = parsePayload(payloadRaw, stderr);
-  if (!payload) {
-    return { exitCode: EXIT_VALIDATION };
+  if (!payload.ok) {
+    const authToken = resolveAuthToken(env, stderr);
+    return {
+      validationFailure: {
+        authToken: authToken ?? undefined,
+        env,
+        error: payload.error,
+        recoverable: payload.recoverable,
+        stderr,
+      },
+    };
   }
 
   const authToken = resolveAuthToken(env, stderr);
@@ -159,20 +189,40 @@ function prepareRunnerJob(
     return { exitCode: EXIT_VALIDATION };
   }
 
-  return { job: { authToken, env, payload, stderr } };
+  return { job: { authToken, env, payload: payload.payload, stderr } };
 }
 
 function parsePayload(
   payloadRaw: string,
   stderr: OutputStream
-): ReturnType<typeof parseRunnerJobPayload> | null {
-  try {
-    return parseRunnerJobPayload(payloadRaw);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    stderr.write(`${message}\n`);
-    return null;
+): ReturnType<typeof parseRunnerJobPayloadWithIssues> {
+  const result = parseRunnerJobPayloadWithIssues(payloadRaw);
+  if (!result.ok) {
+    stderr.write(`${result.error.message}\n`);
   }
+  return result;
+}
+
+async function reportPreparedValidationFailure(
+  failure: PreparedValidationFailure,
+  options: KubernetesRunnerJobOptions
+): Promise<number> {
+  if (failure.recoverable && failure.authToken) {
+    const sink = createRunnerEventSink({
+      authHeader: failure.recoverable.eventSink.authHeader,
+      authToken: failure.authToken,
+      fetch: options.fetch,
+      runId: failure.recoverable.run.runId,
+      url: failure.recoverable.eventSink.url,
+    });
+    sink.recordSchemaValidationFailure(
+      failure.error.message,
+      failure.error.issues,
+      failure.recoverable.workflowId
+    );
+    await flushAndReport(sink.flush, failure.stderr);
+  }
+  return EXIT_VALIDATION;
 }
 
 function resolveAuthToken(

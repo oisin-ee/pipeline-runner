@@ -39,6 +39,11 @@ const DOCKER_LOGIN_ACTION_RE = /docker\/login-action/i;
 const DOCKER_BUILD_PUSH_ACTION_RE = /docker\/build-push-action/i;
 const IMAGE_JOB_NEEDS_RELEASE_RE = /"needs":\s*"release"/;
 const PIPELINE_PACKAGE_BUILD_ARG_RE = /PIPELINE_PACKAGE_VERSION=latest/;
+const CONTRACT_VERSION_ARG_RE = /ARG\s+RUNNER_JOB_CONTRACT_VERSION=1/;
+const CONTRACT_VERSION_LABEL_RE =
+  /pipeline\.oisin\.dev\.runner-contract-version=\$\{RUNNER_JOB_CONTRACT_VERSION\}/;
+const PACKAGE_VERSION_LABEL_RE =
+  /pipeline\.oisin\.dev\.pipeline-package-version=\$\{PIPELINE_PACKAGE_VERSION\}/;
 const GITHUB_SHA_EXPRESSION = ["$", "{{ github.sha }}"].join("");
 const SHA_IMAGE_TAG = [
   "ghcr.io/oisin-ee/pipeline-runner:",
@@ -108,6 +113,14 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(GIT_RE);
     expect(dockerfile).not.toMatch(SOURCE_COPY_RE);
     expect(dockerfile).not.toMatch(BUN_BUILD_RE);
+  });
+
+  it("labels the image with package and runner payload contract versions", () => {
+    const dockerfile = readProjectFile("Dockerfile");
+
+    expect(dockerfile).toMatch(CONTRACT_VERSION_ARG_RE);
+    expect(dockerfile).toMatch(CONTRACT_VERSION_LABEL_RE);
+    expect(dockerfile).toMatch(PACKAGE_VERSION_LABEL_RE);
   });
 
   it("starts the Kubernetes runner Job entrypoint by default", () => {

@@ -925,6 +925,10 @@ describe("pipe", () => {
       import: "./dist/pipeline-runtime.js",
       types: "./dist/pipeline-runtime.d.ts",
     });
+    expect(pkg.exports?.["./runner-job-contract"]).toEqual({
+      import: "./dist/runner-job-contract.js",
+      types: "./dist/runner-job-contract.d.ts",
+    });
   });
 
   it("throws if no description provided", async () => {

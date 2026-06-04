@@ -128,6 +128,9 @@ flushing.
 The console starts the image with `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON` and the
 runner-side event token. The payload contract is documented in
 [`docs/pipeline-console-runner-contract.md`](docs/pipeline-console-runner-contract.md).
+The executable contract is exported from
+`@oisincoveney/pipeline/runner-job-contract` for payload construction,
+validation, contract-version checks, and JSON Schema generation.
 Use `PIPELINE_TARGET_PATH=/path/to/worktree` when the checked-out target repo is
 mounted somewhere other than the process working directory.
 
@@ -372,6 +375,17 @@ import {
   type PipelineRuntimeResult,
   type PipelineTaskContext,
 } from "@oisincoveney/pipeline/runtime";
+```
+
+Runner Job producers can import the shared payload contract:
+
+```ts
+import {
+  RUNNER_JOB_CONTRACT_VERSION,
+  buildRunnerJobPayload,
+  parseRunnerJobPayload,
+  runnerJobPayloadJsonSchema,
+} from "@oisincoveney/pipeline/runner-job-contract";
 ```
 
 ## Verification
