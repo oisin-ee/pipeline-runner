@@ -131,23 +131,6 @@ profiles:
       mode: inherit
     output:
       format: text
-  pipeline-code-writer:
-    runner: codex
-    description: Implement production code until the failing tests pass.
-    instructions:
-      path: .pipeline/prompts/code-writer.md
-    rules: [test-first]
-    skills: [trace, test, fix, library-first-development]
-    mcp_servers: [pipeline-gateway]
-    tools: [read, list, grep, glob, bash, edit, write]
-    filesystem:
-      mode: workspace-write
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
-    output:
-      format: text
   pipeline-epic-router:
     runner: codex
     description: Route epic sub-tickets into fixed implementation tracks.
@@ -167,6 +150,23 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
+  pipeline-code-writer:
+    runner: codex
+    description: Implement production code until the failing tests pass.
+    instructions:
+      path: .pipeline/prompts/code-writer.md
+    rules: [test-first]
+    skills: [trace, test, fix, library-first-development]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem:
+      mode: workspace-write
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
   pipeline-acceptance-reviewer:
     runner: codex
     description: Audit the finished change against every acceptance criterion.

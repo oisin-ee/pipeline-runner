@@ -1,34 +1,35 @@
 {
-  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
   "properties": {
     "ac": {
+      "type": "array",
       "items": {
         "type": "string"
-      },
-      "type": "array"
+      }
     },
     "files": {
+      "type": "array",
       "items": {
         "type": "string"
-      },
-      "type": "array"
+      }
     },
     "findings": {
+      "type": "array",
       "items": {
         "type": "string"
-      },
-      "type": "array"
+      }
     },
     "risks": {
+      "type": "array",
       "items": {
         "type": "string"
-      },
-      "type": "array"
+      }
     },
     "target": {
       "type": "string"
     }
   },
-  "required": ["findings", "ac"],
-  "type": "object"
+  "required": ["ac", "findings"],
+  "additionalProperties": false
 }

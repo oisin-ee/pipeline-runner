@@ -1,16 +1,19 @@
 {
-  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
   "properties": {
     "findings": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "file": {
             "type": "string"
           },
           "line": {
+            "type": "integer",
             "minimum": 1,
-            "type": "integer"
+            "maximum": 9007199254740991
           },
           "message": {
             "type": "string"
@@ -19,23 +22,22 @@
             "type": "string"
           },
           "severity": {
-            "enum": ["info", "warn", "error", "critical"],
-            "type": "string"
+            "type": "string",
+            "enum": ["info", "warn", "error", "critical"]
           }
         },
-        "required": ["severity", "message"],
-        "type": "object"
-      },
-      "type": "array"
+        "required": ["message", "severity"],
+        "additionalProperties": false
+      }
     },
     "summary": {
       "type": "string"
     },
     "verdict": {
-      "enum": ["PASS", "FAIL"],
-      "type": "string"
+      "type": "string",
+      "enum": ["PASS", "FAIL"]
     }
   },
-  "required": ["verdict", "findings"],
-  "type": "object"
+  "required": ["findings", "verdict"],
+  "additionalProperties": false
 }

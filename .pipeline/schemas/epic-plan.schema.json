@@ -1,9 +1,11 @@
 {
-  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
   "properties": {
     "backend": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "id": {
             "type": "string"
@@ -16,13 +18,13 @@
           }
         },
         "required": ["id"],
-        "type": "object"
-      },
-      "type": "array"
+        "additionalProperties": false
+      }
     },
     "frontend": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "id": {
             "type": "string"
@@ -35,13 +37,13 @@
           }
         },
         "required": ["id"],
-        "type": "object"
-      },
-      "type": "array"
+        "additionalProperties": false
+      }
     },
     "k8s": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "id": {
             "type": "string"
@@ -54,16 +56,16 @@
           }
         },
         "required": ["id"],
-        "type": "object"
-      },
-      "type": "array"
+        "additionalProperties": false
+      }
     },
     "rationale": {
       "type": "string"
     },
     "test": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "id": {
             "type": "string"
@@ -76,11 +78,10 @@
           }
         },
         "required": ["id"],
-        "type": "object"
-      },
-      "type": "array"
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["test", "frontend", "backend", "k8s"],
-  "type": "object"
+  "required": ["backend", "frontend", "k8s", "test"],
+  "additionalProperties": false
 }

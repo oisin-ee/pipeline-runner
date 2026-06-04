@@ -1,14 +1,15 @@
 {
-  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
   "properties": {
     "evidence": {
+      "type": "array",
       "items": {
         "type": "string"
-      },
-      "type": "array"
+      }
     },
     "qdrant": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "attempted": {
           "type": "boolean"
@@ -18,9 +19,9 @@
         }
       },
       "required": ["attempted", "succeeded"],
-      "type": "object"
+      "additionalProperties": false
     }
   },
-  "required": ["qdrant", "evidence"],
-  "type": "object"
+  "required": ["evidence", "qdrant"],
+  "additionalProperties": false
 }
