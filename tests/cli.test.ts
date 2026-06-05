@@ -2339,7 +2339,9 @@ workflows:
       expect(codex).toContain(
         "[mcp_servers.pipeline-gateway.env_http_headers]"
       );
-      expect(codex).toContain('Authorization = "MEMORY_MCP_BASIC_AUTH"');
+      expect(codex).toContain(
+        'Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"'
+      );
       expect(codex).not.toContain("legacy");
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         enabled: true,

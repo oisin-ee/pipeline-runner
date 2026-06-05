@@ -12,6 +12,8 @@ import type { PipelineConfig } from "../config.js";
 
 export const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 export const DEFAULT_LOCAL_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
+export const CODEX_GATEWAY_AUTHORIZATION_ENV =
+  "PIPELINE_MCP_GATEWAY_AUTHORIZATION";
 const LEGACY_CODEX_MCP_RE =
   /^\s*\[mcp_servers\.(?!pipeline-gateway(?:\]|\.env_http_headers\]))/m;
 const LEGACY_OPENCODE_MCP_RE = /"mcp"\s*:\s*{(?!\s*"pipeline-gateway")/s;
@@ -140,7 +142,7 @@ export function renderCodexGatewayConfig(config: PipelineConfig): string {
     `url = ${JSON.stringify(gatewayUrl(gateway))}`,
     "",
     `[mcp_servers.${PIPELINE_GATEWAY_SERVER_ID}.env_http_headers]`,
-    `Authorization = ${JSON.stringify(gateway.token_env)}`,
+    `Authorization = ${JSON.stringify(CODEX_GATEWAY_AUTHORIZATION_ENV)}`,
     "",
   ].join("\n");
 }

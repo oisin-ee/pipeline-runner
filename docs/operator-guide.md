@@ -423,7 +423,7 @@ gateway server into project host config. Codex receives:
 url = "https://gateway.example/mcp"
 
 [mcp_servers.pipeline-gateway.env_http_headers]
-Authorization = "MEMORY_MCP_BASIC_AUTH"
+Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"
 ```
 
 OpenCode receives:
