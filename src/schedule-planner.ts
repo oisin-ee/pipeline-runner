@@ -522,10 +522,22 @@ async function runSchedulePlanner(
   const result = await executor(plan, {});
   if (result.exitCode !== 0) {
     throw new ScheduleArtifactError(
-      `schedule planner '${plannerProfile}' failed with exit ${result.exitCode}`
+      plannerFailureMessage(plannerProfile, result)
     );
   }
   return normalizeRunnerOutput(plan, result.stdout).output.trim();
+}
+
+function plannerFailureMessage(
+  plannerProfile: string,
+  result: { exitCode: number; stderr?: string; stdout: string }
+): string {
+  const details = [
+    result.stderr?.trim() ? `stderr:\n${result.stderr.trim()}` : undefined,
+    result.stdout.trim() ? `stdout:\n${result.stdout.trim()}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  const message = `schedule planner '${plannerProfile}' failed with exit ${result.exitCode}`;
+  return details.length === 0 ? message : `${message}\n${details.join("\n")}`;
 }
 
 function plannerPrompt(

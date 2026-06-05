@@ -24,6 +24,8 @@ const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
 const WORK_UNIT_DEPENDENCY_RE =
   /work unit dependency edge.*PC-37\.2.*PC-37\.1/s;
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
+const PLANNER_FAILURE_WITH_DETAILS_RE =
+  /schedule planner 'pipeline-schedule-planner' failed with exit 1.*codex auth missing.*partial planner output/s;
 const WORKFLOW_TASK_ASSIGNMENT_RE =
   /backlog work unit assignments must use explicit generated agent nodes/i;
 
@@ -365,6 +367,30 @@ workflows:
           schedule_id: "run-role-contract",
         },
       });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes planner stderr when the planner exits non-zero", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-planner-fail-"));
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "pipe",
+          executor: () => ({
+            exitCode: 1,
+            stderr: "codex auth missing",
+            stdout: "partial planner output",
+          }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-planner-fail",
+          task: "Expose planner failure",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(PLANNER_FAILURE_WITH_DETAILS_RE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

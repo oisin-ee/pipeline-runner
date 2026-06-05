@@ -218,6 +218,7 @@ const runnerManifest: K8sJobManifest = buildRunnerJobK8sManifest({
   eventAuthSecretName: "pipeline-runner-event-auth",
   eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
   image: "ghcr.io/oisin-ee/pipeline-runner:latest",
+  imagePullSecretName: "ghcr-pull-secret",
   jobName: "pipeline-runner-smoke",
   namespace: "momokaya-pipeline",
   opencodeAuthSecretName: "opencode-auth-1",

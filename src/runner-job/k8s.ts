@@ -3,6 +3,7 @@ export interface BuildRunnerJobK8sManifestOptions {
   eventAuthSecretKey?: string;
   eventAuthSecretName?: string;
   image: string;
+  imagePullSecretName?: string;
   jobName: string;
   namespace: string;
   opencodeAuthSecretName?: string;
@@ -30,6 +31,7 @@ export interface K8sJobManifest {
             subPath?: string;
           }>;
         }>;
+        imagePullSecrets?: Array<{ name: string }>;
         restartPolicy: string;
         volumes: Array<{
           configMap?: {
@@ -134,6 +136,7 @@ export function buildRunnerJobK8sManifest(
           containers: [
             {
               args: [
+                "runner-job",
                 "--payload-file",
                 "/etc/pipeline/payload.json",
                 options.orchestrator,
@@ -143,6 +146,9 @@ export function buildRunnerJobK8sManifest(
               volumeMounts,
             },
           ],
+          ...(options.imagePullSecretName
+            ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
+            : {}),
           restartPolicy: "Never",
           volumes,
         },

@@ -52,6 +52,31 @@ describe("runner-job K8s manifest builder", () => {
     });
   });
 
+  describe("image pull secrets", () => {
+    it("sets imagePullSecrets when an imagePullSecretName is given", async () => {
+      const { buildRunnerJobK8sManifest } = await loadK8sModule();
+
+      const manifest = buildRunnerJobK8sManifest({
+        ...BASE_OPTIONS,
+        imagePullSecretName: "ghcr-pull-secret",
+      });
+
+      expect(manifest.spec.template.spec.imagePullSecrets).toEqual([
+        { name: "ghcr-pull-secret" },
+      ]);
+    });
+
+    it("omits imagePullSecrets when no imagePullSecretName is given", async () => {
+      const { buildRunnerJobK8sManifest } = await loadK8sModule();
+
+      const manifest = buildRunnerJobK8sManifest(BASE_OPTIONS);
+
+      expect(manifest.spec.template.spec).not.toHaveProperty(
+        "imagePullSecrets"
+      );
+    });
+  });
+
   describe("container spec — env / envFrom", () => {
     it("does not set env on the runner container", async () => {
       const { buildRunnerJobK8sManifest } = await loadK8sModule();
@@ -241,7 +266,7 @@ describe("runner-job K8s manifest builder", () => {
   });
 
   describe("orchestrator runner selection", () => {
-    it("accepts codex orchestrator and passes --payload-file plus orchestrator to container args", async () => {
+    it("accepts codex orchestrator and passes runner-job, --payload-file, and orchestrator to container args", async () => {
       const { buildRunnerJobK8sManifest } = await loadK8sModule();
 
       const manifest = buildRunnerJobK8sManifest({
@@ -251,13 +276,14 @@ describe("runner-job K8s manifest builder", () => {
       const container = manifest.spec.template.spec.containers[0];
 
       expect(container.args).toEqual([
+        "runner-job",
         "--payload-file",
         "/etc/pipeline/payload.json",
         "codex",
       ]);
     });
 
-    it("accepts opencode orchestrator and passes --payload-file plus orchestrator to container args", async () => {
+    it("accepts opencode orchestrator and passes runner-job, --payload-file, and orchestrator to container args", async () => {
       const { buildRunnerJobK8sManifest } = await loadK8sModule();
 
       const manifest = buildRunnerJobK8sManifest({
@@ -267,6 +293,7 @@ describe("runner-job K8s manifest builder", () => {
       const container = manifest.spec.template.spec.containers[0];
 
       expect(container.args).toEqual([
+        "runner-job",
         "--payload-file",
         "/etc/pipeline/payload.json",
         "opencode",
