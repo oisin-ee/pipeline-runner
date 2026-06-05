@@ -53,7 +53,6 @@ jobs:
 
   runner-image:
     name: Publish runner image
-    needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -75,8 +74,6 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          build-args: |
-            PIPELINE_PACKAGE_VERSION=latest
           tags: |
             ghcr.io/oisin-ee/pipeline-runner:${{ github.sha }}
             ghcr.io/oisin-ee/pipeline-runner:latest

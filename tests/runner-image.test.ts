@@ -36,8 +36,6 @@ const IMAGE_JOB_FORBIDDEN_RELEASE_RE = /semantic-release|NPM_TOKEN/;
 const PACKAGES_WRITE_RE = /packages:\s*write/i;
 const DOCKER_LOGIN_ACTION_RE = /docker\/login-action/i;
 const DOCKER_BUILD_PUSH_ACTION_RE = /docker\/build-push-action/i;
-const IMAGE_JOB_NEEDS_RELEASE_RE = /"needs":\s*"release"/;
-const PIPELINE_PACKAGE_BUILD_ARG_RE = /PIPELINE_PACKAGE_VERSION=latest/;
 const CONTRACT_VERSION_ARG_RE = /ARG\s+RUNNER_JOB_CONTRACT_VERSION=1/;
 const CONTRACT_VERSION_LABEL_RE =
   /pipeline\.oisin\.dev\.runner-contract-version=\$\{RUNNER_JOB_CONTRACT_VERSION\}/;
@@ -186,11 +184,11 @@ describe("runner image publishing workflow", () => {
     expect(serialize(imageJobs)).not.toMatch(IMAGE_JOB_FORBIDDEN_RELEASE_RE);
   });
 
-  it("builds the runner image after npm release from the published package", () => {
+  it("builds the runner image directly from the checked-out local package", () => {
     const imagePublishing = serialize(imagePublishingJobs());
 
-    expect(imagePublishing).toMatch(IMAGE_JOB_NEEDS_RELEASE_RE);
-    expect(imagePublishing).toMatch(PIPELINE_PACKAGE_BUILD_ARG_RE);
+    expect(imagePublishing).not.toContain("needs");
+    expect(imagePublishing).not.toContain("PIPELINE_PACKAGE_VERSION=latest");
   });
 
   it("pushes ghcr.io/oisin-ee/pipeline-runner with git SHA and latest tags", () => {
