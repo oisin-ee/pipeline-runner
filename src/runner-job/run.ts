@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { type PipelineConfig, PipelineConfigError } from "../config.js";
 import {
   type PipelineRuntimeEvent,
@@ -14,14 +16,20 @@ import {
   RUNNER_PAYLOAD_ENV,
   type RunnerJobPayload,
   type RunnerJobPayloadValidationError,
+  type RunnerTask,
   resolveRunnerEventSinkAuthToken,
 } from "../runner-job-contract.js";
+import {
+  compileScheduleArtifact,
+  generateScheduleArtifact,
+} from "../schedule-planner.js";
 import { createPullRequest, type PullRequestCreator } from "./delivery.js";
 import {
   assertRunnerDevspaceReady,
   type RunnerDevspaceCommand,
   type RunnerDevspaceReadiness,
   runRunnerDevspaceSmoke,
+  runRunnerEnvironmentSetup,
 } from "./devspace.js";
 import {
   prepareRunnerWorkspace,
@@ -34,6 +42,7 @@ type FetchLike = (
 ) => Promise<Response>;
 
 type PipelineRunner = typeof runPipelineFromConfig;
+type SchedulePreparer = typeof generateRunnerSchedule;
 type WorkspacePreparer = typeof prepareRunnerWorkspace;
 
 interface OutputStream {
@@ -47,7 +56,6 @@ interface SignalEmitter {
 }
 
 interface PreparedRunnerJob {
-  authToken: string;
   env: Record<string, string | undefined>;
   payload: RunnerJobPayload;
   stderr: OutputStream;
@@ -63,7 +71,6 @@ type PrepareRunnerJobResult =
   | { exitCode?: never; job: PreparedRunnerJob };
 
 interface PreparedValidationFailure {
-  authToken?: string;
   env: Record<string, string | undefined>;
   error: RunnerJobPayloadValidationError;
   recoverable?: RecoverableRunnerJobPayloadEnvelope;
@@ -77,6 +84,7 @@ export interface RunnerJobOptions {
   fetch?: FetchLike;
   onForceExit?: (exitCode: number) => void;
   pipelineRunner?: PipelineRunner;
+  prepareSchedule?: SchedulePreparer;
   prepareWorkspace?: WorkspacePreparer;
   runDevspaceCommand?: RunnerDevspaceCommand;
   signalEmitter?: SignalEmitter;
@@ -89,6 +97,9 @@ const EXIT_FAIL = 1;
 const EXIT_CANCELLED = 130;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
+const RUNNER_EVENT_SINK_URL_ENV = "OISIN_PIPELINE_EVENT_SINK_URL";
+const RUNNER_EVENT_SINK_AUTH_HEADER_ENV = "OISIN_PIPELINE_EVENT_AUTH_HEADER";
+const RUNNER_SCHEDULE_ENTRYPOINT = "pipe";
 
 export async function runRunnerJob(
   options: RunnerJobOptions = {}
@@ -100,7 +111,7 @@ export async function runRunnerJob(
   if ("validationFailure" in prepared) {
     return reportPreparedValidationFailure(prepared.validationFailure, options);
   }
-  const { authToken, env, payload, stderr } = prepared.job;
+  const { env, payload, stderr } = prepared.job;
 
   const controller = new AbortController();
   const signalEmitter = options.signalEmitter ?? process;
@@ -110,19 +121,17 @@ export async function runRunnerJob(
   let signalCount = 0;
   let signalFinalResultRecorded = false;
 
-  const sink = createRunnerEventSink({
-    authHeader: payload.eventSink.authHeader,
-    authToken,
+  const sink = createRunnerSink({
+    env,
     fetch: options.fetch,
-    runId: payload.run.runId,
-    url: payload.eventSink.url,
+    runId: payload.run.id,
   });
 
   const handleSignal = (exitCode: number): void => {
     signalCount += 1;
     if (signalCount === 1) {
       signalExitCode = exitCode;
-      sink.recordCancellation(payload.selector.workflowId);
+      sink.recordCancellation(RUNNER_SCHEDULE_ENTRYPOINT);
       signalFinalResultRecorded = true;
       controller.abort();
       return;
@@ -138,26 +147,23 @@ export async function runRunnerJob(
   let sawWorkflowFinish = false;
 
   try {
-    const { readiness, workspace } = await prepareReadyWorkspace(
-      options,
-      payload,
-      env,
-      sink
-    );
+    const { config, readiness, task, workflowId, workspace } =
+      await prepareReadyWorkspace(options, payload, env, sink);
     const result = await runner({
+      config,
       reporter: (event: PipelineRuntimeEvent) => {
         if (event.type === "workflow.finish") {
           sawWorkflowFinish = true;
         }
         sink.recordRuntimeEvent(event);
       },
-      runId: payload.run.runId,
+      runId: payload.run.id,
       signal: controller.signal,
-      task: payload.task.prompt,
+      task,
       hookPolicy: {
-        allowCommandHooks: payload.selector.allowCommandHooks,
+        allowCommandHooks: true,
       },
-      workflowId: payload.selector.workflowId,
+      workflowId,
       worktreePath: workspace.worktreePath,
     });
 
@@ -193,20 +199,100 @@ async function prepareReadyWorkspace(
   env: Record<string, string | undefined>,
   sink: RunnerEventSink
 ): Promise<{
+  config: PipelineConfig;
   readiness: RunnerDevspaceReadiness;
+  task: string;
+  workflowId: string;
   workspace: RunnerWorkspacePreparation;
 }> {
   const workspace = await prepareWorkspace(options, payload, env);
   sink.recordRunnerJobPhase("workspace.prepared", "runner workspace prepared", {
     worktreePath: workspace.worktreePath,
   });
-  const readiness = assertRunnerDevspaceReady(payload, workspace.worktreePath);
-  if (readiness.devspaceConfigPath) {
-    sink.recordRunnerJobPhase("devspace.ready", "runner devspace ready", {
-      path: readiness.devspaceConfigPath,
-    });
+  const readiness = assertRunnerDevspaceReady(workspace.worktreePath);
+  const config = requireRunnerConfig(readiness);
+  sink.recordRunnerJobPhase("environment.ready", "runner environment ready");
+  const setupStatus = await runRunnerEnvironmentSetup({
+    config,
+    env: workspace.env,
+    runCommand: options.runDevspaceCommand,
+    worktreePath: workspace.worktreePath,
+  });
+  sink.recordRunnerJobPhase(
+    `environment.setup.${setupStatus}`,
+    `runner environment setup ${setupStatus}`
+  );
+  const task = resolveRunnerTask(payload.task, workspace.worktreePath);
+  const prepareSchedule =
+    options.prepareSchedule ??
+    (options.pipelineRunner
+      ? useConfiguredDefaultWorkflow
+      : generateRunnerSchedule);
+  const compiled = await prepareSchedule(config, task, workspace, sink);
+  return {
+    config: compiled.config,
+    readiness,
+    task,
+    workflowId: compiled.workflowId,
+    workspace,
+  };
+}
+
+function requireRunnerConfig(
+  readiness: RunnerDevspaceReadiness
+): PipelineConfig {
+  if (!readiness.config) {
+    throw new PipelineConfigError(
+      "PIPELINE_CONFIG_VALIDATION_ERROR",
+      "Runner jobs require a repository pipeline config",
+      [
+        {
+          message: ".pipeline/pipeline.yaml is required for runner jobs",
+          path: ".pipeline/pipeline.yaml",
+        },
+      ]
+    );
   }
-  return { readiness, workspace };
+  return readiness.config;
+}
+
+function resolveRunnerTask(task: RunnerTask, worktreePath: string): string {
+  if (task.kind === "prompt") {
+    return task.prompt;
+  }
+  if (task.path) {
+    return readFileSync(join(worktreePath, task.path), "utf8");
+  }
+  return task.id;
+}
+
+function useConfiguredDefaultWorkflow(
+  config: PipelineConfig
+): Promise<{ config: PipelineConfig; workflowId: string }> {
+  return Promise.resolve({ config, workflowId: config.default_workflow });
+}
+
+async function generateRunnerSchedule(
+  config: PipelineConfig,
+  task: string,
+  workspace: RunnerWorkspacePreparation,
+  sink: RunnerEventSink
+): Promise<{ config: PipelineConfig; workflowId: string }> {
+  const result = await generateScheduleArtifact({
+    config,
+    entrypointId: RUNNER_SCHEDULE_ENTRYPOINT,
+    task,
+    worktreePath: workspace.worktreePath,
+  });
+  sink.recordRunnerJobPhase("schedule.generated", "runner schedule generated", {
+    path: result.path,
+  });
+  const compiled = compileScheduleArtifact(
+    config,
+    result.artifact,
+    workspace.worktreePath
+  );
+  return { config: compiled.config, workflowId: compiled.workflowId };
 }
 
 async function deliverSuccessfulRun(
@@ -225,8 +311,8 @@ async function deliverSuccessfulRun(
       sink
     );
     sink.recordRunnerJobPhase(
-      `devspace.smoke.${smokeStatus}`,
-      `runner devspace smoke ${smokeStatus}`
+      `environment.smoke.${smokeStatus}`,
+      `runner environment smoke ${smokeStatus}`
     );
   }
   const pullRequest = await createRunnerPullRequestWithPhase(
@@ -259,8 +345,8 @@ async function runRunnerDevspaceSmokeWithPhase(
     });
   } catch (err) {
     sink.recordRunnerJobPhase(
-      "devspace.smoke.failed",
-      "runner devspace smoke failed",
+      "environment.smoke.failed",
+      "runner environment smoke failed",
       { error: errorMessage(err) }
     );
     throw err;
@@ -328,10 +414,8 @@ function prepareRunnerJob(options: RunnerJobOptions): PrepareRunnerJobResult {
 
   const payload = parsePayload(payloadRaw, stderr);
   if (!payload.ok) {
-    const authToken = resolveAuthToken(env, stderr);
     return {
       validationFailure: {
-        authToken: authToken ?? undefined,
         env,
         error: payload.error,
         recoverable: payload.recoverable,
@@ -340,12 +424,7 @@ function prepareRunnerJob(options: RunnerJobOptions): PrepareRunnerJobResult {
     };
   }
 
-  const authToken = resolveAuthToken(env, stderr);
-  if (!authToken) {
-    return { exitCode: EXIT_VALIDATION };
-  }
-
-  return { job: { authToken, env, payload: payload.payload, stderr } };
+  return { job: { env, payload: payload.payload, stderr } };
 }
 
 function parsePayload(
@@ -363,18 +442,16 @@ async function reportPreparedValidationFailure(
   failure: PreparedValidationFailure,
   options: RunnerJobOptions
 ): Promise<number> {
-  if (failure.recoverable && failure.authToken) {
-    const sink = createRunnerEventSink({
-      authHeader: failure.recoverable.eventSink.authHeader,
-      authToken: failure.authToken,
+  if (failure.recoverable) {
+    const sink = createRunnerSink({
+      env: failure.env,
       fetch: options.fetch,
-      runId: failure.recoverable.run.runId,
-      url: failure.recoverable.eventSink.url,
+      runId: failure.recoverable.run.id,
     });
     sink.recordSchemaValidationFailure(
       failure.error.message,
       failure.error.issues,
-      failure.recoverable.workflowId
+      RUNNER_SCHEDULE_ENTRYPOINT
     );
     await flushAndReport(sink.flush, failure.stderr);
   }
@@ -392,6 +469,41 @@ function resolveAuthToken(
     stderr.write(`${message}\n`);
     return null;
   }
+}
+
+function createRunnerSink(options: {
+  env: Record<string, string | undefined>;
+  fetch?: FetchLike;
+  runId: string;
+}): RunnerEventSink {
+  const url = options.env[RUNNER_EVENT_SINK_URL_ENV]?.trim();
+  if (!url) {
+    return createNoopRunnerEventSink();
+  }
+  const authToken = resolveAuthToken(options.env, { write: () => true });
+  if (!authToken) {
+    return createNoopRunnerEventSink();
+  }
+  return createRunnerEventSink({
+    authHeader:
+      options.env[RUNNER_EVENT_SINK_AUTH_HEADER_ENV]?.trim() || "Authorization",
+    authToken,
+    fetch: options.fetch,
+    runId: options.runId,
+    url,
+  });
+}
+
+function createNoopRunnerEventSink(): RunnerEventSink {
+  return {
+    fail: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+    recordCancellation: () => undefined,
+    recordFinalResult: () => undefined,
+    recordRunnerJobPhase: () => undefined,
+    recordRuntimeEvent: () => undefined,
+    recordSchemaValidationFailure: () => undefined,
+  };
 }
 
 function errorMessage(err: unknown): string {

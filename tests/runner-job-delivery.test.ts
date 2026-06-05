@@ -3,23 +3,20 @@ import type { RunnerJobPayload } from "../src/runner-job-contract.js";
 
 function cleanDevspacePayload(): Pick<
   RunnerJobPayload,
-  "repository" | "task" | "workspace"
+  "delivery" | "repository" | "task"
 > {
   return {
+    delivery: {
+      pullRequest: true,
+    },
     repository: {
-      branch: "main",
-      cloneUrl: "https://github.com/oisin-ee/tova.git",
-      fullName: "oisin-ee/tova",
-      owner: "oisin-ee",
-      repo: "tova",
+      baseBranch: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
+      url: "https://github.com/oisin-ee/tova.git",
     },
     task: {
+      kind: "prompt",
       prompt: "Ship it",
-      taskId: "PIPE-49",
-    },
-    workspace: {
-      mode: "clean-devspace",
     },
   };
 }
@@ -30,6 +27,7 @@ describe("runner-job PR delivery", () => {
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({ stdout: "runner/pipe-49\n" })
+      .mockResolvedValueOnce({ stdout: "" })
       .mockResolvedValueOnce({
         stdout: "https://github.com/oisin-ee/tova/pull/123\n",
       });
@@ -46,7 +44,7 @@ describe("runner-job PR delivery", () => {
     });
 
     expect(runCommand).toHaveBeenNthCalledWith(
-      2,
+      3,
       "gh",
       [
         "pr",
@@ -72,6 +70,7 @@ describe("runner-job PR delivery", () => {
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({ stdout: "runner/pipe-49\n" })
+      .mockResolvedValueOnce({ stdout: "" })
       .mockResolvedValueOnce({
         stdout: "https://github.com/oisin-ee/tova/pull/124\n",
       });
@@ -83,7 +82,7 @@ describe("runner-job PR delivery", () => {
       worktreePath: "/workspace",
     });
 
-    expect(runCommand.mock.calls[1]?.[1]).toContain(
+    expect(runCommand.mock.calls[2]?.[1]).toContain(
       "custom-bot:runner/pipe-49"
     );
   });

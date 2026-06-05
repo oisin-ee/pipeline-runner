@@ -6,53 +6,47 @@ import { parseJson } from "./safe-json.js";
 export const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 export const RUNNER_JOB_CONTRACT_VERSION = "1";
 
-export const runnerEventSinkConfigSchema = z
-  .object({
-    authHeader: z.string().min(1),
-    url: z.string().url(),
-  })
-  .strict();
-
 export const runnerRunIdentitySchema = z
   .object({
-    projectId: z.string().min(1),
+    id: z.string().min(1),
+    project: z.string().min(1),
     requestedBy: z.string().min(1).optional(),
-    runId: z.string().min(1),
-  })
-  .strict();
-
-export const runnerWorkflowSelectorSchema = z
-  .object({
-    allowCommandHooks: z.boolean().default(true),
-    workflowId: z.string().min(1),
   })
   .strict();
 
 export const runnerTaskPromptSchema = z
   .object({
-    filePath: z.string().min(1).optional(),
-    githubUrl: z.string().url().optional(),
+    kind: z.literal("prompt"),
     prompt: z.string().min(1),
-    taskId: z.string().min(1),
     title: z.string().min(1).optional(),
   })
   .strict();
 
-export const runnerRepositoryContextSchema = z
+export const runnerTaskTicketSchema = z
   .object({
-    branch: z.string().min(1),
-    cloneUrl: z.string().url(),
-    fullName: z.string().min(1),
-    owner: z.string().min(1),
-    repo: z.string().min(1),
-    sha: z.string().min(1),
+    id: z.string().min(1),
+    kind: z.literal("ticket"),
+    path: z.string().min(1).optional(),
+    title: z.string().min(1).optional(),
   })
   .strict();
 
-export const runnerWorkspaceContextSchema = z
+export const runnerTaskSchema = z.discriminatedUnion("kind", [
+  runnerTaskPromptSchema,
+  runnerTaskTicketSchema,
+]);
+
+export const runnerRepositoryContextSchema = z
   .object({
-    cloneCredentialEnv: z.string().min(1).optional(),
-    mode: z.enum(["clean-devspace"]),
+    baseBranch: z.string().min(1),
+    sha: z.string().min(1).optional(),
+    url: z.string().url(),
+  })
+  .strict();
+
+export const runnerDeliverySchema = z
+  .object({
+    pullRequest: z.boolean().default(false),
   })
   .strict();
 
@@ -71,30 +65,15 @@ export const runnerJobPayloadSchema = z
         error: "runner job payload contract version must be 1",
       })
       .default(RUNNER_JOB_CONTRACT_VERSION),
-    eventSink: runnerEventSinkConfigSchema,
+    delivery: runnerDeliverySchema.default({ pullRequest: false }),
     momokaya: runnerMomokayaContextSchema.optional(),
-    repository: runnerRepositoryContextSchema.optional(),
+    repository: runnerRepositoryContextSchema,
     run: runnerRunIdentitySchema,
-    selector: runnerWorkflowSelectorSchema,
-    task: runnerTaskPromptSchema,
-    workspace: runnerWorkspaceContextSchema.optional(),
+    task: runnerTaskSchema,
   })
-  .strict()
-  .check((ctx) => {
-    if (
-      ctx.value.workspace?.mode === "clean-devspace" &&
-      !ctx.value.repository
-    ) {
-      ctx.issues.push({
-        code: "custom",
-        input: ctx.value.repository,
-        message: "repository is required for clean-devspace runner jobs",
-        path: ["repository"],
-      });
-    }
-  });
+  .strict();
 
-export type RunnerEventSinkConfig = z.infer<typeof runnerEventSinkConfigSchema>;
+export type RunnerDelivery = z.infer<typeof runnerDeliverySchema>;
 export type RunnerJobPayload = z.infer<typeof runnerJobPayloadSchema>;
 export type RunnerMomokayaContext = z.infer<typeof runnerMomokayaContextSchema>;
 export type RunnerRepositoryContext = z.infer<
@@ -102,12 +81,8 @@ export type RunnerRepositoryContext = z.infer<
 >;
 export type RunnerRunIdentity = z.infer<typeof runnerRunIdentitySchema>;
 export type RunnerTaskPrompt = z.infer<typeof runnerTaskPromptSchema>;
-export type RunnerWorkspaceContext = z.infer<
-  typeof runnerWorkspaceContextSchema
->;
-export type RunnerWorkflowSelector = z.infer<
-  typeof runnerWorkflowSelectorSchema
->;
+export type RunnerTaskTicket = z.infer<typeof runnerTaskTicketSchema>;
+export type RunnerTask = z.infer<typeof runnerTaskSchema>;
 
 export const runnerJobPayloadJsonSchema = z.toJSONSchema(
   runnerJobPayloadSchema
@@ -120,9 +95,7 @@ export interface RunnerJobPayloadValidationIssue {
 }
 
 export interface RecoverableRunnerJobPayloadEnvelope {
-  eventSink: RunnerEventSinkConfig;
   run: RunnerRunIdentity;
-  workflowId: string;
 }
 
 export class RunnerJobPayloadValidationError extends Error {
@@ -144,25 +117,19 @@ export type RunnerJobPayloadParseResult =
     };
 
 export interface BuildRunnerJobPayloadOptions {
-  allowCommandHooks?: boolean;
-  eventSink: RunnerEventSinkConfig;
+  delivery?: RunnerDelivery;
   momokaya?: RunnerMomokayaContext;
-  repository?: RunnerRepositoryContext;
+  repository: RunnerRepositoryContext;
   run: RunnerRunIdentity;
-  task: RunnerTaskPrompt;
-  workflowId: string;
-  workspace?: RunnerWorkspaceContext;
+  task: RunnerTask;
 }
 
 export interface CreateRunnerJobPayloadEnvOptions {
-  allowCommandHooks?: boolean;
-  eventSinkUrl: string;
-  projectId: string;
+  project: string;
+  repository: RunnerRepositoryContext;
   requestedBy?: string;
   runId: string;
-  taskId: string;
   taskPrompt: string;
-  workflowId: string;
 }
 
 export interface ResolveRunnerEventSinkAuthTokenOptions {
@@ -371,21 +338,16 @@ export function createRunnerJobPayloadEnv(
   options: CreateRunnerJobPayloadEnvOptions
 ): { name: typeof RUNNER_PAYLOAD_ENV; value: string } {
   const payload = buildRunnerJobPayload({
-    eventSink: {
-      authHeader: "Authorization",
-      url: options.eventSinkUrl,
-    },
     run: {
-      projectId: options.projectId,
+      id: options.runId,
+      project: options.project,
       requestedBy: options.requestedBy,
-      runId: options.runId,
     },
-    allowCommandHooks: options.allowCommandHooks,
+    repository: options.repository,
     task: {
+      kind: "prompt",
       prompt: options.taskPrompt,
-      taskId: options.taskId,
     },
-    workflowId: options.workflowId,
   });
   return {
     name: RUNNER_PAYLOAD_ENV,
@@ -398,16 +360,11 @@ export function buildRunnerJobPayload(
 ): RunnerJobPayload {
   return runnerJobPayloadSchema.parse({
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
-    eventSink: options.eventSink,
+    delivery: options.delivery,
     momokaya: options.momokaya,
     repository: options.repository,
     run: options.run,
-    selector: {
-      allowCommandHooks: options.allowCommandHooks ?? true,
-      workflowId: options.workflowId,
-    },
     task: options.task,
-    workspace: options.workspace,
   });
 }
 
@@ -749,17 +706,8 @@ function formatLogMessage(output: unknown): string {
 
 function formatRunnerJobPayloadIssues(
   issues: RunnerJobPayloadValidationIssue[],
-  payload: unknown
+  _payload: unknown
 ): string {
-  const selector = readRecord(readRecord(payload)?.selector);
-  if (
-    selector &&
-    !("workflowId" in selector) &&
-    Object.keys(selector).length > 0
-  ) {
-    return `Unsupported selector fields: ${Object.keys(selector).join(", ")}; selector.workflowId is required`;
-  }
-
   return issues
     .map((issue) => `${issue.path || "payload"}: ${issue.message}`)
     .join("; ");
@@ -786,7 +734,7 @@ function runnerJobPayloadIssues(
         },
       ];
     }
-    if (path === "eventSink.url") {
+    if (path === "repository.url") {
       return [
         {
           code: issue.code,
@@ -823,18 +771,13 @@ function recoverablePayloadEnvelope(
   if (!envelope) {
     return {};
   }
-  const eventSink = runnerEventSinkConfigSchema.safeParse(envelope.eventSink);
   const run = runnerRunIdentitySchema.safeParse(envelope.run);
-  const selector = readRecord(envelope.selector);
-  const workflowId = selector?.workflowId;
-  if (!(eventSink.success && run.success && typeof workflowId === "string")) {
+  if (!run.success) {
     return {};
   }
   return {
     recoverable: {
-      eventSink: eventSink.data,
       run: run.data,
-      workflowId,
     },
   };
 }

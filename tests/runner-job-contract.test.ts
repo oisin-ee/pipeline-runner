@@ -1,38 +1,32 @@
 import { describe, expect, it } from "vitest";
 
 const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
-const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
 const TIMESTAMP = "2026-06-02T09:00:00.000Z";
 const RUNNER_JOB_CONTRACT_VERSION = "1";
-const MISSING_RUN_ID_RE = /run\.runId.*required/i;
-const UNSUPPORTED_SELECTOR_RE =
-  /unsupported selector.*entrypoint|selector\.workflowId/i;
-const INVALID_EVENT_SINK_URL_RE = /eventSink\.url.*valid URL/i;
+const MISSING_RUN_ID_RE = /run\.id.*required/i;
+const INVALID_REPOSITORY_URL_RE = /repository\.url.*valid URL/i;
 const AUTH_TOKEN_ENV_RE =
   /OISIN_PIPELINE_EVENT_AUTH_TOKEN|PIPELINE_EVENT_API_TOKEN/i;
-const CLEAN_DEVSPACE_RE = /repository.*required|clean-devspace/i;
 const PROTOTYPE_POLLUTION_RE = /proto/i;
 const CONTRACT_VERSION_RE = /contract version/i;
 
 function validPayload(): Record<string, unknown> {
   return {
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
-    eventSink: {
-      authHeader: "Authorization",
-      url: EVENT_SINK_URL,
+    delivery: { pullRequest: false },
+    repository: {
+      baseBranch: "main",
+      sha: "0123456789abcdef0123456789abcdef01234567",
+      url: "https://github.com/oisin-ee/pipeline-runner.git",
     },
     run: {
-      projectId: "project_123",
+      id: "run_123",
+      project: "project_123",
       requestedBy: "user_456",
-      runId: "run_123",
-    },
-    selector: {
-      allowCommandHooks: true,
-      workflowId: "default",
     },
     task: {
+      kind: "prompt",
       prompt: "Ship PIPE-38",
-      taskId: "PIPE-38",
     },
   };
 }
@@ -46,13 +40,11 @@ describe("runner-job payload contract", () => {
     const { createRunnerJobPayloadEnv } = await loadContractModule();
 
     const env = createRunnerJobPayloadEnv({
-      eventSinkUrl: EVENT_SINK_URL,
-      projectId: "project_123",
+      project: "project_123",
+      repository: validPayload().repository,
       requestedBy: "user_456",
       runId: "run_123",
-      taskId: "PIPE-38",
       taskPrompt: "Ship PIPE-38",
-      workflowId: "default",
     });
 
     expect(env).toEqual({
@@ -65,45 +57,35 @@ describe("runner-job payload contract", () => {
     const { buildRunnerJobPayload } = await loadContractModule();
 
     const payload = buildRunnerJobPayload({
-      eventSink: {
-        authHeader: "Authorization",
-        url: EVENT_SINK_URL,
-      },
+      repository: validPayload().repository,
       run: {
-        projectId: "project_123",
+        id: "run_123",
+        project: "project_123",
         requestedBy: "user_456",
-        runId: "run_123",
       },
       task: {
+        kind: "prompt",
         prompt: "Ship PIPE-38",
-        taskId: "PIPE-38",
       },
-      workflowId: "default",
     });
 
     expect(payload).toEqual(validPayload());
   });
 
-  it("parses the failed Momokaya payload shape with explicit command hooks disabled", async () => {
+  it("parses a ticket task payload", async () => {
     const { parseRunnerJobPayload } = await loadContractModule();
     const payload = {
       ...validPayload(),
-      selector: {
-        allowCommandHooks: false,
-        workflowId: "inspect",
-      },
       task: {
-        prompt: "PC-1",
-        taskId: "PC-1",
+        id: "PIPE-49.10",
+        kind: "ticket",
+        path: "backlog/tasks/pipe-49.10.md",
       },
     };
 
     const parsed = parseRunnerJobPayload(JSON.stringify(payload));
 
-    expect(parsed.selector).toEqual({
-      allowCommandHooks: false,
-      workflowId: "inspect",
-    });
+    expect(parsed.task).toEqual(payload.task);
   });
 
   it("parses a valid runner payload without adding console-only fields", async () => {
@@ -114,51 +96,11 @@ describe("runner-job payload contract", () => {
     expect(parsed).toEqual(validPayload());
     expect(Object.keys(parsed).sort()).toEqual([
       "contractVersion",
-      "eventSink",
+      "delivery",
+      "repository",
       "run",
-      "selector",
       "task",
     ]);
-  });
-
-  it("requires repository context for clean devspace runner jobs", async () => {
-    const { parseRunnerJobPayload } = await loadContractModule();
-
-    expect(() =>
-      parseRunnerJobPayload(
-        JSON.stringify({
-          ...validPayload(),
-          workspace: {
-            cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
-            mode: "clean-devspace",
-          },
-        })
-      )
-    ).toThrow(CLEAN_DEVSPACE_RE);
-
-    const parsed = parseRunnerJobPayload(
-      JSON.stringify({
-        ...validPayload(),
-        repository: {
-          branch: "main",
-          cloneUrl: "https://github.com/oisin-ee/tova.git",
-          fullName: "oisin-ee/tova",
-          owner: "oisin-ee",
-          repo: "tova",
-          sha: "0123456789abcdef0123456789abcdef01234567",
-        },
-        workspace: {
-          cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
-          mode: "clean-devspace",
-        },
-      })
-    );
-
-    expect(parsed.workspace).toEqual({
-      cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
-      mode: "clean-devspace",
-    });
-    expect(parsed.repository?.fullName).toBe("oisin-ee/tova");
   });
 
   it("exports schemas and types for each payload component", async () => {
@@ -171,26 +113,20 @@ describe("runner-job payload contract", () => {
       additionalProperties: false,
       properties: {
         contractVersion: { type: "string" },
-        selector: {
+        repository: {
           additionalProperties: false,
           properties: {
-            allowCommandHooks: { type: "boolean" },
-            workflowId: { type: "string" },
+            baseBranch: { type: "string" },
+            url: { type: "string" },
           },
         },
       },
       type: "object",
     });
-    expect(
-      contract.runnerEventSinkConfigSchema.parse(validPayload().eventSink)
-    ).toEqual(validPayload().eventSink);
     expect(contract.runnerRunIdentitySchema.parse(validPayload().run)).toEqual(
       validPayload().run
     );
-    expect(
-      contract.runnerWorkflowSelectorSchema.parse(validPayload().selector)
-    ).toEqual(validPayload().selector);
-    expect(contract.runnerTaskPromptSchema.parse(validPayload().task)).toEqual(
+    expect(contract.runnerTaskSchema.parse(validPayload().task)).toEqual(
       validPayload().task
     );
   });
@@ -198,22 +134,10 @@ describe("runner-job payload contract", () => {
   it("rejects payloads missing required runner fields", async () => {
     const { parseRunnerJobPayload } = await loadContractModule();
     const payload = validPayload();
-    (payload.run as Record<string, unknown>).runId = undefined;
+    (payload.run as Record<string, unknown>).id = undefined;
 
     expect(() => parseRunnerJobPayload(JSON.stringify(payload))).toThrow(
       MISSING_RUN_ID_RE
-    );
-  });
-
-  it("rejects unsupported selectors instead of guessing the workflow", async () => {
-    const { parseRunnerJobPayload } = await loadContractModule();
-    const payload = {
-      ...validPayload(),
-      selector: { entrypoint: "quick" },
-    };
-
-    expect(() => parseRunnerJobPayload(JSON.stringify(payload))).toThrow(
-      UNSUPPORTED_SELECTOR_RE
     );
   });
 
@@ -236,35 +160,31 @@ describe("runner-job payload contract", () => {
           }),
         ],
       }),
-      recoverable: {
-        eventSink: validPayload().eventSink,
-        run: validPayload().run,
-        workflowId: "default",
-      },
+      recoverable: { run: validPayload().run },
     });
   });
 
   it("rejects prototype-polluting runner payload JSON", async () => {
     const { parseRunnerJobPayload } = await loadContractModule();
-    const payload = `{"__proto__":{"polluted":true},"eventSink":{"authHeader":"Authorization","url":"${EVENT_SINK_URL}"},"run":{"projectId":"project_123","requestedBy":"user_456","runId":"run_123"},"selector":{"workflowId":"default"},"task":{"prompt":"Ship PIPE-38","taskId":"PIPE-38"}}`;
+    const payload = `{"__proto__":{"polluted":true},"repository":{"baseBranch":"main","url":"https://github.com/oisin-ee/pipeline-runner.git"},"run":{"id":"run_123","project":"project_123","requestedBy":"user_456"},"task":{"kind":"prompt","prompt":"Ship PIPE-38"}}`;
 
     expect(() => parseRunnerJobPayload(payload)).toThrow(
       PROTOTYPE_POLLUTION_RE
     );
   });
 
-  it("rejects invalid event sink URLs before the runner starts", async () => {
+  it("rejects invalid repository URLs before the runner starts", async () => {
     const { parseRunnerJobPayload } = await loadContractModule();
     const payload = {
       ...validPayload(),
-      eventSink: {
-        authHeader: "Authorization",
+      repository: {
+        baseBranch: "main",
         url: "not a url",
       },
     };
 
     expect(() => parseRunnerJobPayload(JSON.stringify(payload))).toThrow(
-      INVALID_EVENT_SINK_URL_RE
+      INVALID_REPOSITORY_URL_RE
     );
   });
 

@@ -13,15 +13,14 @@ const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
 const RUNNER_JOB_CONTRACT_VERSION = "1";
 const PAYLOAD_ENV_RE = /OISIN_PIPELINE_RUNNER_PAYLOAD_JSON/i;
 const MALFORMED_JSON_RE = /malformed|json/i;
-const EVENT_SINK_URL_RE = /eventSink\.url/i;
+const REPOSITORY_URL_RE = /repository\.url/i;
 const STARTUP_FAILURE_RE = /runtime startup failed/i;
 const MISSING_CONFIG_RE = /pipeline.*config|pipeline\.yaml/i;
 const KUBERNETES_API_RE = /kubernetes|api\/v1|apis\/batch/i;
 const FLUSH_FAILURE_RE = /console unavailable|event sink flush/i;
 const UNAUTHORIZED_RE = /unauthorized|401|event sink flush/i;
-const SCHEMA_VALIDATION_RE = /schema validation|selector\.unexpected/i;
+const SCHEMA_VALIDATION_RE = /schema validation|selector/i;
 const SCHEMA_VALIDATION_MESSAGE_RE = /schema validation/i;
-const DEVSPACE_YAML_RE = /devspace\.yaml/i;
 const SMOKE_FAILED_RE = /smoke failed/i;
 const TEST_SKILLS = [
   "critique",
@@ -44,22 +43,20 @@ const TEST_SKILLS = [
 function validPayload(): Record<string, unknown> {
   return {
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
-    eventSink: {
-      authHeader: "Authorization",
-      url: EVENT_SINK_URL,
+    delivery: { pullRequest: false },
+    repository: {
+      baseBranch: "main",
+      sha: "0123456789abcdef0123456789abcdef01234567",
+      url: "https://github.com/oisin-ee/pipeline-runner.git",
     },
     run: {
-      projectId: "project_123",
+      id: "run_123",
+      project: "project_123",
       requestedBy: "user_456",
-      runId: "run_123",
-    },
-    selector: {
-      allowCommandHooks: true,
-      workflowId: "default",
     },
     task: {
+      kind: "prompt",
       prompt: "Ship PIPE-38",
-      taskId: "PIPE-38",
     },
   };
 }
@@ -128,9 +125,11 @@ function ioBuffers(): {
 
 function payloadEnv(
   payload: Record<string, unknown> = validPayload()
-): Record<string, string> {
+): Record<string, string | undefined> {
   return {
     OISIN_PIPELINE_EVENT_AUTH_TOKEN: "console-token",
+    OISIN_PIPELINE_EVENT_SINK_URL: EVENT_SINK_URL,
+    PIPELINE_TARGET_PATH: process.cwd(),
     [RUNNER_PAYLOAD_ENV]: JSON.stringify(payload),
   };
 }
@@ -192,7 +191,7 @@ describe("runner-job entrypoint", () => {
           runId: "run_123",
           task: "Ship PIPE-38",
           workflowId: "default",
-          worktreePath: "/workspace/run_123",
+          worktreePath: process.cwd(),
         })
       );
       expect(options.signal).toBeInstanceOf(AbortSignal);
@@ -228,7 +227,7 @@ describe("runner-job entrypoint", () => {
     );
   });
 
-  it("passes explicit console hook policy from the original failed selector shape", async () => {
+  it("resolves ticket payloads before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) => okResponse()
@@ -237,26 +236,21 @@ describe("runner-job entrypoint", () => {
       expect(options).toEqual(
         expect.objectContaining({
           hookPolicy: expect.objectContaining({
-            allowCommandHooks: false,
+            allowCommandHooks: true,
           }),
-          task: "PC-1",
-          workflowId: "inspect",
+          task: "PIPE-49.2",
+          workflowId: "default",
         })
       );
-      return { ...runtimeResult("PASS"), plan: { workflowId: "inspect" } };
+      return runtimeResult("PASS");
     });
 
     const exitCode = await runRunnerJob({
-      cwd: "/workspace/run_123",
       env: payloadEnv({
         ...validPayload(),
-        selector: {
-          allowCommandHooks: false,
-          workflowId: "inspect",
-        },
         task: {
-          prompt: "PC-1",
-          taskId: "PC-1",
+          id: "PIPE-49.2",
+          kind: "ticket",
         },
       }),
       fetch: fetchMock,
@@ -267,7 +261,7 @@ describe("runner-job entrypoint", () => {
     expect(pipelineRunner).toHaveBeenCalledTimes(1);
   });
 
-  it("prepares clean devspace workspaces before invoking the pipeline engine", async () => {
+  it("prepares repository workspaces before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const { initPipelineProject } = await import("../src/pipeline-init.js");
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-devspace-"));
@@ -290,31 +284,22 @@ describe("runner-job entrypoint", () => {
     const runDevspaceCommand = vi.fn(async () => undefined);
 
     try {
-      await writeFile(
-        join(dir, "devspace.yaml"),
-        "version: v2beta1\nname: tova\n"
-      );
       await writeTestSkills(dir);
       await initPipelineProject({ cwd: dir, overwrite: false });
       const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
       await writeFile(
         pipelineConfigPath,
-        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  devspace_smoke:\n    command: bun\n    args: ["run", "test:smoke"]\n`
+        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  environment:\n    smoke:\n      - command: bun\n        args: ["run", "test:smoke"]\n`
       );
 
       const exitCode = await runRunnerJob({
         env: payloadEnv({
           ...validPayload(),
+          delivery: { pullRequest: true },
           repository: {
-            branch: "main",
-            cloneUrl: "https://github.com/oisin-ee/tova.git",
-            fullName: "oisin-ee/tova",
-            owner: "oisin-ee",
-            repo: "tova",
+            baseBranch: "main",
             sha: "0123456789abcdef0123456789abcdef01234567",
-          },
-          workspace: {
-            mode: "clean-devspace",
+            url: "https://github.com/oisin-ee/tova.git",
           },
         }),
         fetch: fetchMock,
@@ -328,7 +313,9 @@ describe("runner-job entrypoint", () => {
       expect(prepareWorkspace).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({
-            workspace: { mode: "clean-devspace" },
+            repository: expect.objectContaining({
+              url: "https://github.com/oisin-ee/tova.git",
+            }),
           }),
         })
       );
@@ -345,7 +332,9 @@ describe("runner-job entrypoint", () => {
       expect(createPullRequest).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({
-            repository: expect.objectContaining({ fullName: "oisin-ee/tova" }),
+            repository: expect.objectContaining({
+              url: "https://github.com/oisin-ee/tova.git",
+            }),
           }),
           worktreePath: dir,
         })
@@ -368,12 +357,14 @@ describe("runner-job entrypoint", () => {
             type: "runner.job.phase",
           }),
           expect.objectContaining({
-            log: expect.objectContaining({ message: "runner devspace ready" }),
+            log: expect.objectContaining({
+              message: "runner environment ready",
+            }),
             type: "runner.job.phase",
           }),
           expect.objectContaining({
             log: expect.objectContaining({
-              message: "runner devspace smoke ran",
+              message: "runner environment smoke ran",
             }),
             type: "runner.job.phase",
           }),
@@ -393,26 +384,22 @@ describe("runner-job entrypoint", () => {
     }
   });
 
-  it("fails clean devspace jobs before runtime when devspace.yaml is missing", async () => {
+  it("does not require devspace.yaml before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
+    const { initPipelineProject } = await import("../src/pipeline-init.js");
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-no-devspace-"));
-    const pipelineRunner = vi.fn();
-    const io = ioBuffers();
+    const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
 
     try {
+      await writeTestSkills(dir);
+      await initPipelineProject({ cwd: dir, overwrite: false });
       const exitCode = await runRunnerJob({
         env: payloadEnv({
           ...validPayload(),
           repository: {
-            branch: "main",
-            cloneUrl: "https://github.com/oisin-ee/tova.git",
-            fullName: "oisin-ee/tova",
-            owner: "oisin-ee",
-            repo: "tova",
+            baseBranch: "main",
             sha: "0123456789abcdef0123456789abcdef01234567",
-          },
-          workspace: {
-            mode: "clean-devspace",
+            url: "https://github.com/oisin-ee/tova.git",
           },
         }),
         fetch: vi.fn(async () => okResponse()),
@@ -421,18 +408,16 @@ describe("runner-job entrypoint", () => {
           env: { PIPELINE_TARGET_PATH: dir },
           worktreePath: dir,
         })),
-        stderr: io.stderr,
       });
 
-      expect(exitCode).toBe(64);
-      expect(pipelineRunner).not.toHaveBeenCalled();
-      expect(io.stderrText()).toMatch(DEVSPACE_YAML_RE);
+      expect(exitCode).toBe(0);
+      expect(pipelineRunner).toHaveBeenCalledTimes(1);
     } finally {
       await rm(dir, { force: true, recursive: true });
     }
   });
 
-  it("records a failed smoke phase and does not create a PR when devspace smoke fails", async () => {
+  it("records a failed smoke phase and does not create a PR when environment smoke fails", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const { initPipelineProject } = await import("../src/pipeline-init.js");
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-smoke-fail-"));
@@ -446,31 +431,22 @@ describe("runner-job entrypoint", () => {
     }));
 
     try {
-      await writeFile(
-        join(dir, "devspace.yaml"),
-        "version: v2beta1\nname: tova\n"
-      );
       await writeTestSkills(dir);
       await initPipelineProject({ cwd: dir, overwrite: false });
       const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
       await writeFile(
         pipelineConfigPath,
-        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  devspace_smoke:\n    command: bun\n    args: ["run", "test:smoke"]\n`
+        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  environment:\n    smoke:\n      - command: bun\n        args: ["run", "test:smoke"]\n`
       );
 
       const exitCode = await runRunnerJob({
         env: payloadEnv({
           ...validPayload(),
+          delivery: { pullRequest: true },
           repository: {
-            branch: "main",
-            cloneUrl: "https://github.com/oisin-ee/tova.git",
-            fullName: "oisin-ee/tova",
-            owner: "oisin-ee",
-            repo: "tova",
+            baseBranch: "main",
             sha: "0123456789abcdef0123456789abcdef01234567",
-          },
-          workspace: {
-            mode: "clean-devspace",
+            url: "https://github.com/oisin-ee/tova.git",
           },
         }),
         fetch: fetchMock,
@@ -497,7 +473,7 @@ describe("runner-job entrypoint", () => {
         expect.arrayContaining([
           expect.objectContaining({
             log: expect.objectContaining({
-              message: "runner devspace smoke failed",
+              message: "runner environment smoke failed",
               output: expect.objectContaining({
                 error: expect.stringMatching(SMOKE_FAILED_RE),
               }),
@@ -533,7 +509,10 @@ describe("runner-job entrypoint", () => {
     const io = ioBuffers();
     const payload = {
       ...validPayload(),
-      eventSink: { authHeader: "Authorization", url: "not a url" },
+      repository: {
+        baseBranch: "main",
+        url: "not a url",
+      },
     };
 
     const exitCode = await runRunnerJob({
@@ -545,7 +524,7 @@ describe("runner-job entrypoint", () => {
 
     expect(exitCode).toBe(64);
     expect(pipelineRunner).not.toHaveBeenCalled();
-    expect(io.stderrText()).toMatch(EVENT_SINK_URL_RE);
+    expect(io.stderrText()).toMatch(REPOSITORY_URL_RE);
   });
 
   it("posts schema validation events when an invalid payload still has run and sink identity", async () => {
@@ -589,7 +568,7 @@ describe("runner-job entrypoint", () => {
       expect.objectContaining({
         finalResult: {
           outcome: "FAIL",
-          workflowId: "default",
+          workflowId: "pipe",
         },
         type: "workflow.finish",
       }),
@@ -620,9 +599,11 @@ describe("runner-job entrypoint", () => {
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-missing-config-"));
 
     try {
+      const env = payloadEnv();
+      env.PIPELINE_TARGET_PATH = undefined;
       const exitCode = await runRunnerJob({
         cwd: dir,
-        env: payloadEnv(),
+        env,
         fetch: vi.fn(async () => okResponse()),
         stderr: io.stderr,
         stdout: io.stdout,

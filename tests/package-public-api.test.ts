@@ -186,19 +186,18 @@ const formattedError = formatConfigError(
   new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing")
 );
 const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
-  eventSink: {
-    authHeader: "Authorization",
-    url: "https://console.example.test/api/pipeline/runner-events",
+  repository: {
+    baseBranch: "main",
+    url: "https://github.com/oisin-ee/pipeline-runner.git",
   },
   run: {
-    projectId: "project_123",
-    runId: "run_123",
+    id: "run_123",
+    project: "project_123",
   },
   task: {
+    kind: "prompt",
     prompt: "Ship PIPE-42",
-    taskId: "PIPE-42",
   },
-  workflowId: "default",
 });
 const parsedPayload: RunnerJobPayload = parseRunnerJobPayload(
   JSON.stringify(runnerPayload)

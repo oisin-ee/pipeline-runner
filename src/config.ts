@@ -612,7 +612,7 @@ export const workflowSchema = z
   })
   .strict();
 
-const runnerJobSmokeSchema = z
+const runnerJobCommandSchema = z
   .object({
     args: z.array(z.string()).default([]),
     command: z.string().min(1),
@@ -620,9 +620,16 @@ const runnerJobSmokeSchema = z
   })
   .strict();
 
+const runnerJobEnvironmentSchema = z
+  .object({
+    setup: z.array(runnerJobCommandSchema).default([]),
+    smoke: z.array(runnerJobCommandSchema).default([]),
+  })
+  .strict();
+
 const runnerJobConfigSchema = z
   .object({
-    devspace_smoke: runnerJobSmokeSchema.optional(),
+    environment: runnerJobEnvironmentSchema.default({ setup: [], smoke: [] }),
   })
   .strict();
 
@@ -650,7 +657,9 @@ const pipelineFileSchema = z
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     orchestrator: orchestratorSchema,
-    runner_job: runnerJobConfigSchema.default({}),
+    runner_job: runnerJobConfigSchema.default({
+      environment: { setup: [], smoke: [] },
+    }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     workflows: strictRecord(workflowSchema).default({}),
@@ -667,7 +676,9 @@ const configSchemaBase = z
     mcp_servers: strictRecord(mcpServerSchema).default({}),
     orchestrator: orchestratorSchema,
     profiles: strictRecord(profileSchema).default({}),
-    runner_job: runnerJobConfigSchema.default({}),
+    runner_job: runnerJobConfigSchema.default({
+      environment: { setup: [], smoke: [] },
+    }),
     rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),
     schedules: strictRecord(schedulePolicySchema).default({}),

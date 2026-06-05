@@ -19,10 +19,7 @@ export interface RunnerGitClient {
   };
 }
 
-type RunnerWorkspacePayload = Pick<
-  RunnerJobPayload,
-  "repository" | "workspace"
-> &
+type RunnerWorkspacePayload = Partial<Pick<RunnerJobPayload, "repository">> &
   Partial<Pick<RunnerJobPayload, "run" | "task">>;
 
 export interface PrepareRunnerWorkspaceOptions {
@@ -35,30 +32,30 @@ export interface PrepareRunnerWorkspaceOptions {
 export async function prepareRunnerWorkspace(
   options: PrepareRunnerWorkspaceOptions
 ): Promise<RunnerWorkspacePreparation> {
-  if (options.payload.workspace?.mode !== "clean-devspace") {
-    const worktreePath =
-      options.env.PIPELINE_TARGET_PATH ?? options.cwd ?? process.cwd();
+  const existingWorktreePath = options.env.PIPELINE_TARGET_PATH ?? options.cwd;
+  if (existingWorktreePath) {
     return {
-      env: { ...options.env },
-      worktreePath,
+      env: { ...options.env, PIPELINE_TARGET_PATH: existingWorktreePath },
+      worktreePath: existingWorktreePath,
     };
   }
 
   const repository = options.payload.repository;
   if (!repository) {
-    throw new RunnerWorkspaceError(
-      "repository is required for clean-devspace runner jobs"
-    );
+    throw new RunnerWorkspaceError("repository is required for runner jobs");
   }
 
   const git = options.createGitClient?.() ?? simpleGit();
-  const cloneUrl = cloneUrlWithCredentials(options.payload, options.env);
+  const repositoryUrl = repository.url;
   const branchName = runnerBranchName(options.payload);
   try {
-    await git.clone(cloneUrl, RUNNER_JOB_WORKSPACE_PATH, ["--no-tags"]);
+    await git.clone(repositoryUrl, RUNNER_JOB_WORKSPACE_PATH, ["--no-tags"]);
     await git
       .cwd(RUNNER_JOB_WORKSPACE_PATH)
-      .checkoutBranch(branchName, repository.sha);
+      .checkoutBranch(
+        branchName,
+        repository.sha ?? `origin/${repository.baseBranch}`
+      );
   } catch (err) {
     throw new RunnerWorkspaceError(redactSecretText(errorMessage(err)));
   }
@@ -89,53 +86,12 @@ function redactSecretText(value: string): string {
   return value.replace(CREDENTIAL_IN_URL_RE, "$1$2:<redacted>@");
 }
 
-function cloneUrlWithCredentials(
-  payload: Pick<RunnerJobPayload, "repository" | "workspace">,
-  env: Record<string, string | undefined>
-): string {
-  const cloneUrl = payload.repository?.cloneUrl;
-  if (!cloneUrl) {
-    throw new RunnerWorkspaceError(
-      "repository clone URL is required for clean-devspace runner jobs"
-    );
-  }
-  const credentialEnv = payload.workspace?.cloneCredentialEnv;
-  if (!credentialEnv) {
-    return cloneUrl;
-  }
-  const credential = env[credentialEnv];
-  if (!credential) {
-    throw new RunnerWorkspaceError(
-      `${credentialEnv} is required to clone the runner workspace`
-    );
-  }
-  const url = parseCloneUrl(cloneUrl);
-  if (!(url.protocol === "https:" || url.protocol === "http:")) {
-    throw new RunnerWorkspaceError(
-      "cloneCredentialEnv requires an HTTP(S) repository clone URL"
-    );
-  }
-  url.username = url.username || "x-access-token";
-  url.password = credential;
-  return url.toString();
-}
-
-function parseCloneUrl(cloneUrl: string): URL {
-  try {
-    return new URL(cloneUrl);
-  } catch {
-    throw new RunnerWorkspaceError(
-      "cloneCredentialEnv requires a valid repository clone URL"
-    );
-  }
-}
-
 function runnerBranchName(payload: RunnerWorkspacePayload): string {
-  const runId = payload.run?.runId;
-  const source = payload.task?.taskId || runId;
+  const runId = payload.run?.id;
+  const source = payload.task?.kind === "ticket" ? payload.task.id : runId;
   if (!(source && runId)) {
     throw new RunnerWorkspaceError(
-      "run and task context are required for clean-devspace runner jobs"
+      "run and task context are required for runner jobs"
     );
   }
   const normalized = source

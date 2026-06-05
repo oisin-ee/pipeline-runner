@@ -19,58 +19,51 @@ subpath exports `parseRunnerJobPayload`, `RUNNER_JOB_CONTRACT_VERSION`, and
 ```json
 {
   "contractVersion": "1",
-  "eventSink": {
-    "authHeader": "Authorization",
-    "url": "https://console.example/api/pipeline/runs/run-uid-1/events"
-  },
   "run": {
-    "projectId": "alpha",
-    "requestedBy": "@agent",
-    "runId": "run-uid-1"
-  },
-  "selector": {
-    "allowCommandHooks": true,
-    "workflowId": "epic-drain"
-  },
-  "task": {
-    "prompt": "PC-27",
-    "taskId": "PC-27"
+    "id": "run-uid-1",
+    "project": "alpha",
+    "requestedBy": "@agent"
   },
   "repository": {
-    "branch": "main",
-    "cloneUrl": "https://github.com/oisin-ee/tova.git",
-    "fullName": "oisin-ee/tova",
-    "owner": "oisin-ee",
-    "repo": "tova",
+    "url": "https://github.com/oisin-ee/tova.git",
+    "baseBranch": "main",
     "sha": "0123456789abcdef0123456789abcdef01234567"
   },
-  "workspace": {
-    "cloneCredentialEnv": "PIPELINE_GIT_TOKEN",
-    "mode": "clean-devspace"
+  "task": {
+    "kind": "ticket",
+    "id": "PC-27",
+    "path": "tickets/PC-27.md",
+    "title": "Fix checkout flow"
+  },
+  "delivery": {
+    "pullRequest": true
   }
 }
 ```
 
-`eventSink.url` is the exact append endpoint the runner posts to. The console
-resolves any requested entrypoint before creating the Job and sends
-`selector.workflowId`; the runner rejects unsupported selector modes. The
-`selector.allowCommandHooks` boolean is the runner-side hook policy for command
-hooks in that job. It defaults to `true`, and console callers that disable hooks
-must send `false` through the shared builder.
+`task` must be either a prompt task or a ticket task:
 
-For self-contained devspace Jobs, Console sends `workspace.mode:
-"clean-devspace"` plus repository clone context. The runner requires the exact
-repository SHA, clones the repository into `/workspace`, checks out a
-`pipeline/<taskId>` branch at that exact SHA, sets
-`PIPELINE_TARGET_PATH=/workspace`, validates `devspace.yaml`, and loads the
-stable `.pipeline` baseline before invoking the pipeline engine. Console must not
-pre-generate or commit ticket-specific schedules; scheduled entrypoints generate
-`.pipeline/runs/<runId>/schedule.yaml` and other run artifacts inside the Job.
+```json
+{ "kind": "prompt", "prompt": "Fix checkout flow", "title": "Checkout fix" }
+```
 
-Stable repo assets are `devspace.yaml`, `.pipeline/pipeline.yaml`,
-`.pipeline/profiles.yaml`, `.pipeline/runners.yaml`, and stable prompts, rules,
-schemas, and skills. Run artifacts are schedules, worktrees, agent prompts,
-logs, reports, verification evidence, and PR metadata.
+```json
+{ "kind": "ticket", "id": "PC-27", "path": "tickets/PC-27.md" }
+```
+
+Payloads describe repository and task intent only. They must not carry runner
+mechanics such as event sink URLs, workflow selectors, entrypoints, workspace
+modes, clone credential env names, repository owner/repo duplicates, or secrets.
+The runner clones `repository.url` into `/workspace`, checks out a
+`pipeline/<task-or-run>` branch from `repository.sha` when present or
+`origin/<repository.baseBranch>` otherwise, sets `PIPELINE_TARGET_PATH`, loads the
+repository `.pipeline` config, generates a task-specific `pipe` schedule, and
+then invokes the pipeline engine.
+
+Stable repo assets are `.pipeline/pipeline.yaml`, `.pipeline/profiles.yaml`,
+`.pipeline/runners.yaml`, and stable prompts, rules, schemas, and skills. Run
+artifacts are schedules, worktrees, agent prompts, logs, reports, verification
+evidence, and PR metadata.
 
 Payloads declare `contractVersion: "1"`. Runner images are labeled with
 `pipeline.oisin.dev.runner-contract-version` and
@@ -83,13 +76,24 @@ contract version and ship a compatibility plan.
 
 Console-created Jobs are labeled with `kueue.x-k8s.io/queue-name` and
 `pipeline.oisin.dev/project`, `pipeline.oisin.dev/run-id`,
-`pipeline.oisin.dev/source`, `pipeline.oisin.dev/task`,
-`pipeline.oisin.dev/workflow`, plus optional
+`pipeline.oisin.dev/source`, `pipeline.oisin.dev/task`, plus optional
 `pipeline.oisin.dev/requested-by`.
 
 ## Event Batches
 
-The runner posts authenticated JSON batches to `eventSink.url`:
+Event routing is runner environment/config, not payload. Set
+`OISIN_PIPELINE_EVENT_SINK_URL` to the append endpoint. The runner sets the
+authorization header from `OISIN_PIPELINE_EVENT_AUTH_HEADER` when present,
+otherwise `Authorization`, and resolves the bearer token using this lookup order:
+
+1. `OISIN_PIPELINE_EVENT_AUTH_TOKEN`
+2. `PIPELINE_EVENT_API_TOKEN`
+3. `/var/run/secrets/kubernetes.io/serviceaccount/token`
+
+If the event sink URL or token is unavailable, the runner still executes with a
+no-op sink. If a configured terminal sink flush fails, the Job exits `70`.
+
+The runner posts authenticated JSON batches to `OISIN_PIPELINE_EVENT_SINK_URL`:
 
 ```json
 {
@@ -109,52 +113,58 @@ Each event has a strictly increasing integer `sequence`, a string `type`, an
 `node`, `gate`, `artifact`, `log`, and `finalResult`. The console stores
 non-reserved top-level fields as event payload.
 
-If payload validation fails but the runner can recover the run identity and
-event sink identity, it posts a `runner.schema.validation` warning event with
-normalized issue details, then posts `workflow.finish` with outcome `FAIL`, and
-exits `64`. If identity is not recoverable, it writes the validation error to
-stderr and exits `64` without posting events.
+If payload validation fails but the runner can recover the run identity, it posts
+a `runner.schema.validation` warning event when an event sink is configured, then
+posts `workflow.finish` with outcome `FAIL`, and exits `64`. If identity is not
+recoverable, it writes the validation error to stderr and exits `64` without
+posting events.
 
-Runner-job environment phases are emitted as `runner.job.phase` log events. Clean
-devspace runs emit checkout/workspace readiness, devspace readiness, optional
-devspace smoke status, PR delivery status, and final runtime events. The PR URL
-is emitted as run evidence when delivery succeeds.
+Runner-job environment phases are emitted as `runner.job.phase` log events:
+workspace preparation, environment readiness, optional setup, generated schedule,
+optional smoke status, PR delivery status, and final runtime events. The PR URL is
+emitted as run evidence when delivery succeeds.
 
-## Authentication
+## Environment Setup And PR Delivery
 
-The payload carries the header name, not the token. The runner sets
-`<eventSink.authHeader>: Bearer <token>` using this lookup order:
-
-1. `OISIN_PIPELINE_EVENT_AUTH_TOKEN`
-2. `PIPELINE_EVENT_API_TOKEN`
-3. `/var/run/secrets/kubernetes.io/serviceaccount/token`
-
-If no token is available, validation fails before runtime execution starts.
-
-Clone credentials and GitHub PR credentials are runner-side env/secrets. Payload
-fields may reference env var names such as `cloneCredentialEnv`, but payloads
-must never contain secret values. PR delivery uses the configured GitHub CLI auth
-environment and defaults the PR head owner to `oisin-bot`; set
-`PIPELINE_PR_HEAD_OWNER` only when a different bot/user is explicitly required.
-
-## Devspace Smoke And PR Delivery
-
-Devspace repositories can declare a stable runner smoke command in
+Repositories can declare stable runner setup and smoke commands in
 `.pipeline/pipeline.yaml`:
 
 ```yaml
 runner_job:
-  devspace_smoke:
-    command: bun
-    args: ["run", "test:smoke"]
+  environment:
+    setup:
+      - command: bun
+        args: ["install", "--frozen-lockfile"]
+    smoke:
+      - command: bun
+        args: ["run", "test:smoke"]
 ```
 
-After the pipeline runtime reports `PASS`, the runner executes the configured
-smoke command from `/workspace`. A failed smoke command prevents PR creation.
-After verification and smoke pass, the runner creates a GitHub pull request with
-`gh pr create --fill --base <repository.branch> --head oisin-bot:<branch> --repo
-<repository.fullName>`. Failed runtime or smoke verification does not create a
-PR.
+Before runtime, the runner executes configured setup commands from `/workspace`.
+After the pipeline runtime reports `PASS`, the runner executes configured smoke
+commands from `/workspace`. A failed smoke command prevents PR creation.
+
+When `delivery.pullRequest` is `true`, verification and smoke pass, and the
+runtime outcome is `PASS`, the runner pushes the branch and creates a GitHub pull
+request with `gh pr create --fill --base <repository.baseBranch> --head
+oisin-bot:<branch> --repo <owner/repo-derived-from-repository.url>`. Set
+`PIPELINE_PR_HEAD_OWNER` only when a different bot/user is explicitly required.
+Failed runtime or smoke verification does not create a PR.
+
+## Authentication
+
+Secrets are runner-side env/secrets only. Payloads must never contain secret
+values or secret env-var names. Clone credentials, GitHub PR credentials, MCP
+gateway auth, and agent auth JSON are supplied by the Kubernetes Job environment
+and mounted secrets.
+
+Expected runner Job env/secrets include:
+
+- `CODEX_AUTH_JSON`
+- `OPENCODE_AUTH_JSON`
+- `PIPELINE_MCP_GATEWAY_AUTHORIZATION`
+- event sink auth env when event posting is configured
+- GitHub auth usable by both `git` and `gh`
 
 ## Boundary
 
@@ -164,8 +174,8 @@ the pipeline engine after preparing the workspace. The pipeline runtime does not
 import runner-job modules, and there is no compatibility shim or
 `kubernetes-runner` surface.
 
-The runner executes the configured workflow using the existing TypeScript
-runtime, translates runtime events, flushes final events, and exits with a
-deterministic code. It does not create Kubernetes resources, query Kubernetes,
-write console database records, run migrations, or import `pipeline-console`
-source.
+The runner executes a generated task-specific schedule using the existing
+TypeScript runtime, translates runtime events, flushes final events, and exits
+with a deterministic code. It does not create Kubernetes resources, query
+Kubernetes, write console database records, run migrations, or import
+`pipeline-console` source.

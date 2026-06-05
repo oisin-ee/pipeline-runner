@@ -1,39 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
 
 const WORKSPACE_PATH = "/workspace";
-const CLONE_CREDENTIAL_URL_RE =
-  /^https:\/\/x-access-token:super-secret-token@github\.com\/oisin-ee\/tova\.git$/;
-const MISSING_CLONE_CREDENTIAL_RE = /PIPELINE_GIT_TOKEN/;
-const REDACTED_CREDENTIAL_RE = /<redacted>/;
+const REDACTED_RE = /<redacted>/;
+const REPOSITORY_REQUIRED_RE = /repository is required/;
 const SECRET_TOKEN_RE = /super-secret-token/;
 
-function cleanDevspacePayload(): any {
+function runnerPayload(): any {
   return {
     repository: {
-      branch: "main",
-      cloneUrl: "https://github.com/oisin-ee/tova.git",
-      fullName: "oisin-ee/tova",
-      owner: "oisin-ee",
-      repo: "tova",
+      baseBranch: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
+      url: "https://github.com/oisin-ee/tova.git",
     },
     run: {
-      projectId: "project_123",
+      id: "run_123",
+      project: "project_123",
       requestedBy: "user_456",
-      runId: "run_123",
     },
     task: {
-      prompt: "Ship PIPE-49",
-      taskId: "PIPE-49",
-    },
-    workspace: {
-      mode: "clean-devspace",
+      id: "PIPE-49",
+      kind: "ticket",
     },
   };
 }
 
 describe("runner-job workspace bootstrap", () => {
-  it("clones clean devspace payloads into /workspace and checks out an exact-SHA runner branch", async () => {
+  it("clones repository payloads into /workspace and checks out an exact-SHA runner branch", async () => {
     const { prepareRunnerWorkspace } = await import(
       "../src/runner-job/workspace.js"
     );
@@ -44,7 +36,7 @@ describe("runner-job workspace bootstrap", () => {
     const prepared = await prepareRunnerWorkspace({
       createGitClient: () => ({ clone, cwd }),
       env: {},
-      payload: cleanDevspacePayload(),
+      payload: runnerPayload(),
     });
 
     expect(clone).toHaveBeenCalledWith(
@@ -63,7 +55,7 @@ describe("runner-job workspace bootstrap", () => {
     });
   });
 
-  it("uses cloneCredentialEnv without exposing the credential in clone errors", async () => {
+  it("redacts credentials if git reports a credentialized clone URL error", async () => {
     const { prepareRunnerWorkspace } = await import(
       "../src/runner-job/workspace.js"
     );
@@ -82,15 +74,9 @@ describe("runner-job workspace bootstrap", () => {
           cwd: vi.fn(() => ({ checkoutBranch: vi.fn() })),
         }),
         env: { PIPELINE_GIT_TOKEN: "super-secret-token" },
-        payload: {
-          ...cleanDevspacePayload(),
-          workspace: {
-            cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
-            mode: "clean-devspace",
-          },
-        },
+        payload: runnerPayload(),
       })
-    ).rejects.toThrow(REDACTED_CREDENTIAL_RE);
+    ).rejects.toThrow(REDACTED_RE);
     await expect(
       prepareRunnerWorkspace({
         createGitClient: () => ({
@@ -98,61 +84,21 @@ describe("runner-job workspace bootstrap", () => {
           cwd: vi.fn(() => ({ checkoutBranch: vi.fn() })),
         }),
         env: { PIPELINE_GIT_TOKEN: "super-secret-token" },
-        payload: {
-          ...cleanDevspacePayload(),
-          workspace: {
-            cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
-            mode: "clean-devspace",
-          },
-        },
+        payload: runnerPayload(),
       })
     ).rejects.not.toThrow(SECRET_TOKEN_RE);
-    expect(clone).toHaveBeenCalledWith(
-      expect.stringMatching(CLONE_CREDENTIAL_URL_RE),
-      WORKSPACE_PATH,
-      ["--no-tags"]
-    );
   });
 
-  it("fails before clone when the requested clone credential env is missing", async () => {
+  it("requires repository context", async () => {
     const { prepareRunnerWorkspace } = await import(
       "../src/runner-job/workspace.js"
     );
-    const clone = vi.fn(() => Promise.resolve(undefined));
 
     await expect(
       prepareRunnerWorkspace({
-        createGitClient: () => ({
-          clone,
-          cwd: vi.fn(() => ({ checkoutBranch: vi.fn() })),
-        }),
         env: {},
-        payload: {
-          ...cleanDevspacePayload(),
-          workspace: {
-            cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
-            mode: "clean-devspace",
-          },
-        },
+        payload: { run: { id: "run_123", project: "project_123" } },
       })
-    ).rejects.toThrow(MISSING_CLONE_CREDENTIAL_RE);
-    expect(clone).not.toHaveBeenCalled();
-  });
-
-  it("preserves the existing cwd for non-clean workspace payloads", async () => {
-    const { prepareRunnerWorkspace } = await import(
-      "../src/runner-job/workspace.js"
-    );
-
-    await expect(
-      prepareRunnerWorkspace({
-        cwd: "/existing/worktree",
-        env: { PIPELINE_TARGET_PATH: "/target/path" },
-        payload: {},
-      })
-    ).resolves.toEqual({
-      env: { PIPELINE_TARGET_PATH: "/target/path" },
-      worktreePath: "/target/path",
-    });
+    ).rejects.toThrow(REPOSITORY_REQUIRED_RE);
   });
 });
