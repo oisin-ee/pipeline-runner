@@ -237,7 +237,10 @@ async function prepareReadyWorkspace(
     worktreePath: workspace.worktreePath,
   });
   const readiness = assertRunnerDevspaceReady(workspace.worktreePath);
-  const config = requireRunnerConfig(readiness);
+  const config = applyRunnerOrchestrator(
+    requireRunnerConfig(readiness),
+    options.orchestrator
+  );
   sink.recordRunnerJobPhase("environment.ready", "runner environment ready");
   const setupStatus = await runRunnerEnvironmentSetup({
     config,
@@ -263,6 +266,36 @@ async function prepareReadyWorkspace(
     workflowId: compiled.workflowId,
     workspace,
   };
+}
+
+function applyRunnerOrchestrator(
+  config: PipelineConfig,
+  orchestrator: string | undefined
+): PipelineConfig {
+  if (!orchestrator) {
+    return config;
+  }
+  if (!(orchestrator in config.runners)) {
+    throw new PipelineConfigError(
+      "PIPELINE_CONFIG_VALIDATION_ERROR",
+      `Runner job orchestrator '${orchestrator}' is not declared in pipeline runners`,
+      [
+        {
+          message: `runner '${orchestrator}' is required for runner jobs`,
+          path: `runners.${orchestrator}`,
+        },
+      ]
+    );
+  }
+
+  const selected = orchestrator as "codex" | "opencode";
+  const next = structuredClone(config);
+  for (const profile of Object.values(next.profiles)) {
+    if (profile.runner === "codex" || profile.runner === "opencode") {
+      profile.runner = selected;
+    }
+  }
+  return next;
 }
 
 function requireRunnerConfig(

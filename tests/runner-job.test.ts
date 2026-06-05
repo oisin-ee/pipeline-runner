@@ -1113,15 +1113,31 @@ describe("runner-job orchestrator argument", () => {
         })
       );
 
+      const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
+
       const exitCode = await runRunnerJob({
         env: { PIPELINE_TARGET_PATH: process.cwd() },
         payloadFile: payloadPath,
         orchestrator: "opencode",
         fetch: vi.fn(async () => okResponse()),
-        pipelineRunner: vi.fn(() => runtimeResult("PASS")),
+        pipelineRunner,
       });
 
       expect(exitCode).toBe(0);
+      expect(pipelineRunner).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            profiles: expect.objectContaining({
+              "pipeline-researcher": expect.objectContaining({
+                runner: "opencode",
+              }),
+              "pipeline-code-writer": expect.objectContaining({
+                runner: "opencode",
+              }),
+            }),
+          }),
+        })
+      );
     } finally {
       await rm(dir, { force: true, recursive: true });
     }
