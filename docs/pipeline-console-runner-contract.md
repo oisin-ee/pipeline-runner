@@ -37,6 +37,11 @@ subpath exports `parseRunnerJobPayload`, `RUNNER_JOB_CONTRACT_VERSION`, and
   },
   "delivery": {
     "pullRequest": true
+  },
+  "events": {
+    "url": "https://console.example/api/pipeline/runner-events",
+    "authHeader": "Authorization",
+    "authTokenEnv": "PIPELINE_EVENT_API_TOKEN"
   }
 }
 ```
@@ -51,10 +56,12 @@ subpath exports `parseRunnerJobPayload`, `RUNNER_JOB_CONTRACT_VERSION`, and
 { "kind": "ticket", "id": "PC-27", "path": "tickets/PC-27.md" }
 ```
 
-Payloads describe repository and task intent only. They must not carry runner
-mechanics such as event sink URLs, workflow selectors, entrypoints, workspace
-modes, clone credential env names, repository owner/repo duplicates, or secrets.
-The runner clones `repository.url` into `/workspace`, checks out a
+Payloads describe run identity, repository/task intent, delivery intent, and the
+Console event destination. They must not carry workflow selectors, entrypoints,
+workspace modes, clone credential env names, repository owner/repo duplicates, or
+secrets. `events.authTokenEnv` names the environment variable containing the
+Console event API token; the token value itself stays in Kubernetes secrets. The
+runner clones `repository.url` into `/workspace`, checks out a
 `pipeline/<task-or-run>` branch from `repository.sha` when present or
 `origin/<repository.baseBranch>` otherwise, sets `PIPELINE_TARGET_PATH`, loads the
 repository `.pipeline` config, generates a task-specific `pipe` schedule, and
@@ -81,19 +88,9 @@ Console-created Jobs are labeled with `kueue.x-k8s.io/queue-name` and
 
 ## Event Batches
 
-Event routing is runner environment/config, not payload. Set
-`OISIN_PIPELINE_EVENT_SINK_URL` to the append endpoint. The runner sets the
-authorization header from `OISIN_PIPELINE_EVENT_AUTH_HEADER` when present,
-otherwise `Authorization`, and resolves the bearer token using this lookup order:
-
-1. `OISIN_PIPELINE_EVENT_AUTH_TOKEN`
-2. `PIPELINE_EVENT_API_TOKEN`
-3. `/var/run/secrets/kubernetes.io/serviceaccount/token`
-
-If the event sink URL or token is unavailable, the runner still executes with a
-no-op sink. If a configured terminal sink flush fails, the Job exits `70`.
-
-The runner posts authenticated JSON batches to `OISIN_PIPELINE_EVENT_SINK_URL`:
+Console supplies `events.url`, `events.authHeader`, and `events.authTokenEnv` in
+the runner payload. The runner reads the token from the named environment
+variable and posts progressive authenticated JSON batches to `events.url`:
 
 ```json
 {
@@ -113,9 +110,10 @@ Each event has a strictly increasing integer `sequence`, a string `type`, an
 `node`, `gate`, `artifact`, `log`, and `finalResult`. The console stores
 non-reserved top-level fields as event payload.
 
-If payload validation fails but the runner can recover the run identity, it posts
-a `runner.schema.validation` warning event when an event sink is configured, then
-posts `workflow.finish` with outcome `FAIL`, and exits `64`. If identity is not
+If a configured terminal sink flush fails, the Job exits `70`. If payload
+validation fails but the runner can recover the run identity and event config, it
+posts a `runner.schema.validation` warning event, then posts `workflow.finish`
+with outcome `FAIL`, and exits `64`. If identity or event config is not
 recoverable, it writes the validation error to stderr and exits `64` without
 posting events.
 

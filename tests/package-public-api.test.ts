@@ -186,6 +186,11 @@ const formattedError = formatConfigError(
   new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing")
 );
 const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
+  events: {
+    authHeader: "Authorization",
+    authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
+    url: "https://console.example/api/pipeline/runner-events",
+  },
   repository: {
     baseBranch: "main",
     url: "https://github.com/oisin-ee/pipeline-runner.git",

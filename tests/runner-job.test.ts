@@ -44,6 +44,11 @@ function validPayload(): Record<string, unknown> {
   return {
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     delivery: { pullRequest: false },
+    events: {
+      authHeader: "Authorization",
+      authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
+      url: EVENT_SINK_URL,
+    },
     repository: {
       baseBranch: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
@@ -127,8 +132,7 @@ function payloadEnv(
   payload: Record<string, unknown> = validPayload()
 ): Record<string, string | undefined> {
   return {
-    OISIN_PIPELINE_EVENT_AUTH_TOKEN: "console-token",
-    OISIN_PIPELINE_EVENT_SINK_URL: EVENT_SINK_URL,
+    PIPELINE_EVENT_API_TOKEN: "console-token",
     PIPELINE_TARGET_PATH: process.cwd(),
     [RUNNER_PAYLOAD_ENV]: JSON.stringify(payload),
   };

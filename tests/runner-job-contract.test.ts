@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 const TIMESTAMP = "2026-06-02T09:00:00.000Z";
 const RUNNER_JOB_CONTRACT_VERSION = "1";
+const EVENT_URL = "https://console.example.test/api/pipeline/runner-events";
 const MISSING_RUN_ID_RE = /run\.id.*required/i;
 const INVALID_REPOSITORY_URL_RE = /repository\.url.*valid URL/i;
-const AUTH_TOKEN_ENV_RE =
-  /OISIN_PIPELINE_EVENT_AUTH_TOKEN|PIPELINE_EVENT_API_TOKEN/i;
+const AUTH_TOKEN_ENV_RE = /PIPELINE_EVENT_API_TOKEN/i;
 const PROTOTYPE_POLLUTION_RE = /proto/i;
 const CONTRACT_VERSION_RE = /contract version/i;
 
@@ -14,6 +14,11 @@ function validPayload(): Record<string, unknown> {
   return {
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     delivery: { pullRequest: false },
+    events: {
+      authHeader: "Authorization",
+      authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
+      url: EVENT_URL,
+    },
     repository: {
       baseBranch: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
@@ -41,6 +46,7 @@ describe("runner-job payload contract", () => {
 
     const env = createRunnerJobPayloadEnv({
       project: "project_123",
+      events: validPayload().events,
       repository: validPayload().repository,
       requestedBy: "user_456",
       runId: "run_123",
@@ -58,6 +64,7 @@ describe("runner-job payload contract", () => {
 
     const payload = buildRunnerJobPayload({
       repository: validPayload().repository,
+      events: validPayload().events,
       run: {
         id: "run_123",
         project: "project_123",
@@ -97,6 +104,7 @@ describe("runner-job payload contract", () => {
     expect(Object.keys(parsed).sort()).toEqual([
       "contractVersion",
       "delivery",
+      "events",
       "repository",
       "run",
       "task",
@@ -120,6 +128,14 @@ describe("runner-job payload contract", () => {
             url: { type: "string" },
           },
         },
+        events: {
+          additionalProperties: false,
+          properties: {
+            authHeader: { type: "string" },
+            authTokenEnv: { type: "string" },
+            url: { type: "string" },
+          },
+        },
       },
       type: "object",
     });
@@ -128,6 +144,9 @@ describe("runner-job payload contract", () => {
     );
     expect(contract.runnerTaskSchema.parse(validPayload().task)).toEqual(
       validPayload().task
+    );
+    expect(contract.runnerEventsSchema.parse(validPayload().events)).toEqual(
+      validPayload().events
     );
   });
 
@@ -160,7 +179,7 @@ describe("runner-job payload contract", () => {
           }),
         ],
       }),
-      recoverable: { run: validPayload().run },
+      recoverable: { events: validPayload().events, run: validPayload().run },
     });
   });
 
@@ -188,18 +207,18 @@ describe("runner-job payload contract", () => {
     );
   });
 
-  it("fails fast when the console event token cannot be resolved", async () => {
+  it("fails fast when the configured console event token cannot be resolved", async () => {
     const { resolveRunnerEventSinkAuthToken } = await loadContractModule();
 
     expect(() =>
       resolveRunnerEventSinkAuthToken({
+        authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
         env: {},
-        serviceAccountTokenPath: "/tmp/does-not-exist-pipe-38-token",
       })
     ).toThrow(AUTH_TOKEN_ENV_RE);
   });
 
-  it("resolves the bearer token using the runner-side lookup order", async () => {
+  it("resolves the bearer token using the configured env name", async () => {
     const {
       resolveRunnerEventSinkAuthHeader,
       resolveRunnerEventSinkAuthToken,
@@ -207,14 +226,15 @@ describe("runner-job payload contract", () => {
 
     expect(
       resolveRunnerEventSinkAuthToken({
+        authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
         env: {
-          OISIN_PIPELINE_EVENT_AUTH_TOKEN: "primary-token",
           PIPELINE_EVENT_API_TOKEN: "fallback-token",
         },
       })
-    ).toBe("primary-token");
+    ).toBe("fallback-token");
     expect(
       resolveRunnerEventSinkAuthHeader({
+        authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
         env: { PIPELINE_EVENT_API_TOKEN: "fallback-token" },
       })
     ).toBe("Bearer fallback-token");

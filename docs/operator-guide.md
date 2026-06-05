@@ -122,7 +122,8 @@ Host choices are `all`, `opencode`, and `codex`.
 Runs the in-pod backend worker entrypoint. The job reads
 `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`, prepares `PIPELINE_TARGET_PATH` or clones
 the requested repository into `/workspace`, generates a task-specific schedule,
-and appends runtime events to `OISIN_PIPELINE_EVENT_SINK_URL` when configured.
+and appends runtime events to the Console endpoint configured by payload
+`events.url`.
 
 The runner job does not call the Kubernetes API. Validation errors exit `64`,
 startup errors exit `70`, runtime failure exits `1`, cancellation exits `130`,
@@ -132,9 +133,8 @@ Local dry run:
 
 ```shell
 export PIPELINE_TARGET_PATH=/path/to/target/repo
-export OISIN_PIPELINE_EVENT_SINK_URL=http://127.0.0.1:3000/api/pipeline/runs/run-uid-1/events
-export OISIN_PIPELINE_EVENT_AUTH_TOKEN=dev-token
-export OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha","requestedBy":"@agent"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":false}}'
+export PIPELINE_EVENT_API_TOKEN=dev-token
+export OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha","requestedBy":"@agent"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":false},"events":{"url":"http://127.0.0.1:3000/api/pipeline/runner-events","authHeader":"Authorization","authTokenEnv":"PIPELINE_EVENT_API_TOKEN"}}'
 pipe runner-job
 ```
 
@@ -162,10 +162,8 @@ spec:
           image: ghcr.io/oisin-ee/pipeline-runner:latest
           env:
             - name: OISIN_PIPELINE_RUNNER_PAYLOAD_JSON
-              value: '{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main","sha":"0123456789abcdef0123456789abcdef01234567"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":true}}'
-            - name: OISIN_PIPELINE_EVENT_SINK_URL
-              value: https://console.example/api/pipeline/runs/run-uid-1/events
-            - name: OISIN_PIPELINE_EVENT_AUTH_TOKEN
+              value: '{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main","sha":"0123456789abcdef0123456789abcdef01234567"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":true},"events":{"url":"https://console.example/api/pipeline/runner-events","authHeader":"Authorization","authTokenEnv":"PIPELINE_EVENT_API_TOKEN"}}'
+            - name: PIPELINE_EVENT_API_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: pipeline-runner-event-auth
@@ -175,9 +173,9 @@ spec:
 The runner image is configured in `pipeline-console` as
 `pipeline.runner.image`. Console runner settings include queue name, service
 account, CPU/memory requests and limits, active deadline, TTL, backoff limit,
-event sink URL, and auth header. The runner-side `OISIN_PIPELINE_EVENT_SINK_URL`
-and `OISIN_PIPELINE_EVENT_AUTH_TOKEN` or `PIPELINE_EVENT_API_TOKEN` must match
-the console API `PIPELINE_EVENT_API_TOKEN`.
+event sink URL, auth header, and the token environment variable name. The
+runner-side secret mounted at `events.authTokenEnv` must match the console API
+`PIPELINE_EVENT_API_TOKEN`.
 
 The runner payload contract lives at
 `@oisincoveney/pipeline/runner-job-contract`. `pipeline-console` should create

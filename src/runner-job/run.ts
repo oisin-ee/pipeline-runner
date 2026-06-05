@@ -17,7 +17,6 @@ import {
   type RunnerJobPayload,
   type RunnerJobPayloadValidationError,
   type RunnerTask,
-  resolveRunnerEventSinkAuthToken,
 } from "../runner-job-contract.js";
 import {
   compileScheduleArtifact,
@@ -97,8 +96,6 @@ const EXIT_FAIL = 1;
 const EXIT_CANCELLED = 130;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
-const RUNNER_EVENT_SINK_URL_ENV = "OISIN_PIPELINE_EVENT_SINK_URL";
-const RUNNER_EVENT_SINK_AUTH_HEADER_ENV = "OISIN_PIPELINE_EVENT_AUTH_HEADER";
 const RUNNER_SCHEDULE_ENTRYPOINT = "pipe";
 
 export async function runRunnerJob(
@@ -123,6 +120,7 @@ export async function runRunnerJob(
 
   const sink = createRunnerSink({
     env,
+    events: payload.events,
     fetch: options.fetch,
     runId: payload.run.id,
   });
@@ -445,6 +443,7 @@ async function reportPreparedValidationFailure(
   if (failure.recoverable) {
     const sink = createRunnerSink({
       env: failure.env,
+      events: failure.recoverable.events,
       fetch: options.fetch,
       runId: failure.recoverable.run.id,
     });
@@ -459,38 +458,36 @@ async function reportPreparedValidationFailure(
 }
 
 function resolveAuthToken(
+  authTokenEnv: string,
   env: Record<string, string | undefined>,
   stderr: OutputStream
 ): string | null {
-  try {
-    return resolveRunnerEventSinkAuthToken({ env });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    stderr.write(`${message}\n`);
+  const token = env[authTokenEnv]?.trim();
+  if (!token) {
+    stderr.write(`Runner event auth token is required. Set ${authTokenEnv}.\n`);
     return null;
   }
+  return token;
 }
 
 function createRunnerSink(options: {
   env: Record<string, string | undefined>;
+  events: RunnerJobPayload["events"];
   fetch?: FetchLike;
   runId: string;
 }): RunnerEventSink {
-  const url = options.env[RUNNER_EVENT_SINK_URL_ENV]?.trim();
-  if (!url) {
-    return createNoopRunnerEventSink();
-  }
-  const authToken = resolveAuthToken(options.env, { write: () => true });
+  const authToken = resolveAuthToken(options.events.authTokenEnv, options.env, {
+    write: () => true,
+  });
   if (!authToken) {
     return createNoopRunnerEventSink();
   }
   return createRunnerEventSink({
-    authHeader:
-      options.env[RUNNER_EVENT_SINK_AUTH_HEADER_ENV]?.trim() || "Authorization",
+    authHeader: options.events.authHeader,
     authToken,
     fetch: options.fetch,
     runId: options.runId,
-    url,
+    url: options.events.url,
   });
 }
 

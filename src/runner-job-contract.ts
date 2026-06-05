@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
 import { parseJson } from "./safe-json.js";
@@ -50,6 +49,14 @@ export const runnerDeliverySchema = z
   })
   .strict();
 
+export const runnerEventsSchema = z
+  .object({
+    authHeader: z.string().min(1).default("Authorization"),
+    authTokenEnv: z.string().min(1),
+    url: z.string().url(),
+  })
+  .strict();
+
 export const runnerMomokayaContextSchema = z
   .object({
     automationNamespace: z.string().min(1).optional(),
@@ -66,6 +73,7 @@ export const runnerJobPayloadSchema = z
       })
       .default(RUNNER_JOB_CONTRACT_VERSION),
     delivery: runnerDeliverySchema.default({ pullRequest: false }),
+    events: runnerEventsSchema,
     momokaya: runnerMomokayaContextSchema.optional(),
     repository: runnerRepositoryContextSchema,
     run: runnerRunIdentitySchema,
@@ -74,6 +82,7 @@ export const runnerJobPayloadSchema = z
   .strict();
 
 export type RunnerDelivery = z.infer<typeof runnerDeliverySchema>;
+export type RunnerEvents = z.infer<typeof runnerEventsSchema>;
 export type RunnerJobPayload = z.infer<typeof runnerJobPayloadSchema>;
 export type RunnerMomokayaContext = z.infer<typeof runnerMomokayaContextSchema>;
 export type RunnerRepositoryContext = z.infer<
@@ -95,6 +104,7 @@ export interface RunnerJobPayloadValidationIssue {
 }
 
 export interface RecoverableRunnerJobPayloadEnvelope {
+  events: RunnerEvents;
   run: RunnerRunIdentity;
 }
 
@@ -118,6 +128,7 @@ export type RunnerJobPayloadParseResult =
 
 export interface BuildRunnerJobPayloadOptions {
   delivery?: RunnerDelivery;
+  events: RunnerEvents;
   momokaya?: RunnerMomokayaContext;
   repository: RunnerRepositoryContext;
   run: RunnerRunIdentity;
@@ -125,6 +136,7 @@ export interface BuildRunnerJobPayloadOptions {
 }
 
 export interface CreateRunnerJobPayloadEnvOptions {
+  events: RunnerEvents;
   project: string;
   repository: RunnerRepositoryContext;
   requestedBy?: string;
@@ -133,8 +145,8 @@ export interface CreateRunnerJobPayloadEnvOptions {
 }
 
 export interface ResolveRunnerEventSinkAuthTokenOptions {
+  authTokenEnv: string;
   env?: Record<string, string | undefined>;
-  serviceAccountTokenPath?: string;
 }
 
 export interface RunnerEventMappingContext {
@@ -294,42 +306,22 @@ export type RunnerEventRecord =
       type: "workflow.finish";
     });
 
-const EVENT_AUTH_TOKEN_ENV_KEYS = [
-  "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
-  "PIPELINE_EVENT_API_TOKEN",
-] as const;
-const DEFAULT_SERVICE_ACCOUNT_TOKEN_PATH =
-  "/var/run/secrets/kubernetes.io/serviceaccount/token";
-
 export function resolveRunnerEventSinkAuthToken(
-  options: ResolveRunnerEventSinkAuthTokenOptions = {}
+  options: ResolveRunnerEventSinkAuthTokenOptions
 ): string {
   const env = options.env ?? process.env;
-  for (const key of EVENT_AUTH_TOKEN_ENV_KEYS) {
-    const token = env[key]?.trim();
-    if (token) {
-      return token;
-    }
-  }
-
-  const tokenPath =
-    options.serviceAccountTokenPath ?? DEFAULT_SERVICE_ACCOUNT_TOKEN_PATH;
-  if (existsSync(tokenPath)) {
-    const token = readFileSync(tokenPath, "utf8").trim();
-    if (token) {
-      return token;
-    }
+  const token = env[options.authTokenEnv]?.trim();
+  if (token) {
+    return token;
   }
 
   throw new Error(
-    `Runner event auth token is required. Set ${EVENT_AUTH_TOKEN_ENV_KEYS.join(
-      " or "
-    )}, or mount a readable Kubernetes service account token at ${tokenPath}.`
+    `Runner event auth token is required. Set ${options.authTokenEnv}.`
   );
 }
 
 export function resolveRunnerEventSinkAuthHeader(
-  options: ResolveRunnerEventSinkAuthTokenOptions = {}
+  options: ResolveRunnerEventSinkAuthTokenOptions
 ): string {
   return `Bearer ${resolveRunnerEventSinkAuthToken(options)}`;
 }
@@ -343,6 +335,7 @@ export function createRunnerJobPayloadEnv(
       project: options.project,
       requestedBy: options.requestedBy,
     },
+    events: options.events,
     repository: options.repository,
     task: {
       kind: "prompt",
@@ -361,6 +354,7 @@ export function buildRunnerJobPayload(
   return runnerJobPayloadSchema.parse({
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     delivery: options.delivery,
+    events: options.events,
     momokaya: options.momokaya,
     repository: options.repository,
     run: options.run,
@@ -772,11 +766,13 @@ function recoverablePayloadEnvelope(
     return {};
   }
   const run = runnerRunIdentitySchema.safeParse(envelope.run);
-  if (!run.success) {
+  const events = runnerEventsSchema.safeParse(envelope.events);
+  if (!(run.success && events.success)) {
     return {};
   }
   return {
     recoverable: {
+      events: events.data,
       run: run.data,
     },
   };
