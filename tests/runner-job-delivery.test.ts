@@ -1,18 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RunnerJobPayload } from "../src/runner-job-contract.js";
 
+function cleanGitClient(overrides: Record<string, unknown> = {}) {
+  return {
+    add: vi.fn(async () => undefined),
+    addConfig: vi.fn(async () => undefined),
+    branch: vi.fn(async () => ({ current: "pipeline/run-123" })),
+    branchLocal: vi.fn(async () => ({ branches: { "pipeline/run-123": {} } })),
+    commit: vi.fn(async () => undefined),
+    push: vi.fn(async () => undefined),
+    revparse: vi.fn(async () => "abc123\n"),
+    status: vi.fn(async () => ({ files: [] })),
+    ...overrides,
+  };
+}
+
 function cleanDevspacePayload(): Pick<
   RunnerJobPayload,
-  "delivery" | "repository" | "task"
+  "delivery" | "repository" | "run" | "task"
 > {
   return {
     delivery: {
-      pullRequest: true,
+      pullRequest: false,
     },
     repository: {
       baseBranch: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
       url: "https://github.com/oisin-ee/tova.git",
+    },
+    run: {
+      id: "run_123",
+      project: "project_123",
+      requestedBy: "user_456",
     },
     task: {
       kind: "prompt",
@@ -21,21 +40,79 @@ function cleanDevspacePayload(): Pick<
   };
 }
 
+describe("runner-job git delivery", () => {
+  it("commits all dirty work and pushes the branch without requiring a PR", async () => {
+    const { deliverGitBranch } = await import("../src/runner-job/delivery.js");
+    const git = cleanGitClient({
+      branch: vi.fn(async () => ({ current: "pipeline/run-123" })),
+      branchLocal: vi.fn(async () => ({
+        branches: {
+          "other/local": {},
+          "pipeline/run-123": {},
+          "run_123/child": {},
+          "runs/integration/run_123": {},
+        },
+      })),
+      status: vi
+        .fn()
+        .mockResolvedValueOnce({ files: [{ path: "src/app.ts" }] })
+        .mockResolvedValueOnce({ files: [] }),
+    });
+
+    await expect(
+      deliverGitBranch({
+        committer: {
+          email: "git@oisin.ee",
+          name: "oisin-bot",
+        },
+        createGitClient: () => git,
+        env: { GH_TOKEN: "redacted" },
+        payload: cleanDevspacePayload(),
+        worktreePath: "/workspace",
+      })
+    ).resolves.toEqual({
+      branch: "pipeline/run-123",
+      commitSha: "abc123",
+      pushed: true,
+    });
+
+    expect(git.add).toHaveBeenCalledWith(["--all"]);
+    expect(git.addConfig).toHaveBeenCalledWith(
+      "user.name",
+      "oisin-bot",
+      false,
+      "local"
+    );
+    expect(git.addConfig).toHaveBeenCalledWith(
+      "user.email",
+      "git@oisin.ee",
+      false,
+      "local"
+    );
+    expect(git.commit).toHaveBeenCalledWith("pipeline: run_123");
+    expect(git.push.mock.calls).toEqual([
+      ["origin", "pipeline/run-123", ["--set-upstream"]],
+      ["origin", "run_123/child", ["--set-upstream"]],
+      ["origin", "runs/integration/run_123", ["--set-upstream"]],
+    ]);
+  });
+});
+
 describe("runner-job PR delivery", () => {
   it("creates PRs with oisin-bot as the default head owner", async () => {
     const { createPullRequest } = await import("../src/runner-job/delivery.js");
-    const runCommand = vi
-      .fn()
-      .mockResolvedValueOnce({ stdout: "runner/pipe-49\n" })
-      .mockResolvedValueOnce({ stdout: "" })
-      .mockResolvedValueOnce({
-        stdout: "https://github.com/oisin-ee/tova/pull/123\n",
-      });
+    const runCommand = vi.fn().mockResolvedValueOnce({
+      stdout: "https://github.com/oisin-ee/tova/pull/123\n",
+    });
 
     await expect(
       createPullRequest({
+        createGitClient: () => ({
+          ...cleanGitClient(),
+          branch: vi.fn(async () => ({ current: "runner/pipe-49" })),
+        }),
         env: { GH_TOKEN: "redacted" },
-        payload: cleanDevspacePayload(),
+        payload: { ...cleanDevspacePayload(), delivery: { pullRequest: true } },
         runCommand,
         worktreePath: "/workspace",
       })
@@ -44,7 +121,7 @@ describe("runner-job PR delivery", () => {
     });
 
     expect(runCommand).toHaveBeenNthCalledWith(
-      3,
+      1,
       "gh",
       [
         "pr",
@@ -67,22 +144,22 @@ describe("runner-job PR delivery", () => {
 
   it("allows the PR head owner to be overridden by runner env", async () => {
     const { createPullRequest } = await import("../src/runner-job/delivery.js");
-    const runCommand = vi
-      .fn()
-      .mockResolvedValueOnce({ stdout: "runner/pipe-49\n" })
-      .mockResolvedValueOnce({ stdout: "" })
-      .mockResolvedValueOnce({
-        stdout: "https://github.com/oisin-ee/tova/pull/124\n",
-      });
+    const runCommand = vi.fn().mockResolvedValueOnce({
+      stdout: "https://github.com/oisin-ee/tova/pull/124\n",
+    });
 
     await createPullRequest({
+      createGitClient: () => ({
+        ...cleanGitClient(),
+        branch: vi.fn(async () => ({ current: "runner/pipe-49" })),
+      }),
       env: { PIPELINE_PR_HEAD_OWNER: "custom-bot" },
-      payload: cleanDevspacePayload(),
+      payload: { ...cleanDevspacePayload(), delivery: { pullRequest: true } },
       runCommand,
       worktreePath: "/workspace",
     });
 
-    expect(runCommand.mock.calls[2]?.[1]).toContain(
+    expect(runCommand.mock.calls[0]?.[1]).toContain(
       "custom-bot:runner/pipe-49"
     );
   });

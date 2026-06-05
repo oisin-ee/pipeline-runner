@@ -6,7 +6,20 @@ import { describe, expect, it, vi } from "vitest";
 import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 
 vi.mock("execa", () => ({
-  execa: vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })),
+  execa: vi.fn(() => ({ exitCode: 0, stderr: "", stdout: "" })),
+}));
+
+vi.mock("simple-git", () => ({
+  default: vi.fn(() => ({
+    add: vi.fn(async () => undefined),
+    addConfig: vi.fn(async () => undefined),
+    branch: vi.fn(async () => ({ current: "pipeline/run-123" })),
+    branchLocal: vi.fn(async () => ({ branches: { "pipeline/run-123": {} } })),
+    commit: vi.fn(async () => undefined),
+    push: vi.fn(async () => undefined),
+    revparse: vi.fn(async () => "abc123\n"),
+    status: vi.fn(async () => ({ files: [] })),
+  })),
 }));
 
 const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
@@ -431,6 +444,65 @@ describe("runner-job entrypoint", () => {
           }),
         ])
       );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("commits and pushes successful runner job changes without requiring a PR", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-git-delivery-"));
+    const deliverGitBranch = vi.fn(async () => ({
+      branch: "pipeline/run-123",
+      commitSha: "abc123",
+      pushed: true,
+    }));
+    const createPullRequest = vi.fn();
+
+    try {
+      await writeTestSkills(dir);
+      await writePipelineFixture(dir);
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      await writeFile(
+        payloadFile,
+        JSON.stringify({
+          ...validPayload(),
+          delivery: { pullRequest: false },
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        payloadFile,
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner: vi.fn(() => runtimeResult("PASS")),
+        prepareWorkspace: vi.fn(async () => ({
+          env: { PIPELINE_TARGET_PATH: dir },
+          worktreePath: dir,
+        })),
+        deliverGitBranch,
+        createPullRequest,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(deliverGitBranch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          committer: {
+            email: "git@oisin.ee",
+            name: "oisin-bot",
+          },
+          payload: expect.objectContaining({
+            delivery: { pullRequest: false },
+          }),
+          worktreePath: dir,
+        })
+      );
+      expect(createPullRequest).not.toHaveBeenCalled();
     } finally {
       await rm(dir, { force: true, recursive: true });
     }

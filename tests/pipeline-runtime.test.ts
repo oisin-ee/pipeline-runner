@@ -26,6 +26,13 @@ const gitMock = vi.hoisted(() => {
     files: { path: string }[];
   }
   const client = {
+    add: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => undefined),
+    addConfig: vi.fn<(...args: unknown[]) => Promise<unknown>>(
+      async () => undefined
+    ),
+    commit: vi.fn<(...args: unknown[]) => Promise<unknown>>(
+      async () => undefined
+    ),
     raw: vi.fn<(...commands: (string | string[])[]) => Promise<string>>(
       async () => ""
     ),
@@ -41,6 +48,9 @@ const gitMock = vi.hoisted(() => {
   return {
     client,
     simpleGit: vi.fn((options?: { baseDir?: string }) => ({
+      add: client.add,
+      addConfig: client.addConfig,
+      commit: client.commit,
       raw: client.raw,
       revparse: client.revparse,
       status: () => client.status(options),
@@ -63,6 +73,9 @@ const RUN_ID_TOKEN = `$${"{runId}"}`;
 const NODE_ID_TOKEN = `$${"{nodeId}"}`;
 
 beforeEach(() => {
+  gitMock.client.add.mockResolvedValue(undefined);
+  gitMock.client.addConfig.mockResolvedValue(undefined);
+  gitMock.client.commit.mockResolvedValue(undefined);
   gitMock.client.raw.mockResolvedValue("");
   gitMock.client.revparse.mockResolvedValue("base-sha");
   gitMock.client.status.mockImplementation(async (options) =>
@@ -1793,6 +1806,83 @@ workflows:
       baseSha: "base-sha-123",
       branch: "run-123/child",
       worktreePath: resolvedWorktreePath,
+    });
+  });
+
+  it("commits dirty workflow-node worktrees before removing them on success", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  parent:
+    nodes:
+      - id: child
+        kind: workflow
+        workflow: child-flow
+  child-flow:
+    nodes:
+      - id: nested
+        kind: agent
+        profile: a
+`);
+    setWorkflowNodeWorktreeRoot(
+      config,
+      "parent",
+      "child",
+      join(project, "worktrees", RUN_ID_TOKEN, NODE_ID_TOKEN)
+    );
+    gitMock.client.revparse
+      .mockResolvedValueOnce("base-sha-123")
+      .mockResolvedValueOnce("child-commit-sha");
+    const resolvedWorktreePath = resolve(
+      project,
+      "worktrees",
+      "run-123",
+      "child"
+    );
+    let committed = false;
+    gitMock.client.commit.mockImplementation(() => {
+      committed = true;
+      return Promise.resolve();
+    });
+    gitMock.client.status.mockImplementation(() =>
+      Promise.resolve(
+        committed
+          ? { files: [] }
+          : { files: [{ path: "src/app.ts" }, { path: "tests/app.test.ts" }] }
+      )
+    );
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => ({ exitCode: 0, stdout: "nested ok" }),
+      runId: "run-123",
+      task: "nested workflow",
+      workflowId: "parent",
+      worktreePath: project,
+    } as Parameters<typeof runPipelineFromConfig>[0] & { runId: string });
+
+    expect(result.outcome).toBe("PASS");
+    expect(gitMock.client.add).toHaveBeenCalledWith(["--all"]);
+    expect(gitMock.client.addConfig).toHaveBeenCalledWith(
+      "user.name",
+      "oisin-bot",
+      false,
+      "local"
+    );
+    expect(gitMock.client.addConfig).toHaveBeenCalledWith(
+      "user.email",
+      "git@oisin.ee",
+      false,
+      "local"
+    );
+    expect(gitMock.client.commit).toHaveBeenCalledWith("pipeline: child");
+    expect(gitRawCommands()).toEqual(
+      expect.arrayContaining([
+        ["worktree", "remove", "--force", resolvedWorktreePath],
+      ])
+    );
+    expect(JSON.parse(result.nodes[0].output)).toMatchObject({
+      branch: "run-123/child",
+      commitSha: "child-commit-sha",
     });
   });
 

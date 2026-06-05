@@ -56,6 +56,10 @@ const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
 const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
 const SCHEDULING_ROLES = ["coverage", "implementation"] as const;
 const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
+export const DEFAULT_RUNNER_JOB_GIT_COMMITTER = {
+  email: "git@oisin.ee",
+  name: "oisin-bot",
+} as const;
 
 const PACKAGE_DEFAULT_RUNNERS_YAML = `version: 1
 runners:
@@ -912,9 +916,27 @@ const runnerJobEnvironmentSchema = z
   })
   .strict();
 
+const runnerJobGitCommitterSchema = z
+  .object({
+    email: z.string().email().default(DEFAULT_RUNNER_JOB_GIT_COMMITTER.email),
+    name: z.string().min(1).default(DEFAULT_RUNNER_JOB_GIT_COMMITTER.name),
+  })
+  .strict();
+
+const runnerJobGitSchema = z
+  .object({
+    committer: runnerJobGitCommitterSchema.default(
+      DEFAULT_RUNNER_JOB_GIT_COMMITTER
+    ),
+  })
+  .strict();
+
 const runnerJobConfigSchema = z
   .object({
     environment: runnerJobEnvironmentSchema.default({ setup: [], smoke: [] }),
+    git: runnerJobGitSchema.default({
+      committer: DEFAULT_RUNNER_JOB_GIT_COMMITTER,
+    }),
   })
   .strict();
 
@@ -944,6 +966,7 @@ const pipelineFileSchema = z
     orchestrator: orchestratorSchema,
     runner_job: runnerJobConfigSchema.default({
       environment: { setup: [], smoke: [] },
+      git: { committer: DEFAULT_RUNNER_JOB_GIT_COMMITTER },
     }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
@@ -963,6 +986,7 @@ const configSchemaBase = z
     profiles: strictRecord(profileSchema).default({}),
     runner_job: runnerJobConfigSchema.default({
       environment: { setup: [], smoke: [] },
+      git: { committer: DEFAULT_RUNNER_JOB_GIT_COMMITTER },
     }),
     rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),

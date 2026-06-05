@@ -22,7 +22,12 @@ import {
   compileScheduleArtifact,
   generateScheduleArtifact,
 } from "../schedule-planner.js";
-import { createPullRequest, type PullRequestCreator } from "./delivery.js";
+import {
+  createPullRequest,
+  deliverGitBranch,
+  type GitBranchDeliverer,
+  type PullRequestCreator,
+} from "./delivery.js";
 import {
   assertRunnerDevspaceReady,
   type RunnerDevspaceCommand,
@@ -79,6 +84,7 @@ interface PreparedValidationFailure {
 export interface RunnerJobOptions {
   createPullRequest?: PullRequestCreator;
   cwd?: string;
+  deliverGitBranch?: GitBranchDeliverer;
   env?: Record<string, string | undefined>;
   fetch?: FetchLike;
   onForceExit?: (exitCode: number) => void;
@@ -157,8 +163,12 @@ export async function runRunnerJob(
   let sawWorkflowFinish = false;
 
   try {
-    const { config, readiness, task, workflowId, workspace } =
-      await prepareReadyWorkspace(options, payload, env, sink);
+    const { config, task, workflowId, workspace } = await prepareReadyWorkspace(
+      options,
+      payload,
+      env,
+      sink
+    );
     const result = await runner({
       config,
       reporter: (event: PipelineRuntimeEvent) => {
@@ -178,7 +188,7 @@ export async function runRunnerJob(
     });
 
     if (result.outcome === "PASS") {
-      await deliverSuccessfulRun(options, payload, workspace, readiness, sink);
+      await deliverSuccessfulRun(options, payload, workspace, config, sink);
     }
 
     recordFinalResultIfMissing(sink, result.outcome, result.plan.workflowId, {
@@ -360,27 +370,36 @@ async function deliverSuccessfulRun(
   options: RunnerJobOptions,
   payload: RunnerJobPayload,
   workspace: RunnerWorkspacePreparation,
-  readiness: RunnerDevspaceReadiness,
+  config: PipelineConfig,
   sink: RunnerEventSink
 ): Promise<void> {
-  if (readiness.config) {
-    const config = readiness.config;
-    const smokeStatus = await runRunnerDevspaceSmokeWithPhase(
-      options,
-      config,
-      workspace,
-      sink
-    );
-    sink.recordRunnerJobPhase(
-      `environment.smoke.${smokeStatus}`,
-      `runner environment smoke ${smokeStatus}`
-    );
-  }
+  const smokeStatus = await runRunnerDevspaceSmokeWithPhase(
+    options,
+    config,
+    workspace,
+    sink
+  );
+  sink.recordRunnerJobPhase(
+    `environment.smoke.${smokeStatus}`,
+    `runner environment smoke ${smokeStatus}`
+  );
+  const branchDelivery = await deliverRunnerGitBranchWithPhase(
+    options,
+    payload,
+    workspace,
+    config,
+    sink
+  );
+  sink.recordRunnerJobPhase("delivery.git", "runner git branch pushed", {
+    branch: branchDelivery.branch,
+    commitSha: branchDelivery.commitSha,
+  });
   const pullRequest = await createRunnerPullRequestWithPhase(
     options,
     payload,
     workspace,
-    sink
+    sink,
+    branchDelivery.branch
   );
   if (pullRequest) {
     sink.recordRunnerJobPhase(
@@ -388,6 +407,31 @@ async function deliverSuccessfulRun(
       "runner pull request created",
       { url: pullRequest.url }
     );
+  }
+}
+
+async function deliverRunnerGitBranchWithPhase(
+  options: RunnerJobOptions,
+  payload: RunnerJobPayload,
+  workspace: RunnerWorkspacePreparation,
+  config: PipelineConfig,
+  sink: RunnerEventSink
+) {
+  try {
+    return await deliverRunnerGitBranch(
+      options,
+      payload,
+      workspace.worktreePath,
+      workspace.env,
+      config
+    );
+  } catch (err) {
+    sink.recordRunnerJobPhase(
+      "delivery.git.failed",
+      "runner git branch delivery failed",
+      { error: errorMessage(err) }
+    );
+    throw err;
   }
 }
 
@@ -418,14 +462,19 @@ async function createRunnerPullRequestWithPhase(
   options: RunnerJobOptions,
   payload: RunnerJobPayload,
   workspace: RunnerWorkspacePreparation,
-  sink: RunnerEventSink
+  sink: RunnerEventSink,
+  branch: string
 ) {
+  if (!payload.delivery.pullRequest) {
+    return null;
+  }
   try {
     return await createRunnerPullRequest(
       options,
       payload,
       workspace.worktreePath,
-      workspace.env
+      workspace.env,
+      branch
     );
   } catch (err) {
     sink.recordRunnerJobPhase(
@@ -437,14 +486,32 @@ async function createRunnerPullRequestWithPhase(
   }
 }
 
+function deliverRunnerGitBranch(
+  options: RunnerJobOptions,
+  payload: RunnerJobPayload,
+  worktreePath: string,
+  env: Record<string, string | undefined>,
+  config: PipelineConfig
+) {
+  const deliver = options.deliverGitBranch ?? deliverGitBranch;
+  return deliver({
+    committer: config.runner_job.git.committer,
+    env,
+    payload,
+    worktreePath,
+  });
+}
+
 function createRunnerPullRequest(
   options: RunnerJobOptions,
   payload: RunnerJobPayload,
   worktreePath: string,
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  branch: string
 ) {
   const create = options.createPullRequest ?? createPullRequest;
   return create({
+    branch,
     env,
     payload,
     worktreePath,

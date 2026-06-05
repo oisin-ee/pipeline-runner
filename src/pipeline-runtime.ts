@@ -40,6 +40,7 @@ import { dispatchHooks } from "./runtime/hooks";
 import { parseJsonObject } from "./runtime/json-validation";
 import { executeParallelNode } from "./runtime/parallel-node";
 import {
+  commitWorkflowNodeWorktree,
   prepareWorkflowNodeWorktree,
   removeWorkflowNodeWorktree,
   workflowBaseSha,
@@ -881,6 +882,37 @@ async function executeWorkflowNode(
 
   const result = await runPipelineWithContext(childContext);
   context.agentInvocations.push(...result.agentInvocations);
+  if (result.outcome === "PASS" && worktree.worktreePath) {
+    try {
+      worktree.commitSha = await commitWorkflowNodeWorktree(
+        worktree.worktreePath,
+        node.id,
+        context.config.runner_job.git.committer
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        evidence: [
+          `workflow '${result.plan.workflowId}' passed`,
+          `workflow worktree commit failed: ${message}`,
+          `inspect workflow worktree: cd ${worktree.worktreePath}`,
+        ],
+        exitCode: 1,
+        output: JSON.stringify({
+          baseSha: worktree.baseSha,
+          branch: worktree.branch,
+          commitSha: worktree.commitSha ?? null,
+          nodeResults: result.nodes.map((child) => ({
+            nodeId: child.nodeId,
+            status: child.status,
+          })),
+          status: "FAIL",
+          worktreePath: worktree.worktreePath,
+          workflowId: result.plan.workflowId,
+        }),
+      };
+    }
+  }
   if (
     result.outcome === "PASS" &&
     worktree.worktreePath &&
@@ -891,6 +923,7 @@ async function executeWorkflowNode(
   const output = JSON.stringify({
     baseSha: worktree.baseSha,
     branch: worktree.branch,
+    ...(worktree.worktreePath ? { commitSha: worktree.commitSha ?? null } : {}),
     nodeResults: result.nodes.map((child) => ({
       nodeId: child.nodeId,
       status: child.status,

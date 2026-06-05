@@ -269,6 +269,10 @@ describe("loadPipelineConfig", () => {
       enabled: true,
       max_attempts: 1,
     });
+    expect(config.runner_job.git.committer).toEqual({
+      email: "git@oisin.ee",
+      name: "oisin-bot",
+    });
     expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
       "research",
       "red",
@@ -281,6 +285,17 @@ describe("loadPipelineConfig", () => {
         retry_on: ["timeout", "exit_nonzero"],
       },
       timeout_ms: 5000,
+    });
+  });
+
+  it("accepts a configured runner job git committer", () => {
+    const config = parseParts({
+      pipeline: `${VALID_PIPELINE_YAML}\nrunner_job:\n  git:\n    committer:\n      name: pipeline-bot\n      email: pipeline-bot@example.com\n`,
+    });
+
+    expect(config.runner_job.git.committer).toEqual({
+      email: "pipeline-bot@example.com",
+      name: "pipeline-bot",
     });
   });
 

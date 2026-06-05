@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import simpleGit from "simple-git";
+import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../workflow-planner";
 import {
   generateRuntimeRunId,
@@ -12,6 +13,7 @@ import type { RuntimeContext } from "../contracts";
 export interface WorkflowNodeWorktree {
   baseSha: string | null;
   branch: string | null;
+  commitSha?: string | null;
   worktreePath: string | null;
 }
 
@@ -74,4 +76,27 @@ export async function removeWorkflowNodeWorktree(
   worktreePath: string
 ): Promise<void> {
   await simpleGit().raw(["worktree", "remove", "--force", worktreePath]);
+}
+
+export async function commitWorkflowNodeWorktree(
+  worktreePath: string,
+  nodeId: string,
+  committer: PipelineConfig["runner_job"]["git"]["committer"]
+): Promise<string | null> {
+  const git = simpleGit({ baseDir: worktreePath });
+  const status = await git.status();
+  if (status.files.length === 0) {
+    return null;
+  }
+  await git.add(["--all"]);
+  await git.addConfig("user.name", committer.name, false, "local");
+  await git.addConfig("user.email", committer.email, false, "local");
+  await git.commit(`pipeline: ${nodeId}`);
+  const remainingStatus = await git.status();
+  if (remainingStatus.files.length > 0) {
+    throw new Error(
+      `workflow node '${nodeId}' has uncommitted changes after commit`
+    );
+  }
+  return (await git.revparse(["HEAD"])).trim();
 }
