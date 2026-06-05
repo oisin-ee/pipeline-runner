@@ -1,8 +1,12 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("execa", () => ({
+  execa: vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })),
+}));
 
 const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
@@ -17,6 +21,25 @@ const FLUSH_FAILURE_RE = /console unavailable|event sink flush/i;
 const UNAUTHORIZED_RE = /unauthorized|401|event sink flush/i;
 const SCHEMA_VALIDATION_RE = /schema validation|selector\.unexpected/i;
 const SCHEMA_VALIDATION_MESSAGE_RE = /schema validation/i;
+const DEVSPACE_YAML_RE = /devspace\.yaml/i;
+const SMOKE_FAILED_RE = /smoke failed/i;
+const TEST_SKILLS = [
+  "critique",
+  "diagnose",
+  "doubt",
+  "fix",
+  "improve",
+  "library-first-development",
+  "migrate",
+  "optimize",
+  "research",
+  "scope",
+  "secure",
+  "spec",
+  "test",
+  "trace",
+  "verify",
+];
 
 function validPayload(): Record<string, unknown> {
   return {
@@ -74,7 +97,7 @@ function unauthorizedResponse(): Response {
 }
 
 function loadRunnerModule(): Promise<Record<string, any>> {
-  return import("../src/kubernetes-runner.js");
+  return import("../src/runner-job/run.js");
 }
 
 function ioBuffers(): {
@@ -112,13 +135,21 @@ function payloadEnv(
   };
 }
 
-describe("kubernetes runner-job entrypoint", () => {
+async function writeTestSkills(root: string): Promise<void> {
+  for (const skill of TEST_SKILLS) {
+    const skillDir = join(root, ".agents", "skills", skill);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), `# ${skill}\n`);
+  }
+}
+
+describe("runner-job entrypoint", () => {
   it("returns EX_USAGE 64 when the runner payload env var is missing", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const pipelineRunner = vi.fn();
     const io = ioBuffers();
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: {},
       pipelineRunner,
       stderr: io.stderr,
@@ -131,11 +162,11 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("returns EX_USAGE 64 for malformed runner payload JSON", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const pipelineRunner = vi.fn();
     const io = ioBuffers();
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: { [RUNNER_PAYLOAD_ENV]: "{" },
       pipelineRunner,
       stderr: io.stderr,
@@ -148,8 +179,10 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("passes runId, workflowId, task, worktreePath, signal, and reporter to runPipelineFromConfig", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
-    const fetchMock = vi.fn(async () => okResponse());
+    const { runRunnerJob } = await loadRunnerModule();
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => okResponse()
+    );
     const pipelineRunner = vi.fn((options) => {
       expect(options).toEqual(
         expect.objectContaining({
@@ -174,7 +207,7 @@ describe("kubernetes runner-job entrypoint", () => {
       return runtimeResult("PASS");
     });
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       cwd: "/workspace/run_123",
       env: payloadEnv(),
       fetch: fetchMock,
@@ -196,8 +229,10 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("passes explicit console hook policy from the original failed selector shape", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
-    const fetchMock = vi.fn(async () => okResponse());
+    const { runRunnerJob } = await loadRunnerModule();
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => okResponse()
+    );
     const pipelineRunner = vi.fn((options) => {
       expect(options).toEqual(
         expect.objectContaining({
@@ -211,7 +246,7 @@ describe("kubernetes runner-job entrypoint", () => {
       return { ...runtimeResult("PASS"), plan: { workflowId: "inspect" } };
     });
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       cwd: "/workspace/run_123",
       env: payloadEnv({
         ...validPayload(),
@@ -232,14 +267,258 @@ describe("kubernetes runner-job entrypoint", () => {
     expect(pipelineRunner).toHaveBeenCalledTimes(1);
   });
 
+  it("prepares clean devspace workspaces before invoking the pipeline engine", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const { initPipelineProject } = await import("../src/pipeline-init.js");
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-devspace-"));
+    const postedBodies: string[] = [];
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      postedBodies.push(String(init?.body));
+      return Promise.resolve(okResponse());
+    });
+    const prepareWorkspace = vi.fn(async () => ({
+      env: { PIPELINE_TARGET_PATH: dir },
+      worktreePath: dir,
+    }));
+    const pipelineRunner = vi.fn((options) => {
+      expect(options.worktreePath).toBe(dir);
+      return runtimeResult("PASS");
+    });
+    const createPullRequest = vi.fn(async () => ({
+      url: "https://github.com/oisin-ee/tova/pull/123",
+    }));
+    const runDevspaceCommand = vi.fn(async () => undefined);
+
+    try {
+      await writeFile(
+        join(dir, "devspace.yaml"),
+        "version: v2beta1\nname: tova\n"
+      );
+      await writeTestSkills(dir);
+      await initPipelineProject({ cwd: dir, overwrite: false });
+      const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
+      await writeFile(
+        pipelineConfigPath,
+        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  devspace_smoke:\n    command: bun\n    args: ["run", "test:smoke"]\n`
+      );
+
+      const exitCode = await runRunnerJob({
+        env: payloadEnv({
+          ...validPayload(),
+          repository: {
+            branch: "main",
+            cloneUrl: "https://github.com/oisin-ee/tova.git",
+            fullName: "oisin-ee/tova",
+            owner: "oisin-ee",
+            repo: "tova",
+            sha: "0123456789abcdef0123456789abcdef01234567",
+          },
+          workspace: {
+            mode: "clean-devspace",
+          },
+        }),
+        fetch: fetchMock,
+        pipelineRunner,
+        prepareWorkspace,
+        createPullRequest,
+        runDevspaceCommand,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(prepareWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            workspace: { mode: "clean-devspace" },
+          }),
+        })
+      );
+      expect(pipelineRunner).toHaveBeenCalledTimes(1);
+      expect(runDevspaceCommand).toHaveBeenCalledWith(
+        "bun",
+        ["run", "test:smoke"],
+        {
+          cwd: dir,
+          env: expect.objectContaining({ PIPELINE_TARGET_PATH: dir }),
+          stdin: "ignore",
+        }
+      );
+      expect(createPullRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            repository: expect.objectContaining({ fullName: "oisin-ee/tova" }),
+          }),
+          worktreePath: dir,
+        })
+      );
+      expect(runDevspaceCommand.mock.invocationCallOrder[0]).toBeLessThan(
+        createPullRequest.mock.invocationCallOrder[0] ?? 0
+      );
+      const postedEvents = postedBodies.flatMap((postedBody) => {
+        const body = JSON.parse(postedBody) as {
+          events: Array<{ log?: { message: string }; type: string }>;
+        };
+        return body.events;
+      });
+      expect(postedEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner workspace prepared",
+            }),
+            type: "runner.job.phase",
+          }),
+          expect.objectContaining({
+            log: expect.objectContaining({ message: "runner devspace ready" }),
+            type: "runner.job.phase",
+          }),
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner devspace smoke ran",
+            }),
+            type: "runner.job.phase",
+          }),
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner pull request created",
+              output: expect.objectContaining({
+                url: "https://github.com/oisin-ee/tova/pull/123",
+              }),
+            }),
+            type: "runner.job.phase",
+          }),
+        ])
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("fails clean devspace jobs before runtime when devspace.yaml is missing", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-no-devspace-"));
+    const pipelineRunner = vi.fn();
+    const io = ioBuffers();
+
+    try {
+      const exitCode = await runRunnerJob({
+        env: payloadEnv({
+          ...validPayload(),
+          repository: {
+            branch: "main",
+            cloneUrl: "https://github.com/oisin-ee/tova.git",
+            fullName: "oisin-ee/tova",
+            owner: "oisin-ee",
+            repo: "tova",
+            sha: "0123456789abcdef0123456789abcdef01234567",
+          },
+          workspace: {
+            mode: "clean-devspace",
+          },
+        }),
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner,
+        prepareWorkspace: vi.fn(async () => ({
+          env: { PIPELINE_TARGET_PATH: dir },
+          worktreePath: dir,
+        })),
+        stderr: io.stderr,
+      });
+
+      expect(exitCode).toBe(64);
+      expect(pipelineRunner).not.toHaveBeenCalled();
+      expect(io.stderrText()).toMatch(DEVSPACE_YAML_RE);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("records a failed smoke phase and does not create a PR when devspace smoke fails", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const { initPipelineProject } = await import("../src/pipeline-init.js");
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-smoke-fail-"));
+    const postedBodies: string[] = [];
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      postedBodies.push(String(init?.body));
+      return Promise.resolve(okResponse());
+    });
+    const createPullRequest = vi.fn(async () => ({
+      url: "https://github.com/oisin-ee/tova/pull/123",
+    }));
+
+    try {
+      await writeFile(
+        join(dir, "devspace.yaml"),
+        "version: v2beta1\nname: tova\n"
+      );
+      await writeTestSkills(dir);
+      await initPipelineProject({ cwd: dir, overwrite: false });
+      const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
+      await writeFile(
+        pipelineConfigPath,
+        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  devspace_smoke:\n    command: bun\n    args: ["run", "test:smoke"]\n`
+      );
+
+      const exitCode = await runRunnerJob({
+        env: payloadEnv({
+          ...validPayload(),
+          repository: {
+            branch: "main",
+            cloneUrl: "https://github.com/oisin-ee/tova.git",
+            fullName: "oisin-ee/tova",
+            owner: "oisin-ee",
+            repo: "tova",
+            sha: "0123456789abcdef0123456789abcdef01234567",
+          },
+          workspace: {
+            mode: "clean-devspace",
+          },
+        }),
+        fetch: fetchMock,
+        pipelineRunner: vi.fn(() => runtimeResult("PASS")),
+        prepareWorkspace: vi.fn(async () => ({
+          env: { PIPELINE_TARGET_PATH: dir },
+          worktreePath: dir,
+        })),
+        createPullRequest,
+        runDevspaceCommand: vi.fn(() =>
+          Promise.reject(new Error("smoke failed"))
+        ),
+      });
+
+      expect(exitCode).toBe(70);
+      expect(createPullRequest).not.toHaveBeenCalled();
+      const postedEvents = postedBodies.flatMap((postedBody) => {
+        const body = JSON.parse(postedBody) as {
+          events: Array<{ log?: { message: string }; type: string }>;
+        };
+        return body.events;
+      });
+      expect(postedEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner devspace smoke failed",
+              output: expect.objectContaining({
+                error: expect.stringMatching(SMOKE_FAILED_RE),
+              }),
+            }),
+            type: "runner.job.phase",
+          }),
+        ])
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it.each([
     ["PASS", 0],
     ["FAIL", 1],
     ["CANCELLED", 130],
   ] as const)("maps runtime outcome %s to exit code %i", async (outcome, expectedExitCode) => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: payloadEnv(),
       fetch: vi.fn(async () => okResponse()),
       pipelineRunner: vi.fn(async () => runtimeResult(outcome)),
@@ -249,7 +528,7 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("returns EX_USAGE 64 for runner payload validation failures", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const pipelineRunner = vi.fn();
     const io = ioBuffers();
     const payload = {
@@ -257,7 +536,7 @@ describe("kubernetes runner-job entrypoint", () => {
       eventSink: { authHeader: "Authorization", url: "not a url" },
     };
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: payloadEnv(payload),
       pipelineRunner,
       stderr: io.stderr,
@@ -270,7 +549,7 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("posts schema validation events when an invalid payload still has run and sink identity", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const fetchMock = vi.fn(async () => okResponse());
     const pipelineRunner = vi.fn();
     const io = ioBuffers();
@@ -282,7 +561,7 @@ describe("kubernetes runner-job entrypoint", () => {
       },
     };
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: payloadEnv(payload),
       fetch: fetchMock,
       pipelineRunner,
@@ -318,10 +597,10 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("returns EX_SOFTWARE 70 when startup fails before a runtime result is available", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const io = ioBuffers();
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: payloadEnv(),
       fetch: vi.fn(async () => okResponse()),
       pipelineRunner: vi.fn(() =>
@@ -336,12 +615,12 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("returns EX_USAGE 64 when the target pipeline config is missing", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const io = ioBuffers();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-missing-config-"));
 
     try {
-      const exitCode = await runKubernetesRunnerJob({
+      const exitCode = await runRunnerJob({
         cwd: dir,
         env: payloadEnv(),
         fetch: vi.fn(async () => okResponse()),
@@ -357,10 +636,10 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("treats terminal event sink failures as runner failures", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const io = ioBuffers();
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: payloadEnv(),
       fetch: vi.fn(async () => unauthorizedResponse()),
       pipelineRunner: vi.fn(async () => runtimeResult("PASS")),
@@ -373,13 +652,13 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("does not call the Kubernetes API while running the in-pod job", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       expect(String(input)).toBe(EVENT_SINK_URL);
       return Promise.resolve(okResponse());
     });
 
-    await runKubernetesRunnerJob({
+    await runRunnerJob({
       env: payloadEnv(),
       fetch: fetchMock,
       pipelineRunner: vi.fn(async () => runtimeResult("PASS")),
@@ -392,7 +671,7 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("aborts the runtime on SIGTERM, flushes the CANCELLED result, and exits 130", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const signals = new EventEmitter();
     const fetchMock = vi.fn(async () => okResponse());
     const pipelineRunner = vi.fn((options) => {
@@ -401,7 +680,7 @@ describe("kubernetes runner-job entrypoint", () => {
       return runtimeResult("CANCELLED");
     });
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: payloadEnv(),
       fetch: fetchMock,
       pipelineRunner,
@@ -418,7 +697,7 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("aborts the runtime on SIGINT and preserves the cancelled exit code when final flush fails", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const signals = new EventEmitter();
     const io = ioBuffers();
     const pipelineRunner = vi.fn((options) => {
@@ -427,7 +706,7 @@ describe("kubernetes runner-job entrypoint", () => {
       return runtimeResult("CANCELLED");
     });
 
-    const exitCode = await runKubernetesRunnerJob({
+    const exitCode = await runRunnerJob({
       env: payloadEnv(),
       fetch: vi.fn(() => Promise.reject(new Error("console unavailable"))),
       pipelineRunner,
@@ -441,7 +720,7 @@ describe("kubernetes runner-job entrypoint", () => {
   });
 
   it("treats a second signal as an immediate hard-exit request", async () => {
-    const { runKubernetesRunnerJob } = await loadRunnerModule();
+    const { runRunnerJob } = await loadRunnerModule();
     const signals = new EventEmitter();
     const onForceExit = vi.fn();
     const pipelineRunner = vi.fn(() => {
@@ -450,7 +729,7 @@ describe("kubernetes runner-job entrypoint", () => {
       return runtimeResult("CANCELLED");
     });
 
-    await runKubernetesRunnerJob({
+    await runRunnerJob({
       env: payloadEnv(),
       fetch: vi.fn(async () => okResponse()),
       onForceExit,

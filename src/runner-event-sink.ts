@@ -30,6 +30,11 @@ export interface RunnerEventSink {
     outcome: "CANCELLED" | "FAIL" | "PASS",
     workflowId: string
   ) => void;
+  recordRunnerJobPhase: (
+    phase: string,
+    message: string,
+    output?: Record<string, unknown>
+  ) => void;
   recordRuntimeEvent: (event: PipelineRuntimeEvent) => void;
   recordSchemaValidationFailure: (
     message: string,
@@ -121,6 +126,17 @@ export function createRunnerEventSink(
     },
     recordFinalResult(outcome, workflowId) {
       recordRuntimeEvent({ outcome, type: "workflow.finish", workflowId });
+    },
+    recordRunnerJobPhase(phase, message, output) {
+      queue.push({
+        ...nextEnvelope(),
+        log: {
+          level: "info",
+          message,
+          output: { phase, ...output },
+        },
+        type: "runner.job.phase",
+      });
     },
     recordRuntimeEvent,
     recordSchemaValidationFailure(message, issues, workflowId) {

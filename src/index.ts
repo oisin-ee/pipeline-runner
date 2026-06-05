@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Help, Option } from "commander";
 import { execa } from "execa";
 import {
+  BUILTIN_PIPE_COMMANDS,
+  registerConfiguredEntrypointCommands,
+} from "./commands/pipeline-command.js";
+import { registerRunnerJobCommand } from "./commands/runner-job-command.js";
+import {
   loadPipelineConfig,
   type PipelineConfig,
   PipelineConfigError,
@@ -17,7 +22,6 @@ import {
   installCommands,
   parseCommandHost,
 } from "./install-commands.js";
-import { runKubernetesRunnerJob } from "./kubernetes-runner.js";
 import {
   configureGatewayHosts,
   type GatewayHostScope,
@@ -400,18 +404,6 @@ interface ConfigLintWarning {
   ruleId: string;
 }
 
-const BUILTIN_PIPE_COMMANDS = new Set([
-  "run",
-  "pipe",
-  "validate",
-  "explain-plan",
-  "doctor",
-  "init",
-  "install-commands",
-  "mcp",
-  "runner-job",
-]);
-
 export function createCliProgram(): Command {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const configuredPipeline = tryLoadConfiguredEntrypoints(cwd);
@@ -644,17 +636,12 @@ export function createCliProgram(): Command {
       console.log(formatInstallCommandsResult(result));
     });
 
-  program
-    .command("runner-job")
-    .description("Run an in-pod pipeline runner job from the console payload")
-    .action(async () => {
-      const exitCode = await runKubernetesRunnerJob();
-      process.exitCode = exitCode;
-    });
+  registerRunnerJobCommand(program);
 
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,
-    configuredPipeline
+    configuredPipeline,
+    (entrypoint, task) => pipe(task, { entrypoint })
   );
   if (configuredEntrypointCommands.size > 0) {
     program.configureHelp({
@@ -681,35 +668,6 @@ function tryLoadConfiguredEntrypoints(cwd: string): PipelineConfig | null {
     }
     throw err;
   }
-}
-
-function registerConfiguredEntrypointCommands(
-  program: Command,
-  config: PipelineConfig | null
-): Set<string> {
-  const registered = new Set<string>();
-  if (!config) {
-    return registered;
-  }
-
-  const reservedCommands = new Set(
-    program.commands.map((command) => command.name())
-  );
-  for (const [id, entrypoint] of Object.entries(config.entrypoints)) {
-    if (reservedCommands.has(id)) {
-      continue;
-    }
-    program
-      .command(id)
-      .description(entrypoint.description ?? `Run the ${id} workflow`)
-      .argument("<description...>", "task description")
-      .action(async (descriptionParts: string[]) => {
-        await pipe(descriptionParts.join(" "), { entrypoint: id });
-      });
-    registered.add(id);
-    reservedCommands.add(id);
-  }
-  return registered;
 }
 
 function parseGatewayHostScope(value: string): GatewayHostScope {

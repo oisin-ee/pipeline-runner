@@ -10,6 +10,7 @@ const UNSUPPORTED_SELECTOR_RE =
 const INVALID_EVENT_SINK_URL_RE = /eventSink\.url.*valid URL/i;
 const AUTH_TOKEN_ENV_RE =
   /OISIN_PIPELINE_EVENT_AUTH_TOKEN|PIPELINE_EVENT_API_TOKEN/i;
+const CLEAN_DEVSPACE_RE = /repository.*required|clean-devspace/i;
 const PROTOTYPE_POLLUTION_RE = /proto/i;
 const CONTRACT_VERSION_RE = /contract version/i;
 
@@ -118,6 +119,46 @@ describe("runner-job payload contract", () => {
       "selector",
       "task",
     ]);
+  });
+
+  it("requires repository context for clean devspace runner jobs", async () => {
+    const { parseRunnerJobPayload } = await loadContractModule();
+
+    expect(() =>
+      parseRunnerJobPayload(
+        JSON.stringify({
+          ...validPayload(),
+          workspace: {
+            cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
+            mode: "clean-devspace",
+          },
+        })
+      )
+    ).toThrow(CLEAN_DEVSPACE_RE);
+
+    const parsed = parseRunnerJobPayload(
+      JSON.stringify({
+        ...validPayload(),
+        repository: {
+          branch: "main",
+          cloneUrl: "https://github.com/oisin-ee/tova.git",
+          fullName: "oisin-ee/tova",
+          owner: "oisin-ee",
+          repo: "tova",
+          sha: "0123456789abcdef0123456789abcdef01234567",
+        },
+        workspace: {
+          cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
+          mode: "clean-devspace",
+        },
+      })
+    );
+
+    expect(parsed.workspace).toEqual({
+      cloneCredentialEnv: "PIPELINE_GIT_TOKEN",
+      mode: "clean-devspace",
+    });
+    expect(parsed.repository?.fullName).toBe("oisin-ee/tova");
   });
 
   it("exports schemas and types for each payload component", async () => {

@@ -154,6 +154,7 @@ export function renderOpenCodeGatewayConfig(config: PipelineConfig): string {
         [PIPELINE_GATEWAY_SERVER_ID]: {
           enabled: true,
           headers: gatewayOpenCodeHeaders(gateway),
+          oauth: false,
           type: "remote",
           url: gatewayUrl(gateway),
         },

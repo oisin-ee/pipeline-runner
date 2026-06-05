@@ -2439,6 +2439,7 @@ workflows:
       expect(codex).not.toContain("legacy");
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         enabled: true,
+        oauth: false,
         type: "remote",
         url: "https://gateway.example/mcp",
       });

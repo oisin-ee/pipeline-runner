@@ -49,6 +49,13 @@ export const runnerRepositoryContextSchema = z
   })
   .strict();
 
+export const runnerWorkspaceContextSchema = z
+  .object({
+    cloneCredentialEnv: z.string().min(1).optional(),
+    mode: z.enum(["clean-devspace"]),
+  })
+  .strict();
+
 export const runnerMomokayaContextSchema = z
   .object({
     automationNamespace: z.string().min(1).optional(),
@@ -70,8 +77,22 @@ export const runnerJobPayloadSchema = z
     run: runnerRunIdentitySchema,
     selector: runnerWorkflowSelectorSchema,
     task: runnerTaskPromptSchema,
+    workspace: runnerWorkspaceContextSchema.optional(),
   })
-  .strict();
+  .strict()
+  .check((ctx) => {
+    if (
+      ctx.value.workspace?.mode === "clean-devspace" &&
+      !ctx.value.repository
+    ) {
+      ctx.issues.push({
+        code: "custom",
+        input: ctx.value.repository,
+        message: "repository is required for clean-devspace runner jobs",
+        path: ["repository"],
+      });
+    }
+  });
 
 export type RunnerEventSinkConfig = z.infer<typeof runnerEventSinkConfigSchema>;
 export type RunnerJobPayload = z.infer<typeof runnerJobPayloadSchema>;
@@ -81,6 +102,9 @@ export type RunnerRepositoryContext = z.infer<
 >;
 export type RunnerRunIdentity = z.infer<typeof runnerRunIdentitySchema>;
 export type RunnerTaskPrompt = z.infer<typeof runnerTaskPromptSchema>;
+export type RunnerWorkspaceContext = z.infer<
+  typeof runnerWorkspaceContextSchema
+>;
 export type RunnerWorkflowSelector = z.infer<
   typeof runnerWorkflowSelectorSchema
 >;
@@ -127,6 +151,7 @@ export interface BuildRunnerJobPayloadOptions {
   run: RunnerRunIdentity;
   task: RunnerTaskPrompt;
   workflowId: string;
+  workspace?: RunnerWorkspaceContext;
 }
 
 export interface CreateRunnerJobPayloadEnvOptions {
@@ -293,6 +318,7 @@ export type RunnerEventRecord =
         | "node.output.recorded"
         | "output.repair"
         | "run.cancelled"
+        | "runner.job.phase"
         | "runner.schema.validation"
         | "runtime.observability";
     })
@@ -381,6 +407,7 @@ export function buildRunnerJobPayload(
       workflowId: options.workflowId,
     },
     task: options.task,
+    workspace: options.workspace,
   });
 }
 
