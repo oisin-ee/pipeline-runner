@@ -7,8 +7,10 @@ console database, event store, Job builder, Kueue watcher, or UI.
 
 ## Console Job Payload
 
-`pipeline-console` starts the image with one environment variable:
-`OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`.
+`pipeline-console` starts the image with the payload JSON as a mounted
+ConfigMap file and the event auth token as a mounted Secret file. The runner
+reads the payload from `--payload-file` and uses `events.authTokenFile` to
+locate the event auth token file.
 
 The executable payload contract lives in this package at
 `@oisincoveney/pipeline/runner-job-contract`. Console code must build runner
@@ -41,7 +43,7 @@ subpath exports `parseRunnerJobPayload`, `RUNNER_JOB_CONTRACT_VERSION`, and
   "events": {
     "url": "https://console.example/api/pipeline/runner-events",
     "authHeader": "Authorization",
-    "authTokenEnv": "PIPELINE_EVENT_API_TOKEN"
+    "authTokenFile": "/etc/pipeline/event-auth/token"
   }
 }
 ```
@@ -59,7 +61,7 @@ subpath exports `parseRunnerJobPayload`, `RUNNER_JOB_CONTRACT_VERSION`, and
 Payloads describe run identity, repository/task intent, delivery intent, and the
 Console event destination. They must not carry workflow selectors, entrypoints,
 workspace modes, clone credential env names, repository owner/repo duplicates, or
-secrets. `events.authTokenEnv` names the environment variable containing the
+secrets. `events.authTokenFile` is a path to a mounted file containing the
 Console event API token; the token value itself stays in Kubernetes secrets. The
 runner clones `repository.url` into `/workspace`, checks out a
 `pipeline/<task-or-run>` branch from `repository.sha` when present or
@@ -88,9 +90,9 @@ Console-created Jobs are labeled with `kueue.x-k8s.io/queue-name` and
 
 ## Event Batches
 
-Console supplies `events.url`, `events.authHeader`, and `events.authTokenEnv` in
-the runner payload. The runner reads the token from the named environment
-variable and posts progressive authenticated JSON batches to `events.url`:
+Console supplies `events.url`, `events.authHeader`, and `events.authTokenFile` in
+the runner payload. The runner reads the token from the configured file path
+and posts progressive authenticated JSON batches to `events.url`:
 
 ```json
 {
@@ -151,18 +153,25 @@ Failed runtime or smoke verification does not create a PR.
 
 ## Authentication
 
-Secrets are runner-side env/secrets only. Payloads must never contain secret
-values or secret env-var names. Clone credentials, GitHub PR credentials, MCP
-gateway auth, and agent auth JSON are supplied by the Kubernetes Job environment
-and mounted secrets.
+Secrets are mounted as files only. Payloads must never contain secret
+values or secret file paths. Clone credentials, GitHub PR credentials, MCP
+gateway auth, and native agent auth files are supplied by the Kubernetes Job
+environment and mounted secrets.
 
-Expected runner Job env/secrets include:
+Expected runner Job secrets and mounts include:
 
-- `CODEX_AUTH_JSON`
-- `OPENCODE_AUTH_JSON`
-- `PIPELINE_MCP_GATEWAY_AUTHORIZATION`
-- event sink auth env when event posting is configured
+- `codex-auth-1` mounted at `/root/.codex/auth.json`
+- `opencode-auth-1` mounted at `/root/.local/share/opencode/auth.json`
+- Event auth Secret mounted at a path configured via `events.authTokenFile`
+- MCP gateway auth Secret mounted at a path referenced by the runner
 - GitHub auth usable by both `git` and `gh`
+
+The runner image sets `HOME=/root` and `CODEX_HOME=/root/.codex`; Kubernetes
+must project each numbered auth Secret with the key `auth.json` into the target
+directory. The runner does not read event auth tokens or payloads from
+environment variables. No `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`,
+`PIPELINE_EVENT_API_TOKEN`, `CODEX_AUTH_JSON`, or `OPENCODE_AUTH_JSON` env vars
+are used.
 
 ## Boundary
 

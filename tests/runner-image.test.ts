@@ -9,25 +9,24 @@ const LEADING_SLASHES_RE = /^\/+/;
 const TRAILING_SLASHES_RE = /\/+$/;
 const IMAGE_JOB_RE = /image|docker|container|ghcr/i;
 const DOCKERFILE_BASE_IMAGE_RE = /FROM\s+(?:oven\/bun|node):/i;
-const PIPELINE_NPM_PACKAGE_RE =
-  /@oisincoveney\/pipeline@\$\{PIPELINE_PACKAGE_VERSION\}/;
 const CODEX_NPM_PACKAGE_RE = /@openai\/codex@\$\{CODEX_PACKAGE_VERSION\}/;
 const OPENCODE_NPM_PACKAGE_RE = /opencode-ai@\$\{OPENCODE_PACKAGE_VERSION\}/;
 const CLAUDE_NPM_PACKAGE_RE =
   /@anthropic-ai\/claude-code@\$\{CLAUDE_CODE_PACKAGE_VERSION\}/;
 const NPM_GLOBAL_INSTALL_RE = /npm\s+install\s+-g/i;
-const SOURCE_COPY_RE = /COPY\s+(?:src|package\.json|bun\.lock|defaults)\b/i;
+const LOCAL_PIPELINE_COPY_RE = /COPY\s+(?:package\.json|src|defaults)\b/i;
+const LOCAL_PIPELINE_INSTALL_RE =
+  /npm\s+install\s+-g[\s\S]*\/tmp\/pipeline-package\.tgz/i;
+const NPM_BUILD_RE = /npm\s+run\s+build/i;
 const BUN_BUILD_RE = /bun\s+(?:install|run\s+build(?::cli)?)/i;
 const GIT_RE = /\bgit\b/i;
 const RUNNER_JOB_ENTRYPOINT_RE =
-  /ENTRYPOINT\s+\["runner-entrypoint",\s*"oisin-pipeline"\][\s\S]*CMD\s+\["runner-job"\]/i;
+  /ENTRYPOINT\s+\["oisin-pipeline"\][\s\S]*CMD\s+\["runner-job"\]/i;
 const RUNNER_ENTRYPOINT_COPY_RE =
   /COPY\s+docker\/runner-entrypoint\.sh\s+\/usr\/local\/bin\/runner-entrypoint/i;
-const CODEX_AUTH_MATERIALIZATION_RE =
-  /CODEX_AUTH_JSON[\s\S]*CODEX_HOME[\s\S]*auth\.json/;
-const OPENCODE_AUTH_MATERIALIZATION_RE =
-  /OPENCODE_AUTH_JSON[\s\S]*\.local\/share\/opencode\/auth\.json/;
-const PI_AUTH_MATERIALIZATION_RE = /PI_AUTH_JSON[\s\S]*\.pi\/agent\/auth\.json/;
+const RUNNER_HOME_RE = /ENV\s+HOME=\/root/;
+const RUNNER_CODEX_HOME_RE = /ENV\s+CODEX_HOME=\/root\/\.codex/;
+const AUTH_JSON_ENV_RE = /CODEX_AUTH_JSON|OPENCODE_AUTH_JSON|PI_AUTH_JSON/;
 const PIPELINE_CONSOLE_RE = /pipeline-console|apps\/console/i;
 const DOCKER_BUILD_RE = /\bdocker\s+build\b/;
 const DOCKER_RUN_RE = /\bdocker\s+run\b/;
@@ -101,17 +100,18 @@ describe("runner container image packaging", () => {
     expect(existsSync(join(root, "Dockerfile"))).toBe(true);
   });
 
-  it("installs the published pipeline package and agent CLIs from npm", () => {
+  it("builds the local pipeline checkout and installs agent CLIs from npm", () => {
     const dockerfile = readProjectFile("Dockerfile");
 
     expect(dockerfile).toMatch(DOCKERFILE_BASE_IMAGE_RE);
+    expect(dockerfile).toMatch(LOCAL_PIPELINE_COPY_RE);
+    expect(dockerfile).toMatch(NPM_BUILD_RE);
+    expect(dockerfile).toMatch(LOCAL_PIPELINE_INSTALL_RE);
     expect(dockerfile).toMatch(NPM_GLOBAL_INSTALL_RE);
-    expect(dockerfile).toMatch(PIPELINE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(CODEX_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(OPENCODE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(CLAUDE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(GIT_RE);
-    expect(dockerfile).not.toMatch(SOURCE_COPY_RE);
     expect(dockerfile).not.toMatch(BUN_BUILD_RE);
   });
 
@@ -129,15 +129,14 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(RUNNER_JOB_ENTRYPOINT_RE);
   });
 
-  it("materializes agent auth JSON env vars before starting the package", () => {
+  it("uses native agent auth file mounts instead of env materialization", () => {
     const dockerfile = readProjectFile("Dockerfile");
-    const entrypoint = readProjectFile("docker/runner-entrypoint.sh");
 
-    expect(dockerfile).toMatch(RUNNER_ENTRYPOINT_COPY_RE);
-    expect(entrypoint).toMatch(CODEX_AUTH_MATERIALIZATION_RE);
-    expect(entrypoint).toMatch(OPENCODE_AUTH_MATERIALIZATION_RE);
-    expect(entrypoint).toMatch(PI_AUTH_MATERIALIZATION_RE);
-    expect(entrypoint).toContain('exec "$@"');
+    expect(dockerfile).toMatch(RUNNER_HOME_RE);
+    expect(dockerfile).toMatch(RUNNER_CODEX_HOME_RE);
+    expect(dockerfile).not.toMatch(RUNNER_ENTRYPOINT_COPY_RE);
+    expect(dockerfile).not.toMatch(AUTH_JSON_ENV_RE);
+    expect(existsSync(join(root, "docker/runner-entrypoint.sh"))).toBe(false);
   });
 
   it("does not copy pipeline-console source into the runner image", () => {

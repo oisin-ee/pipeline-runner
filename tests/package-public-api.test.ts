@@ -188,7 +188,7 @@ const formattedError = formatConfigError(
 const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
   events: {
     authHeader: "Authorization",
-    authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
+    authTokenFile: "/etc/pipeline/event-auth/token",
     url: "https://console.example/api/pipeline/runner-events",
   },
   repository: {

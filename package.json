@@ -88,7 +88,7 @@
   "scripts": {
     "build:cli": "tsdown",
     "test": "vitest run",
-    "test:image": "docker build -t pipeline-runner:test . && docker run --rm -e OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{}' -e OISIN_PIPELINE_EVENT_AUTH_TOKEN=test pipeline-runner:test runner-job; test $? -eq 64",
+    "test:image": "mkdir -p /tmp/pipeline-test && printf '{}' > /tmp/pipeline-test/payload.json && printf 'test-token' > /tmp/pipeline-test/event-token && docker build -t pipeline-runner:test . && docker run --rm -v /tmp/pipeline-test/payload.json:/etc/pipeline/payload.json:ro -v /tmp/pipeline-test/event-token:/etc/pipeline/event-auth:ro pipeline-runner:test runner-job --payload-file /etc/pipeline/payload.json --orchestrator codex; test $? -eq 64",
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
     "typecheck": "tsc --noEmit",

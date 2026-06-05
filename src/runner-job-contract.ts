@@ -1,8 +1,8 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
 import { parseJson } from "./safe-json.js";
 
-export const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 export const RUNNER_JOB_CONTRACT_VERSION = "1";
 
 export const runnerRunIdentitySchema = z
@@ -52,7 +52,7 @@ export const runnerDeliverySchema = z
 export const runnerEventsSchema = z
   .object({
     authHeader: z.string().min(1).default("Authorization"),
-    authTokenEnv: z.string().min(1),
+    authTokenFile: z.string().min(1),
     url: z.string().url(),
   })
   .strict();
@@ -135,18 +135,9 @@ export interface BuildRunnerJobPayloadOptions {
   task: RunnerTask;
 }
 
-export interface CreateRunnerJobPayloadEnvOptions {
-  events: RunnerEvents;
-  project: string;
-  repository: RunnerRepositoryContext;
-  requestedBy?: string;
-  runId: string;
-  taskPrompt: string;
-}
-
 export interface ResolveRunnerEventSinkAuthTokenOptions {
-  authTokenEnv: string;
-  env?: Record<string, string | undefined>;
+  authTokenFile?: string;
+  readFile?: (path: string) => string;
 }
 
 export interface RunnerEventMappingContext {
@@ -309,14 +300,14 @@ export type RunnerEventRecord =
 export function resolveRunnerEventSinkAuthToken(
   options: ResolveRunnerEventSinkAuthTokenOptions
 ): string {
-  const env = options.env ?? process.env;
-  const token = env[options.authTokenEnv]?.trim();
-  if (token) {
-    return token;
+  if (options.authTokenFile) {
+    const readFile: (path: string) => string =
+      options.readFile ?? ((p: string) => readFileSync(p, "utf8"));
+    return readFile(options.authTokenFile).trim();
   }
 
   throw new Error(
-    `Runner event auth token is required. Set ${options.authTokenEnv}.`
+    "Runner event auth token is required. Set events.authTokenFile in the runner payload."
   );
 }
 
@@ -324,28 +315,6 @@ export function resolveRunnerEventSinkAuthHeader(
   options: ResolveRunnerEventSinkAuthTokenOptions
 ): string {
   return `Bearer ${resolveRunnerEventSinkAuthToken(options)}`;
-}
-
-export function createRunnerJobPayloadEnv(
-  options: CreateRunnerJobPayloadEnvOptions
-): { name: typeof RUNNER_PAYLOAD_ENV; value: string } {
-  const payload = buildRunnerJobPayload({
-    run: {
-      id: options.runId,
-      project: options.project,
-      requestedBy: options.requestedBy,
-    },
-    events: options.events,
-    repository: options.repository,
-    task: {
-      kind: "prompt",
-      prompt: options.taskPrompt,
-    },
-  });
-  return {
-    name: RUNNER_PAYLOAD_ENV,
-    value: JSON.stringify(payload),
-  };
 }
 
 export function buildRunnerJobPayload(

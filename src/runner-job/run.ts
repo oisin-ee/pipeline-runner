@@ -13,10 +13,10 @@ import {
 import {
   parseRunnerJobPayloadWithIssues,
   type RecoverableRunnerJobPayloadEnvelope,
-  RUNNER_PAYLOAD_ENV,
   type RunnerJobPayload,
   type RunnerJobPayloadValidationError,
   type RunnerTask,
+  resolveRunnerEventSinkAuthToken,
 } from "../runner-job-contract.js";
 import {
   compileScheduleArtifact,
@@ -82,6 +82,8 @@ export interface RunnerJobOptions {
   env?: Record<string, string | undefined>;
   fetch?: FetchLike;
   onForceExit?: (exitCode: number) => void;
+  orchestrator?: string;
+  payloadFile?: string;
   pipelineRunner?: PipelineRunner;
   prepareSchedule?: SchedulePreparer;
   prepareWorkspace?: WorkspacePreparer;
@@ -110,6 +112,17 @@ export async function runRunnerJob(
   }
   const { env, payload, stderr } = prepared.job;
 
+  // Validate auth token before proceeding
+  try {
+    resolveRunnerEventSinkAuthToken({
+      authTokenFile: payload.events.authTokenFile,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    stderr.write(`${message}\n`);
+    return EXIT_VALIDATION;
+  }
+
   const controller = new AbortController();
   const signalEmitter = options.signalEmitter ?? process;
   const forceExit =
@@ -119,7 +132,6 @@ export async function runRunnerJob(
   let signalFinalResultRecorded = false;
 
   const sink = createRunnerSink({
-    env,
     events: payload.events,
     fetch: options.fetch,
     runId: payload.run.id,
@@ -418,12 +430,32 @@ function prepareWorkspace(
   });
 }
 
+const VALID_ORCHESTRATORS = new Set(["codex", "opencode"]);
+
 function prepareRunnerJob(options: RunnerJobOptions): PrepareRunnerJobResult {
   const env = options.env ?? process.env;
   const stderr = options.stderr ?? process.stderr;
-  const payloadRaw = env[RUNNER_PAYLOAD_ENV];
-  if (!payloadRaw) {
-    stderr.write(`${RUNNER_PAYLOAD_ENV} is required\n`);
+
+  const orchestrator = options.orchestrator;
+  if (orchestrator !== undefined && !VALID_ORCHESTRATORS.has(orchestrator)) {
+    stderr.write(
+      `Invalid orchestrator '${orchestrator}'. Must be 'codex' or 'opencode'.\n`
+    );
+    return { exitCode: EXIT_VALIDATION };
+  }
+
+  const payloadFilePath = options.payloadFile;
+  if (!payloadFilePath) {
+    stderr.write("Runner payload file is required. Use --payload-file.\n");
+    return { exitCode: EXIT_VALIDATION };
+  }
+
+  let payloadRaw: string;
+  try {
+    payloadRaw = readFileSync(payloadFilePath, "utf8");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    stderr.write(`Payload file error: ${message}\n`);
     return { exitCode: EXIT_VALIDATION };
   }
 
@@ -458,47 +490,34 @@ async function reportPreparedValidationFailure(
   options: RunnerJobOptions
 ): Promise<number> {
   if (failure.recoverable) {
-    const sink = createRunnerSink({
-      env: failure.env,
-      events: failure.recoverable.events,
-      fetch: options.fetch,
-      runId: failure.recoverable.run.id,
-    });
-    sink.recordSchemaValidationFailure(
-      failure.error.message,
-      failure.error.issues,
-      RUNNER_SCHEDULE_ENTRYPOINT
-    );
-    await flushAndReport(sink.flush, failure.stderr);
+    try {
+      const sink = createRunnerSink({
+        events: failure.recoverable.events,
+        fetch: options.fetch,
+        runId: failure.recoverable.run.id,
+      });
+      sink.recordSchemaValidationFailure(
+        failure.error.message,
+        failure.error.issues,
+        RUNNER_SCHEDULE_ENTRYPOINT
+      );
+      await flushAndReport(sink.flush, failure.stderr);
+    } catch {
+      // Sink creation failed (e.g., missing auth token) — validation
+      // failure is still reported via the exit code.
+    }
   }
   return EXIT_VALIDATION;
 }
 
-function resolveAuthToken(
-  authTokenEnv: string,
-  env: Record<string, string | undefined>,
-  stderr: OutputStream
-): string | null {
-  const token = env[authTokenEnv]?.trim();
-  if (!token) {
-    stderr.write(`Runner event auth token is required. Set ${authTokenEnv}.\n`);
-    return null;
-  }
-  return token;
-}
-
 function createRunnerSink(options: {
-  env: Record<string, string | undefined>;
   events: RunnerJobPayload["events"];
   fetch?: FetchLike;
   runId: string;
 }): RunnerEventSink {
-  const authToken = resolveAuthToken(options.events.authTokenEnv, options.env, {
-    write: () => true,
+  const authToken = resolveRunnerEventSinkAuthToken({
+    authTokenFile: options.events.authTokenFile,
   });
-  if (!authToken) {
-    return createNoopRunnerEventSink();
-  }
   return createRunnerEventSink({
     authHeader: options.events.authHeader,
     authToken,
@@ -506,18 +525,6 @@ function createRunnerSink(options: {
     runId: options.runId,
     url: options.events.url,
   });
-}
-
-function createNoopRunnerEventSink(): RunnerEventSink {
-  return {
-    fail: () => Promise.resolve(),
-    flush: () => Promise.resolve(),
-    recordCancellation: () => undefined,
-    recordFinalResult: () => undefined,
-    recordRunnerJobPhase: () => undefined,
-    recordRuntimeEvent: () => undefined,
-    recordSchemaValidationFailure: () => undefined,
-  };
 }
 
 function errorMessage(err: unknown): string {

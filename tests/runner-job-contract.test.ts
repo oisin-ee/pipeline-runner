@@ -1,24 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 const TIMESTAMP = "2026-06-02T09:00:00.000Z";
 const RUNNER_JOB_CONTRACT_VERSION = "1";
 const EVENT_URL = "https://console.example.test/api/pipeline/runner-events";
 const MISSING_RUN_ID_RE = /run\.id.*required/i;
 const INVALID_REPOSITORY_URL_RE = /repository\.url.*valid URL/i;
-const AUTH_TOKEN_ENV_RE = /PIPELINE_EVENT_API_TOKEN/i;
 const PROTOTYPE_POLLUTION_RE = /proto/i;
 const CONTRACT_VERSION_RE = /contract version/i;
+const AUTH_TOKEN_FILE_RE = /authTokenFile/i;
+
+function validEvents(): Record<string, unknown> {
+  return {
+    authHeader: "Authorization",
+    authTokenFile: "/etc/pipeline/event-auth/token",
+    url: EVENT_URL,
+  };
+}
 
 function validPayload(): Record<string, unknown> {
   return {
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     delivery: { pullRequest: false },
-    events: {
-      authHeader: "Authorization",
-      authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
-      url: EVENT_URL,
-    },
+    events: validEvents(),
     repository: {
       baseBranch: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
@@ -41,24 +44,6 @@ function loadContractModule(): Promise<Record<string, any>> {
 }
 
 describe("runner-job payload contract", () => {
-  it("serializes the exact console payload env var shape", async () => {
-    const { createRunnerJobPayloadEnv } = await loadContractModule();
-
-    const env = createRunnerJobPayloadEnv({
-      project: "project_123",
-      events: validPayload().events,
-      repository: validPayload().repository,
-      requestedBy: "user_456",
-      runId: "run_123",
-      taskPrompt: "Ship PIPE-38",
-    });
-
-    expect(env).toEqual({
-      name: RUNNER_PAYLOAD_ENV,
-      value: JSON.stringify(validPayload()),
-    });
-  });
-
   it("builds the public console-to-runner payload contract with hook policy defaults", async () => {
     const { buildRunnerJobPayload } = await loadContractModule();
 
@@ -132,7 +117,7 @@ describe("runner-job payload contract", () => {
           additionalProperties: false,
           properties: {
             authHeader: { type: "string" },
-            authTokenEnv: { type: "string" },
+            authTokenFile: { type: "string" },
             url: { type: "string" },
           },
         },
@@ -207,18 +192,15 @@ describe("runner-job payload contract", () => {
     );
   });
 
-  it("fails fast when the configured console event token cannot be resolved", async () => {
+  it("fails fast when the configured console event token file is missing", async () => {
     const { resolveRunnerEventSinkAuthToken } = await loadContractModule();
 
-    expect(() =>
-      resolveRunnerEventSinkAuthToken({
-        authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
-        env: {},
-      })
-    ).toThrow(AUTH_TOKEN_ENV_RE);
+    expect(() => resolveRunnerEventSinkAuthToken({})).toThrow(
+      AUTH_TOKEN_FILE_RE
+    );
   });
 
-  it("resolves the bearer token using the configured env name", async () => {
+  it("resolves the bearer token using the configured authTokenFile", async () => {
     const {
       resolveRunnerEventSinkAuthHeader,
       resolveRunnerEventSinkAuthToken,
@@ -226,18 +208,16 @@ describe("runner-job payload contract", () => {
 
     expect(
       resolveRunnerEventSinkAuthToken({
-        authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
-        env: {
-          PIPELINE_EVENT_API_TOKEN: "fallback-token",
-        },
+        authTokenFile: "/etc/pipeline/event-auth/token",
+        readFile: () => "file-based-token",
       })
-    ).toBe("fallback-token");
+    ).toBe("file-based-token");
     expect(
       resolveRunnerEventSinkAuthHeader({
-        authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
-        env: { PIPELINE_EVENT_API_TOKEN: "fallback-token" },
+        authTokenFile: "/etc/pipeline/event-auth/token",
+        readFile: () => "file-based-token",
       })
-    ).toBe("Bearer fallback-token");
+    ).toBe("Bearer file-based-token");
   });
 
   it("maps runtime events into the RunnerEventRecord fields accepted by console", async () => {
@@ -442,6 +422,52 @@ describe("runner-job payload contract", () => {
         type: "runtime.observability",
       },
     ]);
+  });
+
+  describe("authTokenFile support", () => {
+    /**
+     * RED: runner event auth is read from authTokenFile not authTokenEnv.
+     * The contract schema must accept authTokenFile in place of (or
+     * alongside) authTokenEnv on the events block.
+     */
+    it("accepts authTokenFile on the events schema", async () => {
+      const { parseRunnerJobPayload } = await loadContractModule();
+
+      // Build a valid payload with authTokenFile
+      const payload = {
+        ...validPayload(),
+        events: {
+          ...validEvents(),
+          authTokenFile: "/etc/pipeline/event-auth/token",
+        },
+      };
+
+      const parsed = parseRunnerJobPayload(JSON.stringify(payload));
+
+      expect(parsed.events.authTokenFile).toBe(
+        "/etc/pipeline/event-auth/token"
+      );
+    });
+
+    it("resolves auth token from file path when authTokenFile is set", async () => {
+      const { resolveRunnerEventSinkAuthToken } = await loadContractModule();
+
+      // resolveRunnerEventSinkAuthToken must accept an authTokenFile
+      // option, read the file, and return the contents.
+      const token = resolveRunnerEventSinkAuthToken({
+        authTokenFile: "/etc/pipeline/event-auth/token",
+        readFile: () => "file-based-token",
+      });
+
+      expect(token).toBe("file-based-token");
+    });
+  });
+
+  it("does not export the env-based payload helper from the contract module", async () => {
+    const contract = await loadContractModule();
+
+    expect(contract).not.toHaveProperty("createRunnerJobPayloadEnv");
+    expect(contract).not.toHaveProperty("RUNNER_PAYLOAD_ENV");
   });
 
   it("maps hook result events into console hook result records", async () => {

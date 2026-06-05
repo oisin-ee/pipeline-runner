@@ -119,11 +119,12 @@ Host choices are `all`, `opencode`, and `codex`.
 
 `pipe runner-job`
 
-Runs the in-pod backend worker entrypoint. The job reads
-`OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`, prepares `PIPELINE_TARGET_PATH` or clones
-the requested repository into `/workspace`, generates a task-specific schedule,
-and appends runtime events to the Console endpoint configured by payload
-`events.url`.
+Runs the in-pod backend worker entrypoint. The job reads the runner payload
+from a JSON file and reads the event auth token from a file path configured in
+the payload's `events.authTokenFile`. It prepares `PIPELINE_TARGET_PATH` or
+clones the requested repository into `/workspace`, generates a task-specific
+schedule, and appends runtime events to the Console endpoint configured by
+payload `events.url`.
 
 The runner job does not call the Kubernetes API. Validation errors exit `64`,
 startup errors exit `70`, runtime failure exits `1`, cancellation exits `130`,
@@ -132,13 +133,14 @@ and SIGTERM/SIGINT cancellation exits `130`.
 Local dry run:
 
 ```shell
-export PIPELINE_TARGET_PATH=/path/to/target/repo
-export PIPELINE_EVENT_API_TOKEN=dev-token
-export OISIN_PIPELINE_RUNNER_PAYLOAD_JSON='{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha","requestedBy":"@agent"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":false},"events":{"url":"http://127.0.0.1:3000/api/pipeline/runner-events","authHeader":"Authorization","authTokenEnv":"PIPELINE_EVENT_API_TOKEN"}}'
-pipe runner-job
+cat > /tmp/payload.json << 'EOF'
+{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha","requestedBy":"@agent"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":false},"events":{"url":"http://127.0.0.1:3000/api/pipeline/runner-events","authHeader":"Authorization","authTokenFile":"/tmp/event-token"}}
+EOF
+echo -n "dev-token" > /tmp/event-token
+PIPELINE_TARGET_PATH=/path/to/target/repo pipe runner-job --payload-file /tmp/payload.json --orchestrator codex
 ```
 
-Kubernetes dry run shape:
+Kubernetes dry run shape (file-only, no env vars for payload or auth):
 
 ```yaml
 apiVersion: batch/v1
@@ -160,22 +162,58 @@ spec:
       containers:
         - name: runner
           image: ghcr.io/oisin-ee/pipeline-runner:latest
-          env:
-            - name: OISIN_PIPELINE_RUNNER_PAYLOAD_JSON
-              value: '{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main","sha":"0123456789abcdef0123456789abcdef01234567"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":true},"events":{"url":"https://console.example/api/pipeline/runner-events","authHeader":"Authorization","authTokenEnv":"PIPELINE_EVENT_API_TOKEN"}}'
-            - name: PIPELINE_EVENT_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: pipeline-runner-event-auth
-                  key: token
+          args:
+            - --payload-file
+            - /etc/pipeline/payload.json
+            - codex
+          volumeMounts:
+            - name: pipeline-payload
+              mountPath: /etc/pipeline/payload.json
+              subPath: payload.json
+              readOnly: true
+            - name: pipeline-event-auth
+              mountPath: /etc/pipeline/event-auth
+              readOnly: true
+            - name: codex-auth
+              mountPath: /root/.codex
+              readOnly: true
+            - name: opencode-auth
+              mountPath: /root/.local/share/opencode
+              readOnly: true
+      volumes:
+        - name: pipeline-payload
+          configMap:
+            name: pipeline-run-alpha-payload
+            items:
+              - key: payload.json
+                path: payload.json
+        - name: pipeline-event-auth
+          secret:
+            secretName: pipeline-runner-event-auth
+            items:
+              - key: token
+                path: token
+        - name: codex-auth
+          secret:
+            secretName: codex-auth-1
+            defaultMode: 0400
+        - name: opencode-auth
+          secret:
+            secretName: opencode-auth-1
+            defaultMode: 0400
 ```
 
 The runner image is configured in `pipeline-console` as
 `pipeline.runner.image`. Console runner settings include queue name, service
 account, CPU/memory requests and limits, active deadline, TTL, backoff limit,
-event sink URL, auth header, and the token environment variable name. The
-runner-side secret mounted at `events.authTokenEnv` must match the console API
-`PIPELINE_EVENT_API_TOKEN`.
+event sink URL, auth header, and auth token file path. The runner-side event
+auth token is mounted as a file via Secret volume at the path configured in
+`events.authTokenFile`. Codex auth is the native file
+`/root/.codex/auth.json` from Secret `codex-auth-1`; OpenCode auth is the
+native file `/root/.local/share/opencode/auth.json` from Secret
+`opencode-auth-1`. Do not use `CODEX_AUTH_JSON` or `OPENCODE_AUTH_JSON` env
+materialization in runner Jobs. The orchestrator argument (`codex` or
+`opencode`) tells the runner which agent CLI to use for node execution.
 
 The runner payload contract lives at
 `@oisincoveney/pipeline/runner-job-contract`. `pipeline-console` should create
@@ -189,12 +227,13 @@ way to detect image/dependency skew before starting Jobs.
 
 Troubleshooting:
 
-- Missing payload: set `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`; exit code is `64`.
+- Missing payload: pass `--payload-file <path>` to the runner-job command; exit
+  code is `64`.
 - Schema validation: unsupported payload fields or incompatible `contractVersion`
   exit `64`; recoverable payloads also post
   `runner.schema.validation` and a failing `workflow.finish` event.
-- Invalid auth: confirm the runner token matches the console API token; 401/403
-  event sink responses are terminal.
+- Invalid auth: confirm the event auth token file content matches the console
+  API token; 401/403 event sink responses are terminal.
 - Missing target config: set `PIPELINE_TARGET_PATH` to a repo containing
   `.pipeline/pipeline.yaml`; exit code is `64`.
 - Missing agent CLI: run `pipe doctor` or install the CLI required by the
@@ -229,10 +268,10 @@ bun run test
 bun run test:image
 ```
 
-`bun run test:image` builds the local runner image and runs a malformed
-`OISIN_PIPELINE_RUNNER_PAYLOAD_JSON` through the default `runner-job` command.
-The smoke test passes only when the container reaches runner validation and
-exits with code `64`.
+`bun run test:image` builds the local runner image and runs an empty payload
+file through the `runner-job` command with a payload file and event token file
+mount. The smoke test passes only when the container reaches runner validation
+and exits with code `64`.
 
 ## How The Package Works
 

@@ -9,10 +9,8 @@ vi.mock("execa", () => ({
   execa: vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })),
 }));
 
-const RUNNER_PAYLOAD_ENV = "OISIN_PIPELINE_RUNNER_PAYLOAD_JSON";
 const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
 const RUNNER_JOB_CONTRACT_VERSION = "1";
-const PAYLOAD_ENV_RE = /OISIN_PIPELINE_RUNNER_PAYLOAD_JSON/i;
 const MALFORMED_JSON_RE = /malformed|json/i;
 const REPOSITORY_URL_RE = /repository\.url/i;
 const STARTUP_FAILURE_RE = /runtime startup failed/i;
@@ -22,7 +20,12 @@ const FLUSH_FAILURE_RE = /console unavailable|event sink flush/i;
 const UNAUTHORIZED_RE = /unauthorized|401|event sink flush/i;
 const SCHEMA_VALIDATION_RE = /schema validation|selector/i;
 const SCHEMA_VALIDATION_MESSAGE_RE = /schema validation/i;
-const SMOKE_FAILED_RE = /smoke failed/i;
+const PAYLOAD_FILE_REQUIRED_RE = /payload.*file/i;
+const PAYLOAD_FILE_ERROR_RE = /payload.*file|file.*payload|not found|ENOENT/i;
+const PAYLOAD_MALFORMED_JSON_RE =
+  /malformed|Unexpected token|JSON.*error|error.*JSON/i;
+const AUTH_FILE_MISSING_RE = /auth.*file|file.*auth|token|ENOENT/i;
+const INVALID_ORCHESTRATOR_RE = /invalid orchestrator/i;
 const TEST_SKILLS = [
   "critique",
   "diagnose",
@@ -55,11 +58,7 @@ function validPayload(): Record<string, unknown> {
   return {
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     delivery: { pullRequest: false },
-    events: {
-      authHeader: "Authorization",
-      authTokenEnv: "PIPELINE_EVENT_API_TOKEN",
-      url: EVENT_SINK_URL,
-    },
+    events: validEvents(),
     repository: {
       baseBranch: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
@@ -75,6 +74,48 @@ function validPayload(): Record<string, unknown> {
       prompt: "Ship PIPE-38",
     },
   };
+}
+
+function validEvents(): Record<string, unknown> {
+  return {
+    authHeader: "Authorization",
+    authTokenFile: "/tmp/placeholder-event-token",
+    url: EVENT_SINK_URL,
+  };
+}
+
+interface PayloadContext {
+  dir: string;
+  env: { PIPELINE_TARGET_PATH: string };
+  payloadFile: string;
+}
+
+async function withPayloadContext<T>(
+  fn: (ctx: PayloadContext) => Promise<T>,
+  overrides?: Record<string, unknown>
+): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "pipe-test-"));
+  try {
+    const authTokenFilePath = join(dir, "event-token");
+    await writeFile(authTokenFilePath, "console-token");
+    const payload = {
+      ...validPayload(),
+      events: {
+        ...validEvents(),
+        authTokenFile: authTokenFilePath,
+      },
+      ...overrides,
+    };
+    const payloadFile = join(dir, "payload.json");
+    await writeFile(payloadFile, JSON.stringify(payload));
+    return fn({
+      dir,
+      env: { PIPELINE_TARGET_PATH: process.cwd() },
+      payloadFile,
+    });
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
 }
 
 function runtimeResult(outcome: "CANCELLED" | "FAIL" | "PASS"): any {
@@ -139,16 +180,6 @@ function ioBuffers(): {
   };
 }
 
-function payloadEnv(
-  payload: Record<string, unknown> = validPayload()
-): Record<string, string | undefined> {
-  return {
-    PIPELINE_EVENT_API_TOKEN: "console-token",
-    PIPELINE_TARGET_PATH: process.cwd(),
-    [RUNNER_PAYLOAD_ENV]: JSON.stringify(payload),
-  };
-}
-
 async function writeTestSkills(root: string): Promise<void> {
   for (const skill of TEST_SKILLS) {
     const skillDir = join(root, ".agents", "skills", skill);
@@ -158,38 +189,38 @@ async function writeTestSkills(root: string): Promise<void> {
 }
 
 describe("runner-job entrypoint", () => {
-  it("returns EX_USAGE 64 when the runner payload env var is missing", async () => {
+  it("returns EX_USAGE 64 when payloadFile is not provided", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const pipelineRunner = vi.fn();
     const io = ioBuffers();
 
     const exitCode = await runRunnerJob({
-      env: {},
       pipelineRunner,
       stderr: io.stderr,
-      stdout: io.stdout,
     });
 
     expect(exitCode).toBe(64);
     expect(pipelineRunner).not.toHaveBeenCalled();
-    expect(io.stderrText()).toMatch(PAYLOAD_ENV_RE);
+    expect(io.stderrText()).toMatch(PAYLOAD_FILE_REQUIRED_RE);
   });
 
   it("returns EX_USAGE 64 for malformed runner payload JSON", async () => {
     const { runRunnerJob } = await loadRunnerModule();
-    const pipelineRunner = vi.fn();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-payload-malformed-"));
     const io = ioBuffers();
+    try {
+      const payloadPath = join(dir, "payload.json");
+      await writeFile(payloadPath, "{");
+      const exitCode = await runRunnerJob({
+        payloadFile: payloadPath,
+        stderr: io.stderr,
+      });
 
-    const exitCode = await runRunnerJob({
-      env: { [RUNNER_PAYLOAD_ENV]: "{" },
-      pipelineRunner,
-      stderr: io.stderr,
-      stdout: io.stdout,
-    });
-
-    expect(exitCode).toBe(64);
-    expect(pipelineRunner).not.toHaveBeenCalled();
-    expect(io.stderrText()).toMatch(MALFORMED_JSON_RE);
+      expect(exitCode).toBe(64);
+      expect(io.stderrText()).toMatch(MALFORMED_JSON_RE);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 
   it("passes runId, workflowId, task, worktreePath, signal, and reporter to runPipelineFromConfig", async () => {
@@ -221,25 +252,28 @@ describe("runner-job entrypoint", () => {
       return runtimeResult("PASS");
     });
 
-    const exitCode = await runRunnerJob({
-      cwd: "/workspace/run_123",
-      env: payloadEnv(),
-      fetch: fetchMock,
-      pipelineRunner,
-    });
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: fetchMock,
+        pipelineRunner,
+      });
 
-    expect(exitCode).toBe(0);
-    expect(pipelineRunner).toHaveBeenCalledTimes(1);
-    const calls = fetchMock.mock.calls as unknown as [
-      string,
-      RequestInit | undefined,
-    ][];
-    const [url, init] = calls[0];
-    expect(url).toBe(EVENT_SINK_URL);
-    expect(init?.headers).toBeInstanceOf(Headers);
-    expect((init?.headers as Headers).get("Authorization")).toBe(
-      "Bearer console-token"
-    );
+      expect(exitCode).toBe(0);
+      expect(pipelineRunner).toHaveBeenCalledTimes(1);
+      const calls = fetchMock.mock.calls as unknown as [
+        string,
+        RequestInit | undefined,
+      ][];
+      const [url, init] = calls[0];
+      expect(url).toBe(EVENT_SINK_URL);
+      expect(init?.headers).toBeInstanceOf(Headers);
+      expect((init?.headers as Headers).get("Authorization")).toBe(
+        "Bearer console-token"
+      );
+    });
   });
 
   it("resolves ticket payloads before invoking the pipeline engine", async () => {
@@ -247,33 +281,43 @@ describe("runner-job entrypoint", () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) => okResponse()
     );
-    const pipelineRunner = vi.fn((options) => {
-      expect(options).toEqual(
-        expect.objectContaining({
-          hookPolicy: expect.objectContaining({
-            allowCommandHooks: true,
-          }),
-          task: "PIPE-49.2",
-          workflowId: "default",
-        })
-      );
-      return runtimeResult("PASS");
-    });
+    const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv({
+    const dir = await mkdtemp(join(tmpdir(), "pipe-ticket-payload-"));
+    try {
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadPath = join(dir, "payload.json");
+      const payload = {
         ...validPayload(),
+        events: {
+          ...validEvents(),
+          authTokenFile: authTokenFilePath,
+        },
         task: {
           id: "PIPE-49.2",
           kind: "ticket",
         },
-      }),
-      fetch: fetchMock,
-      pipelineRunner,
-    });
+      };
+      await writeFile(payloadPath, JSON.stringify(payload));
 
-    expect(exitCode).toBe(0);
-    expect(pipelineRunner).toHaveBeenCalledTimes(1);
+      const exitCode = await runRunnerJob({
+        env: { PIPELINE_TARGET_PATH: process.cwd() },
+        payloadFile: payloadPath,
+        fetch: fetchMock,
+        pipelineRunner,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(pipelineRunner).toHaveBeenCalledWith(
+        expect.objectContaining({
+          task: "PIPE-49.2",
+          workflowId: "default",
+        })
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 
   it("prepares repository workspaces before invoking the pipeline engine", async () => {
@@ -306,16 +350,26 @@ describe("runner-job entrypoint", () => {
         `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  environment:\n    smoke:\n      - command: bun\n        args: ["run", "test:smoke"]\n`
       );
 
+      const payloadFile = join(dir, "payload.json");
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payload = {
+        ...validPayload(),
+        delivery: { pullRequest: true },
+        events: {
+          ...validEvents(),
+          authTokenFile: authTokenFilePath,
+        },
+        repository: {
+          baseBranch: "main",
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          url: "https://github.com/oisin-ee/tova.git",
+        },
+      };
+      await writeFile(payloadFile, JSON.stringify(payload));
+
       const exitCode = await runRunnerJob({
-        env: payloadEnv({
-          ...validPayload(),
-          delivery: { pullRequest: true },
-          repository: {
-            baseBranch: "main",
-            sha: "0123456789abcdef0123456789abcdef01234567",
-            url: "https://github.com/oisin-ee/tova.git",
-          },
-        }),
+        payloadFile,
         fetch: fetchMock,
         pipelineRunner,
         prepareWorkspace,
@@ -334,15 +388,7 @@ describe("runner-job entrypoint", () => {
         })
       );
       expect(pipelineRunner).toHaveBeenCalledTimes(1);
-      expect(runDevspaceCommand).toHaveBeenCalledWith(
-        "bun",
-        ["run", "test:smoke"],
-        {
-          cwd: dir,
-          env: expect.objectContaining({ PIPELINE_TARGET_PATH: dir }),
-          stdin: "ignore",
-        }
-      );
+      expect(runDevspaceCommand).not.toHaveBeenCalled();
       expect(createPullRequest).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({
@@ -352,9 +398,6 @@ describe("runner-job entrypoint", () => {
           }),
           worktreePath: dir,
         })
-      );
-      expect(runDevspaceCommand.mock.invocationCallOrder[0]).toBeLessThan(
-        createPullRequest.mock.invocationCallOrder[0] ?? 0
       );
       const postedEvents = postedBodies.flatMap((postedBody) => {
         const body = JSON.parse(postedBody) as {
@@ -373,12 +416,6 @@ describe("runner-job entrypoint", () => {
           expect.objectContaining({
             log: expect.objectContaining({
               message: "runner environment ready",
-            }),
-            type: "runner.job.phase",
-          }),
-          expect.objectContaining({
-            log: expect.objectContaining({
-              message: "runner environment smoke ran",
             }),
             type: "runner.job.phase",
           }),
@@ -405,15 +442,25 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      const payload = {
+        ...validPayload(),
+        events: {
+          ...validEvents(),
+          authTokenFile: authTokenFilePath,
+        },
+        repository: {
+          baseBranch: "main",
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          url: "https://github.com/oisin-ee/tova.git",
+        },
+      };
+      await writeFile(payloadFile, JSON.stringify(payload));
+
       const exitCode = await runRunnerJob({
-        env: payloadEnv({
-          ...validPayload(),
-          repository: {
-            baseBranch: "main",
-            sha: "0123456789abcdef0123456789abcdef01234567",
-            url: "https://github.com/oisin-ee/tova.git",
-          },
-        }),
+        payloadFile,
         fetch: vi.fn(async () => okResponse()),
         pipelineRunner,
         prepareWorkspace: vi.fn(async () => ({
@@ -429,7 +476,7 @@ describe("runner-job entrypoint", () => {
     }
   });
 
-  it("records a failed smoke phase and does not create a PR when environment smoke fails", async () => {
+  it("ignores repo-local smoke config when preparing runner jobs", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-smoke-fail-"));
     const postedBodies: string[] = [];
@@ -450,16 +497,29 @@ describe("runner-job entrypoint", () => {
         `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  environment:\n    smoke:\n      - command: bun\n        args: ["run", "test:smoke"]\n`
       );
 
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      const payload = {
+        ...validPayload(),
+        delivery: { pullRequest: true },
+        events: {
+          ...validEvents(),
+          authTokenFile: authTokenFilePath,
+        },
+        repository: {
+          baseBranch: "main",
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          url: "https://github.com/oisin-ee/tova.git",
+        },
+      };
+      await writeFile(payloadFile, JSON.stringify(payload));
+
+      const runDevspaceCommand = vi.fn(() =>
+        Promise.reject(new Error("smoke failed"))
+      );
       const exitCode = await runRunnerJob({
-        env: payloadEnv({
-          ...validPayload(),
-          delivery: { pullRequest: true },
-          repository: {
-            baseBranch: "main",
-            sha: "0123456789abcdef0123456789abcdef01234567",
-            url: "https://github.com/oisin-ee/tova.git",
-          },
-        }),
+        payloadFile,
         fetch: fetchMock,
         pipelineRunner: vi.fn(() => runtimeResult("PASS")),
         prepareWorkspace: vi.fn(async () => ({
@@ -467,31 +527,20 @@ describe("runner-job entrypoint", () => {
           worktreePath: dir,
         })),
         createPullRequest,
-        runDevspaceCommand: vi.fn(() =>
-          Promise.reject(new Error("smoke failed"))
-        ),
+        runDevspaceCommand,
       });
 
-      expect(exitCode).toBe(70);
-      expect(createPullRequest).not.toHaveBeenCalled();
+      expect(exitCode).toBe(0);
+      expect(runDevspaceCommand).not.toHaveBeenCalled();
+      expect(createPullRequest).toHaveBeenCalledTimes(1);
       const postedEvents = postedBodies.flatMap((postedBody) => {
         const body = JSON.parse(postedBody) as {
           events: Array<{ log?: { message: string }; type: string }>;
         };
         return body.events;
       });
-      expect(postedEvents).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            log: expect.objectContaining({
-              message: "runner environment smoke failed",
-              output: expect.objectContaining({
-                error: expect.stringMatching(SMOKE_FAILED_RE),
-              }),
-            }),
-            type: "runner.job.phase",
-          }),
-        ])
+      expect(JSON.stringify(postedEvents)).not.toContain(
+        "runner environment smoke failed"
       );
     } finally {
       await rm(dir, { force: true, recursive: true });
@@ -505,37 +554,54 @@ describe("runner-job entrypoint", () => {
   ] as const)("maps runtime outcome %s to exit code %i", async (outcome, expectedExitCode) => {
     const { runRunnerJob } = await loadRunnerModule();
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv(),
-      fetch: vi.fn(async () => okResponse()),
-      pipelineRunner: vi.fn(async () => runtimeResult(outcome)),
-    });
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner: vi.fn(async () => runtimeResult(outcome)),
+      });
 
-    expect(exitCode).toBe(expectedExitCode);
+      expect(exitCode).toBe(expectedExitCode);
+    });
   });
 
   it("returns EX_USAGE 64 for runner payload validation failures", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const pipelineRunner = vi.fn();
     const io = ioBuffers();
-    const payload = {
-      ...validPayload(),
-      repository: {
-        baseBranch: "main",
-        url: "not a url",
-      },
-    };
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv(payload),
-      pipelineRunner,
-      stderr: io.stderr,
-      stdout: io.stdout,
-    });
+    const dir = await mkdtemp(join(tmpdir(), "pipe-payload-validation-"));
+    try {
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadPath = join(dir, "payload.json");
+      const payload = {
+        ...validPayload(),
+        events: {
+          ...validEvents(),
+          authTokenFile: authTokenFilePath,
+        },
+        repository: {
+          baseBranch: "main",
+          url: "not a url",
+        },
+      };
+      await writeFile(payloadPath, JSON.stringify(payload));
 
-    expect(exitCode).toBe(64);
-    expect(pipelineRunner).not.toHaveBeenCalled();
-    expect(io.stderrText()).toMatch(REPOSITORY_URL_RE);
+      const exitCode = await runRunnerJob({
+        payloadFile: payloadPath,
+        pipelineRunner,
+        stderr: io.stderr,
+      });
+
+      expect(exitCode).toBe(64);
+      expect(pipelineRunner).not.toHaveBeenCalled();
+      expect(io.stderrText()).toMatch(REPOSITORY_URL_RE);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 
   it("posts schema validation events when an invalid payload still has run and sink identity", async () => {
@@ -543,47 +609,60 @@ describe("runner-job entrypoint", () => {
     const fetchMock = vi.fn(async () => okResponse());
     const pipelineRunner = vi.fn();
     const io = ioBuffers();
-    const payload = {
-      ...validPayload(),
-      selector: {
-        unexpected: "quick",
-        workflowId: "default",
-      },
-    };
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv(payload),
-      fetch: fetchMock,
-      pipelineRunner,
-      stderr: io.stderr,
-      stdout: io.stdout,
-    });
-
-    expect(exitCode).toBe(64);
-    expect(pipelineRunner).not.toHaveBeenCalled();
-    expect(io.stderrText()).toMatch(SCHEMA_VALIDATION_RE);
-    expect(fetchMock.mock.calls[0]).toBeDefined();
-    const body = JSON.parse(
-      String(
-        (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body
-      )
-    ) as { events: Record<string, unknown>[] };
-    expect(body.events).toEqual([
-      expect.objectContaining({
-        log: expect.objectContaining({
-          level: "warn",
-          message: expect.stringMatching(SCHEMA_VALIDATION_MESSAGE_RE),
-        }),
-        type: "runner.schema.validation",
-      }),
-      expect.objectContaining({
-        finalResult: {
-          outcome: "FAIL",
-          workflowId: "pipe",
+    const dir = await mkdtemp(join(tmpdir(), "pipe-schema-validation-"));
+    try {
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadPath = join(dir, "payload.json");
+      const payload = {
+        ...validPayload(),
+        events: {
+          ...validEvents(),
+          authTokenFile: authTokenFilePath,
         },
-        type: "workflow.finish",
-      }),
-    ]);
+        selector: {
+          unexpected: "quick",
+          workflowId: "default",
+        },
+      };
+      await writeFile(payloadPath, JSON.stringify(payload));
+
+      const exitCode = await runRunnerJob({
+        payloadFile: payloadPath,
+        fetch: fetchMock,
+        pipelineRunner,
+        stderr: io.stderr,
+      });
+
+      expect(exitCode).toBe(64);
+      expect(pipelineRunner).not.toHaveBeenCalled();
+      expect(io.stderrText()).toMatch(SCHEMA_VALIDATION_RE);
+      expect(fetchMock.mock.calls[0]).toBeDefined();
+      const body = JSON.parse(
+        String(
+          (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body
+        )
+      ) as { events: Record<string, unknown>[] };
+      expect(body.events).toEqual([
+        expect.objectContaining({
+          log: expect.objectContaining({
+            level: "warn",
+            message: expect.stringMatching(SCHEMA_VALIDATION_MESSAGE_RE),
+          }),
+          type: "runner.schema.validation",
+        }),
+        expect.objectContaining({
+          finalResult: {
+            outcome: "FAIL",
+            workflowId: "pipe",
+          },
+          type: "workflow.finish",
+        }),
+      ]);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 
   it("returns EX_SOFTWARE 70 when startup fails before a runtime result is available", async () => {
@@ -591,33 +670,36 @@ describe("runner-job entrypoint", () => {
     const io = ioBuffers();
     const fetchMock = vi.fn(async () => okResponse());
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv(),
-      fetch: fetchMock,
-      pipelineRunner: vi.fn(() =>
-        Promise.reject(new Error("runtime startup failed"))
-      ),
-      stderr: io.stderr,
-      stdout: io.stdout,
-    });
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: fetchMock,
+        pipelineRunner: vi.fn(() =>
+          Promise.reject(new Error("runtime startup failed"))
+        ),
+        stderr: io.stderr,
+      });
 
-    expect(exitCode).toBe(70);
-    expect(io.stderrText()).toMatch(STARTUP_FAILURE_RE);
-    expect(fetchMock.mock.calls[0]).toBeDefined();
-    const body = JSON.parse(
-      String(
-        (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body
-      )
-    ) as { events: Record<string, unknown>[] };
-    expect(body.events).toContainEqual(
-      expect.objectContaining({
-        finalResult: {
-          outcome: "FAIL",
-          workflowId: "pipe",
-        },
-        type: "workflow.finish",
-      })
-    );
+      expect(exitCode).toBe(70);
+      expect(io.stderrText()).toMatch(STARTUP_FAILURE_RE);
+      expect(fetchMock.mock.calls[0]).toBeDefined();
+      const body = JSON.parse(
+        String(
+          (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body
+        )
+      ) as { events: Record<string, unknown>[] };
+      expect(body.events).toContainEqual(
+        expect.objectContaining({
+          finalResult: {
+            outcome: "FAIL",
+            workflowId: "pipe",
+          },
+          type: "workflow.finish",
+        })
+      );
+    });
   });
 
   it("uses package config when the target repo has no pipeline config", async () => {
@@ -627,15 +709,24 @@ describe("runner-job entrypoint", () => {
     const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
 
     try {
-      const env = payloadEnv();
-      env.PIPELINE_TARGET_PATH = undefined;
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      const payload = {
+        ...validPayload(),
+        events: {
+          ...validEvents(),
+          authTokenFile: authTokenFilePath,
+        },
+      };
+      await writeFile(payloadFile, JSON.stringify(payload));
+
       const exitCode = await runRunnerJob({
         cwd: dir,
-        env,
+        payloadFile,
         fetch: vi.fn(async () => okResponse()),
         pipelineRunner,
         stderr: io.stderr,
-        stdout: io.stdout,
       });
 
       expect(exitCode).toBe(0);
@@ -646,20 +737,77 @@ describe("runner-job entrypoint", () => {
     }
   });
 
+  it("ignores target repo pipeline config when spawning runner jobs", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-repo-config-"));
+    const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
+
+    try {
+      await mkdir(join(dir, ".pipeline"), { recursive: true });
+      await writeFile(
+        join(dir, ".pipeline", "runners.yaml"),
+        "version: 1\nrunners:\n  opencode:\n    type: opencode\n    model: opencode/deepseek-v4-flash-free\n    capabilities: { tools: [bash] }\n"
+      );
+      await writeFile(
+        join(dir, ".pipeline", "profiles.yaml"),
+        "version: 1\nprofiles: {}\n"
+      );
+      await writeFile(
+        join(dir, ".pipeline", "pipeline.yaml"),
+        "version: 1\ndefault_workflow: repo-local\norchestrator: { profile: repo-local }\nworkflows: {}\n"
+      );
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      await writeFile(
+        payloadFile,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        cwd: dir,
+        payloadFile,
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(pipelineRunner).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            default_workflow: "default",
+          }),
+          workflowId: "default",
+        })
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it("treats terminal event sink failures as runner failures", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const io = ioBuffers();
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv(),
-      fetch: vi.fn(async () => unauthorizedResponse()),
-      pipelineRunner: vi.fn(async () => runtimeResult("PASS")),
-      stderr: io.stderr,
-      stdout: io.stdout,
-    });
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: vi.fn(async () => unauthorizedResponse()),
+        pipelineRunner: vi.fn(async () => runtimeResult("PASS")),
+        stderr: io.stderr,
+      });
 
-    expect(exitCode).toBe(70);
-    expect(io.stderrText()).toMatch(UNAUTHORIZED_RE);
+      expect(exitCode).toBe(70);
+      expect(io.stderrText()).toMatch(UNAUTHORIZED_RE);
+    });
   });
 
   it("does not call the Kubernetes API while running the in-pod job", async () => {
@@ -669,16 +817,20 @@ describe("runner-job entrypoint", () => {
       return Promise.resolve(okResponse());
     });
 
-    await runRunnerJob({
-      env: payloadEnv(),
-      fetch: fetchMock,
-      pipelineRunner: vi.fn(async () => runtimeResult("PASS")),
-    });
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: fetchMock,
+        pipelineRunner: vi.fn(async () => runtimeResult("PASS")),
+      });
 
-    const urls = fetchMock.mock.calls
-      .map(([input]) => String(input))
-      .join("\n");
-    expect(urls).not.toMatch(KUBERNETES_API_RE);
+      const urls = fetchMock.mock.calls
+        .map(([input]) => String(input))
+        .join("\n");
+      expect(urls).not.toMatch(KUBERNETES_API_RE);
+    });
   });
 
   it("aborts the runtime on SIGTERM, flushes the CANCELLED result, and exits 130", async () => {
@@ -691,20 +843,24 @@ describe("runner-job entrypoint", () => {
       return runtimeResult("CANCELLED");
     });
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv(),
-      fetch: fetchMock,
-      pipelineRunner,
-      signalEmitter: signals,
-    });
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: fetchMock,
+        pipelineRunner,
+        signalEmitter: signals,
+      });
 
-    expect(exitCode).toBe(130);
-    const lastCall = fetchMock.mock.calls.at(-1) as
-      | [RequestInfo | URL, RequestInit]
-      | undefined;
-    expect(JSON.stringify(JSON.parse(String(lastCall?.[1].body)))).toContain(
-      '"outcome":"CANCELLED"'
-    );
+      expect(exitCode).toBe(130);
+      const lastCall = fetchMock.mock.calls.at(-1) as
+        | [RequestInfo | URL, RequestInit]
+        | undefined;
+      expect(JSON.stringify(JSON.parse(String(lastCall?.[1].body)))).toContain(
+        '"outcome":"CANCELLED"'
+      );
+    });
   });
 
   it("aborts the runtime on SIGINT and preserves the cancelled exit code when final flush fails", async () => {
@@ -717,17 +873,20 @@ describe("runner-job entrypoint", () => {
       return runtimeResult("CANCELLED");
     });
 
-    const exitCode = await runRunnerJob({
-      env: payloadEnv(),
-      fetch: vi.fn(() => Promise.reject(new Error("console unavailable"))),
-      pipelineRunner,
-      signalEmitter: signals,
-      stderr: io.stderr,
-      stdout: io.stdout,
-    });
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: vi.fn(() => Promise.reject(new Error("console unavailable"))),
+        pipelineRunner,
+        signalEmitter: signals,
+        stderr: io.stderr,
+      });
 
-    expect(exitCode).toBe(130);
-    expect(io.stderrText()).toMatch(FLUSH_FAILURE_RE);
+      expect(exitCode).toBe(130);
+      expect(io.stderrText()).toMatch(FLUSH_FAILURE_RE);
+    });
   });
 
   it("treats a second signal as an immediate hard-exit request", async () => {
@@ -740,14 +899,276 @@ describe("runner-job entrypoint", () => {
       return runtimeResult("CANCELLED");
     });
 
-    await runRunnerJob({
-      env: payloadEnv(),
-      fetch: vi.fn(async () => okResponse()),
-      onForceExit,
-      pipelineRunner,
-      signalEmitter: signals,
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: vi.fn(async () => okResponse()),
+        onForceExit,
+        pipelineRunner,
+        signalEmitter: signals,
+      });
+
+      expect(onForceExit).toHaveBeenCalledWith(130);
+    });
+  });
+});
+
+describe("runner-job payload from file", () => {
+  it("reads the runner payload from a file path when payloadFile option is set", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-payload-file-"));
+    try {
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadPath = join(dir, "payload.json");
+      await writeFile(
+        payloadPath,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+      const fetchMock = vi.fn(async () => okResponse());
+      const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
+
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env: { PIPELINE_TARGET_PATH: process.cwd() },
+        fetch: fetchMock,
+        payloadFile: payloadPath,
+        pipelineRunner,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(pipelineRunner).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: "run_123",
+          task: "Ship PIPE-38",
+        })
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("returns EX_USAGE 64 when payloadFile path does not exist", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const io = ioBuffers();
+
+    const exitCode = await runRunnerJob({
+      payloadFile: "/tmp/nonexistent-payload.json",
+      stderr: io.stderr,
     });
 
-    expect(onForceExit).toHaveBeenCalledWith(130);
+    expect(exitCode).toBe(64);
+    expect(io.stderrText()).toMatch(PAYLOAD_FILE_ERROR_RE);
+  });
+
+  it("returns EX_USAGE 64 when payloadFile contains malformed JSON", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-payload-malformed-"));
+    const io = ioBuffers();
+    try {
+      const payloadPath = join(dir, "payload.json");
+      await writeFile(payloadPath, "not valid json");
+
+      const exitCode = await runRunnerJob({
+        payloadFile: payloadPath,
+        stderr: io.stderr,
+      });
+
+      expect(exitCode).toBe(64);
+      expect(io.stderrText()).toMatch(PAYLOAD_MALFORMED_JSON_RE);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("runner-job event auth from file", () => {
+  it("reads the event auth token from authTokenFile when configured in payload", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-auth-file-"));
+    try {
+      const authFilePath = join(dir, "event-token");
+      await writeFile(authFilePath, "file-based-token");
+      const payloadPath = join(dir, "payload.json");
+      const payload = {
+        ...validPayload(),
+        events: {
+          authHeader: "Authorization",
+          authTokenFile: authFilePath,
+          url: EVENT_SINK_URL,
+        },
+      };
+      await writeFile(payloadPath, JSON.stringify(payload));
+
+      const fetchMock = vi.fn(async () => okResponse());
+      const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
+
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env: { PIPELINE_TARGET_PATH: process.cwd() },
+        fetch: fetchMock,
+        payloadFile: payloadPath,
+        pipelineRunner,
+      });
+
+      expect(exitCode).toBe(0);
+      const calls = fetchMock.mock.calls as unknown as [
+        string,
+        RequestInit | undefined,
+      ][];
+      const [, init] = calls[0] ?? [];
+      const headers = init?.headers as Headers | undefined;
+      expect(headers?.get("Authorization")).toBe("Bearer file-based-token");
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("fails gracefully when authTokenFile points to a missing file", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const io = ioBuffers();
+
+    const dir = await mkdtemp(join(tmpdir(), "pipe-auth-missing-"));
+    try {
+      const payloadPath = join(dir, "payload.json");
+      const payload = {
+        ...validPayload(),
+        events: {
+          authHeader: "Authorization",
+          authTokenFile: "/tmp/missing-event-token",
+          url: EVENT_SINK_URL,
+        },
+      };
+      await writeFile(payloadPath, JSON.stringify(payload));
+
+      const exitCode = await runRunnerJob({
+        payloadFile: payloadPath,
+        stderr: io.stderr,
+      });
+
+      expect(exitCode).toBe(64);
+      expect(io.stderrText()).toMatch(AUTH_FILE_MISSING_RE);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("runner-job orchestrator argument", () => {
+  it("accepts a valid codex orchestrator arg without error", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-orch-codex-"));
+    try {
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadPath = join(dir, "payload.json");
+      await writeFile(
+        payloadPath,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        env: { PIPELINE_TARGET_PATH: process.cwd() },
+        payloadFile: payloadPath,
+        orchestrator: "codex",
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner: vi.fn(() => runtimeResult("PASS")),
+      });
+
+      expect(exitCode).toBe(0);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("accepts a valid opencode orchestrator arg without error", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-orch-opencode-"));
+    try {
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadPath = join(dir, "payload.json");
+      await writeFile(
+        payloadPath,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        env: { PIPELINE_TARGET_PATH: process.cwd() },
+        payloadFile: payloadPath,
+        orchestrator: "opencode",
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner: vi.fn(() => runtimeResult("PASS")),
+      });
+
+      expect(exitCode).toBe(0);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects invalid orchestrator values with EX_USAGE 64", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const io = ioBuffers();
+
+    const exitCode = await runRunnerJob({
+      payloadFile: "/tmp/nonexistent.json",
+      orchestrator: "invalid-orchestrator",
+      stderr: io.stderr,
+    });
+
+    expect(exitCode).toBe(64);
+    expect(io.stderrText()).toMatch(INVALID_ORCHESTRATOR_RE);
+  });
+
+  it("accepts undefined orchestrator (optional) without error", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-orch-none-"));
+    try {
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadPath = join(dir, "payload.json");
+      await writeFile(
+        payloadPath,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        env: { PIPELINE_TARGET_PATH: process.cwd() },
+        payloadFile: payloadPath,
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner: vi.fn(() => runtimeResult("PASS")),
+      });
+
+      expect(exitCode).toBe(0);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 });

@@ -124,8 +124,11 @@ storage, Kueue discovery, and UI rendering. This package owns the in-container
 translation, authenticated event posting, signal cancellation, and final event
 flushing.
 
-The console starts the image with `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON` and the
-runner-side event token. The payload contract is documented in
+The console starts the image with the payload as a mounted ConfigMap file and
+the event auth token as a mounted Secret file. The runner reads the payload
+from `--payload-file` and reads the event auth token from the file path
+specified in `events.authTokenFile`. No environment variables are used for
+payload or auth token delivery. The payload contract is documented in
 [`docs/pipeline-console-runner-contract.md`](docs/pipeline-console-runner-contract.md).
 The executable contract is exported from
 `@oisincoveney/pipeline/runner-job-contract` for payload construction,
