@@ -26,6 +26,7 @@ const PAYLOAD_MALFORMED_JSON_RE =
   /malformed|Unexpected token|JSON.*error|error.*JSON/i;
 const AUTH_FILE_MISSING_RE = /auth.*file|file.*auth|token|ENOENT/i;
 const INVALID_ORCHESTRATOR_RE = /invalid orchestrator/i;
+const RUNTIME_FAILURE_DETAILS_RE = /runtime failed.*gate: runtime.*failed/is;
 const TEST_SKILLS = [
   "critique",
   "diagnose",
@@ -555,15 +556,38 @@ describe("runner-job entrypoint", () => {
     const { runRunnerJob } = await loadRunnerModule();
 
     await withPayloadContext(async ({ env, payloadFile }) => {
+      const io = ioBuffers();
       const exitCode = await runRunnerJob({
         cwd: process.cwd(),
         env,
         payloadFile,
         fetch: vi.fn(async () => okResponse()),
         pipelineRunner: vi.fn(async () => runtimeResult(outcome)),
+        stderr: io.stderr,
+        stdout: io.stdout,
       });
 
       expect(exitCode).toBe(expectedExitCode);
+    });
+  });
+
+  it("prints runtime failure details for FAIL outcomes", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const io = ioBuffers();
+
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        cwd: process.cwd(),
+        env,
+        payloadFile,
+        fetch: vi.fn(async () => okResponse()),
+        pipelineRunner: vi.fn(async () => runtimeResult("FAIL")),
+        stderr: io.stderr,
+        stdout: io.stdout,
+      });
+
+      expect(exitCode).toBe(1);
+      expect(io.stderrText()).toMatch(RUNTIME_FAILURE_DETAILS_RE);
     });
   });
 

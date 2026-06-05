@@ -185,6 +185,7 @@ export async function runRunnerJob(
       sawWorkflowFinish,
       signalFinalResultRecorded,
     });
+    reportRuntimeFailureDetails(result, stderr);
     const flushFailure = await flushAndReport(sink.flush, stderr);
     if (flushFailure && !signalExitCode) {
       return EXIT_STARTUP;
@@ -562,6 +563,37 @@ function createRunnerSink(options: {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function reportRuntimeFailureDetails(
+  result: PipelineRuntimeResult,
+  stderr: OutputStream
+): void {
+  if (result.outcome !== "FAIL") {
+    return;
+  }
+  const details = [
+    ...result.failureDetails,
+    ...result.hookFailures,
+    ...result.gates
+      .filter((gate) => !gate.passed)
+      .map((gate) => ({
+        evidence: gate.evidence,
+        gate: gate.gateId,
+        reason: gate.reason ?? "gate failed",
+      })),
+  ];
+  if (details.length === 0) {
+    stderr.write("Runtime failed without failure details.\n");
+    return;
+  }
+  stderr.write("Runtime failed:\n");
+  for (const detail of details) {
+    stderr.write(`- gate: ${detail.gate}; reason: ${detail.reason}\n`);
+    for (const evidence of detail.evidence ?? []) {
+      stderr.write(`  evidence: ${evidence}\n`);
+    }
+  }
 }
 
 function exitCodeForRuntimeResult(result: PipelineRuntimeResult): number {
