@@ -9,5 +9,22 @@
       "type": "remote",
       "url": "https://pipeline-mcp.momokaya.ee/mcp/"
     }
+  },
+  "default_agent": "build",
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "prompt": "{file:./prompts/codex-default.md}"
+    }
+  },
+  "permission": {
+    "skill": {
+      "*": "allow"
+    }
+  },
+  "skills": {
+    "paths": [
+      "../.agents/skills"
+    ]
   }
 }
