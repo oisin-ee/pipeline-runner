@@ -4,7 +4,7 @@
 url = "https://pipeline-mcp.momokaya.ee/mcp/"
 
 [mcp_servers.pipeline-gateway.env_http_headers]
-Authorization = "MEMORY_MCP_BASIC_AUTH"
+Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"
 
 # @oisincoveney/pipeline:codex-agents:start
 [agents]

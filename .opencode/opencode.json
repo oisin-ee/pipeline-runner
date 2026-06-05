@@ -4,7 +4,7 @@
     "pipeline-gateway": {
       "enabled": true,
       "headers": {
-        "Authorization": "Basic {env:MEMORY_MCP_BASIC_AUTH}"
+        "Authorization": "{env:PIPELINE_MCP_GATEWAY_AUTHORIZATION}"
       },
       "type": "remote",
       "url": "https://pipeline-mcp.momokaya.ee/mcp/"

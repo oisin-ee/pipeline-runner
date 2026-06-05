@@ -624,7 +624,7 @@ mcp_gateway:
   provider: toolhive
   mode: local
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
+  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
     runner: codex

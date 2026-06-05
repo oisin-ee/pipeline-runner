@@ -197,7 +197,10 @@ const mcpGatewaySchema = z
     default_profile: z.string().min(1).optional(),
     mode: z.enum(["hosted", "local"]),
     provider: z.literal("toolhive"),
-    token_env: z.string().min(1).default("MEMORY_MCP_BASIC_AUTH"),
+    authorization_env: z
+      .string()
+      .min(1)
+      .default("PIPELINE_MCP_GATEWAY_AUTHORIZATION"),
     url: z
       .string()
       .url()

@@ -121,7 +121,7 @@ export function renderGatewayConfig(config: PipelineConfig): string {
     `mode: ${gateway.mode}`,
     gateway.url ? `url: ${gateway.url}` : "",
     `url_env: ${gateway.url_env}`,
-    `token_env: ${gateway.token_env}`,
+    `authorization_env: ${gateway.authorization_env}`,
     gateway.default_profile
       ? `default_profile: ${gateway.default_profile}`
       : "",
@@ -140,7 +140,7 @@ export function renderCodexGatewayConfig(config: PipelineConfig): string {
     `url = ${JSON.stringify(gatewayUrl(gateway))}`,
     "",
     `[mcp_servers.${PIPELINE_GATEWAY_SERVER_ID}.env_http_headers]`,
-    `Authorization = ${JSON.stringify(gateway.token_env)}`,
+    `Authorization = ${JSON.stringify(gateway.authorization_env)}`,
     "",
   ].join("\n");
 }
@@ -298,17 +298,21 @@ function checkGatewayUrl(gateway: McpGatewayConfig): GatewayDoctorCheck {
 }
 
 function checkGatewayToken(gateway: McpGatewayConfig): GatewayDoctorCheck {
-  return process.env[gateway.token_env]
-    ? { detail: gateway.token_env, name: "gateway-token", passed: true }
+  return process.env[gateway.authorization_env]
+    ? {
+        detail: gateway.authorization_env,
+        name: "gateway-authorization",
+        passed: true,
+      }
     : {
-        detail: `Set ${gateway.token_env}.`,
-        name: "gateway-token",
+        detail: `Set ${gateway.authorization_env}.`,
+        name: "gateway-authorization",
         passed: false,
       };
 }
 
 function gatewayAuthorizationHeader(gateway: McpGatewayConfig): string {
-  return `{env:${gateway.token_env}}`;
+  return `{env:${gateway.authorization_env}}`;
 }
 
 function gatewayOpenCodeHeaders(
@@ -397,9 +401,7 @@ async function firstHealthyGatewayResponse(
   url: string,
   gateway: McpGatewayConfig
 ): Promise<Response | undefined> {
-  const authorization = process.env[gateway.token_env]
-    ? `Basic ${process.env[gateway.token_env]}`
-    : undefined;
+  const authorization = process.env[gateway.authorization_env];
   for (const healthUrl of gatewayHealthUrls(url)) {
     const response = await fetch(healthUrl, {
       headers: {

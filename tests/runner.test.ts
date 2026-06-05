@@ -21,7 +21,7 @@ function makeSimpleResult(stdout = "output", exitCode = 0) {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:8787/mcp";
-  process.env.MEMORY_MCP_BASIC_AUTH = "test-gateway-token";
+  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "test-gateway-token";
 });
 
 function parseTestConfig(parts: {
@@ -297,7 +297,7 @@ mcp_gateway:
   provider: toolhive
   mode: hosted
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
+  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
     runner: codex
@@ -392,7 +392,7 @@ mcp_gateway:
   provider: toolhive
   mode: hosted
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
+  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
     runner: codex

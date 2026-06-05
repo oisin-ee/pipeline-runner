@@ -53,7 +53,7 @@ mcp_gateway:
   mode: hosted
   url: https://pipeline-mcp.momokaya.ee/mcp/
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
+  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
   default_profile: default
 
 profiles:

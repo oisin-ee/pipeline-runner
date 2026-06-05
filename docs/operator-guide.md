@@ -380,7 +380,7 @@ mcp_gateway:
   mode: hosted
   url: https://pipeline-mcp.momokaya.ee/mcp/
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
+  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
   default_profile: default
 ```
 
@@ -423,7 +423,7 @@ gateway server into project host config. Codex receives:
 url = "https://gateway.example/mcp"
 
 [mcp_servers.pipeline-gateway.env_http_headers]
-Authorization = "MEMORY_MCP_BASIC_AUTH"
+Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"
 ```
 
 OpenCode receives:
@@ -434,7 +434,7 @@ OpenCode receives:
     "pipeline-gateway": {
       "type": "remote",
       "headers": {
-        "Authorization": "{env:MEMORY_MCP_BASIC_AUTH}"
+        "Authorization": "{env:PIPELINE_MCP_GATEWAY_AUTHORIZATION}"
       },
       "url": "https://gateway.example/mcp"
     }
@@ -532,7 +532,7 @@ mcp_gateway:
   mode: hosted
   url: https://pipeline-mcp.momokaya.ee/mcp/
   url_env: PIPELINE_MCP_GATEWAY_URL
-  token_env: MEMORY_MCP_BASIC_AUTH
+  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 
 profiles:
   pipeline-router:

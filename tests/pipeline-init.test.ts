@@ -29,7 +29,8 @@ import {
 } from "../src/pipeline-init.js";
 
 const mockExeca = vi.mocked(execa);
-const ORIGINAL_MEMORY_MCP_BASIC_AUTH = process.env.MEMORY_MCP_BASIC_AUTH;
+const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
+  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const BANNED_DEFAULTS_RE =
   /atlassian|jira|linear|confluence|compass|sentry|deepwiki/i;
 const GITHUB_WRITE_MCP_RE = /api\.githubcopilot\.com\/mcp\/(?!readonly)/;
@@ -40,10 +41,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (ORIGINAL_MEMORY_MCP_BASIC_AUTH === undefined) {
-    delete process.env.MEMORY_MCP_BASIC_AUTH;
+  if (ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION === undefined) {
+    delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
   } else {
-    process.env.MEMORY_MCP_BASIC_AUTH = ORIGINAL_MEMORY_MCP_BASIC_AUTH;
+    process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
+      ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION;
   }
 });
 
@@ -130,7 +132,7 @@ describe("initPipelineProject", () => {
       default_profile: "default",
       mode: "local",
       provider: "toolhive",
-      token_env: "MEMORY_MCP_BASIC_AUTH",
+      authorization_env: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
       url_env: "PIPELINE_MCP_GATEWAY_URL",
     });
     expect(config.mcp_servers).toEqual({});

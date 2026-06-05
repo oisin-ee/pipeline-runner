@@ -24,4 +24,6 @@ Instructions: .pipeline/prompts/orchestrator.md
 Generate a schedule for entrypoint `epic` and the user task.
 The schedule policy is `epic-schedule`.
 Run `pipe run --entrypoint epic <task description>` to generate and execute the schedule artifact.
+The pipeline CLI runtime is the deterministic graph scheduler for scheduled entrypoints.
+It launches configured Codex/OpenCode agent subprocesses as soon as their dependencies pass.
 Use `pipe run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.
