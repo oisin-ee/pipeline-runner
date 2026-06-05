@@ -243,6 +243,15 @@ describe("loadPipelineConfig", () => {
     expect(config.hooks.on["workflow.start"]).toEqual([
       expect.objectContaining({ function: "generated-defaults-audit" }),
     ]);
+    const generatedDefaultsAudit =
+      config.hooks.functions["generated-defaults-audit"];
+    expect(generatedDefaultsAudit.kind).toBe("command");
+    if (generatedDefaultsAudit.kind !== "command") {
+      throw new Error("expected generated defaults audit command hook");
+    }
+    expect(generatedDefaultsAudit.command.join(" ")).toContain(
+      "PIPELINE_HOOK_RESULT"
+    );
   });
 
   it("loads a complete valid config from the three required config files", () => {
