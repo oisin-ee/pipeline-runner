@@ -24,7 +24,6 @@ import {
   defaultPipelineScaffoldFiles,
   initPipelineProject,
   installDefaultSkillsWithCli,
-  PipelineInitError,
   type PipelineSkillInstaller,
 } from "../src/pipeline-init.js";
 
@@ -67,16 +66,12 @@ describe("initPipelineProject", () => {
       ...options,
     });
 
-  it("creates the required config files when no config exists", async () => {
+  it("does not create repo-local pipeline config when no config exists", async () => {
     const result = await init();
 
-    expect(result.files).toContain(".pipeline/pipeline.yaml");
-    expect(result.files).toContain(".pipeline/profiles.yaml");
-    expect(result.files).toContain(".pipeline/runners.yaml");
+    expect(result.files).toEqual([]);
     expect(result.files).not.toContain(".mcp.json");
-    expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
-    expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
-    expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
+    expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(existsSync(join(dir, ".agents/skills/research/SKILL.md"))).toBe(
       true
@@ -105,28 +100,16 @@ describe("initPipelineProject", () => {
       "verify",
       "learn",
     ]);
-    expect(config.profiles["pipeline-epic-router"]).toMatchObject({
-      output: {
-        format: "json_schema",
-        schema_path: ".pipeline/schemas/epic-plan.schema.json",
-      },
-    });
-    expect(config.profiles["pipeline-thermo-nuclear-reviewer"]).toMatchObject({
-      instructions: {
-        path: ".agents/skills/critique/SKILL.md",
-      },
-      skills: ["critique"],
-      output: {
-        format: "json_schema",
-        schema_path: ".pipeline/schemas/review.schema.json",
-      },
-    });
-    expect(config.skills["schedule-graph-shaping"]).toMatchObject({
-      path: ".pipeline/skills/schedule-graph-shaping/SKILL.md",
-    });
-    expect(config.profiles["pipeline-schedule-planner"].skills).toEqual([
-      "schedule-graph-shaping",
-    ]);
+    expect(
+      config.profiles["pipeline-epic-router"].instructions.inline
+    ).toContain("Route epic sub-tickets");
+    expect(
+      config.profiles["pipeline-thermo-nuclear-reviewer"].instructions.inline
+    ).toContain("final code quality review");
+    expect(config.skills).toEqual({});
+    expect(
+      config.profiles["pipeline-schedule-planner"].instructions.inline
+    ).toContain("Generate exactly one workflow");
     expect(config.runners.codex.model).toBe("gpt-5.5");
     expect(config.mcp_gateway).toMatchObject({
       default_profile: "default",
@@ -141,8 +124,9 @@ describe("initPipelineProject", () => {
     ]);
   });
 
-  it("scaffolds prompt files, schema files, and host resource inputs", async () => {
+  it("keeps prompt files, schema files, and host resource inputs package-owned", async () => {
     await init();
+    const files = defaultPipelineScaffoldFiles();
 
     for (const path of [
       ".pipeline/prompts/researcher.md",
@@ -162,67 +146,57 @@ describe("initPipelineProject", () => {
       ".pipeline/host-resources/codex.md",
       ".pipeline/host-resources/opencode.md",
     ]) {
-      expect(existsSync(join(dir, path))).toBe(true);
+      expect(files[path]).toBeTruthy();
+      expect(existsSync(join(dir, path))).toBe(false);
     }
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/orchestrator.md"), "utf8")
-    ).toContain(
+    expect(files[".pipeline/prompts/orchestrator.md"]).toContain(
       "Only gates declared in `.pipeline/pipeline.yaml` are blocking"
     );
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/code-writer.md"), "utf8")
-    ).toContain(
+    expect(files[".pipeline/prompts/code-writer.md"]).toContain(
       "Include typecheck evidence only when a typecheck command exists"
     );
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/researcher.md"), "utf8")
-    ).toContain(
+    expect(files[".pipeline/prompts/researcher.md"]).toContain(
       "Call `qdrant-find` before local inspection when the qdrant MCP server is available."
     );
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/researcher.md"), "utf8")
-    ).toContain("collection_name equal to the repository directory basename");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/learner.md"), "utf8")
-    ).toContain(
+    expect(files[".pipeline/prompts/researcher.md"]).toContain(
+      "collection_name equal to the repository directory basename"
+    );
+    expect(files[".pipeline/prompts/learner.md"]).toContain(
       "Call `qdrant-store` with collection_name equal to the repository directory basename"
     );
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("constrained agent graph");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("Assign each work unit to explicit generated agent nodes");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("Generate exactly one workflow named `root`");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("Do not use `kind: workflow`");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("task_context.id");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("scheduler hydrates them");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("Shape the graph by intent, not by ticket count.");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("Return exactly one YAML document and nothing else");
-    expect(
-      readFileSync(join(dir, ".pipeline/prompts/schedule-planner.md"), "utf8")
-    ).toContain("Do not use compact inline mappings");
-    expect(
-      readFileSync(
-        join(dir, ".pipeline/skills/schedule-graph-shaping/SKILL.md"),
-        "utf8"
-      )
-    ).toContain("Use RED nodes for test strategy, not ticket counting.");
-    expect(
-      readFileSync(join(dir, ".pipeline/profiles.yaml"), "utf8")
-    ).not.toContain("skills: [research, scope]");
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "constrained agent graph"
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "Assign each work unit to explicit generated agent nodes"
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "Generate exactly one workflow named `root`"
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "Do not use `kind: workflow`"
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "task_context.id"
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "scheduler hydrates them"
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "Shape the graph by intent, not by ticket count."
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "Return exactly one YAML document and nothing else"
+    );
+    expect(files[".pipeline/prompts/schedule-planner.md"]).toContain(
+      "Do not use compact inline mappings"
+    );
+    expect(files[".pipeline/skills/schedule-graph-shaping/SKILL.md"]).toContain(
+      "Use RED nodes for test strategy, not ticket counting."
+    );
+    expect(files[".pipeline/profiles.yaml"]).not.toContain(
+      "skills: [research, scope]"
+    );
   });
 
   it("tells verifier agents not to replace deterministic gates and treats configured gates as authoritative", () => {
@@ -282,26 +256,21 @@ describe("initPipelineProject", () => {
     ]);
   });
 
-  it("installs and points default skills at project skill paths", async () => {
+  it("installs default skills without making them repo-local config", async () => {
     await init();
 
     const config = loadPipelineConfig(dir);
-    expect(config.skills.research.path).toBe(
-      ".agents/skills/research/SKILL.md"
-    );
-    expect(config.profiles["pipeline-researcher"].skills).toContain("research");
+    expect(config.skills).toEqual({});
+    expect(config.profiles["pipeline-researcher"].skills).toBeUndefined();
     expect(
       readFileSync(join(dir, ".agents/skills/research/SKILL.md"), "utf8")
     ).toContain("name: research");
   });
 
-  it("keeps banned generated MCP defaults out of the scaffold", async () => {
+  it("keeps banned generated MCP defaults out of package defaults", async () => {
     await init();
 
-    const generated = readFileSync(
-      join(dir, ".pipeline/profiles.yaml"),
-      "utf8"
-    );
+    const generated = defaultPipelineScaffoldFiles()[".pipeline/profiles.yaml"];
     expect(generated).not.toMatch(BANNED_DEFAULTS_RE);
     expect(generated).not.toMatch(GITHUB_WRITE_MCP_RE);
     expect(generated).toContain("mcp_gateway:");
@@ -348,14 +317,18 @@ describe("initPipelineProject", () => {
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
   });
 
-  it("refuses to overwrite existing scaffold files without --overwrite", async () => {
+  it("does not overwrite existing repo files without --overwrite", async () => {
     await init();
+    mkdirSync(join(dir, ".pipeline"), { recursive: true });
     writeFileSync(join(dir, ".pipeline", "pipeline.yaml"), "custom: true\n");
 
-    await expect(init()).rejects.toThrow(PipelineInitError);
+    await init();
+    expect(readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf8")).toBe(
+      "custom: true\n"
+    );
   });
 
-  it("allows identical scaffold files when completing a partial init", async () => {
+  it("does not complete partial repo-local scaffold files", async () => {
     mkdirSync(join(dir, ".pipeline"), { recursive: true });
     writeFileSync(
       join(dir, ".pipeline", "pipeline.yaml"),
@@ -364,18 +337,19 @@ describe("initPipelineProject", () => {
 
     await init();
 
-    expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
-    expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
+    expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
+    expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
   });
 
-  it("overwrites existing scaffold files when requested", async () => {
+  it("does not overwrite existing repo files when requested", async () => {
     await init();
+    mkdirSync(join(dir, ".pipeline"), { recursive: true });
     writeFileSync(join(dir, ".pipeline", "pipeline.yaml"), "custom: true\n");
 
     await init({ overwrite: true });
 
     expect(readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf8")).toBe(
-      defaultPipelineScaffoldFiles()[".pipeline/pipeline.yaml"]
+      "custom: true\n"
     );
   });
 

@@ -1,6 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { alg, Graph } from "@dagrejs/graphlib";
 import matter from "gray-matter";
 import { parseDocument, stringify } from "yaml";
@@ -213,10 +212,7 @@ export async function generateScheduleArtifact(
   );
   validateScheduleArtifact(options.config, artifact, planningContext);
   compileScheduleArtifact(options.config, artifact, options.worktreePath);
-  const path = scheduleArtifactPath(options.worktreePath, artifact.schedule_id);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, stringify(artifact), "utf8");
-  return { artifact, path };
+  return { artifact, path: `memory:${artifact.schedule_id}` };
 }
 
 export function scheduleArtifactPath(
@@ -224,19 +220,6 @@ export function scheduleArtifactPath(
   scheduleId: string
 ): string {
   return join(worktreePath, ".pipeline", "runs", scheduleId, "schedule.yaml");
-}
-
-function schedulePlannerOutputPath(
-  worktreePath: string,
-  scheduleId: string
-): string {
-  return join(
-    worktreePath,
-    ".pipeline",
-    "runs",
-    scheduleId,
-    "planner-output.txt"
-  );
 }
 
 function scheduleWorkflowId(scheduleId: string, workflowId: string): string {
@@ -518,14 +501,8 @@ async function planScheduleArtifact(
     if (!(err instanceof ScheduleArtifactError)) {
       throw err;
     }
-    const outputPath = schedulePlannerOutputPath(
-      options.worktreePath,
-      baseline.schedule_id
-    );
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, source, "utf8");
     throw new ScheduleArtifactError(
-      `${err.message}\nPlanner output saved: ${outputPath}`
+      `${err.message}\nPlanner output:\n${source}`
     );
   }
 }

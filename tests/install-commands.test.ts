@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
 import { installCommands, parseCommandHost } from "../src/install-commands.js";
 import {
+  defaultPipelineScaffoldFiles,
   initPipelineProject,
   type PipelineSkillInstaller,
 } from "../src/pipeline-init.js";
@@ -70,10 +71,28 @@ describe("installCommands", () => {
       cwd: dir,
       skillInstaller: fakeSkillInstaller,
     });
+    materializePipelineFixture(dir);
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("installs command adapters from package config without repo pipeline files", async () => {
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(join(tmpdir(), "pipeline-commands-clean-"));
+
+    const result = await installCommands({ cwd: dir, host: "all" });
+
+    expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+    expect(result.items.map((item) => item.path)).toContain(
+      ".agents/skills/pipe/SKILL.md"
+    );
+    expect(result.items.map((item) => item.path)).toContain(
+      ".agents/skills/epic/SKILL.md"
+    );
+    expect(existsSync(join(dir, ".agents/skills/pipe/SKILL.md"))).toBe(true);
+    expect(existsSync(join(dir, ".opencode/commands/epic.md"))).toBe(true);
   });
 
   it("installs all host command adapters", async () => {
@@ -145,7 +164,7 @@ describe("installCommands", () => {
     expect(content).toContain("<!-- @oisincoveney/pipeline:agents:start -->");
     expect(content).toContain("<!-- @oisincoveney/pipeline:agents:end -->");
     expect(content).toContain(
-      "This repository is configured with `@oisincoveney/pipeline`."
+      "This repository uses package-owned `@oisincoveney/pipeline` config."
     );
     expect(content).toContain("Use `$pipe`, `$inspect`, or `$epic`");
     expect(content).toContain("Use `/pipe`, `/inspect`, or `/epic`");
@@ -825,6 +844,16 @@ const DEFAULT_TEST_SKILLS = [
   "trace",
   "verify",
 ];
+
+function materializePipelineFixture(root: string): void {
+  for (const [path, content] of Object.entries(
+    defaultPipelineScaffoldFiles()
+  )) {
+    const target = join(root, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+}
 
 const fakeSkillInstaller: PipelineSkillInstaller = (_specs, cwd) => {
   for (const skill of DEFAULT_TEST_SKILLS) {

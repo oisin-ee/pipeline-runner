@@ -23,7 +23,6 @@ const FAILURE_DETAILS_RE =
   /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
 const QUICK_WORKFLOW_RE = /quick\s+Quick custom workflow/;
 const INSPECT_WORKFLOW_RE = /inspect\s+Inspect custom workflow/;
-const FAIL_PIPELINE_CONFIG_RE = /FAIL pipeline-config:/;
 const FAILED_TO_PARSE_PIPELINE_YAML_RE =
   /Failed to parse .pipeline\/pipeline.yaml/;
 const UNKNOWN_ENTRYPOINT_OR_CONFIG_RE =
@@ -33,7 +32,6 @@ const PLAN_PLAN_RE = /- plan kind=agent needs=research/;
 const PLAN_IMPLEMENT_RE = /- implement kind=parallel needs=plan/;
 const PLAN_MERGE_RE = /- merge kind=builtin needs=implement/;
 const PLAN_REVIEW_RE = /- review kind=agent needs=merge/;
-const SCHEDULE_GENERATED_PATH_RE = /Schedule generated: (.*schedule\.yaml)/;
 const WARNING_RE = /warning/i;
 const FAILED_TO_PARSE_PIPELINE_YAML_ESCAPED_RE =
   /Failed to parse \.pipeline\/pipeline\.yaml/;
@@ -703,11 +701,8 @@ describe("pipe", () => {
       process.env.PIPELINE_TARGET_PATH = dir;
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
 
-      expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-      expect(
-        readFileSync(join(dir, ".pipeline", "profiles.yaml"), "utf8")
-      ).toContain("mcp_gateway:");
       expect(
         mockExeca.mock.calls.some(
           ([command, args]) =>
@@ -793,13 +788,7 @@ describe("pipe", () => {
         )
       ).toBe(false);
       expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-      expect(existsSync(join(dir, ".pipeline", "pipeline.yaml"))).toBe(true);
-      expect(
-        readFileSync(join(dir, ".pipeline", "profiles.yaml"), "utf8")
-      ).toContain("mcp_servers: [pipeline-gateway]");
-      expect(
-        readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf8")
-      ).toContain("learn");
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       const output = log.mock.calls.flat().join("\n");
       expect(output).not.toContain("Skipped MCPM registration");
       expect(output).not.toContain("PIPELINE_MCP_GATEWAY_AUTHORIZATION");
@@ -1093,12 +1082,8 @@ workflows:
       expect(output).not.toContain("Run after approval:");
       expect(output).toContain("Workflow: schedule-run-cli-root");
       expect(execaCommands()).toEqual(["scheduled-runner", "inspect-bin"]);
-      const schedulePath = output.match(SCHEDULE_GENERATED_PATH_RE)?.at(1);
-      expect(schedulePath).toBeDefined();
-      expect(existsSync(schedulePath ?? "")).toBe(true);
-      expect(readFileSync(schedulePath ?? "", "utf8")).toContain(
-        "kind: pipeline-schedule"
-      );
+      expect(output).toContain("Schedule generated: memory:run-cli");
+      expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(false);
     } finally {
       log.mockRestore();
       error.mockRestore();
@@ -1487,17 +1472,13 @@ workflows:
     try {
       process.env.PIPELINE_TARGET_PATH = initDir;
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-      expect(existsSync(join(initDir, ".pipeline", "pipeline.yaml"))).toBe(
-        true
-      );
+      expect(existsSync(join(initDir, ".pipeline"))).toBe(false);
 
       process.env.PIPELINE_TARGET_PATH = doctorDir;
-      await expect(
-        runCli(["node", "/repo/node_modules/.bin/pipe", "doctor"])
-      ).rejects.toThrow("Doctor checks failed.");
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "doctor"]);
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toMatch(FAIL_PIPELINE_CONFIG_RE);
+      ).toContain("PASS pipeline-config: valid");
     } finally {
       log.mockRestore();
       if (originalTargetPath === undefined) {
@@ -1533,7 +1514,7 @@ workflows:
     }
   });
 
-  it("fails when pipe run is invoked without .pipeline/pipeline.yaml", async () => {
+  it("runs from package config when pipe is invoked without repo pipeline config", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-missing-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1542,7 +1523,7 @@ workflows:
       process.env.PIPELINE_TARGET_PATH = dir;
       await expect(
         runCli(["node", "/repo/node_modules/.bin/pipe", "ship it"])
-      ).rejects.toThrow("Missing required pipeline config");
+      ).rejects.toThrow("schedule planner returned empty output");
     } finally {
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;
@@ -1553,7 +1534,7 @@ workflows:
     }
   });
 
-  it("allows init to repair a partial pipeline scaffold", async () => {
+  it("does not repair partial repo-local pipeline scaffolds", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-partial-init-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1574,11 +1555,11 @@ workflows:
         "--overwrite",
       ]);
 
-      expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(true);
-      expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(true);
+      expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
+      expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("Initialized pipeline scaffold:");
+      ).toContain("no repo-local pipeline files were created");
     } finally {
       log.mockRestore();
       if (originalTargetPath === undefined) {

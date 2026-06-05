@@ -1,10 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 import {
-  loadPipelineConfig,
   PIPELINE_CONFIG_PATH,
   PROFILES_CONFIG_PATH,
   RUNNERS_CONFIG_PATH,
@@ -1013,33 +1009,17 @@ export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const files = defaultPipelineScaffoldFiles();
-  const paths = Object.keys(files);
-  const conflicts = paths.filter((path) => {
-    const target = join(cwd, path);
-    return existsSync(target) && readFileSync(target, "utf8") !== files[path];
-  });
-
-  if (conflicts.length > 0 && !options.overwrite) {
-    throw new PipelineInitError(conflicts);
-  }
-
   const skillInstaller = options.skillInstaller ?? installDefaultSkillsWithCli;
   await skillInstaller(DEFAULT_SKILL_INSTALLS, cwd);
-
-  for (const [path, content] of Object.entries(files)) {
-    const target = join(cwd, path);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content);
-  }
-
-  loadPipelineConfig(cwd);
   return {
-    files: paths,
+    files: [],
   };
 }
 
 export function formatPipelineInitResult(result: PipelineInitResult): string {
+  if (result.files.length === 0) {
+    return "Pipeline uses package-owned config; no repo-local pipeline files were created.";
+  }
   return [
     "Initialized pipeline scaffold:",
     ...result.files.map((path) => `create ${path}`),

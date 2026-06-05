@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -206,6 +207,44 @@ function captureConfigError(action: () => unknown): PipelineConfigError {
 }
 
 describe("loadPipelineConfig", () => {
+  it("loads package-owned defaults when the repo has no pipeline files", () => {
+    const project = mkdtempSync(join(tmpdir(), "pipeline-config-defaults-"));
+    tempDirs.push(project);
+
+    const config = loadPipelineConfig(project);
+
+    expect(existsSync(join(project, ".pipeline"))).toBe(false);
+    expect(config.default_workflow).toBe("default");
+    expect(config.entrypoints.pipe).toMatchObject({
+      schedule: "pipe-schedule",
+    });
+    expect(config.entrypoints.inspect).toMatchObject({ workflow: "inspect" });
+    expect(config.entrypoints.epic).toMatchObject({
+      schedule: "epic-schedule",
+    });
+    expect(config.schedules["pipe-schedule"]).toMatchObject({
+      baseline: "pipe",
+      planner_profile: "pipeline-schedule-planner",
+    });
+    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
+      "research",
+      "red",
+      "green",
+      "acceptance",
+      "verify",
+      "learn",
+    ]);
+    expect(config.profiles["pipeline-code-writer"].scheduling_roles).toEqual([
+      "implementation",
+    ]);
+    expect(config.profiles["pipeline-verifier"].scheduling_roles).toEqual([
+      "coverage",
+    ]);
+    expect(config.hooks.on["workflow.start"]).toEqual([
+      expect.objectContaining({ function: "generated-defaults-audit" }),
+    ]);
+  });
+
   it("loads a complete valid config from the three required config files", () => {
     const project = makeProject();
 

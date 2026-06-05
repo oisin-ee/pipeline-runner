@@ -59,6 +59,293 @@ const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
 const SCHEDULING_ROLES = ["coverage", "implementation"] as const;
 const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 
+const PACKAGE_DEFAULT_RUNNERS_YAML = `version: 1
+runners:
+  codex:
+    type: codex
+    model: gpt-5.5
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit, disabled]
+      output_formats: [text, json, jsonl, json_schema]
+  opencode:
+    type: opencode
+    model: default
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit, disabled]
+      output_formats: [text, json, jsonl, json_schema]
+  command:
+    type: command
+    capabilities:
+      native_subagents: false
+      rules: false
+      skills: false
+      mcp_servers: false
+      tools: [bash]
+      filesystem: [read-only, workspace-write]
+      network: [inherit, disabled]
+      output_formats: [text, json]
+`;
+
+const PACKAGE_DEFAULT_PROFILES_YAML = `version: 1
+mcp_gateway:
+  provider: toolhive
+  mode: local
+  url_env: PIPELINE_MCP_GATEWAY_URL
+  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
+  default_profile: default
+profiles:
+  orchestrator:
+    runner: codex
+    instructions: { inline: "Orchestrate package-owned pipeline config." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-researcher:
+    runner: codex
+    description: Research the requested task and produce structured findings.
+    instructions: { inline: "Inspect first-party source, tests, docs, and task context before proposing changes." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-inspector:
+    runner: codex
+    description: Inspect the repository without modifying files.
+    instructions: { inline: "Inspect the repository without modifying files." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-schedule-planner:
+    runner: codex
+    description: Refine a baseline schedule into a specialized approved-plan artifact.
+    instructions: { inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-test-writer:
+    runner: codex
+    description: Add focused failing tests for the requested behavior.
+    instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-epic-router:
+    runner: codex
+    description: Route epic sub-tickets into fixed implementation tracks.
+    instructions: { inline: "Route epic sub-tickets into implementation tracks." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-code-writer:
+    runner: codex
+    scheduling_roles: [implementation]
+    description: Implement production code until the failing tests pass.
+    instructions: { inline: "Implement the smallest production change that satisfies the failing tests." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-acceptance-reviewer:
+    runner: codex
+    scheduling_roles: [coverage]
+    description: Audit the finished change against every acceptance criterion.
+    instructions: { inline: "Audit the completed change against each canonical acceptance criterion independently." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-thermo-nuclear-reviewer:
+    runner: codex
+    scheduling_roles: [coverage]
+    description: Perform the final thermo-nuclear code quality review of the integration branch.
+    instructions: { inline: "Perform the final code quality review of the integration branch." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-verifier:
+    runner: codex
+    scheduling_roles: [coverage]
+    description: Verify checks, implementation fit, and final evidence.
+    instructions: { inline: "Verify checks, implementation fit, and final evidence." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  pipeline-learner:
+    runner: codex
+    description: Store durable lessons from the completed run.
+    instructions: { inline: "Store durable lessons from the completed run when useful." }
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+`;
+
+const PACKAGE_DEFAULT_PIPELINE_YAML = `version: 1
+default_workflow: default
+entrypoints:
+  pipe:
+    schedule: pipe-schedule
+    description: Full pipeline
+  inspect:
+    workflow: inspect
+    description: Read-only repository inspection
+  epic:
+    schedule: epic-schedule
+    description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
+orchestrator:
+  profile: orchestrator
+hooks:
+  functions:
+    generated-defaults-audit:
+      kind: command
+      command: [node, -e, "process.exit(0)"]
+      trusted: true
+      timeout_ms: 5000
+      output_limit_bytes: 4096
+  on:
+    workflow.start:
+      - id: generated-defaults-audit
+        function: generated-defaults-audit
+        failure: fail
+schedules:
+  pipe-schedule:
+    baseline: pipe
+    planner_profile: pipeline-schedule-planner
+  epic-schedule:
+    baseline: epic
+    planner_profile: pipeline-schedule-planner
+workflows:
+  inspect:
+    description: Read-only repository inspection workflow.
+    nodes:
+      - id: inspect
+        kind: agent
+        profile: pipeline-inspector
+  default:
+    description: Default research, red, green, acceptance, verify, learn workflow.
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: red
+        kind: agent
+        profile: pipeline-test-writer
+        needs: [research]
+        gates:
+          - id: red-test-file-policy
+            kind: changed_files
+            changed_files:
+              allow: ["**/*.test.*", "**/*.spec.*", "**/*_test.*", "**/__tests__/**", "test/**", "tests/**", "**/*.snap"]
+              require_any: ["**/*.test.*", "**/*.spec.*", "**/*_test.*", "**/__tests__/**", "test/**", "tests/**"]
+      - id: green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [red]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [green]
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+            required: false
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [acceptance]
+        gates:
+          - id: verify-typecheck
+            kind: builtin
+            builtin: typecheck
+          - id: verify-tests
+            kind: builtin
+            builtin: test
+          - id: verify-semgrep
+            kind: builtin
+            builtin: semgrep
+          - id: verify-duplication
+            kind: builtin
+            builtin: duplication
+          - id: verify-verdict
+            kind: verdict
+            target: stdout
+      - id: learn
+        kind: agent
+        profile: pipeline-learner
+        needs: [verify]
+  infra:
+    description: Default-shaped stub workflow for infrastructure specialization.
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: red
+        kind: agent
+        profile: pipeline-test-writer
+        needs: [research]
+      - id: green
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [red]
+      - id: acceptance
+        kind: agent
+        profile: pipeline-acceptance-reviewer
+        needs: [green]
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [acceptance]
+      - id: learn
+        kind: agent
+        profile: pipeline-learner
+        needs: [verify]
+  epic-drain:
+    description: Route epic work, execute implementation, drain merge, and review.
+    nodes:
+      - id: research
+        kind: agent
+        profile: pipeline-researcher
+      - id: plan
+        kind: agent
+        profile: pipeline-epic-router
+        needs: [research]
+      - id: implement
+        kind: workflow
+        workflow: infra
+        needs: [plan]
+      - id: merge
+        kind: builtin
+        builtin: drain-merge
+        needs: [implement]
+      - id: review
+        kind: agent
+        profile: pipeline-thermo-nuclear-reviewer
+        needs: [merge]
+`;
+
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
   | "PIPELINE_CONFIG_MISSING"
@@ -840,6 +1127,22 @@ export function loadPipelineConfig(
         [{ path: LEGACY_CONFIG_PATH, message: "legacy TOML config found" }]
       );
     }
+    if (missing.length === paths.length) {
+      return parsePipelineConfigParts(
+        {
+          pipeline: PACKAGE_DEFAULT_PIPELINE_YAML,
+          profiles: PACKAGE_DEFAULT_PROFILES_YAML,
+          runners: PACKAGE_DEFAULT_RUNNERS_YAML,
+        },
+        projectRoot,
+        {
+          pipeline: "@oisincoveney/pipeline/defaults/pipeline.yaml",
+          profiles: "@oisincoveney/pipeline/defaults/profiles.yaml",
+          runners: "@oisincoveney/pipeline/defaults/runners.yaml",
+        },
+        options
+      );
+    }
     throw new PipelineConfigError(
       "PIPELINE_CONFIG_MISSING",
       `Missing required pipeline config files: ${missing.join(", ")}`,
@@ -863,12 +1166,6 @@ export function tryLoadPipelineConfig(
   projectRoot: string,
   options: PipelineConfigValidationOptions = {}
 ): PipelineConfig | null {
-  if (!existsSync(join(projectRoot, PIPELINE_CONFIG_PATH))) {
-    if (existsSync(join(projectRoot, LEGACY_CONFIG_PATH))) {
-      return loadPipelineConfig(projectRoot, options);
-    }
-    return null;
-  }
   return loadPipelineConfig(projectRoot, options);
 }
 

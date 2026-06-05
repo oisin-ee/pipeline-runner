@@ -604,7 +604,9 @@ export function createCliProgram(): Command {
 
   program
     .command("init")
-    .description("Scaffold the default .pipeline/pipeline.yaml workflow")
+    .description(
+      "Initialize package-owned pipeline support without repo-local config"
+    )
     .option("--overwrite", "replace existing pipeline scaffold files", false)
     .action(async (flags: InitFlags) => {
       const result = await initPipelineProject({

@@ -1,8 +1,9 @@
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 
 vi.mock("execa", () => ({
   execa: vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })),
@@ -39,6 +40,16 @@ const TEST_SKILLS = [
   "trace",
   "verify",
 ];
+
+async function writePipelineFixture(root: string): Promise<void> {
+  for (const [path, content] of Object.entries(
+    defaultPipelineScaffoldFiles()
+  )) {
+    const target = join(root, path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, content);
+  }
+}
 
 function validPayload(): Record<string, unknown> {
   return {
@@ -267,7 +278,6 @@ describe("runner-job entrypoint", () => {
 
   it("prepares repository workspaces before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
-    const { initPipelineProject } = await import("../src/pipeline-init.js");
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-devspace-"));
     const postedBodies: string[] = [];
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -289,7 +299,7 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await initPipelineProject({ cwd: dir, overwrite: false });
+      await writePipelineFixture(dir);
       const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
       await writeFile(
         pipelineConfigPath,
@@ -390,13 +400,11 @@ describe("runner-job entrypoint", () => {
 
   it("does not require devspace.yaml before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
-    const { initPipelineProject } = await import("../src/pipeline-init.js");
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-no-devspace-"));
     const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
 
     try {
       await writeTestSkills(dir);
-      await initPipelineProject({ cwd: dir, overwrite: false });
       const exitCode = await runRunnerJob({
         env: payloadEnv({
           ...validPayload(),
@@ -423,7 +431,6 @@ describe("runner-job entrypoint", () => {
 
   it("records a failed smoke phase and does not create a PR when environment smoke fails", async () => {
     const { runRunnerJob } = await loadRunnerModule();
-    const { initPipelineProject } = await import("../src/pipeline-init.js");
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-smoke-fail-"));
     const postedBodies: string[] = [];
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -436,7 +443,7 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await initPipelineProject({ cwd: dir, overwrite: false });
+      await writePipelineFixture(dir);
       const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
       await writeFile(
         pipelineConfigPath,
@@ -597,10 +604,11 @@ describe("runner-job entrypoint", () => {
     expect(io.stderrText()).toMatch(STARTUP_FAILURE_RE);
   });
 
-  it("returns EX_USAGE 64 when the target pipeline config is missing", async () => {
+  it("uses package config when the target repo has no pipeline config", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const io = ioBuffers();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-missing-config-"));
+    const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
 
     try {
       const env = payloadEnv();
@@ -609,12 +617,14 @@ describe("runner-job entrypoint", () => {
         cwd: dir,
         env,
         fetch: vi.fn(async () => okResponse()),
+        pipelineRunner,
         stderr: io.stderr,
         stdout: io.stdout,
       });
 
-      expect(exitCode).toBe(64);
-      expect(io.stderrText()).toMatch(MISSING_CONFIG_RE);
+      expect(exitCode).toBe(0);
+      expect(io.stderrText()).not.toMatch(MISSING_CONFIG_RE);
+      expect(pipelineRunner).toHaveBeenCalledTimes(1);
     } finally {
       await rm(dir, { force: true, recursive: true });
     }

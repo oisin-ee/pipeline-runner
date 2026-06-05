@@ -8,14 +8,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadPipelineConfig } from "../src/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
 import { createRunnerLaunchPlan } from "../src/runner.js";
 import {
+  compileScheduleArtifact,
   generateScheduleArtifact,
-  parseScheduleArtifact,
 } from "../src/schedule-planner.js";
 import { compileWorkflowPlan } from "../src/workflow-planner.js";
 
@@ -531,11 +530,7 @@ workflows:
       task: "PC-37",
       worktreePath: project,
     });
-    const generatedSource = readFileSync(generated.path, "utf8");
-    const generatedArtifact = parseScheduleArtifact(
-      generatedSource,
-      generated.path
-    );
+    const generatedArtifact = generated.artifact;
     const generatedNodeIds = generatedArtifact.workflows.root.nodes.map(
       (node) => node.id
     );
@@ -564,33 +559,52 @@ workflows:
         "PC-37.6",
       ])
     );
-    expect(generatedSource).toContain("title: Build API endpoint");
-    expect(generatedSource).toContain("task_context:");
+    expect(generated.path).toBe("memory:run-pc37-dogfood");
+    expect(
+      generatedArtifact.workflows.root.nodes.some(
+        (node) => node.task_context?.title === "Build API endpoint"
+      )
+    ).toBe(true);
+    expect(generatedTaskContextIds.length).toBeGreaterThan(0);
 
-    const validate = await execa(
-      "bun",
-      ["src/index.ts", "validate", "--schedule", generated.path],
-      { cwd: process.cwd() }
-    );
-    const explain = await execa(
-      "bun",
-      ["src/index.ts", "explain-plan", "--schedule", generated.path],
-      { cwd: process.cwd() }
+    const compiled = compileScheduleArtifact(
+      config,
+      generated.artifact,
+      project
     );
 
-    expect(validate.stdout).toContain(
-      "OK: schedule-run-pc37-dogfood-root (8 nodes)"
+    expect(compiled.workflowId).toBe("schedule-run-pc37-dogfood-root");
+    expect(
+      new Set(compiled.plan.topologicalOrder.map((node) => node.id))
+    ).toEqual(
+      new Set([
+        "research",
+        "pc-37-1-green",
+        "pc-37-4-green",
+        "pc-37-5-green",
+        "pc-37-2-green",
+        "pc-37-3-green",
+        "pc-37-6-green",
+        "verify",
+      ])
     );
-    expect(validate.stderr).not.toContain("task_context");
-    expect(explain.stdout).toContain(
-      "Batches: [research] -> [pc-37-1-green, pc-37-4-green, pc-37-5-green] -> [pc-37-2-green, pc-37-3-green] -> [pc-37-6-green] -> [verify]"
-    );
-    expect(explain.stdout).toContain(
-      "- pc-37-2-green kind=agent needs=pc-37-1-green"
-    );
-    expect(explain.stdout).toContain(
-      "- pc-37-6-green kind=agent needs=pc-37-2-green,pc-37-3-green,pc-37-4-green,pc-37-5-green"
-    );
+    expect(
+      compiled.plan.topologicalOrder.find((node) => node.id === "pc-37-2-green")
+    ).toMatchObject({
+      kind: "agent",
+      needs: ["pc-37-1-green"],
+    });
+    expect(
+      compiled.plan.topologicalOrder.find((node) => node.id === "pc-37-6-green")
+    ).toMatchObject({
+      kind: "agent",
+      needs: [
+        "pc-37-2-green",
+        "pc-37-3-green",
+        "pc-37-4-green",
+        "pc-37-5-green",
+      ],
+    });
   });
 
   it("runs deterministic dogfood options as a repeatable test", async () => {

@@ -2,7 +2,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -24,7 +23,7 @@ const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
 const WORK_UNIT_DEPENDENCY_RE =
   /work unit dependency edge.*PC-37\.2.*PC-37\.1/s;
-const PLANNER_OUTPUT_SAVED_RE = /Planner output saved: .*planner-output\.txt/s;
+const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
 const WORKFLOW_TASK_ASSIGNMENT_RE =
   /backlog work unit assignments must use explicit generated agent nodes/i;
 
@@ -534,6 +533,7 @@ workflows:
       });
 
       expect(result.artifact.schedule_id).toBe("run-jsonl");
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(
         result.artifact.workflows.root.nodes.map((node) => node.id)
       ).toEqual(["research", "implement", "verify"]);
@@ -592,9 +592,8 @@ workflows:
       expect(result.artifact.workflows.root.nodes[2]).toMatchObject({
         needs: ["green-scheduler-roles"],
       });
-      expect(readFileSync(result.path, "utf8")).toContain(
-        "id: research-role-contract"
-      );
+      expect(result.path).toBe("memory:run-repair");
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -621,17 +620,9 @@ task: Bad: compact scalar
           task: "Bad compact scalar",
           worktreePath: dir,
         })
-      ).rejects.toThrow(PLANNER_OUTPUT_SAVED_RE);
+      ).rejects.toThrow(PLANNER_OUTPUT_RE);
 
-      const outputPath = join(
-        dir,
-        ".pipeline",
-        "runs",
-        "run-invalid",
-        "planner-output.txt"
-      );
-      expect(existsSync(outputPath)).toBe(true);
-      expect(readFileSync(outputPath, "utf8")).toBe(malformed.trim());
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
