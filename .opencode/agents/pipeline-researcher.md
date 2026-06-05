@@ -1,6 +1,7 @@
 ---
 description: Research the requested task and produce structured findings.
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: deny

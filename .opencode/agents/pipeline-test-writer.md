@@ -1,6 +1,7 @@
 ---
 description: Add focused failing tests for the requested behavior.
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: allow

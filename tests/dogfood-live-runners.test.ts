@@ -40,7 +40,7 @@ const HARNESS_SPECS: Record<LiveHarness, HarnessSmokeSpec> = {
     mcpServers: true,
     outputFormats: ["text", "json", "jsonl", "json_schema"],
     rules: true,
-    skills: false,
+    skills: true,
     tools: ["read", "list", "grep", "glob", "bash", "edit", "write", "task"],
   },
 };
@@ -128,7 +128,6 @@ describeLive("live runner smoke matrix", () => {
     expect(plan?.type, diagnostic).toBe(harness);
     expect(plan?.runnerId, diagnostic).toBe(harness);
     expect(plan?.profileId, diagnostic).toBe(profileId);
-    expect(plan?.strategy, diagnostic).toBe("native");
     expect(plan?.outputFormat, diagnostic).toBe(format);
     assertLaunchPlanContainsGrants(config, profileId, diagnostic);
   }, 240_000);
@@ -306,7 +305,7 @@ runners:
     capabilities:
       native_subagents: true
       rules: true
-      skills: false
+      skills: true
       mcp_servers: true
       tools: [read, list, grep, glob, bash, edit, write, task]
       filesystem: [read-only, workspace-write]
@@ -350,7 +349,7 @@ function assertLaunchPlanContainsGrants(
     "tool grants were not attached",
     diagnostic
   );
-  if (profile?.runner === "codex") {
+  if (profile?.runner === "codex" || profile?.runner === "opencode") {
     assertSmoke(
       arrayEquals(profile.skills, ["live-skill"]),
       `${profile.runner} skill grant was not attached`,
@@ -396,7 +395,6 @@ function runtimeDiagnostic(
         outputFormat: plan.outputFormat,
         profileId: plan.profileId,
         runnerId: plan.runnerId,
-        strategy: plan.strategy,
         type: plan.type,
       })),
       nodes: result.nodes.map((node) => ({

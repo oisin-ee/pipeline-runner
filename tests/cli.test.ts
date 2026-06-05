@@ -235,6 +235,19 @@ runners:
     capabilities:
       native_subagents: false
       output_formats: [text]
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.4-mini
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit]
+      output_formats: [text, json]
 `,
     ".pipeline/profiles.yaml": `
 version: 1
@@ -248,6 +261,13 @@ profiles:
   pipeline-code-writer:
     runner: local
     instructions: { inline: Implement }
+  pipeline-opencode-code-writer:
+    runner: opencode
+    model: openai/gpt-5.4-mini
+    instructions: { inline: Implement with OpenCode }
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem: { mode: workspace-write }
+    network: { mode: inherit }
   pipeline-verifier:
     runner: local
     instructions: { inline: Verify }
@@ -1158,6 +1178,77 @@ workflows:
     }
   });
 
+  it("executes OpenCode-backed schedule agents through CLI subprocesses", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-opencode-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      writeScheduledCliConfig(dir);
+      process.env.PIPELINE_TARGET_PATH = dir;
+      const schedulePath = join(dir, "approved-opencode-schedule.yaml");
+      writeFileSync(
+        schedulePath,
+        `
+version: 1
+kind: pipeline-schedule
+schedule_id: approved-opencode
+source_entrypoint: pipe
+task: Ship it with OpenCode
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: pipeline-opencode-code-writer
+`
+      );
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "run",
+        "--schedule",
+        schedulePath,
+        "Ship",
+        "it",
+      ]);
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        "opencode",
+        expect.arrayContaining([
+          "run",
+          "--format",
+          "json",
+          "--model",
+          "openai/gpt-5.4-mini",
+          "--dir",
+          dir,
+        ]),
+        expect.objectContaining({ cwd: dir })
+      );
+      const output = log.mock.calls
+        .map(([message]) => String(message))
+        .join("\n");
+      expect(output).toContain("Workflow: schedule-approved-opencode-root");
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("validates and explains a schedule artifact", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-inspect-"));
@@ -1517,7 +1608,7 @@ workflows:
       ).toContain("Workflow: default");
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("strategy=native");
+      ).not.toContain("strategy=");
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
       ).toContain("Doctor: PASS");
@@ -2339,9 +2430,7 @@ workflows:
       expect(codex).toContain(
         "[mcp_servers.pipeline-gateway.env_http_headers]"
       );
-      expect(codex).toContain(
-        'Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"'
-      );
+      expect(codex).toContain('Authorization = "MEMORY_MCP_BASIC_AUTH"');
       expect(codex).not.toContain("legacy");
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         enabled: true,

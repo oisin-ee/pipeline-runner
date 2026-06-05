@@ -45,8 +45,6 @@ export interface AgentAdapter {
   run(request: AgentRunRequest): Promise<AgentResult>;
 }
 
-export type RunnerStrategy = "native" | "subprocess";
-
 export interface RunnerLaunchPlan {
   args: string[];
   command: string;
@@ -56,7 +54,6 @@ export interface RunnerLaunchPlan {
   outputFormat: string;
   profileId?: string;
   runnerId: string;
-  strategy: RunnerStrategy;
   timeoutMs: number;
   type: RunnerType;
 }
@@ -341,11 +338,9 @@ function createActorLaunchPlan(
       ...base,
       args: renderArgv(runner.args ?? [], input.prompt, input.worktreePath),
       command,
-      strategy: "subprocess",
     };
   }
 
-  const strategy = nativeStrategy(config, input, runnerId);
   return {
     ...base,
     args: harnessArgv(
@@ -361,7 +356,6 @@ function createActorLaunchPlan(
       }
     ),
     command,
-    strategy,
   };
 }
 
@@ -396,24 +390,6 @@ function skillArgsFor(
     ];
   }
   return [];
-}
-
-function nativeStrategy(
-  config: PipelineConfig,
-  input: RunnerLaunchInput,
-  runnerId: string
-): RunnerStrategy {
-  const runner = config.runners[runnerId];
-  const profile = input.profileId
-    ? config.profiles[input.profileId]
-    : undefined;
-  if (!(runner?.capabilities.native_subagents && profile)) {
-    return "subprocess";
-  }
-  if (runner.type === "command") {
-    return "subprocess";
-  }
-  return "native";
 }
 
 function renderArgv(args: string[], prompt: string, cwd: string): string[] {

@@ -1,6 +1,7 @@
 ---
 description: Route epic sub-tickets into fixed implementation tracks.
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: deny

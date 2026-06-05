@@ -3,6 +3,7 @@ description: >-
   Perform the final thermo-nuclear code quality review of the integration
   branch.
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: deny

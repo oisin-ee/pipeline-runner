@@ -56,7 +56,7 @@ export async function executeAgentNode(
   });
   return {
     evidence: [
-      `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId} strategy=${plan.strategy}`,
+      `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId}`,
       ...finalized.evidence,
       ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
       ...(result.timedOut ? ["agent timed out"] : []),

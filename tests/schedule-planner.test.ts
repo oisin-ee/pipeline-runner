@@ -41,6 +41,19 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json_schema]
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.4-mini
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit]
+      output_formats: [text, json_schema]
 `;
 
 const PROFILES = `
@@ -353,6 +366,63 @@ workflows:
           schedule_id: "run-role-contract",
         },
       });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("shows runner, model, grants, and output metadata for allowed planner profiles", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-profile-fit-"));
+    const richConfig = config();
+    richConfig.profiles["pipeline-opencode-code-writer"] = {
+      ...richConfig.profiles["pipeline-code-writer"],
+      description: "Implement production code with OpenCode.",
+      model: "openai/gpt-5.4-mini",
+      runner: "opencode",
+    };
+    let prompt = "";
+    const schedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-profile-fit
+source_entrypoint: pipe
+task: Profile fit
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: pipeline-opencode-code-writer
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [implement]
+`;
+
+    try {
+      await generateScheduleArtifact({
+        config: richConfig,
+        entrypointId: "pipe",
+        executor: (plan) => {
+          prompt = plan.args.join("\n");
+          return { exitCode: 0, stdout: schedule };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-profile-fit",
+        task: "Profile fit",
+        worktreePath: dir,
+      });
+
+      expect(prompt).toContain("- pipeline-opencode-code-writer");
+      expect(prompt).toContain("runner: opencode");
+      expect(prompt).toContain("model: openai/gpt-5.4-mini");
+      expect(prompt).toContain("scheduling_roles: implementation");
+      expect(prompt).toContain("filesystem: workspace-write");
+      expect(prompt).toContain("tools: read, edit, write, bash");
+      expect(prompt).toContain("output: text");
+      expect(prompt).toContain("description: Implement production code");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -1150,6 +1150,43 @@ describe("epic entrypoint integration", () => {
     );
   });
 
+  it("declares OpenCode as a first-class pipeline runner with schedulable profile variants", () => {
+    const profilesYaml = readFileSync(
+      join(process.cwd(), ".pipeline/profiles.yaml"),
+      "utf8"
+    );
+    const runnersYaml = readFileSync(
+      join(process.cwd(), ".pipeline/runners.yaml"),
+      "utf8"
+    );
+    const parsed = parsePipelineConfigParts({
+      pipeline: readFileSync(
+        join(process.cwd(), ".pipeline/pipeline.yaml"),
+        "utf8"
+      ),
+      profiles: profilesYaml,
+      runners: runnersYaml,
+    });
+
+    expect(parsed.runners.opencode.capabilities.skills).toBe(true);
+    expect(parsed.runners.opencode.capabilities.rules).toBe(true);
+    expect(parsed.runners.opencode.capabilities.mcp_servers).toBe(true);
+    expect(parsed.profiles["pipeline-opencode-researcher"]).toMatchObject({
+      runner: "opencode",
+      instructions: { path: ".pipeline/prompts/researcher.md" },
+    });
+    expect(parsed.profiles["pipeline-opencode-code-writer"]).toMatchObject({
+      runner: "opencode",
+      scheduling_roles: ["implementation"],
+      instructions: { path: ".pipeline/prompts/code-writer.md" },
+    });
+    expect(parsed.profiles["pipeline-opencode-verifier"]).toMatchObject({
+      runner: "opencode",
+      scheduling_roles: ["coverage"],
+      instructions: { path: ".pipeline/prompts/verifier.md" },
+    });
+  });
+
   it("ignores epic run worktrees", () => {
     const gitignore = readFileSync(join(process.cwd(), ".gitignore"), "utf8")
       .split(LINE_RE)

@@ -35,12 +35,12 @@ Instructions: .pipeline/prompts/orchestrator.md
 
 Run workflow `default` for the user task.
 OpenCode native routes:
-- research: Task tool subagent_type=pipeline-researcher runner=codex needs=none
-- red: Task tool subagent_type=pipeline-test-writer runner=codex needs=research
-- green: Task tool subagent_type=pipeline-code-writer runner=codex needs=red
-- acceptance: Task tool subagent_type=pipeline-acceptance-reviewer runner=codex needs=green
-- verify: Task tool subagent_type=pipeline-verifier runner=codex needs=acceptance
-- learn: Task tool subagent_type=pipeline-learner runner=codex needs=verify
+- research: Task tool subagent_type=pipeline-researcher model=opencode/deepseek-v4-flash-free runner=codex needs=none
+- red: Task tool subagent_type=pipeline-test-writer model=opencode/deepseek-v4-flash-free runner=codex needs=research
+- green: Task tool subagent_type=pipeline-code-writer model=opencode/deepseek-v4-flash-free runner=codex needs=red
+- acceptance: Task tool subagent_type=pipeline-acceptance-reviewer model=opencode/deepseek-v4-flash-free runner=codex needs=green
+- verify: Task tool subagent_type=pipeline-verifier model=opencode/deepseek-v4-flash-free runner=codex needs=acceptance
+- learn: Task tool subagent_type=pipeline-learner model=opencode/deepseek-v4-flash-free runner=codex needs=verify
 
 For each native node prompt include:
 - user task

@@ -1,6 +1,7 @@
 ---
 description: Inspect the repository without modifying files.
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: deny

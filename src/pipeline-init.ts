@@ -315,10 +315,11 @@ runners:
   opencode:
     type: opencode
     command: opencode
+    model: opencode/deepseek-v4-flash-free
     capabilities:
       native_subagents: true
       rules: true
-      skills: false
+      skills: true
       mcp_servers: true
       tools: [read, list, grep, glob, bash, edit, write, task]
       filesystem: [read-only, workspace-write]
@@ -589,6 +590,106 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/learn.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
+  pipeline-opencode-researcher:
+    runner: opencode
+    description: Research the requested task and produce structured findings with OpenCode.
+    instructions:
+      path: .pipeline/prompts/researcher.md
+    rules: [test-first]
+    skills: [research, spec, scope]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/research.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
+  pipeline-opencode-test-writer:
+    runner: opencode
+    description: Add focused failing tests for the requested behavior with OpenCode.
+    instructions:
+      path: .pipeline/prompts/test-writer.md
+    rules: [test-first]
+    skills: [test]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem:
+      mode: workspace-write
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
+  pipeline-opencode-code-writer:
+    runner: opencode
+    scheduling_roles: [implementation]
+    description: Implement production code until the failing tests pass with OpenCode.
+    instructions:
+      path: .pipeline/prompts/code-writer.md
+    rules: [test-first]
+    skills: [trace, test, fix, library-first-development]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash, edit, write]
+    filesystem:
+      mode: workspace-write
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: text
+  pipeline-opencode-acceptance-reviewer:
+    runner: opencode
+    scheduling_roles: [coverage]
+    description: Audit the finished change against every acceptance criterion with OpenCode.
+    instructions:
+      path: .pipeline/prompts/acceptance-reviewer.md
+    rules: [verification]
+    skills: [critique, doubt]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/acceptance.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
+  pipeline-opencode-verifier:
+    runner: opencode
+    scheduling_roles: [coverage]
+    description: Verify checks, implementation fit, and final evidence with OpenCode.
+    instructions:
+      path: .pipeline/prompts/verifier.md
+    rules: [verification]
+    skills: [verify, critique, secure, optimize]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/verify.schema.json
       repair:
         enabled: true
         max_attempts: 1

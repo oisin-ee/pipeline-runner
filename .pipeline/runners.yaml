@@ -17,10 +17,11 @@ runners:
   opencode:
     type: opencode
     command: opencode
+    model: opencode/deepseek-v4-flash-free
     capabilities:
       native_subagents: true
       rules: true
-      skills: false
+      skills: true
       mcp_servers: true
       tools: [read, list, grep, glob, bash, edit, write, task]
       filesystem: [read-only, workspace-write]

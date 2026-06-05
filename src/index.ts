@@ -1075,7 +1075,6 @@ function formatWorkflowPlanNode(
     `kind=${node.kind}`,
     `needs=${node.needs.join(",") || "none"}`,
     launch ? `runner=${launch.runnerId}` : "",
-    launch ? `strategy=${launch.strategy}` : "",
     node.gates?.length ? `gates=${node.gates.length}` : "gates=0",
     node.artifacts?.length
       ? `artifacts=${node.artifacts.map((artifact) => artifact.path).join(",")}`
@@ -1120,7 +1119,6 @@ function formatOrchestratorPlan(
   });
   return [
     `Orchestrator: runner=${launch.runnerId}`,
-    `strategy=${launch.strategy}`,
     orchestrator.model ? `model=${orchestrator.model}` : "",
     formatList("rules", orchestrator.rules),
     formatList("skills", orchestrator.skills),

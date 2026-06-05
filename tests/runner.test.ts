@@ -226,10 +226,10 @@ workflows:
   });
 
   it.each([
-    ["codex-agent", "codex", "native", "codex"],
-    ["opencode-agent", "opencode", "native", "opencode"],
-    ["command-agent", "shell", "subprocess", "node"],
-  ])("creates a deterministic launch plan for %s", (profileId, runnerId, strategy, command) => {
+    ["codex-agent", "codex", "codex"],
+    ["opencode-agent", "opencode", "opencode"],
+    ["command-agent", "shell", "node"],
+  ])("creates a deterministic launch plan for %s", (profileId, runnerId, command) => {
     const plan = createRunnerLaunchPlan(CONFIG, {
       profileId,
       nodeId: "node",
@@ -244,7 +244,6 @@ workflows:
         nodeId: "node",
         profileId,
         runnerId,
-        strategy,
       })
     );
     expect(plan.args.join(" ")).toContain(

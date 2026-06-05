@@ -1,6 +1,7 @@
 ---
 description: Audit the finished change against every acceptance criterion.
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: deny

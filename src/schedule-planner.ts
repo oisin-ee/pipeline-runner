@@ -605,10 +605,21 @@ function plannerPrompt(
 }
 
 function allowedProfilePromptLine(config: PipelineConfig, id: string): string {
+  const profile = config.profiles[id];
+  const runner = config.runners[profile.runner];
   const roles = effectiveSchedulingRoles(config, id);
-  return roles.length > 0
-    ? `- ${id} (scheduling_roles: ${roles.join(", ")})`
-    : `- ${id}`;
+  const model = profile.model ?? runner?.model;
+  const fields = [
+    `runner: ${profile.runner}`,
+    model ? `model: ${model}` : "",
+    roles.length > 0 ? `scheduling_roles: ${roles.join(", ")}` : "",
+    profile.description ? `description: ${profile.description}` : "",
+    profile.tools?.length ? `tools: ${profile.tools.join(", ")}` : "",
+    profile.filesystem?.mode ? `filesystem: ${profile.filesystem.mode}` : "",
+    profile.network?.mode ? `network: ${profile.network.mode}` : "",
+    `output: ${profile.output?.format ?? "text"}`,
+  ].filter(Boolean);
+  return `- ${id} (${fields.join("; ")})`;
 }
 
 function effectiveSchedulingRoles(

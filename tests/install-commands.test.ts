@@ -264,11 +264,20 @@ describe("installCommands", () => {
     expect(opencodeOrchestrator).toContain("'*': deny");
     expect(opencodeOrchestrator).toContain("pipeline-test-writer: allow");
     expect(opencodeOrchestrator).toContain(
-      "red: Task tool subagent_type=pipeline-test-writer runner=codex needs=research"
+      "red: Task tool subagent_type=pipeline-test-writer model=opencode/deepseek-v4-flash-free runner=codex needs=research"
     );
     expect(codexSkill).toContain("$pipe <task description>");
     expect(codexSkill).toContain("The schedule policy is `pipe-schedule`.");
     expect(codexSkill).toContain("generate and execute the schedule artifact");
+    expect(opencodeCommand).toContain(
+      "Run `pipe run --entrypoint pipe <task description>`"
+    );
+    expect(opencodeCommand).toContain(
+      "The pipeline CLI runtime is the deterministic graph scheduler"
+    );
+    expect(opencodeCommand).toContain(
+      "Codex/OpenCode agent subprocesses as soon as their dependencies pass"
+    );
     expect(codexSkill).not.toContain("stop for approval");
     expect(codexSkill).not.toContain("agent_type=worker");
     expect(codexSkill).not.toContain("codex CLI profile=");

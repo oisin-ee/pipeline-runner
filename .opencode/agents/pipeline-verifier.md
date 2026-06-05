@@ -1,6 +1,7 @@
 ---
 description: 'Verify checks, implementation fit, and final evidence.'
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: deny

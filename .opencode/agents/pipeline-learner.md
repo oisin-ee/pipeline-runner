@@ -1,6 +1,7 @@
 ---
 description: Store durable lessons from the completed run.
 mode: subagent
+model: opencode/deepseek-v4-flash-free
 permission:
   bash: allow
   edit: deny
