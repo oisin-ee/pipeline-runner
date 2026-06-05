@@ -413,3 +413,6 @@ bun run check
 bun run test
 bun run build:cli
 ```
+
+
+Runner Kubernetes Jobs can be generated with `buildRunnerJobK8sManifest` from `@oisincoveney/pipeline/runner-job-k8s`.

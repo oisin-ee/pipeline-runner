@@ -70,6 +70,10 @@
       "types": "./dist/runner-job-contract.d.ts",
       "import": "./dist/runner-job-contract.js"
     },
+    "./runner-job-k8s": {
+      "types": "./dist/runner-job-k8s.d.ts",
+      "import": "./dist/runner-job-k8s.js"
+    },
     "./runtime": {
       "types": "./dist/pipeline-runtime.d.ts",
       "import": "./dist/pipeline-runtime.js"

@@ -84,10 +84,12 @@ describe("package public app-facing API", () => {
     expect(readme).toContain("@oisincoveney/pipeline/config");
     expect(readme).toContain("@oisincoveney/pipeline/planner");
     expect(readme).toContain("@oisincoveney/pipeline/runner-job-contract");
+    expect(readme).toContain("@oisincoveney/pipeline/runner-job-k8s");
     expect(readme).toContain("@oisincoveney/pipeline/runtime");
     expect(readme).toContain("@oisincoveney/pipeline/schedule");
     expect(readme).toContain("@oisincoveney/pipeline/hooks");
     expect(readme).toContain("buildRunnerJobPayload");
+    expect(readme).toContain("buildRunnerJobK8sManifest");
     expect(readme).toContain("loadPipelineConfig");
     expect(readme).toContain("compileWorkflowPlan");
     expect(readme).toContain("compileScheduleArtifact");
@@ -138,6 +140,10 @@ import {
   parseRunnerJobPayload,
   type RunnerJobPayload,
 } from "@oisincoveney/pipeline/runner-job-contract";
+import {
+  buildRunnerJobK8sManifest,
+  type K8sJobManifest,
+} from "@oisincoveney/pipeline/runner-job-k8s";
 import {
   defineHook,
   parseHookResult,
@@ -207,6 +213,18 @@ const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
 const parsedPayload: RunnerJobPayload = parseRunnerJobPayload(
   JSON.stringify(runnerPayload)
 );
+const runnerManifest: K8sJobManifest = buildRunnerJobK8sManifest({
+  codexAuthSecretName: "codex-auth-1",
+  eventAuthSecretName: "pipeline-runner-event-auth",
+  eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
+  image: "ghcr.io/oisin-ee/pipeline-runner:latest",
+  jobName: "pipeline-runner-smoke",
+  namespace: "momokaya-pipeline",
+  opencodeAuthSecretName: "opencode-auth-1",
+  orchestrator: "codex",
+  payloadConfigMapName: "pipeline-runner-payload",
+  payloadConfigMapKey: "payload.json",
+});
 
 void loadPipelineConfig;
 void WorkflowPlannerError;
@@ -221,6 +239,7 @@ void nodeKind;
 void scheduledPlan;
 void RUNNER_JOB_CONTRACT_VERSION;
 void parsedPayload;
+void runnerManifest;
 `,
       "utf8"
     );
@@ -248,6 +267,7 @@ import { WorkflowPlannerError, compileWorkflowPlan } from "@oisincoveney/pipelin
 import { formatConfigError, runPipelineFromConfig } from "@oisincoveney/pipeline/runtime";
 import { compileScheduleArtifact, parseScheduleArtifact } from "@oisincoveney/pipeline/schedule";
 import { RUNNER_JOB_CONTRACT_VERSION, buildRunnerJobPayload, parseRunnerJobPayload } from "@oisincoveney/pipeline/runner-job-contract";
+import { buildRunnerJobK8sManifest } from "@oisincoveney/pipeline/runner-job-k8s";
 import { defineHook, parseHookResult } from "@oisincoveney/pipeline/hooks";
 
 const values = [
@@ -262,6 +282,7 @@ const values = [
   runPipelineFromConfig,
   buildRunnerJobPayload,
   parseRunnerJobPayload,
+  buildRunnerJobK8sManifest,
   defineHook,
   parseHookResult,
 ];

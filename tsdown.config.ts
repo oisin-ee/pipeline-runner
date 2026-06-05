@@ -10,6 +10,7 @@ export default defineConfig({
     "pipeline-runtime": "src/pipeline-runtime.ts",
     runner: "src/runner.ts",
     "runner-job-contract": "src/runner-job-contract.ts",
+    "runner-job-k8s": "src/runner-job/k8s.ts",
     "schedule-planner": "src/schedule-planner.ts",
     "workflow-planner": "src/workflow-planner.ts",
   },
