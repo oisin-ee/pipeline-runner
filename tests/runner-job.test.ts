@@ -589,10 +589,11 @@ describe("runner-job entrypoint", () => {
   it("returns EX_SOFTWARE 70 when startup fails before a runtime result is available", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const io = ioBuffers();
+    const fetchMock = vi.fn(async () => okResponse());
 
     const exitCode = await runRunnerJob({
       env: payloadEnv(),
-      fetch: vi.fn(async () => okResponse()),
+      fetch: fetchMock,
       pipelineRunner: vi.fn(() =>
         Promise.reject(new Error("runtime startup failed"))
       ),
@@ -602,6 +603,21 @@ describe("runner-job entrypoint", () => {
 
     expect(exitCode).toBe(70);
     expect(io.stderrText()).toMatch(STARTUP_FAILURE_RE);
+    expect(fetchMock.mock.calls[0]).toBeDefined();
+    const body = JSON.parse(
+      String(
+        (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body
+      )
+    ) as { events: Record<string, unknown>[] };
+    expect(body.events).toContainEqual(
+      expect.objectContaining({
+        finalResult: {
+          outcome: "FAIL",
+          workflowId: "pipe",
+        },
+        type: "workflow.finish",
+      })
+    );
   });
 
   it("uses package config when the target repo has no pipeline config", async () => {

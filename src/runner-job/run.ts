@@ -169,9 +169,10 @@ export async function runRunnerJob(
       await deliverSuccessfulRun(options, payload, workspace, readiness, sink);
     }
 
-    if (!(sawWorkflowFinish || signalFinalResultRecorded)) {
-      sink.recordFinalResult(result.outcome, result.plan.workflowId);
-    }
+    recordFinalResultIfMissing(sink, result.outcome, result.plan.workflowId, {
+      sawWorkflowFinish,
+      signalFinalResultRecorded,
+    });
     const flushFailure = await flushAndReport(sink.flush, stderr);
     if (flushFailure && !signalExitCode) {
       return EXIT_STARTUP;
@@ -180,6 +181,10 @@ export async function runRunnerJob(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     stderr.write(`${message}\n`);
+    recordFinalResultIfMissing(sink, "FAIL", RUNNER_SCHEDULE_ENTRYPOINT, {
+      sawWorkflowFinish,
+      signalFinalResultRecorded,
+    });
     await flushAndReport(sink.flush, stderr);
     if (err instanceof PipelineConfigError) {
       return signalExitCode ?? EXIT_VALIDATION;
@@ -189,6 +194,18 @@ export async function runRunnerJob(
     removeSignalListener(signalEmitter, "SIGTERM", handleSigterm);
     removeSignalListener(signalEmitter, "SIGINT", handleSigint);
   }
+}
+
+function recordFinalResultIfMissing(
+  sink: RunnerEventSink,
+  outcome: "CANCELLED" | "FAIL" | "PASS",
+  workflowId: string,
+  state: { sawWorkflowFinish: boolean; signalFinalResultRecorded: boolean }
+): void {
+  if (state.sawWorkflowFinish || state.signalFinalResultRecorded) {
+    return;
+  }
+  sink.recordFinalResult(outcome, workflowId);
 }
 
 async function prepareReadyWorkspace(
