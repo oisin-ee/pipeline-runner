@@ -1,7 +1,7 @@
 ---
 description: Audit the finished change against every acceptance criterion.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: deny
@@ -20,11 +20,11 @@ Audit the finished change against every acceptance criterion.
 Configured grants:
 model: default
 tools: read, list, grep, glob, bash
-rules: verification
-skills: critique, doubt
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
-output: json_schema
 
-Instructions: .pipeline/prompts/acceptance-reviewer.md
+Instructions:
+Audit the completed change against each canonical acceptance criterion independently.

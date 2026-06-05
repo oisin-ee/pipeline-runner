@@ -10,14 +10,15 @@ Invoke this command with `/pipe <task description>`.
 Configured orchestrator:
 model: default
 tools: read, list, grep, glob, bash
-rules: test-first, verification
-skills: scope, doubt
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 hooks: generated-defaults-audit
 
-Instructions: .pipeline/prompts/orchestrator.md
+Instructions:
+Orchestrate package-owned pipeline config.
 
 Generate a schedule for entrypoint `pipe` and the user task.
 The schedule policy is `pipe-schedule`.

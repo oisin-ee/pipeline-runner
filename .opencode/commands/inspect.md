@@ -10,18 +10,19 @@ Invoke this command with `/inspect <task description>`.
 Configured orchestrator:
 model: default
 tools: read, list, grep, glob, bash
-rules: test-first, verification
-skills: scope, doubt
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 hooks: generated-defaults-audit
 
-Instructions: .pipeline/prompts/orchestrator.md
+Instructions:
+Orchestrate package-owned pipeline config.
 
 Run workflow `inspect` for the user task.
 OpenCode native routes:
-- inspect: Task tool subagent_type=pipeline-inspector model=opencode/deepseek-v4-flash-free runner=codex needs=none
+- inspect: Task tool subagent_type=pipeline-inspector model=openai/gpt-5.5 runner=codex needs=none
 
 For each native node prompt include:
 - user task

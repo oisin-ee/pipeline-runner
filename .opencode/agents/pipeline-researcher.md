@@ -1,7 +1,7 @@
 ---
 description: Research the requested task and produce structured findings.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: deny
@@ -20,11 +20,11 @@ Research the requested task and produce structured findings.
 Configured grants:
 model: default
 tools: read, list, grep, glob, bash
-rules: test-first
-skills: research, spec, scope
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
-output: json_schema
 
-Instructions: .pipeline/prompts/researcher.md
+Instructions:
+Inspect first-party source, tests, docs, and task context before proposing changes.

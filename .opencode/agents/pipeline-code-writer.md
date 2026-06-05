@@ -1,7 +1,7 @@
 ---
 description: Implement production code until the failing tests pass.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: allow
@@ -20,11 +20,11 @@ Implement production code until the failing tests pass.
 Configured grants:
 model: default
 tools: read, list, grep, glob, bash, edit, write
-rules: test-first
-skills: trace, test, fix, library-first-development
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: workspace-write
 network: inherit
-output: text
 
-Instructions: .pipeline/prompts/code-writer.md
+Instructions:
+Implement the smallest production change that satisfies the failing tests.

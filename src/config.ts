@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { parseDocument } from "yaml";
 import { z } from "zod";
 import { resolveFileReference } from "./path-refs.js";
@@ -7,7 +6,6 @@ import { resolveFileReference } from "./path-refs.js";
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
 export const PROFILES_CONFIG_PATH = ".pipeline/profiles.yaml";
-const LEGACY_CONFIG_PATH = ".pipeline/config.toml";
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -75,7 +73,7 @@ runners:
       output_formats: [text, json, jsonl, json_schema]
   opencode:
     type: opencode
-    model: default
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
       rules: true
@@ -1112,52 +1110,25 @@ export function loadPipelineConfig(
   projectRoot: string,
   options: PipelineConfigValidationOptions = {}
 ): PipelineConfig {
-  const paths = [
-    PIPELINE_CONFIG_PATH,
-    PROFILES_CONFIG_PATH,
-    RUNNERS_CONFIG_PATH,
-  ];
-  const missing = paths.filter((path) => !existsSync(join(projectRoot, path)));
-  if (missing.length > 0) {
-    const legacyPath = join(projectRoot, LEGACY_CONFIG_PATH);
-    if (existsSync(legacyPath)) {
-      throw new PipelineConfigError(
-        "PIPELINE_CONFIG_LEGACY_UNSUPPORTED",
-        `${LEGACY_CONFIG_PATH} is not supported by the v1 pipeline config. Create ${PIPELINE_CONFIG_PATH}.`,
-        [{ path: LEGACY_CONFIG_PATH, message: "legacy TOML config found" }]
-      );
-    }
-    if (missing.length === paths.length) {
-      return parsePipelineConfigParts(
-        {
-          pipeline: PACKAGE_DEFAULT_PIPELINE_YAML,
-          profiles: PACKAGE_DEFAULT_PROFILES_YAML,
-          runners: PACKAGE_DEFAULT_RUNNERS_YAML,
-        },
-        projectRoot,
-        {
-          pipeline: "@oisincoveney/pipeline/defaults/pipeline.yaml",
-          profiles: "@oisincoveney/pipeline/defaults/profiles.yaml",
-          runners: "@oisincoveney/pipeline/defaults/runners.yaml",
-        },
-        options
-      );
-    }
-    throw new PipelineConfigError(
-      "PIPELINE_CONFIG_MISSING",
-      `Missing required pipeline config files: ${missing.join(", ")}`,
-      missing.map((path) => ({ path, message: "file does not exist" }))
-    );
-  }
+  return loadPackagePipelineConfig(projectRoot, options);
+}
 
+export function loadPackagePipelineConfig(
+  projectRoot: string,
+  options: PipelineConfigValidationOptions = {}
+): PipelineConfig {
   return parsePipelineConfigParts(
     {
-      pipeline: readFileSync(join(projectRoot, PIPELINE_CONFIG_PATH), "utf8"),
-      profiles: readFileSync(join(projectRoot, PROFILES_CONFIG_PATH), "utf8"),
-      runners: readFileSync(join(projectRoot, RUNNERS_CONFIG_PATH), "utf8"),
+      pipeline: PACKAGE_DEFAULT_PIPELINE_YAML,
+      profiles: PACKAGE_DEFAULT_PROFILES_YAML,
+      runners: PACKAGE_DEFAULT_RUNNERS_YAML,
     },
     projectRoot,
-    undefined,
+    {
+      pipeline: "@oisincoveney/pipeline/defaults/pipeline.yaml",
+      profiles: "@oisincoveney/pipeline/defaults/profiles.yaml",
+      runners: "@oisincoveney/pipeline/defaults/runners.yaml",
+    },
     options
   );
 }

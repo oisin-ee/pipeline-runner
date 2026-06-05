@@ -1,7 +1,7 @@
 ---
 description: 'Verify checks, implementation fit, and final evidence.'
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: deny
@@ -20,11 +20,11 @@ Verify checks, implementation fit, and final evidence.
 Configured grants:
 model: default
 tools: read, list, grep, glob, bash
-rules: verification
-skills: verify, critique, secure, optimize
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
-output: json_schema
 
-Instructions: .pipeline/prompts/verifier.md
+Instructions:
+Verify checks, implementation fit, and final evidence.

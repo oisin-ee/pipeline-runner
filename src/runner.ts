@@ -118,8 +118,7 @@ function optionalModelArgs(
     actor?.model ??
     runner?.model ??
     (harness === "opencode"
-      ? (process.env.PIPELINE_OPENCODE_MODEL ??
-        "opencode/deepseek-v4-flash-free")
+      ? (process.env.PIPELINE_OPENCODE_MODEL ?? "openai/gpt-5.5")
       : process.env[`PIPELINE_${harness.toUpperCase()}_MODEL`]);
   return model ? ["--model", model] : [];
 }

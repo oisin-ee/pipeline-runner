@@ -1,7 +1,7 @@
 ---
 description: Inspect the repository without modifying files.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: deny
@@ -21,10 +21,10 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: research
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
-output: text
 
-Instructions: .pipeline/prompts/inspector.md
+Instructions:
+Inspect the repository without modifying files.

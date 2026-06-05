@@ -1,7 +1,7 @@
 ---
 description: Route epic sub-tickets into fixed implementation tracks.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: deny
@@ -25,6 +25,6 @@ skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
-output: json_schema
 
-Instructions: .pipeline/prompts/epic-router.md
+Instructions:
+Route epic sub-tickets into implementation tracks.

@@ -24,23 +24,24 @@ permission:
 Configured orchestrator:
 model: default
 tools: read, list, grep, glob, bash
-rules: test-first, verification
-skills: scope, doubt
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 hooks: generated-defaults-audit
 
-Instructions: .pipeline/prompts/orchestrator.md
+Instructions:
+Orchestrate package-owned pipeline config.
 
 Run workflow `default` for the user task.
 OpenCode native routes:
-- research: Task tool subagent_type=pipeline-researcher model=opencode/deepseek-v4-flash-free runner=codex needs=none
-- red: Task tool subagent_type=pipeline-test-writer model=opencode/deepseek-v4-flash-free runner=codex needs=research
-- green: Task tool subagent_type=pipeline-code-writer model=opencode/deepseek-v4-flash-free runner=codex needs=red
-- acceptance: Task tool subagent_type=pipeline-acceptance-reviewer model=opencode/deepseek-v4-flash-free runner=codex needs=green
-- verify: Task tool subagent_type=pipeline-verifier model=opencode/deepseek-v4-flash-free runner=codex needs=acceptance
-- learn: Task tool subagent_type=pipeline-learner model=opencode/deepseek-v4-flash-free runner=codex needs=verify
+- research: Task tool subagent_type=pipeline-researcher model=openai/gpt-5.5 runner=codex needs=none
+- red: Task tool subagent_type=pipeline-test-writer model=openai/gpt-5.5 runner=codex needs=research
+- green: Task tool subagent_type=pipeline-code-writer model=openai/gpt-5.5 runner=codex needs=red
+- acceptance: Task tool subagent_type=pipeline-acceptance-reviewer model=openai/gpt-5.5 runner=codex needs=green
+- verify: Task tool subagent_type=pipeline-verifier model=openai/gpt-5.5 runner=codex needs=acceptance
+- learn: Task tool subagent_type=pipeline-learner model=openai/gpt-5.5 runner=codex needs=verify
 
 For each native node prompt include:
 - user task

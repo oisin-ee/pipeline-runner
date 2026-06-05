@@ -1,7 +1,7 @@
 ---
 description: Add focused failing tests for the requested behavior.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: allow
@@ -20,11 +20,11 @@ Add focused failing tests for the requested behavior.
 Configured grants:
 model: default
 tools: read, list, grep, glob, bash, edit, write
-rules: test-first
-skills: test
+rules: none
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: workspace-write
 network: inherit
-output: text
 
-Instructions: .pipeline/prompts/test-writer.md
+Instructions:
+Add focused failing tests for the requested behavior only. Do not change production code.

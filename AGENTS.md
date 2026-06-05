@@ -5,12 +5,12 @@
 
 ## Pipeline Guidance
 
-This repository is configured with `@oisincoveney/pipeline`.
+This repository uses package-owned `@oisincoveney/pipeline` config.
 
 - Use `$pipe`, `$inspect`, or `$epic` for Codex skill entrypoints when the user asks for pipeline workflows.
 - Use `/pipe`, `/inspect`, or `/epic` for Codex or OpenCode slash-command entrypoints when available.
 - Load and follow the relevant skill from `.agents/skills` before doing specialized work.
-- Prefer the generated pipeline profiles and command surfaces over ad hoc subagent prompts.
+- Prefer the package-defined pipeline profiles and generated command surfaces over ad hoc subagent prompts.
 
 ## Pipeline Memory
 

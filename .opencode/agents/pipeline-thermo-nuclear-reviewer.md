@@ -3,7 +3,7 @@ description: >-
   Perform the final thermo-nuclear code quality review of the integration
   branch.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: deny
@@ -23,10 +23,10 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: critique
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
-output: json_schema
 
-Instructions: .agents/skills/critique/SKILL.md
+Instructions:
+Perform the final code quality review of the integration branch.

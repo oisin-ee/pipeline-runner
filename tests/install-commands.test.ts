@@ -283,7 +283,7 @@ describe("installCommands", () => {
     expect(opencodeOrchestrator).toContain("'*': deny");
     expect(opencodeOrchestrator).toContain("pipeline-test-writer: allow");
     expect(opencodeOrchestrator).toContain(
-      "red: Task tool subagent_type=pipeline-test-writer model=opencode/deepseek-v4-flash-free runner=codex needs=research"
+      "red: Task tool subagent_type=pipeline-test-writer model=openai/gpt-5.5 runner=codex needs=research"
     );
     expect(codexSkill).toContain("$pipe <task description>");
     expect(codexSkill).toContain("The schedule policy is `pipe-schedule`.");

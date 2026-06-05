@@ -1,7 +1,7 @@
 ---
 description: Store durable lessons from the completed run.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: openai/gpt-5.5
 permission:
   bash: allow
   edit: deny
@@ -21,10 +21,10 @@ Configured grants:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: migrate
+skills: none
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
-output: json_schema
 
-Instructions: .pipeline/prompts/learner.md
+Instructions:
+Store durable lessons from the completed run when useful.
