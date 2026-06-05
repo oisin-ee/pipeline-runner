@@ -101,7 +101,8 @@ export function buildRunnerJobK8sManifest(
     });
     volumeMounts.push({
       name: options.codexAuthSecretName,
-      mountPath: "/root/.codex",
+      mountPath: "/root/.codex/auth.json",
+      subPath: "auth.json",
       readOnly: true,
     });
   }
@@ -117,7 +118,8 @@ export function buildRunnerJobK8sManifest(
     });
     volumeMounts.push({
       name: options.opencodeAuthSecretName,
-      mountPath: "/root/.local/share/opencode",
+      mountPath: "/root/.local/share/opencode/auth.json",
+      subPath: "auth.json",
       readOnly: true,
     });
   }

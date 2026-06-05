@@ -172,7 +172,7 @@ describe("runner-job K8s manifest builder", () => {
   });
 
   describe("Codex auth Secret volume", () => {
-    it("mounts codex-auth Secret at /root/.codex with key auth.json", async () => {
+    it("mounts codex-auth Secret as /root/.codex/auth.json with key auth.json", async () => {
       const { buildRunnerJobK8sManifest } = await loadK8sModule();
 
       const manifest = buildRunnerJobK8sManifest({
@@ -199,8 +199,9 @@ describe("runner-job K8s manifest builder", () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: "codex-auth",
-            mountPath: "/root/.codex",
+            mountPath: "/root/.codex/auth.json",
             readOnly: true,
+            subPath: "auth.json",
           }),
         ])
       );
@@ -219,7 +220,7 @@ describe("runner-job K8s manifest builder", () => {
   });
 
   describe("OpenCode auth Secret volume", () => {
-    it("mounts opencode-auth Secret at /root/.local/share/opencode with key auth.json", async () => {
+    it("mounts opencode-auth Secret as /root/.local/share/opencode/auth.json with key auth.json", async () => {
       const { buildRunnerJobK8sManifest } = await loadK8sModule();
 
       const manifest = buildRunnerJobK8sManifest({
@@ -246,8 +247,9 @@ describe("runner-job K8s manifest builder", () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: "opencode-auth",
-            mountPath: "/root/.local/share/opencode",
+            mountPath: "/root/.local/share/opencode/auth.json",
             readOnly: true,
+            subPath: "auth.json",
           }),
         ])
       );
