@@ -4,6 +4,7 @@ title: Rerun no-console direct runner dogfood through GitHub delivery
 status: To Do
 assignee: []
 created_date: '2026-06-06 09:12'
+updated_date: '2026-06-06 10:18'
 labels:
   - runner-job
   - kubernetes
@@ -28,7 +29,7 @@ ordinal: 134000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-The 2026-06-06 direct runner Jobs proved current image startup, file-mounted payloads, auth Secret mounts, Kueue admission, event posting to a non-console sink, and agent launch. They did not prove GitHub branch push or gh pr create because both Jobs failed before delivery. After the runner blockers are fixed, rerun Codex and OpenCode direct Kubernetes Jobs against Rondo feature tickets without pipeline-console and verify delivery.
+The 2026-06-06 direct runner Jobs proved current image startup, file-mounted payloads, auth Secret mounts, Kueue admission, event posting to a non-console sink, schedule generation, and OpenCode workflow node execution. They did not prove GitHub branch push or `gh pr create`: earlier Jobs failed before delivery, and PIPE-50.6 verification ran with `delivery.pullRequest: false` and later failed at Rondo acceptance gates. After the runner blockers are fixed, rerun Codex and OpenCode direct Kubernetes Jobs against Rondo feature tickets without pipeline-console and verify delivery.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
