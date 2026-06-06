@@ -91,9 +91,13 @@ describe("runner-job git delivery", () => {
     );
     expect(git.commit).toHaveBeenCalledWith("pipeline: run_123");
     expect(git.push.mock.calls).toEqual([
-      ["origin", "pipeline/run-123", ["--set-upstream"]],
-      ["origin", "run_123/child", ["--set-upstream"]],
-      ["origin", "runs/integration/run_123", ["--set-upstream"]],
+      ["origin", "pipeline/run-123", ["--set-upstream", "--force-with-lease"]],
+      ["origin", "run_123/child", ["--set-upstream", "--force-with-lease"]],
+      [
+        "origin",
+        "runs/integration/run_123",
+        ["--set-upstream", "--force-with-lease"],
+      ],
     ]);
   });
 });

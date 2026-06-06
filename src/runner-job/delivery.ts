@@ -93,7 +93,10 @@ export const deliverGitBranch: GitBranchDeliverer = async (options) => {
     branch,
     options.payload.run.id
   )) {
-    await git.push("origin", branchToPush, ["--set-upstream"]);
+    await git.push("origin", branchToPush, [
+      "--set-upstream",
+      "--force-with-lease",
+    ]);
   }
 
   return { branch, commitSha, pushed: true };
