@@ -314,7 +314,7 @@ describe("installCommands", () => {
     }
   });
 
-  it("generates scoped Codex TOML agents instead of markdown-only inherited agents", async () => {
+  it("generates package scoped Codex TOML agents instead of markdown-only inherited agents", async () => {
     updateProfilesYaml(dir, (config) => {
       config.profiles = {
         ...(config.profiles ?? {}),
@@ -339,10 +339,6 @@ describe("installCommands", () => {
       join(dir, ".codex/agents/pipeline-researcher.toml"),
       "utf8"
     );
-    const codexEmpty = readFileSync(
-      join(dir, ".codex/agents/empty-agent.toml"),
-      "utf8"
-    );
     const codexProjectConfig = readFileSync(
       join(dir, ".codex/config.toml"),
       "utf8"
@@ -357,13 +353,9 @@ describe("installCommands", () => {
     expect(codexResearcher).not.toContain("[mcp_servers.serena]");
     expect(codexResearcher).not.toContain("[mcp_servers.context7]");
     expect(codexResearcher).not.toContain("[mcp_servers.backlog]");
-    expect(codexResearcher).toContain("[[skills.config]]");
-    expect(codexResearcher).toContain(
-      'path = ".agents/skills/research/SKILL.md"'
-    );
-    expect(codexEmpty).not.toContain("[mcp_servers");
-    expect(codexEmpty).toContain('name = "empty-agent"');
-    expect(codexEmpty).toContain("[skills]\nconfig = []");
+    expect(codexResearcher).not.toContain("[[skills.config]]");
+    expect(codexResearcher).toContain("[skills]\nconfig = []");
+    expect(existsSync(join(dir, ".codex/agents/empty-agent.toml"))).toBe(false);
     expect(codexProjectConfig).toContain(
       "# @oisincoveney/pipeline:codex-agents:start"
     );
@@ -499,7 +491,7 @@ describe("installCommands", () => {
     expect(existsSync(obsoleteCodexCommand)).toBe(false);
   });
 
-  it("removes obsolete entrypoint command surfaces after an entrypoint is removed", async () => {
+  it("keeps package entrypoint command surfaces when repo-local entrypoints are removed", async () => {
     await installCommands({ cwd: dir, host: "all" });
     for (const path of ENTRYPOINT_COMMAND_SURFACES.filter((path) =>
       path.includes("inspect")
@@ -525,9 +517,9 @@ describe("installCommands", () => {
       ".agents/plugins/oisin-pipeline/commands/inspect.md",
     ]) {
       expect(result.items).toContainEqual(
-        expect.objectContaining({ action: "delete", path })
+        expect.objectContaining({ action: "unchanged", path })
       );
-      expect(existsSync(join(dir, path))).toBe(false);
+      expect(existsSync(join(dir, path))).toBe(true);
     }
     expect(existsSync(join(dir, ".codex/config.toml"))).toBe(true);
     expect(
@@ -556,7 +548,7 @@ describe("installCommands", () => {
     ).toContain("The schedule policy is `pipe-schedule`.");
   });
 
-  it("fails closed instead of inventing invalid Codex named agents when no Codex model resolves", async () => {
+  it("uses package Codex runner defaults when repo-local runners omit a model", async () => {
     const runnersPath = join(dir, ".pipeline/runners.yaml");
     const runners = readFileSync(runnersPath, "utf8").replace(
       "    model: gpt-5.5\n",
@@ -564,12 +556,13 @@ describe("installCommands", () => {
     );
     writeFileSync(runnersPath, runners);
 
-    await expect(installCommands({ cwd: dir, host: "codex" })).rejects.toThrow(
-      "cannot be represented as a native Codex agent"
-    );
+    await installCommands({ cwd: dir, host: "codex" });
+    expect(
+      readFileSync(join(dir, ".codex/agents/pipeline-code-writer.toml"), "utf8")
+    ).toContain('model = "gpt-5.5"');
   });
 
-  it("projects Codex and OpenCode hosts without unsupported CLI fallbacks", async () => {
+  it("projects package Codex and OpenCode hosts without unsupported CLI fallbacks", async () => {
     writeFileSync(
       join(dir, ".pipeline/pipeline.yaml"),
       `
@@ -636,29 +629,22 @@ profiles:
       join(dir, ".agents/skills/pipe/SKILL.md"),
       "utf8"
     );
+    expect(codex).toContain("The schedule policy is `pipe-schedule`.");
     expect(codex).toContain(
-      "codex-node: spawn_agent agent_type=codex-agent model=openai/gpt-5.3-codex runner=codex needs=none"
+      "Run `pipe run --entrypoint pipe <task description>`"
     );
-    expect(codex).toContain(
-      "opencode-node: opencode CLI profile=opencode-agent command="
-    );
-    expect(codex).toContain(
-      "Do not substitute the generic Codex worker for configured profiles"
-    );
+    expect(codex).not.toContain("opencode CLI profile=");
+    expect(codex).not.toContain("Do not substitute the generic Codex worker");
 
     const opencode = readFileSync(
       join(dir, ".opencode/commands/pipe.md"),
       "utf8"
     );
-    expect(opencode).toContain(
-      "codex-node: Task tool subagent_type=codex-agent model=openai/gpt-5.4-mini runner=codex needs=none"
-    );
-    expect(opencode).toContain(
-      "opencode-node: Task tool subagent_type=opencode-agent model=openai/gpt-5.4-mini runner=opencode needs=none"
-    );
+    expect(opencode).toContain("The schedule policy is `pipe-schedule`.");
+    expect(opencode).not.toContain("unsupported CLI fallback");
   });
 
-  it("projects configured orchestrator grants into every host surface", async () => {
+  it("projects package orchestrator grants into every host surface", async () => {
     mkdirSync(join(dir, ".agents/skills/orchestrator"), { recursive: true });
     writeFileSync(
       join(dir, ".agents/skills/orchestrator/SKILL.md"),
@@ -688,8 +674,8 @@ profiles:
 
     for (const content of surfaces) {
       expect(content).toContain("Configured orchestrator:");
-      expect(content).toContain("model: gpt-5-orchestrator");
-      expect(content).toContain("skills: orchestrator");
+      expect(content).toContain("model: default");
+      expect(content).toContain("skills: none");
       expect(content).toContain("mcp_servers: pipeline-gateway");
     }
   });

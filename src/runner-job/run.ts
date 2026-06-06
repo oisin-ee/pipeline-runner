@@ -63,6 +63,7 @@ interface PreparedRunnerJob {
   env: Record<string, string | undefined>;
   payload: RunnerJobPayload;
   stderr: OutputStream;
+  stdout: OutputStream;
 }
 
 type PrepareRunnerJobResult =
@@ -79,6 +80,12 @@ interface PreparedValidationFailure {
   error: RunnerJobPayloadValidationError;
   recoverable?: RecoverableRunnerJobPayloadEnvelope;
   stderr: OutputStream;
+}
+
+interface RunnerJobDeliverySummary {
+  branch: string;
+  commitSha: string | null;
+  pullRequestUrl: string | null;
 }
 
 export interface RunnerJobOptions {
@@ -116,7 +123,7 @@ export async function runRunnerJob(
   if ("validationFailure" in prepared) {
     return reportPreparedValidationFailure(prepared.validationFailure, options);
   }
-  const { env, payload, stderr } = prepared.job;
+  const { env, payload, stderr, stdout } = prepared.job;
 
   // Validate auth token before proceeding
   try {
@@ -188,7 +195,14 @@ export async function runRunnerJob(
     });
 
     if (result.outcome === "PASS") {
-      await deliverSuccessfulRun(options, payload, workspace, config, sink);
+      const delivery = await deliverSuccessfulRun(
+        options,
+        payload,
+        workspace,
+        config,
+        sink
+      );
+      reportDeliverySummary(delivery, stdout);
     }
 
     recordFinalResultIfMissing(sink, result.outcome, result.plan.workflowId, {
@@ -372,7 +386,7 @@ async function deliverSuccessfulRun(
   workspace: RunnerWorkspacePreparation,
   config: PipelineConfig,
   sink: RunnerEventSink
-): Promise<void> {
+): Promise<RunnerJobDeliverySummary> {
   const smokeStatus = await runRunnerDevspaceSmokeWithPhase(
     options,
     config,
@@ -408,6 +422,26 @@ async function deliverSuccessfulRun(
       { url: pullRequest.url }
     );
   }
+  return {
+    branch: branchDelivery.branch,
+    commitSha: branchDelivery.commitSha,
+    pullRequestUrl: pullRequest?.url ?? null,
+  };
+}
+
+function reportDeliverySummary(
+  delivery: RunnerJobDeliverySummary,
+  stdout: OutputStream
+): void {
+  if (!delivery.pullRequestUrl) {
+    return;
+  }
+  stdout.write("Runner delivery complete:\n");
+  stdout.write(`- branch: ${delivery.branch}\n`);
+  if (delivery.commitSha) {
+    stdout.write(`- commit: ${delivery.commitSha}\n`);
+  }
+  stdout.write(`- pull_request: ${delivery.pullRequestUrl}\n`);
 }
 
 async function deliverRunnerGitBranchWithPhase(
@@ -536,6 +570,7 @@ const VALID_ORCHESTRATORS = new Set(["codex", "opencode"]);
 function prepareRunnerJob(options: RunnerJobOptions): PrepareRunnerJobResult {
   const env = options.env ?? process.env;
   const stderr = options.stderr ?? process.stderr;
+  const stdout = options.stdout ?? process.stdout;
 
   const orchestrator = options.orchestrator;
   if (orchestrator !== undefined && !VALID_ORCHESTRATORS.has(orchestrator)) {
@@ -572,7 +607,7 @@ function prepareRunnerJob(options: RunnerJobOptions): PrepareRunnerJobResult {
     };
   }
 
-  return { job: { env, payload: payload.payload, stderr } };
+  return { job: { env, payload: payload.payload, stderr, stdout } };
 }
 
 function parsePayload(

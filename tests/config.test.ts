@@ -194,6 +194,13 @@ function parseParts(parts: Partial<PipelineConfigParts>) {
   return parsePipelineConfigParts({ ...VALID_PARTS, ...parts });
 }
 
+function parseProjectParts(
+  projectRoot: string,
+  parts: Partial<PipelineConfigParts> = {}
+) {
+  return parsePipelineConfigParts({ ...VALID_PARTS, ...parts }, projectRoot);
+}
+
 function captureConfigError(action: () => unknown): PipelineConfigError {
   try {
     action();
@@ -237,9 +244,21 @@ describe("loadPipelineConfig", () => {
     expect(config.profiles["pipeline-code-writer"].scheduling_roles).toEqual([
       "implementation",
     ]);
+    expect(config.profiles["pipeline-researcher"].timeout_ms).toBe(900_000);
+    expect(
+      config.profiles["pipeline-researcher"].instructions.inline
+    ).toContain("do not perform open-ended repository exploration");
     expect(config.profiles["pipeline-verifier"].scheduling_roles).toEqual([
       "coverage",
     ]);
+    const acceptanceInstructions =
+      config.profiles["pipeline-acceptance-reviewer"].instructions.inline ?? "";
+    expect(acceptanceInstructions).toContain("Return only valid JSON");
+    expect(acceptanceInstructions).toContain('"acceptance"');
+    const verifierInstructions =
+      config.profiles["pipeline-verifier"].instructions.inline ?? "";
+    expect(verifierInstructions).toContain("Return only valid JSON");
+    expect(verifierInstructions).toContain('"verdict"');
     expect(config.hooks.on["workflow.start"]).toEqual([
       expect.objectContaining({ function: "generated-defaults-audit" }),
     ]);
@@ -254,10 +273,10 @@ describe("loadPipelineConfig", () => {
     );
   });
 
-  it("loads a complete valid config from the three required config files", () => {
+  it("parses a complete valid custom config from explicit config parts", () => {
     const project = makeProject();
 
-    const config = loadPipelineConfig(project);
+    const config = parseProjectParts(project);
 
     expect(config.version).toBe(1);
     expect(config.default_workflow).toBe("default");
@@ -347,44 +366,39 @@ profiles:`
     const project = makeProject({ ...VALID_PARTS, profiles });
     writeProjectFile(project, ".mcp.json", JSON.stringify({ mcpServers: {} }));
 
-    const error = captureConfigError(() => loadPipelineConfig(project));
+    const error = captureConfigError(() =>
+      parseProjectParts(project, { profiles })
+    );
 
     expect(error.message).toContain("mcp_servers.docs");
   });
 
-  it("rejects missing required config files", () => {
+  it("loads package-owned defaults when repo-local config files are incomplete", () => {
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-missing-"));
     tempDirs.push(project);
     writeProjectFile(project, ".pipeline/pipeline.yaml", VALID_PIPELINE_YAML);
 
-    const error = captureConfigError(() => loadPipelineConfig(project));
+    const config = loadPipelineConfig(project);
 
-    expect(error.code).toBe("PIPELINE_CONFIG_MISSING");
-    expect(error.message).toContain("Missing required pipeline config files");
-    expect(error.message).toContain(".pipeline/profiles.yaml");
-    expect(error.message).toContain(".pipeline/runners.yaml");
-    expect(error.issues.length).toBe(2);
+    expect(config.default_workflow).toBe("default");
+    expect(config.profiles["pipeline-researcher"]).toBeDefined();
   });
 
-  it("rejects legacy .pipeline/config.toml when YAML is missing", () => {
+  it("loads package-owned defaults when legacy repo-local config.toml exists", () => {
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-legacy-"));
     tempDirs.push(project);
     writeProjectFile(project, ".pipeline/config.toml", "[phases]\n");
 
-    const error = captureConfigError(() => loadPipelineConfig(project));
+    const config = loadPipelineConfig(project);
 
-    expect(error.code).toBe("PIPELINE_CONFIG_LEGACY_UNSUPPORTED");
-    expect(error.message).toContain("not supported");
-    expect(error.issues.length).toBeGreaterThan(0);
+    expect(config.default_workflow).toBe("default");
+    expect(config.profiles["pipeline-researcher"]).toBeDefined();
   });
 
-  it("rejects malformed YAML with a parse error", () => {
-    const project = makeProject(
-      { ...VALID_PARTS, pipeline: "version: 1\nworkflows: [" },
-      false
+  it("rejects malformed explicit custom YAML with a parse error", () => {
+    const error = captureConfigError(() =>
+      parseParts({ pipeline: "version: 1\nworkflows: [" })
     );
-
-    const error = captureConfigError(() => loadPipelineConfig(project));
 
     expect(error.code).toBe("PIPELINE_CONFIG_PARSE_ERROR");
     expect(error.message).toContain("Failed to parse");
@@ -1074,7 +1088,7 @@ workflows:
   it("rejects missing instruction and schema files", () => {
     const project = makeProject(VALID_PARTS, false);
 
-    const error = captureConfigError(() => loadPipelineConfig(project));
+    const error = captureConfigError(() => parseProjectParts(project));
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("referenced file");
@@ -1085,7 +1099,7 @@ workflows:
     rmSync(join(project, "rules/test-first.md"));
     rmSync(join(project, ".agents/skills/repo-research/SKILL.md"));
 
-    const error = captureConfigError(() => loadPipelineConfig(project));
+    const error = captureConfigError(() => parseProjectParts(project));
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("rules.test-first.path");

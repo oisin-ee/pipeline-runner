@@ -354,6 +354,7 @@ describe("runner-job entrypoint", () => {
       url: "https://github.com/oisin-ee/tova/pull/123",
     }));
     const runDevspaceCommand = vi.fn(async () => undefined);
+    const io = ioBuffers();
 
     try {
       await writeTestSkills(dir);
@@ -389,6 +390,7 @@ describe("runner-job entrypoint", () => {
         prepareWorkspace,
         createPullRequest,
         runDevspaceCommand,
+        stdout: io.stdout,
       });
 
       expect(exitCode).toBe(0);
@@ -412,6 +414,11 @@ describe("runner-job entrypoint", () => {
           }),
           worktreePath: dir,
         })
+      );
+      expect(io.stdoutText()).toContain("Runner delivery complete:");
+      expect(io.stdoutText()).toContain("- branch: pipeline/run-123");
+      expect(io.stdoutText()).toContain(
+        "- pull_request: https://github.com/oisin-ee/tova/pull/123"
       );
       const postedEvents = postedBodies.flatMap((postedBody) => {
         const body = JSON.parse(postedBody) as {
@@ -560,6 +567,7 @@ describe("runner-job entrypoint", () => {
     const createPullRequest = vi.fn(async () => ({
       url: "https://github.com/oisin-ee/tova/pull/123",
     }));
+    const io = ioBuffers();
 
     try {
       await writeTestSkills(dir);
@@ -601,6 +609,7 @@ describe("runner-job entrypoint", () => {
         })),
         createPullRequest,
         runDevspaceCommand,
+        stdout: io.stdout,
       });
 
       expect(exitCode).toBe(0);
@@ -1226,6 +1235,7 @@ describe("runner-job orchestrator argument", () => {
             profiles: expect.objectContaining({
               "pipeline-researcher": expect.objectContaining({
                 runner: "opencode",
+                timeout_ms: 900_000,
               }),
               "pipeline-code-writer": expect.objectContaining({
                 runner: "opencode",

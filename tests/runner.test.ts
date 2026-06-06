@@ -251,6 +251,25 @@ workflows:
     );
   });
 
+  it("uses a profile timeout for native runner launch plans", () => {
+    const config = structuredClone(CONFIG);
+    config.profiles["opencode-agent"].timeout_ms = 900_000;
+
+    const plan = createRunnerLaunchPlan(config, {
+      profileId: "opencode-agent",
+      nodeId: "research-current-club",
+      prompt: "research current club",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(plan).toMatchObject({
+      nodeId: "research-current-club",
+      profileId: "opencode-agent",
+      runnerId: "opencode",
+      timeoutMs: 900_000,
+    });
+  });
+
   it("rejects unsupported output contracts before execution", () => {
     const bad = structuredClone(CONFIG);
     bad.profiles["opencode-agent"].output = { format: "json_schema" };

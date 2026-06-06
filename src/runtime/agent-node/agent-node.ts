@@ -297,6 +297,7 @@ export function renderAgentPrompt(
     `Node: ${node.id}`,
     node.profile ? `Profile: ${node.profile}` : "",
     renderTaskContext(effectiveTaskContext(node, context)),
+    renderGateOutputContract(node),
     "",
     "Declared grants:",
     `- tools: ${(profile?.tools ?? []).join(", ") || "none"}`,
@@ -325,6 +326,40 @@ export function renderAgentPrompt(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function renderGateOutputContract(node: PlannedWorkflowNode): string {
+  const gates = node.gates ?? [];
+  const hasAcceptanceGate = gates.some(
+    (gate) =>
+      gate.kind === "acceptance" &&
+      (gate.target === undefined || gate.target === "stdout")
+  );
+  const hasVerdictGate = gates.some(
+    (gate) =>
+      gate.kind === "verdict" &&
+      (gate.target === undefined || gate.target === "stdout")
+  );
+  if (hasAcceptanceGate) {
+    return [
+      "",
+      "Gate output contract:",
+      "Return only valid JSON. Do not use Markdown fences or add prose outside the JSON object.",
+      'Top-level fields: "verdict" ("PASS" or "FAIL"), "evidence" (string array), "acceptance" (array), optional "violations" (string array).',
+      'Each "acceptance" entry must include "id", "verdict" ("PASS" or "FAIL"), and non-empty "evidence" (string array) for every canonical acceptance criterion id.',
+      'Use top-level "verdict":"PASS" only when every required acceptance criterion passes with evidence.',
+    ].join("\n");
+  }
+  if (hasVerdictGate) {
+    return [
+      "",
+      "Gate output contract:",
+      "Return only valid JSON. Do not use Markdown fences or add prose outside the JSON object.",
+      'Top-level fields: "verdict" ("PASS" or "FAIL"), "evidence" (string array), optional "violations" (string array).',
+      'Use "verdict":"PASS" only when the verification or review passes.',
+    ].join("\n");
+  }
+  return "";
 }
 
 export function effectiveTaskContext(

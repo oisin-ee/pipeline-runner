@@ -9,7 +9,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadPipelineConfig } from "../src/config.js";
+import {
+  loadPipelineConfig,
+  type PipelineConfig,
+  parsePipelineConfigParts,
+} from "../src/config.js";
 import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
 import { createRunnerLaunchPlan } from "../src/runner.js";
 import {
@@ -36,6 +40,17 @@ function writeProjectFile(root: string, path: string, content: string): void {
   const target = join(root, path);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
+}
+
+function loadFixturePipelineConfig(project: string): PipelineConfig {
+  return parsePipelineConfigParts(
+    {
+      pipeline: readFileSync(join(project, ".pipeline/pipeline.yaml"), "utf8"),
+      profiles: readFileSync(join(project, ".pipeline/profiles.yaml"), "utf8"),
+      runners: readFileSync(join(project, ".pipeline/runners.yaml"), "utf8"),
+    },
+    project
+  );
 }
 
 function writeBacklogTask(
@@ -620,6 +635,7 @@ workflows:
     let result!: Awaited<ReturnType<typeof runPipelineFromConfig>>;
     try {
       result = await runPipelineFromConfig({
+        config: loadFixturePipelineConfig(project),
         task: "repeatable deterministic dogfood",
         workflowId: "dogfood-options",
         worktreePath: project,
@@ -730,7 +746,7 @@ workflows:
 `
     );
 
-    const config = loadPipelineConfig(project);
+    const config = loadFixturePipelineConfig(project);
     const launch = createRunnerLaunchPlan(config, {
       nodeId: "inspect",
       profileId: "opencode-agent",
@@ -742,7 +758,7 @@ workflows:
   });
 });
 
-function workflowProfileIds(config: ReturnType<typeof loadPipelineConfig>) {
+function workflowProfileIds(config: PipelineConfig) {
   return [
     ...new Set(
       Object.values(config.workflows).flatMap((workflow) =>
@@ -754,9 +770,7 @@ function workflowProfileIds(config: ReturnType<typeof loadPipelineConfig>) {
   ].sort();
 }
 
-function entrypointCommandSurfaces(
-  config: ReturnType<typeof loadPipelineConfig>
-) {
+function entrypointCommandSurfaces(config: PipelineConfig) {
   return Object.entries(config.entrypoints).flatMap(
     ([entrypointId, entrypoint]) => [
       {
@@ -795,7 +809,7 @@ function nativeAgentPathFor(
 }
 
 function configuredDogfoodOrchestrator(project: string) {
-  const config = loadPipelineConfig(project);
+  const config = loadFixturePipelineConfig(project);
   const profile = config.profiles[config.orchestrator.profile];
   return {
     hooks: Object.keys(config.hooks.functions),

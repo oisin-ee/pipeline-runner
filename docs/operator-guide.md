@@ -162,6 +162,7 @@ spec:
       containers:
         - name: runner
           image: ghcr.io/oisin-ee/pipeline-runner:latest
+          imagePullPolicy: Always
           args:
             - --payload-file
             - /etc/pipeline/payload.json
@@ -203,12 +204,13 @@ spec:
             defaultMode: 0400
 ```
 
-The runner image is configured in `pipeline-console` as
-`pipeline.runner.image`. Console runner settings include queue name, service
-account, CPU/memory requests and limits, active deadline, TTL, backoff limit,
-event sink URL, auth header, and auth token file path. The runner-side event
-auth token is mounted as a file via Secret volume at the path configured in
-`events.authTokenFile`. Codex auth is the native file
+The package-owned Kubernetes Job manifest uses
+`ghcr.io/oisin-ee/pipeline-runner:latest` with `imagePullPolicy: Always`.
+Console runner settings include queue name, service account, CPU/memory
+requests and limits, active deadline, TTL, backoff limit, event sink URL, auth
+header, and auth token file path. The runner-side event auth token is mounted
+as a file via Secret volume at the path configured in `events.authTokenFile`.
+Codex auth is the native file
 `/root/.codex/auth.json` from Secret `codex-auth-1`; OpenCode auth is the
 native file `/root/.local/share/opencode/auth.json` from Secret
 `opencode-auth-1`. Do not use `CODEX_AUTH_JSON` or `OPENCODE_AUTH_JSON` env

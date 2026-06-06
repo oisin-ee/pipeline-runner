@@ -3,7 +3,6 @@ export interface BuildRunnerJobK8sManifestOptions {
   eventAuthSecretKey?: string;
   eventAuthSecretName?: string;
   githubAuthSecretName?: string;
-  image: string;
   imagePullSecretName?: string;
   jobName: string;
   namespace: string;
@@ -12,6 +11,8 @@ export interface BuildRunnerJobK8sManifestOptions {
   payloadConfigMapKey: string;
   payloadConfigMapName: string;
 }
+
+export const RUNNER_JOB_IMAGE = "ghcr.io/oisin-ee/pipeline-runner:latest";
 
 export interface K8sJobManifest {
   apiVersion: "batch/v1";
@@ -24,6 +25,7 @@ export interface K8sJobManifest {
         containers: Array<{
           args: string[];
           image: string;
+          imagePullPolicy: "Always";
           name: string;
           volumeMounts: Array<{
             mountPath: string;
@@ -179,7 +181,8 @@ export function buildRunnerJobK8sManifest(
                 "/etc/pipeline/payload.json",
                 options.orchestrator,
               ],
-              image: options.image,
+              image: RUNNER_JOB_IMAGE,
+              imagePullPolicy: "Always",
               name: "pipeline-runner",
               volumeMounts,
             },

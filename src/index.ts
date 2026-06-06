@@ -65,8 +65,8 @@ interface PipeOptions {
 }
 
 /**
- * Config-driven `pipe` entrypoint. The workflow source of truth is
- * `.pipeline/pipeline.yaml`; missing YAML is a hard error.
+ * Config-driven `pipe` entrypoint. Package-owned defaults are the source of
+ * truth; repo-local pipeline files are only scaffolding fixtures.
  */
 export function pipe(
   description: string,

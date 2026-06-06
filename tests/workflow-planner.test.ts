@@ -184,7 +184,7 @@ describe("compileWorkflowPlan", () => {
     });
   });
 
-  it("compiles the epic-drain entrypoint workflow with the implementation fanout", () => {
+  it("compiles the epic-drain entrypoint workflow with the implementation workflow", () => {
     const config = loadPipelineConfig(process.cwd(), {
       allowMissingLintFileReferences: true,
     });
@@ -216,33 +216,10 @@ describe("compileWorkflowPlan", () => {
     const implement = plan.topologicalOrder[2];
     expect(implement).toMatchObject({
       id: "implement",
-      kind: "parallel",
+      kind: "workflow",
       needs: ["plan"],
+      workflow: "infra",
     });
-    expect(implement.children?.map((child) => child.id)).toEqual([
-      "test",
-      "frontend",
-      "backend",
-      "k8s",
-    ]);
-    const expectedChildWorkflows = {
-      test: "default",
-      frontend: "default",
-      backend: "default",
-      k8s: "infra",
-    };
-    for (const [track, childWorkflow] of Object.entries(
-      expectedChildWorkflows
-    )) {
-      expect(
-        implement.children?.find((child) => child.id === track)
-      ).toMatchObject({
-        id: track,
-        kind: "workflow",
-        workflow: childWorkflow,
-        worktreeRoot: `.pipeline/runs/\${runId}/${track}`,
-      });
-    }
 
     expect(plan.topologicalOrder[3]).toMatchObject({
       id: "merge",

@@ -1539,6 +1539,101 @@ workflows:
     );
   });
 
+  it("injects stdout gate JSON contracts into agent prompts", async () => {
+    const project = tempProject();
+    const seen: RunnerLaunchPlan[] = [];
+    const config = baseConfig(`
+  acceptance-flow:
+    nodes:
+      - id: review
+        kind: agent
+        profile: a
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            acceptance: [
+              { id: "AC1", verdict: "PASS", evidence: ["reviewed AC1"] },
+            ],
+            evidence: ["reviewed all criteria"],
+            verdict: "PASS",
+          }),
+        };
+      },
+      task: "acceptance",
+      taskContext: {
+        acceptanceCriteria: [{ id: "AC1", text: "Do the thing" }],
+      },
+      workflowId: "acceptance-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    const prompt = seen[0].args.join("\n");
+    expect(prompt).toContain("Gate output contract:");
+    expect(prompt).toContain("Return only valid JSON");
+    expect(prompt).toContain('"acceptance"');
+    expect(prompt).toContain('"verdict" ("PASS" or "FAIL")');
+    expect(prompt).toContain("Do not use Markdown fences or add prose");
+  });
+
+  it("keeps acceptance gates strict when a gated agent returns prose", async () => {
+    const project = tempProject();
+    const seen: RunnerLaunchPlan[] = [];
+    const config = baseConfig(`
+  acceptance-flow:
+    nodes:
+      - id: review
+        kind: agent
+        profile: a
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return {
+          exitCode: 0,
+          stdout: "**Acceptance review**\n\nAC1 passes.",
+        };
+      },
+      task: "acceptance",
+      taskContext: {
+        acceptanceCriteria: [{ id: "AC1", text: "Do the thing" }],
+      },
+      workflowId: "acceptance-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.gates[0]).toMatchObject({
+      kind: "acceptance",
+      passed: false,
+      reason: "acceptance gate JSON parse failed",
+    });
+    expect(result.gates[0].evidence.join("\n")).toContain("gate JSON");
+    expect(seen[0].args.join("\n")).toContain("Return only valid JSON");
+  });
+
   it("injects normalized task context into agent prompts", async () => {
     const project = tempProject();
     const seen: RunnerLaunchPlan[] = [];

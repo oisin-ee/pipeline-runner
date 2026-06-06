@@ -118,7 +118,8 @@ profiles:
   pipeline-researcher:
     runner: codex
     description: Research the requested task and produce structured findings.
-    instructions: { inline: "Inspect first-party source, tests, docs, and task context before proposing changes." }
+    instructions: { inline: "Inspect first-party source, tests, docs, and task context for the current task only. Produce concise findings with file references and stop; do not perform open-ended repository exploration." }
+    timeout_ms: 900000
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -168,7 +169,7 @@ profiles:
     runner: codex
     scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
-    instructions: { inline: "Audit the completed change against each canonical acceptance criterion independently." }
+    instructions: { inline: 'Audit the completed change against each canonical acceptance criterion independently. Return only valid JSON with top-level "verdict", "evidence", "acceptance", and optional "violations". Each "acceptance" entry must include "id", "verdict", and non-empty "evidence". Do not use Markdown fences or prose outside the JSON object.' }
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -186,7 +187,7 @@ profiles:
     runner: codex
     scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
-    instructions: { inline: "Verify checks, implementation fit, and final evidence." }
+    instructions: { inline: 'Verify checks, implementation fit, and final evidence. Return only valid JSON with top-level "verdict", "evidence", and optional "violations". Do not use Markdown fences or prose outside the JSON object.' }
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -346,6 +347,10 @@ workflows:
         kind: agent
         profile: pipeline-thermo-nuclear-reviewer
         needs: [merge]
+        gates:
+          - id: review-verdict
+            kind: verdict
+            target: stdout
 `;
 
 export type PipelineConfigErrorCode =
@@ -646,6 +651,7 @@ const profileSchema = z
     runner: z.string(),
     scheduling_roles: z.array(z.enum(SCHEDULING_ROLES)).optional(),
     skills: z.array(z.string()).optional(),
+    timeout_ms: z.number().int().positive().optional(),
     tools: z.array(z.enum(TOOL_NAMES)).optional(),
   })
   .strict();

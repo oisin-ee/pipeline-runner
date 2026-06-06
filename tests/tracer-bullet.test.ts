@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -150,6 +151,7 @@ workflows:
         needs: [verify]
 `
   );
+  execFileSync("git", ["init"], { cwd: worktreePath, stdio: "ignore" });
 }
 
 function writeFakeExecutables(env: TracerEnvironment): void {
@@ -217,13 +219,17 @@ log({ type: "role", args, prompt, cwd: process.cwd() });
 
 if (
   prompt.includes("You are a researcher") ||
-  prompt.includes("You are a bounded researcher")
+  prompt.includes("You are a bounded researcher") ||
+  prompt.includes("pipeline-researcher")
 ) {
   process.stdout.write("researched deterministic integrated pipeline behavior");
   process.exit(0);
 }
 
-if (prompt.includes("You are the LEARN phase")) {
+if (
+  prompt.includes("You are the LEARN phase") ||
+  prompt.includes("pipeline-learner")
+) {
   process.stdout.write(JSON.stringify({
     qdrant: { attempted: true, succeeded: true },
     evidence: ["stored tracer lesson"]
@@ -231,16 +237,22 @@ if (prompt.includes("You are the LEARN phase")) {
   process.exit(0);
 }
 
-if (prompt.includes("You are a test-writer")) {
+if (
+  prompt.includes("You are a test-writer") ||
+  prompt.includes("pipeline-test-writer")
+) {
   fs.writeFileSync(
-    path.join(process.cwd(), "pipeline-feature.test"),
+    path.join(process.cwd(), "pipeline-feature.test.ts"),
     "starts red for the configured project test command\\n"
   );
   process.stdout.write("wrote failing tracer test");
   process.exit(0);
 }
 
-if (prompt.includes("You are a code-writer")) {
+if (
+  prompt.includes("You are a code-writer") ||
+  prompt.includes("pipeline-code-writer")
+) {
   fs.writeFileSync(
     path.join(process.cwd(), "pipeline-feature.impl"),
     "tracerBullet=green\\n"
@@ -249,7 +261,23 @@ if (prompt.includes("You are a code-writer")) {
   process.exit(0);
 }
 
-if (prompt.includes("You are a code verifier")) {
+if (
+  prompt.includes("You are an acceptance reviewer") ||
+  prompt.includes("pipeline-acceptance-reviewer")
+) {
+  process.stdout.write(JSON.stringify({
+    verdict: "PASS",
+    evidence: ["acceptance passed"],
+    acceptance: [{ id: "1", verdict: "PASS", evidence: "accepted" }],
+    violations: []
+  }));
+  process.exit(0);
+}
+
+if (
+  prompt.includes("You are a code verifier") ||
+  prompt.includes("pipeline-verifier")
+) {
   const verdict = process.env.PIPELINE_TRACER_VERDICT || "PASS";
   const evidence =
     verdict === "PASS"
@@ -283,13 +311,7 @@ function log(entry) {
 const args = process.argv.slice(2);
 log({ type: "command", command: "project-test", args, cwd: process.cwd() });
 
-const statePath = process.env.PIPELINE_TRACER_STATE;
-const state = fs.existsSync(statePath)
-  ? JSON.parse(fs.readFileSync(statePath, "utf8"))
-  : { testRuns: 0 };
-state.testRuns += 1;
-fs.writeFileSync(statePath, JSON.stringify(state));
-if (state.testRuns === 1) {
+if (!fs.existsSync("pipeline-feature.impl")) {
   process.stdout.write("✗ tracer feature should start red");
   process.exit(1);
 }
@@ -313,6 +335,25 @@ if (args[0] === "jscpd") {
   process.exit(0);
 }
 process.stderr.write("Unexpected bunx command: " + args.join(" "));
+process.exit(1);
+`
+  );
+
+  writeExecutable(
+    env.binPath,
+    "uvx",
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(
+  process.env.PIPELINE_TRACER_LOG,
+  JSON.stringify({ type: "command", command: "uvx", args, cwd: process.cwd() }) + "\\n"
+);
+if (args[0] === "semgrep") {
+  process.stdout.write("semgrep clean");
+  process.exit(0);
+}
+process.stderr.write("Unexpected uvx command: " + args.join(" "));
 process.exit(1);
 `
   );
@@ -427,7 +468,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   it("runs the integrated tracer to PASS through real child-process commands", async () => {
     process.env.PIPELINE_TRACER_VERDICT = "PASS";
 
-    await pipe("PIPE-14 tracer bullet");
+    await pipe("PIPE-14 tracer bullet", { workflow: "default" });
 
     const rolePrompts = readCommandLog(env.logPath)
       .filter((entry) => entry.type === "role")
@@ -448,9 +489,13 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(rolePrompts.some((prompt) => prompt.includes("code-writer"))).toBe(
       true
     );
-    expect(rolePrompts.some((prompt) => prompt.includes("code verifier"))).toBe(
-      true
-    );
+    expect(
+      rolePrompts.some(
+        (prompt) =>
+          prompt.includes("code verifier") ||
+          prompt.includes("pipeline-verifier")
+      )
+    ).toBe(true);
     expect(
       readCommandLog(env.logPath).some((entry) => entry.type === "backlog")
     ).toBe(false);
@@ -459,9 +504,9 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   it("runs the integrated tracer to FAIL and blocks dependent nodes", async () => {
     process.env.PIPELINE_TRACER_VERDICT = "FAIL";
 
-    await expect(pipe("PIPE-14 tracer bullet")).rejects.toThrow(
-      "Pipeline failed"
-    );
+    await expect(
+      pipe("PIPE-14 tracer bullet", { workflow: "default" })
+    ).rejects.toThrow("Pipeline failed");
 
     const rolePrompts = readCommandLog(env.logPath)
       .filter((entry) => entry.type === "role")
@@ -470,9 +515,13 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining("Pipeline complete: FAIL")
     );
-    expect(rolePrompts.some((prompt) => prompt.includes("code verifier"))).toBe(
-      true
-    );
+    expect(
+      rolePrompts.some(
+        (prompt) =>
+          prompt.includes("code verifier") ||
+          prompt.includes("pipeline-verifier")
+      )
+    ).toBe(true);
     expect(rolePrompts.some((prompt) => prompt.includes("LEARN phase"))).toBe(
       false
     );

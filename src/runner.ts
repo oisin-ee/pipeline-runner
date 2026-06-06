@@ -314,7 +314,9 @@ function createActorLaunchPlan(
   }
 
   const command = runner.command ?? runner.type;
-  const timeoutMs = Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000);
+  const timeoutMs =
+    actor?.timeout_ms ??
+    Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000);
   const env: Record<string, string | undefined> = {};
   const base = {
     cwd: input.worktreePath,

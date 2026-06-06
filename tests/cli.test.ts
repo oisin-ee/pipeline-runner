@@ -21,21 +21,17 @@ const mockExeca = vi.mocked(execa);
 const DESCRIPTION_RE = /description/i;
 const FAILURE_DETAILS_RE =
   /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
-const QUICK_WORKFLOW_RE = /quick\s+Quick custom workflow/;
-const INSPECT_WORKFLOW_RE = /inspect\s+Inspect custom workflow/;
-const FAILED_TO_PARSE_PIPELINE_YAML_RE =
-  /Failed to parse .pipeline\/pipeline.yaml/;
+const PACKAGE_INSPECT_COMMAND_RE = /inspect\s+Read-only repository inspection/;
+const PACKAGE_EPIC_COMMAND_RE =
+  /epic\s+Route an epic's tickets into specialist/;
 const UNKNOWN_ENTRYPOINT_OR_CONFIG_RE =
   /Unknown pipeline entrypoint 'epic'|PIPELINE_CONFIG|Invalid pipeline config|Invalid workflow plan|missing workflow/i;
 const PLAN_RESEARCH_RE = /- research kind=agent needs=none/;
 const PLAN_PLAN_RE = /- plan kind=agent needs=research/;
-const PLAN_IMPLEMENT_RE = /- implement kind=parallel needs=plan/;
+const PLAN_IMPLEMENT_RE = /- implement kind=workflow needs=plan/;
 const PLAN_MERGE_RE = /- merge kind=builtin needs=implement/;
 const PLAN_REVIEW_RE = /- review kind=agent needs=merge/;
 const WARNING_RE = /warning/i;
-const FAILED_TO_PARSE_PIPELINE_YAML_ESCAPED_RE =
-  /Failed to parse \.pipeline\/pipeline\.yaml/;
-const MISSING_WORKFLOW_OR_NOT_DECLARED_RE = /missing workflow|not declared/;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const DEFAULT_TEST_SKILLS = [
@@ -1081,7 +1077,7 @@ workflows:
       expect(output).toContain("Schedule generated:");
       expect(output).not.toContain("Run after approval:");
       expect(output).toContain("Workflow: schedule-run-cli-root");
-      expect(execaCommands()).toEqual(["scheduled-runner", "inspect-bin"]);
+      expect(execaCommands()).toEqual(["codex", "node", "inspect-bin"]);
       expect(output).toContain("Schedule generated: memory:run-cli");
       expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(false);
     } finally {
@@ -1166,7 +1162,7 @@ workflows:
     }
   });
 
-  it("executes OpenCode-backed schedule agents through CLI subprocesses", async () => {
+  it("executes package-backed schedule agents through CLI subprocesses", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-opencode-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1194,7 +1190,7 @@ workflows:
     nodes:
       - id: implement
         kind: agent
-        profile: pipeline-opencode-code-writer
+        profile: pipeline-code-writer
 `
       );
 
@@ -1209,16 +1205,8 @@ workflows:
       ]);
 
       expect(mockExeca).toHaveBeenCalledWith(
-        "opencode",
-        expect.arrayContaining([
-          "run",
-          "--format",
-          "json",
-          "--model",
-          "openai/gpt-5.4-mini",
-          "--dir",
-          dir,
-        ]),
+        "codex",
+        expect.arrayContaining(["exec", "--model", "gpt-5.5", "-C", dir]),
         expect.objectContaining({ cwd: dir })
       );
       const output = log.mock.calls
@@ -1304,7 +1292,7 @@ workflows:
     }
   });
 
-  it("dispatches pipe entrypoint subcommands to the configured entrypoint workflow", async () => {
+  it("dispatches package entrypoint subcommands from package config", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-entrypoint-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1314,35 +1302,22 @@ workflows:
       .mockImplementation(() => undefined);
 
     try {
-      writeCliEntrypointConfig(dir);
       process.env.PIPELINE_TARGET_PATH = dir;
 
       await runCli([
         "node",
         "/repo/node_modules/.bin/pipe",
-        "quick",
+        "inspect",
         "ship",
         "it",
       ]);
 
       expect(mockExeca).toHaveBeenCalledWith(
-        "quick-start-bin",
-        [],
-        expect.objectContaining({
-          cwd: dir,
-          env: expect.objectContaining({
-            PIPELINE_HOOK_INPUT: expect.any(String),
-            PIPELINE_HOOK_RESULT: expect.any(String),
-          }),
-        })
-      );
-      expect(mockExeca).toHaveBeenCalledWith(
-        "quick-node-bin",
-        [],
+        "codex",
+        expect.arrayContaining(["exec", "--model", "gpt-5.5", "-C", dir]),
         expect.objectContaining({ cwd: dir })
       );
-      expect(execaCommands()).not.toContain("default-start-bin");
-      expect(execaCommands()).not.toContain("default-node-bin");
+      expect(execaCommands()).not.toContain("quick-node-bin");
     } finally {
       log.mockRestore();
       error.mockRestore();
@@ -1355,19 +1330,18 @@ workflows:
     }
   });
 
-  it("lists configured entrypoint subcommands with descriptions in pipe help", async () => {
+  it("lists package entrypoint subcommands with descriptions in pipe help", async () => {
     const { createCliProgram } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-entrypoint-help-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
 
     try {
-      writeCliEntrypointConfig(dir);
       process.env.PIPELINE_TARGET_PATH = dir;
 
       const help = createCliProgram().helpInformation();
 
-      expect(help).toMatch(QUICK_WORKFLOW_RE);
-      expect(help).toMatch(INSPECT_WORKFLOW_RE);
+      expect(help).toMatch(PACKAGE_INSPECT_COMMAND_RE);
+      expect(help).toMatch(PACKAGE_EPIC_COMMAND_RE);
     } finally {
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;
@@ -1408,7 +1382,7 @@ workflows:
     }
   });
 
-  it("supports the collision escape hatch via pipe run --entrypoint", async () => {
+  it("supports the package collision escape hatch via pipe run --entrypoint", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-collision-run-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1418,36 +1392,38 @@ workflows:
       .mockImplementation(() => undefined);
 
     try {
-      writeCliEntrypointConfig(dir);
       process.env.PIPELINE_TARGET_PATH = dir;
+      mockExeca.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout: `
+version: 1
+kind: pipeline-schedule
+schedule_id: collision-pipe
+source_entrypoint: pipe
+task: ship collision
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: inspect
+        kind: command
+        command: [inspect-bin]
+`,
+      } as any);
 
       await runCli([
         "node",
         "/repo/node_modules/.bin/pipe",
         "run",
         "--entrypoint",
-        "validate",
+        "pipe",
         "ship",
         "collision",
       ]);
 
-      expect(mockExeca).toHaveBeenCalledWith(
-        "validate-start-bin",
-        [],
-        expect.objectContaining({
-          cwd: dir,
-          env: expect.objectContaining({
-            PIPELINE_HOOK_INPUT: expect.any(String),
-            PIPELINE_HOOK_RESULT: expect.any(String),
-          }),
-        })
-      );
-      expect(mockExeca).toHaveBeenCalledWith(
-        "validate-entrypoint-bin",
-        [],
-        expect.objectContaining({ cwd: dir })
-      );
-      expect(execaCommands()).not.toContain("default-start-bin");
+      expect(execaCommands()).toEqual(["codex", "node", "inspect-bin"]);
     } finally {
       log.mockRestore();
       error.mockRestore();
@@ -1491,7 +1467,7 @@ workflows:
     }
   });
 
-  it("rejects malformed pipeline config for non-bootstrap invocations before treating args as task text", async () => {
+  it("ignores malformed repo-local pipeline config because package config owns runtime", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-malformed-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1501,9 +1477,9 @@ workflows:
       process.env.PIPELINE_TARGET_PATH = dir;
 
       await expect(
-        runCli(["node", "/repo/node_modules/.bin/pipe", "quick", "ship", "it"])
-      ).rejects.toThrow(FAILED_TO_PARSE_PIPELINE_YAML_RE);
-      expect(execaCommands()).toEqual([]);
+        runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"])
+      ).rejects.toThrow("schedule planner returned empty output");
+      expect(execaCommands()).toEqual(["codex"]);
     } finally {
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;
@@ -1659,7 +1635,7 @@ workflows:
     }
   });
 
-  it("explains the epic-drain workflow topology including parallel implementation children", async () => {
+  it("explains the epic-drain package workflow topology", async () => {
     const { runCli } = await import("../src/index.js");
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -1699,9 +1675,6 @@ workflows:
       expect(stdout).toContain("Workflow: epic-drain");
       expect(stdout).toContain(
         "Batches: [research] -> [plan] -> [implement] -> [merge] -> [review]"
-      );
-      expect(stdout).toContain(
-        "implement(parallel: test, frontend, backend, k8s)"
       );
       expect(stdout).toMatch(PLAN_RESEARCH_RE);
       expect(stdout).toMatch(PLAN_PLAN_RE);
@@ -1758,9 +1731,6 @@ workflows:
         .map(([message]) => String(message))
         .join("\n");
       expect(stderr).toContain(
-        "WARN entrypoint-shadowed: entrypoint 'validate' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint validate ...'"
-      );
-      expect(stderr).toContain(
         "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
       );
       expect(
@@ -1778,7 +1748,7 @@ workflows:
     }
   });
 
-  it("validate emits WARN missing-file-reference for optional asset paths without failing", async () => {
+  it("validate ignores repo-local optional asset paths and validates package config", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-missing-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1812,15 +1782,8 @@ profiles:
       const stderr = error.mock.calls
         .map(([message]) => String(message))
         .join("\n");
-      expect(stderr).toContain(
-        "WARN missing-file-reference: skills.missing-skill.path references missing file '.agents/skills/missing/SKILL.md'"
-      );
-      expect(stderr).toContain(
-        "WARN missing-file-reference: profiles.orchestrator.instructions.path references missing file '.pipeline/prompts/missing.md'"
-      );
-      expect(stderr).toContain(
-        "WARN missing-file-reference: profiles.orchestrator.output.schema_path references missing file '.pipeline/schemas/missing.schema.json'"
-      );
+      expect(stderr).not.toContain("missing-skill");
+      expect(stderr).not.toContain(".pipeline/prompts/missing.md");
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
       ).toContain("OK: default");
@@ -1950,7 +1913,7 @@ workflows:
     }
   });
 
-  it("validate --strict emits no thermo-nuclear review missing-file-reference warning when the skill is present", async () => {
+  it("validate --strict rejects package lint warnings without repo-local missing-file warnings", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-cli-lint-thermo-review-present-")
@@ -1965,12 +1928,9 @@ workflows:
       writeThermoNuclearReviewValidateFixture(dir, { includeSkill: true });
       process.env.PIPELINE_TARGET_PATH = dir;
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "validate",
-        "--strict",
-      ]);
+      await expect(
+        runCli(["node", "/repo/node_modules/.bin/pipe", "validate", "--strict"])
+      ).rejects.toThrow(WARNING_RE);
 
       const stderr = error.mock.calls
         .map(([message]) => String(message))
@@ -1985,9 +1945,7 @@ workflows:
       expect(stderr).not.toContain(
         "profiles.pipeline-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
       );
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
+      expect(stderr).toContain("WARN entrypoint-shadowed");
     } finally {
       log.mockRestore();
       error.mockRestore();
@@ -2000,7 +1958,7 @@ workflows:
     }
   });
 
-  it("validate emits thermo-nuclear review missing-file-reference warnings when the skill file is absent", async () => {
+  it("validate does not emit repo-local thermo-nuclear review missing-file warnings", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-cli-lint-thermo-review-missing-")
@@ -2023,10 +1981,7 @@ workflows:
       const missingFileWarnings = stderr
         .split("\n")
         .filter((line) => line.includes("WARN missing-file-reference"));
-      expect(missingFileWarnings).toEqual([
-        "WARN missing-file-reference: skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'",
-        "WARN missing-file-reference: profiles.pipeline-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'",
-      ]);
+      expect(missingFileWarnings).toEqual([]);
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
       ).toContain("OK: default");
@@ -2042,7 +1997,7 @@ workflows:
     }
   });
 
-  it("validate emits WARN singleton-parallel for a parallel node with one child", async () => {
+  it("validate ignores repo-local singleton parallel lint fixtures", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-parallel-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -2076,9 +2031,7 @@ workflows:
       const stderr = error.mock.calls
         .map(([message]) => String(message))
         .join("\n");
-      expect(stderr).toContain(
-        "WARN singleton-parallel: node 'fanout' is a parallel container with only one child; remove the wrapper"
-      );
+      expect(stderr).not.toContain("WARN singleton-parallel");
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
       ).toContain("OK: default");
@@ -2094,7 +2047,7 @@ workflows:
     }
   });
 
-  it("validate emits WARN worktree-root-style for workflow node roots outside pipeline run directories", async () => {
+  it("validate ignores repo-local worktree-root style lint fixtures", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-worktree-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -2131,9 +2084,7 @@ workflows:
       const stderr = error.mock.calls
         .map(([message]) => String(message))
         .join("\n");
-      expect(stderr).toContain(
-        `WARN worktree-root-style: node 'nested' worktree_root 'tmp/pipeline-runs/$${"{runId}"}/$${"{nodeId}"}' is outside the suggested .pipeline/runs/ root; this is a style nudge, not an error`
-      );
+      expect(stderr).not.toContain("WARN worktree-root-style");
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
       ).toContain("OK: default");
@@ -2186,7 +2137,7 @@ workflows:
         .map(([message]) => String(message))
         .join("\n");
       expect(stderr).toContain(
-        "WARN entrypoint-shadowed: entrypoint 'validate' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint validate ...'"
+        "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
       );
     } finally {
       error.mockRestore();
@@ -2254,7 +2205,7 @@ profiles:
     }
   });
 
-  it("validate schema errors still reject regardless of --strict and --no-lint", async () => {
+  it("validate --no-lint ignores malformed repo-local schemas and validates package config", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-schema-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -2266,15 +2217,13 @@ profiles:
       writeMalformedCliConfig(dir);
       process.env.PIPELINE_TARGET_PATH = dir;
 
-      await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/pipe",
-          "validate",
-          "--strict",
-          "--no-lint",
-        ])
-      ).rejects.toThrow(FAILED_TO_PARSE_PIPELINE_YAML_ESCAPED_RE);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "validate",
+        "--strict",
+        "--no-lint",
+      ]);
 
       const stderr = error.mock.calls
         .map(([message]) => String(message))
@@ -2291,7 +2240,7 @@ profiles:
     }
   });
 
-  it("validate treats undefined workflow targets as config-level failures rather than lint warnings", async () => {
+  it("validate ignores repo-local undefined workflow fixtures", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-workflow-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -2316,14 +2265,12 @@ workflows:
       });
       process.env.PIPELINE_TARGET_PATH = dir;
 
-      await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/pipe",
-          "validate",
-          "--no-lint",
-        ])
-      ).rejects.toThrow(MISSING_WORKFLOW_OR_NOT_DECLARED_RE);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "validate",
+        "--no-lint",
+      ]);
 
       const stderr = error.mock.calls
         .map(([message]) => String(message))

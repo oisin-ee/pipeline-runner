@@ -17,7 +17,6 @@ function loadK8sModule() {
 }
 
 const BASE_OPTIONS = {
-  image: "ghcr.io/oisin-ee/pipeline-runner:latest",
   jobName: "pipeline-runner-default-red",
   namespace: "pipeline-runs",
   payloadConfigMapName: "pipeline-payload-default-red",
@@ -49,6 +48,36 @@ describe("runner-job K8s manifest builder", () => {
       expect(manifest).toMatchObject({
         metadata: { name: "pipeline-runner-default-blue" },
       });
+    });
+  });
+
+  describe("runner image", () => {
+    it("uses the package-owned latest runner image with an explicit always-pull policy", async () => {
+      const { RUNNER_JOB_IMAGE, buildRunnerJobK8sManifest } =
+        await loadK8sModule();
+
+      const manifest = buildRunnerJobK8sManifest(BASE_OPTIONS);
+      const container = manifest.spec.template.spec.containers[0];
+
+      expect(RUNNER_JOB_IMAGE).toBe("ghcr.io/oisin-ee/pipeline-runner:latest");
+      expect(container.image).toBe(RUNNER_JOB_IMAGE);
+      expect(container.imagePullPolicy).toBe("Always");
+    });
+
+    it("does not let a caller-provided stale image override the package-owned image", async () => {
+      const { RUNNER_JOB_IMAGE, buildRunnerJobK8sManifest } =
+        await loadK8sModule();
+      const staleOptions = {
+        ...BASE_OPTIONS,
+        image:
+          "ghcr.io/oisin-ee/pipeline-runner:c9ab3ddd22ecddec8fabc5dad1fa706c5b10af10",
+      };
+
+      const manifest = buildRunnerJobK8sManifest(staleOptions);
+
+      expect(manifest.spec.template.spec.containers[0].image).toBe(
+        RUNNER_JOB_IMAGE
+      );
     });
   });
 
