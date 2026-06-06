@@ -111,8 +111,10 @@ export const createPullRequest: PullRequestCreator = async (options) => {
   const runCommand = options.runCommand ?? runDeliveryCommand;
   const branch =
     options.branch ?? (await currentBranch(createDeliveryGitClient(options)));
-  const headOwner = options.env.PIPELINE_PR_HEAD_OWNER?.trim() || "oisin-bot";
   const repositoryName = githubRepositoryName(repository.url);
+  const headOwner =
+    options.env.PIPELINE_PR_HEAD_OWNER?.trim() ||
+    githubRepositoryOwner(repositoryName);
 
   const head = `${headOwner}:${branch}`;
   const commandOptions = {
@@ -259,4 +261,12 @@ function githubRepositoryName(repositoryUrl: string): string {
     return sshMatch[1];
   }
   throw new Error("Pull request delivery requires a GitHub repository URL");
+}
+
+function githubRepositoryOwner(repositoryName: string): string {
+  const [owner] = repositoryName.split("/");
+  if (!owner) {
+    throw new Error("Pull request delivery requires a GitHub repository owner");
+  }
+  return owner;
 }

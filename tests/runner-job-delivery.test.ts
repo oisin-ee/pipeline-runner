@@ -103,7 +103,7 @@ describe("runner-job git delivery", () => {
 });
 
 describe("runner-job PR delivery", () => {
-  it("creates PRs with oisin-bot as the default head owner", async () => {
+  it("creates PRs with the repository owner as the default head owner", async () => {
     const { createPullRequest } = await import("../src/runner-job/delivery.js");
     const runCommand = vi.fn().mockResolvedValueOnce({
       stdout: "https://github.com/oisin-ee/tova/pull/123\n",
@@ -134,7 +134,7 @@ describe("runner-job PR delivery", () => {
         "--base",
         "main",
         "--head",
-        "oisin-bot:runner/pipe-49",
+        "oisin-ee:runner/pipe-49",
         "--repo",
         "oisin-ee/tova",
       ],
@@ -204,7 +204,7 @@ describe("runner-job PR delivery", () => {
         "--state",
         "open",
         "--head",
-        "oisin-bot:runner/pipe-49",
+        "oisin-ee:runner/pipe-49",
         "--repo",
         "oisin-ee/tova",
         "--json",
