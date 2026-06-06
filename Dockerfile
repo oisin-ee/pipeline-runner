@@ -34,7 +34,7 @@ ENV NPM_CONFIG_FUND=false
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
+  && apt-get install -y --no-install-recommends ca-certificates gh git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /tmp/oisincoveney-pipeline-*.tgz /tmp/pipeline-package.tgz
@@ -48,7 +48,8 @@ RUN npm install -g \
   && command -v oisin-pipeline \
   && command -v codex \
   && command -v opencode \
-  && command -v claude
+  && command -v claude \
+  && command -v gh
 
 ENTRYPOINT ["oisin-pipeline"]
 CMD ["runner-job"]

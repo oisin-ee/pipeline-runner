@@ -20,6 +20,7 @@ const LOCAL_PIPELINE_INSTALL_RE =
 const NPM_BUILD_RE = /npm\s+run\s+build/i;
 const BUN_BUILD_RE = /bun\s+(?:install|run\s+build(?::cli)?)/i;
 const GIT_RE = /\bgit\b/i;
+const GITHUB_CLI_RE = /\bgh\b/i;
 const RUNNER_JOB_ENTRYPOINT_RE =
   /ENTRYPOINT\s+\["oisin-pipeline"\][\s\S]*CMD\s+\["runner-job"\]/i;
 const RUNNER_ENTRYPOINT_COPY_RE =
@@ -110,6 +111,7 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(OPENCODE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(CLAUDE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(GIT_RE);
+    expect(dockerfile).toMatch(GITHUB_CLI_RE);
     expect(dockerfile).not.toMatch(BUN_BUILD_RE);
   });
 
