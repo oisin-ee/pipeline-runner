@@ -144,12 +144,14 @@ Before runtime, the runner executes configured setup commands from `/workspace`.
 After the pipeline runtime reports `PASS`, the runner executes configured smoke
 commands from `/workspace`. A failed smoke command prevents PR creation.
 
-When `delivery.pullRequest` is `true`, verification and smoke pass, and the
-runtime outcome is `PASS`, the runner pushes the branch and creates a GitHub pull
-request with `gh pr create --fill --base <repository.baseBranch> --head
-oisin-bot:<branch> --repo <owner/repo-derived-from-repository.url>`. Set
+When `delivery.pullRequest` is `true`, the runner pushes the branch and creates a
+GitHub pull request with `gh pr create --fill --base <repository.baseBranch>
+--head oisin-bot:<branch> --repo <owner/repo-derived-from-repository.url>`. Set
 `PIPELINE_PR_HEAD_OWNER` only when a different bot/user is explicitly required.
-Failed runtime or smoke verification does not create a PR.
+Passing runtime delivery runs after smoke verification. Failed runtime delivery
+skips smoke, still attempts to push/create the PR so produced work is inspectable,
+and preserves the failed runtime outcome and exit code. Failed smoke verification
+does not create a PR.
 
 ## Authentication
 

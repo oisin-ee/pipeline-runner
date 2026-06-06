@@ -194,16 +194,15 @@ export async function runRunnerJob(
       worktreePath: workspace.worktreePath,
     });
 
-    if (result.outcome === "PASS") {
-      const delivery = await deliverSuccessfulRun(
-        options,
-        payload,
-        workspace,
-        config,
-        sink
-      );
-      reportDeliverySummary(delivery, stdout);
-    }
+    await handleRuntimeDelivery({
+      config,
+      options,
+      payload,
+      result,
+      sink,
+      stdout,
+      workspace,
+    });
 
     recordFinalResultIfMissing(sink, result.outcome, result.plan.workflowId, {
       sawWorkflowFinish,
@@ -380,53 +379,108 @@ async function generateRunnerSchedule(
   return { config: compiled.config, workflowId: compiled.workflowId };
 }
 
-async function deliverSuccessfulRun(
+function shouldDeliverRuntimeResult(
+  result: PipelineRuntimeResult,
+  payload: RunnerJobPayload
+): boolean {
+  if (result.outcome === "PASS") {
+    return true;
+  }
+  return result.outcome === "FAIL" && payload.delivery.pullRequest;
+}
+
+async function handleRuntimeDelivery(input: {
+  config: PipelineConfig;
+  options: RunnerJobOptions;
+  payload: RunnerJobPayload;
+  result: PipelineRuntimeResult;
+  sink: RunnerEventSink;
+  stdout: OutputStream;
+  workspace: RunnerWorkspacePreparation;
+}): Promise<void> {
+  if (!shouldDeliverRuntimeResult(input.result, input.payload)) {
+    return;
+  }
+  const delivery = await deliverRuntimeResult(
+    input.options,
+    input.payload,
+    input.workspace,
+    input.config,
+    input.sink,
+    input.result.outcome
+  );
+  if (delivery) {
+    reportDeliverySummary(delivery, input.stdout);
+  }
+}
+
+async function deliverRuntimeResult(
   options: RunnerJobOptions,
   payload: RunnerJobPayload,
   workspace: RunnerWorkspacePreparation,
   config: PipelineConfig,
-  sink: RunnerEventSink
-): Promise<RunnerJobDeliverySummary> {
-  const smokeStatus = await runRunnerDevspaceSmokeWithPhase(
-    options,
-    config,
-    workspace,
-    sink
-  );
-  sink.recordRunnerJobPhase(
-    `environment.smoke.${smokeStatus}`,
-    `runner environment smoke ${smokeStatus}`
-  );
-  const branchDelivery = await deliverRunnerGitBranchWithPhase(
-    options,
-    payload,
-    workspace,
-    config,
-    sink
-  );
-  sink.recordRunnerJobPhase("delivery.git", "runner git branch pushed", {
-    branch: branchDelivery.branch,
-    commitSha: branchDelivery.commitSha,
-  });
-  const pullRequest = await createRunnerPullRequestWithPhase(
-    options,
-    payload,
-    workspace,
-    sink,
-    branchDelivery.branch
-  );
-  if (pullRequest) {
-    sink.recordRunnerJobPhase(
-      "delivery.pull_request",
-      "runner pull request created",
-      { url: pullRequest.url }
+  sink: RunnerEventSink,
+  outcome: PipelineRuntimeResult["outcome"]
+): Promise<RunnerJobDeliverySummary | null> {
+  try {
+    if (outcome === "PASS") {
+      const smokeStatus = await runRunnerDevspaceSmokeWithPhase(
+        options,
+        config,
+        workspace,
+        sink
+      );
+      sink.recordRunnerJobPhase(
+        `environment.smoke.${smokeStatus}`,
+        `runner environment smoke ${smokeStatus}`
+      );
+    } else {
+      sink.recordRunnerJobPhase(
+        "environment.smoke.skipped",
+        "runner environment smoke skipped after failed runtime"
+      );
+    }
+    const branchDelivery = await deliverRunnerGitBranchWithPhase(
+      options,
+      payload,
+      workspace,
+      config,
+      sink
     );
+    sink.recordRunnerJobPhase("delivery.git", "runner git branch pushed", {
+      branch: branchDelivery.branch,
+      commitSha: branchDelivery.commitSha,
+    });
+    const pullRequest = await createRunnerPullRequestWithPhase(
+      options,
+      payload,
+      workspace,
+      sink,
+      branchDelivery.branch
+    );
+    if (pullRequest) {
+      sink.recordRunnerJobPhase(
+        "delivery.pull_request",
+        "runner pull request created",
+        { url: pullRequest.url }
+      );
+    }
+    return {
+      branch: branchDelivery.branch,
+      commitSha: branchDelivery.commitSha,
+      pullRequestUrl: pullRequest?.url ?? null,
+    };
+  } catch (err) {
+    if (outcome === "PASS") {
+      throw err;
+    }
+    sink.recordRunnerJobPhase(
+      "delivery.failed_after_runtime_failure",
+      "runner delivery failed after runtime failure",
+      { error: errorMessage(err) }
+    );
+    return null;
   }
-  return {
-    branch: branchDelivery.branch,
-    commitSha: branchDelivery.commitSha,
-    pullRequestUrl: pullRequest?.url ?? null,
-  };
 }
 
 function reportDeliverySummary(

@@ -515,6 +515,193 @@ describe("runner-job entrypoint", () => {
     }
   });
 
+  it("delivers failed runner job changes to a PR without masking the runtime failure", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-fail-delivery-"));
+    const postedBodies: string[] = [];
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      postedBodies.push(String(init?.body));
+      return Promise.resolve(okResponse());
+    });
+    const deliverGitBranch = vi.fn(async () => ({
+      branch: "pipeline/run-123",
+      commitSha: "abc123",
+      pushed: true,
+    }));
+    const createPullRequest = vi.fn(async () => ({
+      url: "https://github.com/oisin-ee/tova/pull/456",
+    }));
+    const runDevspaceCommand = vi.fn(async () => undefined);
+    const io = ioBuffers();
+
+    try {
+      await writeTestSkills(dir);
+      await writePipelineFixture(dir);
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      await writeFile(
+        payloadFile,
+        JSON.stringify({
+          ...validPayload(),
+          delivery: { pullRequest: true },
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        payloadFile,
+        fetch: fetchMock,
+        pipelineRunner: vi.fn(() => runtimeResult("FAIL")),
+        prepareWorkspace: vi.fn(async () => ({
+          env: { PIPELINE_TARGET_PATH: dir },
+          worktreePath: dir,
+        })),
+        deliverGitBranch,
+        createPullRequest,
+        runDevspaceCommand,
+        stderr: io.stderr,
+        stdout: io.stdout,
+      });
+
+      expect(exitCode).toBe(1);
+      expect(runDevspaceCommand).not.toHaveBeenCalled();
+      expect(deliverGitBranch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            delivery: { pullRequest: true },
+          }),
+          worktreePath: dir,
+        })
+      );
+      expect(createPullRequest).toHaveBeenCalledTimes(1);
+      expect(io.stdoutText()).toContain("Runner delivery complete:");
+      expect(io.stdoutText()).toContain("- branch: pipeline/run-123");
+      expect(io.stdoutText()).toContain("- commit: abc123");
+      expect(io.stdoutText()).toContain(
+        "- pull_request: https://github.com/oisin-ee/tova/pull/456"
+      );
+      expect(io.stderrText()).toMatch(RUNTIME_FAILURE_DETAILS_RE);
+
+      const postedEvents = postedBodies.flatMap((postedBody) => {
+        const body = JSON.parse(postedBody) as {
+          events: Array<{ log?: { message: string }; type: string }>;
+        };
+        return body.events;
+      });
+      expect(postedEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner git branch pushed",
+            }),
+            type: "runner.job.phase",
+          }),
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner pull request created",
+              output: expect.objectContaining({
+                url: "https://github.com/oisin-ee/tova/pull/456",
+              }),
+            }),
+            type: "runner.job.phase",
+          }),
+          expect.objectContaining({
+            finalResult: expect.objectContaining({
+              outcome: "FAIL",
+            }),
+            type: "workflow.finish",
+          }),
+        ])
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("preserves runtime failure when failed-run delivery cannot create a PR", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(
+      join(tmpdir(), "pipe-runner-fail-delivery-error-")
+    );
+    const postedBodies: string[] = [];
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      postedBodies.push(String(init?.body));
+      return Promise.resolve(okResponse());
+    });
+    const deliverGitBranch = vi.fn(async () => ({
+      branch: "pipeline/run-123",
+      commitSha: "abc123",
+      pushed: true,
+    }));
+    const createPullRequest = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("pull request already exists"));
+    const io = ioBuffers();
+
+    try {
+      await writeTestSkills(dir);
+      await writePipelineFixture(dir);
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      await writeFile(
+        payloadFile,
+        JSON.stringify({
+          ...validPayload(),
+          delivery: { pullRequest: true },
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        payloadFile,
+        fetch: fetchMock,
+        pipelineRunner: vi.fn(() => runtimeResult("FAIL")),
+        prepareWorkspace: vi.fn(async () => ({
+          env: { PIPELINE_TARGET_PATH: dir },
+          worktreePath: dir,
+        })),
+        deliverGitBranch,
+        createPullRequest,
+        stderr: io.stderr,
+        stdout: io.stdout,
+      });
+
+      expect(exitCode).toBe(1);
+      expect(createPullRequest).toHaveBeenCalledTimes(1);
+      expect(io.stdoutText()).toBe("");
+      expect(io.stderrText()).toMatch(RUNTIME_FAILURE_DETAILS_RE);
+
+      const postedEvents = postedBodies.flatMap((postedBody) => {
+        const body = JSON.parse(postedBody) as {
+          events: Array<{ log?: { message: string; output?: unknown } }>;
+        };
+        return body.events;
+      });
+      expect(postedEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner delivery failed after runtime failure",
+              output: expect.objectContaining({
+                error: "pull request already exists",
+              }),
+            }),
+          }),
+        ])
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it("does not require devspace.yaml before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-no-devspace-"));
