@@ -35,6 +35,7 @@ const GENERATED_ID_INVALID_CHARS_RE = /[^a-z0-9]+/g;
 const GENERATED_ID_TRIM_HYPHENS_RE = /^-+|-+$/g;
 const STARTS_WITH_ALPHA_RE = /^[a-z]/;
 const LINE_RE = /\r?\n/;
+const SCHEDULE_PLANNER_REPAIR_ATTEMPTS = 1;
 
 const scheduleArtifactSchema = z
   .object({
@@ -479,42 +480,105 @@ async function planScheduleArtifact(
       `schedule '${options.entrypointId}' requires planner_profile`
     );
   }
-  const source = await runSchedulePlanner(
-    plannerProfile,
-    plannerPrompt(
-      options.entrypointId,
-      options.task,
-      baseline,
-      options.config,
-      planningContext
-    ),
-    options
+  const prompt = plannerPrompt(
+    options.entrypointId,
+    options.task,
+    baseline,
+    options.config,
+    planningContext
   );
+  const source = await runSchedulePlanner(plannerProfile, prompt, options);
   if (!source) {
     throw new ScheduleArtifactError("schedule planner returned empty output");
   }
-  try {
-    return canonicalizeGeneratedScheduleIds(
-      parseScheduleArtifact(source, "planner output")
+
+  const initial = parseGeneratedSchedule(source, "planner output");
+  if (initial.ok) {
+    return initial.artifact;
+  }
+
+  let latestFailure = initial.error;
+  let latestSource = source;
+  for (
+    let attempt = 1;
+    attempt <= SCHEDULE_PLANNER_REPAIR_ATTEMPTS;
+    attempt += 1
+  ) {
+    const repairedSource = await runSchedulePlanner(
+      plannerProfile,
+      plannerRepairPrompt({
+        attempt,
+        baseline,
+        error: latestFailure,
+        source: latestSource,
+      }),
+      options,
+      "schedule-plan-repair"
     );
+    if (!repairedSource) {
+      throw new ScheduleArtifactError(
+        `schedule planner repair returned empty output after invalid schedule\n${latestFailure.message}\nPlanner output:\n${latestSource}`
+      );
+    }
+    const repaired = parseGeneratedSchedule(
+      repairedSource,
+      "planner repair output"
+    );
+    if (repaired.ok) {
+      return repaired.artifact;
+    }
+    latestFailure = repaired.error;
+    latestSource = repairedSource;
+  }
+
+  throw new ScheduleArtifactError(
+    [
+      "Schedule planner produced invalid output after repair.",
+      initial.error.message,
+      "Original planner output:",
+      source,
+      latestFailure.message,
+      "Planner repair output:",
+      latestSource,
+    ].join("\n")
+  );
+}
+
+function parseGeneratedSchedule(
+  source: string,
+  sourcePath: string
+):
+  | { artifact: ScheduleArtifact; ok: true }
+  | { error: ScheduleArtifactError; ok: false } {
+  try {
+    return {
+      artifact: canonicalizeGeneratedScheduleIds(
+        parseScheduleArtifact(source, sourcePath)
+      ),
+      ok: true,
+    };
   } catch (err) {
     if (!(err instanceof ScheduleArtifactError)) {
       throw err;
     }
-    throw new ScheduleArtifactError(
-      `${err.message}\nPlanner output:\n${source}`
-    );
+    return {
+      error: new ScheduleArtifactError(
+        `${err.message}\nPlanner output:\n${source}`
+      ),
+      ok: false,
+    };
   }
 }
 
 async function runSchedulePlanner(
   plannerProfile: string,
   prompt: string,
-  options: GenerateScheduleOptions
+  options: GenerateScheduleOptions,
+  nodeId = "schedule-plan"
 ): Promise<string> {
   const executor = options.executor ?? runLaunchPlan;
   const plan = createRunnerLaunchPlan(options.config, {
-    nodeId: "schedule-plan",
+    nodeId,
     profileId: plannerProfile,
     prompt,
     worktreePath: options.worktreePath,
@@ -556,6 +620,12 @@ function plannerPrompt(
     "All workflow ids, node ids, gate ids, and needs references must match ^[a-z][a-z0-9-]*$: use lowercase hyphenated ids, never underscores.",
     "Generate exactly one workflow named root. Do not embed default, epic-drain, infra, track, or other configured workflow copies.",
     "Use only explicit generated agent, builtin, command, parallel, or group nodes. Do not use kind: workflow.",
+    "Node schema contract:",
+    "- Agent node fields: id, kind: agent, profile, optional needs, gates, artifacts, retries, task_context, timeout_ms. Do not emit instructions, skills, tools, filesystem, network, model, or runner on nodes.",
+    "- Command node fields: id, kind: command, command, optional needs, gates, artifacts, retries, task_context, timeout_ms. command must be a YAML sequence of strings such as command: [bun, run, test], never a scalar string.",
+    "- Builtin node fields: id, kind: builtin, builtin, optional needs, gates, artifacts, retries, task_context, timeout_ms.",
+    "- Parallel node fields: id, kind: parallel, nodes, optional needs, gates, artifacts, retries, task_context, timeout_ms. Nested nodes must follow the same schema.",
+    "- Group node fields: id, kind: group, nodes, optional needs, gates, artifacts, retries, task_context, timeout_ms. nodes must be a YAML sequence of node ids.",
     "Every agent node must declare one configured profile id. Do not invent profile ids or node-level skill overrides.",
     "Assign each backlog work unit to explicit generated agent nodes with task_context.id. The scheduler hydrates title, description, and acceptance_criteria after parsing.",
     "Do not copy backlog descriptions or acceptance criteria into task_context output.",
@@ -590,6 +660,34 @@ function plannerPrompt(
     "",
     "Baseline schedule:",
     stringify(baseline),
+  ].join("\n");
+}
+
+function plannerRepairPrompt(inputs: {
+  attempt: number;
+  baseline: ScheduleArtifact;
+  error: ScheduleArtifactError;
+  source: string;
+}): string {
+  return [
+    "Repair the pipeline schedule YAML so it matches the package schedule schema.",
+    `Repair attempt: ${inputs.attempt}`,
+    "Return only YAML matching kind: pipeline-schedule. Do not use Markdown fences or prose.",
+    "Preserve the task, generated_at, schedule_id, source_entrypoint, version, and root_workflow values.",
+    "Generate exactly one workflow named root.",
+    "Do not add fields outside the workflow node schema.",
+    "Agent nodes must not contain instructions, skills, tools, filesystem, network, model, or runner fields. Keep intent in task_context.id and the selected configured profile only.",
+    "Command nodes must use command as a YAML sequence of strings, never as a scalar string.",
+    "Keep valid gates and needs edges when they satisfy the schema.",
+    "",
+    "Validation error:",
+    inputs.error.message,
+    "",
+    "Original schedule output:",
+    inputs.source,
+    "",
+    "Baseline schedule for required metadata:",
+    stringify(inputs.baseline),
   ].join("\n");
 }
 

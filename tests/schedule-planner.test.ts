@@ -26,6 +26,8 @@ const WORK_UNIT_DEPENDENCY_RE =
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
   /schedule planner 'pipeline-schedule-planner' failed with exit 1.*codex auth missing.*partial planner output/s;
+const REPAIR_NODE_SCHEMA_RE =
+  /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/s;
 const WORKFLOW_TASK_ASSIGNMENT_RE =
   /backlog work unit assignments must use explicit generated agent nodes/i;
 
@@ -620,6 +622,115 @@ workflows:
       });
       expect(result.path).toBe("memory:run-repair");
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs OpenCode-style scalar command and node instructions before execution", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-opencode-repair-")
+    );
+    const opencodeConfig = config();
+    opencodeConfig.profiles["pipeline-schedule-planner"] = {
+      ...opencodeConfig.profiles["pipeline-schedule-planner"],
+      runner: "opencode",
+    };
+    const invalidSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-opencode-repair
+source_entrypoint: pipe
+task: Repair OpenCode schedule
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: inspect-devspace
+        kind: command
+        command: backlog task dev-k8s-01 --plain
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [inspect-devspace]
+        instructions: Implement the ticket without changing pipeline-console.
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [implement]
+`;
+    const repairedSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-opencode-repair
+source_entrypoint: pipe
+task: Repair OpenCode schedule
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: inspect-devspace
+        kind: command
+        command: [backlog, task, dev-k8s-01, --plain]
+      - id: implement
+        kind: agent
+        profile: pipeline-code-writer
+        needs: [inspect-devspace]
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [implement]
+`;
+    const prompts: string[] = [];
+    const nodeIds: string[] = [];
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: opencodeConfig,
+        entrypointId: "pipe",
+        executor: (plan) => {
+          prompts.push(plan.args.join("\n"));
+          nodeIds.push(plan.nodeId);
+          return {
+            exitCode: 0,
+            stdout:
+              plan.nodeId === "schedule-plan-repair"
+                ? repairedSchedule
+                : invalidSchedule,
+          };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-opencode-repair",
+        task: "Repair OpenCode schedule",
+        worktreePath: dir,
+      });
+
+      expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
+      expect(prompts[0]).toContain(
+        "command must be a YAML sequence of strings"
+      );
+      expect(prompts[0]).toContain("Do not emit instructions");
+      expect(prompts[1]).toMatch(REPAIR_NODE_SCHEMA_RE);
+      expect(prompts[1]).toContain(
+        "workflows.root.nodes.0.command: Invalid input: expected array, received string"
+      );
+      expect(prompts[1]).toContain('Unrecognized key: "instructions"');
+      expect(result.artifact.workflows.root.nodes[0]).toMatchObject({
+        command: ["backlog", "task", "dev-k8s-01", "--plain"],
+        id: "inspect-devspace",
+        kind: "command",
+      });
+      expect(result.artifact.workflows.root.nodes[1]).toEqual({
+        id: "implement",
+        kind: "agent",
+        needs: ["inspect-devspace"],
+        profile: "pipeline-code-writer",
+      });
+      expect(() =>
+        compileScheduleArtifact(opencodeConfig, result.artifact, dir)
+      ).not.toThrow();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
