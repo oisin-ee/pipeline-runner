@@ -36,6 +36,11 @@ const GENERATED_ID_TRIM_HYPHENS_RE = /^-+|-+$/g;
 const STARTS_WITH_ALPHA_RE = /^[a-z]/;
 const LINE_RE = /\r?\n/;
 const SCHEDULE_PLANNER_REPAIR_ATTEMPTS = 1;
+const DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE = [
+  "pipeline-verifier",
+  "pipeline-acceptance-reviewer",
+  "pipeline-thermo-nuclear-reviewer",
+];
 
 const scheduleArtifactSchema = z
   .object({
@@ -203,17 +208,107 @@ export async function generateScheduleArtifact(
     ...loadBacklogPlanningContext(options.task, options.worktreePath),
   };
   const artifact = hydrateScheduleTaskContexts(
-    await planScheduleArtifact(
-      baseline,
-      policy.planner_profile,
-      options,
-      planningContext
+    addGeneratedImplementationCoverage(
+      options.config,
+      await planScheduleArtifact(
+        baseline,
+        policy.planner_profile,
+        options,
+        planningContext
+      )
     ),
     planningContext
   );
   validateScheduleArtifact(options.config, artifact, planningContext);
   compileScheduleArtifact(options.config, artifact, options.worktreePath);
   return { artifact, path: `memory:${artifact.schedule_id}` };
+}
+
+function addGeneratedImplementationCoverage(
+  config: PipelineConfig,
+  artifact: ScheduleArtifact
+): ScheduleArtifact {
+  const coverageProfileId = generatedCoverageProfileId(config);
+  if (!coverageProfileId) {
+    return artifact;
+  }
+  return {
+    ...artifact,
+    workflows: Object.fromEntries(
+      Object.entries(artifact.workflows).map(([id, workflow]) => [
+        id,
+        addWorkflowImplementationCoverage(config, workflow, coverageProfileId),
+      ])
+    ),
+  };
+}
+
+function addWorkflowImplementationCoverage(
+  config: PipelineConfig,
+  workflow: Workflow,
+  coverageProfileId: string
+): Workflow {
+  const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
+  const dependentsByNeed = workflowDependentsByNeed(nodes);
+  const uncovered = nodes
+    .filter((node) => isImplementationNode(config, node))
+    .filter(
+      (node) => !hasDownstreamCoverage(config, node.id, dependentsByNeed)
+    );
+  if (uncovered.length === 0) {
+    return workflow;
+  }
+  const usedIds = new Set(nodes.map((node) => node.id));
+  const coverageNodeId = uniqueGeneratedId(
+    "generated-coverage",
+    usedIds,
+    "generated-coverage"
+  );
+  return {
+    ...workflow,
+    nodes: [
+      ...workflow.nodes,
+      {
+        gates: generatedCoverageGates(coverageNodeId),
+        id: coverageNodeId,
+        kind: "agent",
+        needs: uncovered.map((node) => node.id),
+        profile: coverageProfileId,
+      },
+    ],
+  };
+}
+
+function generatedCoverageProfileId(config: PipelineConfig): string | null {
+  const coverageProfiles = Object.entries(config.profiles)
+    .filter(([, profile]) => profile.scheduling_roles?.includes("coverage"))
+    .map(([id]) => id);
+  if (coverageProfiles.length === 0) {
+    return null;
+  }
+  return (
+    DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE.find((id) =>
+      coverageProfiles.includes(id)
+    ) ??
+    coverageProfiles.sort()[0] ??
+    null
+  );
+}
+
+function generatedCoverageGates(
+  nodeId: string
+): NonNullable<WorkflowNode["gates"]> {
+  return [
+    { builtin: "typecheck", id: `${nodeId}-typecheck`, kind: "builtin" },
+    { builtin: "test", id: `${nodeId}-tests`, kind: "builtin" },
+    { builtin: "semgrep", id: `${nodeId}-semgrep`, kind: "builtin" },
+    {
+      builtin: "duplication",
+      id: `${nodeId}-duplication`,
+      kind: "builtin",
+    },
+    { id: `${nodeId}-verdict`, kind: "verdict", target: "stdout" },
+  ];
 }
 
 export function scheduleArtifactPath(

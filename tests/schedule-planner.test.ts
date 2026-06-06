@@ -280,6 +280,22 @@ function configWithSchedulingRoles(
   return parsed;
 }
 
+function removeCoverageSchedulingRoles(
+  parsed: ReturnType<typeof config>
+): ReturnType<typeof config> {
+  for (const profile of Object.values(parsed.profiles)) {
+    const roles = profile.scheduling_roles?.filter(
+      (role) => role !== "coverage"
+    );
+    if (roles?.length) {
+      profile.scheduling_roles = roles;
+    } else {
+      profile.scheduling_roles = [];
+    }
+  }
+  return parsed;
+}
+
 function writeBacklogTask(
   root: string,
   id: string,
@@ -730,6 +746,54 @@ workflows:
       });
       expect(() =>
         compileScheduleArtifact(opencodeConfig, result.artifact, dir)
+      ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds generated coverage fan-in for uncovered implementation nodes", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-coverage-fan-in-")
+    );
+    const uncoveredSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-coverage-fan-in
+source_entrypoint: pipe
+task: Cover generated implementation
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: green-state
+        kind: agent
+        profile: pipeline-code-writer
+      - id: green-header-picker
+        kind: agent
+        profile: pipeline-code-writer
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "pipe",
+        executor: () => ({ exitCode: 0, stdout: uncoveredSchedule }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-coverage-fan-in",
+        task: "Cover generated implementation",
+        worktreePath: dir,
+      });
+
+      expect(result.artifact.workflows.root.nodes.at(-1)).toMatchObject({
+        id: "generated-coverage",
+        kind: "agent",
+        needs: ["green-state", "green-header-picker"],
+        profile: "pipeline-verifier",
+      });
+      expect(() =>
+        compileScheduleArtifact(config(), result.artifact, dir)
       ).not.toThrow();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -1427,8 +1491,9 @@ workflows:
     }
   });
 
-  it("rejects agent_graph implementation nodes without downstream verification or review", async () => {
+  it("rejects implementation nodes when no coverage-role profile can be generated", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
+    const roleConfig = removeCoverageSchedulingRoles(config());
     const shortcut = `
 version: 1
 kind: pipeline-schedule
@@ -1448,7 +1513,7 @@ workflows:
     try {
       await expect(
         generateScheduleArtifact({
-          config: config(),
+          config: roleConfig,
           entrypointId: "epic",
           executor: () => ({ exitCode: 0, stdout: shortcut }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
@@ -1462,17 +1527,19 @@ workflows:
     }
   });
 
-  it("rejects custom implementation-role nodes without downstream verification or review", async () => {
+  it("rejects custom implementation-role nodes when no coverage-role profile can be generated", async () => {
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-schedule-custom-implementation-")
     );
-    const roleConfig = configWithSchedulingRoles([
-      {
-        baseProfileId: "pipeline-code-writer",
-        profileId: "custom-implementer",
-        roles: ["implementation"],
-      },
-    ]);
+    const roleConfig = removeCoverageSchedulingRoles(
+      configWithSchedulingRoles([
+        {
+          baseProfileId: "pipeline-code-writer",
+          profileId: "custom-implementer",
+          roles: ["implementation"],
+        },
+      ])
+    );
     const shortcut = `
 version: 1
 kind: pipeline-schedule
