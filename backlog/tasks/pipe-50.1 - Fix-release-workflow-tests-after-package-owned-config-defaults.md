@@ -1,7 +1,7 @@
 ---
 id: PIPE-50.1
 title: Fix release workflow tests after package-owned config defaults
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-06 09:12'
 updated_date: '2026-06-06 09:34'
@@ -35,7 +35,7 @@ GitHub Actions Release run 27057745167 for commit 4fe9b7dd16c9961e493d2e3a7da399
 <!-- AC:BEGIN -->
 - [x] #1 bun run test passes locally with the current package-owned config behavior.
 - [x] #2 Tests that intentionally exercise custom/repo-local config use parsePipelineConfigParts or another explicit custom-config seam instead of loadPipelineConfig.
-- [ ] #3 GitHub Actions Release no longer fails in the Test step for these stale expectations.
+- [x] #3 GitHub Actions Release no longer fails in the Test step for these stale expectations.
 <!-- AC:END -->
 
 ## Implementation Plan

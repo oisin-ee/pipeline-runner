@@ -14,6 +14,7 @@ dependencies:
   - PIPE-50.2
   - PIPE-50.3
   - PIPE-50.4
+  - PIPE-50.6
 references:
   - src/runner-job/k8s.ts
   - src/runner-job/delivery.ts

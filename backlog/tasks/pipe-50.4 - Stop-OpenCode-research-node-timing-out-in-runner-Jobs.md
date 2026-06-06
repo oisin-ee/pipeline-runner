@@ -1,7 +1,7 @@
 ---
 id: PIPE-50.4
 title: Stop OpenCode research node timing out in runner Jobs
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-06 09:12'
 updated_date: '2026-06-06 09:27'
@@ -36,7 +36,7 @@ Direct OpenCode runner Job runner-direct-20260606085245-opencode failed in resea
 <!-- AC:BEGIN -->
 - [x] #1 The OpenCode package default runner/profile path has an explicit timeout appropriate for Rondo feature-ticket research or a bounded research prompt that completes within the existing timeout.
 - [x] #2 A focused live-runner or mocked-runner regression covers OpenCode timeout handling and reports the failing node/profile clearly.
-- [ ] #3 A rerun of direct no-console OpenCode runner dogfood reaches at least the next phase after research, or fails with a non-timeout actionable runtime error.
+- [x] #3 A rerun of direct no-console OpenCode runner dogfood reaches at least the next phase after research, or fails with a non-timeout actionable runtime error.
 <!-- AC:END -->
 
 ## Implementation Plan
