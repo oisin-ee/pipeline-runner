@@ -800,6 +800,71 @@ workflows:
     }
   });
 
+  it("adds generated coverage inside parallel node scopes", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-parallel-coverage-fan-in-")
+    );
+    const uncoveredSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-parallel-coverage-fan-in
+source_entrypoint: pipe
+task: Cover parallel implementation
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: current-club
+        kind: parallel
+        nodes:
+          - id: implement-current-club-state
+            kind: agent
+            profile: pipeline-code-writer
+          - id: implement-club-picker-header
+            kind: agent
+            profile: pipeline-code-writer
+          - id: implement-signout-reset
+            kind: agent
+            profile: pipeline-code-writer
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "pipe",
+        executor: () => ({ exitCode: 0, stdout: uncoveredSchedule }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-parallel-coverage-fan-in",
+        task: "Cover parallel implementation",
+        worktreePath: dir,
+      });
+
+      expect(result.artifact.workflows.root.nodes[0]).toMatchObject({
+        id: "current-club",
+        kind: "parallel",
+        nodes: expect.arrayContaining([
+          expect.objectContaining({
+            id: "generated-coverage",
+            kind: "agent",
+            needs: [
+              "implement-current-club-state",
+              "implement-club-picker-header",
+              "implement-signout-reset",
+            ],
+            profile: "pipeline-verifier",
+          }),
+        ]),
+      });
+      expect(result.artifact.workflows.root.nodes).toHaveLength(1);
+      expect(() =>
+        compileScheduleArtifact(config(), result.artifact, dir)
+      ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("preserves malformed planner output for real failure diagnosis", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-invalid-"));
     const malformed = `

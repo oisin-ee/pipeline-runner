@@ -248,35 +248,58 @@ function addWorkflowImplementationCoverage(
   workflow: Workflow,
   coverageProfileId: string
 ): Workflow {
-  const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
-  const dependentsByNeed = workflowDependentsByNeed(nodes);
-  const uncovered = nodes
+  return {
+    ...workflow,
+    nodes: addNodeScopeImplementationCoverage(
+      config,
+      workflow.nodes,
+      coverageProfileId
+    ),
+  };
+}
+
+function addNodeScopeImplementationCoverage(
+  config: PipelineConfig,
+  nodes: WorkflowNode[],
+  coverageProfileId: string
+): WorkflowNode[] {
+  const scopedNodes = nodes.map((node) =>
+    node.kind === "parallel"
+      ? {
+          ...node,
+          nodes: addNodeScopeImplementationCoverage(
+            config,
+            node.nodes,
+            coverageProfileId
+          ),
+        }
+      : node
+  );
+  const dependentsByNeed = workflowDependentsByNeed(scopedNodes);
+  const uncovered = scopedNodes
     .filter((node) => isImplementationNode(config, node))
     .filter(
       (node) => !hasDownstreamCoverage(config, node.id, dependentsByNeed)
     );
   if (uncovered.length === 0) {
-    return workflow;
+    return scopedNodes;
   }
-  const usedIds = new Set(nodes.map((node) => node.id));
+  const usedIds = new Set(scopedNodes.map((node) => node.id));
   const coverageNodeId = uniqueGeneratedId(
     "generated-coverage",
     usedIds,
     "generated-coverage"
   );
-  return {
-    ...workflow,
-    nodes: [
-      ...workflow.nodes,
-      {
-        gates: generatedCoverageGates(coverageNodeId),
-        id: coverageNodeId,
-        kind: "agent",
-        needs: uncovered.map((node) => node.id),
-        profile: coverageProfileId,
-      },
-    ],
-  };
+  return [
+    ...scopedNodes,
+    {
+      gates: generatedCoverageGates(coverageNodeId),
+      id: coverageNodeId,
+      kind: "agent",
+      needs: uncovered.map((node) => node.id),
+      profile: coverageProfileId,
+    },
+  ];
 }
 
 function generatedCoverageProfileId(config: PipelineConfig): string | null {
