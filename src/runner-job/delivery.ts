@@ -111,6 +111,12 @@ export const createPullRequest: PullRequestCreator = async (options) => {
   const headOwner = options.env.PIPELINE_PR_HEAD_OWNER?.trim() || "oisin-bot";
   const repositoryName = githubRepositoryName(repository.url);
 
+  const head = `${headOwner}:${branch}`;
+  const commandOptions = {
+    cwd: options.worktreePath,
+    env,
+    stdin: "ignore" as const,
+  };
   const result = await runCommand(
     "gh",
     [
@@ -120,16 +126,23 @@ export const createPullRequest: PullRequestCreator = async (options) => {
       "--base",
       repository.baseBranch,
       "--head",
-      `${headOwner}:${branch}`,
+      head,
       "--repo",
       repositoryName,
     ],
-    {
-      cwd: options.worktreePath,
-      env,
-      stdin: "ignore",
+    commandOptions
+  ).catch(async (err: unknown) => {
+    const existing = await findExistingPullRequest({
+      commandOptions,
+      head,
+      repositoryName,
+      runCommand,
+    }).catch(() => null);
+    if (existing) {
+      return existing;
     }
-  );
+    throw err;
+  });
   const url = result.stdout.trim();
   return url ? { url } : null;
 };
@@ -200,6 +213,37 @@ function compactEnv(
       Boolean(entry[1])
     )
   );
+}
+
+async function findExistingPullRequest(input: {
+  commandOptions: {
+    cwd: string;
+    env: Record<string, string>;
+    stdin: "ignore";
+  };
+  head: string;
+  repositoryName: string;
+  runCommand: RunnerDeliveryCommand;
+}): Promise<{ stdout: string } | null> {
+  const result = await input.runCommand(
+    "gh",
+    [
+      "pr",
+      "list",
+      "--state",
+      "open",
+      "--head",
+      input.head,
+      "--repo",
+      input.repositoryName,
+      "--json",
+      "url",
+      "--jq",
+      ".[0].url",
+    ],
+    input.commandOptions
+  );
+  return result.stdout.trim() ? result : null;
 }
 
 function githubRepositoryName(repositoryUrl: string): string {

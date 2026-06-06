@@ -163,4 +163,56 @@ describe("runner-job PR delivery", () => {
       "custom-bot:runner/pipe-49"
     );
   });
+
+  it("returns the existing PR URL when the delivery branch already has a PR", async () => {
+    const { createPullRequest } = await import("../src/runner-job/delivery.js");
+    const createError = new Error(
+      "a pull request for branch oisin-bot:runner/pipe-49 already exists"
+    );
+    const runCommand = vi
+      .fn()
+      .mockRejectedValueOnce(createError)
+      .mockResolvedValueOnce({
+        stdout: "https://github.com/oisin-ee/tova/pull/125\n",
+      });
+
+    await expect(
+      createPullRequest({
+        createGitClient: () => ({
+          ...cleanGitClient(),
+          branch: vi.fn(async () => ({ current: "runner/pipe-49" })),
+        }),
+        env: { GH_TOKEN: "redacted" },
+        payload: { ...cleanDevspacePayload(), delivery: { pullRequest: true } },
+        runCommand,
+        worktreePath: "/workspace",
+      })
+    ).resolves.toEqual({
+      url: "https://github.com/oisin-ee/tova/pull/125",
+    });
+
+    expect(runCommand).toHaveBeenNthCalledWith(
+      2,
+      "gh",
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--head",
+        "oisin-bot:runner/pipe-49",
+        "--repo",
+        "oisin-ee/tova",
+        "--json",
+        "url",
+        "--jq",
+        ".[0].url",
+      ],
+      {
+        cwd: "/workspace",
+        env: { GH_TOKEN: "redacted" },
+        stdin: "ignore",
+      }
+    );
+  });
 });
