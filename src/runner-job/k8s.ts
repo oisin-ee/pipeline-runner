@@ -2,6 +2,7 @@ export interface BuildRunnerJobK8sManifestOptions {
   codexAuthSecretName?: string;
   eventAuthSecretKey?: string;
   eventAuthSecretName?: string;
+  githubAuthSecretName?: string;
   image: string;
   imagePullSecretName?: string;
   jobName: string;
@@ -122,6 +123,41 @@ export function buildRunnerJobK8sManifest(
       subPath: "auth.json",
       readOnly: true,
     });
+  }
+
+  // GitHub auth Secret volume for git and gh as oisin-bot
+  if (options.githubAuthSecretName) {
+    volumes.push({
+      name: options.githubAuthSecretName,
+      secret: {
+        secretName: options.githubAuthSecretName,
+        items: [
+          { key: "gitconfig", path: "gitconfig" },
+          { key: "git-credentials", path: "git-credentials" },
+          { key: "hosts.yml", path: "hosts.yml" },
+        ],
+      },
+    });
+    volumeMounts.push(
+      {
+        name: options.githubAuthSecretName,
+        mountPath: "/root/.gitconfig",
+        subPath: "gitconfig",
+        readOnly: true,
+      },
+      {
+        name: options.githubAuthSecretName,
+        mountPath: "/root/.git-credentials",
+        subPath: "git-credentials",
+        readOnly: true,
+      },
+      {
+        name: options.githubAuthSecretName,
+        mountPath: "/root/.config/gh/hosts.yml",
+        subPath: "hosts.yml",
+        readOnly: true,
+      }
+    );
   }
 
   return {

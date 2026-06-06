@@ -267,6 +267,57 @@ describe("runner-job K8s manifest builder", () => {
     });
   });
 
+  describe("GitHub auth Secret volume", () => {
+    it("mounts oisin-bot GitHub auth files for git and gh", async () => {
+      const { buildRunnerJobK8sManifest } = await loadK8sModule();
+
+      const manifest = buildRunnerJobK8sManifest({
+        ...BASE_OPTIONS,
+        githubAuthSecretName: "oisin-bot-github-auth",
+      });
+      const volumes = manifest.spec.template.spec.volumes;
+      const container = manifest.spec.template.spec.containers[0];
+
+      expect(volumes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "oisin-bot-github-auth",
+            secret: expect.objectContaining({
+              secretName: "oisin-bot-github-auth",
+              items: [
+                { key: "gitconfig", path: "gitconfig" },
+                { key: "git-credentials", path: "git-credentials" },
+                { key: "hosts.yml", path: "hosts.yml" },
+              ],
+            }),
+          }),
+        ])
+      );
+      expect(container.volumeMounts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "oisin-bot-github-auth",
+            mountPath: "/root/.gitconfig",
+            readOnly: true,
+            subPath: "gitconfig",
+          }),
+          expect.objectContaining({
+            name: "oisin-bot-github-auth",
+            mountPath: "/root/.git-credentials",
+            readOnly: true,
+            subPath: "git-credentials",
+          }),
+          expect.objectContaining({
+            name: "oisin-bot-github-auth",
+            mountPath: "/root/.config/gh/hosts.yml",
+            readOnly: true,
+            subPath: "hosts.yml",
+          }),
+        ])
+      );
+    });
+  });
+
   describe("orchestrator runner selection", () => {
     it("accepts codex orchestrator and passes runner-job, --payload-file, and orchestrator to container args", async () => {
       const { buildRunnerJobK8sManifest } = await loadK8sModule();
