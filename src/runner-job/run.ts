@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type PipelineConfig, PipelineConfigError } from "../config.js";
 import {
+  type GatewayReconcileResult,
+  reconcileGateway as reconcileMcpGateway,
+} from "../mcp/gateway.js";
+import {
   type PipelineRuntimeEvent,
   type PipelineRuntimeResult,
   runPipelineFromConfig,
@@ -52,6 +56,11 @@ type FetchLike = (
 type PipelineRunner = typeof runPipelineFromConfig;
 type SchedulePreparer = typeof generateRunnerSchedule;
 type WorkspacePreparer = typeof prepareRunnerWorkspace;
+type GatewayReconciler = (
+  config: PipelineConfig,
+  cwd: string,
+  env: Record<string, string | undefined>
+) => Promise<GatewayReconcileResult>;
 
 interface OutputStream {
   write(chunk: string | Uint8Array): boolean;
@@ -104,6 +113,7 @@ export interface RunnerJobOptions {
   pipelineRunner?: PipelineRunner;
   prepareSchedule?: SchedulePreparer;
   prepareWorkspace?: WorkspacePreparer;
+  reconcileGateway?: GatewayReconciler;
   runDevspaceCommand?: RunnerDevspaceCommand;
   signalEmitter?: SignalEmitter;
   stderr?: OutputStream;
@@ -274,6 +284,26 @@ async function prepareReadyWorkspace(
     requireRunnerConfig(readiness),
     options.orchestrator
   );
+  const runnerEnv = {
+    ...workspace.env,
+    PIPELINE_TARGET_PATH: workspace.worktreePath,
+  };
+  workspace.env = runnerEnv;
+  if (config.mcp_gateway) {
+    const reconcile = options.reconcileGateway ?? reconcileMcpGateway;
+    const result = await reconcile(config, workspace.worktreePath, runnerEnv);
+    await recordRunnerJobPhase(
+      sink,
+      "mcp.gateway.reconciled",
+      "MCP gateway reconciled",
+      {
+        backendCount: result.backendCount,
+        configPath: result.configPath,
+        readinessFailures: result.readinessFailures,
+        workspacePath: result.workspacePath,
+      }
+    );
+  }
   await recordRunnerJobPhase(
     sink,
     "environment.ready",

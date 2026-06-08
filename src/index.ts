@@ -26,6 +26,7 @@ import {
   configureGatewayHosts,
   type GatewayHostScope,
   localGatewayStatus,
+  reconcileGateway,
   renderGatewayConfig,
   runGatewayDoctor,
   startLocalGateway,
@@ -577,6 +578,27 @@ export function createCliProgram(): Command {
             ].join(" ")
           )
           .join("\n")
+      );
+    });
+
+  gatewayCommand
+    .command("reconcile")
+    .description("Apply the current workspace gateway backend inventory")
+    .action(async () => {
+      const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+      const config = loadPipelineConfig(cwd, {
+        allowMissingLintFileReferences: true,
+      });
+      const result = await reconcileGateway(config, cwd);
+      console.log(
+        [
+          `workspace=${result.workspacePath}`,
+          `config=${result.configPath}`,
+          `backends=${result.backendCount}`,
+          result.readinessFailures.length > 0
+            ? `readiness_failures=${result.readinessFailures.join("; ")}`
+            : "readiness_failures=none",
+        ].join("\n")
       );
     });
 

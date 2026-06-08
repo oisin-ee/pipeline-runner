@@ -32,6 +32,7 @@ const PLAN_IMPLEMENT_RE = /- implement kind=workflow needs=plan/;
 const PLAN_MERGE_RE = /- merge kind=builtin needs=implement/;
 const PLAN_REVIEW_RE = /- review kind=agent needs=merge/;
 const WARNING_RE = /warning/i;
+const NO_REPO_COPY_RE = /clone|copy|mirror/i;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const DEFAULT_TEST_SKILLS = [
@@ -2453,6 +2454,114 @@ workflows:
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
       restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", originalGatewayToken);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("gateway doctor fails when required upstream tools are missing", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-tools-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
+    const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+    const originalFetch = global.fetch;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
+      process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
+      global.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/health")) {
+          return Promise.resolve(new Response(null, { status: 200 }));
+        }
+        return Promise.resolve(
+          Response.json({
+            jsonrpc: "2.0",
+            id: 2,
+            result: {
+              tools: [{ name: "context7_query_docs" }],
+            },
+          })
+        );
+      });
+
+      await expect(
+        runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "mcp",
+          "gateway",
+          "doctor",
+        ])
+      ).rejects.toThrow("MCP gateway doctor checks failed.");
+
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain("gateway-required-tools");
+      expect(output).toContain("missing:");
+      expect(output).toContain("backlog");
+    } finally {
+      log.mockRestore();
+      global.fetch = originalFetch;
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
+      restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", originalGatewayToken);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reconciles the current workspace into a complete ToolHive vMCP inventory", async () => {
+    const { runCli } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-reconcile-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      mkdirSync(join(dir, ".serena"), { recursive: true });
+      writeFileSync(join(dir, ".serena/project.yml"), "name: test\n");
+      mkdirSync(join(dir, "backlog"), { recursive: true });
+      writeFileSync(join(dir, "package.json"), "{}\n");
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/pipe",
+        "mcp",
+        "gateway",
+        "reconcile",
+      ]);
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        "thv",
+        expect.arrayContaining(["vmcp", "validate"]),
+        expect.objectContaining({ cwd: dir })
+      );
+      const applyCall = mockExeca.mock.calls.find(
+        ([command, args]) =>
+          command === "thv" && Array.isArray(args) && args.includes("validate")
+      );
+      expect(applyCall).toBeDefined();
+      const args = applyCall?.[1];
+      expect(Array.isArray(args)).toBe(true);
+      const filePath = Array.isArray(args) ? args.at(-1) : undefined;
+      expect(filePath).toBeTruthy();
+      const rendered = readFileSync(filePath as string, "utf8");
+      expect(rendered).toContain("name: backlog");
+      expect(rendered).toContain("name: context7");
+      expect(rendered).toContain("name: fallow");
+      expect(rendered).toContain("name: qdrant");
+      expect(rendered).toContain("name: serena");
+      expect(rendered).toContain("name: uidotsh");
+      expect(rendered).toContain("groupRef: default");
+
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain("workspace=");
+      expect(output).toContain(dir);
+      expect(output).not.toMatch(NO_REPO_COPY_RE);
+    } finally {
+      log.mockRestore();
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       rmSync(dir, { recursive: true, force: true });
     }
   });

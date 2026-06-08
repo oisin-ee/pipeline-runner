@@ -56,6 +56,15 @@ const BUILTIN_GATES = ["duplication", "semgrep", "test", "typecheck"] as const;
 const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
 const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
 const SCHEDULING_ROLES = ["coverage", "implementation"] as const;
+const MCP_GATEWAY_BACKEND_LOCALITIES = [
+  "repo-local",
+  "repo-scoped-remote",
+  "shared-remote",
+] as const;
+const MCP_GATEWAY_WORKSPACE_PATH_SOURCES = [
+  "PIPELINE_TARGET_PATH",
+  "cwd",
+] as const;
 const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 export const DEFAULT_RUNNER_JOB_GIT_COMMITTER = {
   email: "git@oisin.ee",
@@ -108,6 +117,29 @@ mcp_gateway:
   url_env: PIPELINE_MCP_GATEWAY_URL
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
   default_profile: default
+  backends:
+    context7:
+      locality: shared-remote
+      tool_prefixes: [context7]
+    uidotsh:
+      locality: shared-remote
+      tool_prefixes: [uidotsh]
+    qdrant:
+      locality: repo-scoped-remote
+      tool_prefixes: [qdrant]
+    fallow:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      required: false
+      tool_prefixes: [fallow]
+    serena:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [serena]
+    backlog:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [backlog]
 profiles:
   orchestrator:
     runner: codex
@@ -516,8 +548,41 @@ const mcpServerSchema = z
     }
   });
 
+const mcpGatewayBackendSchema = z
+  .object({
+    locality: z.enum(MCP_GATEWAY_BACKEND_LOCALITIES),
+    required: z.boolean().default(true),
+    tool_prefixes: z.array(z.string().min(1)).min(1),
+    workspace_path_source: z
+      .enum(MCP_GATEWAY_WORKSPACE_PATH_SOURCES)
+      .optional(),
+  })
+  .strict()
+  .superRefine((backend, ctx) => {
+    if (backend.locality === "repo-local") {
+      if (!backend.workspace_path_source) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "repo-local gateway backend must declare workspace_path_source as PIPELINE_TARGET_PATH or cwd",
+          path: ["workspace_path_source"],
+        });
+      }
+      return;
+    }
+    if (backend.workspace_path_source) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "workspace_path_source is only valid for repo-local gateway backends",
+        path: ["workspace_path_source"],
+      });
+    }
+  });
+
 const mcpGatewaySchema = z
   .object({
+    backends: strictRecord(mcpGatewayBackendSchema).default({}),
     default_profile: z.string().min(1).optional(),
     mode: z.enum(["hosted", "local"]),
     provider: z.literal("toolhive"),
@@ -1152,6 +1217,10 @@ export type HookEvent = (typeof HOOK_EVENTS)[number];
 export type GateKind = (typeof GATE_KINDS)[number];
 export type ScheduleBaseline = (typeof SCHEDULE_BASELINES)[number];
 export type SchedulingRole = (typeof SCHEDULING_ROLES)[number];
+export type McpGatewayBackendLocality =
+  (typeof MCP_GATEWAY_BACKEND_LOCALITIES)[number];
+export type McpGatewayWorkspacePathSource =
+  (typeof MCP_GATEWAY_WORKSPACE_PATH_SOURCES)[number];
 type ConfigGateSpec = NonNullable<
   PipelineConfig["workflows"][string]["nodes"][number]["gates"]
 >[number];
@@ -1549,11 +1618,21 @@ function validateActor(
     `${path}.mcp_servers`,
     actor.mcp_servers,
     config.mcp_gateway
-      ? { ...config.mcp_servers, [PIPELINE_GATEWAY_SERVER_ID]: {} }
+      ? { [PIPELINE_GATEWAY_SERVER_ID]: {} }
       : config.mcp_servers,
     "MCP server",
     issues
   );
+  if (config.mcp_gateway) {
+    for (const serverId of actor.mcp_servers ?? []) {
+      if (serverId !== PIPELINE_GATEWAY_SERVER_ID) {
+        issues.push({
+          path: `${path}.mcp_servers`,
+          message: `${path}.mcp_servers must only reference ${PIPELINE_GATEWAY_SERVER_ID} when mcp_gateway is configured`,
+        });
+      }
+    }
+  }
 
   validateBooleanCapability(
     `${path}.rules`,

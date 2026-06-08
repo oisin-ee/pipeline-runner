@@ -9,6 +9,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
 import type { PipelineConfig } from "../config.js";
+import { resolveRepoLocalBackendSpecs } from "./repo-local-backends.js";
+import { renderToolHiveVmcpInventory } from "./toolhive-vmcp.js";
 
 export const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 export const DEFAULT_LOCAL_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
@@ -44,6 +46,13 @@ export interface GatewayConfigureHostOptions {
   cwd: string;
   host: GatewayHostSelection;
   scope: GatewayHostScope;
+}
+
+export interface GatewayReconcileResult {
+  backendCount: number;
+  configPath: string;
+  readinessFailures: string[];
+  workspacePath: string;
 }
 
 export class PipelineMcpGatewayError extends Error {
@@ -197,6 +206,7 @@ export async function runGatewayDoctor(
     checkGatewayToken(gateway),
     ...(gateway.mode === "local" ? [await checkThv(cwd)] : []),
     await checkGatewayHealth(gateway),
+    await checkGatewayRequiredTools(gateway),
     checkLegacyDirectMcp(cwd),
   ];
   return {
@@ -236,12 +246,151 @@ export async function startLocalGateway(
   );
 }
 
+export async function reconcileGateway(
+  config: PipelineConfig,
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<GatewayReconcileResult> {
+  const gateway = configuredGateway(config);
+  if (gateway.provider !== "toolhive") {
+    throw new PipelineMcpGatewayError(
+      `Unsupported MCP gateway provider '${gateway.provider}'.`
+    );
+  }
+  const workspacePath = env.PIPELINE_TARGET_PATH || cwd;
+  const repoLocalBackends = resolveRepoLocalBackendSpecs(config, {
+    cwd: workspacePath,
+    env,
+  });
+  const inventory = renderToolHiveVmcpInventory(config, {
+    repoLocalBackends,
+  });
+  const configPath = join(
+    workspacePath,
+    ".pipeline",
+    "mcp-gateway",
+    "vmcp.yaml"
+  );
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, inventory.yaml);
+  await execa("thv", ["vmcp", "validate", "--config", configPath], {
+    cwd: workspacePath,
+    env: await toolhiveEnv(workspacePath),
+    stdin: "ignore",
+  });
+  return {
+    backendCount: inventory.backends.length,
+    configPath,
+    readinessFailures: repoLocalBackends
+      .filter((backend) => backend.enabled && !backend.readiness.ok)
+      .map((backend) => `${backend.id}: ${backend.readiness.reason}`),
+    workspacePath,
+  };
+}
+
 export async function localGatewayStatus(cwd: string): Promise<string> {
   const result = await execa("thv", ["list"], {
     cwd,
     env: await toolhiveEnv(cwd),
   });
   return result.stdout.trim();
+}
+
+async function checkGatewayRequiredTools(
+  gateway: McpGatewayConfig
+): Promise<GatewayDoctorCheck> {
+  const requiredPrefixes = requiredGatewayToolPrefixes(gateway);
+  if (requiredPrefixes.length === 0) {
+    return {
+      detail: "no required tools declared",
+      name: "gateway-required-tools",
+      passed: true,
+    };
+  }
+  try {
+    const tools = await listGatewayTools(gateway);
+    const missing = requiredPrefixes.filter(
+      (prefix) =>
+        !tools.some((tool) => tool === prefix || tool.startsWith(`${prefix}_`))
+    );
+    return missing.length === 0
+      ? {
+          detail: `found: ${requiredPrefixes.join(", ")}`,
+          name: "gateway-required-tools",
+          passed: true,
+        }
+      : {
+          detail: `missing: ${missing.join(", ")}`,
+          name: "gateway-required-tools",
+          passed: false,
+        };
+  } catch (err) {
+    return {
+      detail: err instanceof Error ? err.message : String(err),
+      name: "gateway-required-tools",
+      passed: false,
+    };
+  }
+}
+
+function requiredGatewayToolPrefixes(gateway: McpGatewayConfig): string[] {
+  return [
+    ...new Set(
+      Object.values(gateway.backends)
+        .filter((backend) => backend.required)
+        .flatMap((backend) => backend.tool_prefixes)
+    ),
+  ].sort();
+}
+
+async function listGatewayTools(gateway: McpGatewayConfig): Promise<string[]> {
+  const url = gatewayUrl(gateway);
+  await callGatewayRpc(gateway, url, {
+    id: 1,
+    jsonrpc: "2.0",
+    method: "initialize",
+    params: {
+      capabilities: {},
+      clientInfo: { name: "@oisincoveney/pipeline", version: "1" },
+      protocolVersion: "2025-06-18",
+    },
+  });
+  const listed = await callGatewayRpc(gateway, url, {
+    id: 2,
+    jsonrpc: "2.0",
+    method: "tools/list",
+    params: {},
+  });
+  const tools = listed.result?.tools;
+  if (!Array.isArray(tools)) {
+    throw new PipelineMcpGatewayError("Malformed tools/list response.");
+  }
+  return tools.flatMap((tool) =>
+    tool && typeof tool.name === "string" ? [tool.name] : []
+  );
+}
+
+async function callGatewayRpc(
+  gateway: McpGatewayConfig,
+  url: string,
+  body: Record<string, unknown>
+): Promise<{ result?: { tools?: unknown } }> {
+  const authorization = process.env[gateway.authorization_env];
+  const response = await fetch(url, {
+    body: JSON.stringify(body),
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new PipelineMcpGatewayError(
+      `Gateway MCP request failed: HTTP ${response.status}.`
+    );
+  }
+  return (await response.json()) as { result?: { tools?: unknown } };
 }
 
 function selectedGatewayHosts(

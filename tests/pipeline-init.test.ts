@@ -123,6 +123,14 @@ describe("initPipelineProject", () => {
       authorization_env: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
       url_env: "PIPELINE_MCP_GATEWAY_URL",
     });
+    expect(Object.keys(config.mcp_gateway?.backends ?? {}).sort()).toEqual([
+      "backlog",
+      "context7",
+      "fallow",
+      "qdrant",
+      "serena",
+      "uidotsh",
+    ]);
     expect(config.mcp_servers).toEqual({});
     expect(config.profiles["pipeline-researcher"].mcp_servers).toEqual([
       "pipeline-gateway",
@@ -309,6 +317,8 @@ describe("initPipelineProject", () => {
     expect(generated).not.toMatch(BANNED_DEFAULTS_RE);
     expect(generated).not.toMatch(GITHUB_WRITE_MCP_RE);
     expect(generated).toContain("mcp_gateway:");
+    expect(generated).toContain("backends:");
+    expect(generated).toContain("workspace_path_source: PIPELINE_TARGET_PATH");
     expect(generated).toContain("mcp_servers: [pipeline-gateway]");
     expect(generated).not.toContain("path: .mcp.json");
     expect(generated).not.toContain("uvx");

@@ -25,6 +25,11 @@ pipeline owns the host projection: project host config declares only the
 singleton `pipeline-gateway` remote MCP server. Agents inherit that project
 config instead of receiving profile-scoped native MCP config.
 
+Repo-aware upstreams bind to the current checkout. Local commands resolve the
+workspace from `PIPELINE_TARGET_PATH` or the current working directory; runner
+jobs use the already-prepared `/workspace` worktree. Gateway setup must not
+clone, mirror, or copy the repository for MCP.
+
 ## Folder Boundary
 
 MCP-specific code belongs in `src/mcp`:
@@ -40,9 +45,12 @@ host-specific MCP config.
 1. Run or deploy a gateway that exposes one remote MCP endpoint.
 2. Configure the gateway with upstream servers and credentials.
 3. Configure `mcp_gateway` in `.pipeline/profiles.yaml`.
-4. Run `pipe mcp gateway configure-host` to write the project Codex/OpenCode
+4. Run `pipe mcp gateway reconcile` to render and apply the full ToolHive vMCP
+   backend inventory for the current workspace.
+5. Run `pipe mcp gateway configure-host` to write the project Codex/OpenCode
    host config.
-5. Keep high-risk upstream capabilities controlled by gateway-side policy, not
+6. Run `pipe mcp gateway doctor` to verify gateway health and required tools.
+7. Keep high-risk upstream capabilities controlled by gateway-side policy, not
    by asking every agent host to independently start or filter servers.
 
 Example profile config:
@@ -55,6 +63,14 @@ mcp_gateway:
   url_env: PIPELINE_MCP_GATEWAY_URL
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
   default_profile: default
+  backends:
+    context7:
+      locality: shared-remote
+      tool_prefixes: [context7]
+    backlog:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [backlog]
 
 profiles:
   pipeline-researcher:
@@ -81,8 +97,11 @@ Use an off-the-shelf aggregator when possible:
 
 - ToolHive vMCP gateway: hosted or local aggregation behind a single MCP URL.
 
-Use `pipe mcp gateway doctor` to check required environment variables, gateway
-health, local ToolHive availability for local mode, and legacy direct MCP
-entries. Use `pipe mcp gateway configure-host` to rewrite project or global
-host config with a backup. For Codex and OpenCode, this removes direct
-upstream MCP entries and writes the singleton `pipeline-gateway` remote entry.
+Use `pipe mcp gateway reconcile` to render the complete aggregate backend list;
+adding one backend must not replace the existing Context7, uidotsh, Qdrant,
+Fallow, Serena, or Backlog declarations. Use `pipe mcp gateway doctor` to check
+required environment variables, gateway health, required `tools/list` prefixes,
+local ToolHive availability for local mode, and legacy direct MCP entries. Use
+`pipe mcp gateway configure-host` to rewrite project or global host config with
+a backup. For Codex and OpenCode, this removes direct upstream MCP entries and
+writes the singleton `pipeline-gateway` remote entry.

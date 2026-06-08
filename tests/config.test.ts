@@ -194,6 +194,13 @@ function parseParts(parts: Partial<PipelineConfigParts>) {
   return parsePipelineConfigParts({ ...VALID_PARTS, ...parts });
 }
 
+function profilesWithGatewayBackends(backendsYaml: string): string {
+  return VALID_PROFILES_YAML.replace(
+    "  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+    `  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION\n${backendsYaml}`
+  );
+}
+
 function parseProjectParts(
   projectRoot: string,
   parts: Partial<PipelineConfigParts> = {}
@@ -785,6 +792,112 @@ workflows:
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("missing rule 'missing'");
+  });
+
+  it("accepts a strict repo-aware MCP gateway backend contract", () => {
+    const config = parseParts({
+      profiles: profilesWithGatewayBackends(`  backends:
+    context7:
+      locality: shared-remote
+      required: true
+      tool_prefixes: [context7]
+    backlog:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [backlog]
+    fallow:
+      locality: repo-local
+      workspace_path_source: cwd
+      required: false
+      tool_prefixes: [fallow]`),
+    });
+
+    expect(config.mcp_gateway?.backends).toMatchObject({
+      context7: {
+        locality: "shared-remote",
+        required: true,
+        tool_prefixes: ["context7"],
+      },
+      backlog: {
+        locality: "repo-local",
+        workspace_path_source: "PIPELINE_TARGET_PATH",
+        tool_prefixes: ["backlog"],
+      },
+      fallow: {
+        locality: "repo-local",
+        workspace_path_source: "cwd",
+        required: false,
+        tool_prefixes: ["fallow"],
+      },
+    });
+    expect(config.mcp_servers).toEqual({});
+    expect(config.profiles.orchestrator.mcp_servers).toEqual([
+      "pipeline-gateway",
+    ]);
+  });
+
+  it("rejects unknown gateway backend keys", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        profiles: profilesWithGatewayBackends(`  backends:
+    serena:
+      locality: repo-local
+      workspace_path_source: cwd
+      tool_prefixes: [serena]
+      clone_url: https://github.com/example/repo.git`),
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("Unrecognized key");
+    expect(error.message).toContain("clone_url");
+  });
+
+  it("rejects invalid repo-local gateway backend locality", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        profiles: profilesWithGatewayBackends(`  backends:
+    serena:
+      locality: workspace-clone
+      workspace_path_source: cwd
+      tool_prefixes: [serena]`),
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("Invalid option");
+    expect(error.message).toContain("repo-local");
+    expect(error.message).toContain("shared-remote");
+  });
+
+  it("rejects repo-local gateway backends without an active workspace source", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        profiles: profilesWithGatewayBackends(`  backends:
+    serena:
+      locality: repo-local
+      tool_prefixes: [serena]`),
+      })
+    );
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain(
+      "repo-local gateway backend must declare workspace_path_source"
+    );
+  });
+
+  it("rejects direct upstream MCP grants when mcp_gateway is configured", () => {
+    const profiles = VALID_PROFILES_YAML.replace(
+      "mcp_servers: [pipeline-gateway]",
+      "mcp_servers: [pipeline-gateway, serena]"
+    );
+
+    const error = captureConfigError(() => parseParts({ profiles }));
+
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain(
+      "profiles.orchestrator.mcp_servers must only reference pipeline-gateway"
+    );
   });
 
   it("rejects duplicate workflow node ids", () => {

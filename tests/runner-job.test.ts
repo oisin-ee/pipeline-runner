@@ -650,6 +650,63 @@ describe("runner-job entrypoint", () => {
     }
   });
 
+  it("reconciles the gateway against the prepared runner workspace once", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-gateway-"));
+    const prepareWorkspace = vi.fn(async () => ({
+      env: { PIPELINE_TARGET_PATH: dir },
+      worktreePath: dir,
+    }));
+    const reconcileGateway = vi.fn(async () => ({
+      backendCount: 6,
+      configPath: join(dir, ".pipeline/mcp-gateway/vmcp.yaml"),
+      readinessFailures: [],
+      workspacePath: dir,
+    }));
+    const pipelineRunner = vi.fn((options) => {
+      expect(options.worktreePath).toBe(dir);
+      return runtimeResult("PASS");
+    });
+
+    try {
+      await writeTestSkills(dir);
+      await writePipelineFixture(dir);
+      const payloadFile = join(dir, "payload.json");
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      await writeFile(
+        payloadFile,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        env: { PIPELINE_TARGET_PATH: dir },
+        fetch: vi.fn(async () => okResponse()),
+        payloadFile,
+        pipelineRunner,
+        prepareWorkspace,
+        reconcileGateway,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(prepareWorkspace).toHaveBeenCalledTimes(1);
+      expect(reconcileGateway).toHaveBeenCalledWith(
+        expect.anything(),
+        dir,
+        expect.objectContaining({ PIPELINE_TARGET_PATH: dir })
+      );
+      expect(pipelineRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it("commits and pushes successful runner job changes without requiring a PR", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-git-delivery-"));

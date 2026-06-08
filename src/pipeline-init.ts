@@ -385,6 +385,29 @@ mcp_gateway:
   url_env: PIPELINE_MCP_GATEWAY_URL
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
   default_profile: default
+  backends:
+    context7:
+      locality: shared-remote
+      tool_prefixes: [context7]
+    uidotsh:
+      locality: shared-remote
+      tool_prefixes: [uidotsh]
+    qdrant:
+      locality: repo-scoped-remote
+      tool_prefixes: [qdrant]
+    fallow:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      required: false
+      tool_prefixes: [fallow]
+    serena:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [serena]
+    backlog:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [backlog]
 
 profiles:
   orchestrator:

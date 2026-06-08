@@ -417,7 +417,10 @@ validation rejects the profile grant.
 
 MCP access is host-level and gateway-only. Codex, OpenCode, pipeline agents,
 manual sessions, and CI all connect to one ToolHive/vMCP gateway URL. Do not
-start upstream MCP servers from individual sessions.
+start upstream MCP servers from individual sessions. Repo-aware MCP backends
+must use `PIPELINE_TARGET_PATH`, the current working directory, or the runner
+job's already-prepared `/workspace`; do not add an MCP-specific clone, mirror,
+copy, init container, or extra repository volume.
 
 Use the same client config shape for hosted and local gateways:
 
@@ -429,6 +432,29 @@ mcp_gateway:
   url_env: PIPELINE_MCP_GATEWAY_URL
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
   default_profile: default
+  backends:
+    context7:
+      locality: shared-remote
+      tool_prefixes: [context7]
+    uidotsh:
+      locality: shared-remote
+      tool_prefixes: [uidotsh]
+    qdrant:
+      locality: repo-scoped-remote
+      tool_prefixes: [qdrant]
+    fallow:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      required: false
+      tool_prefixes: [fallow]
+    serena:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [serena]
+    backlog:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [backlog]
 ```
 
 For local development, use `mode: local`; sessions still connect to the gateway
@@ -448,9 +474,10 @@ profiles:
 Inspect or repair host config with:
 
 ```shell
-pipe mcp gateway doctor
 pipe mcp gateway config
+pipe mcp gateway reconcile
 pipe mcp gateway configure-host
+pipe mcp gateway doctor
 ```
 
 For local gateway development:
@@ -580,6 +607,14 @@ mcp_gateway:
   url: https://pipeline-mcp.momokaya.ee/mcp/
   url_env: PIPELINE_MCP_GATEWAY_URL
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
+  backends:
+    context7:
+      locality: shared-remote
+      tool_prefixes: [context7]
+    backlog:
+      locality: repo-local
+      workspace_path_source: PIPELINE_TARGET_PATH
+      tool_prefixes: [backlog]
 
 profiles:
   pipeline-router:
