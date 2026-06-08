@@ -3,6 +3,12 @@ import type { PlannedWorkflowNode } from "../../workflow-planner";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { executeDrainMergeBuiltin } from "../drain-merge";
 
+interface BuiltinCommandResult {
+  command?: string;
+  exitCode: number;
+  output: string;
+}
+
 export async function executeBuiltin(
   builtin: string,
   context: RuntimeContext,
@@ -14,7 +20,10 @@ export async function executeBuiltin(
     case "test": {
       const result = await runTests(context.worktreePath, context.signal);
       return {
-        evidence: [result.output, ...result.failingTests],
+        evidence: [
+          ...builtinCommandEvidence("test", result),
+          ...result.failingTests,
+        ],
         exitCode: result.exitCode,
         output: result.output,
       };
@@ -22,7 +31,7 @@ export async function executeBuiltin(
     case "typecheck": {
       const result = await runTypecheck(context.worktreePath, context.signal);
       return {
-        evidence: [result.output],
+        evidence: builtinCommandEvidence("typecheck", result),
         exitCode: result.exitCode,
         output: result.output,
       };
@@ -38,7 +47,7 @@ export async function executeBuiltin(
     case "semgrep": {
       const result = await runSemgrep(context.worktreePath, context.signal);
       return {
-        evidence: [result.output],
+        evidence: builtinCommandEvidence("semgrep", result),
         exitCode: result.exitCode,
         output: result.output,
       };
@@ -50,4 +59,15 @@ export async function executeBuiltin(
         output: "",
       };
   }
+}
+
+function builtinCommandEvidence(
+  builtin: string,
+  result: BuiltinCommandResult
+): string[] {
+  const command = result.command ? `: ${result.command}` : "";
+  return [
+    `builtin '${builtin}' exited ${result.exitCode}${command}`,
+    result.output || `builtin '${builtin}' produced no output`,
+  ];
 }

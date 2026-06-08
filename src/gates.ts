@@ -6,6 +6,7 @@ import { detect } from "package-manager-detector/detect";
 import { parseJson } from "./safe-json.js";
 
 export interface TestResult {
+  command?: string;
   exitCode: number;
   failingTests: string[];
   output: string;
@@ -32,6 +33,10 @@ interface ProjectCommand {
   args: string[];
   command: string;
   shell?: boolean;
+}
+
+function displayCommand(command: ProjectCommand): string {
+  return [command.command, ...command.args].join(" ");
 }
 
 function readPackageScripts(worktreePath: string): Record<string, string> {
@@ -99,11 +104,25 @@ export async function runTests(
       shell: projectCommand.shell,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
-    return { exitCode: result.exitCode ?? 0, output, failingTests: [] };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; exitCode?: number };
-    const output = [e.stdout, e.stderr].filter(Boolean).join("\n");
     return {
+      command: displayCommand(projectCommand),
+      exitCode: result.exitCode ?? 0,
+      output,
+      failingTests: [],
+    };
+  } catch (err) {
+    const e = err as {
+      exitCode?: number;
+      message?: string;
+      shortMessage?: string;
+      stderr?: string;
+      stdout?: string;
+    };
+    const output =
+      [e.stdout, e.stderr].filter(Boolean).join("\n") ||
+      [e.shortMessage, e.message].filter(Boolean).join("\n");
+    return {
+      command: displayCommand(projectCommand),
       exitCode: e.exitCode ?? 1,
       output,
       failingTests: parseFailingTests(output),
@@ -116,7 +135,7 @@ export async function runTests(
 export async function runTypecheck(
   worktreePath: string,
   signal?: AbortSignal
-): Promise<{ exitCode: number; output: string }> {
+): Promise<{ command?: string; exitCode: number; output: string }> {
   const projectCommand =
     envCommand("PIPELINE_TYPECHECK_COMMAND") ??
     (await resolvePackageScript(worktreePath, "typecheck"));
@@ -131,11 +150,27 @@ export async function runTypecheck(
       shell: projectCommand.shell,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
-    return { exitCode: result.exitCode ?? 0, output };
+    return {
+      command: displayCommand(projectCommand),
+      exitCode: result.exitCode ?? 0,
+      output,
+    };
   } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; exitCode?: number };
-    const output = [e.stdout, e.stderr].filter(Boolean).join("\n");
-    return { exitCode: e.exitCode ?? 1, output };
+    const e = err as {
+      exitCode?: number;
+      message?: string;
+      shortMessage?: string;
+      stderr?: string;
+      stdout?: string;
+    };
+    const output =
+      [e.stdout, e.stderr].filter(Boolean).join("\n") ||
+      [e.shortMessage, e.message].filter(Boolean).join("\n");
+    return {
+      command: displayCommand(projectCommand),
+      exitCode: e.exitCode ?? 1,
+      output,
+    };
   }
 }
 
@@ -144,7 +179,7 @@ export async function runTypecheck(
 export async function runSemgrep(
   worktreePath: string,
   signal?: AbortSignal
-): Promise<{ exitCode: number; output: string }> {
+): Promise<{ command?: string; exitCode: number; output: string }> {
   const projectCommand = envCommand("PIPELINE_SEMGREP_COMMAND") ?? {
     args: ["semgrep", "scan", "--config=p/ci", "--error", "."],
     command: "uvx",
@@ -157,11 +192,27 @@ export async function runSemgrep(
       shell: projectCommand.shell,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
-    return { exitCode: result.exitCode ?? 0, output };
+    return {
+      command: displayCommand(projectCommand),
+      exitCode: result.exitCode ?? 0,
+      output,
+    };
   } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; exitCode?: number };
-    const output = [e.stdout, e.stderr].filter(Boolean).join("\n");
-    return { exitCode: e.exitCode ?? 1, output };
+    const e = err as {
+      exitCode?: number;
+      message?: string;
+      shortMessage?: string;
+      stderr?: string;
+      stdout?: string;
+    };
+    const output =
+      [e.stdout, e.stderr].filter(Boolean).join("\n") ||
+      [e.shortMessage, e.message].filter(Boolean).join("\n");
+    return {
+      command: displayCommand(projectCommand),
+      exitCode: e.exitCode ?? 1,
+      output,
+    };
   }
 }
 

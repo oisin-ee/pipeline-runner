@@ -66,6 +66,7 @@ const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const tempDirs: string[] = [];
 const originalPipelineTestCommand = process.env.PIPELINE_TEST_COMMAND;
 const originalPipelineSemgrepCommand = process.env.PIPELINE_SEMGREP_COMMAND;
+const originalPipelineTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
 const CANCEL_PATTERN = /cancel/i;
 const LINE_SPLIT_RE = /\r?\n/;
 const RUN_CHILD_BRANCH_RE = /^run-[0-9a-f-]+\/child$/;
@@ -94,6 +95,11 @@ afterEach(() => {
     delete process.env.PIPELINE_SEMGREP_COMMAND;
   } else {
     process.env.PIPELINE_SEMGREP_COMMAND = originalPipelineSemgrepCommand;
+  }
+  if (originalPipelineTypecheckCommand === undefined) {
+    delete process.env.PIPELINE_TYPECHECK_COMMAND;
+  } else {
+    process.env.PIPELINE_TYPECHECK_COMMAND = originalPipelineTypecheckCommand;
   }
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -1725,6 +1731,64 @@ workflows:
       attempts: 2,
       status: "passed",
     });
+  });
+
+  it("includes builtin gate command failures in coverage remediation prompts", async () => {
+    const project = tempProject();
+    process.env.PIPELINE_TYPECHECK_COMMAND = "node -e process.exit(1)";
+    mockExeca
+      .mockRejectedValueOnce({ exitCode: 1, stderr: "", stdout: "" })
+      .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "ok" });
+    const config = baseConfig(`
+  remediate-builtin-flow:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: a
+      - id: verify
+        kind: agent
+        profile: b
+        needs: [implement]
+        gates:
+          - id: verify-typecheck
+            kind: builtin
+            builtin: typecheck
+`);
+    config.profiles.a.scheduling_roles = ["implementation"];
+    config.profiles.b.scheduling_roles = ["coverage"];
+    const seen: RunnerLaunchPlan[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return {
+          exitCode: 0,
+          stdout: plan.nodeId.includes(":remediate:")
+            ? "remediated implementation output"
+            : "node output",
+        };
+      },
+      task: "builtin remediation",
+      workflowId: "remediate-builtin-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement",
+      "verify",
+      "implement:remediate:verify:1",
+      "verify",
+    ]);
+    const remediationPrompt = seen[2]?.args.join("\n") ?? "";
+    expect(remediationPrompt).toContain("Failed gate:\nverify-typecheck");
+    expect(remediationPrompt).toContain(
+      "builtin 'typecheck' exited 1: node -e process.exit(1)"
+    );
+    expect(remediationPrompt).toContain(
+      "builtin 'typecheck' produced no output"
+    );
   });
 
   it("injects stdout gate JSON contracts into agent prompts", async () => {
