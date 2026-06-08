@@ -4,10 +4,10 @@ Generated host resources are derived from package-owned
 `@oisincoveney/pipeline` config. They do not maintain independent profile
 definitions or silently translate one runner into another host's default agent.
 
-Install or check generated resources with:
+Install generated resources during setup, then check drift with:
 
 ```sh
-pipe install-commands --host all
+pipe init
 pipe install-commands --host all --check
 ```
 

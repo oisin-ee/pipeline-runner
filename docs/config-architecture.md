@@ -1,20 +1,18 @@
 # YAML Pipeline Architecture
 
-The v1 runtime pipeline is package-owned config. The scaffolded YAML shape is
-split into three files:
-
-- `.pipeline/runners.yaml` declares runner adapters and capabilities.
-- `.pipeline/profiles.yaml` declares reusable profiles, rules, skills, and MCP servers.
-- Package-owned defaults declare the orchestrator profile, entrypoints, schedules, hooks, workflows, gates, and artifacts.
+The v1 runtime pipeline is package-owned config. Package-owned defaults declare
+runner adapters, profiles, MCP gateway backends, the orchestrator profile,
+entrypoints, schedules, hooks, workflows, gates, and artifacts.
 
 Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
 prompt constants.
 
 ## Complete Default Shape
 
-`pipe init` writes the default workflow with this shape.
+`pipe init` does not write this YAML into repositories. The runtime loads this
+shape from the installed package defaults.
 
-`.pipeline/runners.yaml`:
+Default runners:
 
 ```yaml
 version: 1
@@ -35,7 +33,7 @@ runners:
       output_formats: [text, json, jsonl, json_schema]
 ```
 
-`.pipeline/profiles.yaml`:
+Default profiles:
 
 ```yaml
 version: 1
@@ -162,9 +160,9 @@ profiles:
     mcp_servers: [pipeline-gateway]
 ```
 
-Host config generation renders exactly one remote MCP server named
-`pipeline-gateway`. Upstream MCP servers are managed by the ToolHive/vMCP
-gateway, not by Codex/OpenCode or pipeline worker sessions.
+`pipe init` renders generated Codex and OpenCode host config with exactly one
+remote MCP server named `pipeline-gateway`. Upstream MCP servers are managed by
+the ToolHive/vMCP gateway, not by Codex/OpenCode or pipeline worker sessions.
 
 JSON Schema outputs are hard contracts. The runtime validates normalized agent
 output before the node can pass. Schema outputs also get a bounded repair pass
@@ -273,8 +271,8 @@ instruction-only translation or generic worker substitution.
 
 ## Troubleshooting
 
-- Missing scaffold files: run `pipe init` only when generated host resources are
-  needed; `pipe run` loads the installed package config.
+- Missing host resources: run `pipe install-commands`; `pipe run` loads the
+  installed package config.
 - Capability error: reduce the profile grants or choose a runner whose declared
   capabilities include the requested tools, filesystem, network, output, rules,
   skills, or MCP access.

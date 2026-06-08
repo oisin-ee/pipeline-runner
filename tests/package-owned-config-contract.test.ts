@@ -10,7 +10,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 
 const OPTIONAL_RUNNER_CONFIG_RE = /\bconfig\?:\s*PipelineConfig\b/;
 const PUBLIC_MISSING_CONFIG_API_RE =
@@ -173,17 +172,7 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
 
   it("keeps generated prompts and command text from naming repo-local YAML as the runtime source", () => {
     const generatedText = [
-      ...Object.entries(defaultPipelineScaffoldFiles())
-        .filter(([path]) =>
-          [
-            ".pipeline/host-resources/codex.md",
-            ".pipeline/host-resources/opencode.md",
-            ".pipeline/prompts/orchestrator.md",
-            ".pipeline/prompts/verifier.md",
-            ".pipeline/prompts/code-writer.md",
-          ].includes(path)
-        )
-        .map(([path, content]) => `${path}\n${content}`),
+      `src/config.ts\n${readFileSync(join(process.cwd(), "src/config.ts"), "utf8")}`,
       `src/install-commands.ts\n${readFileSync(
         join(process.cwd(), "src/install-commands.ts"),
         "utf8"

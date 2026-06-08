@@ -1,10 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 
 vi.mock("execa", () => ({
   execa: vi.fn(() => ({ exitCode: 0, stderr: "", stdout: "" })),
@@ -58,16 +57,6 @@ const TEST_SKILLS = [
   "trace",
   "verify",
 ];
-
-async function writePipelineFixture(root: string): Promise<void> {
-  for (const [path, content] of Object.entries(
-    defaultPipelineScaffoldFiles()
-  )) {
-    const target = join(root, path);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content);
-  }
-}
 
 function validPayload(): Record<string, unknown> {
   return {
@@ -257,6 +246,23 @@ async function writeTestSkills(root: string): Promise<void> {
   }
 }
 
+async function writeIgnoredRepoLocalSmokeConfig(root: string): Promise<void> {
+  const pipelineDir = join(root, ".pipeline");
+  await mkdir(pipelineDir, { recursive: true });
+  await writeFile(
+    join(pipelineDir, "pipeline.yaml"),
+    [
+      "version: 1",
+      "runner_job:",
+      "  environment:",
+      "    smoke:",
+      "      - command: bun",
+      '        args: ["run", "test:smoke"]',
+      "",
+    ].join("\n")
+  );
+}
+
 describe("runner-job entrypoint", () => {
   it("returns EX_USAGE 64 when payloadFile is not provided", async () => {
     const { runRunnerJob } = await loadRunnerModule();
@@ -402,7 +408,6 @@ describe("runner-job entrypoint", () => {
 
     const dir = await mkdtemp(join(tmpdir(), "pipe-ticket-schedule-"));
     try {
-      await writePipelineFixture(dir);
       const authTokenFilePath = join(dir, "event-token");
       await writeFile(authTokenFilePath, "console-token");
       await mkdir(join(dir, "backlog", "tasks"), { recursive: true });
@@ -485,12 +490,7 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await writePipelineFixture(dir);
-      const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
-      await writeFile(
-        pipelineConfigPath,
-        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  environment:\n    smoke:\n      - command: bun\n        args: ["run", "test:smoke"]\n`
-      );
+      await writeIgnoredRepoLocalSmokeConfig(dir);
 
       const payloadFile = join(dir, "payload.json");
       const authTokenFilePath = join(dir, "event-token");
@@ -608,7 +608,6 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await writePipelineFixture(dir);
       const authTokenFilePath = join(dir, "event-token");
       await writeFile(authTokenFilePath, "console-token");
       const payloadFile = join(dir, "payload.json");
@@ -696,7 +695,6 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await writePipelineFixture(dir);
       const payloadFile = join(dir, "payload.json");
       const authTokenFilePath = join(dir, "event-token");
       await writeFile(authTokenFilePath, "console-token");
@@ -745,7 +743,6 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await writePipelineFixture(dir);
       const authTokenFilePath = join(dir, "event-token");
       await writeFile(authTokenFilePath, "console-token");
       const payloadFile = join(dir, "payload.json");
@@ -813,7 +810,6 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await writePipelineFixture(dir);
       const authTokenFilePath = join(dir, "event-token");
       await writeFile(authTokenFilePath, "console-token");
       const payloadFile = join(dir, "payload.json");
@@ -900,7 +896,6 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await writePipelineFixture(dir);
       const authTokenFilePath = join(dir, "event-token");
       await writeFile(authTokenFilePath, "console-token");
       const payloadFile = join(dir, "payload.json");
@@ -1006,12 +1001,7 @@ describe("runner-job entrypoint", () => {
 
     try {
       await writeTestSkills(dir);
-      await writePipelineFixture(dir);
-      const pipelineConfigPath = join(dir, ".pipeline", "pipeline.yaml");
-      await writeFile(
-        pipelineConfigPath,
-        `${await readFile(pipelineConfigPath, "utf8")}\nrunner_job:\n  environment:\n    smoke:\n      - command: bun\n        args: ["run", "test:smoke"]\n`
-      );
+      await writeIgnoredRepoLocalSmokeConfig(dir);
 
       const authTokenFilePath = join(dir, "event-token");
       await writeFile(authTokenFilePath, "console-token");
@@ -1463,7 +1453,7 @@ readiness.config.default_workflow;
     let fetchCallCount = 0;
     const fetchMock = vi.fn(() => {
       fetchCallCount += 1;
-      return fetchCallCount <= 3
+      return fetchCallCount <= 4
         ? Promise.resolve(okResponse())
         : Promise.reject(new Error("console unavailable"));
     });

@@ -701,6 +701,10 @@ describe("pipe", () => {
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+      expect(existsSync(join(dir, ".agents/skills/pipe/SKILL.md"))).toBe(true);
+      expect(existsSync(join(dir, ".opencode/commands/pipe.md"))).toBe(true);
+      expect(existsSync(join(dir, ".codex/config.toml"))).toBe(true);
+      expect(existsSync(join(dir, ".opencode/opencode.json"))).toBe(true);
       expect(
         mockExeca.mock.calls.some(
           ([command, args]) =>
@@ -801,7 +805,7 @@ describe("pipe", () => {
     }
   });
 
-  it("installs host resources into PIPELINE_TARGET_PATH", async () => {
+  it("initializes host resources into PIPELINE_TARGET_PATH", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-install-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -809,17 +813,18 @@ describe("pipe", () => {
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "install-commands",
-        "--host",
-        "opencode",
-      ]);
 
       expect(existsSync(join(dir, ".opencode", "commands", "pipe.md"))).toBe(
         true
       );
+      expect(existsSync(join(dir, ".opencode", "opencode.json"))).toBe(true);
+      const opencode = JSON.parse(
+        readFileSync(join(dir, ".opencode", "opencode.json"), "utf8")
+      );
+      expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
+        type: "remote",
+        url: "http://127.0.0.1:4483/mcp",
+      });
       expect(
         existsSync(join(process.cwd(), ".opencode", "commands", "pipe.md"))
       ).toBe(true);
@@ -1564,7 +1569,7 @@ workflows:
     }
   });
 
-  it("does not repair partial repo-local pipeline scaffolds", async () => {
+  it("does not repair partial repo-local pipeline files", async () => {
     const { runCli } = await import("../src/index.js");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-partial-init-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -1578,18 +1583,13 @@ workflows:
       );
       process.env.PIPELINE_TARGET_PATH = dir;
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "init",
-        "--overwrite",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
 
       expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
       expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("no repo-local pipeline files were created");
+      ).toContain("no repo-local pipeline config files were created");
     } finally {
       log.mockRestore();
       if (originalTargetPath === undefined) {

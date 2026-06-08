@@ -1,11 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { alg } from "@dagrejs/graphlib";
 import { afterAll, describe, expect, it } from "vitest";
 import type { PipelineConfig } from "../src/config.js";
 import { loadPipelineConfig } from "../src/config.js";
-import { defaultPipelineScaffoldFiles } from "../src/pipeline-init.js";
 import {
   compileWorkflowPlan,
   WorkflowPlannerError,
@@ -15,36 +14,9 @@ import {
 // "${" sequence out of the source so noTemplateCurlyInString stays satisfied.
 const WORKTREE_TEMPLATE = `.pipeline/worktrees/$${"{runId}"}/$${"{nodeId}"}`;
 
-const DEFAULT_FILES = defaultPipelineScaffoldFiles();
 const DEFAULT_PROJECT = mkdtempSync(
   join(tmpdir(), "workflow-planner-default-")
 );
-for (const [path, content] of Object.entries(DEFAULT_FILES)) {
-  const target = join(DEFAULT_PROJECT, path);
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, content);
-}
-for (const skill of [
-  "critique",
-  "diagnose",
-  "doubt",
-  "fix",
-  "improve",
-  "library-first-development",
-  "migrate",
-  "optimize",
-  "research",
-  "scope",
-  "secure",
-  "spec",
-  "test",
-  "trace",
-  "verify",
-]) {
-  const target = join(DEFAULT_PROJECT, ".agents", "skills", skill, "SKILL.md");
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, `---\nname: ${skill}\n---\n\n# ${skill}\n`);
-}
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT);
 
 afterAll(() => {
@@ -153,7 +125,7 @@ function graphlibReferenceTopologicalOrder(
 }
 
 describe("compileWorkflowPlan", () => {
-  it("compiles the default scaffold workflow into stable topological order", () => {
+  it("compiles the package default workflow into stable topological order", () => {
     const plan = compileWorkflowPlan(DEFAULT_CONFIG);
 
     expect(plan.workflowId).toBe("default");

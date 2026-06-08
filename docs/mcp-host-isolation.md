@@ -2,7 +2,8 @@
 
 `oisin-pipeline` treats project host config as the MCP client boundary. The
 generated Codex and OpenCode project configs declare exactly one remote MCP
-server: `pipeline-gateway`.
+server: `pipeline-gateway`. `pipe init` owns those generated project configs for
+both hosts during setup.
 
 ## Codex
 

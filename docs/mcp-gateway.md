@@ -44,11 +44,11 @@ host-specific MCP config.
 
 1. Run or deploy a gateway that exposes one remote MCP endpoint.
 2. Configure the gateway with upstream servers and credentials.
-3. Configure `mcp_gateway` in `.pipeline/profiles.yaml`.
+3. Configure `mcp_gateway` in package-owned profile config.
 4. Run `pipe mcp gateway reconcile` to render and apply the full ToolHive vMCP
    backend inventory for the current workspace.
-5. Run `pipe mcp gateway configure-host` to write the project Codex/OpenCode
-   host config.
+5. Run `pipe init` to write project Codex/OpenCode command surfaces and host
+   MCP config.
 6. Run `pipe mcp gateway doctor` to verify gateway health and required tools.
 7. Keep high-risk upstream capabilities controlled by gateway-side policy, not
    by asking every agent host to independently start or filter servers.
@@ -102,6 +102,8 @@ adding one backend must not replace the existing Context7, uidotsh, Qdrant,
 Fallow, Serena, or Backlog declarations. Use `pipe mcp gateway doctor` to check
 required environment variables, gateway health, required `tools/list` prefixes,
 local ToolHive availability for local mode, and legacy direct MCP entries. Use
-`pipe mcp gateway configure-host` to rewrite project or global host config with
-a backup. For Codex and OpenCode, this removes direct upstream MCP entries and
-writes the singleton `pipeline-gateway` remote entry.
+`pipe init` to install generated Codex and OpenCode host surfaces with the
+singleton `pipeline-gateway` remote entry. Use `pipe install-commands --host all`
+to refresh generated host files after package upgrades, and use
+`pipe mcp gateway configure-host` as an explicit migration or repair command
+when existing host MCP config must be rewritten with a backup.

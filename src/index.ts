@@ -67,7 +67,7 @@ interface PipeOptions {
 
 /**
  * Config-driven `pipe` entrypoint. Package-owned defaults are the source of
- * truth; repo-local pipeline files are only scaffolding fixtures.
+ * truth; repo-local pipeline files are ignored by runtime loading.
  */
 export function pipe(
   description: string,
@@ -377,10 +377,6 @@ interface InstallCommandFlags {
   host?: CommandHostSelection;
 }
 
-interface InitFlags {
-  overwrite?: boolean;
-}
-
 interface GatewayConfigureHostFlags {
   host?: CommandHostSelection;
   scope?: GatewayHostScope;
@@ -631,11 +627,9 @@ export function createCliProgram(): Command {
     .description(
       "Initialize package-owned pipeline support without repo-local config"
     )
-    .option("--overwrite", "replace existing pipeline scaffold files", false)
-    .action(async (flags: InitFlags) => {
+    .action(async () => {
       const result = await initPipelineProject({
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-        overwrite: flags.overwrite ?? false,
       });
       console.log(formatPipelineInitResult(result));
     });

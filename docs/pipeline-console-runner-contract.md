@@ -69,9 +69,9 @@ runner clones `repository.url` into `/workspace`, checks out a
 package-owned `@oisincoveney/pipeline` config, generates a task-specific `pipe`
 schedule, and then invokes the pipeline engine.
 
-Stable repo assets are package-scaffolded prompts, rules, schemas, and skills.
-Run artifacts are schedules, worktrees, agent prompts, logs, reports,
-verification evidence, and PR metadata.
+Stable runtime config is package-owned. Repo-local artifacts are schedules,
+worktrees, agent prompts, logs, reports, verification evidence, and PR
+metadata.
 
 Payloads declare `contractVersion: "1"`. Runner images are labeled with
 `pipeline.oisin.dev.runner-contract-version` and

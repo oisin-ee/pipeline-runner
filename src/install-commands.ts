@@ -4,7 +4,10 @@ import { basename, dirname, join, relative } from "node:path";
 import matter from "gray-matter";
 import { stringify as stringifyToml } from "smol-toml";
 import { loadPipelineConfig, type PipelineConfig } from "./config.js";
-import { renderCodexGatewayConfig } from "./mcp/gateway.js";
+import {
+  renderCodexGatewayConfig,
+  renderOpenCodeGatewayConfig,
+} from "./mcp/gateway.js";
 import { resolveFileReference } from "./path-refs.js";
 import { compileWorkflowPlan } from "./workflow-planner.js";
 
@@ -517,6 +520,16 @@ function opencodeDefinitions(
       invocation: invocationForHost("opencode", id),
       path: `.opencode/commands/${id}.md`,
     })),
+    ...(config.mcp_gateway
+      ? [
+          {
+            content: renderOpenCodeGatewayConfig(config),
+            host: "opencode" as const,
+            invocation: invocationForHost("opencode"),
+            path: ".opencode/opencode.json",
+          },
+        ]
+      : []),
     {
       content: markdown(
         {

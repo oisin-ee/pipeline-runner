@@ -1,14 +1,15 @@
 # @oisincoveney/pipeline
 
 Config-driven multi-agent pipeline runner for repository work. Runtime config is
-owned by the installed `@oisincoveney/pipeline` package. Repo-local `.pipeline/*`
-files are scaffolding and generated host resources, not the runtime source.
+owned by the installed `@oisincoveney/pipeline` package. Repo-local `.pipeline`
+paths are runtime artifact locations only; they are not the runtime config
+source.
 
 ## Requirements
 
 - Bun 1.1 or newer
 - Node.js 22.13 or newer
-- `npx`, `backlog`, `uvx`, and Docker on `PATH` for default skills and MCP setup
+- `npx`, `backlog`, `uvx`, and Docker on `PATH` for default skills and MCP gateway setup
 - At least one configured runner CLI on `PATH`: `codex`, `opencode`, `kimi`,
   `pi`, or a declared command runner
 
@@ -20,33 +21,31 @@ bun install --frozen-lockfile
 
 ## Start A Repository
 
-Scaffold the default YAML workflow:
+Initialize package-owned pipeline support:
 
 ```shell
 pipe init
 ```
 
 `pipe init` installs default project skills with
-`npx skills add oisincoveney/skills` and registers default MCP servers with the
-MCPM CLI from https://mcpm.sh/. Default profiles point at the installed
-`.agents/skills/<skill>/SKILL.md` files in the target repository. The package
-invokes MCPM through `uvx --python 3.12 mcpm`, so generated `.mcp.json` entries
-do not depend on a globally installed `mcpm` binary. The default Qdrant/memory
-MCP is the Momokaya remote endpoint
-`https://memory-mcp.momokaya.ee/mcp/`.
+`npx skills add oisincoveney/skills`, then writes generated Codex and OpenCode
+command surfaces plus their singleton `pipeline-gateway` MCP entries. It does
+not create repo-local `.pipeline` config files.
 
-The default GitHub MCP registration uses GitHub's official container in
-read-only mode and reads `GITHUB_PERSONAL_ACCESS_TOKEN` from the environment.
-The Momokaya gateway endpoint is protected by Traefik HTTP Basic auth. Set
-`PIPELINE_MCP_GATEWAY_AUTHORIZATION` to the full HTTP `Authorization` header
-value before starting Codex or OpenCode:
+The default MCP gateway can run locally or point at the hosted Momokaya
+gateway. Set `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to the full HTTP
+`Authorization` header value before starting Codex or OpenCode when using a
+protected gateway:
 
 ```shell
 export PIPELINE_MCP_GATEWAY_AUTHORIZATION="Basic $(printf '%s' 'user:password' | base64)"
 ```
 
-`pipe init` writes project-level Codex and OpenCode config that points at the
-singleton `pipeline-gateway` MCP server.
+To refresh or check generated host files later, use:
+
+```shell
+pipe install-commands --host all --check
+```
 
 Check local prerequisites and config health:
 
@@ -134,9 +133,12 @@ validation, contract-version checks, and JSON Schema generation.
 Use `PIPELINE_TARGET_PATH=/path/to/worktree` when the checked-out target repo is
 mounted somewhere other than the process working directory.
 
-## Minimal YAML
+## Custom YAML Parts
 
-`.pipeline/runners.yaml`:
+Runtime execution uses package-owned defaults. Tests and advanced embedding code
+can still parse explicit YAML parts with `parsePipelineConfigParts()`.
+
+`runners`:
 
 ```yaml
 version: 1
@@ -154,7 +156,7 @@ runners:
       output_formats: [text, json, jsonl, json_schema]
 ```
 
-`.pipeline/profiles.yaml`:
+`profiles`:
 
 ```yaml
 version: 1
@@ -180,7 +182,7 @@ profiles:
       format: text
 ```
 
-Example scaffolded workflow shape:
+Example workflow shape:
 
 ```yaml
 version: 1
@@ -217,9 +219,8 @@ Package-owned defaults declare `entrypoints` that expose stable app or CLI names
 resolving to workflows or schedule policies. Direct `--workflow` selection
 remains available and takes precedence over `--entrypoint` when both are set.
 
-The default scaffold includes a full research, red, green, verify, learn
-workflow. See `docs/config-architecture.md` for a complete example and the host
-support matrix.
+The package defaults include a full research, red, green, verify, learn
+workflow. See `docs/config-architecture.md` for the host support matrix.
 
 ### Structural Parallelism
 
@@ -289,22 +290,22 @@ branches share a base SHA, and merges passing branches into an integration
 branch in declaration order. It reports merge conflicts; it does not resolve
 them automatically.
 
-Default profile skills are installed into `.agents/skills` by `pipe init`.
-Runtime MCP projection and host-specific isolation policy live in `src/mcp`; see
-[`docs/mcp-host-isolation.md`](docs/mcp-host-isolation.md) and
+Default profile skills and generated host resources are installed by
+`pipe init`. Runtime MCP projection and host-specific isolation policy live in
+`src/mcp`; see [`docs/mcp-host-isolation.md`](docs/mcp-host-isolation.md) and
 [`docs/mcp-gateway.md`](docs/mcp-gateway.md).
 
 ## Generated Host Resources
 
-Generate native host files from the YAML config:
+Generate native host files during setup:
 
 ```shell
-pipe install-commands --host all
+pipe init
 ```
 
-Generated resources are derived from the three config files; they are not
-separate sources of truth. Host resources use exact native agents when the node
-runner matches the host. OpenCode also uses native subagents for cross-runner
+Generated resources are derived from package-owned config; they are not separate
+sources of truth. Host resources use exact native agents when the node runner
+matches the host. OpenCode also uses native subagents for cross-runner
 model-backed nodes when the runner/profile provides an OpenCode-compatible
 `model` or `host_models.opencode` value. Otherwise generated instructions
 dispatch to that runner's CLI instead of inventing a host model.
