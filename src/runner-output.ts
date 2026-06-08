@@ -8,31 +8,46 @@ export interface NormalizedRunnerOutput {
   output: string;
 }
 
+export interface RunnerTextCandidate {
+  evidence: string;
+  output: string;
+}
+
 export function normalizeRunnerOutput(
   plan: RunnerLaunchPlan,
   stdout: string
 ): NormalizedRunnerOutput {
-  if (plan.type === "codex") {
-    const output = lastJsonLineValue(stdout, codexAgentMessageText);
-    if (output) {
-      return {
-        evidence: ["normalized runner output from codex JSONL"],
-        output,
-      };
-    }
-  }
-
-  if (plan.type === "opencode") {
-    const output = lastJsonLineValue(stdout, opencodeTextPart);
-    if (output) {
-      return {
-        evidence: ["normalized runner output from opencode JSON events"],
-        output,
-      };
-    }
+  const candidates = runnerTextCandidates(plan, stdout);
+  const latest = candidates.at(-1);
+  if (latest) {
+    return {
+      evidence: [latest.evidence],
+      output: latest.output,
+    };
   }
 
   return { evidence: [], output: stdout };
+}
+
+export function runnerTextCandidates(
+  plan: RunnerLaunchPlan,
+  stdout: string
+): RunnerTextCandidate[] {
+  if (plan.type === "codex") {
+    return jsonLineValues(stdout, codexAgentMessageText).map((output) => ({
+      evidence: "normalized runner output from codex JSONL",
+      output,
+    }));
+  }
+
+  if (plan.type === "opencode") {
+    return jsonLineValues(stdout, opencodeTextPart).map((output) => ({
+      evidence: "normalized runner output from opencode JSON events",
+      output,
+    }));
+  }
+
+  return [];
 }
 
 function codexAgentMessageText(value: unknown): string | undefined {
@@ -58,11 +73,11 @@ function opencodeTextPart(value: unknown): string | undefined {
   }
 }
 
-function lastJsonLineValue(
+function jsonLineValues(
   text: string,
   extract: (value: unknown) => string | undefined
-): string | undefined {
-  let latest: string | undefined;
+): string[] {
+  const values: string[] = [];
   for (const line of text.split(LINE_RE)) {
     const trimmed = line.trim();
     if (!trimmed) {
@@ -71,11 +86,11 @@ function lastJsonLineValue(
     try {
       const extracted = extract(parseJson(trimmed, "runner JSON event"));
       if (extracted) {
-        latest = extracted;
+        values.push(extracted);
       }
     } catch {
       // Non-JSON lines are valid for non-event runner output.
     }
   }
-  return latest;
+  return values;
 }

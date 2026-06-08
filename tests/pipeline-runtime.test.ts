@@ -1199,7 +1199,7 @@ workflows:
         needs: [agent-timeout]
 `);
     mockExeca.mockResolvedValueOnce({ exitCode: 0, stdout: "", stderr: "" });
-    const timeouts: number[] = [];
+    const timeouts: Array<number | undefined> = [];
 
     const result = await runPipelineFromConfig({
       config,
@@ -1477,6 +1477,72 @@ workflows:
     expect(result.nodes[0].evidence).toContain(
       "normalized runner output from codex JSONL"
     );
+  });
+
+  it("selects the latest OpenCode text event that validates against the profile schema", async () => {
+    const project = tempProject();
+    writeProjectFile(
+      project,
+      "schema.json",
+      JSON.stringify({
+        additionalProperties: false,
+        properties: { verdict: { enum: ["PASS"], type: "string" } },
+        required: ["verdict"],
+        type: "object",
+      })
+    );
+    const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+    config.runners.opencode = {
+      capabilities: {
+        native_subagents: true,
+        output_formats: ["text", "json", "json_schema"],
+      },
+      command: "opencode",
+      type: "opencode",
+    };
+    config.profiles.structured.runner = "opencode";
+    config.profiles.structured.output = {
+      format: "json_schema",
+      repair: { enabled: false },
+      schema_path: "schema.json",
+    };
+    const opencodeEvents = [
+      JSON.stringify({
+        part: {
+          text: JSON.stringify({ verdict: "PASS" }),
+          type: "text",
+        },
+        type: "text",
+      }),
+      JSON.stringify({
+        part: {
+          text: "Static verification complete",
+          type: "text",
+        },
+        type: "text",
+      }),
+    ].join("\n");
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => ({ exitCode: 0, stdout: opencodeEvents }),
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
+    expect(result.nodes[0].evidence).toContain(
+      "selected valid structured output for structured"
+    );
+    expect(result.agentInvocations).toHaveLength(1);
   });
 
   it("repairs invalid JSON schema output before gates evaluate it", async () => {

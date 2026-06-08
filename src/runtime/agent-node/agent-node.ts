@@ -7,7 +7,10 @@ import {
   createRunnerLaunchPlan,
   type RunnerLaunchPlan,
 } from "../../runner";
-import { normalizeRunnerOutput } from "../../runner-output";
+import {
+  normalizeRunnerOutput,
+  runnerTextCandidates,
+} from "../../runner-output";
 import type { PlannedWorkflowNode } from "../../workflow-planner";
 import type {
   JsonSchemaValidationResult,
@@ -53,6 +56,7 @@ export async function executeAgentNode(
     context,
     node,
     normalized,
+    plan,
     result,
     attempt,
   });
@@ -74,9 +78,19 @@ async function finalizeAgentOutput(inputs: {
   context: RuntimeContext;
   node: PlannedWorkflowNode;
   normalized: { evidence: string[]; output: string };
+  plan: RunnerLaunchPlan;
   result: AgentResult;
 }): Promise<{ evidence: string[]; output: string }> {
-  const { attempt, context, node, normalized, result } = inputs;
+  const { attempt, context, node, normalized, plan, result } = inputs;
+  const validStructuredOutput = selectValidStructuredOutput(
+    context,
+    node,
+    plan,
+    result.stdout
+  );
+  if (validStructuredOutput) {
+    return validStructuredOutput;
+  }
   const repairContext = outputRepairContext(context, node, normalized, result);
   if (!repairContext) {
     return normalized;
@@ -89,6 +103,39 @@ async function finalizeAgentOutput(inputs: {
     repairContext,
     attempt
   );
+}
+
+function selectValidStructuredOutput(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  plan: RunnerLaunchPlan,
+  stdout: string
+): { evidence: string[]; output: string } | null {
+  const profile = node.profile
+    ? context.config.profiles[node.profile]
+    : undefined;
+  const output = profile?.output;
+  if (output?.format !== "json_schema" || !output.schema_path) {
+    return null;
+  }
+  const candidates = runnerTextCandidates(plan, stdout);
+  for (const candidate of [...candidates].reverse()) {
+    const validation = validateJsonSchemaSource(
+      candidate.output,
+      output.schema_path,
+      context.worktreePath
+    );
+    if (validation.passed) {
+      return {
+        evidence: [
+          candidate.evidence,
+          `selected valid structured output for ${node.id}`,
+        ],
+        output: candidate.output,
+      };
+    }
+  }
+  return null;
 }
 
 function outputRepairContext(
@@ -299,6 +346,7 @@ export function renderAgentPrompt(
     `Node: ${node.id}`,
     node.profile ? `Profile: ${node.profile}` : "",
     renderTaskContext(effectiveTaskContext(node, context)),
+    renderProfileOutputContract(profile, context.worktreePath),
     renderGateOutputContract(node),
     "",
     "Declared grants:",
@@ -362,6 +410,26 @@ function renderGateOutputContract(node: PlannedWorkflowNode): string {
     ].join("\n");
   }
   return "";
+}
+
+function renderProfileOutputContract(
+  profile: PipelineConfig["profiles"][string] | undefined,
+  worktreePath: string
+): string {
+  const output = profile?.output;
+  if (output?.format !== "json_schema" || !output.schema_path) {
+    return "";
+  }
+  const schema = readJsonSchemaSource(output.schema_path, worktreePath);
+  return [
+    "",
+    "Profile output contract:",
+    "Return only valid JSON matching the expected schema.",
+    "Do not use Markdown fences or add prose outside the JSON object.",
+    "",
+    "Expected schema:",
+    schema,
+  ].join("\n");
 }
 
 export function effectiveTaskContext(

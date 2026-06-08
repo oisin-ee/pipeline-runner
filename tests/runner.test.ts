@@ -20,6 +20,7 @@ function makeSimpleResult(stdout = "output", exitCode = 0) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.PIPELINE_AGENT_TIMEOUT_MS;
   process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:8787/mcp";
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "test-gateway-token";
 });
@@ -55,7 +56,10 @@ describe("spawnAgent — codex harness", () => {
         "--skip-git-repo-check",
         "write tests",
       ],
-      expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
+      expect.not.objectContaining({ timeout: expect.any(Number) })
+    );
+    expect(mockExeca.mock.calls[0][2]).toEqual(
+      expect.objectContaining({ cwd: "/tmp/wt" })
     );
     expect(result).toEqual(
       expect.objectContaining({ stdout: "codex output", exitCode: 0 })
@@ -112,7 +116,10 @@ describe("spawnAgent — opencode harness", () => {
         "/tmp/wt",
         "verify things",
       ],
-      expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
+      expect.not.objectContaining({ timeout: expect.any(Number) })
+    );
+    expect(mockExeca.mock.calls[0][2]).toEqual(
+      expect.objectContaining({ cwd: "/tmp/wt" })
     );
   });
 
@@ -142,7 +149,10 @@ describe("spawnAgent — opencode harness", () => {
         "--file",
         "/tmp/ctx.md",
       ],
-      expect.objectContaining({ cwd: "/tmp/wt", timeout: 300_000 })
+      expect.not.objectContaining({ timeout: expect.any(Number) })
+    );
+    expect(mockExeca.mock.calls[0][2]).toEqual(
+      expect.objectContaining({ cwd: "/tmp/wt" })
     );
   });
 
@@ -268,6 +278,30 @@ workflows:
       runnerId: "opencode",
       timeoutMs: 900_000,
     });
+  });
+
+  it("does not invent a native runner timeout when config and env omit one", () => {
+    const plan = createRunnerLaunchPlan(CONFIG, {
+      profileId: "opencode-agent",
+      nodeId: "research-current-club",
+      prompt: "research current club",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(plan.timeoutMs).toBeUndefined();
+  });
+
+  it("uses PIPELINE_AGENT_TIMEOUT_MS when explicitly configured in the environment", () => {
+    process.env.PIPELINE_AGENT_TIMEOUT_MS = "123456";
+
+    const plan = createRunnerLaunchPlan(CONFIG, {
+      profileId: "opencode-agent",
+      nodeId: "research-current-club",
+      prompt: "research current club",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(plan.timeoutMs).toBe(123_456);
   });
 
   it("rejects unsupported output contracts before execution", () => {

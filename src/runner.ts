@@ -54,7 +54,7 @@ export interface RunnerLaunchPlan {
   outputFormat: string;
   profileId?: string;
   runnerId: string;
-  timeoutMs: number;
+  timeoutMs?: number;
   type: RunnerType;
 }
 
@@ -222,7 +222,7 @@ async function execaHarness(
     const result = await execa(harness, argv, {
       cwd: worktreePath,
       stdin: input === undefined ? "ignore" : "pipe",
-      timeout: Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000),
+      ...agentTimeoutOption(),
       ...(input === undefined ? {} : { input }),
     });
     return {
@@ -314,9 +314,7 @@ function createActorLaunchPlan(
   }
 
   const command = runner.command ?? runner.type;
-  const timeoutMs =
-    actor?.timeout_ms ??
-    Number(process.env.PIPELINE_AGENT_TIMEOUT_MS ?? 300_000);
+  const timeoutMs = actor?.timeout_ms ?? agentTimeoutMsFromEnv();
   const env: Record<string, string | undefined> = {};
   const base = {
     cwd: input.worktreePath,
@@ -410,7 +408,7 @@ export async function runLaunchPlan(
       cwd: plan.cwd,
       env: plan.env,
       stdin: "ignore",
-      timeout: plan.timeoutMs,
+      ...timeoutOption(plan.timeoutMs),
     });
     result = {
       argv: plan.args,
@@ -441,6 +439,25 @@ export async function runLaunchPlan(
     ...result,
     stderr: [result.stderr, cleanupError].filter(Boolean).join("\n"),
   };
+}
+
+function agentTimeoutMsFromEnv(): number | undefined {
+  const raw = process.env.PIPELINE_AGENT_TIMEOUT_MS;
+  if (!raw) {
+    return;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function agentTimeoutOption(): { timeout: number } | Record<string, never> {
+  return timeoutOption(agentTimeoutMsFromEnv());
+}
+
+function timeoutOption(
+  timeoutMs: number | undefined
+): { timeout: number } | Record<string, never> {
+  return timeoutMs === undefined ? {} : { timeout: timeoutMs };
 }
 
 function cleanupOpencodeRuntimeDir(plan: RunnerLaunchPlan): string | undefined {
