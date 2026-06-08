@@ -41,6 +41,10 @@ const RUNNER_ENTRYPOINT_COPY_RE =
 const RUNNER_NODE_ENV_PRODUCTION_RE = /ENV\s+NODE_ENV=production/;
 const RUNNER_HOME_RE = /ENV\s+HOME=\/root/;
 const RUNNER_CODEX_HOME_RE = /ENV\s+CODEX_HOME=\/root\/\.codex/;
+const RUNNER_CODEX_AUTH_DIR_RE = /mkdir\s+-p[\s\S]*"\$CODEX_HOME"/;
+const RUNNER_OPENCODE_AUTH_DIR_RE =
+  /mkdir\s+-p[\s\S]*\/root\/\.local\/share\/opencode/;
+const RUNNER_GITHUB_AUTH_DIR_RE = /mkdir\s+-p[\s\S]*\/root\/\.config\/gh/;
 const AUTH_JSON_ENV_RE = /CODEX_AUTH_JSON|OPENCODE_AUTH_JSON|PI_AUTH_JSON/;
 const PIPELINE_CONSOLE_RE = /pipeline-console|apps\/console/i;
 const DOCKER_BUILD_RE = /\bdocker\s+build\b/;
@@ -158,6 +162,9 @@ describe("runner container image packaging", () => {
 
     expect(dockerfile).toMatch(RUNNER_HOME_RE);
     expect(dockerfile).toMatch(RUNNER_CODEX_HOME_RE);
+    expect(dockerfile).toMatch(RUNNER_CODEX_AUTH_DIR_RE);
+    expect(dockerfile).toMatch(RUNNER_OPENCODE_AUTH_DIR_RE);
+    expect(dockerfile).toMatch(RUNNER_GITHUB_AUTH_DIR_RE);
     expect(dockerfile).not.toMatch(RUNNER_NODE_ENV_PRODUCTION_RE);
     expect(dockerfile).not.toMatch(RUNNER_ENTRYPOINT_COPY_RE);
     expect(dockerfile).not.toMatch(AUTH_JSON_ENV_RE);

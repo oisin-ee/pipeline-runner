@@ -40,6 +40,7 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates gh git openssh-client \
+  && mkdir -p "$CODEX_HOME" /root/.local/share/opencode /root/.config/gh \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=helm /usr/bin/helm /usr/local/bin/helm
