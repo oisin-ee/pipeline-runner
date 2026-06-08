@@ -27,6 +27,7 @@ ARG CODEX_PACKAGE_VERSION=0.137.0
 ARG OPENCODE_PACKAGE_VERSION=1.15.13
 ARG CLAUDE_CODE_PACKAGE_VERSION=2.1.162
 ARG PNPM_PACKAGE_VERSION=10.24.0
+ARG BUN_PACKAGE_VERSION=1.3.14
 
 LABEL pipeline.oisin.dev.pipeline-package-version=${PIPELINE_PACKAGE_VERSION}
 LABEL pipeline.oisin.dev.runner-contract-version=${RUNNER_JOB_CONTRACT_VERSION}
@@ -50,9 +51,11 @@ RUN npm install -g \
     "@openai/codex@${CODEX_PACKAGE_VERSION}" \
     "opencode-ai@${OPENCODE_PACKAGE_VERSION}" \
     "@anthropic-ai/claude-code@${CLAUDE_CODE_PACKAGE_VERSION}" \
+    "bun@${BUN_PACKAGE_VERSION}" \
   && rm -f /tmp/pipeline-package.tgz \
   && npm cache clean --force \
   && command -v oisin-pipeline \
+  && command -v bun \
   && command -v pnpm \
   && command -v codex \
   && command -v opencode \

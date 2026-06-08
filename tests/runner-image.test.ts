@@ -15,6 +15,8 @@ const CLAUDE_NPM_PACKAGE_RE =
   /@anthropic-ai\/claude-code@\$\{CLAUDE_CODE_PACKAGE_VERSION\}/;
 const PNPM_NPM_PACKAGE_RE = /pnpm@\$\{PNPM_PACKAGE_VERSION\}/;
 const PNPM_COMMAND_RE = /command -v pnpm/;
+const BUN_NPM_PACKAGE_RE = /bun@\$\{BUN_PACKAGE_VERSION\}/;
+const BUN_COMMAND_RE = /command -v bun/;
 const HELM_IMAGE_STAGE_RE =
   /FROM\s+alpine\/helm:4\.2\.0@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501\s+AS\s+helm/;
 const HELM_COPY_RE =
@@ -121,6 +123,8 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(NPM_GLOBAL_INSTALL_RE);
     expect(dockerfile).toMatch(PNPM_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(PNPM_COMMAND_RE);
+    expect(dockerfile).toMatch(BUN_NPM_PACKAGE_RE);
+    expect(dockerfile).toMatch(BUN_COMMAND_RE);
     expect(dockerfile).toMatch(HELM_IMAGE_STAGE_RE);
     expect(dockerfile).toMatch(HELM_COPY_RE);
     expect(dockerfile).toMatch(HELM_COMMAND_RE);
