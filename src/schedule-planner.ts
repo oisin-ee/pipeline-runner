@@ -36,6 +36,13 @@ const GENERATED_ID_TRIM_HYPHENS_RE = /^-+|-+$/g;
 const STARTS_WITH_ALPHA_RE = /^[a-z]/;
 const LINE_RE = /\r?\n/;
 const SCHEDULE_PLANNER_REPAIR_ATTEMPTS = 1;
+const SCHEDULE_BUILTINS = [
+  "drain-merge",
+  "duplication",
+  "semgrep",
+  "test",
+  "typecheck",
+] as const;
 const DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE = [
   "pipeline-verifier",
   "pipeline-acceptance-reviewer",
@@ -610,7 +617,9 @@ async function planScheduleArtifact(
     throw new ScheduleArtifactError("schedule planner returned empty output");
   }
 
-  const initial = parseGeneratedSchedule(source, "planner output");
+  const initial = acceptedGeneratedSchedule(
+    parseGeneratedSchedule(source, "planner output")
+  );
   if (initial.ok) {
     return initial.artifact;
   }
@@ -638,9 +647,8 @@ async function planScheduleArtifact(
         `schedule planner repair returned empty output after invalid schedule\n${latestFailure.message}\nPlanner output:\n${latestSource}`
       );
     }
-    const repaired = parseGeneratedSchedule(
-      repairedSource,
-      "planner repair output"
+    const repaired = acceptedGeneratedSchedule(
+      parseGeneratedSchedule(repairedSource, "planner repair output")
     );
     if (repaired.ok) {
       return repaired.artifact;
@@ -686,6 +694,37 @@ function parseGeneratedSchedule(
       ok: false,
     };
   }
+}
+
+function acceptedGeneratedSchedule(
+  parsed:
+    | { artifact: ScheduleArtifact; ok: true }
+    | { error: ScheduleArtifactError; ok: false }
+):
+  | { artifact: ScheduleArtifact; ok: true }
+  | { error: ScheduleArtifactError; ok: false } {
+  if (!parsed.ok) {
+    return parsed;
+  }
+  const builtinCheck = generatedBuiltinsSupported(parsed.artifact);
+  return builtinCheck.ok ? parsed : builtinCheck;
+}
+
+function generatedBuiltinsSupported(
+  artifact: ScheduleArtifact
+): { ok: true } | { error: ScheduleArtifactError; ok: false } {
+  const issues = unsupportedGeneratedBuiltinIssues(artifact);
+  return issues.length === 0
+    ? { ok: true }
+    : {
+        error: new ScheduleArtifactError(
+          [
+            "Invalid generated schedule:",
+            ...issues.map((issue) => `- ${issue}`),
+          ].join("\n")
+        ),
+        ok: false,
+      };
 }
 
 async function runSchedulePlanner(
@@ -742,6 +781,7 @@ function plannerPrompt(
     "- Agent node fields: id, kind: agent, profile, optional needs, gates, artifacts, retries, task_context, timeout_ms. Do not emit instructions, skills, tools, filesystem, network, model, or runner on nodes.",
     "- Command node fields: id, kind: command, command, optional needs, gates, artifacts, retries, task_context, timeout_ms. command must be a YAML sequence of strings such as command: [bun, run, test], never a scalar string.",
     "- Builtin node fields: id, kind: builtin, builtin, optional needs, gates, artifacts, retries, task_context, timeout_ms.",
+    `- Allowed builtin values: ${SCHEDULE_BUILTINS.join(", ")}. Do not emit dependency or other invented builtin ids.`,
     "- Parallel node fields: id, kind: parallel, nodes, optional needs, gates, artifacts, retries, task_context, timeout_ms. Nested nodes must follow the same schema.",
     "- Group node fields: id, kind: group, nodes, optional needs, gates, artifacts, retries, task_context, timeout_ms. nodes must be a YAML sequence of node ids.",
     "Every agent node must declare one configured profile id. Do not invent profile ids or node-level skill overrides.",
@@ -796,6 +836,7 @@ function plannerRepairPrompt(inputs: {
     "Do not add fields outside the workflow node schema.",
     "Agent nodes must not contain instructions, skills, tools, filesystem, network, model, or runner fields. Keep intent in task_context.id and the selected configured profile only.",
     "Command nodes must use command as a YAML sequence of strings, never as a scalar string.",
+    `Builtin nodes and gates may only use: ${SCHEDULE_BUILTINS.join(", ")}.`,
     "Keep valid gates and needs edges when they satisfy the schema.",
     "",
     "Validation error:",
@@ -925,6 +966,7 @@ function validateScheduleArtifact(
     ...missingAssignedWorkUnitIssues(artifact, planningContext.workUnits),
     ...workUnitDependencyIssues(config, artifact, planningContext.workUnits),
     ...invalidWorkflowPrimitiveIssues(config, artifact),
+    ...unsupportedGeneratedBuiltinIssues(artifact),
     ...implementationCoverageIssues(config, artifact),
   ];
   if (issues.length > 0) {
@@ -1166,6 +1208,28 @@ function invalidWorkflowPrimitiveIssues(
       ];
     }
     return [];
+  });
+}
+
+function unsupportedGeneratedBuiltinIssues(
+  artifact: ScheduleArtifact
+): string[] {
+  const allowed = new Set<string>(SCHEDULE_BUILTINS);
+  return allWorkflowNodes(artifact.workflows).flatMap((node) => {
+    const nodeBuiltinIssues =
+      node.kind === "builtin" && !allowed.has(node.builtin)
+        ? [
+            `unsupported generated builtin '${node.builtin}' on node '${node.id}'. Allowed builtins: ${SCHEDULE_BUILTINS.join(", ")}`,
+          ]
+        : [];
+    const gateBuiltinIssues = (node.gates ?? []).flatMap((gate) =>
+      gate.kind === "builtin" && !allowed.has(gate.builtin)
+        ? [
+            `unsupported generated builtin gate '${gate.builtin}' on node '${node.id}' gate '${gate.id}'. Allowed builtins: ${SCHEDULE_BUILTINS.join(", ")}`,
+          ]
+        : []
+    );
+    return [...nodeBuiltinIssues, ...gateBuiltinIssues];
   });
 }
 

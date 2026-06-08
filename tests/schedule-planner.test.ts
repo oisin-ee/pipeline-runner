@@ -752,6 +752,79 @@ workflows:
     }
   });
 
+  it("repairs generated schedules that invent unsupported builtin ids", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-builtin-repair-")
+    );
+    const invalidSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-builtin-repair
+source_entrypoint: pipe
+task: Run PIPE-2
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: pipe-1
+        kind: builtin
+        builtin: dependency
+`;
+    const repairedSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-builtin-repair
+source_entrypoint: pipe
+task: Run PIPE-2
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: pipe-1
+        kind: builtin
+        builtin: typecheck
+`;
+    const prompts: string[] = [];
+    const nodeIds: string[] = [];
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "pipe",
+        executor: (plan) => {
+          prompts.push(plan.args.join("\n"));
+          nodeIds.push(plan.nodeId);
+          return {
+            exitCode: 0,
+            stdout:
+              plan.nodeId === "schedule-plan-repair"
+                ? repairedSchedule
+                : invalidSchedule,
+          };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-builtin-repair",
+        task: "Run PIPE-2",
+        worktreePath: dir,
+      });
+
+      expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
+      expect(prompts[0]).toContain(
+        "Allowed builtin values: drain-merge, duplication, semgrep, test, typecheck"
+      );
+      expect(prompts[1]).toContain("unsupported generated builtin");
+      expect(result.artifact.workflows.root.nodes).toContainEqual({
+        builtin: "typecheck",
+        id: "pipe-1",
+        kind: "builtin",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("adds generated coverage fan-in for uncovered implementation nodes", async () => {
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-schedule-coverage-fan-in-")
