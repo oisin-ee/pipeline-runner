@@ -20,6 +20,10 @@ const HELM_IMAGE_STAGE_RE =
 const HELM_COPY_RE =
   /COPY\s+--from=helm\s+\/usr\/bin\/helm\s+\/usr\/local\/bin\/helm/;
 const HELM_COMMAND_RE = /command -v helm/;
+const UV_IMAGE_STAGE_RE =
+  /FROM\s+ghcr\.io\/astral-sh\/uv:0\.9\.17@sha256:5cb6b54d2bc3fe2eb9a8483db958a0b9eebf9edff68adedb369df8e7b98711a2\s+AS\s+uv/;
+const UV_COPY_RE = /COPY\s+--from=uv\s+\/uv\s+\/uvx\s+\/usr\/local\/bin\//;
+const UVX_COMMAND_RE = /command -v uvx/;
 const NPM_GLOBAL_INSTALL_RE = /npm\s+install\s+-g/i;
 const LOCAL_PIPELINE_COPY_RE = /COPY\s+(?:package\.json|src|defaults)\b/i;
 const LOCAL_PIPELINE_INSTALL_RE =
@@ -120,6 +124,9 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(HELM_IMAGE_STAGE_RE);
     expect(dockerfile).toMatch(HELM_COPY_RE);
     expect(dockerfile).toMatch(HELM_COMMAND_RE);
+    expect(dockerfile).toMatch(UV_IMAGE_STAGE_RE);
+    expect(dockerfile).toMatch(UV_COPY_RE);
+    expect(dockerfile).toMatch(UVX_COMMAND_RE);
     expect(dockerfile).toMatch(CODEX_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(OPENCODE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(CLAUDE_NPM_PACKAGE_RE);

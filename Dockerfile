@@ -17,6 +17,8 @@ RUN npm install --include=dev \
 
 FROM alpine/helm:4.2.0@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 AS helm
 
+FROM ghcr.io/astral-sh/uv:0.9.17@sha256:5cb6b54d2bc3fe2eb9a8483db958a0b9eebf9edff68adedb369df8e7b98711a2 AS uv
+
 FROM node:24-bookworm-slim AS runner
 
 ARG PIPELINE_PACKAGE_VERSION=local
@@ -40,6 +42,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=helm /usr/bin/helm /usr/local/bin/helm
+COPY --from=uv /uv /uvx /usr/local/bin/
 COPY --from=builder /tmp/oisincoveney-pipeline-*.tgz /tmp/pipeline-package.tgz
 RUN npm install -g \
     /tmp/pipeline-package.tgz \
@@ -55,6 +58,7 @@ RUN npm install -g \
   && command -v opencode \
   && command -v claude \
   && command -v helm \
+  && command -v uvx \
   && command -v gh
 
 ENTRYPOINT ["oisin-pipeline"]
