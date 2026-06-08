@@ -4,14 +4,14 @@ export type {
   RuntimeMachineTag,
   RuntimeObservabilityEmitter,
   RuntimeObservabilityEvent,
-} from "./runtime-machines/contracts.js";
+} from "./runtime-machines/contracts";
 
 import type {
   RuntimeActorDescriptor,
   RuntimeMachineTag,
   RuntimeObservabilityEmitter,
   RuntimeObservabilityEvent,
-} from "./runtime-machines/contracts.js";
+} from "./runtime-machines/contracts";
 
 export function runtimeTimestamp(): string {
   return new Date().toISOString();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { PipelineRuntimeResult } from "../src/pipeline-runtime.js";
-import { renderRunnerPullRequestSummary } from "../src/runner-job/pr-summary.js";
-import type { RunnerJobPayload } from "../src/runner-job-contract.js";
+import type { PipelineRuntimeResult } from "../src/pipeline-runtime";
+import { renderRunnerPullRequestSummary } from "../src/runner-job/pr-summary";
+import type { RunnerJobPayload } from "../src/runner-job-contract";
 
 const VALIDATED_IMPLEMENTATION_CHANGE_RE = /validated implementation change/;
 

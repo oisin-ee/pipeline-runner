@@ -8,21 +8,21 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  parsePipelineConfigParts,
-  type SchedulingRole,
-} from "../src/config.js";
+import { parsePipelineConfigParts, type SchedulingRole } from "../src/config";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
   parseScheduleArtifact,
-} from "../src/schedule-planner.js";
+  type ScheduleArtifact,
+} from "../src/schedule-planner";
 
 const EXTERNAL_WORKFLOW_RE = /external workflow/i;
 const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
 const WORK_UNIT_DEPENDENCY_RE =
   /work unit dependency edge.*PC-37\.2.*PC-37\.1/s;
+const SHARED_WORKTREE_PARALLEL_RE =
+  /write-capable children sharing a worktree/i;
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
   /schedule planner 'pipeline-schedule-planner' failed with exit 1.*codex auth missing.*partial planner output/s;
@@ -260,6 +260,13 @@ function config() {
   });
 }
 
+function compileScheduleArtifactOrThrow(
+  artifact: ScheduleArtifact,
+  worktreePath: string
+): void {
+  compileScheduleArtifact(config(), artifact, worktreePath);
+}
+
 function configWithSchedulingRoles(
   roleProfiles: Array<{
     baseProfileId: keyof ReturnType<typeof config>["profiles"];
@@ -342,6 +349,119 @@ describe("schedule artifacts", () => {
     ).toEqual(["coverage"]);
   });
 
+  it("generates an explicit team graph schedule when policy requests team-graph", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-team-graph-"));
+    writeBacklogTask(
+      dir,
+      "PIPE-60",
+      "Team graph epic",
+      "## Description\n\nParent.",
+      { parentTaskId: "" }
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-60.1",
+      "First specialist",
+      "## Description\n\nFirst.\n\n## Acceptance Criteria\n\n- [ ] #1 First works\n",
+      { parentTaskId: "PIPE-60" }
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-60.2",
+      "Second specialist",
+      "## Description\n\nSecond.\n\n## Acceptance Criteria\n\n- [ ] #1 Second works\n",
+      { dependencies: ["PIPE-60.1"], parentTaskId: "PIPE-60" }
+    );
+    const teamConfig = config();
+    teamConfig.schedules["default-schedule"].strategy = "team-graph";
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: teamConfig,
+        entrypointId: "pipe",
+        executor: () => {
+          throw new Error("team graph strategy should not invoke planner");
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-team-graph",
+        task: "PIPE-60",
+        worktreePath: dir,
+      });
+
+      expect(result.artifact.workflows.root.nodes).toEqual([
+        expect.objectContaining({
+          id: "lead-plan",
+          kind: "agent",
+          profile: "pipeline-schedule-planner",
+        }),
+        expect.objectContaining({
+          id: "specialists",
+          kind: "parallel",
+          needs: ["lead-plan"],
+          nodes: expect.arrayContaining([
+            expect.objectContaining({
+              id: "specialist-pipe-60-1",
+              kind: "agent",
+              profile: "pipeline-code-writer",
+              task_context: expect.objectContaining({ id: "PIPE-60.1" }),
+            }),
+            expect.objectContaining({
+              id: "specialist-pipe-60-2",
+              kind: "agent",
+              needs: ["specialist-pipe-60-1"],
+              profile: "pipeline-code-writer",
+              task_context: expect.objectContaining({ id: "PIPE-60.2" }),
+            }),
+            expect.objectContaining({
+              id: "specialist-coverage",
+              kind: "agent",
+              needs: ["specialist-pipe-60-1", "specialist-pipe-60-2"],
+              profile: "pipeline-verifier",
+            }),
+          ]),
+        }),
+        expect.objectContaining({
+          builtin: "drain-merge",
+          id: "integration",
+          kind: "builtin",
+          needs: ["specialists"],
+        }),
+        expect.objectContaining({
+          id: "acceptance-review",
+          kind: "agent",
+          needs: ["integration"],
+          profile: "pipeline-acceptance-reviewer",
+        }),
+        expect.objectContaining({
+          id: "verify",
+          kind: "agent",
+          needs: ["acceptance-review"],
+          profile: "pipeline-verifier",
+        }),
+      ]);
+      const specialists = result.artifact.workflows.root.nodes[1];
+      if (specialists.kind !== "parallel") {
+        throw new Error("expected specialists parallel node");
+      }
+      for (const node of specialists.nodes.filter(
+        (child) =>
+          child.kind === "agent" && child.profile === "pipeline-code-writer"
+      )) {
+        if (node.kind !== "agent") {
+          throw new Error("expected specialist agent");
+        }
+        expect(teamConfig.profiles[node.profile].filesystem?.mode).toBe(
+          "workspace-write"
+        );
+      }
+      expect(() =>
+        compileScheduleArtifact(teamConfig, result.artifact, dir)
+      ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("does not infer scheduling roles from default profile ids", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-role-contract-"));
     const profilesWithoutRoles = PROFILES.replaceAll(
@@ -385,6 +505,51 @@ workflows:
           schedule_id: "run-role-contract",
         },
       });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects write-capable parallel specialists without isolated worktrees or drain merge", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-unsafe-team-"));
+    const unsafeSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-unsafe-team
+source_entrypoint: pipe
+task: Unsafe team
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: specialists
+        kind: parallel
+        nodes:
+          - id: frontend
+            kind: agent
+            profile: pipeline-code-writer
+          - id: backend
+            kind: agent
+            profile: pipeline-code-writer
+      - id: verify
+        kind: agent
+        profile: pipeline-verifier
+        needs: [specialists]
+`;
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "pipe",
+          executor: () => ({ exitCode: 0, stdout: unsafeSchedule }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-unsafe-team",
+          task: "Unsafe team",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(SHARED_WORKTREE_PARALLEL_RE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -865,9 +1030,7 @@ workflows:
         needs: ["green-state", "green-header-picker"],
         profile: "pipeline-verifier",
       });
-      expect(() =>
-        compileScheduleArtifact(config(), result.artifact, dir)
-      ).not.toThrow();
+      compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -900,6 +1063,10 @@ workflows:
           - id: implement-signout-reset
             kind: agent
             profile: pipeline-code-writer
+      - id: integration
+        kind: builtin
+        builtin: drain-merge
+        needs: [current-club]
 `;
 
     try {
@@ -929,10 +1096,7 @@ workflows:
           }),
         ]),
       });
-      expect(result.artifact.workflows.root.nodes).toHaveLength(1);
-      expect(() =>
-        compileScheduleArtifact(config(), result.artifact, dir)
-      ).not.toThrow();
+      expect(result.artifact.workflows.root.nodes).toHaveLength(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1121,9 +1285,7 @@ workflows:
           }),
         ])
       );
-      expect(() =>
-        compileScheduleArtifact(config(), result.artifact, dir)
-      ).not.toThrow();
+      compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -1,9 +1,9 @@
 import { execa } from "execa";
-import { installCommands } from "./install-commands.js";
+import { installCommands } from "./install-commands";
 import {
   DEFAULT_SKILL_INSTALLS,
   type PipelineSkillInstallSpec,
-} from "./mcp/bootstrap.js";
+} from "./mcp/bootstrap";
 
 export type PipelineSkillInstaller = (
   specs: PipelineSkillInstallSpec[],

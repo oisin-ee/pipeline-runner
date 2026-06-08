@@ -10,20 +10,22 @@ Invoke this skill with `$inspect <task description>`.
 Configured orchestrator:
 model: default
 tools: read, list, grep, glob, bash
-rules: test-first, verification
+rules: none
 skills: scope, doubt
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
 hooks: generated-defaults-audit
 
-Instructions: .pipeline/prompts/orchestrator.md
+Instructions:
+Orchestrate package-owned pipeline config.
 
 Run workflow `inspect` for the user task.
-Codex native routes:
-- inspect: spawn_agent agent_type=pipeline-inspector model=gpt-5.5 runner=codex needs=none
+These nodes are not Codex native routes.
+CLI routes:
+- inspect: opencode CLI profile=pipeline-inspector command=`opencode run --agent pipeline-inspector --format json --dir <repo-root> <node prompt>` needs=none
 
-For each native node prompt include:
+For each CLI node prompt include:
 - user task
 - workflow id: inspect
 - node id
@@ -36,4 +38,4 @@ For each native node prompt include:
 Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
 If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.
 Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.
-Do not substitute the generic Codex worker for configured profiles.
+Do not claim these nodes are Codex subagents.

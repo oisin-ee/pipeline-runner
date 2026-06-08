@@ -1,19 +1,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type PipelineConfig, PipelineConfigError } from "../config.js";
+import { type PipelineConfig, PipelineConfigError } from "../config";
 import {
   type GatewayReconcileResult,
   reconcileGateway as reconcileMcpGateway,
-} from "../mcp/gateway.js";
+} from "../mcp/gateway";
 import {
   type PipelineRuntimeEvent,
   type PipelineRuntimeResult,
   runPipelineFromConfig,
-} from "../pipeline-runtime.js";
+} from "../pipeline-runtime";
 import {
   createRunnerEventSink,
   type RunnerEventSink,
-} from "../runner-event-sink.js";
+} from "../runner-event-sink";
 import {
   parseRunnerJobPayloadWithIssues,
   type RecoverableRunnerJobPayloadEnvelope,
@@ -21,32 +21,32 @@ import {
   type RunnerJobPayloadValidationError,
   type RunnerTask,
   resolveRunnerEventSinkAuthToken,
-} from "../runner-job-contract.js";
+} from "../runner-job-contract";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
-} from "../schedule-planner.js";
+} from "../schedule-planner";
 import {
   createPullRequest,
   deliverGitBranch,
   type GitBranchDeliverer,
   type PullRequestCreator,
-} from "./delivery.js";
+} from "./delivery";
 import {
   assertRunnerDevspaceReady,
   type RunnerDevspaceCommand,
   type RunnerDevspaceReadiness,
   runRunnerDevspaceSmoke,
   runRunnerEnvironmentSetup,
-} from "./devspace.js";
+} from "./devspace";
 import {
   type RunnerPullRequestSummary,
   renderRunnerPullRequestSummary,
-} from "./pr-summary.js";
+} from "./pr-summary";
 import {
   prepareRunnerWorkspace,
   type RunnerWorkspacePreparation,
-} from "./workspace.js";
+} from "./workspace";
 
 type FetchLike = (
   input: RequestInfo | URL,

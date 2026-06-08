@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pipe } from "../src/index.js";
+import { pipe } from "../src/index";
 
 interface LoggedCommand {
   args?: string[];
@@ -314,6 +314,20 @@ if (
 
 process.stderr.write("Unknown codex prompt");
 process.exit(1);
+`
+  );
+
+  writeExecutable(
+    env.binPath,
+    "opencode",
+    `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const result = spawnSync("codex", process.argv.slice(2), {
+  cwd: process.cwd(),
+  env: process.env,
+  stdio: "inherit",
+});
+process.exit(result.status ?? 1);
 `
   );
 

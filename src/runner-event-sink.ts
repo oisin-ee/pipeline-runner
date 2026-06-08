@@ -1,9 +1,9 @@
 import ky, { isHTTPError } from "ky";
-import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
+import type { PipelineRuntimeEvent } from "./pipeline-runtime";
 import {
   mapRuntimeEventToRunnerEventRecords as mapRuntimeEventRecords,
   type RunnerEventRecord,
-} from "./runner-job-contract.js";
+} from "./runner-job-contract";
 
 type FetchLike = (
   input: RequestInfo | URL,

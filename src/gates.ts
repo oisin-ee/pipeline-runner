@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { resolveCommand } from "package-manager-detector/commands";
 import { detect } from "package-manager-detector/detect";
-import { parseJson } from "./safe-json.js";
+import { parseJson } from "./safe-json";
 
 export interface TestResult {
   command?: string;

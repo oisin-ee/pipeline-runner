@@ -13,7 +13,7 @@ import type {
   RuntimeNodeResult,
   WorkflowSchedulerEvent,
   WorkflowSchedulerResult,
-} from "./contracts.js";
+} from "./contracts";
 
 type WorkflowHookEvent =
   | "workflow.complete"

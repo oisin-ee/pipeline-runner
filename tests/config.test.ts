@@ -16,7 +16,7 @@ import {
   PipelineConfigError,
   type PipelineConfigParts,
   parsePipelineConfigParts,
-} from "../src/config.js";
+} from "../src/config";
 
 const MIN_ITEMS_MESSAGE_RE = /at least|>=1|too small/i;
 const STUB_OR_DEFAULT_RE = /stub|default/i;
@@ -236,6 +236,25 @@ describe("loadPipelineConfig", () => {
     expect(config.entrypoints.epic).toMatchObject({
       schedule: "epic-schedule",
     });
+    expect(config.runners.codex.type).toBe("codex");
+    expect(config.runners.opencode.type).toBe("opencode");
+    expect(
+      Object.entries(config.profiles)
+        .filter(([id]) => id === "orchestrator" || id.startsWith("pipeline-"))
+        .map(([id, profile]) => [id, profile.runner])
+    ).toEqual([
+      ["orchestrator", "opencode"],
+      ["pipeline-researcher", "opencode"],
+      ["pipeline-inspector", "opencode"],
+      ["pipeline-schedule-planner", "opencode"],
+      ["pipeline-test-writer", "opencode"],
+      ["pipeline-epic-router", "opencode"],
+      ["pipeline-code-writer", "opencode"],
+      ["pipeline-acceptance-reviewer", "opencode"],
+      ["pipeline-thermo-nuclear-reviewer", "opencode"],
+      ["pipeline-verifier", "opencode"],
+      ["pipeline-learner", "opencode"],
+    ]);
     expect(config.schedules["pipe-schedule"]).toMatchObject({
       baseline: "pipe",
       planner_profile: "pipeline-schedule-planner",

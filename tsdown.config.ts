@@ -11,6 +11,8 @@ export default defineConfig({
     runner: "src/runner.ts",
     "runner-job-contract": "src/runner-job-contract.ts",
     "runner-job-k8s": "src/runner-job/k8s.ts",
+    "runtime/goal-loop": "src/runtime/goal-loop/goal-loop.ts",
+    "runtime/goal-state": "src/runtime/goal-state/goal-state.ts",
     "schedule-planner": "src/schedule-planner.ts",
     "workflow-planner": "src/workflow-planner.ts",
   },

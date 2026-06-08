@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   type PipelineConfigParts,
   parsePipelineConfigParts,
-} from "../src/config.js";
-import { resolveRepoLocalBackendSpecs } from "../src/mcp/repo-local-backends.js";
+} from "../src/config";
+import { resolveRepoLocalBackendSpecs } from "../src/mcp/repo-local-backends";
 
 const NO_REPO_COPY_COMMAND_RE = /clone|copy|mirror|git\s+clone/i;
 
@@ -76,6 +76,10 @@ describe("repo-local MCP backend specs", () => {
     expect(
       specs.flatMap((spec) => [spec.command, ...spec.args]).join(" ")
     ).not.toMatch(NO_REPO_COPY_COMMAND_RE);
+    expect(specs.find((spec) => spec.id === "fallow")).toMatchObject({
+      args: [],
+      command: "fallow-mcp",
+    });
     expect(specs).toContainEqual(
       expect.objectContaining({
         id: "serena",

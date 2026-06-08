@@ -8,9 +8,9 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
-import type { PipelineConfig } from "../config.js";
-import { resolveRepoLocalBackendSpecs } from "./repo-local-backends.js";
-import { renderToolHiveVmcpInventory } from "./toolhive-vmcp.js";
+import type { PipelineConfig } from "../config";
+import { resolveRepoLocalBackendSpecs } from "./repo-local-backends";
+import { renderToolHiveVmcpInventory } from "./toolhive-vmcp";
 
 export const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
 export const DEFAULT_LOCAL_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
@@ -53,6 +53,14 @@ export interface GatewayReconcileResult {
   configPath: string;
   readinessFailures: string[];
   workspacePath: string;
+}
+
+interface ToolHiveListWorkload {
+  name?: unknown;
+  status?: unknown;
+  transport?: unknown;
+  transport_type?: unknown;
+  url?: unknown;
 }
 
 export class PipelineMcpGatewayError extends Error {
@@ -225,13 +233,19 @@ export async function startLocalGateway(
       "mcp gateway local-start is only valid when mcp_gateway.mode is local."
     );
   }
+  const result = await reconcileGateway(config, cwd);
+  if (result.readinessFailures.length > 0) {
+    throw new PipelineMcpGatewayError(
+      `Cannot start local MCP gateway; readiness failures: ${result.readinessFailures.join("; ")}`
+    );
+  }
   await execa(
     "thv",
     [
       "vmcp",
       "serve",
-      "--group",
-      gateway.default_profile ?? "default",
+      "--config",
+      result.configPath,
       "--host",
       "127.0.0.1",
       "--port",
@@ -262,8 +276,13 @@ export async function reconcileGateway(
     cwd: workspacePath,
     env,
   });
+  const toolHiveWorkloads = await listToolHiveGroupWorkloads(
+    gateway.default_profile ?? "default",
+    workspacePath
+  );
   const inventory = renderToolHiveVmcpInventory(config, {
     repoLocalBackends,
+    toolHiveWorkloads,
   });
   const configPath = join(
     workspacePath,
@@ -281,11 +300,77 @@ export async function reconcileGateway(
   return {
     backendCount: inventory.backends.length,
     configPath,
-    readinessFailures: repoLocalBackends
-      .filter((backend) => backend.enabled && !backend.readiness.ok)
-      .map((backend) => `${backend.id}: ${backend.readiness.reason}`),
+    readinessFailures: [
+      ...repoLocalBackends
+        .filter((backend) => backend.enabled && !backend.readiness.ok)
+        .map((backend) => `${backend.id}: ${backend.readiness.reason}`),
+      ...inventory.backends
+        .filter(
+          (backend) => backend.enabled && backend.required && !backend.url
+        )
+        .map((backend) => `${backend.name}: missing ToolHive workload`),
+    ],
     workspacePath,
   };
+}
+
+async function listToolHiveGroupWorkloads(
+  group: string,
+  cwd: string
+): Promise<
+  Array<{ name: string; status?: string; transport?: string; url?: string }>
+> {
+  const result = await execa(
+    "thv",
+    ["list", "--group", group, "--format", "json"],
+    {
+      cwd,
+      env: await toolhiveEnv(cwd),
+      stdin: "ignore",
+    }
+  );
+  let parsed: unknown;
+  const stdout = result.stdout.trim();
+  if (!stdout) {
+    return [];
+  }
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new PipelineMcpGatewayError(
+      "ToolHive list returned malformed JSON while reconciling MCP gateway workloads."
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new PipelineMcpGatewayError(
+      "ToolHive list returned a non-array payload while reconciling MCP gateway workloads."
+    );
+  }
+  return parsed.flatMap((item: ToolHiveListWorkload) => {
+    if (!item || typeof item.name !== "string") {
+      return [];
+    }
+    return [
+      {
+        name: item.name,
+        status: typeof item.status === "string" ? item.status : undefined,
+        transport: toolHiveWorkloadTransport(item),
+        url: typeof item.url === "string" ? item.url : undefined,
+      },
+    ];
+  });
+}
+
+function toolHiveWorkloadTransport(
+  item: ToolHiveListWorkload
+): string | undefined {
+  if (typeof item.transport_type === "string") {
+    return item.transport_type;
+  }
+  if (typeof item.transport === "string") {
+    return item.transport;
+  }
+  return;
 }
 
 export async function localGatewayStatus(cwd: string): Promise<string> {

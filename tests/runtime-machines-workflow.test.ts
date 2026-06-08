@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { createActor } from "xstate";
-import { parsePipelineConfigParts } from "../src/config.js";
+import { parsePipelineConfigParts } from "../src/config";
 import type {
   PipelineRuntimeResult,
   RuntimeFailure,
   RuntimeNodeResult,
-} from "../src/pipeline-runtime.js";
-import { runtimeActorId } from "../src/runtime-machines/contracts.js";
+} from "../src/pipeline-runtime";
+import { runtimeActorId } from "../src/runtime-machines/contracts";
 import {
   type WorkflowSchedulerInput,
   workflowSchedulerMachine,
-} from "../src/runtime-machines/workflow-machine.js";
-import { compileWorkflowPlan } from "../src/workflow-planner.js";
+} from "../src/runtime-machines/workflow-machine";
+import { compileWorkflowPlan } from "../src/workflow-planner";
 
 describe("workflowSchedulerMachine", () => {
   it("owns workflow hooks and successful result finalization", async () => {

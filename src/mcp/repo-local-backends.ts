@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { PipelineConfig } from "../config.js";
+import type { PipelineConfig } from "../config";
 
 type McpGatewayConfig = NonNullable<PipelineConfig["mcp_gateway"]>;
 type McpGatewayBackend = McpGatewayConfig["backends"][string];
@@ -48,8 +48,8 @@ const BACKEND_TEMPLATES: Record<string, BackendTemplate> = {
     requiredPath: "backlog",
   },
   fallow: {
-    args: () => ["mcp"],
-    command: "fallow",
+    args: () => [],
+    command: "fallow-mcp",
     requiredPath: "package.json",
   },
   serena: {

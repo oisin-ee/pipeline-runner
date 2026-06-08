@@ -1,12 +1,14 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { parseDocument } from "yaml";
 import { z } from "zod";
-import { resolveFileReference } from "./path-refs.js";
-import { standardOutputSchemaNameFromPath } from "./standard-output-schemas.js";
+import { resolveFileReference } from "./path-refs";
+import { standardOutputSchemaNameFromPath } from "./standard-output-schemas";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
 export const PROFILES_CONFIG_PATH = ".pipeline/profiles.yaml";
+export const OPENCODE_ECOSYSTEM_MANIFEST_PATH =
+  "defaults/opencode-ecosystem.yaml";
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -55,6 +57,7 @@ const GATE_KINDS = [
 const BUILTIN_GATES = ["duplication", "semgrep", "test", "typecheck"] as const;
 const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
 const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
+const SCHEDULE_STRATEGIES = ["planner", "team-graph"] as const;
 const SCHEDULING_ROLES = ["coverage", "implementation"] as const;
 const MCP_GATEWAY_BACKEND_LOCALITIES = [
   "repo-local",
@@ -140,19 +143,64 @@ mcp_gateway:
       locality: repo-local
       workspace_path_source: PIPELINE_TARGET_PATH
       tool_prefixes: [backlog]
+skills:
+  critique:
+    path: .agents/skills/critique/SKILL.md
+    source_root: package
+  doubt:
+    path: .agents/skills/doubt/SKILL.md
+    source_root: package
+  fix:
+    path: .agents/skills/fix/SKILL.md
+    source_root: package
+  library-first-development:
+    path: .agents/skills/library-first-development/SKILL.md
+    source_root: package
+  migrate:
+    path: .agents/skills/migrate/SKILL.md
+    source_root: package
+  optimize:
+    path: .agents/skills/optimize/SKILL.md
+    source_root: package
+  research:
+    path: .agents/skills/research/SKILL.md
+    source_root: package
+  schedule-graph-shaping:
+    path: .pipeline/skills/schedule-graph-shaping/SKILL.md
+    source_root: package
+  scope:
+    path: .agents/skills/scope/SKILL.md
+    source_root: package
+  secure:
+    path: .agents/skills/secure/SKILL.md
+    source_root: package
+  spec:
+    path: .agents/skills/spec/SKILL.md
+    source_root: package
+  test:
+    path: .agents/skills/test/SKILL.md
+    source_root: package
+  trace:
+    path: .agents/skills/trace/SKILL.md
+    source_root: package
+  verify:
+    path: .agents/skills/verify/SKILL.md
+    source_root: package
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: "Orchestrate package-owned pipeline config." }
+    skills: [scope, doubt]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
   pipeline-researcher:
-    runner: codex
+    runner: opencode
     description: Research the requested task and produce structured findings.
     instructions: { inline: "Inspect first-party source, tests, docs, and task context for the current task only. Produce concise findings with file references and stop; do not perform open-ended repository exploration." }
     timeout_ms: 900000
+    skills: [research, spec, scope]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -162,26 +210,29 @@ profiles:
       schema_path: .pipeline/schemas/research.schema.json
       repair: { enabled: true, max_attempts: 1 }
   pipeline-inspector:
-    runner: codex
+    runner: opencode
     description: Inspect the repository without modifying files.
     instructions: { inline: "Inspect the repository without modifying files." }
+    skills: [research]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
   pipeline-schedule-planner:
-    runner: codex
+    runner: opencode
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions: { inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only." }
+    skills: [schedule-graph-shaping]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
   pipeline-test-writer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
     instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
+    skills: [test]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -191,7 +242,7 @@ profiles:
       schema_path: .pipeline/schemas/implementation.schema.json
       repair: { enabled: true, max_attempts: 1 }
   pipeline-epic-router:
-    runner: codex
+    runner: opencode
     description: Route epic sub-tickets into fixed implementation tracks.
     instructions: { inline: "Route epic sub-tickets into implementation tracks." }
     mcp_servers: [pipeline-gateway]
@@ -199,10 +250,11 @@ profiles:
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
   pipeline-code-writer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
     instructions: { inline: "Implement the smallest production change that satisfies the failing tests. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
+    skills: [trace, test, fix, library-first-development]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -212,10 +264,11 @@ profiles:
       schema_path: .pipeline/schemas/implementation.schema.json
       repair: { enabled: true, max_attempts: 1 }
   pipeline-acceptance-reviewer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
     instructions: { inline: 'Audit the completed change against each canonical acceptance criterion independently. Return only valid JSON with top-level "verdict", "evidence", "acceptance", and optional "violations". Each "acceptance" entry must include "id", "verdict", and non-empty "evidence". Do not use Markdown fences or prose outside the JSON object.' }
+    skills: [critique, doubt]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -225,10 +278,11 @@ profiles:
       schema_path: .pipeline/schemas/acceptance.schema.json
       repair: { enabled: true, max_attempts: 1 }
   pipeline-thermo-nuclear-reviewer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions: { inline: "Perform the final code quality review of the integration branch." }
+    skills: [critique]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -238,10 +292,11 @@ profiles:
       schema_path: .pipeline/schemas/review.schema.json
       repair: { enabled: true, max_attempts: 1 }
   pipeline-verifier:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
     instructions: { inline: 'Verify checks, implementation fit, and final evidence. Return only valid JSON with top-level "verdict", "evidence", and optional "violations". Do not use Markdown fences or prose outside the JSON object.' }
+    skills: [verify, critique, secure, optimize]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -251,9 +306,10 @@ profiles:
       schema_path: .pipeline/schemas/verify.schema.json
       repair: { enabled: true, max_attempts: 1 }
   pipeline-learner:
-    runner: codex
+    runner: opencode
     description: Store durable lessons from the completed run.
     instructions: { inline: "Store durable lessons from the completed run when useful." }
+    skills: [migrate]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
@@ -295,9 +351,11 @@ schedules:
   pipe-schedule:
     baseline: pipe
     planner_profile: pipeline-schedule-planner
+    strategy: team-graph
   epic-schedule:
     baseline: epic
     planner_profile: pipeline-schedule-planner
+    strategy: team-graph
 workflows:
   inspect:
     description: Read-only repository inspection workflow.
@@ -415,6 +473,137 @@ workflows:
             target: stdout
 `;
 
+const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL = new URL(
+  `../${OPENCODE_ECOSYSTEM_MANIFEST_PATH}`,
+  import.meta.url
+);
+const PACKAGE_ASSET_ROOT = new URL("..", import.meta.url);
+
+const ecosystemStringArraySchema = z.array(z.string().min(1));
+
+const ecosystemRuntimeSchema = z
+  .object({
+    compatibility_runners: ecosystemStringArraySchema,
+    default_runner: z.literal("opencode"),
+    default_stack_direct: z.literal(true),
+    state_authority: z.literal("pipeline"),
+  })
+  .strict();
+
+const ecosystemDependencySchema = z
+  .object({
+    dependency_scope: z.string().min(1),
+    id: z.string().min(1),
+    package: z.string().min(1),
+    role: z.string().min(1),
+    source: z.string().url(),
+  })
+  .strict();
+
+const ecosystemCodeSchema = z
+  .object({
+    default_stack: z.literal(true),
+    id: z.string().min(1),
+    name: z.string().min(1),
+    package: z.string().min(1).optional(),
+    plugin: z
+      .discriminatedUnion("kind", [
+        z
+          .object({
+            kind: z.literal("local"),
+            source_path: z.string().min(1),
+            target_path: z.string().min(1),
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal("npm"),
+            package: z.string().min(1),
+          })
+          .strict(),
+      ])
+      .optional(),
+    role: z.string().min(1),
+    source: z.string().url(),
+  })
+  .strict();
+
+const ecosystemMcpBackendSchema = z
+  .object({
+    credentials: ecosystemStringArraySchema,
+    id: z.string().min(1),
+    locality: z.string().min(1),
+    name: z.string().min(1).optional(),
+    required: z.boolean(),
+    role: z.string().min(1),
+  })
+  .strict();
+
+const ecosystemProfileResourceSchema = z
+  .object({
+    id: z.string().min(1),
+    path: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+    used_by: ecosystemStringArraySchema,
+  })
+  .strict();
+
+const ecosystemHostCapabilitiesSchema = z
+  .object({
+    agents: z.literal(true),
+    commands: z.literal(true),
+    lsp: z.literal(true),
+    mcp_servers: z.literal(true),
+    permissions: z.literal(true),
+    plugins: z.literal(true),
+    project_config: z.literal(true),
+    skills: z.literal(true),
+    subagents: z.literal(true),
+  })
+  .strict();
+
+const ecosystemSourceSchema = z
+  .object({
+    label: z.string().min(1),
+    url: z.string().url(),
+  })
+  .strict();
+
+const openCodeEcosystemManifestSchema = z
+  .object({
+    ecosystem_code: z.array(ecosystemCodeSchema).min(1),
+    generated_by: z.literal("@oisincoveney/pipeline"),
+    host_capabilities: ecosystemHostCapabilitiesSchema,
+    mcp_backends: z.array(ecosystemMcpBackendSchema).min(1),
+    official_dependencies: z.array(ecosystemDependencySchema).min(1),
+    prompts: z.array(ecosystemProfileResourceSchema).min(1),
+    runtime: ecosystemRuntimeSchema,
+    skills: z.array(ecosystemProfileResourceSchema).min(1),
+    sources: z.array(ecosystemSourceSchema).min(1),
+    version: z.literal(1),
+  })
+  .strict();
+
+export type OpenCodeEcosystemManifest = z.infer<
+  typeof openCodeEcosystemManifestSchema
+>;
+
+export function parseOpenCodeEcosystemManifest(
+  source: string,
+  sourcePath = OPENCODE_ECOSYSTEM_MANIFEST_PATH
+): OpenCodeEcosystemManifest {
+  return parseYamlAs(source, sourcePath, openCodeEcosystemManifestSchema);
+}
+
+function loadDefaultOpenCodeEcosystemManifest(): OpenCodeEcosystemManifest {
+  return parseOpenCodeEcosystemManifest(
+    readFileSync(DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL, "utf8")
+  );
+}
+
+export const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST =
+  loadDefaultOpenCodeEcosystemManifest();
+
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
   | "PIPELINE_CONFIG_PARSE_ERROR"
@@ -471,6 +660,7 @@ const runnerSchema = z
 const pathRefSchema = z
   .object({
     path: z.string().min(1),
+    source_root: z.enum(["package", "project"]).default("project"),
   })
   .strict();
 
@@ -904,6 +1094,7 @@ const schedulePolicySchema = z
     baseline: z.enum(SCHEDULE_BASELINES),
     max_parallel_nodes: z.number().int().positive().optional(),
     planner_profile: z.string().optional(),
+    strategy: z.enum(SCHEDULE_STRATEGIES).default("planner"),
   })
   .strict();
 
@@ -1416,23 +1607,11 @@ export function validatePipelineConfig(
   validateHookConfig(config, issues, projectRoot, options);
 
   for (const [ruleId, rule] of Object.entries(config.rules)) {
-    validatePath(
-      `rules.${ruleId}.path`,
-      rule.path,
-      projectRoot,
-      issues,
-      options
-    );
+    validatePath(`rules.${ruleId}.path`, rule, projectRoot, issues, options);
   }
 
   for (const [skillId, skill] of Object.entries(config.skills)) {
-    validatePath(
-      `skills.${skillId}.path`,
-      skill.path,
-      projectRoot,
-      issues,
-      options
-    );
+    validatePath(`skills.${skillId}.path`, skill, projectRoot, issues, options);
   }
 
   for (const [workflowId, workflow] of Object.entries(config.workflows)) {
@@ -1479,7 +1658,7 @@ function validateHookConfig(
   )) {
     validatePath(
       `hooks.functions.${functionId}.returns.schema`,
-      hookFunction.returns?.schema,
+      { path: hookFunction.returns?.schema },
       projectRoot,
       issues,
       options
@@ -1561,7 +1740,7 @@ function validateProfile(
   }
   validatePath(
     `profiles.${profileId}.output.schema_path`,
-    profile.output?.schema_path,
+    { path: profile.output?.schema_path },
     projectRoot,
     issues,
     options
@@ -1586,7 +1765,7 @@ function validateActor(
   }
   validatePath(
     `${path}.instructions.path`,
-    actor.instructions.path,
+    { path: actor.instructions.path },
     projectRoot,
     issues,
     options
@@ -1779,7 +1958,7 @@ function validateNodeGates(
     if (gate.kind === "json_schema") {
       validatePath(
         `${path}.schema_path`,
-        gate.schema_path,
+        { path: gate.schema_path },
         projectRoot,
         issues,
         options
@@ -1873,18 +2052,19 @@ function validateListCapability(
 
 function validatePath(
   path: string,
-  value: string | undefined,
+  ref: { path?: string; source_root?: "package" | "project" },
   projectRoot: string | undefined,
   issues: PipelineConfigIssue[],
   options: PipelineConfigValidationOptions = {}
 ): void {
+  const value = ref.path;
   if (!(value && projectRoot)) {
     return;
   }
   if (standardOutputSchemaNameFromPath(value)) {
     return;
   }
-  if (!existsSync(resolveFileReference(projectRoot, value))) {
+  if (!existsSync(resolvePathReference(projectRoot, ref))) {
     if (
       options.allowMissingLintFileReferences &&
       isLintableMissingFileReferencePath(path)
@@ -1896,6 +2076,16 @@ function validatePath(
       message: `referenced file '${value}' does not exist`,
     });
   }
+}
+
+function resolvePathReference(
+  projectRoot: string,
+  ref: { path?: string; source_root?: "package" | "project" }
+): string {
+  if (ref.source_root === "package") {
+    return new URL(ref.path ?? "", PACKAGE_ASSET_ROOT).pathname;
+  }
+  return resolveFileReference(projectRoot, ref.path ?? "");
 }
 
 const SKILLS_REGEX = /^skills\.[^.]+\.path$/;

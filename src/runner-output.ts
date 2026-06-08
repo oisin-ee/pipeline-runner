@@ -1,7 +1,7 @@
-import type { RunnerLaunchPlan } from "./runner.js";
-import { isRecord, parseJson } from "./safe-json.js";
-
-const LINE_RE = /\r?\n/;
+import { jsonLineValues } from "./json-line-values";
+import type { RunnerLaunchPlan } from "./runner";
+import { opencodeCliRuntimeAdapter } from "./runtime/opencode-adapter";
+import { isRecord } from "./safe-json";
 
 export interface NormalizedRunnerOutput {
   evidence: string[];
@@ -41,10 +41,7 @@ export function runnerTextCandidates(
   }
 
   if (plan.type === "opencode") {
-    return jsonLineValues(stdout, opencodeTextPart).map((output) => ({
-      evidence: "normalized runner output from opencode JSON events",
-      output,
-    }));
+    return opencodeCliRuntimeAdapter.outputCandidates(stdout);
   }
 
   return [];
@@ -61,36 +58,4 @@ function codexAgentMessageText(value: unknown): string | undefined {
   if (value.type === "agent_message") {
     return typeof value.text === "string" ? value.text : undefined;
   }
-}
-
-function opencodeTextPart(value: unknown): string | undefined {
-  if (!isRecord(value)) {
-    return;
-  }
-  const part = value.part;
-  if (isRecord(part) && part.type === "text") {
-    return typeof part.text === "string" ? part.text : undefined;
-  }
-}
-
-function jsonLineValues(
-  text: string,
-  extract: (value: unknown) => string | undefined
-): string[] {
-  const values: string[] = [];
-  for (const line of text.split(LINE_RE)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const extracted = extract(parseJson(trimmed, "runner JSON event"));
-      if (extracted) {
-        values.push(extracted);
-      }
-    } catch {
-      // Non-JSON lines are valid for non-event runner output.
-    }
-  }
-  return values;
 }

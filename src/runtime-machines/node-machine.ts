@@ -6,7 +6,7 @@ import type {
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
-} from "./contracts.js";
+} from "./contracts";
 
 export interface ActorNodeExecutionState {
   attempts: number;

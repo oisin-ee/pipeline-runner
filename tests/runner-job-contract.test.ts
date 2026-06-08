@@ -40,7 +40,7 @@ function validPayload(): Record<string, unknown> {
 }
 
 function loadContractModule(): Promise<Record<string, any>> {
-  return import("../src/runner-job-contract.js");
+  return import("../src/runner-job-contract");
 }
 
 describe("runner-job payload contract", () => {

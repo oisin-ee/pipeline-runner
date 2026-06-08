@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RuntimeObservabilityEvent } from "../src/runtime-observability.js";
-import { createRuntimeInspectionBridge } from "../src/runtime-observability-inspection.js";
+import type { RuntimeObservabilityEvent } from "../src/runtime-observability";
+import { createRuntimeInspectionBridge } from "../src/runtime-observability-inspection";
 
 describe("createRuntimeInspectionBridge", () => {
   it("classifies inspected runtime actors by stable actor id prefix", () => {

@@ -4,7 +4,7 @@ import { execa } from "execa";
 import { resolveCommand } from "package-manager-detector/commands";
 import { detect } from "package-manager-detector/detect";
 import { simpleGit } from "simple-git";
-import type { RunnerJobPayload } from "../runner-job-contract.js";
+import type { RunnerJobPayload } from "../runner-job-contract";
 
 export const RUNNER_JOB_WORKSPACE_PATH = "/workspace";
 

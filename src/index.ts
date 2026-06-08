@@ -8,19 +8,19 @@ import { execa } from "execa";
 import {
   BUILTIN_PIPE_COMMANDS,
   registerConfiguredEntrypointCommands,
-} from "./commands/pipeline-command.js";
-import { registerRunnerJobCommand } from "./commands/runner-job-command.js";
+} from "./commands/pipeline-command";
+import { registerRunnerJobCommand } from "./commands/runner-job-command";
 import {
   loadPipelineConfig,
   type PipelineConfig,
   PipelineConfigError,
-} from "./config.js";
+} from "./config";
 import {
   type CommandHostSelection,
   formatInstallCommandsResult,
   installCommands,
   parseCommandHost,
-} from "./install-commands.js";
+} from "./install-commands";
 import {
   configureGatewayHosts,
   type GatewayHostScope,
@@ -29,35 +29,29 @@ import {
   renderGatewayConfig,
   runGatewayDoctor,
   startLocalGateway,
-} from "./mcp/gateway.js";
-import {
-  formatPipelineInitResult,
-  initPipelineProject,
-} from "./pipeline-init.js";
+} from "./mcp/gateway";
+import { resolvePackageAssetPath } from "./package-assets";
+import { formatPipelineInitResult, initPipelineProject } from "./pipeline-init";
 import {
   formatConfigError,
   type PipelineRuntimeEvent,
   type PipelineRuntimeResult,
   runPipelineFromConfig,
-} from "./pipeline-runtime.js";
-import {
-  createOrchestratorLaunchPlan,
-  createRunnerLaunchPlan,
-} from "./runner.js";
+} from "./pipeline-runtime";
+import { createOrchestratorLaunchPlan, createRunnerLaunchPlan } from "./runner";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
   parseScheduleArtifact,
-} from "./schedule-planner.js";
-import { standardOutputSchemaNameFromPath } from "./standard-output-schemas.js";
+} from "./schedule-planner";
+import { standardOutputSchemaNameFromPath } from "./standard-output-schemas";
 import {
   compileWorkflowPlan,
   type PlannedWorkflowNode,
-} from "./workflow-planner.js";
+} from "./workflow-planner";
 
 const PATH_SEPARATOR_RE = /[\\/]/;
 const LINE_RE = /\r?\n/;
-
 interface PipeOptions {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
@@ -714,35 +708,49 @@ function lintMissingFileReferences(
   config: PipelineConfig,
   projectRoot: string
 ): ConfigLintWarning[] {
-  const refs: Array<{ path: string; value: string | undefined }> = [];
+  const refs: Array<{
+    path: string;
+    ref?: { path?: string; source_root?: "package" | "project" };
+  }> = [];
   for (const [skillId, skill] of Object.entries(config.skills)) {
-    refs.push({ path: `skills.${skillId}.path`, value: skill.path });
+    refs.push({ path: `skills.${skillId}.path`, ref: skill });
   }
   for (const [profileId, profile] of Object.entries(config.profiles)) {
     refs.push({
       path: `profiles.${profileId}.instructions.path`,
-      value: profile.instructions.path,
+      ref: { path: profile.instructions.path },
     });
     refs.push({
       path: `profiles.${profileId}.output.schema_path`,
-      value: profile.output?.schema_path,
+      ref: { path: profile.output?.schema_path },
     });
   }
   return refs.flatMap((ref) => {
+    const value = ref.ref?.path;
     if (
-      !ref.value ||
-      standardOutputSchemaNameFromPath(ref.value) ||
-      existsSync(resolve(projectRoot, ref.value))
+      !value ||
+      standardOutputSchemaNameFromPath(value) ||
+      existsSync(resolveLintPathReference(projectRoot, ref.ref))
     ) {
       return [];
     }
     return [
       {
         ruleId: "missing-file-reference",
-        message: `${ref.path} references missing file '${ref.value}'`,
+        message: `${ref.path} references missing file '${value}'`,
       },
     ];
   });
+}
+
+function resolveLintPathReference(
+  projectRoot: string,
+  ref: { path?: string; source_root?: "package" | "project" } | undefined
+): string {
+  if (ref?.source_root === "package") {
+    return resolvePackageAssetPath(ref.path);
+  }
+  return resolve(projectRoot, ref?.path ?? "");
 }
 
 function lintWorkflowNodes(config: PipelineConfig): ConfigLintWarning[] {

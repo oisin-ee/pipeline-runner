@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import type { PipelineConfig } from "../config.js";
+import type { PipelineConfig } from "../config";
 
 export const BUILTIN_PIPE_COMMANDS = new Set([
   "run",

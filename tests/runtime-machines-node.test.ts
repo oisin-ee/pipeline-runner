@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createActor } from "xstate";
-import { runtimeActorId } from "../src/runtime-machines/contracts.js";
-import { nodeExecutionMachine } from "../src/runtime-machines/node-machine.js";
+import { runtimeActorId } from "../src/runtime-machines/contracts";
+import { nodeExecutionMachine } from "../src/runtime-machines/node-machine";
 
 describe("nodeExecutionMachine", () => {
   it("records retrying and passed node snapshots", () => {

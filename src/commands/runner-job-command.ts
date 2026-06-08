@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { runRunnerJob } from "../runner-job/run.js";
+import { runRunnerJob } from "../runner-job/run";
 
 export function registerRunnerJobCommand(program: Command): void {
   program

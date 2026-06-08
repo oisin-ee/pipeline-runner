@@ -6,7 +6,7 @@ import {
   hookStateNames,
   nodeStateNames,
   workflowStateNames,
-} from "../src/runtime-machines/contracts.js";
+} from "../src/runtime-machines/contracts";
 
 describe("runtime actor documentation", () => {
   it("keeps documented state taxonomy aligned with runtime contracts", () => {

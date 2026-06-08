@@ -1,5 +1,5 @@
 import { execa } from "execa";
-import { loadPipelineConfig, type PipelineConfig } from "../config.js";
+import { loadPipelineConfig, type PipelineConfig } from "../config";
 
 export interface RunnerDevspaceReadiness {
   config: PipelineConfig;

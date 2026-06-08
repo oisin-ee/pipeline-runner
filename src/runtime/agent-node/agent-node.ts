@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { PipelineConfig } from "../../config";
 import { gatewayServerForProfile } from "../../mcp/gateway";
+import { resolvePackageAssetPath } from "../../package-assets";
 import { resolveFileReference } from "../../path-refs";
 import {
   type AgentResult,
@@ -498,7 +499,10 @@ function readInstructions(
 function renderPathReferences(
   heading: string,
   ids: string[] | undefined,
-  registry: Record<string, { path: string }>,
+  registry: Record<
+    string,
+    { path: string; source_root?: "package" | "project" }
+  >,
   worktreePath: string
 ): string {
   if (!ids?.length) {
@@ -511,12 +515,22 @@ function renderPathReferences(
       const ref = registry[id];
       const path = ref?.path ?? "";
       const content = readFileSync(
-        resolveFileReference(worktreePath, path),
+        resolveRuntimePathReference(worktreePath, ref),
         "utf8"
       ).trimEnd();
       return [`## ${id}`, `Path: ${path}`, "", content].join("\n");
     }),
   ].join("\n");
+}
+
+function resolveRuntimePathReference(
+  worktreePath: string,
+  ref: { path?: string; source_root?: "package" | "project" } | undefined
+): string {
+  if (ref?.source_root === "package") {
+    return resolvePackageAssetPath(ref.path);
+  }
+  return resolveFileReference(worktreePath, ref?.path ?? "");
 }
 
 function renderMcpReferences(

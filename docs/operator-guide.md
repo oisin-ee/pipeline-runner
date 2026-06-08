@@ -97,9 +97,10 @@ pipe doctor
 
 `pipe init`
 
-Installs the default project skills and generated Codex/OpenCode host resources,
-including the singleton `pipeline-gateway` MCP entries. It does not create
-repo-local `.pipeline` config files.
+Installs the default project skills and generated OpenCode/Codex host resources,
+including the singleton `pipeline-gateway` MCP entries. OpenCode is the package
+default runtime; Codex remains available as a compatibility runner and host
+surface. It does not create repo-local `.pipeline` config files.
 
 ```shell
 pipe init
@@ -258,6 +259,41 @@ Codex:    $pipe, $inspect, $epic
 
 Set `PIPELINE_TARGET_PATH=/path/to/repo` when invoking the CLI from outside the
 target worktree.
+
+## OpenCode-First Operation
+
+Package-owned defaults select OpenCode for built-in profiles and runner-job
+orchestration. Codex compatibility stays generated through `$pipe`, `$inspect`,
+`$epic`, and Codex agent config, but it is not the default package runtime.
+
+`pipe init` and `pipe install-commands --host opencode` generate:
+
+- `.opencode/commands/<entrypoint>.md` for `/pipe`, `/inspect`, and `/epic`;
+- `.opencode/agents/*.md` for primary and subagent profiles with explicit
+  `permission` maps, `task` grants, and denied ungranted tools;
+- `.opencode/skills/*/SKILL.md` for package-granted skills;
+- `.opencode/plugins/pipeline-goal-context.ts` for goal-loop compaction context;
+- `.opencode/opencode.json` with `lsp: true`, the singleton
+  `pipeline-gateway` MCP server, and `@devtheops/opencode-plugin-otel@1.1.0`.
+
+The surfaced default ecosystem inventory also includes DCP code,
+`opencode-handoff`, `opencode-background-agents`, `opencode-snip`,
+`opencode-mem`, and `cupcake` as package-selected implementation inputs. The
+package owns how those patterns are projected; project operators do not need to
+hand-wire global OpenCode config.
+
+The goal loop is still pipeline-owned. Continuation prompts carry current task
+state, schedule node, failed gates, changed files, verifier evidence,
+acceptance evidence, and the exact next requirement. Stop reasons are bounded:
+complete only after verifier and acceptance evidence exist, continue when work
+remains, repair when validation/gates fail, and stop when the loop hits its
+configured limits. OpenCode LSP and plugin context can help the agent work, but
+they are not completion evidence.
+
+Team mode is generated as a schedule graph. The scheduler can emit parallel
+specialist nodes and a reviewer/verifier path; OpenCode subagents execute the
+nodes, while the pipeline owns graph dependencies, retries, deterministic
+gates, merge/drain behavior, and acceptance coverage.
 
 ## Runner Image Verification
 
@@ -503,7 +539,8 @@ url = "https://gateway.example/mcp"
 Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"
 ```
 
-OpenCode receives:
+OpenCode receives MCP, plugin, permission, skill, and LSP projection through
+generated project files. The MCP portion is:
 
 ```json
 {

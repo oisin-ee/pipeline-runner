@@ -16,7 +16,7 @@ pipe install-commands --host all --check
 | Host     | Generated resources                                            | Invocation                        | Mechanical path                                                                                       |
 | -------- | -------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Codex    | `.agents/skills/<entrypoint>/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>`, `$inspect <task>` | Skills instruct Codex to use generated Codex agents for Codex runner nodes and OpenCode CLI for OpenCode runner nodes. |
-| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`  | `/pipe <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents.                            |
+| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/skills/*/SKILL.md`, `.opencode/opencode.json` | `/pipe <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
 
 ## Projection Rules
 
@@ -31,6 +31,15 @@ pipe install-commands --host all --check
   and generic worker substitution are not used as implicit fallbacks.
 - Host-specific formats can omit unsupported capabilities, but they must not
   grant broader access than requested.
+- OpenCode agents project package profiles as markdown agents with `mode`,
+  `description`, resolved `model`, `permission`, `hidden`, and task permission
+  maps. The primary orchestrator may call only generated package profile agents.
+- OpenCode skill projection is generated from package profile grants into
+  `.opencode/skills`. Skill files point back to package-owned source paths and
+  per-agent `permission.skill` maps deny ungranted skills.
+- `.opencode/opencode.json` includes the singleton `pipeline-gateway` MCP
+  server and enables OpenCode LSP. CLI lint, typecheck, tests, and configured
+  gates remain the blocking verification path; LSP is editor/runtime assistance.
 - Regeneration is idempotent for generated files. Manual edits are protected
   unless `--force` is supplied.
 

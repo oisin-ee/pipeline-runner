@@ -10,12 +10,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execa } from "execa";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parsePipelineConfigParts } from "../src/config.js";
+import { parsePipelineConfigParts } from "../src/config";
 import {
   type PipelineRuntimeEvent,
   runPipelineFromConfig,
-} from "../src/pipeline-runtime.js";
-import type { RunnerLaunchPlan } from "../src/runner.js";
+} from "../src/pipeline-runtime";
+import type { RunnerLaunchPlan } from "../src/runner";
 
 vi.mock("execa", () => ({
   execa: vi.fn(),

@@ -8,9 +8,10 @@ import {
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
-import type { PipelineConfig, RunnerType } from "./config.js";
-import { resolveFileReference } from "./path-refs.js";
-import { tomlValue } from "./toml.js";
+import type { PipelineConfig, RunnerType } from "./config";
+import { resolvePackageAssetPath } from "./package-assets";
+import { resolveFileReference } from "./path-refs";
+import { tomlValue } from "./toml";
 
 export type Harness = "codex" | "opencode";
 export type AgentRole =
@@ -89,7 +90,6 @@ const OPENCODE_EXCLUDES = [
   "coverage/",
 ];
 const LINE_RE = /\r?\n/;
-
 function ensureOpencodeGitExcludes(worktreePath: string): void {
   const excludePath = join(worktreePath, ".git", "info", "exclude");
   if (!existsSync(excludePath)) {
@@ -366,9 +366,9 @@ function skillArgsFor(
 ): string[] {
   const shouldValidatePaths = existsSync(worktreePath);
   const paths = (actor?.skills ?? []).flatMap((id) => {
-    const path = config?.skills[id]?.path;
-    const absolutePath = path
-      ? resolveFileReference(worktreePath, path)
+    const skill = config?.skills[id];
+    const absolutePath = skill
+      ? resolveRunnerPathReference(worktreePath, skill)
       : undefined;
     if (!absolutePath) {
       return [];
@@ -389,6 +389,19 @@ function skillArgsFor(
     ];
   }
   return [];
+}
+
+function resolveRunnerPathReference(
+  worktreePath: string,
+  ref: { path?: string; source_root?: "package" | "project" }
+): string | undefined {
+  if (!ref.path) {
+    return;
+  }
+  if (ref.source_root === "package") {
+    return resolvePackageAssetPath(ref.path);
+  }
+  return resolveFileReference(worktreePath, ref.path);
 }
 
 function renderArgv(args: string[], prompt: string, cwd: string): string[] {

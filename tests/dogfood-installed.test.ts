@@ -13,14 +13,25 @@ import {
   loadPipelineConfig,
   type PipelineConfig,
   parsePipelineConfigParts,
-} from "../src/config.js";
-import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
-import { createRunnerLaunchPlan } from "../src/runner.js";
+} from "../src/config";
+import { runPipelineFromConfig } from "../src/pipeline-runtime";
+import { createRunnerLaunchPlan } from "../src/runner";
+import {
+  createGoalContinuationLaunchPlan,
+  runBoundedGoalLoop,
+} from "../src/runtime/goal-loop/goal-loop";
+import {
+  applyGoalStateEvent,
+  createGoalState,
+  loadGoalStateFromRunDirectory,
+  recordGoalStateChangedFiles,
+  saveGoalState,
+} from "../src/runtime/goal-state/goal-state";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
-} from "../src/schedule-planner.js";
-import { compileWorkflowPlan } from "../src/workflow-planner.js";
+} from "../src/schedule-planner";
+import { compileWorkflowPlan } from "../src/workflow-planner";
 
 const tempDirs: string[] = [];
 
@@ -546,13 +557,13 @@ workflows:
       worktreePath: project,
     });
     const generatedArtifact = generated.artifact;
-    const generatedNodeIds = generatedArtifact.workflows.root.nodes.map(
-      (node) => node.id
+    const generatedNodes = flattenDogfoodNodes(
+      generatedArtifact.workflows.root.nodes
     );
-    const generatedTaskContextIds =
-      generatedArtifact.workflows.root.nodes.flatMap((node) =>
-        node.task_context?.id ? [node.task_context.id] : []
-      );
+    const generatedNodeIds = generatedNodes.map((node) => node.id);
+    const generatedTaskContextIds = generatedNodes.flatMap((node) =>
+      node.task_context?.id ? [node.task_context.id] : []
+    );
 
     expect(generatedNodeIds).not.toEqual([
       "research",
@@ -576,7 +587,7 @@ workflows:
     );
     expect(generated.path).toBe("memory:run-pc37-dogfood");
     expect(
-      generatedArtifact.workflows.root.nodes.some(
+      generatedNodes.some(
         (node) => node.task_context?.title === "Build API endpoint"
       )
     ).toBe(true);
@@ -593,31 +604,28 @@ workflows:
       new Set(compiled.plan.topologicalOrder.map((node) => node.id))
     ).toEqual(
       new Set([
-        "research",
-        "pc-37-1-green",
-        "pc-37-4-green",
-        "pc-37-5-green",
-        "pc-37-2-green",
-        "pc-37-3-green",
-        "pc-37-6-green",
+        "lead-plan",
+        "specialists",
+        "integration",
+        "acceptance-review",
         "verify",
       ])
     );
     expect(
-      compiled.plan.topologicalOrder.find((node) => node.id === "pc-37-2-green")
+      generatedNodes.find((node) => node.id === "specialist-pc-37-2")
     ).toMatchObject({
       kind: "agent",
-      needs: ["pc-37-1-green"],
+      needs: ["specialist-pc-37-1"],
     });
     expect(
-      compiled.plan.topologicalOrder.find((node) => node.id === "pc-37-6-green")
+      generatedNodes.find((node) => node.id === "specialist-pc-37-6")
     ).toMatchObject({
       kind: "agent",
       needs: [
-        "pc-37-2-green",
-        "pc-37-3-green",
-        "pc-37-4-green",
-        "pc-37-5-green",
+        "specialist-pc-37-2",
+        "specialist-pc-37-3",
+        "specialist-pc-37-4",
+        "specialist-pc-37-5",
       ],
     });
   });
@@ -756,6 +764,191 @@ workflows:
     expect(launch.env).toEqual({});
     expect(launch.args.join("\n")).not.toContain("mcp_servers.");
   });
+
+  it("dogfoods the OpenCode-first goal loop through persisted continuation state", async () => {
+    const project = tempProject();
+    const runDirectory = join(project, ".pipeline/runs/opencode-goal-loop");
+    mkdirSync(runDirectory, { recursive: true });
+    const config = loadPipelineConfig(process.cwd(), {
+      allowMissingLintFileReferences: true,
+    });
+    const initial = applyGoalStateEvent(
+      createGoalState({
+        runId: "opencode-goal-loop",
+        scheduleId: "team-graph-opencode",
+        schedulePath: ".pipeline/runs/opencode-goal-loop/schedule.yaml",
+        task: "Dogfood OpenCode goal loop",
+        taskContext: {
+          acceptanceCriteria: [
+            { id: "AC1", text: "OpenCode launch plan is generated." },
+            {
+              id: "AC2",
+              text: "Verifier and acceptance evidence are present.",
+            },
+          ],
+          description: "Exercise persisted continuation state.",
+          id: "PIPE-52.12",
+          title: "Dogfood OpenCode first goal loop",
+        },
+        workflowId: "team-graph-opencode",
+      }),
+      {
+        edges: [
+          { source: "acceptance", target: "verify" },
+          { source: "green", target: "acceptance" },
+        ],
+        nodes: [
+          {
+            id: "green",
+            kind: "agent",
+            needs: [],
+            profile: "pipeline-code-writer",
+            runnerId: "opencode",
+          },
+          {
+            id: "acceptance",
+            kind: "agent",
+            needs: ["green"],
+            profile: "pipeline-acceptance-reviewer",
+            runnerId: "opencode",
+          },
+          {
+            id: "verify",
+            kind: "agent",
+            needs: ["acceptance"],
+            profile: "pipeline-verifier",
+            runnerId: "opencode",
+          },
+        ],
+        type: "workflow.planned",
+        workflowId: "team-graph-opencode",
+      }
+    );
+    const failed = applyGoalStateEvent(initial, {
+      attempt: 1,
+      format: "json_schema",
+      nodeId: "acceptance",
+      output: {
+        acceptance: [
+          {
+            evidence: ["launch plan was checked"],
+            id: "AC1",
+            verdict: "PASS",
+          },
+          {
+            evidence: ["verifier evidence missing on first pass"],
+            id: "AC2",
+            verdict: "FAIL",
+            violations: ["missing verifier evidence"],
+          },
+        ],
+        evidence: ["acceptance review ran"],
+        verdict: "FAIL",
+      },
+      profile: "pipeline-acceptance-reviewer",
+      schemaPath: ".pipeline/schemas/acceptance.schema.json",
+      type: "node.output.recorded",
+    });
+    const failedWithGate = applyGoalStateEvent(failed, {
+      evidence: ["acceptance criterion 'AC2' verdict 'FAIL'"],
+      gateId: "acceptance-coverage",
+      kind: "acceptance",
+      nodeId: "acceptance",
+      passed: false,
+      reason: "acceptance coverage failed",
+      type: "gate.finish",
+    });
+    saveGoalState(failedWithGate, runDirectory);
+
+    const continuationLaunch = createGoalContinuationLaunchPlan({
+      config,
+      prompt: "Continue the OpenCode goal-loop dogfood.",
+      worktreePath: project,
+    });
+    expect(continuationLaunch.runnerId).toBe("opencode");
+    expect(continuationLaunch.profileId).toBe("pipeline-code-writer");
+    expect(continuationLaunch.args).toContain("run");
+    expect(continuationLaunch.args).toContain(
+      "Continue the OpenCode goal-loop dogfood."
+    );
+
+    const result = await runBoundedGoalLoop({
+      initialState: loadGoalStateFromRunDirectory(runDirectory),
+      maxContinuations: 2,
+      runContinuation: ({ attempt, state }) => {
+        if (attempt === 1) {
+          return recordGoalStateChangedFiles(state, "green", [
+            "src/runtime/goal-loop/goal-loop.ts",
+          ]);
+        }
+        const accepted = applyGoalStateEvent(state, {
+          attempt: 2,
+          format: "json_schema",
+          nodeId: "acceptance",
+          output: {
+            acceptance: [
+              {
+                evidence: ["OpenCode launch plan generated"],
+                id: "AC1",
+                verdict: "PASS",
+              },
+              {
+                evidence: ["verifier and acceptance evidence captured"],
+                id: "AC2",
+                verdict: "PASS",
+              },
+            ],
+            evidence: ["acceptance passed"],
+            verdict: "PASS",
+          },
+          profile: "pipeline-acceptance-reviewer",
+          schemaPath: ".pipeline/schemas/acceptance.schema.json",
+          type: "node.output.recorded",
+        });
+        const verified = applyGoalStateEvent(accepted, {
+          attempt: 2,
+          format: "json_schema",
+          nodeId: "verify",
+          output: {
+            evidence: ["real package OpenCode launch plan inspected"],
+            verdict: "PASS",
+          },
+          profile: "pipeline-verifier",
+          schemaPath: ".pipeline/schemas/verify.schema.json",
+          type: "node.output.recorded",
+        });
+        return applyGoalStateEvent(verified, {
+          outcome: "PASS",
+          type: "workflow.finish",
+          workflowId: "team-graph-opencode",
+        });
+      },
+      writePrompt: (attempt, prompt) => {
+        const promptPath = join(runDirectory, `continuation-${attempt}.md`);
+        writeFileSync(promptPath, prompt);
+        return promptPath;
+      },
+    });
+    saveGoalState(result.state, runDirectory);
+
+    expect(result.terminalState, JSON.stringify(result, null, 2)).toBe(
+      "passed"
+    );
+    expect(result.attempts).toBe(2);
+    expect(result.prompts[0]).toContain("acceptance coverage failed");
+    expect(result.prompts[1]).toContain("src/runtime/goal-loop/goal-loop.ts");
+    expect(loadGoalStateFromRunDirectory(runDirectory)).toMatchObject({
+      acceptance: [
+        { id: "AC1", verdict: "PASS" },
+        { id: "AC2", verdict: "PASS" },
+      ],
+      terminalOutcome: "PASS",
+      verifier: {
+        nodeId: "verify",
+        verdict: "PASS",
+      },
+    });
+  });
 });
 
 function workflowProfileIds(config: PipelineConfig) {
@@ -806,6 +999,16 @@ function nativeAgentPathFor(
     return `.codex/agents/${profileId}.toml`;
   }
   return;
+}
+
+function flattenDogfoodNodes(
+  nodes: PipelineConfig["workflows"][string]["nodes"]
+): PipelineConfig["workflows"][string]["nodes"] {
+  return nodes.flatMap((node) =>
+    node.kind === "parallel"
+      ? [node, ...flattenDogfoodNodes(node.nodes)]
+      : [node]
+  );
 }
 
 function configuredDogfoodOrchestrator(project: string) {

@@ -4,22 +4,17 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { cleanSimpleGitMock } from "./support/git-client";
 
 vi.mock("execa", () => ({
   execa: vi.fn(() => ({ exitCode: 0, stderr: "", stdout: "" })),
 }));
 
+const simpleGitMock = cleanSimpleGitMock();
+
 vi.mock("simple-git", () => ({
-  default: vi.fn(() => ({
-    add: vi.fn(async () => undefined),
-    addConfig: vi.fn(async () => undefined),
-    branch: vi.fn(async () => ({ current: "pipeline/run-123" })),
-    branchLocal: vi.fn(async () => ({ branches: { "pipeline/run-123": {} } })),
-    commit: vi.fn(async () => undefined),
-    push: vi.fn(async () => undefined),
-    revparse: vi.fn(async () => "abc123\n"),
-    status: vi.fn(async () => ({ files: [] })),
-  })),
+  default: simpleGitMock,
+  simpleGit: simpleGitMock,
 }));
 
 const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
@@ -185,7 +180,7 @@ function unauthorizedResponse(): Response {
 }
 
 function loadRunnerModule(): Promise<Record<string, any>> {
-  return import("../src/runner-job/run.js");
+  return import("../src/runner-job/run");
 }
 
 function runTypecheck(args: string[], options: { cwd: string }): string {
@@ -1343,8 +1338,8 @@ readiness.config.default_workflow;
           {
             compilerOptions: {
               allowImportingTsExtensions: true,
-              module: "NodeNext",
-              moduleResolution: "NodeNext",
+              module: "ES2022",
+              moduleResolution: "Bundler",
               noEmit: true,
               strict: true,
               target: "ES2022",

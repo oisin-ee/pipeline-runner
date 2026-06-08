@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { alg } from "@dagrejs/graphlib";
 import { afterAll, describe, expect, it } from "vitest";
-import type { PipelineConfig } from "../src/config.js";
-import { loadPipelineConfig } from "../src/config.js";
+import type { PipelineConfig } from "../src/config";
+import { loadPipelineConfig } from "../src/config";
 import {
   compileWorkflowPlan,
   WorkflowPlannerError,
-} from "../src/workflow-planner.js";
+} from "../src/workflow-planner";
 
 // Literal pipeline template tokens; interpolating the inner literal keeps the
 // "${" sequence out of the source so noTemplateCurlyInString stays satisfied.

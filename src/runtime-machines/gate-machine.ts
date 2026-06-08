@@ -4,7 +4,7 @@ import type {
   RuntimeActorDescriptor,
   RuntimeGateResult,
   RuntimeObservabilityEmitter,
-} from "./contracts.js";
+} from "./contracts";
 
 export interface GateEvaluationInput {
   actor: RuntimeActorDescriptor;

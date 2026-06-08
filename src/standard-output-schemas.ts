@@ -19,6 +19,7 @@ const STANDARD_OUTPUT_SCHEMAS = {
           .object({
             evidence: STRING_ARRAY_SCHEMA,
             id: z.string(),
+            violations: STRING_ARRAY_SCHEMA.optional(),
             verdict: VERDICT_SCHEMA,
           })
           .strict()

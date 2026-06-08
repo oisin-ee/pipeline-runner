@@ -1,0 +1,203 @@
+version: 1
+generated_by: "@oisincoveney/pipeline"
+runtime:
+  default_runner: opencode
+  compatibility_runners: [codex]
+  default_stack_direct: true
+  state_authority: pipeline
+official_dependencies:
+  - id: "@opencode-ai/plugin"
+    package: "@opencode-ai/plugin"
+    role: plugin type surface for package-owned OpenCode plugins
+    dependency_scope: package-code-when-needed
+    source: https://opencode.ai/docs/plugins
+  - id: "@opencode-ai/sdk"
+    package: "@opencode-ai/sdk"
+    role: programmatic OpenCode API access for package-owned integration code
+    dependency_scope: package-code-when-needed
+    source: https://opencode.ai/docs/ecosystem
+ecosystem_code:
+  - id: pipeline-goal-context
+    name: pipeline-goal-context
+    role: package-owned continuation context plugin for OpenCode compaction hooks
+    plugin:
+      kind: local
+      source_path: defaults/opencode/plugins/pipeline-goal-context.ts
+      target_path: .opencode/plugins/pipeline-goal-context.ts
+    default_stack: true
+    source: https://opencode.ai/docs/plugins
+  - id: dcp-code
+    name: DCP code
+    role: dynamic context pruning for long OpenCode sessions
+    default_stack: true
+    source: https://github.com/Tarquinen/opencode-dynamic-context-pruning
+  - id: opencode-background-agents
+    name: opencode-background-agents
+    role: async delegation and background-agent context persistence patterns
+    default_stack: true
+    source: https://github.com/kdcokenny/opencode-background-agents
+  - id: opencode-handoff
+    name: opencode-handoff
+    role: focused continuation and handoff prompt generation
+    default_stack: true
+    source: https://github.com/joshuadavidthomas/opencode-handoff
+  - id: opencode-plugin-otel
+    name: opencode-plugin-otel
+    package: "@devtheops/opencode-plugin-otel"
+    plugin:
+      kind: npm
+      package: "@devtheops/opencode-plugin-otel@1.1.0"
+    role: OpenTelemetry plugin pattern for runtime observability
+    default_stack: true
+    source: https://www.npmjs.com/package/@devtheops/opencode-plugin-otel
+  - id: opencode-snip
+    name: opencode-snip
+    role: prompt snippet and command-discipline helper patterns
+    default_stack: true
+    source: https://www.npmjs.com/package/opencode-snip
+  - id: opencode-mem
+    name: opencode-mem
+    role: OpenCode memory projection for durable goal context
+    default_stack: true
+    source: https://github.com/tickernelz/opencode-mem
+  - id: cupcake
+    name: cupcake
+    role: OpenCode policy enforcement through tool execution hooks
+    default_stack: true
+    source: https://cupcake.eqtylab.io/getting-started/usage/opencode/
+mcp_backends:
+  - id: pipeline-gateway
+    locality: project-remote
+    required: true
+    credentials: [PIPELINE_MCP_GATEWAY_AUTHORIZATION]
+    role: singleton MCP server exposed to generated Codex and OpenCode host config
+  - id: context7
+    name: Context7
+    locality: shared-remote
+    required: true
+    credentials: []
+    role: current library documentation and examples
+  - id: uidotsh
+    locality: shared-remote
+    required: true
+    credentials: []
+    role: package skill and rule resource retrieval
+  - id: qdrant
+    name: Qdrant
+    locality: repo-scoped-remote
+    required: true
+    credentials: [QDRANT_URL, QDRANT_API_KEY]
+    role: repository memory lookup and storage
+  - id: fallow
+    name: Fallow
+    locality: repo-local
+    required: false
+    credentials: []
+    role: dead-code, complexity, duplication, boundary, and runtime coverage analysis
+  - id: serena
+    name: Serena
+    locality: repo-local
+    required: true
+    credentials: []
+    role: repository-local semantic code navigation
+  - id: backlog
+    name: Backlog
+    locality: repo-local
+    required: true
+    credentials: []
+    role: task and ticket state
+  - id: github
+    name: GitHub
+    locality: shared-remote
+    required: true
+    credentials: [GITHUB_TOKEN]
+    role: repository, PR, issue, and release workflow access
+  - id: playwright-browser
+    name: Playwright/browser
+    locality: repo-local
+    required: true
+    credentials: []
+    role: browser automation and frontend verification
+  - id: neon
+    name: Neon
+    locality: shared-remote
+    required: true
+    credentials: [NEON_API_KEY]
+    role: database branch and Postgres environment operations
+skills:
+  - id: pipe
+    path: .agents/skills/pipe/SKILL.md
+    used_by: [orchestrator]
+  - id: inspect
+    path: .agents/skills/inspect/SKILL.md
+    used_by: [pipeline-inspector]
+  - id: epic
+    path: .agents/skills/epic/SKILL.md
+    used_by: [pipeline-epic-router]
+  - id: execute
+    path: .agents/skills/execute/SKILL.md
+    used_by: [pipeline-code-writer]
+  - id: research
+    path: .agents/skills/research/SKILL.md
+    used_by: [pipeline-researcher]
+  - id: library-first-development
+    path: .agents/skills/library-first-development/SKILL.md
+    used_by: [pipeline-researcher, pipeline-code-writer]
+  - id: critique
+    path: .agents/skills/critique/SKILL.md
+    used_by: [pipeline-thermo-nuclear-reviewer]
+  - id: verify
+    path: .agents/skills/verify/SKILL.md
+    used_by: [pipeline-verifier]
+prompts:
+  - id: orchestrator
+    source: package-default-profile
+    used_by: [orchestrator]
+  - id: researcher
+    source: package-default-profile
+    used_by: [pipeline-researcher]
+  - id: inspector
+    source: package-default-profile
+    used_by: [pipeline-inspector]
+  - id: schedule-planner
+    source: package-default-profile
+    used_by: [pipeline-schedule-planner]
+  - id: test-writer
+    source: package-default-profile
+    used_by: [pipeline-test-writer]
+  - id: code-writer
+    source: package-default-profile
+    used_by: [pipeline-code-writer]
+  - id: acceptance-reviewer
+    source: package-default-profile
+    used_by: [pipeline-acceptance-reviewer]
+  - id: verifier
+    source: package-default-profile
+    used_by: [pipeline-verifier]
+host_capabilities:
+  agents: true
+  subagents: true
+  skills: true
+  plugins: true
+  mcp_servers: true
+  lsp: true
+  permissions: true
+  commands: true
+  project_config: true
+sources:
+  - label: OpenCode ecosystem
+    url: https://opencode.ai/docs/ecosystem
+  - label: OpenCode plugins
+    url: https://opencode.ai/docs/plugins
+  - label: OpenCode agents
+    url: https://opencode.ai/docs/agents
+  - label: OpenCode skills
+    url: https://opencode.ai/docs/skills/
+  - label: OpenCode MCP servers
+    url: https://opencode.ai/docs/mcp-servers
+  - label: OpenCode LSP
+    url: https://opencode.ai/docs/lsp/
+  - label: awesome-opencode
+    url: https://github.com/awesome-opencode/awesome-opencode
+  - label: opencode.cafe
+    url: https://www.opencode.cafe/

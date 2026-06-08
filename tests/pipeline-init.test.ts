@@ -15,17 +15,17 @@ vi.mock("execa", () => ({
 }));
 
 import { execa } from "execa";
-import { loadPipelineConfig } from "../src/config.js";
+import { loadPipelineConfig } from "../src/config";
 import {
   DEFAULT_INSTALL_MANIFEST,
   DEFAULT_SKILL_INSTALLS,
-} from "../src/mcp/bootstrap.js";
+} from "../src/mcp/bootstrap";
 import {
   formatPipelineInitResult,
   initPipelineProject,
   installDefaultSkillsWithCli,
   type PipelineSkillInstaller,
-} from "../src/pipeline-init.js";
+} from "../src/pipeline-init";
 
 const mockExeca = vi.mocked(execa);
 
@@ -89,7 +89,14 @@ describe("initPipelineProject", () => {
     expect(config.profiles["pipeline-researcher"].mcp_servers).toEqual([
       "pipeline-gateway",
     ]);
-    expect(config.skills).toEqual({});
+    expect(config.skills.research).toEqual({
+      path: ".agents/skills/research/SKILL.md",
+      source_root: "package",
+    });
+    expect(config.skills.verify).toEqual({
+      path: ".agents/skills/verify/SKILL.md",
+      source_root: "package",
+    });
   });
 
   it("formats init as one-command package-owned setup", async () => {

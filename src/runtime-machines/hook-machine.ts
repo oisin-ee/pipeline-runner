@@ -4,7 +4,7 @@ import type {
   RuntimeActorDescriptor,
   RuntimeFailure,
   RuntimeObservabilityEmitter,
-} from "./contracts.js";
+} from "./contracts";
 
 export interface HookInvocationResult {
   failure?: RuntimeFailure;

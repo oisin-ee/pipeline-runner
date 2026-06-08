@@ -3,6 +3,7 @@
 Generate a constrained agent graph as a specialized `pipeline-schedule` YAML artifact for the user task.
 
 Keep the graph auditable: execution must include research, implementation, and verification.
+When the schedule policy requests team graph behavior, represent collaboration as explicit DAG nodes: lead/planner, parallel specialist nodes, integration or drain-merge, acceptance reviewer, and verifier. Do not use hidden team state.
 
 Generate exactly one workflow named `root`. Do not embed `default`, `epic-drain`, `infra`, `track`, or other configured workflow copies. Use explicit generated agent, builtin, command, parallel, or group nodes. Do not use `kind: workflow`.
 
@@ -11,6 +12,7 @@ Do not copy backlog descriptions or acceptance criteria into output; the schedul
 Preserve Backlog dependency ids as schedule needs edges. A node assigned a dependent work unit must depend on the nodes assigned its prerequisite work units, directly or through an explicit path.
 
 Shape the graph by intent, not by ticket count. Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket unless each step needs ticket-specific evidence. Use one RED node for a group of tickets when they share a test strategy, fan out to parallel GREEN implementation nodes where the work can be implemented independently, and fan back in to shared acceptance or verifier nodes when the same acceptance checklist or real repository commands prove the group. Only serialize ticket nodes when the backlog, a shared migration/schema/API dependency, or implementation risk requires it.
+If multiple write-capable specialists run in parallel, declare isolated workflow worktree roots or include an explicit drain-merge integration node before shared acceptance or verification.
 
 Return exactly one YAML document and nothing else. Do not wrap it in Markdown fences. Do not include commentary, plans, task lists, or explanations. Do not modify files. Do not invoke other agents.
 

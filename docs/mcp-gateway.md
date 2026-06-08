@@ -91,6 +91,12 @@ With a gateway, the runtime launches zero local upstream MCP processes for
 agents. Codex and OpenCode read the same project-level host config, which
 contains only `pipeline-gateway`.
 
+OpenCode receives that gateway through `.opencode/opencode.json` alongside the
+package-owned runtime projection: `lsp: true`, pinned plugin entries, generated
+agents, projected skills, explicit permissions, and local TypeScript plugins.
+Those resources give OpenCode richer runtime assistance without changing MCP
+ownership: upstream servers still live behind the gateway.
+
 ## Candidate Gateway Implementations
 
 Use an off-the-shelf aggregator when possible:
@@ -107,3 +113,9 @@ singleton `pipeline-gateway` remote entry. Use `pipe install-commands --host all
 to refresh generated host files after package upgrades, and use
 `pipe mcp gateway configure-host` as an explicit migration or repair command
 when existing host MCP config must be rewritten with a backup.
+
+The package-owned MCP inventory exposed through the ecosystem manifest includes
+`pipeline-gateway`, Context7, uidotsh, Qdrant, Fallow, Serena, Backlog, GitHub,
+Playwright Browser, and Neon. Repo-scoped backends must bind to
+`PIPELINE_TARGET_PATH` or the current workspace path supplied by the gateway
+configuration.

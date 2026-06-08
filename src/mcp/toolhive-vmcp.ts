@@ -1,6 +1,6 @@
 import { stringify } from "yaml";
-import type { PipelineConfig } from "../config.js";
-import type { RepoLocalBackendSpec } from "./repo-local-backends.js";
+import type { PipelineConfig } from "../config";
+import type { RepoLocalBackendSpec } from "./repo-local-backends";
 
 type McpGatewayConfig = NonNullable<PipelineConfig["mcp_gateway"]>;
 type McpGatewayBackend = McpGatewayConfig["backends"][string];
@@ -18,7 +18,10 @@ export interface ToolHiveVmcpBackend {
   name: string;
   required: boolean;
   toolPrefixes: string[];
+  transport?: string;
   type: ToolHiveVmcpBackendType;
+  url?: string;
+  workloadName?: string;
 }
 
 export interface ToolHiveVmcpInventory {
@@ -29,6 +32,14 @@ export interface ToolHiveVmcpInventory {
 
 export interface RenderToolHiveVmcpInventoryOptions {
   repoLocalBackends?: RepoLocalBackendSpec[];
+  toolHiveWorkloads?: ToolHiveWorkload[];
+}
+
+export interface ToolHiveWorkload {
+  name: string;
+  status?: string;
+  transport?: string;
+  url?: string;
 }
 
 export function renderToolHiveVmcpInventory(
@@ -46,9 +57,15 @@ export function renderToolHiveVmcpInventory(
   const repoLocalBackends = new Map(
     (options.repoLocalBackends ?? []).map((backend) => [backend.id, backend])
   );
+  const toolHiveWorkloads = options.toolHiveWorkloads ?? [];
   const backends = Object.entries(gateway.backends)
     .map(([id, backend]) =>
-      toolHiveBackend(id, backend, repoLocalBackends.get(id))
+      toolHiveBackend(
+        id,
+        backend,
+        repoLocalBackends.get(id),
+        matchingWorkload(id, toolHiveWorkloads)
+      )
     )
     .sort((left, right) => left.name.localeCompare(right.name));
   const group = gateway.default_profile ?? "default";
@@ -62,7 +79,11 @@ export function renderToolHiveVmcpInventory(
           prefixFormat: "{workload}_",
         },
       },
-      backends: backends.map((backend) => ({ name: backend.name })),
+      backends: backends.map((backend) => ({
+        name: backend.name,
+        ...(backend.transport ? { transport: backend.transport } : {}),
+        ...(backend.url ? { url: backend.url } : {}),
+      })),
       groupRef: group,
       incomingAuth: {
         type: "anonymous",
@@ -78,7 +99,8 @@ export function renderToolHiveVmcpInventory(
 function toolHiveBackend(
   id: string,
   backend: McpGatewayBackend,
-  repoLocalBackend: RepoLocalBackendSpec | undefined
+  repoLocalBackend: RepoLocalBackendSpec | undefined,
+  workload: ToolHiveWorkload | undefined
 ): ToolHiveVmcpBackend {
   if (backend.locality !== "repo-local") {
     return {
@@ -86,8 +108,11 @@ function toolHiveBackend(
       locality: backend.locality,
       name: id,
       required: backend.required,
+      transport: workload?.transport,
       toolPrefixes: backend.tool_prefixes,
       type: "entry",
+      url: workload?.url,
+      workloadName: workload?.name,
     };
   }
   return {
@@ -100,7 +125,21 @@ function toolHiveBackend(
     mount: repoLocalBackend?.mount,
     name: id,
     required: backend.required,
+    transport: workload?.transport,
     toolPrefixes: backend.tool_prefixes,
     type: "stdio",
+    url: workload?.url,
+    workloadName: workload?.name,
   };
+}
+
+function matchingWorkload(
+  backendId: string,
+  workloads: ToolHiveWorkload[]
+): ToolHiveWorkload | undefined {
+  const expectedPackageOwnedName = `oisin-pipeline-${backendId}`;
+  return workloads.find(
+    (workload) =>
+      workload.name === backendId || workload.name === expectedPackageOwnedName
+  );
 }

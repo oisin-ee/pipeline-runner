@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  extractTicketIds,
-  parseTicketAndDescription,
-} from "../src/task-ref.js";
+import { extractTicketIds, parseTicketAndDescription } from "../src/task-ref";
 
 describe("parseTicketAndDescription", () => {
   it("extracts ticket id and remainder", () => {

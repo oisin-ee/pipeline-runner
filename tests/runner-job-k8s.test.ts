@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
  */
 
 function loadK8sModule() {
-  return import("../src/runner-job/k8s.js");
+  return import("../src/runner-job/k8s");
 }
 
 const BASE_OPTIONS = {

@@ -2,11 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import {
-  type PipelineConfig,
-  parsePipelineConfigParts,
-} from "../src/config.js";
-import { runPipelineFromConfig } from "../src/pipeline-runtime.js";
+import { type PipelineConfig, parsePipelineConfigParts } from "../src/config";
+import { runPipelineFromConfig } from "../src/pipeline-runtime";
 
 const RUN_LIVE = process.env.PIPELINE_LIVE_RUNNERS === "1";
 const describeLive = RUN_LIVE ? describe : describe.skip;

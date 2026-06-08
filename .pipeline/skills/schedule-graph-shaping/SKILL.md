@@ -15,6 +15,8 @@ Use this when producing a `pipeline-schedule` YAML artifact.
 - Every generated agent node must declare a configured `profile`.
 - Node IDs must be stable lowercase kebab-case and match `^[a-z][a-z0-9-]*$`.
 - Do not invent profiles, node-level skills, or unconfigured gates.
+- Team-mode collaboration must be explicit DAG structure: lead/planner, parallel specialists, integration or drain-merge, acceptance reviewer, and verifier. Do not rely on hidden dynamic team state.
+- Parallel write-capable specialists must either use isolated workflow worktree roots or fan in through an explicit drain-merge integration node before shared coverage.
 
 ## Shaping Procedure
 
@@ -27,13 +29,16 @@ Use this when producing a `pipeline-schedule` YAML artifact.
 3. Use GREEN nodes for independently implementable slices.
    A GREEN node may cover one ticket or a coherent group of tickets. Split GREEN nodes when the work can run in parallel, has different dependencies, has materially different ownership/risk, or would make one node too broad to review.
 
-4. Use acceptance nodes for user-visible outcomes.
+4. Add integration when parallel writers need it.
+   Use a drain-merge node when multiple write-capable specialist nodes share the same repository worktree. Use isolated workflow worktree roots only when the generated schedule actually declares those roots.
+
+5. Use acceptance nodes for user-visible outcomes.
    One acceptance node can cover multiple implementation nodes when they produce the same visible outcome or acceptance checklist.
 
-5. Use verifier nodes for shared evidence.
+6. Use verifier nodes for shared evidence.
    One verifier can validate multiple tickets when the same real repository commands and checks prove them. Split verifiers only when evidence differs, one area needs specialized inspection, or a dependency boundary requires earlier proof.
 
-6. Preserve necessary serial order.
+7. Preserve necessary serial order.
    Dependencies from the backlog, shared migrations/schema changes, public API changes, and foundational refactors should gate downstream implementation. Independent clusters should fan out and then fan in to shared acceptance, verifier, merge, or review nodes.
 
 ## Task Context

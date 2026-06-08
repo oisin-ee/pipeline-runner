@@ -13,11 +13,11 @@ function responseWithStatus(status: number): Response {
 }
 
 function loadSinkModule(): Promise<Record<string, any>> {
-  return import("../src/runner-event-sink.js");
+  return import("../src/runner-event-sink");
 }
 
 function loadContractModule(): Promise<Record<string, any>> {
-  return import("../src/runner-job-contract.js");
+  return import("../src/runner-job-contract");
 }
 
 function requestFromCall(call: unknown[]): Request {

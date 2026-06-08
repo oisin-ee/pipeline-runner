@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createActor, waitFor } from "xstate";
-import { runtimeActorId } from "../src/runtime-machines/contracts.js";
-import { hookInvocationMachine } from "../src/runtime-machines/hook-machine.js";
+import { runtimeActorId } from "../src/runtime-machines/contracts";
+import { hookInvocationMachine } from "../src/runtime-machines/hook-machine";
 
 describe("hookInvocationMachine", () => {
   it("records a passing command hook", async () => {

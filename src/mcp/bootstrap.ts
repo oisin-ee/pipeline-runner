@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { parseJson } from "../safe-json.js";
+import { parseJson } from "../safe-json";
 
 export interface PipelineSkillInstallSpec {
   args?: string[];

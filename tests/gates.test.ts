@@ -33,7 +33,7 @@ import {
   runSemgrep,
   runTests,
   runTypecheck,
-} from "../src/gates.js";
+} from "../src/gates";
 
 const mockExeca = vi.mocked(execa);
 const mockExistsSync = vi.mocked(existsSync);

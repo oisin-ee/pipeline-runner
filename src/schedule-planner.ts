@@ -10,20 +10,20 @@ import {
   type SchedulingRole,
   validatePipelineConfig,
   workflowSchema,
-} from "./config.js";
+} from "./config";
 import {
   type AgentResult,
   createRunnerLaunchPlan,
   type RunnerExecutionOptions,
   type RunnerLaunchPlan,
   runLaunchPlan,
-} from "./runner.js";
-import { normalizeRunnerOutput } from "./runner-output.js";
-import { extractTicketIds } from "./task-ref.js";
+} from "./runner";
+import { normalizeRunnerOutput } from "./runner-output";
+import { extractTicketIds } from "./task-ref";
 import {
   compileWorkflowPlan,
   type WorkflowExecutionPlan,
-} from "./workflow-planner.js";
+} from "./workflow-planner";
 
 const SCHEDULE_KIND = "pipeline-schedule";
 const ID_RE = /^[a-z][a-z0-9-]*$/;
@@ -214,6 +214,19 @@ export async function generateScheduleArtifact(
   const planningContext: SchedulePlanningContext = {
     ...loadBacklogPlanningContext(options.task, options.worktreePath),
   };
+  if (policy.strategy === "team-graph") {
+    const artifact = hydrateScheduleTaskContexts(
+      teamGraphScheduleArtifact({
+        baseline,
+        config: options.config,
+        planningContext,
+      }),
+      planningContext
+    );
+    validateScheduleArtifact(options.config, artifact, planningContext);
+    compileScheduleArtifact(options.config, artifact, options.worktreePath);
+    return { artifact, path: `memory:${artifact.schedule_id}` };
+  }
   const artifact = hydrateScheduleTaskContexts(
     addGeneratedImplementationCoverage(
       options.config,
@@ -229,6 +242,171 @@ export async function generateScheduleArtifact(
   validateScheduleArtifact(options.config, artifact, planningContext);
   compileScheduleArtifact(options.config, artifact, options.worktreePath);
   return { artifact, path: `memory:${artifact.schedule_id}` };
+}
+
+function teamGraphScheduleArtifact(input: {
+  baseline: ScheduleArtifact;
+  config: PipelineConfig;
+  planningContext: SchedulePlanningContext;
+}): ScheduleArtifact {
+  return {
+    ...input.baseline,
+    root_workflow: "root",
+    workflows: {
+      root: {
+        description: "Generated explicit team graph schedule.",
+        nodes: teamGraphNodes(input.config, input.planningContext),
+      },
+    },
+  };
+}
+
+function teamGraphNodes(
+  config: PipelineConfig,
+  planningContext: SchedulePlanningContext
+): WorkflowNode[] {
+  const specialistNodes = teamGraphSpecialistNodes(
+    config,
+    planningContext.workUnits
+  );
+  return [
+    {
+      id: "lead-plan",
+      kind: "agent",
+      profile: preferredProfile(config, [
+        "pipeline-schedule-planner",
+        "pipeline-researcher",
+      ]),
+    },
+    {
+      id: "specialists",
+      kind: "parallel",
+      needs: ["lead-plan"],
+      nodes: specialistNodes,
+    },
+    {
+      builtin: "drain-merge",
+      id: "integration",
+      kind: "builtin",
+      needs: ["specialists"],
+    },
+    {
+      gates: [
+        {
+          id: "acceptance-coverage",
+          kind: "acceptance",
+          required: false,
+          target: "stdout",
+        },
+        { id: "acceptance-verdict", kind: "verdict", target: "stdout" },
+      ],
+      id: "acceptance-review",
+      kind: "agent",
+      needs: ["integration"],
+      profile: preferredProfile(config, [
+        "pipeline-acceptance-reviewer",
+        "pipeline-verifier",
+      ]),
+    },
+    {
+      gates: generatedCoverageGates("verify"),
+      id: "verify",
+      kind: "agent",
+      needs: ["acceptance-review"],
+      profile: preferredProfile(config, [
+        "pipeline-verifier",
+        "pipeline-thermo-nuclear-reviewer",
+      ]),
+    },
+  ];
+}
+
+function teamGraphSpecialistNodes(
+  config: PipelineConfig,
+  workUnits: BacklogWorkUnit[]
+): WorkflowNode[] {
+  const implementationProfile = preferredImplementationProfile(config);
+  const coverageProfile = preferredProfile(config, [
+    "pipeline-verifier",
+    "pipeline-acceptance-reviewer",
+    "pipeline-thermo-nuclear-reviewer",
+  ]);
+  if (workUnits.length === 0) {
+    return [
+      {
+        id: "specialist-implementation",
+        kind: "agent",
+        profile: implementationProfile,
+      },
+      {
+        gates: generatedCoverageGates("specialist-coverage"),
+        id: "specialist-coverage",
+        kind: "agent",
+        needs: ["specialist-implementation"],
+        profile: coverageProfile,
+      },
+    ];
+  }
+  const usedIds = new Set<string>();
+  const nodeIdsByWorkUnit = new Map(
+    workUnits.map((unit) => [
+      unit.id,
+      uniqueGeneratedId(`specialist-${unit.id}`, usedIds, "specialist"),
+    ])
+  );
+  const specialists: WorkflowNode[] = workUnits.map((unit) => {
+    const needs = (unit.dependencies ?? []).flatMap((dependencyId) => {
+      const nodeId = nodeIdsByWorkUnit.get(dependencyId);
+      return nodeId ? [nodeId] : [];
+    });
+    return {
+      id: nodeIdsByWorkUnit.get(unit.id) ?? "specialist",
+      kind: "agent",
+      ...(needs.length > 0 ? { needs } : {}),
+      profile: implementationProfile,
+      task_context: { id: unit.id },
+    };
+  });
+  return [
+    ...specialists,
+    {
+      gates: generatedCoverageGates("specialist-coverage"),
+      id: "specialist-coverage",
+      kind: "agent",
+      needs: specialists.map((node) => node.id),
+      profile: coverageProfile,
+    },
+  ];
+}
+
+function preferredImplementationProfile(config: PipelineConfig): string {
+  if (
+    config.profiles["pipeline-code-writer"]?.scheduling_roles?.includes(
+      "implementation"
+    )
+  ) {
+    return "pipeline-code-writer";
+  }
+  const implementationProfile = Object.entries(config.profiles).find(
+    ([, profile]) => profile.scheduling_roles?.includes("implementation")
+  );
+  return (
+    implementationProfile?.[0] ??
+    preferredProfile(config, ["pipeline-code-writer", "pipeline-researcher"])
+  );
+}
+
+function preferredProfile(
+  config: PipelineConfig,
+  profileIds: string[]
+): string {
+  const profile = profileIds.find((id) => config.profiles[id]);
+  if (!profile) {
+    throw new ScheduleArtifactError(
+      `team graph strategy requires one of these configured profiles: ${profileIds.join(", ")}`
+    );
+  }
+  return profile;
 }
 
 function addGeneratedImplementationCoverage(
@@ -376,6 +554,11 @@ function rewriteNodeReferences(
     return { ...node, workflow };
   }
   if (node.kind === "parallel") {
+    if (!Array.isArray(node.nodes)) {
+      throw new ScheduleArtifactError(
+        `schedule parallel node '${node.id}' is missing child nodes`
+      );
+    }
     return {
       ...node,
       nodes: node.nodes.map((child) => rewriteNodeReferences(child, mappedIds)),
@@ -968,6 +1151,7 @@ function validateScheduleArtifact(
     ...invalidWorkflowPrimitiveIssues(config, artifact),
     ...unsupportedGeneratedBuiltinIssues(artifact),
     ...implementationCoverageIssues(config, artifact),
+    ...unsafeParallelWorktreeIssues(config, artifact),
   ];
   if (issues.length > 0) {
     throw new ScheduleArtifactError(
@@ -977,6 +1161,116 @@ function validateScheduleArtifact(
       ].join("\n")
     );
   }
+}
+
+function unsafeParallelWorktreeIssues(
+  config: PipelineConfig,
+  artifact: ScheduleArtifact
+): string[] {
+  return workflowNodeIssues(
+    artifact,
+    ({ dependentsByNeed, nodes, workflowId }) =>
+      nodes
+        .filter((node) => node.kind === "parallel")
+        .flatMap((node) => {
+          const writeCapable = node.nodes.filter((child) =>
+            isWriteCapableParallelChild(config, child)
+          );
+          if (writeCapable.length <= 1) {
+            return [];
+          }
+          if (
+            writeCapable.every((child) => hasIsolatedWorkflowWorktree(child)) ||
+            hasDownstreamDrainMerge(node.id, dependentsByNeed)
+          ) {
+            return [];
+          }
+          return [
+            `parallel node '${workflowId}.${node.id}' has write-capable children sharing a worktree without isolated worktree roots or drain-merge integration`,
+          ];
+        })
+  );
+}
+
+interface WorkflowNodeIssueContext {
+  dependentsByNeed: Map<string, WorkflowNode[]>;
+  nodes: WorkflowNode[];
+  workflowId: string;
+}
+
+function workflowNodeIssues(
+  artifact: ScheduleArtifact,
+  collectIssues: (context: WorkflowNodeIssueContext) => string[]
+): string[] {
+  return Object.entries(artifact.workflows).flatMap(
+    ([workflowId, workflow]) => {
+      const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
+      return collectIssues({
+        dependentsByNeed: workflowDependentsByNeed(nodes),
+        nodes,
+        workflowId,
+      });
+    }
+  );
+}
+
+function isWriteCapableParallelChild(
+  config: PipelineConfig,
+  node: WorkflowNode
+): boolean {
+  if (node.kind === "agent") {
+    return (
+      config.profiles[node.profile]?.filesystem?.mode === "workspace-write"
+    );
+  }
+  if (node.kind === "command") {
+    return true;
+  }
+  if (node.kind === "workflow") {
+    return !node.worktree_root;
+  }
+  if (node.kind === "parallel") {
+    return node.nodes.some((child) =>
+      isWriteCapableParallelChild(config, child)
+    );
+  }
+  return false;
+}
+
+function hasIsolatedWorkflowWorktree(node: WorkflowNode): boolean {
+  return node.kind === "workflow" && Boolean(node.worktree_root);
+}
+
+function hasDownstreamDrainMerge(
+  nodeId: string,
+  dependentsByNeed: Map<string, WorkflowNode[]>
+): boolean {
+  return hasReachableDependent(
+    nodeId,
+    dependentsByNeed,
+    (node) => node.kind === "builtin" && node.builtin === "drain-merge"
+  );
+}
+
+function hasReachableDependent(
+  nodeId: string,
+  dependentsByNeed: Map<string, WorkflowNode[]>,
+  matches: (node: WorkflowNode) => boolean
+): boolean {
+  const queue = [...(dependentsByNeed.get(nodeId) ?? [])];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node || seen.has(node.id)) {
+      continue;
+    }
+    seen.add(node.id);
+    if (matches(node)) {
+      return true;
+    }
+    queue.push(...(dependentsByNeed.get(node.id) ?? []));
+  }
+  return false;
 }
 
 function generatedRootWorkflowIssues(artifact: ScheduleArtifact): string[] {
@@ -1237,11 +1531,10 @@ function implementationCoverageIssues(
   config: PipelineConfig,
   artifact: ScheduleArtifact
 ): string[] {
-  return Object.entries(artifact.workflows).flatMap(
-    ([workflowId, workflow]) => {
-      const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
-      const dependentsByNeed = workflowDependentsByNeed(nodes);
-      return nodes
+  return workflowNodeIssues(
+    artifact,
+    ({ dependentsByNeed, nodes, workflowId }) =>
+      nodes
         .filter((node) => isImplementationNode(config, node))
         .filter(
           (node) => !hasDownstreamCoverage(config, node.id, dependentsByNeed)
@@ -1249,8 +1542,7 @@ function implementationCoverageIssues(
         .map(
           (node) =>
             `implementation node '${workflowId}.${node.id}' is without downstream verification or review`
-        );
-    }
+        )
   );
 }
 
@@ -1280,20 +1572,9 @@ function hasDownstreamCoverage(
   nodeId: string,
   dependentsByNeed: Map<string, WorkflowNode[]>
 ): boolean {
-  const queue = [...(dependentsByNeed.get(nodeId) ?? [])];
-  const seen = new Set<string>();
-  while (queue.length > 0) {
-    const node = queue.shift();
-    if (!node || seen.has(node.id)) {
-      continue;
-    }
-    seen.add(node.id);
-    if (isCoverageNode(config, node)) {
-      return true;
-    }
-    queue.push(...(dependentsByNeed.get(node.id) ?? []));
-  }
-  return false;
+  return hasReachableDependent(nodeId, dependentsByNeed, (node) =>
+    isCoverageNode(config, node)
+  );
 }
 
 function isCoverageNode(config: PipelineConfig, node: WorkflowNode): boolean {

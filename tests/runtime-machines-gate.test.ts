@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createActor, waitFor } from "xstate";
-import { runtimeActorId } from "../src/runtime-machines/contracts.js";
-import { gateEvaluationMachine } from "../src/runtime-machines/gate-machine.js";
+import { runtimeActorId } from "../src/runtime-machines/contracts";
+import { gateEvaluationMachine } from "../src/runtime-machines/gate-machine";
 
 describe("gateEvaluationMachine", () => {
   it("classifies a passing gate result", async () => {

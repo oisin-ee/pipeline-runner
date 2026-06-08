@@ -11,6 +11,8 @@ import {
   createRunnerLaunchPlan,
   spawnAgent,
 } from "../src/runner.ts";
+import { normalizeRunnerOutput } from "../src/runner-output.ts";
+import { opencodeCliRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 
@@ -289,6 +291,79 @@ workflows:
     });
 
     expect(plan.timeoutMs).toBeUndefined();
+  });
+
+  it("keeps the OpenCode CLI adapter launch plan behavior-compatible", () => {
+    const plan = createRunnerLaunchPlan(CONFIG, {
+      contextFile: "/tmp/context.md",
+      profileId: "opencode-agent",
+      nodeId: "opencode-node",
+      prompt: "do OpenCode work",
+      worktreePath: "/tmp/wt",
+    });
+
+    const launch = opencodeCliRuntimeAdapter.launch(plan);
+    const metadata = opencodeCliRuntimeAdapter.sessionMetadata(plan);
+
+    expect(launch).toEqual({
+      args: [
+        "run",
+        "--format",
+        "json",
+        "--model",
+        "openai/gpt-5.5",
+        "--dangerously-skip-permissions",
+        "--dir",
+        "/tmp/wt",
+        "do OpenCode work",
+        "--file",
+        "/tmp/context.md",
+      ],
+      command: "opencode",
+      cwd: "/tmp/wt",
+      env: {},
+      timeoutMs: undefined,
+    });
+    expect(metadata).toEqual({
+      adapterId: "opencode-cli-subprocess",
+      continuationApi: "unavailable",
+      nodeId: "opencode-node",
+      outputFormat: "json",
+      pluginEvents: "project-local",
+      profileId: "opencode-agent",
+      runnerId: "opencode",
+      sessionInspectionApi: "unavailable",
+      worktreePath: "/tmp/wt",
+    });
+  });
+
+  it("normalizes OpenCode JSON event output through the runtime adapter", () => {
+    const plan = createRunnerLaunchPlan(CONFIG, {
+      profileId: "opencode-agent",
+      nodeId: "opencode-node",
+      prompt: "do OpenCode work",
+      worktreePath: "/tmp/wt",
+    });
+    const stdout = [
+      "debug line",
+      JSON.stringify({ part: { type: "text", text: "first" } }),
+      JSON.stringify({ part: { type: "text", text: "final" } }),
+    ].join("\n");
+
+    expect(opencodeCliRuntimeAdapter.outputCandidates(stdout)).toEqual([
+      {
+        evidence: "normalized runner output from opencode JSON events",
+        output: "first",
+      },
+      {
+        evidence: "normalized runner output from opencode JSON events",
+        output: "final",
+      },
+    ]);
+    expect(normalizeRunnerOutput(plan, stdout)).toEqual({
+      evidence: ["normalized runner output from opencode JSON events"],
+      output: "final",
+    });
   });
 
   it("uses PIPELINE_AGENT_TIMEOUT_MS when explicitly configured in the environment", () => {

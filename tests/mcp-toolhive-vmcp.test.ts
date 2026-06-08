@@ -3,9 +3,9 @@ import { parse } from "yaml";
 import {
   type PipelineConfigParts,
   parsePipelineConfigParts,
-} from "../src/config.js";
-import { resolveRepoLocalBackendSpecs } from "../src/mcp/repo-local-backends.js";
-import { renderToolHiveVmcpInventory } from "../src/mcp/toolhive-vmcp.js";
+} from "../src/config";
+import { resolveRepoLocalBackendSpecs } from "../src/mcp/repo-local-backends";
+import { renderToolHiveVmcpInventory } from "../src/mcp/toolhive-vmcp";
 
 const PARTS: PipelineConfigParts = {
   runners: `
@@ -111,6 +111,42 @@ describe("ToolHive vMCP inventory rendering", () => {
         type: "entry",
       })
     );
+  });
+
+  it("uses discovered ToolHive workload URLs while keeping pipeline backend aliases", () => {
+    const config = parsePipelineConfigParts(PARTS);
+    const repoLocalBackends = resolveRepoLocalBackendSpecs(config, {
+      cwd: "/repo",
+      env: { PIPELINE_TARGET_PATH: "/repo" },
+      exists: () => true,
+    });
+    const inventory = renderToolHiveVmcpInventory(config, {
+      repoLocalBackends,
+      toolHiveWorkloads: [
+        {
+          name: "oisin-pipeline-qdrant",
+          transport: "streamable-http",
+          url: "http://127.0.0.1:20222/mcp/",
+        },
+      ],
+    });
+    const parsed = parse(inventory.yaml) as {
+      backends: Array<{ name: string; transport?: string; url?: string }>;
+    };
+
+    expect(
+      parsed.backends.find((backend) => backend.name === "qdrant")
+    ).toEqual({
+      name: "qdrant",
+      transport: "streamable-http",
+      url: "http://127.0.0.1:20222/mcp/",
+    });
+    expect(
+      inventory.backends.find((backend) => backend.name === "qdrant")
+    ).toMatchObject({
+      name: "qdrant",
+      workloadName: "oisin-pipeline-qdrant",
+    });
   });
 
   it("keeps the complete aggregate backend list when one backend is added", () => {

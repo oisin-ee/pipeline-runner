@@ -1,5 +1,5 @@
 import { Graph } from "@dagrejs/graphlib";
-import type { PipelineConfig, WorkflowNodeKind } from "./config.js";
+import type { PipelineConfig, WorkflowNodeKind } from "./config";
 
 export type WorkflowPlannerErrorCode =
   | "WORKFLOW_CYCLE"

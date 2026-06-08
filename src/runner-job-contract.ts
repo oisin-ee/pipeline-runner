@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import type { PipelineRuntimeEvent } from "./pipeline-runtime.js";
-import { parseJson } from "./safe-json.js";
+import type { PipelineRuntimeEvent } from "./pipeline-runtime";
+import { parseJson } from "./safe-json";
 
 export const RUNNER_JOB_CONTRACT_VERSION = "1";
 

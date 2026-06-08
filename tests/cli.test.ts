@@ -32,10 +32,14 @@ const PLAN_PLAN_RE = /- plan kind=agent needs=research/;
 const PLAN_IMPLEMENT_RE = /- implement kind=workflow needs=plan/;
 const PLAN_MERGE_RE = /- merge kind=builtin needs=implement/;
 const PLAN_REVIEW_RE = /- review kind=agent needs=merge/;
+const SCHEDULE_MEMORY_ID_RE = /Schedule generated: memory:run-\d{14}/;
+const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/;
 const WARNING_RE = /warning/i;
 const NO_REPO_COPY_RE = /clone|copy|mirror/i;
+const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+const ORIGINAL_PIPELINE_TEST_COMMAND = process.env.PIPELINE_TEST_COMMAND;
 const DEFAULT_TEST_SKILLS = [
   "critique",
   "diagnose",
@@ -57,12 +61,195 @@ const DEFAULT_TEST_SKILLS = [
   "verify",
 ];
 
+interface MockAgentResponse {
+  matches: (prompt: string) => boolean;
+  response: unknown;
+}
+
+const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
+  {
+    matches: (prompt) =>
+      prompt.includes("pipeline-acceptance-reviewer") ||
+      prompt.includes("acceptance reviewer"),
+    response: {
+      verdict: "PASS",
+      evidence: ["acceptance passed"],
+      acceptance: [{ id: "1", verdict: "PASS", evidence: ["accepted"] }],
+      violations: [],
+    },
+  },
+  {
+    matches: (prompt) =>
+      prompt.includes("pipeline-verifier") || prompt.includes("verifier"),
+    response: {
+      verdict: "PASS",
+      evidence: ["verified by CLI fixture"],
+    },
+  },
+  {
+    matches: (prompt) =>
+      prompt.includes("pipeline-learner") || prompt.includes("LEARN phase"),
+    response: {
+      qdrant: { attempted: true, succeeded: true },
+      evidence: ["stored lesson"],
+    },
+  },
+  {
+    matches: (prompt) => prompt.includes("pipeline-researcher"),
+    response: {
+      ac: ["package OpenCode schedule completes"],
+      findings: ["researched package schedule"],
+      risks: [],
+    },
+  },
+];
+
+const DEFAULT_MOCK_AGENT_RESPONSE = {
+  changes: [
+    {
+      files: ["src/app.ts"],
+      summary: "Implemented CLI fixture task",
+      why: "The OpenCode-first schedule agent must report changes",
+    },
+  ],
+  verification: ["CLI fixture verified"],
+};
+
+function mockAgentStdout(command: string, args?: string[]): string {
+  if (command !== "codex" && command !== "opencode") {
+    return "";
+  }
+  const prompt = Array.isArray(args) ? args.join("\n") : "";
+  return JSON.stringify(
+    MOCK_AGENT_RESPONSES.find(({ matches }) => matches(prompt))?.response ??
+      DEFAULT_MOCK_AGENT_RESPONSE
+  );
+}
+
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
     delete process.env[key];
     return;
   }
   process.env[key] = value;
+}
+
+type ConsoleSpy = ReturnType<typeof vi.spyOn>;
+type RunCli = typeof import("../src/index")["runCli"];
+
+interface CliTargetFixture {
+  error: ConsoleSpy;
+  log: ConsoleSpy;
+  output: () => string;
+  runCli: RunCli;
+  stderr: () => string;
+}
+
+interface CliTempFixture extends CliTargetFixture {
+  dir: string;
+}
+
+interface CliOutputCapture {
+  failureText?: string;
+  stderr: string;
+  stdout: string;
+  thrown?: unknown;
+}
+
+function spyOutput(spy: ConsoleSpy): string {
+  return spy.mock.calls.map(([message]) => String(message)).join("\n");
+}
+
+async function withCliTarget(
+  targetPath: string,
+  run: (fixture: CliTargetFixture) => Promise<void>
+): Promise<void> {
+  const { runCli } = await import("../src/index");
+  const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+  const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    process.env.PIPELINE_TARGET_PATH = targetPath;
+    await run({
+      error,
+      log,
+      output: () => spyOutput(log),
+      runCli,
+      stderr: () => spyOutput(error),
+    });
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+    restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+  }
+}
+
+async function withCliTempDir(
+  prefix: string,
+  run: (fixture: CliTempFixture) => Promise<void>
+): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  try {
+    await withCliTarget(dir, (fixture) => run({ ...fixture, dir }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function prepareGatewayWorkspace(
+  runCli: RunCli,
+  dir: string,
+  options: { init?: boolean } = {}
+): Promise<void> {
+  if (options.init) {
+    await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+  }
+  mkdirSync(join(dir, ".serena"), { recursive: true });
+  writeFileSync(join(dir, ".serena/project.yml"), "name: test\n");
+  mkdirSync(join(dir, "backlog"), { recursive: true });
+  writeFileSync(join(dir, "package.json"), "{}\n");
+}
+
+async function runPackageWorkflowCommand(
+  fixture: CliTargetFixture,
+  command: "explain-plan" | "validate"
+): Promise<CliOutputCapture> {
+  let thrown: unknown;
+  try {
+    await fixture.runCli([
+      "node",
+      "/repo/node_modules/.bin/pipe",
+      command,
+      "--workflow",
+      "epic-drain",
+    ]);
+  } catch (err) {
+    thrown = err;
+  }
+  const stderr = fixture.stderr();
+  const stdout = fixture.output();
+  return {
+    failureText: [
+      thrown instanceof Error ? thrown.message : String(thrown ?? ""),
+      stderr,
+      stdout,
+    ].join("\n"),
+    stderr,
+    stdout,
+    thrown,
+  };
+}
+
+async function validateCliLintFixture(
+  fixture: CliTempFixture,
+  parts: Parameters<typeof writeCliValidateLintConfig>[1]
+): Promise<CliOutputCapture> {
+  writeCliValidateLintConfig(fixture.dir, parts);
+  await fixture.runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+  return {
+    stderr: fixture.stderr(),
+    stdout: fixture.output(),
+  };
 }
 
 beforeEach(() => {
@@ -87,7 +274,11 @@ beforeEach(() => {
     ) {
       installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
     }
-    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" }) as any;
+    return Promise.resolve({
+      exitCode: 0,
+      stderr: "",
+      stdout: mockAgentStdout(command, args),
+    }) as any;
   }) as any);
 });
 
@@ -99,6 +290,7 @@ afterEach(() => {
     process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
       ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION;
   }
+  restoreEnv("PIPELINE_TEST_COMMAND", ORIGINAL_PIPELINE_TEST_COMMAND);
 });
 
 function installMockSkills(args: string[], cwd = process.cwd()): void {
@@ -399,6 +591,108 @@ function writeProjectFileSet(
   }
 }
 
+function mockToolHiveWorkloads(names: string[]): void {
+  mockExeca.mockImplementation(((
+    command: string,
+    args?: string[],
+    options?: { cwd?: string; env?: Record<string, string> }
+  ) => {
+    const result = toolHiveListResult(command, args, names);
+    writeHookResult(command, options);
+    installSkillsForCommand(command, args, options);
+    return Promise.resolve(result ?? emptyExecaResult()) as any;
+  }) as any);
+}
+
+function toolHiveListResult(
+  command: string,
+  args: string[] | undefined,
+  names: string[]
+): { exitCode: number; stderr: string; stdout: string } | undefined {
+  return isToolHiveListCommand(command, args)
+    ? {
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify(names.map(toolHiveWorkload)),
+      }
+    : undefined;
+}
+
+function isToolHiveListCommand(
+  command: string,
+  args: string[] | undefined
+): boolean {
+  return (
+    command === "thv" &&
+    Array.isArray(args) &&
+    args.includes("list") &&
+    args.includes("--format") &&
+    args.includes("json")
+  );
+}
+
+function toolHiveWorkload(name: string): Record<string, string> {
+  return {
+    group: "default",
+    name,
+    status: "running",
+    transport_type: "streamable-http",
+    url: `http://127.0.0.1/${name}/mcp/`,
+  };
+}
+
+function writeHookResult(
+  command: string,
+  options: { env?: Record<string, string> } | undefined
+): void {
+  const resultPath = options?.env?.PIPELINE_HOOK_RESULT;
+  if (resultPath) {
+    writeFileSync(
+      resultPath,
+      JSON.stringify({ status: "pass", summary: command })
+    );
+  }
+}
+
+function installSkillsForCommand(
+  command: string,
+  args: string[] | undefined,
+  options: { cwd?: string } | undefined
+): void {
+  if (isSkillsInstallCommand(command, args)) {
+    installMockSkills(args, options?.cwd);
+  }
+}
+
+function isSkillsInstallCommand(
+  command: string,
+  args: string[] | undefined
+): args is string[] {
+  return (
+    command === "npx" &&
+    Array.isArray(args) &&
+    args.includes("skills") &&
+    args.includes("add")
+  );
+}
+
+function emptyExecaResult(): {
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+} {
+  return { exitCode: 0, stderr: "", stdout: "" };
+}
+
+const COMPLETE_TOOLHIVE_WORKLOADS = [
+  "backlog",
+  "context7",
+  "oisin-pipeline-fallow",
+  "oisin-pipeline-qdrant",
+  "serena",
+  "uidotsh",
+];
+
 function writeThermoNuclearReviewValidateFixture(
   root: string,
   options: { includeSkill: boolean }
@@ -492,7 +786,7 @@ function backlogCreateOutput(id: string, title: string): string {
 
 describe("createSwarmTasks", () => {
   it("creates parent + 5 child tasks via backlog and returns the assigned id map", async () => {
-    const { createSwarmTasks } = await import("../src/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog");
 
     // Sequence of backlog task create stdouts: parent, then R, TW, CW, V, L children
     mockExeca
@@ -544,7 +838,7 @@ describe("createSwarmTasks", () => {
   });
 
   it("threads worktree path as cwd into every backlog invocation", async () => {
-    const { createSwarmTasks } = await import("../src/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog");
 
     mockExeca.mockResolvedValue({
       stdout: backlogCreateOutput("TASK-1", "x"),
@@ -563,7 +857,7 @@ describe("createSwarmTasks", () => {
   });
 
   it("accepts custom Backlog task prefixes from real CLI output", async () => {
-    const { createSwarmTasks } = await import("../src/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog");
 
     mockExeca
       .mockResolvedValueOnce({
@@ -586,7 +880,7 @@ describe("createSwarmTasks", () => {
   });
 
   it("does not append --no-git to backlog calls (init-only flag in upstream)", async () => {
-    const { createSwarmTasks } = await import("../src/backlog.js");
+    const { createSwarmTasks } = await import("../src/backlog");
 
     mockExeca.mockResolvedValue({
       stdout: backlogCreateOutput("TASK-1", "x"),
@@ -605,7 +899,7 @@ describe("createSwarmTasks", () => {
 
 describe("markPhase", () => {
   it("calls backlog task edit with --status against the assigned id", async () => {
-    const { markPhase } = await import("../src/backlog.js");
+    const { markPhase } = await import("../src/backlog");
 
     mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
 
@@ -632,7 +926,7 @@ describe("planPhaseLifecycle", () => {
   } as const;
 
   it("plans each phase In Progress then Done for a successful run", async () => {
-    const { planPhaseLifecycle } = await import("../src/backlog.js");
+    const { planPhaseLifecycle } = await import("../src/backlog");
 
     const result = planPhaseLifecycle(SWARM, {
       outcome: "PASS",
@@ -655,7 +949,7 @@ describe("planPhaseLifecycle", () => {
   });
 
   it("stops at the gate failure phase and records failure context", async () => {
-    const { planPhaseLifecycle } = await import("../src/backlog.js");
+    const { planPhaseLifecycle } = await import("../src/backlog");
 
     const result = planPhaseLifecycle(SWARM, {
       outcome: "FAIL",
@@ -686,12 +980,12 @@ describe("planPhaseLifecycle", () => {
 
 describe("pipe", () => {
   it("exports a pipe function", async () => {
-    const mod = await import("../src/index.js");
+    const mod = await import("../src/index");
     expect(typeof mod.pipe).toBe("function");
   });
 
   it("supports direct pipe init invocation from the pipe binary", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
 
@@ -722,7 +1016,7 @@ describe("pipe", () => {
   });
 
   it("does not run MCPM registration during init", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-redacted-mcp-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
 
@@ -768,50 +1062,32 @@ describe("pipe", () => {
   });
 
   it("initializes gateway-only MCP config when gateway authorization is missing", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-init-missing-gateway-auth-")
-    );
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-init-missing-gateway-auth-",
+      async ({ dir, output, runCli }) => {
+        delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-      delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+        await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-
-      expect(
-        mockExeca.mock.calls.some(
-          ([command, args]) =>
-            command === "uvx" &&
-            Array.isArray(args) &&
-            args.includes("oisin-pipeline-qdrant")
-        )
-      ).toBe(false);
-      expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
-      const output = log.mock.calls.flat().join("\n");
-      expect(output).not.toContain("Skipped MCPM registration");
-      expect(output).not.toContain("PIPELINE_MCP_GATEWAY_AUTHORIZATION");
-    } finally {
-      log.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(
+          mockExeca.mock.calls.some(
+            ([command, args]) =>
+              command === "uvx" &&
+              Array.isArray(args) &&
+              args.includes("oisin-pipeline-qdrant")
+          )
+        ).toBe(false);
+        expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+        expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+        const stdout = output();
+        expect(stdout).not.toContain("Skipped MCPM registration");
+        expect(stdout).not.toContain("PIPELINE_MCP_GATEWAY_AUTHORIZATION");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("initializes host resources into PIPELINE_TARGET_PATH", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-install-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
+    await withCliTempDir("pipeline-cli-install-", async ({ dir, runCli }) => {
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
 
       expect(existsSync(join(dir, ".opencode", "commands", "pipe.md"))).toBe(
@@ -828,18 +1104,11 @@ describe("pipe", () => {
       expect(
         existsSync(join(process.cwd(), ".opencode", "commands", "pipe.md"))
       ).toBe(true);
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("detects relative Node entrypoint paths as CLI executions", async () => {
-    const { isCliEntrypoint } = await import("../src/index.js");
+    const { isCliEntrypoint } = await import("../src/index");
     const sourcePath = fileURLToPath(
       new URL("../src/index.ts", import.meta.url)
     );
@@ -897,12 +1166,12 @@ describe("pipe", () => {
   });
 
   it("throws if no description provided", async () => {
-    const { pipe } = await import("../src/index.js");
+    const { pipe } = await import("../src/index");
     await expect(pipe("")).rejects.toThrow(DESCRIPTION_RE);
   });
 
   it("runs the YAML runtime through the pipe function", async () => {
-    const { pipe } = await import("../src/index.js");
+    const { pipe } = await import("../src/index");
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -1010,7 +1279,7 @@ describe("pipe", () => {
   });
 
   it("passes entrypoint aliases through the CLI runner", async () => {
-    const { pipe } = await import("../src/index.js");
+    const { pipe } = await import("../src/index");
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const error = vi
       .spyOn(console, "error")
@@ -1045,76 +1314,34 @@ describe("pipe", () => {
   });
 
   it("generates and executes schedule artifacts for scheduled pipe entrypoints", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-plan-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-schedule-plan-",
+      async ({ dir, output, runCli }) => {
+        writeScheduledCliConfig(dir);
+        process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
-    try {
-      writeScheduledCliConfig(dir);
-      process.env.PIPELINE_TARGET_PATH = dir;
-      mockExeca.mockResolvedValueOnce({
-        exitCode: 0,
-        stderr: "",
-        stdout: `
-version: 1
-kind: pipeline-schedule
-schedule_id: run-cli
-source_entrypoint: pipe
-task: ship it
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: inspect
-        kind: command
-        command: [inspect-bin]
-`,
-      } as any);
+        await runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"]);
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"]);
-
-      const output = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(output).toContain("Schedule generated:");
-      expect(output).not.toContain("Run after approval:");
-      expect(output).toContain("Workflow: schedule-run-cli-root");
-      expect(execaCommands()).toEqual(["codex", "node", "inspect-bin"]);
-      expect(output).toContain("Schedule generated: memory:run-cli");
-      expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(false);
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        const stdout = output();
+        expect(stdout).toContain("Schedule generated:");
+        expect(stdout).not.toContain("Run after approval:");
+        expect(stdout).toMatch(SCHEDULE_RUN_WORKFLOW_RE);
+        expect(execaCommands()).toContain("opencode");
+        expect(stdout).toMatch(SCHEDULE_MEMORY_ID_RE);
+        expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(false);
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("executes a schedule artifact via run --schedule", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-run-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeScheduledCliConfig(dir);
-      process.env.PIPELINE_TARGET_PATH = dir;
-      const schedulePath = join(dir, "approved-schedule.yaml");
-      writeFileSync(
-        schedulePath,
-        `
+    await withCliTempDir(
+      "pipeline-cli-schedule-run-",
+      async ({ dir, output, runCli }) => {
+        writeScheduledCliConfig(dir);
+        const schedulePath = join(dir, "approved-schedule.yaml");
+        writeFileSync(
+          schedulePath,
+          `
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-a
@@ -1136,84 +1363,61 @@ workflows:
             - id: "1"
               text: Endpoint validates runner events.
 `
-      );
+        );
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "run",
-        "--schedule",
-        schedulePath,
-        "Ship",
-        "it",
-      ]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "run",
+          "--schedule",
+          schedulePath,
+          "Ship",
+          "it",
+        ]);
 
-      expect(mockExeca).toHaveBeenCalledWith(
-        "scheduled-bin",
-        [],
-        expect.objectContaining({ cwd: dir })
-      );
-      const output = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(output).toContain("Workflow: schedule-approved-a-root");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(mockExeca).toHaveBeenCalledWith(
+          "scheduled-bin",
+          [],
+          expect.objectContaining({ cwd: dir })
+        );
+        expect(output()).toContain("Workflow: schedule-approved-a-root");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("executes package-backed schedule agents through CLI subprocesses", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-opencode-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeScheduledCliConfig(dir);
-      process.env.PIPELINE_TARGET_PATH = dir;
-      mockExeca.mockImplementation(((
-        command: string,
-        _args?: string[],
-        options?: { env?: Record<string, string> }
-      ) => {
-        if (options?.env?.PIPELINE_HOOK_RESULT) {
-          writeFileSync(
-            options.env.PIPELINE_HOOK_RESULT,
-            JSON.stringify({ status: "pass", summary: command })
-          );
-        }
-        if (command === "codex") {
+    await withCliTempDir(
+      "pipeline-cli-schedule-opencode-",
+      async ({ dir, output, runCli }) => {
+        writeScheduledCliConfig(dir);
+        mockExeca.mockImplementation(((
+          command: string,
+          args?: string[],
+          options?: { env?: Record<string, string> }
+        ) => {
+          if (options?.env?.PIPELINE_HOOK_RESULT) {
+            writeFileSync(
+              options.env.PIPELINE_HOOK_RESULT,
+              JSON.stringify({ status: "pass", summary: command })
+            );
+          }
+          if (command === "opencode" || command === "codex") {
+            return Promise.resolve({
+              exitCode: 0,
+              stderr: "",
+              stdout: mockAgentStdout(command, args),
+            }) as any;
+          }
           return Promise.resolve({
             exitCode: 0,
             stderr: "",
-            stdout: JSON.stringify({
-              changes: [
-                {
-                  files: ["src/app.ts"],
-                  summary: "Implement scheduled CLI task",
-                  why: "The scheduled package-backed agent must report changes",
-                },
-              ],
-              verification: ["scheduled CLI subprocess fixture passed"],
-            }),
+            stdout: "",
           }) as any;
-        }
-        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" }) as any;
-      }) as any);
-      const schedulePath = join(dir, "approved-opencode-schedule.yaml");
-      writeFileSync(
-        schedulePath,
-        `
+        }) as any);
+        const schedulePath = join(dir, "approved-opencode-schedule.yaml");
+        writeFileSync(
+          schedulePath,
+          `
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-opencode
@@ -1228,55 +1432,37 @@ workflows:
         kind: agent
         profile: pipeline-code-writer
 `
-      );
+        );
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "run",
-        "--schedule",
-        schedulePath,
-        "Ship",
-        "it",
-      ]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "run",
+          "--schedule",
+          schedulePath,
+          "Ship",
+          "it",
+        ]);
 
-      expect(mockExeca).toHaveBeenCalledWith(
-        "codex",
-        expect.arrayContaining(["exec", "--model", "gpt-5.5", "-C", dir]),
-        expect.objectContaining({ cwd: dir })
-      );
-      const output = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(output).toContain("Workflow: schedule-approved-opencode-root");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(mockExeca).toHaveBeenCalledWith(
+          "opencode",
+          expect.arrayContaining(["run", "--model", "openai/gpt-5.5"]),
+          expect.objectContaining({ cwd: dir })
+        );
+        expect(output()).toContain("Workflow: schedule-approved-opencode-root");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validates and explains a schedule artifact", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-schedule-inspect-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeScheduledCliConfig(dir);
-      process.env.PIPELINE_TARGET_PATH = dir;
-      const schedulePath = join(dir, "approved-schedule.yaml");
-      writeFileSync(
-        schedulePath,
-        `
+    await withCliTempDir(
+      "pipeline-cli-schedule-inspect-",
+      async ({ dir, output, runCli }) => {
+        writeScheduledCliConfig(dir);
+        const schedulePath = join(dir, "approved-schedule.yaml");
+        writeFileSync(
+          schedulePath,
+          `
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-b
@@ -1291,186 +1477,96 @@ workflows:
         kind: command
         command: [scheduled-bin]
 `
-      );
+        );
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "validate",
-        "--schedule",
-        schedulePath,
-      ]);
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "explain-plan",
-        "--schedule",
-        schedulePath,
-      ]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "validate",
+          "--schedule",
+          schedulePath,
+        ]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "explain-plan",
+          "--schedule",
+          schedulePath,
+        ]);
 
-      const output = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(output).toContain("OK: schedule-approved-b-root (1 nodes)");
-      expect(output).toContain("Workflow: schedule-approved-b-root");
-      expect(output).toContain("- scheduled kind=command needs=none");
-      expect(output).not.toContain("Unrecognized key: task_context");
-      expect(execaCommands()).toEqual([]);
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        const stdout = output();
+        expect(stdout).toContain("OK: schedule-approved-b-root (1 nodes)");
+        expect(stdout).toContain("Workflow: schedule-approved-b-root");
+        expect(stdout).toContain("- scheduled kind=command needs=none");
+        expect(stdout).not.toContain("Unrecognized key: task_context");
+        expect(execaCommands()).toEqual([]);
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("dispatches package entrypoint subcommands from package config", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-entrypoint-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-entrypoint-",
+      async ({ dir, runCli }) => {
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "inspect",
+          "ship",
+          "it",
+        ]);
 
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "inspect",
-        "ship",
-        "it",
-      ]);
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        "codex",
-        expect.arrayContaining(["exec", "--model", "gpt-5.5", "-C", dir]),
-        expect.objectContaining({ cwd: dir })
-      );
-      expect(execaCommands()).not.toContain("quick-node-bin");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(mockExeca).toHaveBeenCalledWith(
+          "opencode",
+          expect.arrayContaining(["run", "--model", "openai/gpt-5.5"]),
+          expect.objectContaining({ cwd: dir })
+        );
+        expect(execaCommands()).not.toContain("quick-node-bin");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("lists package entrypoint subcommands with descriptions in pipe help", async () => {
-    const { createCliProgram } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-entrypoint-help-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-
+    await withCliTempDir("pipeline-cli-entrypoint-help-", async () => {
+      const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
 
       expect(help).toMatch(PACKAGE_INSPECT_COMMAND_RE);
       expect(help).toMatch(PACKAGE_EPIC_COMMAND_RE);
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("describes package-owned config as the runtime source in pipe help", async () => {
-    const { createCliProgram } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-package-help-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-
+    await withCliTempDir("pipeline-cli-package-help-", async () => {
+      const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
 
       expect(help).toContain("package-owned @oisincoveney/pipeline config");
       expect(help).not.toContain(".pipeline/pipeline.yaml");
       expect(help).not.toMatch(PIPELINE_YAML_SOURCE_RE);
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("lets builtin collision commands win over configured entrypoints", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-collision-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-collision-",
+      async ({ dir, output, runCli }) => {
+        writeCliEntrypointConfig(dir);
 
-    try {
-      writeCliEntrypointConfig(dir);
-      process.env.PIPELINE_TARGET_PATH = dir;
+        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
-
-      const output = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(output).toContain("OK: default");
-      expect(output).not.toContain("validate-entrypoint");
-      expect(execaCommands()).not.toContain("validate-start-bin");
-      expect(execaCommands()).not.toContain("validate-entrypoint-bin");
-    } finally {
-      log.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        const stdout = output();
+        expect(stdout).toContain("OK: default");
+        expect(stdout).not.toContain("validate-entrypoint");
+        expect(execaCommands()).not.toContain("validate-start-bin");
+        expect(execaCommands()).not.toContain("validate-entrypoint-bin");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("supports the package collision escape hatch via pipe run --entrypoint", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-collision-run-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-      mockExeca.mockResolvedValueOnce({
-        exitCode: 0,
-        stderr: "",
-        stdout: `
-version: 1
-kind: pipeline-schedule
-schedule_id: collision-pipe
-source_entrypoint: pipe
-task: ship collision
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: inspect
-        kind: command
-        command: [inspect-bin]
-`,
-      } as any);
+    await withCliTempDir("pipeline-cli-collision-run-", async ({ runCli }) => {
+      process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
       await runCli([
         "node",
@@ -1482,21 +1578,12 @@ workflows:
         "collision",
       ]);
 
-      expect(execaCommands()).toEqual(["codex", "node", "inspect-bin"]);
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+      expect(execaCommands()).toContain("opencode");
+    });
   });
 
   it("keeps pipe init and doctor bootstrap commands reachable without config", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const initDir = mkdtempSync(join(tmpdir(), "pipeline-cli-bootstrap-init-"));
     const doctorDir = mkdtempSync(
       join(tmpdir(), "pipeline-cli-bootstrap-doctor-")
@@ -1527,203 +1614,82 @@ workflows:
   });
 
   it("ignores malformed repo-local pipeline config because package config owns runtime", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-malformed-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
+    await withCliTempDir("pipeline-cli-malformed-", async ({ dir, runCli }) => {
       writeMalformedCliConfig(dir);
-      process.env.PIPELINE_TARGET_PATH = dir;
+      process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
       await expect(
         runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"])
-      ).rejects.toThrow("schedule planner returned empty output");
-      expect(execaCommands()).toEqual(["codex"]);
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+      ).resolves.toBeUndefined();
+      expect(execaCommands()).toContain("opencode");
+    });
   });
 
   it("runs from package config when pipe is invoked without repo pipeline config", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-missing-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
+    await withCliTempDir("pipeline-cli-missing-", async ({ runCli }) => {
+      process.env.PIPELINE_TEST_COMMAND = "test-bin";
       await expect(
         runCli(["node", "/repo/node_modules/.bin/pipe", "ship it"])
-      ).rejects.toThrow("schedule planner returned empty output");
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+      ).resolves.toBeUndefined();
+      expect(execaCommands()).toContain("opencode");
+    });
   });
 
   it("does not repair partial repo-local pipeline files", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-partial-init-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-partial-init-",
+      async ({ dir, output, runCli }) => {
+        writeCliProjectFile(
+          dir,
+          ".pipeline/pipeline.yaml",
+          "version: 1\ndefault_workflow: default\nworkflows: {}\n"
+        );
 
-    try {
-      writeCliProjectFile(
-        dir,
-        ".pipeline/pipeline.yaml",
-        "version: 1\ndefault_workflow: default\nworkflows: {}\n"
-      );
-      process.env.PIPELINE_TARGET_PATH = dir;
+        await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-
-      expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
-      expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("no repo-local pipeline config files were created");
-    } finally {
-      log.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
+        expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
+        expect(output()).toContain(
+          "no repo-local pipeline config files were created"
+        );
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validates and explains the initialized YAML plan", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-plan-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
+    await withCliTempDir("pipeline-cli-plan-", async ({ output, runCli }) => {
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
       await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
       await runCli(["node", "/repo/node_modules/.bin/pipe", "explain-plan"]);
       await runCli(["node", "/repo/node_modules/.bin/pipe", "doctor"]);
 
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("Workflow: default");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).not.toContain("strategy=");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("Doctor: PASS");
-    } finally {
-      log.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+      const stdout = output();
+      expect(stdout).toContain("OK: default");
+      expect(stdout).toContain("Workflow: default");
+      expect(stdout).not.toContain("strategy=");
+      expect(stdout).toContain("Doctor: PASS");
+    });
   });
 
   it("validates the epic-drain workflow without treating current warnings as fatal", async () => {
-    const { runCli } = await import("../src/index.js");
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    let thrown: unknown;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = process.cwd();
-      try {
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/pipe",
-          "validate",
-          "--workflow",
-          "epic-drain",
-        ]);
-      } catch (err) {
-        thrown = err;
-      }
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      const stdout = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      const failureText = [
-        thrown instanceof Error ? thrown.message : String(thrown ?? ""),
-        stderr,
-        stdout,
-      ].join("\n");
-
+    await withCliTarget(process.cwd(), async (fixture) => {
+      const { failureText, stderr, stdout, thrown } =
+        await runPackageWorkflowCommand(fixture, "validate");
       expect(failureText).not.toMatch(UNKNOWN_ENTRYPOINT_OR_CONFIG_RE);
       expect(thrown).toBeUndefined();
       expect(stderr).toContain(
         "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
       );
       expect(stdout).toContain("OK: epic-drain");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-    }
+    });
   });
 
   it("explains the epic-drain package workflow topology", async () => {
-    const { runCli } = await import("../src/index.js");
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    let thrown: unknown;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = process.cwd();
-      try {
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/pipe",
-          "explain-plan",
-          "--workflow",
-          "epic-drain",
-        ]);
-      } catch (err) {
-        thrown = err;
-      }
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      const stdout = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      const failureText = [
-        thrown instanceof Error ? thrown.message : String(thrown ?? ""),
-        stderr,
-        stdout,
-      ].join("\n");
-
+    await withCliTarget(process.cwd(), async (fixture) => {
+      const { failureText, stdout, thrown } = await runPackageWorkflowCommand(
+        fixture,
+        "explain-plan"
+      );
       expect(failureText).not.toMatch(UNKNOWN_ENTRYPOINT_OR_CONFIG_RE);
       expect(thrown).toBeUndefined();
       expect(stdout).toContain("Workflow: epic-drain");
@@ -1735,28 +1701,12 @@ workflows:
       expect(stdout).toMatch(PLAN_IMPLEMENT_RE);
       expect(stdout).toMatch(PLAN_MERGE_RE);
       expect(stdout).toMatch(PLAN_REVIEW_RE);
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-    }
+    });
   });
 
   it("validate emits WARN entrypoint-shadowed when configured entrypoints collide with builtins", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-entrypoint-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeCliValidateLintConfig(dir, {
+    await withCliTempDir("pipeline-cli-lint-entrypoint-", async (fixture) => {
+      const { stderr, stdout } = await validateCliLintFixture(fixture, {
         pipeline: `
 version: 1
 default_workflow: default
@@ -1777,43 +1727,20 @@ workflows:
         command: [node, --version]
 `,
       });
-      process.env.PIPELINE_TARGET_PATH = dir;
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
       expect(stderr).toContain(
         "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
       );
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+      expect(stdout).toContain("OK: default");
+    });
   });
 
   it("validate ignores repo-local optional asset paths and validates package config", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-missing-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeCliValidateLintConfig(dir, {
-        profiles: `
+    await withCliTempDir(
+      "pipeline-cli-lint-missing-",
+      async ({ dir, output, runCli, stderr }) => {
+        writeCliValidateLintConfig(dir, {
+          profiles: `
 version: 1
 skills:
   missing-skill:
@@ -1828,43 +1755,24 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/missing.schema.json
 `,
-      });
-      process.env.PIPELINE_TARGET_PATH = dir;
+        });
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
 
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(stderr).not.toContain("missing-skill");
-      expect(stderr).not.toContain(".pipeline/prompts/missing.md");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        const stderrOutput = stderr();
+        expect(stderrOutput).not.toContain("missing-skill");
+        expect(stderrOutput).not.toContain(".pipeline/prompts/missing.md");
+        expect(output()).toContain("OK: default");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validate does not warn about missing epic-router asset files once the bundle exists", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-epic-router-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeProjectFileSet(dir, {
-        ".pipeline/runners.yaml": `
+    await withCliTempDir(
+      "pipeline-cli-lint-epic-router-",
+      async ({ dir, output, runCli, stderr }) => {
+        writeProjectFileSet(dir, {
+          ".pipeline/runners.yaml": `
 version: 1
 runners:
   codex:
@@ -1880,7 +1788,7 @@ runners:
       network: [inherit]
       output_formats: [text, json_schema]
 `,
-        ".pipeline/profiles.yaml": `
+          ".pipeline/profiles.yaml": `
 version: 1
 mcp_gateway:
   provider: toolhive
@@ -1916,7 +1824,7 @@ profiles:
         enabled: true
         max_attempts: 1
 `,
-        ".pipeline/pipeline.yaml": `
+          ".pipeline/pipeline.yaml": `
 version: 1
 default_workflow: default
 orchestrator:
@@ -1928,140 +1836,87 @@ workflows:
         kind: command
         command: [node, --version]
 `,
-      });
-      for (const assetPath of [
-        ".pipeline/prompts/epic-router.md",
-        ".pipeline/schemas/epic-plan.schema.json",
-      ]) {
-        const sourcePath = join(process.cwd(), assetPath);
-        if (existsSync(sourcePath)) {
-          writeCliProjectFile(dir, assetPath, readFileSync(sourcePath, "utf8"));
+        });
+        for (const assetPath of [
+          ".pipeline/prompts/epic-router.md",
+          ".pipeline/schemas/epic-plan.schema.json",
+        ]) {
+          const sourcePath = join(process.cwd(), assetPath);
+          if (existsSync(sourcePath)) {
+            writeCliProjectFile(
+              dir,
+              assetPath,
+              readFileSync(sourcePath, "utf8")
+            );
+          }
         }
-      }
-      process.env.PIPELINE_TARGET_PATH = dir;
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
 
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(stderr).not.toContain(
-        "profiles.pipeline-epic-router.instructions.path references missing file '.pipeline/prompts/epic-router.md'"
-      );
-      expect(stderr).not.toContain(
-        "profiles.pipeline-epic-router.output.schema_path references missing file '.pipeline/schemas/epic-plan.schema.json'"
-      );
-      expect(stderr).not.toContain("WARN missing-file-reference");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        const stderrOutput = stderr();
+        expect(stderrOutput).not.toContain(
+          "profiles.pipeline-epic-router.instructions.path references missing file '.pipeline/prompts/epic-router.md'"
+        );
+        expect(stderrOutput).not.toContain(
+          "profiles.pipeline-epic-router.output.schema_path references missing file '.pipeline/schemas/epic-plan.schema.json'"
+        );
+        expect(stderrOutput).not.toContain("WARN missing-file-reference");
+        expect(output()).toContain("OK: default");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validate --strict rejects package lint warnings without repo-local missing-file warnings", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-lint-thermo-review-present-")
-    );
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-lint-thermo-review-present-",
+      async ({ dir, runCli, stderr }) => {
+        writeThermoNuclearReviewValidateFixture(dir, { includeSkill: true });
 
-    try {
-      writeThermoNuclearReviewValidateFixture(dir, { includeSkill: true });
-      process.env.PIPELINE_TARGET_PATH = dir;
+        await expect(
+          runCli([
+            "node",
+            "/repo/node_modules/.bin/pipe",
+            "validate",
+            "--strict",
+          ])
+        ).rejects.toThrow(WARNING_RE);
 
-      await expect(
-        runCli(["node", "/repo/node_modules/.bin/pipe", "validate", "--strict"])
-      ).rejects.toThrow(WARNING_RE);
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(stderr).not.toContain("WARN missing-file-reference");
-      expect(stderr).not.toContain(
-        "skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
-      );
-      expect(stderr).not.toContain(
-        "profiles.pipeline-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
-      );
-      expect(stderr).not.toContain(
-        "profiles.pipeline-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
-      );
-      expect(stderr).toContain("WARN entrypoint-shadowed");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        const stderrOutput = stderr();
+        expect(stderrOutput).not.toContain("WARN missing-file-reference");
+        expect(stderrOutput).not.toContain(
+          "skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
+        );
+        expect(stderrOutput).not.toContain(
+          "profiles.pipeline-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
+        );
+        expect(stderrOutput).not.toContain(
+          "profiles.pipeline-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
+        );
+        expect(stderrOutput).toContain("WARN entrypoint-shadowed");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validate does not emit repo-local thermo-nuclear review missing-file warnings", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-lint-thermo-review-missing-")
-    );
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-lint-thermo-review-missing-",
+      async ({ dir, output, runCli, stderr }) => {
+        writeThermoNuclearReviewValidateFixture(dir, { includeSkill: false });
 
-    try {
-      writeThermoNuclearReviewValidateFixture(dir, { includeSkill: false });
-      process.env.PIPELINE_TARGET_PATH = dir;
+        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      const missingFileWarnings = stderr
-        .split("\n")
-        .filter((line) => line.includes("WARN missing-file-reference"));
-      expect(missingFileWarnings).toEqual([]);
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        const missingFileWarnings = stderr()
+          .split("\n")
+          .filter((line) => line.includes("WARN missing-file-reference"));
+        expect(missingFileWarnings).toEqual([]);
+        expect(output()).toContain("OK: default");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validate ignores repo-local singleton parallel lint fixtures", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-parallel-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeCliValidateLintConfig(dir, {
+    await withCliTempDir("pipeline-cli-lint-parallel-", async (fixture) => {
+      const { stderr, stdout } = await validateCliLintFixture(fixture, {
         pipeline: `
 version: 1
 default_workflow: default
@@ -2078,40 +1933,15 @@ workflows:
             command: [node, --version]
 `,
       });
-      process.env.PIPELINE_TARGET_PATH = dir;
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
       expect(stderr).not.toContain("WARN singleton-parallel");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+      expect(stdout).toContain("OK: default");
+    });
   });
 
   it("validate ignores repo-local worktree-root style lint fixtures", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-worktree-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeCliValidateLintConfig(dir, {
+    await withCliTempDir("pipeline-cli-lint-worktree-", async (fixture) => {
+      const { stderr, stdout } = await validateCliLintFixture(fixture, {
         pipeline: `
 version: 1
 default_workflow: default
@@ -2131,40 +1961,18 @@ workflows:
         command: [node, --version]
 `,
       });
-      process.env.PIPELINE_TARGET_PATH = dir;
 
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
       expect(stderr).not.toContain("WARN worktree-root-style");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+      expect(stdout).toContain("OK: default");
+    });
   });
 
   it("validate --strict rejects when lint warnings exist and still emits WARN output", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-strict-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeCliValidateLintConfig(dir, {
-        pipeline: `
+    await withCliTempDir(
+      "pipeline-cli-lint-strict-",
+      async ({ dir, runCli, stderr }) => {
+        writeCliValidateLintConfig(dir, {
+          pipeline: `
 version: 1
 default_workflow: default
 entrypoints:
@@ -2180,42 +1988,30 @@ workflows:
         kind: command
         command: [node, --version]
 `,
-      });
-      process.env.PIPELINE_TARGET_PATH = dir;
+        });
 
-      await expect(
-        runCli(["node", "/repo/node_modules/.bin/pipe", "validate", "--strict"])
-      ).rejects.toThrow(WARNING_RE);
+        await expect(
+          runCli([
+            "node",
+            "/repo/node_modules/.bin/pipe",
+            "validate",
+            "--strict",
+          ])
+        ).rejects.toThrow(WARNING_RE);
 
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(stderr).toContain(
-        "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
-      );
-    } finally {
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(stderr()).toContain(
+          "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
+        );
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validate --no-lint skips WARN output and succeeds schema and plan validation only", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-disabled-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeCliValidateLintConfig(dir, {
-        profiles: `
+    await withCliTempDir(
+      "pipeline-cli-lint-disabled-",
+      async ({ dir, output, runCli, stderr }) => {
+        writeCliValidateLintConfig(dir, {
+          profiles: `
 version: 1
 skills:
   missing-skill:
@@ -2230,81 +2026,46 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/missing.schema.json
 `,
-      });
-      process.env.PIPELINE_TARGET_PATH = dir;
+        });
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "validate",
-        "--no-lint",
-      ]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "validate",
+          "--no-lint",
+        ]);
 
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(stderr).not.toContain("WARN ");
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("OK: default");
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(stderr()).not.toContain("WARN ");
+        expect(output()).toContain("OK: default");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validate --no-lint ignores malformed repo-local schemas and validates package config", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-schema-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+    await withCliTempDir(
+      "pipeline-cli-lint-schema-",
+      async ({ dir, runCli, stderr }) => {
+        writeMalformedCliConfig(dir);
 
-    try {
-      writeMalformedCliConfig(dir);
-      process.env.PIPELINE_TARGET_PATH = dir;
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "validate",
+          "--strict",
+          "--no-lint",
+        ]);
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "validate",
-        "--strict",
-        "--no-lint",
-      ]);
-
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(stderr).not.toContain("WARN ");
-    } finally {
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(stderr()).not.toContain("WARN ");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("validate ignores repo-local undefined workflow fixtures", async () => {
-    const { runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-lint-workflow-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-
-    try {
-      writeCliValidateLintConfig(dir, {
-        pipeline: `
+    await withCliTempDir(
+      "pipeline-cli-lint-workflow-",
+      async ({ dir, runCli, stderr }) => {
+        writeCliValidateLintConfig(dir, {
+          pipeline: `
 version: 1
 default_workflow: default
 orchestrator:
@@ -2316,38 +2077,23 @@ workflows:
         kind: workflow
         workflow: undefined-child
 `,
-      });
-      process.env.PIPELINE_TARGET_PATH = dir;
+        });
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/pipe",
-        "validate",
-        "--no-lint",
-      ]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "validate",
+          "--no-lint",
+        ]);
 
-      const stderr = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      expect(stderr).not.toContain("WARN ");
-    } finally {
-      error.mockRestore();
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        expect(stderr()).not.toContain("WARN ");
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("doctor reports missing prerequisites", async () => {
-    const { runDoctor, runCli } = await import("../src/index.js");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-doctor-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
+    await withCliTempDir("pipeline-cli-doctor-", async ({ dir, runCli }) => {
+      const { runDoctor } = await import("../src/index");
       await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
       mockExeca.mockImplementation(((command: string) => {
         if (command === "opencode") {
@@ -2364,18 +2110,11 @@ workflows:
         name: "opencode",
         passed: false,
       });
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("configures project host MCP config as gateway-only with backups", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-configure-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
@@ -2440,7 +2179,7 @@ workflows:
   });
 
   it("gateway doctor detects legacy direct MCP config", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-doctor-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
@@ -2483,7 +2222,7 @@ workflows:
   });
 
   it("gateway doctor fails when required upstream tools are missing", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-tools-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
@@ -2536,17 +2275,15 @@ workflows:
   });
 
   it("reconciles the current workspace into a complete ToolHive vMCP inventory", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-reconcile-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
+      mockToolHiveWorkloads(COMPLETE_TOOLHIVE_WORKLOADS);
       process.env.PIPELINE_TARGET_PATH = dir;
-      mkdirSync(join(dir, ".serena"), { recursive: true });
-      writeFileSync(join(dir, ".serena/project.yml"), "name: test\n");
-      mkdirSync(join(dir, "backlog"), { recursive: true });
-      writeFileSync(join(dir, "package.json"), "{}\n");
+      await prepareGatewayWorkspace(runCli, dir);
 
       await runCli([
         "node",
@@ -2575,6 +2312,9 @@ workflows:
       expect(rendered).toContain("name: context7");
       expect(rendered).toContain("name: fallow");
       expect(rendered).toContain("name: qdrant");
+      expect(rendered).toContain(
+        "url: http://127.0.0.1/oisin-pipeline-qdrant/mcp/"
+      );
       expect(rendered).toContain("name: serena");
       expect(rendered).toContain("name: uidotsh");
       expect(rendered).toContain("groupRef: default");
@@ -2591,13 +2331,14 @@ workflows:
   });
 
   it("starts local gateway with ToolHive vMCP for local mode", async () => {
-    const { runCli } = await import("../src/index.js");
+    const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-start-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
 
     try {
+      mockToolHiveWorkloads(COMPLETE_TOOLHIVE_WORKLOADS);
       process.env.PIPELINE_TARGET_PATH = dir;
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await prepareGatewayWorkspace(runCli, dir, { init: true });
       await runCli([
         "node",
         "/repo/node_modules/.bin/pipe",
@@ -2608,11 +2349,27 @@ workflows:
 
       expect(mockExeca).toHaveBeenCalledWith(
         "thv",
+        expect.arrayContaining(["vmcp", "validate"]),
+        expect.objectContaining({ cwd: dir })
+      );
+      const validateCall = mockExeca.mock.calls.find(
+        ([command, args]) =>
+          command === "thv" && Array.isArray(args) && args.includes("validate")
+      );
+      const validateArgs = validateCall?.[1];
+      expect(Array.isArray(validateArgs)).toBe(true);
+      const configPath = Array.isArray(validateArgs)
+        ? validateArgs.at(-1)
+        : undefined;
+      expect(configPath).toBe(join(dir, ".pipeline/mcp-gateway/vmcp.yaml"));
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        "thv",
         [
           "vmcp",
           "serve",
-          "--group",
-          "default",
+          "--config",
+          join(dir, ".pipeline/mcp-gateway/vmcp.yaml"),
           "--host",
           "127.0.0.1",
           "--port",
@@ -2626,8 +2383,42 @@ workflows:
     }
   });
 
+  it("refuses local gateway startup when required ToolHive workloads are missing", async () => {
+    const { runCli } = await import("../src/index");
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-cli-gateway-start-missing-")
+    );
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+
+    try {
+      mockToolHiveWorkloads(["oisin-pipeline-qdrant"]);
+      process.env.PIPELINE_TARGET_PATH = dir;
+      await prepareGatewayWorkspace(runCli, dir, { init: true });
+
+      await expect(
+        runCli([
+          "node",
+          "/repo/node_modules/.bin/pipe",
+          "mcp",
+          "gateway",
+          "local-start",
+        ])
+      ).rejects.toThrow(MISSING_TOOLHIVE_WORKLOAD_RE);
+
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) =>
+            command === "thv" && Array.isArray(args) && args.includes("serve")
+        )
+      ).toBe(false);
+    } finally {
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("surfaces YAML runtime failures from pipe", async () => {
-    const { pipe } = await import("../src/index.js");
+    const { pipe } = await import("../src/index");
 
     const pipelineRunner = vi.fn().mockResolvedValue({
       agentInvocations: [],

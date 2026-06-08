@@ -1,9 +1,9 @@
-import type { RunnerJobPayload } from "../runner-job-contract.js";
+import type { RunnerJobPayload } from "../runner-job-contract";
 import type {
   PipelineRuntimeResult,
   RuntimeStructuredOutput,
 } from "../runtime/contracts";
-import { standardOutputSchemaPath } from "../standard-output-schemas.js";
+import { standardOutputSchemaPath } from "../standard-output-schemas";
 
 export interface RunnerPullRequestMetadata {
   branch: string;

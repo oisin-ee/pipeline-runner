@@ -6,9 +6,9 @@ import simpleGit from "simple-git";
 import {
   DEFAULT_RUNNER_JOB_GIT_COMMITTER,
   type PipelineConfig,
-} from "../config.js";
-import type { RunnerJobPayload } from "../runner-job-contract.js";
-import type { RunnerPullRequestSummary } from "./pr-summary.js";
+} from "../config";
+import type { RunnerJobPayload } from "../runner-job-contract";
+import type { RunnerPullRequestSummary } from "./pr-summary";
 
 const GITHUB_HTTPS_REPOSITORY_RE =
   /^https:\/\/github\.com\/([^/]+\/[^/.]+)(?:\.git)?$/;

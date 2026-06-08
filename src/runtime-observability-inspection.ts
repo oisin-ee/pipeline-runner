@@ -2,11 +2,11 @@ import type {
   RuntimeActorDescriptor,
   RuntimeActorKind,
   RuntimeObservabilityEmitter,
-} from "./runtime-machines/contracts.js";
+} from "./runtime-machines/contracts";
 import {
   emitRuntimeActorEvent,
   emitRuntimeSnapshot,
-} from "./runtime-observability.js";
+} from "./runtime-observability";
 
 const RUNTIME_ACTOR_ID_RE =
   /^pipeline\.(pipeline|workflow|node|gate|hook)(\.|$)/;

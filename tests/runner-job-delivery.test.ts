@@ -1,22 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import type { RunnerJobPayload } from "../src/runner-job-contract.js";
+import type { RunnerJobPayload } from "../src/runner-job-contract";
+import { cleanGitClient } from "./support/git-client";
 
 const PR_BODY_FILE_RE = /body\.md$/;
-
-function cleanGitClient(overrides: Record<string, unknown> = {}) {
-  return {
-    add: vi.fn(async () => undefined),
-    addConfig: vi.fn(async () => undefined),
-    branch: vi.fn(async () => ({ current: "pipeline/run-123" })),
-    branchLocal: vi.fn(async () => ({ branches: { "pipeline/run-123": {} } })),
-    commit: vi.fn(async () => undefined),
-    push: vi.fn(async () => undefined),
-    revparse: vi.fn(async () => "abc123\n"),
-    status: vi.fn(async () => ({ files: [] })),
-    ...overrides,
-  };
-}
 
 function cleanDevspacePayload(): Pick<
   RunnerJobPayload,
@@ -60,7 +47,7 @@ function pullRequestSummary() {
 
 describe("runner-job git delivery", () => {
   it("commits all dirty work and pushes the branch without requiring a PR", async () => {
-    const { deliverGitBranch } = await import("../src/runner-job/delivery.js");
+    const { deliverGitBranch } = await import("../src/runner-job/delivery");
     const git = cleanGitClient({
       branch: vi.fn(async () => ({ current: "pipeline/run-123" })),
       branchLocal: vi.fn(async () => ({
@@ -122,7 +109,7 @@ describe("runner-job git delivery", () => {
 
 describe("runner-job PR delivery", () => {
   it("creates PRs with the repository owner as the default head owner", async () => {
-    const { createPullRequest } = await import("../src/runner-job/delivery.js");
+    const { createPullRequest } = await import("../src/runner-job/delivery");
     let body = "";
     const runCommand = vi.fn((_command, args: string[]) => {
       const bodyFile = args.at(args.indexOf("--body-file") + 1);
@@ -177,7 +164,7 @@ describe("runner-job PR delivery", () => {
   });
 
   it("allows the PR head owner to be overridden by runner env", async () => {
-    const { createPullRequest } = await import("../src/runner-job/delivery.js");
+    const { createPullRequest } = await import("../src/runner-job/delivery");
     const runCommand = vi.fn().mockResolvedValueOnce({
       stdout: "https://github.com/oisin-ee/tova/pull/124\n",
     });
@@ -200,7 +187,7 @@ describe("runner-job PR delivery", () => {
   });
 
   it("returns the existing PR URL when the delivery branch already has a PR", async () => {
-    const { createPullRequest } = await import("../src/runner-job/delivery.js");
+    const { createPullRequest } = await import("../src/runner-job/delivery");
     const createError = new Error(
       "a pull request for branch oisin-bot:runner/pipe-49 already exists"
     );

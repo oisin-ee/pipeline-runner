@@ -13,7 +13,7 @@ Configured orchestrator:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: none
+skills: scope, doubt
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit

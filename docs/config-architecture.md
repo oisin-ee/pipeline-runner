@@ -2,7 +2,9 @@
 
 The v1 runtime pipeline is package-owned config. Package-owned defaults declare
 runner adapters, profiles, MCP gateway backends, the orchestrator profile,
-entrypoints, schedules, hooks, workflows, gates, and artifacts.
+entrypoints, schedules, hooks, workflows, gates, artifacts, OpenCode host
+resources, and goal-loop contracts. OpenCode is the default package runtime;
+Codex remains a compatibility runner and generated host surface.
 
 Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
 prompt constants.
@@ -143,6 +145,20 @@ receive explicit grants:
 - `network`: inherited or disabled.
 - `output`: text, JSON, JSONL, or JSON Schema output.
 
+Package-owned default skills may resolve from the installed package asset root
+instead of the target repository root:
+
+```yaml
+skills:
+  verify:
+    path: .agents/skills/verify/SKILL.md
+    source_root: package
+```
+
+Project-authored skill and rule paths still resolve from the project root and
+must exist. The package default loader does not relax missing-file validation;
+it validates package assets against the package root.
+
 MCP-enabled profiles use one gateway grant:
 
 ```yaml
@@ -163,6 +179,34 @@ profiles:
 `pipe init` renders generated Codex and OpenCode host config with exactly one
 remote MCP server named `pipeline-gateway`. Upstream MCP servers are managed by
 the ToolHive/vMCP gateway, not by Codex/OpenCode or pipeline worker sessions.
+
+OpenCode host resources are generated from the same profile registry:
+
+- `.opencode/agents/*.md` declares native agents with `mode`, `description`,
+  resolved model, explicit permissions, and task access to generated agents only.
+- `.opencode/skills/*/SKILL.md` projects package-granted skills for native
+  OpenCode discovery.
+- `.opencode/plugins/pipeline-goal-context.ts` projects package-owned
+  continuation context into OpenCode compaction.
+- `.opencode/opencode.json` contains the gateway MCP config, enables LSP, and
+  lists pinned npm plugins from the curated stack.
+
+LSP helps the OpenCode runtime inspect code, but it is not acceptance evidence.
+Deterministic CLI gates, schema output validation, and verifier/acceptance
+evidence remain the completion authority.
+
+Goal state is a pipeline artifact, not a host-session artifact. The goal loop
+records stop reasons, continuation prompts, verifier evidence, acceptance
+coverage, violations, failed gates, and changed files. A `PASS` without both
+deterministic verifier evidence and acceptance evidence is rejected even if an
+OpenCode session summary says the work is done.
+
+The curated default OpenCode stack currently includes the package-owned
+`pipeline-goal-context` TypeScript plugin, pinned
+`@devtheops/opencode-plugin-otel@1.1.0`, DCP code, `opencode-handoff`,
+`opencode-background-agents`, `opencode-snip`, `opencode-mem`, and `cupcake`.
+Official `@opencode-ai/sdk` and `@opencode-ai/plugin` are vetted candidates for
+future native session integration, not automatic runtime dependencies.
 
 JSON Schema outputs are hard contracts. The runtime validates normalized agent
 output before the node can pass. Schema outputs also get a bounded repair pass
@@ -260,7 +304,7 @@ timeouts, output limits, sanitized env, and explicit trust flags.
 | Runner   | Native subagents | Rules | Skills | MCP | Outputs                   | Generated resources             |
 | -------- | ---------------- | ----- | ------ | --- | ------------------------- | ------------------------------- |
 | Codex    | yes              | yes   | yes    | yes | text, JSON, JSONL, schema | skill plus `.codex/agents`      |
-| OpenCode | yes              | yes   | no     | yes | text, JSON, JSONL, schema | command plus `.opencode/agents` |
+| OpenCode | yes              | yes   | yes    | yes | text, JSON, JSONL, schema | commands, agents, skills, plugins, LSP |
 | command  | no               | no    | no     | no  | declared by runner        | subprocess argv                 |
 
 Generated host resources follow a native runner rule. Codex runner nodes use

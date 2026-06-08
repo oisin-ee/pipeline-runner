@@ -6,7 +6,7 @@ import {
   runtimeActorId,
   runtimeMachineTags,
   workflowStateNames,
-} from "../src/runtime-machines/contracts.js";
+} from "../src/runtime-machines/contracts";
 
 describe("runtime machine contracts", () => {
   it("exports the explicit runtime state and tag taxonomy", () => {

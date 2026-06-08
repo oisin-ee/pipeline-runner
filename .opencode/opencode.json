@@ -6,23 +6,11 @@
       "headers": {
         "Authorization": "{env:PIPELINE_MCP_GATEWAY_AUTHORIZATION}"
       },
+      "oauth": false,
       "type": "remote",
-      "url": "https://pipeline-mcp.momokaya.ee/mcp/"
+      "url": "http://127.0.0.1:4483/mcp"
     }
   },
-  "default_agent": "build",
-  "agent": {
-    "build": {
-      "mode": "primary",
-      "prompt": "{file:./prompts/codex-default.md}"
-    }
-  },
-  "permission": {
-    "skill": {
-      "*": "allow"
-    }
-  },
-  "skills": {
-    "paths": ["../.agents/skills"]
-  }
+  "lsp": true,
+  "plugin": ["@devtheops/opencode-plugin-otel@1.1.0"]
 }

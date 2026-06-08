@@ -11,7 +11,7 @@ Configured orchestrator:
 model: default
 tools: read, list, grep, glob, bash
 rules: none
-skills: none
+skills: scope, doubt
 mcp_servers: pipeline-gateway
 filesystem: read-only
 network: inherit
@@ -22,7 +22,7 @@ Orchestrate package-owned pipeline config.
 
 Run workflow `inspect` for the user task.
 OpenCode native routes:
-- inspect: Task tool subagent_type=pipeline-inspector model=openai/gpt-5.5 runner=codex needs=none
+- inspect: Task tool subagent_type=pipeline-inspector model=openai/gpt-5.5 runner=opencode needs=none
 
 For each native node prompt include:
 - user task
@@ -34,6 +34,6 @@ For each native node prompt include:
 - profile grants
 - dependency outputs
 
-Only gates declared in `.pipeline/pipeline.yaml` are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
+Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
 If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.
 Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.
