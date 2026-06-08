@@ -27,6 +27,7 @@ const RUNNER_JOB_CONTRACT_VERSION = "1";
 const MALFORMED_JSON_RE = /malformed|json/i;
 const REPOSITORY_URL_RE = /repository\.url/i;
 const STARTUP_FAILURE_RE = /runtime startup failed/i;
+const WORKSPACE_CLONE_FAILURE_RE = /workspace clone failed/i;
 const MISSING_CONFIG_RE = /pipeline.*config|pipeline\.yaml/i;
 const KUBERNETES_API_RE = /kubernetes|api\/v1|apis\/batch/i;
 const FLUSH_FAILURE_RE = /console unavailable|event sink flush/i;
@@ -1230,6 +1231,54 @@ describe("runner-job entrypoint", () => {
           type: "workflow.finish",
         })
       );
+    });
+  });
+
+  it("emits a failed startup phase when workspace preparation fails before runtime starts", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const io = ioBuffers();
+    const fetchMock = vi.fn(async () => okResponse());
+
+    await withPayloadContext(async ({ env, payloadFile }) => {
+      const exitCode = await runRunnerJob({
+        env,
+        payloadFile,
+        fetch: fetchMock,
+        prepareWorkspace: vi.fn(() =>
+          Promise.reject(new Error("workspace clone failed"))
+        ),
+        stderr: io.stderr,
+      });
+
+      expect(exitCode).toBe(70);
+      expect(io.stderrText()).toMatch(WORKSPACE_CLONE_FAILURE_RE);
+      const postedEvents = fetchMock.mock.calls.flatMap((call) => {
+        const body = JSON.parse(
+          String((call as unknown as [string, RequestInit])[1].body)
+        ) as { events: Record<string, unknown>[] };
+        return body.events;
+      });
+      expect(postedEvents).toEqual([
+        expect.objectContaining({
+          log: expect.objectContaining({
+            level: "info",
+            message: "runner startup failed",
+            output: {
+              error: "workspace clone failed",
+              phase: "runner.startup.failed",
+              status: "failed",
+            },
+          }),
+          type: "runner.job.phase",
+        }),
+        expect.objectContaining({
+          finalResult: {
+            outcome: "FAIL",
+            workflowId: "pipe",
+          },
+          type: "workflow.finish",
+        }),
+      ]);
     });
   });
 

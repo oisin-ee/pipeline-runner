@@ -231,6 +231,9 @@ export async function runRunnerJob(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     stderr.write(`${message}\n`);
+    await recordRunnerStartupFailure(sink, message, stderr, {
+      cancelled: signalExitCode !== undefined,
+    });
     recordFinalResultIfMissing(sink, "FAIL", RUNNER_SCHEDULE_ENTRYPOINT, {
       sawWorkflowFinish,
       signalFinalResultRecorded,
@@ -244,6 +247,23 @@ export async function runRunnerJob(
     removeSignalListener(signalEmitter, "SIGTERM", handleSigterm);
     removeSignalListener(signalEmitter, "SIGINT", handleSigint);
   }
+}
+
+async function recordRunnerStartupFailure(
+  sink: RunnerEventSink,
+  message: string,
+  stderr: OutputStream,
+  state: { cancelled: boolean }
+): Promise<void> {
+  if (state.cancelled) {
+    return;
+  }
+
+  sink.recordRunnerJobPhase("runner.startup.failed", "runner startup failed", {
+    error: message,
+    status: "failed",
+  });
+  await flushAndReport(sink.flush, stderr);
 }
 
 function recordFinalResultIfMissing(
