@@ -1,12 +1,29 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { execa } from "execa";
+import { resolveCommand } from "package-manager-detector/commands";
+import { detect } from "package-manager-detector/detect";
 import { simpleGit } from "simple-git";
 import type { RunnerJobPayload } from "../runner-job-contract.js";
 
 export const RUNNER_JOB_WORKSPACE_PATH = "/workspace";
 
 export interface RunnerWorkspacePreparation {
+  dependencyBootstrap: RunnerWorkspaceDependencyBootstrap;
   env: Record<string, string | undefined>;
   worktreePath: string;
 }
+
+export type RunnerWorkspaceDependencyBootstrap =
+  | {
+      command: string;
+      output: string;
+      status: "installed";
+    }
+  | {
+      reason: string;
+      status: "skipped";
+    };
 
 export interface RunnerGitClient {
   clone(
@@ -26,8 +43,14 @@ export interface PrepareRunnerWorkspaceOptions {
   createGitClient?: () => RunnerGitClient;
   cwd?: string;
   env: Record<string, string | undefined>;
+  installDependencies?: RunnerDependencyInstaller;
   payload: RunnerWorkspacePayload;
 }
+
+export type RunnerDependencyInstaller = (
+  worktreePath: string,
+  env: Record<string, string | undefined>
+) => Promise<RunnerWorkspaceDependencyBootstrap>;
 
 export async function prepareRunnerWorkspace(
   options: PrepareRunnerWorkspaceOptions
@@ -35,6 +58,10 @@ export async function prepareRunnerWorkspace(
   const existingWorktreePath = options.env.PIPELINE_TARGET_PATH ?? options.cwd;
   if (existingWorktreePath) {
     return {
+      dependencyBootstrap: {
+        reason: "existing PIPELINE_TARGET_PATH or cwd is already prepared",
+        status: "skipped",
+      },
       env: { ...options.env, PIPELINE_TARGET_PATH: existingWorktreePath },
       worktreePath: existingWorktreePath,
     };
@@ -56,16 +83,49 @@ export async function prepareRunnerWorkspace(
         branchName,
         repository.sha ?? `origin/${repository.baseBranch}`
       );
+    const dependencyBootstrap = await (
+      options.installDependencies ?? installRunnerWorkspaceDependencies
+    )(RUNNER_JOB_WORKSPACE_PATH, options.env);
+    return {
+      dependencyBootstrap,
+      env: {
+        ...options.env,
+        PIPELINE_TARGET_PATH: RUNNER_JOB_WORKSPACE_PATH,
+      },
+      worktreePath: RUNNER_JOB_WORKSPACE_PATH,
+    };
   } catch (err) {
     throw new RunnerWorkspaceError(redactSecretText(errorMessage(err)));
   }
+}
 
+export async function installRunnerWorkspaceDependencies(
+  worktreePath: string,
+  env: Record<string, string | undefined>
+): Promise<RunnerWorkspaceDependencyBootstrap> {
+  if (!existsSync(join(worktreePath, "package.json"))) {
+    return {
+      reason: "package.json not found",
+      status: "skipped",
+    };
+  }
+
+  const pm = await detect({ cwd: worktreePath, stopDir: worktreePath });
+  const resolved = resolveCommand(pm?.agent ?? "npm", "frozen", []);
+  if (!resolved) {
+    throw new RunnerWorkspaceError(
+      `Could not resolve dependency install command for package manager '${pm?.agent ?? "npm"}'`
+    );
+  }
+
+  const result = await execa(resolved.command, resolved.args, {
+    cwd: worktreePath,
+    env,
+  });
   return {
-    env: {
-      ...options.env,
-      PIPELINE_TARGET_PATH: RUNNER_JOB_WORKSPACE_PATH,
-    },
-    worktreePath: RUNNER_JOB_WORKSPACE_PATH,
+    command: displayCommand(resolved.command, resolved.args),
+    output: [result.stdout, result.stderr].filter(Boolean).join("\n"),
+    status: "installed",
   };
 }
 
@@ -78,6 +138,10 @@ export class RunnerWorkspaceError extends Error {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function displayCommand(command: string, args: string[]): string {
+  return [command, ...args].join(" ");
 }
 
 const CREDENTIAL_IN_URL_RE = /(https?:\/\/)([^:@\s/]+):([^@\s/]+)@/g;
