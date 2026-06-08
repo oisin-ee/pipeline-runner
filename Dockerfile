@@ -28,6 +28,8 @@ ARG OPENCODE_PACKAGE_VERSION=1.15.13
 ARG CLAUDE_CODE_PACKAGE_VERSION=2.1.162
 ARG PNPM_PACKAGE_VERSION=10.24.0
 ARG BUN_PACKAGE_VERSION=1.3.14
+ARG TOOLHIVE_VERSION=0.29.1
+ARG TOOLHIVE_LINUX_AMD64_SHA256=a70f9b74493c7d3d8b62187e5b838e4333b07477810b83eb5086879b9fa37bc8
 
 LABEL pipeline.oisin.dev.pipeline-package-version=${PIPELINE_PACKAGE_VERSION}
 LABEL pipeline.oisin.dev.runner-contract-version=${RUNNER_JOB_CONTRACT_VERSION}
@@ -39,9 +41,14 @@ ENV NPM_CONFIG_FUND=false
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates gh git openssh-client \
+  && apt-get install -y --no-install-recommends ca-certificates curl gh git openssh-client \
   && mkdir -p "$CODEX_HOME" /root/.local/share/opencode /root/.config/gh \
   && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL -o /tmp/toolhive.tar.gz "https://github.com/stacklok/toolhive/releases/download/v${TOOLHIVE_VERSION}/toolhive_${TOOLHIVE_VERSION}_linux_amd64.tar.gz" \
+  && echo "${TOOLHIVE_LINUX_AMD64_SHA256}  /tmp/toolhive.tar.gz" | sha256sum -c - \
+  && tar -xzf /tmp/toolhive.tar.gz -C /usr/local/bin thv \
+  && rm -f /tmp/toolhive.tar.gz
 
 COPY --from=helm /usr/bin/helm /usr/local/bin/helm
 COPY --from=uv /uv /uvx /usr/local/bin/
@@ -63,7 +70,9 @@ RUN npm install -g \
   && command -v claude \
   && command -v helm \
   && command -v uvx \
-  && command -v gh
+  && command -v gh \
+  && command -v thv \
+  && thv version
 
 ENTRYPOINT ["oisin-pipeline"]
 CMD ["runner-job"]

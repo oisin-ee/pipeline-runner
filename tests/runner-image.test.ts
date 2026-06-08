@@ -17,6 +17,17 @@ const PNPM_NPM_PACKAGE_RE = /pnpm@\$\{PNPM_PACKAGE_VERSION\}/;
 const PNPM_COMMAND_RE = /command -v pnpm/;
 const BUN_NPM_PACKAGE_RE = /bun@\$\{BUN_PACKAGE_VERSION\}/;
 const BUN_COMMAND_RE = /command -v bun/;
+const TOOLHIVE_VERSION_ARG_RE = /ARG\s+TOOLHIVE_VERSION=0\.29\.1/;
+const TOOLHIVE_SHA_ARG_RE =
+  /ARG\s+TOOLHIVE_LINUX_AMD64_SHA256=a70f9b74493c7d3d8b62187e5b838e4333b07477810b83eb5086879b9fa37bc8/;
+const TOOLHIVE_DOWNLOAD_RE =
+  /https:\/\/github\.com\/stacklok\/toolhive\/releases\/download\/v\$\{TOOLHIVE_VERSION\}\/toolhive_\$\{TOOLHIVE_VERSION\}_linux_amd64\.tar\.gz/;
+const TOOLHIVE_CHECKSUM_RE =
+  /echo\s+"\$\{TOOLHIVE_LINUX_AMD64_SHA256\}\s+\/tmp\/toolhive\.tar\.gz"\s+\|\s+sha256sum\s+-c\s+-/;
+const TOOLHIVE_INSTALL_RE =
+  /tar\s+-xzf\s+\/tmp\/toolhive\.tar\.gz\s+-C\s+\/usr\/local\/bin\s+thv/;
+const TOOLHIVE_COMMAND_RE = /command -v thv/;
+const TOOLHIVE_VERSION_COMMAND_RE = /thv version/;
 const HELM_IMAGE_STAGE_RE =
   /FROM\s+alpine\/helm:4\.2\.0@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501\s+AS\s+helm/;
 const HELM_COPY_RE =
@@ -129,6 +140,13 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(PNPM_COMMAND_RE);
     expect(dockerfile).toMatch(BUN_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(BUN_COMMAND_RE);
+    expect(dockerfile).toMatch(TOOLHIVE_VERSION_ARG_RE);
+    expect(dockerfile).toMatch(TOOLHIVE_SHA_ARG_RE);
+    expect(dockerfile).toMatch(TOOLHIVE_DOWNLOAD_RE);
+    expect(dockerfile).toMatch(TOOLHIVE_CHECKSUM_RE);
+    expect(dockerfile).toMatch(TOOLHIVE_INSTALL_RE);
+    expect(dockerfile).toMatch(TOOLHIVE_COMMAND_RE);
+    expect(dockerfile).toMatch(TOOLHIVE_VERSION_COMMAND_RE);
     expect(dockerfile).toMatch(HELM_IMAGE_STAGE_RE);
     expect(dockerfile).toMatch(HELM_COPY_RE);
     expect(dockerfile).toMatch(HELM_COMMAND_RE);
