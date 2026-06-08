@@ -147,6 +147,7 @@ profiles:
     network: { mode: inherit }
   pipeline-test-writer:
     runner: codex
+    scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
     instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code." }
     mcp_servers: [pipeline-gateway]

@@ -32,6 +32,7 @@ const RUNNER_JOB_ENTRYPOINT_RE =
   /ENTRYPOINT\s+\["oisin-pipeline"\][\s\S]*CMD\s+\["runner-job"\]/i;
 const RUNNER_ENTRYPOINT_COPY_RE =
   /COPY\s+docker\/runner-entrypoint\.sh\s+\/usr\/local\/bin\/runner-entrypoint/i;
+const RUNNER_NODE_ENV_PRODUCTION_RE = /ENV\s+NODE_ENV=production/;
 const RUNNER_HOME_RE = /ENV\s+HOME=\/root/;
 const RUNNER_CODEX_HOME_RE = /ENV\s+CODEX_HOME=\/root\/\.codex/;
 const AUTH_JSON_ENV_RE = /CODEX_AUTH_JSON|OPENCODE_AUTH_JSON|PI_AUTH_JSON/;
@@ -146,6 +147,7 @@ describe("runner container image packaging", () => {
 
     expect(dockerfile).toMatch(RUNNER_HOME_RE);
     expect(dockerfile).toMatch(RUNNER_CODEX_HOME_RE);
+    expect(dockerfile).not.toMatch(RUNNER_NODE_ENV_PRODUCTION_RE);
     expect(dockerfile).not.toMatch(RUNNER_ENTRYPOINT_COPY_RE);
     expect(dockerfile).not.toMatch(AUTH_JSON_ENV_RE);
     expect(existsSync(join(root, "docker/runner-entrypoint.sh"))).toBe(false);

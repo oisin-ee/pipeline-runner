@@ -29,7 +29,6 @@ ARG PNPM_PACKAGE_VERSION=10.24.0
 LABEL pipeline.oisin.dev.pipeline-package-version=${PIPELINE_PACKAGE_VERSION}
 LABEL pipeline.oisin.dev.runner-contract-version=${RUNNER_JOB_CONTRACT_VERSION}
 
-ENV NODE_ENV=production
 ENV HOME=/root
 ENV CODEX_HOME=/root/.codex
 ENV NPM_CONFIG_AUDIT=false

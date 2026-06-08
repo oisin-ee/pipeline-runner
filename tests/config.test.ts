@@ -244,6 +244,9 @@ describe("loadPipelineConfig", () => {
     expect(config.profiles["pipeline-code-writer"].scheduling_roles).toEqual([
       "implementation",
     ]);
+    expect(config.profiles["pipeline-test-writer"].scheduling_roles).toEqual([
+      "implementation",
+    ]);
     expect(config.profiles["pipeline-researcher"].timeout_ms).toBe(900_000);
     expect(
       config.profiles["pipeline-researcher"].instructions.inline
@@ -1256,6 +1259,11 @@ describe("epic entrypoint integration", () => {
       runner: "opencode",
       scheduling_roles: ["implementation"],
       instructions: { path: ".pipeline/prompts/code-writer.md" },
+    });
+    expect(parsed.profiles["pipeline-opencode-test-writer"]).toMatchObject({
+      runner: "opencode",
+      scheduling_roles: ["implementation"],
+      instructions: { path: ".pipeline/prompts/test-writer.md" },
     });
     expect(parsed.profiles["pipeline-opencode-verifier"]).toMatchObject({
       runner: "opencode",

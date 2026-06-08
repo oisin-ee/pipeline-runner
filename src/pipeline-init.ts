@@ -456,6 +456,7 @@ profiles:
       format: text
   pipeline-test-writer:
     runner: codex
+    scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
     instructions:
       path: .pipeline/prompts/test-writer.md
@@ -620,6 +621,7 @@ profiles:
         max_attempts: 1
   pipeline-opencode-test-writer:
     runner: opencode
+    scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior with OpenCode.
     instructions:
       path: .pipeline/prompts/test-writer.md
