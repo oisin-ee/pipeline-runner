@@ -1174,6 +1174,35 @@ workflows:
     try {
       writeScheduledCliConfig(dir);
       process.env.PIPELINE_TARGET_PATH = dir;
+      mockExeca.mockImplementation(((
+        command: string,
+        _args?: string[],
+        options?: { env?: Record<string, string> }
+      ) => {
+        if (options?.env?.PIPELINE_HOOK_RESULT) {
+          writeFileSync(
+            options.env.PIPELINE_HOOK_RESULT,
+            JSON.stringify({ status: "pass", summary: command })
+          );
+        }
+        if (command === "codex") {
+          return Promise.resolve({
+            exitCode: 0,
+            stderr: "",
+            stdout: JSON.stringify({
+              changes: [
+                {
+                  files: ["src/app.ts"],
+                  summary: "Implement scheduled CLI task",
+                  why: "The scheduled package-backed agent must report changes",
+                },
+              ],
+              verification: ["scheduled CLI subprocess fixture passed"],
+            }),
+          }) as any;
+        }
+        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" }) as any;
+      }) as any);
       const schedulePath = join(dir, "approved-opencode-schedule.yaml");
       writeFileSync(
         schedulePath,

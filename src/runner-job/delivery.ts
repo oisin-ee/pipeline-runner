@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { execa } from "execa";
 import simpleGit from "simple-git";
 import {
@@ -5,6 +8,7 @@ import {
   type PipelineConfig,
 } from "../config.js";
 import type { RunnerJobPayload } from "../runner-job-contract.js";
+import type { RunnerPullRequestSummary } from "./pr-summary.js";
 
 const GITHUB_HTTPS_REPOSITORY_RE =
   /^https:\/\/github\.com\/([^/]+\/[^/.]+)(?:\.git)?$/;
@@ -26,6 +30,7 @@ export interface PullRequestDeliveryOptions {
   createGitClient?: (worktreePath: string) => RunnerDeliveryGitClient;
   env: Record<string, string | undefined>;
   payload: Pick<RunnerJobPayload, "delivery" | "repository" | "run" | "task">;
+  pullRequestSummary?: RunnerPullRequestSummary;
   runCommand?: RunnerDeliveryCommand;
   worktreePath: string;
 }
@@ -106,6 +111,9 @@ export const createPullRequest: PullRequestCreator = async (options) => {
   if (!options.payload.delivery.pullRequest) {
     return null;
   }
+  if (!options.pullRequestSummary) {
+    throw new Error("Runner PR creation requires an explicit title and body");
+  }
   const repository = options.payload.repository;
   const env = compactEnv(options.env);
   const runCommand = options.runCommand ?? runDeliveryCommand;
@@ -122,34 +130,44 @@ export const createPullRequest: PullRequestCreator = async (options) => {
     env,
     stdin: "ignore" as const,
   };
-  const result = await runCommand(
-    "gh",
-    [
-      "pr",
-      "create",
-      "--fill",
-      "--base",
-      repository.baseBranch,
-      "--head",
-      head,
-      "--repo",
-      repositoryName,
-    ],
-    commandOptions
-  ).catch(async (err: unknown) => {
-    const existing = await findExistingPullRequest({
-      commandOptions,
-      head,
-      repositoryName,
-      runCommand,
-    }).catch(() => null);
-    if (existing) {
-      return existing;
-    }
-    throw err;
-  });
-  const url = result.stdout.trim();
-  return url ? { url } : null;
+  const bodyDir = mkdtempSync(join(tmpdir(), "pipeline-pr-"));
+  const bodyFile = join(bodyDir, "body.md");
+  writeFileSync(bodyFile, options.pullRequestSummary.body);
+  try {
+    const result = await runCommand(
+      "gh",
+      [
+        "pr",
+        "create",
+        "--title",
+        options.pullRequestSummary.title,
+        "--body-file",
+        bodyFile,
+        "--base",
+        repository.baseBranch,
+        "--head",
+        head,
+        "--repo",
+        repositoryName,
+      ],
+      commandOptions
+    ).catch(async (err: unknown) => {
+      const existing = await findExistingPullRequest({
+        commandOptions,
+        head,
+        repositoryName,
+        runCommand,
+      }).catch(() => null);
+      if (existing) {
+        return existing;
+      }
+      throw err;
+    });
+    const url = result.stdout.trim();
+    return url ? { url } : null;
+  } finally {
+    rmSync(bodyDir, { force: true, recursive: true });
+  }
 };
 
 const runDeliveryCommand: RunnerDeliveryCommand = (command, args, options) =>

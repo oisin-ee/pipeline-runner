@@ -26,6 +26,11 @@ import {
   installDefaultSkillsWithCli,
   type PipelineSkillInstaller,
 } from "../src/pipeline-init.js";
+import {
+  standardOutputSchemaJson,
+  standardOutputSchemaNames,
+  standardOutputSchemaPath,
+} from "../src/standard-output-schemas.js";
 
 const mockExeca = vi.mocked(execa);
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
@@ -122,6 +127,14 @@ describe("initPipelineProject", () => {
     expect(config.profiles["pipeline-researcher"].mcp_servers).toEqual([
       "pipeline-gateway",
     ]);
+    expect(config.profiles["pipeline-code-writer"].output).toMatchObject({
+      format: "json_schema",
+      schema_path: ".pipeline/schemas/implementation.schema.json",
+      repair: {
+        enabled: true,
+        max_attempts: 1,
+      },
+    });
   });
 
   it("keeps prompt files, schema files, and host resource inputs package-owned", async () => {
@@ -137,6 +150,7 @@ describe("initPipelineProject", () => {
       ".pipeline/prompts/verifier.md",
       ".pipeline/prompts/learner.md",
       ".pipeline/schemas/research.schema.json",
+      ".pipeline/schemas/implementation.schema.json",
       ".pipeline/schemas/epic-plan.schema.json",
       ".pipeline/schemas/acceptance.schema.json",
       ".pipeline/schemas/review.schema.json",
@@ -153,7 +167,10 @@ describe("initPipelineProject", () => {
       "Only gates declared in `.pipeline/pipeline.yaml` are blocking"
     );
     expect(files[".pipeline/prompts/code-writer.md"]).toContain(
-      "Include typecheck evidence only when a typecheck command exists"
+      "Every `changes[]` entry must include `summary`, `why`, and `files`."
+    );
+    expect(files[".pipeline/prompts/code-writer.md"]).toContain(
+      "Do not wrap the JSON in Markdown fences"
     );
     expect(files[".pipeline/prompts/researcher.md"]).toContain(
       "Call `qdrant-find` before local inspection when the qdrant MCP server is available."
@@ -197,6 +214,16 @@ describe("initPipelineProject", () => {
     expect(files[".pipeline/profiles.yaml"]).not.toContain(
       "skills: [research, scope]"
     );
+  });
+
+  it("generates standard output schema files from the package registry", () => {
+    const files = defaultPipelineScaffoldFiles();
+
+    for (const name of standardOutputSchemaNames) {
+      expect(files[standardOutputSchemaPath(name)]).toBe(
+        `${standardOutputSchemaJson(name)}\n`
+      );
+    }
   });
 
   it("tells verifier agents not to replace deterministic gates and treats configured gates as authoritative", () => {
@@ -379,6 +406,7 @@ describe("initPipelineProject", () => {
       ".pipeline/runners.yaml",
       ".pipeline/schemas/acceptance.schema.json",
       ".pipeline/schemas/epic-plan.schema.json",
+      ".pipeline/schemas/implementation.schema.json",
       ".pipeline/schemas/learn.schema.json",
       ".pipeline/schemas/research.schema.json",
       ".pipeline/schemas/review.schema.json",

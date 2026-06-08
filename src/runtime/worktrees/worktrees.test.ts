@@ -81,6 +81,7 @@ workflows:
     nodeStates: new Map(),
     plan: compileWorkflowPlan(config),
     runId: "run-123",
+    structuredOutputs: [],
     task: "task",
     workflowId: "child",
     worktreePath,

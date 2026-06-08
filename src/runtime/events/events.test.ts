@@ -74,6 +74,7 @@ workflows:
     nodeStates: new Map(),
     plan,
     reporter,
+    structuredOutputs: [],
     task: "test",
     workflowId: "default",
     worktreePath: process.cwd(),

@@ -200,6 +200,7 @@ function runtimeResult(
     nodes,
     outcome,
     plan,
+    structuredOutputs: [],
   };
 }
 

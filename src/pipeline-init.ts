@@ -9,6 +9,10 @@ import {
   DEFAULT_SKILL_INSTALLS,
   type PipelineSkillInstallSpec,
 } from "./mcp/bootstrap.js";
+import {
+  standardOutputSchemaJson,
+  standardOutputSchemaPath,
+} from "./standard-output-schemas.js";
 
 export type PipelineSkillInstaller = (
   specs: PipelineSkillInstallSpec[],
@@ -503,7 +507,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-acceptance-reviewer:
     runner: codex
     scheduling_roles: [coverage]
@@ -644,7 +652,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-opencode-acceptance-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
@@ -691,8 +703,6 @@ profiles:
         max_attempts: 1
 `;
 
-const VERDICT_SCHEMA = z.enum(["PASS", "FAIL"]);
-const STRING_ARRAY_SCHEMA = z.array(z.string());
 const EPIC_TRACK_ITEM_SCHEMA = z.object({
   id: z.string(),
   rationale: z.string().optional(),
@@ -707,49 +717,6 @@ function zodJsonSchema(schema: z.ZodType): string {
   );
 }
 
-const RESEARCH_SCHEMA = zodJsonSchema(
-  z.object({
-    ac: STRING_ARRAY_SCHEMA,
-    files: STRING_ARRAY_SCHEMA.optional(),
-    findings: STRING_ARRAY_SCHEMA,
-    risks: STRING_ARRAY_SCHEMA.optional(),
-    target: z.string().optional(),
-  })
-);
-
-const VERIFY_SCHEMA = zodJsonSchema(
-  z.object({
-    evidence: STRING_ARRAY_SCHEMA,
-    verdict: VERDICT_SCHEMA,
-    violations: STRING_ARRAY_SCHEMA.optional(),
-  })
-);
-
-const LEARN_SCHEMA = zodJsonSchema(
-  z.object({
-    evidence: STRING_ARRAY_SCHEMA,
-    qdrant: z.object({
-      attempted: z.boolean(),
-      succeeded: z.boolean(),
-    }),
-  })
-);
-
-const ACCEPTANCE_SCHEMA = zodJsonSchema(
-  z.object({
-    acceptance: z.array(
-      z.object({
-        evidence: STRING_ARRAY_SCHEMA,
-        id: z.string(),
-        verdict: VERDICT_SCHEMA,
-      })
-    ),
-    evidence: STRING_ARRAY_SCHEMA,
-    verdict: VERDICT_SCHEMA,
-    violations: STRING_ARRAY_SCHEMA.optional(),
-  })
-);
-
 const EPIC_PLAN_SCHEMA = zodJsonSchema(
   z.object({
     backend: z.array(EPIC_TRACK_ITEM_SCHEMA),
@@ -757,22 +724,6 @@ const EPIC_PLAN_SCHEMA = zodJsonSchema(
     k8s: z.array(EPIC_TRACK_ITEM_SCHEMA),
     rationale: z.string().optional(),
     test: z.array(EPIC_TRACK_ITEM_SCHEMA),
-  })
-);
-
-const REVIEW_SCHEMA = zodJsonSchema(
-  z.object({
-    findings: z.array(
-      z.object({
-        file: z.string().optional(),
-        line: z.number().int().min(1).optional(),
-        message: z.string(),
-        rule: z.string().optional(),
-        severity: z.enum(["info", "warn", "error", "critical"]),
-      })
-    ),
-    summary: z.string().optional(),
-    verdict: VERDICT_SCHEMA,
   })
 );
 
@@ -926,8 +877,11 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "You are the GREEN/code-write phase for the pipeline.",
     "Implement the smallest production change that satisfies the failing tests.",
     "Keep edits scoped to the requested behavior.",
-    "Return concrete targeted test evidence. Include typecheck evidence only when a typecheck command exists or a configured gate requires it.",
+    "Return only valid JSON matching `.pipeline/schemas/implementation.schema.json`: an object with `changes` and `verification`, plus optional `summary`, `risks`, `followups`, and `lessons`.",
+    "Every `changes[]` entry must include `summary`, `why`, and `files`.",
+    "Use `verification` for concrete targeted test evidence. Include typecheck evidence only when a typecheck command exists or a configured gate requires it.",
     "Unrelated full-suite failures and missing optional scripts are not blocking unless `.pipeline/pipeline.yaml` declares a gate for them.",
+    "Do not wrap the JSON in Markdown fences or add prose outside the JSON object.",
     "",
   ].join("\n"),
   ".pipeline/prompts/acceptance-reviewer.md": [
@@ -974,12 +928,23 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "VERIFY requires concrete check output and implementation-fit evidence.",
     "",
   ].join("\n"),
-  ".pipeline/schemas/research.schema.json": `${RESEARCH_SCHEMA}\n`,
-  ".pipeline/schemas/acceptance.schema.json": `${ACCEPTANCE_SCHEMA}\n`,
+  [standardOutputSchemaPath("research")]: `${standardOutputSchemaJson(
+    "research"
+  )}\n`,
+  [standardOutputSchemaPath("implementation")]: `${standardOutputSchemaJson(
+    "implementation"
+  )}\n`,
+  [standardOutputSchemaPath("acceptance")]: `${standardOutputSchemaJson(
+    "acceptance"
+  )}\n`,
   ".pipeline/schemas/epic-plan.schema.json": `${EPIC_PLAN_SCHEMA}\n`,
-  ".pipeline/schemas/verify.schema.json": `${VERIFY_SCHEMA}\n`,
-  ".pipeline/schemas/review.schema.json": `${REVIEW_SCHEMA}\n`,
-  ".pipeline/schemas/learn.schema.json": `${LEARN_SCHEMA}\n`,
+  [standardOutputSchemaPath("verify")]: `${standardOutputSchemaJson(
+    "verify"
+  )}\n`,
+  [standardOutputSchemaPath("review")]: `${standardOutputSchemaJson(
+    "review"
+  )}\n`,
+  [standardOutputSchemaPath("learn")]: `${standardOutputSchemaJson("learn")}\n`,
   ".pipeline/host-resources/codex.md": hostResourceInput("Codex"),
   ".pipeline/host-resources/opencode.md": hostResourceInput("OpenCode"),
 };

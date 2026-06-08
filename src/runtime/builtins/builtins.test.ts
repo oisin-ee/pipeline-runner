@@ -58,6 +58,7 @@ workflows:
     nodeStates: new Map(),
     plan: compileWorkflowPlan(config),
     runId: "run-builtins",
+    structuredOutputs: [],
     task: "task",
     workflowId: "default",
     worktreePath: process.cwd(),

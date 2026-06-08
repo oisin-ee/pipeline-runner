@@ -168,7 +168,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-acceptance-reviewer:
     runner: codex
     scheduling_roles: [coverage]
@@ -309,7 +313,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-opencode-acceptance-reviewer:
     runner: opencode
     scheduling_roles: [coverage]

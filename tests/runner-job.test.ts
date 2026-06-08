@@ -145,6 +145,35 @@ function runtimeResult(outcome: "CANCELLED" | "FAIL" | "PASS"): any {
     nodes: [],
     outcome,
     plan: { workflowId: "default" },
+    structuredOutputs:
+      outcome === "PASS"
+        ? [
+            {
+              attempt: 1,
+              format: "json_schema",
+              nodeId: "green",
+              output: {
+                changes: [
+                  {
+                    files: ["src/app.ts"],
+                    summary: "Implement runner task",
+                    why: "The requested runner task needs code changes",
+                  },
+                ],
+                verification: ["runner fixture verification passed"],
+              },
+              profileId: "pipeline-code-writer",
+              schemaPath: ".pipeline/schemas/implementation.schema.json",
+              validation: {
+                evidence: [
+                  "JSON schema passed: .pipeline/schemas/implementation.schema.json",
+                ],
+                passed: true,
+                status: "valid",
+              },
+            },
+          ]
+        : [],
   };
 }
 
@@ -412,6 +441,12 @@ describe("runner-job entrypoint", () => {
               url: "https://github.com/oisin-ee/tova.git",
             }),
           }),
+          pullRequestSummary: expect.objectContaining({
+            body: expect.stringContaining(
+              "Why: The requested runner task needs code changes"
+            ),
+            title: expect.stringContaining("Pipeline:"),
+          }),
           worktreePath: dir,
         })
       );
@@ -515,7 +550,7 @@ describe("runner-job entrypoint", () => {
     }
   });
 
-  it("delivers failed runner job changes to a PR without masking the runtime failure", async () => {
+  it("does not deliver failed runner job changes to a branch or PR", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-fail-delivery-"));
     const postedBodies: string[] = [];
@@ -569,21 +604,9 @@ describe("runner-job entrypoint", () => {
 
       expect(exitCode).toBe(1);
       expect(runDevspaceCommand).not.toHaveBeenCalled();
-      expect(deliverGitBranch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          payload: expect.objectContaining({
-            delivery: { pullRequest: true },
-          }),
-          worktreePath: dir,
-        })
-      );
-      expect(createPullRequest).toHaveBeenCalledTimes(1);
-      expect(io.stdoutText()).toContain("Runner delivery complete:");
-      expect(io.stdoutText()).toContain("- branch: pipeline/run-123");
-      expect(io.stdoutText()).toContain("- commit: abc123");
-      expect(io.stdoutText()).toContain(
-        "- pull_request: https://github.com/oisin-ee/tova/pull/456"
-      );
+      expect(deliverGitBranch).not.toHaveBeenCalled();
+      expect(createPullRequest).not.toHaveBeenCalled();
+      expect(io.stdoutText()).toBe("");
       expect(io.stderrText()).toMatch(RUNTIME_FAILURE_DETAILS_RE);
 
       const postedEvents = postedBodies.flatMap((postedBody) => {
@@ -595,21 +618,6 @@ describe("runner-job entrypoint", () => {
       expect(postedEvents).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            log: expect.objectContaining({
-              message: "runner git branch pushed",
-            }),
-            type: "runner.job.phase",
-          }),
-          expect.objectContaining({
-            log: expect.objectContaining({
-              message: "runner pull request created",
-              output: expect.objectContaining({
-                url: "https://github.com/oisin-ee/tova/pull/456",
-              }),
-            }),
-            type: "runner.job.phase",
-          }),
-          expect.objectContaining({
             finalResult: expect.objectContaining({
               outcome: "FAIL",
             }),
@@ -617,12 +625,18 @@ describe("runner-job entrypoint", () => {
           }),
         ])
       );
+      expect(JSON.stringify(postedEvents)).not.toContain(
+        "runner git branch pushed"
+      );
+      expect(JSON.stringify(postedEvents)).not.toContain(
+        "runner pull request created"
+      );
     } finally {
       await rm(dir, { force: true, recursive: true });
     }
   });
 
-  it("preserves runtime failure when failed-run delivery cannot create a PR", async () => {
+  it("does not mask failed runtime results with delivery errors because delivery is skipped", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const dir = await mkdtemp(
       join(tmpdir(), "pipe-runner-fail-delivery-error-")
@@ -675,7 +689,8 @@ describe("runner-job entrypoint", () => {
       });
 
       expect(exitCode).toBe(1);
-      expect(createPullRequest).toHaveBeenCalledTimes(1);
+      expect(deliverGitBranch).not.toHaveBeenCalled();
+      expect(createPullRequest).not.toHaveBeenCalled();
       expect(io.stdoutText()).toBe("");
       expect(io.stderrText()).toMatch(RUNTIME_FAILURE_DETAILS_RE);
 
@@ -685,17 +700,8 @@ describe("runner-job entrypoint", () => {
         };
         return body.events;
       });
-      expect(postedEvents).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            log: expect.objectContaining({
-              message: "runner delivery failed after runtime failure",
-              output: expect.objectContaining({
-                error: "pull request already exists",
-              }),
-            }),
-          }),
-        ])
+      expect(JSON.stringify(postedEvents)).not.toContain(
+        "runner delivery failed after runtime failure"
       );
     } finally {
       await rm(dir, { force: true, recursive: true });

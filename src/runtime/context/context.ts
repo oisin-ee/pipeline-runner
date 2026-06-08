@@ -65,6 +65,7 @@ export function createRuntimeContext(
     preserveSuccessfulWorkflowWorktrees: false,
     ...(options.reporter ? { reporter: options.reporter } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
+    structuredOutputs: [],
     task: options.task,
     ...(options.taskContext ? { taskContext: options.taskContext } : {}),
     workflowId,

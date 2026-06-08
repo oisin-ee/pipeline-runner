@@ -68,6 +68,7 @@ workflows:
     nodeStates: new Map(),
     plan: compileWorkflowPlan(config),
     runId: "run-merge",
+    structuredOutputs: [],
     task: "task",
     workflowId: "default",
     worktreePath: process.cwd(),

@@ -222,7 +222,11 @@ if (
   prompt.includes("You are a bounded researcher") ||
   prompt.includes("pipeline-researcher")
 ) {
-  process.stdout.write("researched deterministic integrated pipeline behavior");
+  process.stdout.write(JSON.stringify({
+    ac: ["integrated tracer reaches deterministic pipeline behavior"],
+    findings: ["researched deterministic integrated pipeline behavior"],
+    risks: []
+  }));
   process.exit(0);
 }
 
@@ -257,7 +261,16 @@ if (
     path.join(process.cwd(), "pipeline-feature.impl"),
     "tracerBullet=green\\n"
   );
-  process.stdout.write("implemented tracer feature");
+  process.stdout.write(JSON.stringify({
+    changes: [
+      {
+        summary: "Implemented tracer feature",
+        why: "The tracer test requires the feature marker to pass",
+        files: ["pipeline-feature.impl"]
+      }
+    ],
+    verification: ["project-test passes after implementation"]
+  }));
   process.exit(0);
 }
 
@@ -268,7 +281,7 @@ if (
   process.stdout.write(JSON.stringify({
     verdict: "PASS",
     evidence: ["acceptance passed"],
-    acceptance: [{ id: "1", verdict: "PASS", evidence: "accepted" }],
+    acceptance: [{ id: "1", verdict: "PASS", evidence: ["accepted"] }],
     violations: []
   }));
   process.exit(0);

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { parseDocument } from "yaml";
 import { z } from "zod";
 import { resolveFileReference } from "./path-refs.js";
+import { standardOutputSchemaNameFromPath } from "./standard-output-schemas.js";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
@@ -124,6 +125,10 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/research.schema.json
+      repair: { enabled: true, max_attempts: 1 }
   pipeline-inspector:
     runner: codex
     description: Inspect the repository without modifying files.
@@ -160,11 +165,15 @@ profiles:
     runner: codex
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
-    instructions: { inline: "Implement the smallest production change that satisfies the failing tests." }
+    instructions: { inline: "Implement the smallest production change that satisfies the failing tests. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair: { enabled: true, max_attempts: 1 }
   pipeline-acceptance-reviewer:
     runner: codex
     scheduling_roles: [coverage]
@@ -174,6 +183,10 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/acceptance.schema.json
+      repair: { enabled: true, max_attempts: 1 }
   pipeline-thermo-nuclear-reviewer:
     runner: codex
     scheduling_roles: [coverage]
@@ -183,6 +196,10 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/review.schema.json
+      repair: { enabled: true, max_attempts: 1 }
   pipeline-verifier:
     runner: codex
     scheduling_roles: [coverage]
@@ -192,6 +209,10 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/verify.schema.json
+      repair: { enabled: true, max_attempts: 1 }
   pipeline-learner:
     runner: codex
     description: Store durable lessons from the completed run.
@@ -200,6 +221,10 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/learn.schema.json
+      repair: { enabled: true, max_attempts: 1 }
 `;
 
 const PACKAGE_DEFAULT_PIPELINE_YAML = `version: 1
@@ -1778,6 +1803,9 @@ function validatePath(
   options: PipelineConfigValidationOptions = {}
 ): void {
   if (!(value && projectRoot)) {
+    return;
+  }
+  if (standardOutputSchemaNameFromPath(value)) {
     return;
   }
   if (!existsSync(resolveFileReference(projectRoot, value))) {

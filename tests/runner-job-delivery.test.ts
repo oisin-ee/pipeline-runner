@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { RunnerJobPayload } from "../src/runner-job-contract.js";
+
+const PR_BODY_FILE_RE = /body\.md$/;
 
 function cleanGitClient(overrides: Record<string, unknown> = {}) {
   return {
@@ -37,6 +40,21 @@ function cleanDevspacePayload(): Pick<
       kind: "prompt",
       prompt: "Ship it",
     },
+  };
+}
+
+function pullRequestSummary() {
+  return {
+    body: [
+      "## Summary",
+      "Pipeline run run_123 completed with outcome PASS.",
+      "",
+      "## Changes",
+      "- Add explicit PR summary",
+      "  - Why: Runner PRs need durable metadata",
+      "  - Files: src/runner-job/delivery.ts",
+    ].join("\n"),
+    title: "Pipeline: Ship it",
   };
 }
 
@@ -105,8 +123,13 @@ describe("runner-job git delivery", () => {
 describe("runner-job PR delivery", () => {
   it("creates PRs with the repository owner as the default head owner", async () => {
     const { createPullRequest } = await import("../src/runner-job/delivery.js");
-    const runCommand = vi.fn().mockResolvedValueOnce({
-      stdout: "https://github.com/oisin-ee/tova/pull/123\n",
+    let body = "";
+    const runCommand = vi.fn((_command, args: string[]) => {
+      const bodyFile = args.at(args.indexOf("--body-file") + 1);
+      body = bodyFile ? readFileSync(bodyFile, "utf8") : "";
+      return Promise.resolve({
+        stdout: "https://github.com/oisin-ee/tova/pull/123\n",
+      });
     });
 
     await expect(
@@ -117,6 +140,7 @@ describe("runner-job PR delivery", () => {
         }),
         env: { GH_TOKEN: "redacted" },
         payload: { ...cleanDevspacePayload(), delivery: { pullRequest: true } },
+        pullRequestSummary: pullRequestSummary(),
         runCommand,
         worktreePath: "/workspace",
       })
@@ -130,7 +154,10 @@ describe("runner-job PR delivery", () => {
       [
         "pr",
         "create",
-        "--fill",
+        "--title",
+        "Pipeline: Ship it",
+        "--body-file",
+        expect.stringMatching(PR_BODY_FILE_RE),
         "--base",
         "main",
         "--head",
@@ -144,6 +171,9 @@ describe("runner-job PR delivery", () => {
         stdin: "ignore",
       }
     );
+    expect(runCommand.mock.calls[0]?.[1]).not.toContain("--fill");
+    expect(body).toContain("## Changes");
+    expect(body).toContain("Why: Runner PRs need durable metadata");
   });
 
   it("allows the PR head owner to be overridden by runner env", async () => {
@@ -159,6 +189,7 @@ describe("runner-job PR delivery", () => {
       }),
       env: { PIPELINE_PR_HEAD_OWNER: "custom-bot" },
       payload: { ...cleanDevspacePayload(), delivery: { pullRequest: true } },
+      pullRequestSummary: pullRequestSummary(),
       runCommand,
       worktreePath: "/workspace",
     });
@@ -188,6 +219,7 @@ describe("runner-job PR delivery", () => {
         }),
         env: { GH_TOKEN: "redacted" },
         payload: { ...cleanDevspacePayload(), delivery: { pullRequest: true } },
+        pullRequestSummary: pullRequestSummary(),
         runCommand,
         worktreePath: "/workspace",
       })

@@ -22,6 +22,7 @@ import type {
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
+  RuntimeStructuredOutput,
 } from "./runtime/contracts";
 import {
   childReporter,
@@ -73,6 +74,7 @@ export type {
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
+  RuntimeStructuredOutput,
 } from "./runtime/contracts";
 export function runPipelineFromConfig(
   options: PipelineRuntimeOptions
@@ -240,6 +242,7 @@ function passedRuntimeResult(
     nodes,
     outcome: "PASS",
     plan: context.plan,
+    structuredOutputs: runtimeStructuredOutputs(context),
   };
 }
 
@@ -282,6 +285,7 @@ function failedRuntimeResult(
     nodes,
     outcome: "FAIL",
     plan: context.plan,
+    structuredOutputs: runtimeStructuredOutputs(context),
   };
 }
 
@@ -298,6 +302,7 @@ function cancelledRuntimeResult(
     nodes,
     outcome: "CANCELLED",
     plan: context.plan,
+    structuredOutputs: runtimeStructuredOutputs(context),
   };
 }
 
@@ -305,6 +310,12 @@ function runtimeNodeStates(
   context: RuntimeContext
 ): Record<string, NodeExecutionState> {
   return Object.fromEntries(context.nodeStates);
+}
+
+function runtimeStructuredOutputs(
+  context: RuntimeContext
+): RuntimeStructuredOutput[] {
+  return [...context.structuredOutputs];
 }
 
 function cancelledFailure(): RuntimeFailure {

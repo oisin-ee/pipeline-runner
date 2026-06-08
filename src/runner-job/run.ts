@@ -36,6 +36,10 @@ import {
   runRunnerEnvironmentSetup,
 } from "./devspace.js";
 import {
+  type RunnerPullRequestSummary,
+  renderRunnerPullRequestSummary,
+} from "./pr-summary.js";
+import {
   prepareRunnerWorkspace,
   type RunnerWorkspacePreparation,
 } from "./workspace.js";
@@ -381,12 +385,9 @@ async function generateRunnerSchedule(
 
 function shouldDeliverRuntimeResult(
   result: PipelineRuntimeResult,
-  payload: RunnerJobPayload
+  _payload: RunnerJobPayload
 ): boolean {
-  if (result.outcome === "PASS") {
-    return true;
-  }
-  return result.outcome === "FAIL" && payload.delivery.pullRequest;
+  return result.outcome === "PASS";
 }
 
 async function handleRuntimeDelivery(input: {
@@ -407,7 +408,8 @@ async function handleRuntimeDelivery(input: {
     input.workspace,
     input.config,
     input.sink,
-    input.result.outcome
+    input.result,
+    input.options.orchestrator
   );
   if (delivery) {
     reportDeliverySummary(delivery, input.stdout);
@@ -420,67 +422,62 @@ async function deliverRuntimeResult(
   workspace: RunnerWorkspacePreparation,
   config: PipelineConfig,
   sink: RunnerEventSink,
-  outcome: PipelineRuntimeResult["outcome"]
+  result: PipelineRuntimeResult,
+  orchestrator: string | undefined
 ): Promise<RunnerJobDeliverySummary | null> {
-  try {
-    if (outcome === "PASS") {
-      const smokeStatus = await runRunnerDevspaceSmokeWithPhase(
-        options,
-        config,
-        workspace,
-        sink
-      );
-      sink.recordRunnerJobPhase(
-        `environment.smoke.${smokeStatus}`,
-        `runner environment smoke ${smokeStatus}`
-      );
-    } else {
-      sink.recordRunnerJobPhase(
-        "environment.smoke.skipped",
-        "runner environment smoke skipped after failed runtime"
-      );
-    }
-    const branchDelivery = await deliverRunnerGitBranchWithPhase(
-      options,
-      payload,
-      workspace,
-      config,
-      sink
-    );
-    sink.recordRunnerJobPhase("delivery.git", "runner git branch pushed", {
-      branch: branchDelivery.branch,
-      commitSha: branchDelivery.commitSha,
-    });
-    const pullRequest = await createRunnerPullRequestWithPhase(
-      options,
-      payload,
-      workspace,
-      sink,
-      branchDelivery.branch
-    );
-    if (pullRequest) {
-      sink.recordRunnerJobPhase(
-        "delivery.pull_request",
-        "runner pull request created",
-        { url: pullRequest.url }
-      );
-    }
-    return {
-      branch: branchDelivery.branch,
-      commitSha: branchDelivery.commitSha,
-      pullRequestUrl: pullRequest?.url ?? null,
-    };
-  } catch (err) {
-    if (outcome === "PASS") {
-      throw err;
-    }
+  const smokeStatus = await runRunnerDevspaceSmokeWithPhase(
+    options,
+    config,
+    workspace,
+    sink
+  );
+  sink.recordRunnerJobPhase(
+    `environment.smoke.${smokeStatus}`,
+    `runner environment smoke ${smokeStatus}`
+  );
+  const branchDelivery = await deliverRunnerGitBranchWithPhase(
+    options,
+    payload,
+    workspace,
+    config,
+    sink
+  );
+  sink.recordRunnerJobPhase("delivery.git", "runner git branch pushed", {
+    branch: branchDelivery.branch,
+    commitSha: branchDelivery.commitSha,
+  });
+  const pullRequest = await createRunnerPullRequestWithPhase(
+    options,
+    payload,
+    workspace,
+    sink,
+    branchDelivery.branch,
+    payload.delivery.pullRequest
+      ? renderRunnerPullRequestSummary({
+          metadata: {
+            branch: branchDelivery.branch,
+            commitSha: branchDelivery.commitSha,
+            orchestrator: orchestrator ?? config.orchestrator.profile,
+            scheduleId: payload.run.id,
+            schedulePath: `.pipeline/runs/${payload.run.id}/schedule.yaml`,
+          },
+          payload,
+          result,
+        })
+      : undefined
+  );
+  if (pullRequest) {
     sink.recordRunnerJobPhase(
-      "delivery.failed_after_runtime_failure",
-      "runner delivery failed after runtime failure",
-      { error: errorMessage(err) }
+      "delivery.pull_request",
+      "runner pull request created",
+      { url: pullRequest.url }
     );
-    return null;
   }
+  return {
+    branch: branchDelivery.branch,
+    commitSha: branchDelivery.commitSha,
+    pullRequestUrl: pullRequest?.url ?? null,
+  };
 }
 
 function reportDeliverySummary(
@@ -551,10 +548,14 @@ async function createRunnerPullRequestWithPhase(
   payload: RunnerJobPayload,
   workspace: RunnerWorkspacePreparation,
   sink: RunnerEventSink,
-  branch: string
+  branch: string,
+  pullRequestSummary?: RunnerPullRequestSummary
 ) {
   if (!payload.delivery.pullRequest) {
     return null;
+  }
+  if (!pullRequestSummary) {
+    throw new Error("Runner PR delivery requires a pull request summary");
   }
   try {
     return await createRunnerPullRequest(
@@ -562,7 +563,8 @@ async function createRunnerPullRequestWithPhase(
       payload,
       workspace.worktreePath,
       workspace.env,
-      branch
+      branch,
+      pullRequestSummary
     );
   } catch (err) {
     sink.recordRunnerJobPhase(
@@ -595,13 +597,15 @@ function createRunnerPullRequest(
   payload: RunnerJobPayload,
   worktreePath: string,
   env: Record<string, string | undefined>,
-  branch: string
+  branch: string,
+  pullRequestSummary: RunnerPullRequestSummary
 ) {
   const create = options.createPullRequest ?? createPullRequest;
   return create({
     branch,
     env,
     payload,
+    pullRequestSummary,
     worktreePath,
   });
 }

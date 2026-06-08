@@ -49,6 +49,7 @@ import {
   generateScheduleArtifact,
   parseScheduleArtifact,
 } from "./schedule-planner.js";
+import { standardOutputSchemaNameFromPath } from "./standard-output-schemas.js";
 import {
   compileWorkflowPlan,
   type PlannedWorkflowNode,
@@ -718,7 +719,11 @@ function lintMissingFileReferences(
     });
   }
   return refs.flatMap((ref) => {
-    if (!ref.value || existsSync(resolve(projectRoot, ref.value))) {
+    if (
+      !ref.value ||
+      standardOutputSchemaNameFromPath(ref.value) ||
+      existsSync(resolve(projectRoot, ref.value))
+    ) {
       return [];
     }
     return [

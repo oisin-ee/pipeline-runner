@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { PipelineConfig } from "../../config";
 import { gatewayServerForProfile } from "../../mcp/gateway";
 import { resolveFileReference } from "../../path-refs";
@@ -18,7 +17,10 @@ import type {
   RuntimeContext,
 } from "../contracts";
 import { emit, emitAgentFinish, emitAgentStart } from "../events";
-import { validateJsonSchemaSource } from "../json-validation";
+import {
+  readJsonSchemaSource,
+  validateJsonSchemaSource,
+} from "../json-validation";
 
 export async function executeAgentNode(
   node: PlannedWorkflowNode,
@@ -233,7 +235,7 @@ function createOutputRepairPlan(inputs: {
     schemaPath,
     validation,
   } = inputs;
-  const schema = readFileSync(join(context.worktreePath, schemaPath), "utf8");
+  const schema = readJsonSchemaSource(schemaPath, context.worktreePath);
   const repairProfileId = `${node.id}:output-repair`;
   const repairConfig: PipelineConfig = {
     ...context.config,

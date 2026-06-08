@@ -3,6 +3,10 @@ import { join } from "node:path";
 import Ajv, { type AnySchema, type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
 import { parseJson as parseSafeJson } from "../../safe-json";
+import {
+  standardOutputSchemaJson,
+  standardOutputSchemaNameFromPath,
+} from "../../standard-output-schemas";
 import type { JsonSchemaValidationResult } from "../contracts";
 
 const LINE_RE = /\r?\n/;
@@ -48,7 +52,7 @@ export function validateJsonSchemaSource(
   worktreePath: string
 ): JsonSchemaValidationResult {
   try {
-    const schemaSource = readFileSync(join(worktreePath, schemaPath), "utf8");
+    const schemaSource = readJsonSchemaSource(schemaPath, worktreePath);
     const value = parseSafeJson(source, "JSON schema gate value");
     const validate = compiledJsonSchemaValidator(schemaPath, schemaSource);
     const errors = validate(value)
@@ -69,6 +73,17 @@ export function validateJsonSchemaSource(
       reason: "JSON schema validation failed",
     };
   }
+}
+
+export function readJsonSchemaSource(
+  schemaPath: string,
+  worktreePath: string
+): string {
+  const standardName = standardOutputSchemaNameFromPath(schemaPath);
+  if (standardName) {
+    return standardOutputSchemaJson(standardName);
+  }
+  return readFileSync(join(worktreePath, schemaPath), "utf8");
 }
 
 function compiledJsonSchemaValidator(

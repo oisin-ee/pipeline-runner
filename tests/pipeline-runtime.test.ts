@@ -1268,6 +1268,104 @@ workflows:
     });
   });
 
+  it("validates package standard implementation output without repo-local schema files", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+    config.profiles.structured.output = {
+      format: "json_schema",
+      repair: { enabled: false },
+      schema_path: ".pipeline/schemas/implementation.schema.json",
+    };
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({
+        structured: JSON.stringify({
+          changes: [
+            {
+              files: ["src/app.ts"],
+              summary: "Add explicit runner PR summaries",
+              why: "Runner PRs need validated change rationale",
+            },
+          ],
+          verification: ["bun run test tests/pipeline-runtime.test.ts"],
+        }),
+      }),
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.gates[0]).toMatchObject({
+      kind: "json_schema",
+      passed: true,
+    });
+    expect(result.structuredOutputs).toHaveLength(1);
+    expect(result.structuredOutputs[0]).toMatchObject({
+      nodeId: "structured",
+      profileId: "structured",
+      schemaPath: ".pipeline/schemas/implementation.schema.json",
+      validation: { status: "valid", passed: true },
+    });
+    expect(result.structuredOutputs[0]?.output).toMatchObject({
+      changes: [
+        {
+          files: ["src/app.ts"],
+          summary: "Add explicit runner PR summaries",
+          why: "Runner PRs need validated change rationale",
+        },
+      ],
+    });
+  });
+
+  it("fails package standard implementation output when a change omits why", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+    config.profiles.structured.output = {
+      format: "json_schema",
+      repair: { enabled: false },
+      schema_path: ".pipeline/schemas/implementation.schema.json",
+    };
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: executor({
+        structured: JSON.stringify({
+          changes: [
+            {
+              files: ["src/app.ts"],
+              summary: "Add explicit runner PR summaries",
+            },
+          ],
+          verification: ["bun run test tests/pipeline-runtime.test.ts"],
+        }),
+      }),
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    expect(result.gates[0]).toMatchObject({
+      kind: "json_schema",
+      passed: false,
+    });
+    expect(result.gates[0]?.evidence.join("\n")).toContain("why");
+  });
+
   it("applies JSON schema format validators to structured output", async () => {
     const project = tempProject();
     writeProjectFile(

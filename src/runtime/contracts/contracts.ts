@@ -81,6 +81,22 @@ export interface RuntimeNodeResult {
   status: "failed" | "passed";
 }
 
+export interface RuntimeStructuredOutput {
+  attempt: number;
+  format: "json" | "json_schema" | "jsonl";
+  nodeId: string;
+  output: unknown;
+  parentParallelNodeId?: string;
+  profileId?: string;
+  schemaPath?: string;
+  validation: {
+    evidence: string[];
+    passed: boolean;
+    reason?: string;
+    status: "invalid" | "not_applicable" | "valid";
+  };
+}
+
 export type NodeStatus =
   | "cancelled"
   | "failed"
@@ -123,6 +139,7 @@ export interface PipelineRuntimeResult {
   nodes: RuntimeNodeResult[];
   outcome: "CANCELLED" | "FAIL" | "PASS";
   plan: WorkflowExecutionPlan;
+  structuredOutputs: RuntimeStructuredOutput[];
 }
 
 export type PipelineRuntimeObservabilityLevel = "info" | "warn";
@@ -339,11 +356,13 @@ export interface RuntimeContext {
   nodeSnapshots: Map<string, ChangedFilesSnapshot>;
   nodeStates: Map<string, NodeExecutionState>;
   observability?: RuntimeObservabilityEmitter;
+  parentParallelNodeId?: string;
   plan: WorkflowExecutionPlan;
   preserveSuccessfulWorkflowWorktrees?: boolean;
   reporter?: (event: PipelineRuntimeEvent) => void;
   runId?: string;
   signal?: AbortSignal;
+  structuredOutputs: RuntimeStructuredOutput[];
   task: string;
   taskContext?: PipelineTaskContext;
   workflowActor?: WorkflowSchedulerActor;

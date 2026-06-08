@@ -91,6 +91,7 @@ function createParallelChildContext(
       parallelBatches: [children],
       topologicalOrder: children,
     },
+    parentParallelNodeId: parentNodeId,
     preserveSuccessfulWorkflowWorktrees:
       context.preserveSuccessfulWorkflowWorktrees ||
       parallelFeedsDrainMerge(parentNodeId, context, runtime),

@@ -17,8 +17,13 @@ import type {
   RuntimeContext,
   RuntimeGateResult,
   RuntimeNodeResult,
+  RuntimeStructuredOutput,
 } from "../contracts";
-import { isRecord, parseRuntimeOutput } from "../json-validation";
+import {
+  isRecord,
+  parseRuntimeOutput,
+  validateJsonSchemaSource,
+} from "../json-validation";
 
 export function createPublicRuntimeObservabilityEmitter(
   reporter: (event: PipelineRuntimeEvent) => void,
@@ -345,7 +350,89 @@ export function emitNodeOutputRecorded(
   if (parsed.error) {
     event.parseError = parsed.error;
   }
+  recordStructuredOutput(context, {
+    attempt,
+    format,
+    nodeId: node.id,
+    output: parsed.output,
+    parseError: parsed.error,
+    profileId: node.profile,
+    schemaPath: profile?.output?.schema_path,
+  });
   emit(context, event);
+}
+
+function recordStructuredOutput(
+  context: RuntimeContext,
+  output: {
+    attempt: number;
+    format: string;
+    nodeId: string;
+    output: unknown;
+    parseError?: string;
+    profileId?: string;
+    schemaPath?: string;
+  }
+): void {
+  if (
+    output.format !== "json" &&
+    output.format !== "json_schema" &&
+    output.format !== "jsonl"
+  ) {
+    return;
+  }
+  const validation = structuredOutputValidation(context, output);
+  const nodeId = context.parentParallelNodeId
+    ? `${context.parentParallelNodeId}.${output.nodeId}`
+    : output.nodeId;
+  context.structuredOutputs.push({
+    attempt: output.attempt,
+    format: output.format,
+    nodeId,
+    output: output.output,
+    ...(context.parentParallelNodeId
+      ? { parentParallelNodeId: context.parentParallelNodeId }
+      : {}),
+    ...(output.profileId ? { profileId: output.profileId } : {}),
+    ...(output.schemaPath ? { schemaPath: output.schemaPath } : {}),
+    validation,
+  });
+}
+
+function structuredOutputValidation(
+  context: RuntimeContext,
+  output: {
+    output: unknown;
+    parseError?: string;
+    schemaPath?: string;
+  }
+): RuntimeStructuredOutput["validation"] {
+  if (output.parseError) {
+    return {
+      evidence: [output.parseError],
+      passed: false,
+      reason: "structured output parse failed",
+      status: "invalid",
+    };
+  }
+  if (!output.schemaPath) {
+    return {
+      evidence: ["structured output has no schema"],
+      passed: true,
+      status: "not_applicable",
+    };
+  }
+  const validation = validateJsonSchemaSource(
+    JSON.stringify(output.output),
+    output.schemaPath,
+    context.worktreePath
+  );
+  return {
+    evidence: validation.evidence,
+    passed: validation.passed,
+    ...(validation.reason ? { reason: validation.reason } : {}),
+    status: validation.passed ? "valid" : "invalid",
+  };
 }
 
 export function emitAgentStart(
