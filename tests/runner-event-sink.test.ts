@@ -219,6 +219,68 @@ describe("runner event sink", () => {
     ).toEqual(["red", "green", "verify", "review"]);
   });
 
+  it("flushes runtime events without waiting for an explicit final flush", async () => {
+    const { createRunnerEventSink } = await loadSinkModule();
+    const fetchMock = vi.fn(async () => okResponse());
+    const sink = createRunnerEventSink({
+      authToken: "console-token",
+      fetch: fetchMock,
+      now: () => new Date(TIMESTAMP),
+      runId: "run_123",
+      url: EVENT_SINK_URL,
+    });
+
+    sink.recordRuntimeEvent({
+      edges: [{ source: "plan", target: "execute" }],
+      nodes: [
+        { id: "plan", kind: "agent", needs: [] },
+        { id: "execute", kind: "agent", needs: ["plan"] },
+      ],
+      type: "workflow.planned",
+      workflowId: "default",
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (fetchMock.mock.calls.length > 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    expect(await parseBodies(fetchMock)).toEqual([
+      {
+        events: [
+          {
+            at: TIMESTAMP,
+            sequence: 1,
+            type: "workflow.planned",
+            workflowPlan: {
+              edges: [{ source: "plan", target: "execute" }],
+              nodes: [
+                { id: "plan", kind: "agent", needs: [] },
+                { id: "execute", kind: "agent", needs: ["plan"] },
+              ],
+              workflowId: "default",
+            },
+          },
+          {
+            at: TIMESTAMP,
+            edge: {
+              id: "plan:execute",
+              source: "plan",
+              target: "execute",
+            },
+            sequence: 2,
+            type: "workflow.edge",
+          },
+        ],
+      },
+    ]);
+
+    await sink.flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("maps runtime events to the top-level fields consumed by console", async () => {
     const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
     const singleRecord = (event: Record<string, unknown>) => {

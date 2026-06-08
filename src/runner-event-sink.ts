@@ -73,7 +73,9 @@ export function createRunnerEventSink(
   }
 
   const queue: RunnerEventRecord[] = [];
+  let flushChain: Promise<void> = Promise.resolve();
   let nextSequence = 1;
+  let scheduledFlush = false;
 
   const nextEnvelope = (): Pick<RunnerEventRecord, "at" | "sequence"> => {
     const sequence = nextSequence;
@@ -84,6 +86,32 @@ export function createRunnerEventSink(
     };
   };
 
+  const flushQueue = async (): Promise<void> => {
+    while (queue.length > 0) {
+      const batch = queue.slice(0, batchSize);
+      await postBatch(options, fetchImpl, batch);
+      queue.splice(0, batch.length);
+    }
+  };
+
+  const runSerializedFlush = (): Promise<void> => {
+    const nextFlush = flushChain.then(flushQueue, flushQueue);
+    flushChain = nextFlush.catch(() => undefined);
+    return nextFlush;
+  };
+
+  const scheduleFlush = (): void => {
+    if (scheduledFlush) {
+      return;
+    }
+
+    scheduledFlush = true;
+    queueMicrotask(() => {
+      scheduledFlush = false;
+      runSerializedFlush().catch(() => undefined);
+    });
+  };
+
   const recordRuntimeEvent = (event: PipelineRuntimeEvent): void => {
     const records = mapRuntimeEventRecords(event, {
       runId: options.runId,
@@ -92,15 +120,10 @@ export function createRunnerEventSink(
     });
     queue.push(...records);
     nextSequence += records.length;
+    scheduleFlush();
   };
 
-  const flush = async (): Promise<void> => {
-    while (queue.length > 0) {
-      const batch = queue.slice(0, batchSize);
-      await postBatch(options, fetchImpl, batch);
-      queue.splice(0, batch.length);
-    }
-  };
+  const flush = (): Promise<void> => runSerializedFlush();
 
   return {
     fail: flush,
@@ -123,6 +146,7 @@ export function createRunnerEventSink(
         },
         type: "workflow.finish",
       });
+      scheduleFlush();
     },
     recordFinalResult(outcome, workflowId) {
       recordRuntimeEvent({ outcome, type: "workflow.finish", workflowId });
@@ -137,6 +161,7 @@ export function createRunnerEventSink(
         },
         type: "runner.job.phase",
       });
+      scheduleFlush();
     },
     recordRuntimeEvent,
     recordSchemaValidationFailure(message, issues, workflowId) {
@@ -158,6 +183,7 @@ export function createRunnerEventSink(
         },
         type: "workflow.finish",
       });
+      scheduleFlush();
     },
   };
 }
