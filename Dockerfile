@@ -22,6 +22,7 @@ ARG RUNNER_JOB_CONTRACT_VERSION=1
 ARG CODEX_PACKAGE_VERSION=0.137.0
 ARG OPENCODE_PACKAGE_VERSION=1.15.13
 ARG CLAUDE_CODE_PACKAGE_VERSION=2.1.162
+ARG PNPM_PACKAGE_VERSION=10.24.0
 
 LABEL pipeline.oisin.dev.pipeline-package-version=${PIPELINE_PACKAGE_VERSION}
 LABEL pipeline.oisin.dev.runner-contract-version=${RUNNER_JOB_CONTRACT_VERSION}
@@ -40,12 +41,14 @@ RUN apt-get update \
 COPY --from=builder /tmp/oisincoveney-pipeline-*.tgz /tmp/pipeline-package.tgz
 RUN npm install -g \
     /tmp/pipeline-package.tgz \
+    "pnpm@${PNPM_PACKAGE_VERSION}" \
     "@openai/codex@${CODEX_PACKAGE_VERSION}" \
     "opencode-ai@${OPENCODE_PACKAGE_VERSION}" \
     "@anthropic-ai/claude-code@${CLAUDE_CODE_PACKAGE_VERSION}" \
   && rm -f /tmp/pipeline-package.tgz \
   && npm cache clean --force \
   && command -v oisin-pipeline \
+  && command -v pnpm \
   && command -v codex \
   && command -v opencode \
   && command -v claude \

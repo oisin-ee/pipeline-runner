@@ -8,6 +8,12 @@ vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
 
+const detectMock = vi.hoisted(() => vi.fn());
+
+vi.mock("package-manager-detector/detect", () => ({
+  detect: detectMock,
+}));
+
 // Mock node:fs selectively — only mock what tests need, real fs for artifact test
 vi.mock("node:fs", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs")>();
@@ -35,6 +41,7 @@ const mockReadFileSync = vi.mocked(readFileSync);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  detectMock.mockResolvedValue(null);
   delete process.env.PIPELINE_TEST_COMMAND;
   delete process.env.PIPELINE_TYPECHECK_COMMAND;
   delete process.env.PIPELINE_SEMGREP_COMMAND;
@@ -157,6 +164,31 @@ describe("runTypecheck", () => {
     expect(result.exitCode).toBe(0);
     expect(mockExeca).toHaveBeenCalledWith(
       "npm",
+      ["run", "typecheck"],
+      expect.objectContaining({ cwd: "/fake/worktree" })
+    );
+  });
+
+  it("runs pnpm package scripts with the real pnpm command", async () => {
+    detectMock.mockResolvedValueOnce({ agent: "pnpm" });
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith("package.json")) {
+        return JSON.stringify({ scripts: { typecheck: "custom-typecheck" } });
+      }
+      return "";
+    });
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+    } as any);
+
+    const result = await runTypecheck("/fake/worktree");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.command).toBe("pnpm run typecheck");
+    expect(mockExeca).toHaveBeenCalledWith(
+      "pnpm",
       ["run", "typecheck"],
       expect.objectContaining({ cwd: "/fake/worktree" })
     );

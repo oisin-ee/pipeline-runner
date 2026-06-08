@@ -13,6 +13,8 @@ const CODEX_NPM_PACKAGE_RE = /@openai\/codex@\$\{CODEX_PACKAGE_VERSION\}/;
 const OPENCODE_NPM_PACKAGE_RE = /opencode-ai@\$\{OPENCODE_PACKAGE_VERSION\}/;
 const CLAUDE_NPM_PACKAGE_RE =
   /@anthropic-ai\/claude-code@\$\{CLAUDE_CODE_PACKAGE_VERSION\}/;
+const PNPM_NPM_PACKAGE_RE = /pnpm@\$\{PNPM_PACKAGE_VERSION\}/;
+const PNPM_COMMAND_RE = /command -v pnpm/;
 const NPM_GLOBAL_INSTALL_RE = /npm\s+install\s+-g/i;
 const LOCAL_PIPELINE_COPY_RE = /COPY\s+(?:package\.json|src|defaults)\b/i;
 const LOCAL_PIPELINE_INSTALL_RE =
@@ -107,6 +109,8 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(NPM_BUILD_RE);
     expect(dockerfile).toMatch(LOCAL_PIPELINE_INSTALL_RE);
     expect(dockerfile).toMatch(NPM_GLOBAL_INSTALL_RE);
+    expect(dockerfile).toMatch(PNPM_NPM_PACKAGE_RE);
+    expect(dockerfile).toMatch(PNPM_COMMAND_RE);
     expect(dockerfile).toMatch(CODEX_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(OPENCODE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(CLAUDE_NPM_PACKAGE_RE);

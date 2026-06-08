@@ -363,6 +363,78 @@ describe("runner-job entrypoint", () => {
     }
   });
 
+  it("uses the ticket id, not the ticket file body, as schedule identity", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => okResponse()
+    );
+    const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
+    const prepareSchedule = vi.fn(async (config) => ({
+      config,
+      workflowId: "default",
+    }));
+
+    const dir = await mkdtemp(join(tmpdir(), "pipe-ticket-schedule-"));
+    try {
+      await writePipelineFixture(dir);
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      await mkdir(join(dir, "backlog", "tasks"), { recursive: true });
+      await writeFile(
+        join(dir, "backlog", "tasks", "rondo-017.02.md"),
+        [
+          "---",
+          "id: RONDO-017.02",
+          "dependencies:",
+          "  - RONDO-017.01",
+          "---",
+          "",
+          "## Description",
+          "Create integration tests for RONDO-017.02.",
+        ].join("\n")
+      );
+      const payloadPath = join(dir, "payload.json");
+      await writeFile(
+        payloadPath,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+          task: {
+            id: "RONDO-017.02",
+            kind: "ticket",
+            path: "backlog/tasks/rondo-017.02.md",
+          },
+        })
+      );
+
+      const exitCode = await runRunnerJob({
+        env: { PIPELINE_TARGET_PATH: dir },
+        fetch: fetchMock,
+        payloadFile: payloadPath,
+        pipelineRunner,
+        prepareSchedule,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(prepareSchedule).toHaveBeenCalledWith(
+        expect.anything(),
+        "RONDO-017.02",
+        expect.objectContaining({ worktreePath: dir }),
+        expect.anything()
+      );
+      expect(pipelineRunner).toHaveBeenCalledWith(
+        expect.objectContaining({
+          task: expect.stringContaining("dependencies:\n  - RONDO-017.01"),
+        })
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it("prepares repository workspaces before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-devspace-"));

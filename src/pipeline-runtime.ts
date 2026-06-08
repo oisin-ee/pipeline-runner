@@ -445,6 +445,21 @@ async function executeNode(
         return cycle.result;
       }
       retry = retryCandidateForCycle(node, cycle, last, attempt);
+      const selfRemediation = await remediateWritableNodeFailure({
+        attempt,
+        context,
+        node,
+        retry,
+      });
+      if (selfRemediation) {
+        recordNodeEvent(context, node.id, {
+          at: now(),
+          result: selfRemediation,
+          type: "PASSED",
+        });
+        emitNodeFinish(context, selfRemediation);
+        return selfRemediation;
+      }
       if (
         await remediateCoverageFailure({
           attempt,
@@ -527,6 +542,75 @@ async function executeNode(
   });
   emitNodeFinish(context, result);
   return result;
+}
+
+async function remediateWritableNodeFailure(input: {
+  attempt: number;
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  retry: NodeAttemptRetry;
+}): Promise<RuntimeNodeResult | null> {
+  if (
+    input.retry.retryReason !== "gate_failure" ||
+    isRemediationNode(input.node) ||
+    !nodeCanWrite(input.context, input.node)
+  ) {
+    return null;
+  }
+
+  const beforeSnapshot = await snapshotChangedFiles(input.context.worktreePath);
+  const beforeOutput = input.context.lastOutputByNode.get(input.node.id);
+  const result = await executeSelfRemediation(input);
+  if (result.status !== "passed") {
+    return null;
+  }
+
+  const changed = diffChangedFiles(
+    beforeSnapshot,
+    await snapshotChangedFiles(input.context.worktreePath),
+    input.context.worktreePath
+  );
+  if (changed.files.size === 0 && result.output === beforeOutput) {
+    return null;
+  }
+
+  input.context.nodeSnapshots.set(input.node.id, changed);
+  input.context.lastOutputByNode.set(input.node.id, result.output);
+  return {
+    attempts: input.attempt + 1,
+    evidence: result.evidence,
+    exitCode: result.exitCode,
+    nodeId: input.node.id,
+    output: result.output,
+    status: "passed",
+  };
+}
+
+async function executeSelfRemediation(input: {
+  attempt: number;
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  retry: NodeAttemptRetry;
+}): Promise<RuntimeNodeResult> {
+  const node: PlannedWorkflowNode = {
+    ...input.node,
+    artifacts: undefined,
+    dependents: [],
+    id: `${input.node.id}:remediate:${input.retry.gate}:${input.attempt}`,
+    needs: [],
+    retries: undefined,
+  };
+  const originalTask = input.context.task;
+  input.context.task = nodeRemediationTask({
+    node: input.node,
+    originalTask,
+    retry: input.retry,
+  });
+  try {
+    return await executeNode(node, input.context);
+  } finally {
+    input.context.task = originalTask;
+  }
 }
 
 async function remediateCoverageFailure(input: {
@@ -638,6 +722,51 @@ function remediationTask(input: {
     ...input.retry.evidence.map((item) => `- ${item}`),
     "",
     "Update the implementation so the coverage node can pass on its next run.",
+  ].join("\n");
+}
+
+function nodeCanWrite(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): boolean {
+  if (!node.profile) {
+    return false;
+  }
+  const profile = context.config.profiles[node.profile];
+  return (
+    profile?.filesystem?.mode === "workspace-write" ||
+    (profile?.tools ?? []).some((tool) => tool === "edit" || tool === "write")
+  );
+}
+
+function isRemediationNode(node: PlannedWorkflowNode): boolean {
+  return node.id.includes(":remediate:");
+}
+
+function nodeRemediationTask(input: {
+  node: PlannedWorkflowNode;
+  originalTask: string;
+  retry: NodeAttemptRetry;
+}): string {
+  return [
+    "Remediate a pipeline node gate failure.",
+    "",
+    "Original task:",
+    input.originalTask,
+    "",
+    "Node:",
+    input.node.id,
+    "",
+    "Failed gate:",
+    input.retry.gate,
+    "",
+    "Failure reason:",
+    input.retry.reason,
+    "",
+    "Gate failure feedback:",
+    ...input.retry.evidence.map((item) => `- ${item}`),
+    "",
+    "Update the node output and files so this gate can pass.",
   ].join("\n");
 }
 

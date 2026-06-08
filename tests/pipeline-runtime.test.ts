@@ -3726,6 +3726,59 @@ workflows:
     );
   });
 
+  it("remediates writable nodes when their changed-file gate fails", async () => {
+    const project = tempProject();
+    execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
+    const config = baseConfig(`
+  file-policy:
+    nodes:
+      - id: writer
+        kind: agent
+        profile: a
+        gates:
+          - id: tests-only
+            kind: changed_files
+            changed_files:
+              require_any: ["tests/**/*.test.ts"]
+`);
+    config.profiles.a.filesystem = { mode: "workspace-write" };
+    const seen: RunnerLaunchPlan[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        if (plan.nodeId.includes(":remediate:")) {
+          writeProjectFile(project, "tests/generated.test.ts", "test('ok');\n");
+          return { exitCode: 0, stdout: "remediated test file" };
+        }
+        return { exitCode: 0, stdout: "changed no files" };
+      },
+      task: "files",
+      workflowId: "file-policy",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "writer",
+      "writer:remediate:tests-only:1",
+    ]);
+    expect(seen[1]?.args.join("\n")).toContain("Gate failure feedback:");
+    expect(seen[1]?.args.join("\n")).toContain(
+      "missing required changes matching: tests/**/*.test.ts"
+    );
+    expect(result.nodeStates.writer).toMatchObject({
+      attempts: 2,
+      status: "passed",
+    });
+    expect(result.gates.at(-1)).toMatchObject({
+      gateId: "tests-only",
+      nodeId: "writer:remediate:tests-only:1",
+      passed: true,
+    });
+  });
+
   it("counts files modified by a node even when they were already dirty", async () => {
     const project = tempProject();
     execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });

@@ -286,7 +286,12 @@ async function prepareReadyWorkspace(
     (options.pipelineRunner
       ? useConfiguredDefaultWorkflow
       : generateRunnerSchedule);
-  const compiled = await prepareSchedule(config, task, workspace, sink);
+  const compiled = await prepareSchedule(
+    config,
+    runnerScheduleTask(payload.task, task),
+    workspace,
+    sink
+  );
   return {
     config: compiled.config,
     readiness,
@@ -352,6 +357,10 @@ function resolveRunnerTask(task: RunnerTask, worktreePath: string): string {
     return readFileSync(join(worktreePath, task.path), "utf8");
   }
   return task.id;
+}
+
+function runnerScheduleTask(task: RunnerTask, resolvedTask: string): string {
+  return task.kind === "ticket" ? task.id : resolvedTask;
 }
 
 function useConfiguredDefaultWorkflow(
