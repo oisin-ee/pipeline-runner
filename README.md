@@ -1,10 +1,8 @@
 # @oisincoveney/pipeline
 
-Config-driven multi-agent pipeline runner for repository work. The source of
-truth is three YAML files: `.pipeline/runners.yaml` declares runner adapters,
-`.pipeline/profiles.yaml` declares reusable profiles and their grants, and
-`.pipeline/pipeline.yaml` declares orchestration, workflows, gates, hooks, and
-artifacts.
+Config-driven multi-agent pipeline runner for repository work. Runtime config is
+owned by the installed `@oisincoveney/pipeline` package. Repo-local `.pipeline/*`
+files are scaffolding and generated host resources, not the runtime source.
 
 ## Requirements
 
@@ -182,7 +180,7 @@ profiles:
       format: text
 ```
 
-`.pipeline/pipeline.yaml`:
+Example scaffolded workflow shape:
 
 ```yaml
 version: 1
@@ -215,10 +213,9 @@ workflows:
             builtin: typecheck
 ```
 
-Projects can also declare `entrypoints` in `.pipeline/pipeline.yaml` to expose
-stable app or CLI names that resolve to workflows or schedule policies. Direct
-`--workflow` selection remains available and takes precedence over `--entrypoint`
-when both are set.
+Package-owned defaults declare `entrypoints` that expose stable app or CLI names
+resolving to workflows or schedule policies. Direct `--workflow` selection
+remains available and takes precedence over `--entrypoint` when both are set.
 
 The default scaffold includes a full research, red, green, verify, learn
 workflow. See `docs/config-architecture.md` for a complete example and the host
@@ -336,8 +333,8 @@ runners:
 
 ## Runtime Guarantees
 
-- `pipe run` fails without `.pipeline/pipeline.yaml`,
-  `.pipeline/profiles.yaml`, and `.pipeline/runners.yaml`.
+- `pipe run` loads package-owned `@oisincoveney/pipeline` config even when the
+  repository has no repo-local `.pipeline` config files.
 - Multi-agent workflows execute as separate agent boundaries; nodes are not
   merged into one prompt.
 - Native subagent strategy is preferred when the selected runner can represent

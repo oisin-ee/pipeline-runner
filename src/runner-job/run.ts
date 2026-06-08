@@ -281,7 +281,7 @@ async function prepareReadyWorkspace(
   );
   const readiness = assertRunnerDevspaceReady(workspace.worktreePath);
   const config = applyRunnerOrchestrator(
-    requireRunnerConfig(readiness),
+    readiness.config,
     options.orchestrator
   );
   const runnerEnv = {
@@ -379,24 +379,6 @@ function applyRunnerOrchestrator(
     }
   }
   return next;
-}
-
-function requireRunnerConfig(
-  readiness: RunnerDevspaceReadiness
-): PipelineConfig {
-  if (!readiness.config) {
-    throw new PipelineConfigError(
-      "PIPELINE_CONFIG_VALIDATION_ERROR",
-      "Runner jobs require a repository pipeline config",
-      [
-        {
-          message: ".pipeline/pipeline.yaml is required for runner jobs",
-          path: ".pipeline/pipeline.yaml",
-        },
-      ]
-    );
-  }
-  return readiness.config;
 }
 
 function resolveRunnerTask(task: RunnerTask, worktreePath: string): string {

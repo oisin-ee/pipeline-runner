@@ -14,7 +14,6 @@ import {
   loadPipelineConfig,
   type PipelineConfig,
   PipelineConfigError,
-  tryLoadPipelineConfig,
 } from "./config.js";
 import {
   type CommandHostSelection,
@@ -408,11 +407,11 @@ interface ConfigLintWarning {
 
 export function createCliProgram(): Command {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-  const configuredPipeline = tryLoadConfiguredEntrypoints(cwd);
+  const configuredPipeline = loadConfiguredEntrypoints(cwd);
   const program = new Command();
   program
     .name("@oisincoveney/pipeline")
-    .description("Run and install the oisin pipeline")
+    .description("Run package-owned @oisincoveney/pipeline config")
     .exitOverride();
 
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
@@ -425,32 +424,34 @@ export function createCliProgram(): Command {
 
   program
     .command("run")
-    .description("Run a workflow from .pipeline/pipeline.yaml")
+    .description(
+      "Run a workflow from package-owned @oisincoveney/pipeline config"
+    )
     .argument("<description...>", "task description")
-    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
     .option("--schedule <schedule>", "approved schedule YAML to execute")
-    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .option("--workflow <workflow>", "workflow id from package config")
     .action(runAction);
 
   program
     .command("pipe")
     .description("Alias for run")
     .argument("<description...>", "task description")
-    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
     .option("--schedule <schedule>", "approved schedule YAML to execute")
-    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .option("--workflow <workflow>", "workflow id from package config")
     .action(runAction);
 
   program
     .command("validate")
     .description(
-      "Validate .pipeline/pipeline.yaml and compile the workflow plan"
+      "Validate package-owned @oisincoveney/pipeline config and compile the workflow plan"
     )
-    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
     .option("--schedule <schedule>", "approved schedule YAML to validate")
     .option("--strict", "fail when validation lint warnings are emitted")
     .option("--no-lint", "skip validation lint warnings")
-    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .option("--workflow <workflow>", "workflow id from package config")
     .action((flags: ValidateFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const config = loadPipelineConfig(cwd, {
@@ -487,9 +488,9 @@ export function createCliProgram(): Command {
   program
     .command("explain-plan")
     .description("Explain workflow nodes, runners, gates, hooks, and artifacts")
-    .option("--entrypoint <entrypoint>", "entrypoint alias from pipeline.yaml")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
     .option("--schedule <schedule>", "approved schedule YAML to explain")
-    .option("--workflow <workflow>", "workflow id from pipeline.yaml")
+    .option("--workflow <workflow>", "workflow id from package config")
     .action((flags: ValidateFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const config = loadPipelineConfig(cwd, {
@@ -682,17 +683,10 @@ export function createCliProgram(): Command {
   return program;
 }
 
-function tryLoadConfiguredEntrypoints(cwd: string): PipelineConfig | null {
-  try {
-    return tryLoadPipelineConfig(cwd, {
-      allowMissingLintFileReferences: true,
-    });
-  } catch (err) {
-    if (err instanceof PipelineConfigError) {
-      return null;
-    }
-    throw err;
-  }
+function loadConfiguredEntrypoints(cwd: string): PipelineConfig {
+  return loadPipelineConfig(cwd, {
+    allowMissingLintFileReferences: true,
+  });
 }
 
 function parseGatewayHostScope(value: string): GatewayHostScope {

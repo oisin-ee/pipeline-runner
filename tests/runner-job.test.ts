@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -195,6 +196,31 @@ function unauthorizedResponse(): Response {
 
 function loadRunnerModule(): Promise<Record<string, any>> {
   return import("../src/runner-job/run.js");
+}
+
+function runTypecheck(args: string[], options: { cwd: string }): string {
+  try {
+    return execFileSync(
+      join(process.cwd(), "node_modules", ".bin", "tsc"),
+      args,
+      {
+        cwd: options.cwd,
+        encoding: "utf8",
+        stdio: "pipe",
+      }
+    );
+  } catch (error) {
+    const output = error as {
+      message?: string;
+      stderr?: Buffer | string;
+      stdout?: Buffer | string;
+    };
+    throw new Error(
+      [output.message, output.stdout?.toString(), output.stderr?.toString()]
+        .filter(Boolean)
+        .join("\n")
+    );
+  }
 }
 
 function ioBuffers(): {
@@ -1251,6 +1277,53 @@ describe("runner-job entrypoint", () => {
       await rm(dir, { force: true, recursive: true });
     }
   });
+
+  it("exposes runner devspace readiness with a required package config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-readiness-types-"));
+    try {
+      await writeFile(
+        join(dir, "usage.ts"),
+        `
+import { assertRunnerDevspaceReady, type RunnerDevspaceReadiness } from "${join(
+          process.cwd(),
+          "src",
+          "runner-job",
+          "devspace.ts"
+        )}";
+
+const readiness: RunnerDevspaceReadiness =
+  assertRunnerDevspaceReady("/tmp/package-config-owned");
+
+readiness.config.default_workflow;
+`,
+        "utf8"
+      );
+      await writeFile(
+        join(dir, "tsconfig.json"),
+        JSON.stringify(
+          {
+            compilerOptions: {
+              allowImportingTsExtensions: true,
+              module: "NodeNext",
+              moduleResolution: "NodeNext",
+              noEmit: true,
+              strict: true,
+              target: "ES2022",
+              typeRoots: [join(process.cwd(), "node_modules", "@types")],
+              types: ["node"],
+            },
+            include: ["usage.ts"],
+          },
+          null,
+          2
+        )
+      );
+
+      runTypecheck(["--noEmit", "-p", "tsconfig.json"], { cwd: dir });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  }, 30_000);
 
   it("ignores target repo pipeline config when spawning runner jobs", async () => {
     const { runRunnerJob } = await loadRunnerModule();

@@ -9,10 +9,9 @@ pipe explain-plan
 pipe run "smoke task"
 ```
 
-The run is valid only when `.pipeline/runners.yaml` declares runner adapters,
-`.pipeline/profiles.yaml` declares profiles and grants, and
-`.pipeline/pipeline.yaml` declares entrypoints, workflow nodes, gates, hooks,
-artifacts, and output contracts.
+The run is valid only when package-owned `@oisincoveney/pipeline` config
+declares runner adapters, profiles, grants, entrypoints, workflow nodes, gates,
+hooks, artifacts, and output contracts.
 
 ## What A Passing Smoke Proves
 
@@ -31,11 +30,11 @@ artifacts, and output contracts.
 
 ## Fixture Requirements
 
-Use a disposable fixture with:
+Use explicit custom config parser fixtures with:
 
-- `.pipeline/pipeline.yaml`
-- `.pipeline/profiles.yaml`
-- `.pipeline/runners.yaml`
+- pipeline YAML content
+- profiles YAML content
+- runners YAML content
 - prompt files and schema files referenced by YAML
 - package scripts or env commands for `test` and `typecheck`
 - fake runner binaries for CI tests, live runner binaries for manual smoke

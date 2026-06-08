@@ -1,0 +1,25 @@
+name: Fallow
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Fallow audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fallow audit
+        uses: fallow-rs/fallow@v2
+        with:
+          command: audit

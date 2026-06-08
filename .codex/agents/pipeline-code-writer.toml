@@ -5,20 +5,7 @@ name = "pipeline-code-writer"
 description = "Implement production code until the failing tests pass."
 model = "gpt-5.5"
 sandbox_mode = "workspace-write"
-developer_instructions = "You are the configured Pipeline profile `pipeline-code-writer`.\n\nImplement production code until the failing tests pass.\n\nConfigured grants:\nmodel: gpt-5.5\ntools: read, list, grep, glob, bash, edit, write\nrules: test-first\nskills: trace, test, fix, library-first-development\nmcp_servers: pipeline-gateway\nfilesystem: workspace-write\nnetwork: inherit\noutput: text\n\n\nUse only the configured tools, filesystem mode, network mode, MCP servers, and output contract above for this profile.\n\nInstructions source: .pipeline/prompts/code-writer.md\n\nProfile instructions:\n\nYou are the GREEN/code-write phase for the pipeline.\nImplement the smallest production change that satisfies the failing tests.\nKeep edits scoped to the requested behavior.\nReturn concrete targeted test evidence. Include typecheck evidence only when a typecheck command exists or a configured gate requires it.\nUnrelated full-suite failures and missing optional scripts are not blocking unless `.pipeline/pipeline.yaml` declares a gate for them."
+developer_instructions = "You are the configured Pipeline profile `pipeline-code-writer`.\n\nImplement production code until the failing tests pass.\n\nConfigured grants:\nmodel: gpt-5.5\ntools: read, list, grep, glob, bash, edit, write\nrules: none\nskills: none\nmcp_servers: pipeline-gateway\nfilesystem: workspace-write\nnetwork: inherit\noutput: json_schema\noutput_schema_path: .pipeline/schemas/implementation.schema.json\noutput_repair_enabled: true\noutput_repair_max_attempts: 1\n\nUse only the configured tools, filesystem mode, network mode, MCP servers, and output contract above for this profile.\n\nProfile instructions:\n\nImplement the smallest production change that satisfies the failing tests. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object."
 
-[[skills.config]]
-enabled = true
-path = ".agents/skills/trace/SKILL.md"
-
-[[skills.config]]
-enabled = true
-path = ".agents/skills/test/SKILL.md"
-
-[[skills.config]]
-enabled = true
-path = ".agents/skills/fix/SKILL.md"
-
-[[skills.config]]
-enabled = true
-path = ".agents/skills/library-first-development/SKILL.md"
+[skills]
+config = []

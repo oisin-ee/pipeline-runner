@@ -24,6 +24,7 @@ const FAILURE_DETAILS_RE =
 const PACKAGE_INSPECT_COMMAND_RE = /inspect\s+Read-only repository inspection/;
 const PACKAGE_EPIC_COMMAND_RE =
   /epic\s+Route an epic's tickets into specialist/;
+const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
 const UNKNOWN_ENTRYPOINT_OR_CONFIG_RE =
   /Unknown pipeline entrypoint 'epic'|PIPELINE_CONFIG|Invalid pipeline config|Invalid workflow plan|missing workflow/i;
 const PLAN_RESEARCH_RE = /- research kind=agent needs=none/;
@@ -1372,6 +1373,29 @@ workflows:
 
       expect(help).toMatch(PACKAGE_INSPECT_COMMAND_RE);
       expect(help).toMatch(PACKAGE_EPIC_COMMAND_RE);
+    } finally {
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("describes package-owned config as the runtime source in pipe help", async () => {
+    const { createCliProgram } = await import("../src/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-package-help-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+
+      const help = createCliProgram().helpInformation();
+
+      expect(help).toContain("package-owned @oisincoveney/pipeline config");
+      expect(help).not.toContain(".pipeline/pipeline.yaml");
+      expect(help).not.toMatch(PIPELINE_YAML_SOURCE_RE);
     } finally {
       if (originalTargetPath === undefined) {
         delete process.env.PIPELINE_TARGET_PATH;

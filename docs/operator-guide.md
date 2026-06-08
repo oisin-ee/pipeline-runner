@@ -23,9 +23,9 @@ pipe "Implement PIPE-123"
 
 `pipe run "<task>"`
 
-Runs a static workflow from `.pipeline/pipeline.yaml`, or generates a schedule
-when the selected entrypoint is scheduled. Approved schedule artifacts execute
-only through `--schedule`.
+Runs a static workflow from package-owned `@oisincoveney/pipeline` config, or
+generates a schedule when the selected entrypoint is scheduled. Approved
+schedule artifacts execute only through `--schedule`.
 
 ```shell
 pipe run "Implement PIPE-123"
@@ -236,8 +236,8 @@ Troubleshooting:
   `runner.schema.validation` and a failing `workflow.finish` event.
 - Invalid auth: confirm the event auth token file content matches the console
   API token; 401/403 event sink responses are terminal.
-- Missing target config: set `PIPELINE_TARGET_PATH` to a repo containing
-  `.pipeline/pipeline.yaml`; exit code is `64`.
+- Missing target path: set `PIPELINE_TARGET_PATH` to the repository worktree the
+  runner should clone or execute; package-owned config is loaded at runtime.
 - Missing agent CLI: run `pipe doctor` or install the CLI required by the
   selected runner profile before starting work.
 - Cancellation: console deletes the Job; the runner handles SIGTERM/SIGINT with
@@ -277,12 +277,13 @@ and exits with code `64`.
 
 ## How The Package Works
 
-The runtime is config-driven. These three files are the source of truth:
+The runtime is config-driven by package-owned `@oisincoveney/pipeline` defaults.
+Repo-local `.pipeline/*` files are scaffolding and generated host resources:
 
 ```text
-.pipeline/runners.yaml   runner adapters and capabilities
-.pipeline/profiles.yaml  reusable profiles, rules, skills, and MCP servers
-.pipeline/pipeline.yaml  entrypoints, workflows, hooks, gates, and artifacts
+defaults/runners.yaml   runner adapters and capabilities
+defaults/profiles.yaml  reusable profiles, rules, skills, and MCP servers
+defaults/workflows      entrypoints, workflows, hooks, gates, and artifacts
 ```
 
 Current entrypoints:

@@ -1,0 +1,17 @@
+aggregation:
+  conflictResolution: prefix
+  conflictResolutionConfig:
+    prefixFormat: "{workload}_"
+backends:
+  - name: backlog
+  - name: context7
+  - name: fallow
+  - name: qdrant
+  - name: serena
+  - name: uidotsh
+groupRef: default
+incomingAuth:
+  type: anonymous
+name: default-vmcp
+outgoingAuth:
+  source: inline

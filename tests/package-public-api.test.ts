@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const tempDirs: string[] = [];
+const MISSING_CONFIG_AFFORDANCE_RE =
+  /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/i;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -75,6 +77,34 @@ function runChecked(
         .join("\n")
     );
   }
+}
+
+function expectCommandToFail(
+  command: string,
+  args: string[],
+  options: { cwd: string }
+): string {
+  try {
+    execFileSync(command, args, {
+      cwd: options.cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+  } catch (error) {
+    const output = error as {
+      message?: string;
+      stderr?: Buffer | string;
+      stdout?: Buffer | string;
+    };
+    return [
+      output.message,
+      output.stdout?.toString(),
+      output.stderr?.toString(),
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  throw new Error(`Expected ${command} ${args.join(" ")} to fail`);
 }
 
 describe("package public app-facing API", () => {
@@ -189,7 +219,7 @@ const hookResult: HookResult = parseHookResult({
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
 const eventType = (event: PipelineRuntimeEvent) => event.type;
 const formattedError = formatConfigError(
-  new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing")
+  new PipelineConfigError("PIPELINE_CONFIG_VALIDATION_ERROR", "invalid")
 );
 const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
   events: {
@@ -251,6 +281,32 @@ void runnerManifest;
         cwd: consumer,
       }
     );
+  }, 30_000);
+
+  it("does not expose nullable or missing runtime config affordances from the public config API", () => {
+    runChecked("bun", ["run", "build:cli"], {
+      cwd: process.cwd(),
+    });
+
+    const consumer = tempConsumerApp();
+    writeFileSync(
+      join(consumer, "usage.ts"),
+      `
+	import { PipelineConfigError, tryLoadPipelineConfig } from "@oisincoveney/pipeline/config";
+
+	void tryLoadPipelineConfig;
+	void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
+	`,
+      "utf8"
+    );
+
+    const output = expectCommandToFail(
+      join(process.cwd(), "node_modules", ".bin", "tsc"),
+      ["--noEmit", "-p", "tsconfig.json"],
+      { cwd: consumer }
+    );
+
+    expect(output).toMatch(MISSING_CONFIG_AFFORDANCE_RE);
   }, 30_000);
 
   it("lets a separate JavaScript app load runtime values from public subpaths after build", () => {

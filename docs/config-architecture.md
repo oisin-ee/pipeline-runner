@@ -1,10 +1,11 @@
 # YAML Pipeline Architecture
 
-The v1 pipeline is YAML-only and is split into three required files:
+The v1 runtime pipeline is package-owned config. The scaffolded YAML shape is
+split into three files:
 
 - `.pipeline/runners.yaml` declares runner adapters and capabilities.
 - `.pipeline/profiles.yaml` declares reusable profiles, rules, skills, and MCP servers.
-- `.pipeline/pipeline.yaml` declares the orchestrator profile, entrypoints, schedules, hooks, workflows, gates, and artifacts.
+- Package-owned defaults declare the orchestrator profile, entrypoints, schedules, hooks, workflows, gates, and artifacts.
 
 Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
 prompt constants.
@@ -68,7 +69,7 @@ profiles:
       schema_path: .pipeline/schemas/research.schema.json
 ```
 
-`.pipeline/pipeline.yaml`:
+Package-owned workflow defaults:
 
 ```yaml
 version: 1
@@ -272,9 +273,8 @@ instruction-only translation or generic worker substitution.
 
 ## Troubleshooting
 
-- Missing config: run `pipe init`; `pipe run` requires
-  `.pipeline/pipeline.yaml`, `.pipeline/profiles.yaml`, and
-  `.pipeline/runners.yaml`.
+- Missing scaffold files: run `pipe init` only when generated host resources are
+  needed; `pipe run` loads the installed package config.
 - Capability error: reduce the profile grants or choose a runner whose declared
   capabilities include the requested tools, filesystem, network, output, rules,
   skills, or MCP access.

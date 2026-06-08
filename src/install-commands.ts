@@ -328,7 +328,7 @@ function dispatchBlock(
     nativeDispatchBlock(host, nativeRoutes),
     cliDispatchBlock(host, cliRoutes),
     nodePromptContract(plan.workflowId, routes),
-    "Only gates declared in `.pipeline/pipeline.yaml` are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
+    "Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
     "If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.",
     "Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.",
     hostSpecificDispatchGuard(host, nativeRoutes, cliRoutes),

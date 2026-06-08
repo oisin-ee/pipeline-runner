@@ -15,13 +15,10 @@ export const BUILTIN_PIPE_COMMANDS = new Set([
 
 export function registerConfiguredEntrypointCommands(
   program: Command,
-  config: PipelineConfig | null,
+  config: PipelineConfig,
   runEntrypoint: (entrypoint: string, task: string) => Promise<void>
 ): Set<string> {
   const registered = new Set<string>();
-  if (!config) {
-    return registered;
-  }
 
   const reservedCommands = new Set(
     program.commands.map((command) => command.name())

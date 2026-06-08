@@ -65,14 +65,13 @@ secrets. `events.authTokenFile` is a path to a mounted file containing the
 Console event API token; the token value itself stays in Kubernetes secrets. The
 runner clones `repository.url` into `/workspace`, checks out a
 `pipeline/<task-or-run>` branch from `repository.sha` when present or
-`origin/<repository.baseBranch>` otherwise, sets `PIPELINE_TARGET_PATH`, loads the
-repository `.pipeline` config, generates a task-specific `pipe` schedule, and
-then invokes the pipeline engine.
+`origin/<repository.baseBranch>` otherwise, sets `PIPELINE_TARGET_PATH`, loads
+package-owned `@oisincoveney/pipeline` config, generates a task-specific `pipe`
+schedule, and then invokes the pipeline engine.
 
-Stable repo assets are `.pipeline/pipeline.yaml`, `.pipeline/profiles.yaml`,
-`.pipeline/runners.yaml`, and stable prompts, rules, schemas, and skills. Run
-artifacts are schedules, worktrees, agent prompts, logs, reports, verification
-evidence, and PR metadata.
+Stable repo assets are package-scaffolded prompts, rules, schemas, and skills.
+Run artifacts are schedules, worktrees, agent prompts, logs, reports,
+verification evidence, and PR metadata.
 
 Payloads declare `contractVersion: "1"`. Runner images are labeled with
 `pipeline.oisin.dev.runner-contract-version` and
@@ -126,8 +125,7 @@ emitted as run evidence when delivery succeeds.
 
 ## Environment Setup And PR Delivery
 
-Repositories can declare stable runner setup and smoke commands in
-`.pipeline/pipeline.yaml`:
+Package-owned config declares stable runner setup and smoke commands:
 
 ```yaml
 runner_job:

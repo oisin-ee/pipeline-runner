@@ -180,7 +180,7 @@ describe("initPipelineProject", () => {
       expect(existsSync(join(dir, path))).toBe(false);
     }
     expect(files[".pipeline/prompts/orchestrator.md"]).toContain(
-      "Only gates declared in `.pipeline/pipeline.yaml` are blocking"
+      "Only package-configured gates are blocking"
     );
     expect(files[".pipeline/prompts/code-writer.md"]).toContain(
       "Every `changes[]` entry must include `summary`, `why`, and `files`."
@@ -253,7 +253,7 @@ describe("initPipelineProject", () => {
       "Do not run built-in deterministic gates manually"
     );
     expect(verifierPrompt).toContain(
-      "Treat configured gates declared in `.pipeline/pipeline.yaml` as authoritative."
+      "Treat package-configured gates as authoritative."
     );
   });
 

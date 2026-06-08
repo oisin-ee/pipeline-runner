@@ -417,7 +417,6 @@ workflows:
 
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
-  | "PIPELINE_CONFIG_MISSING"
   | "PIPELINE_CONFIG_PARSE_ERROR"
   | "PIPELINE_CONFIG_VALIDATION_ERROR";
 
@@ -1260,13 +1259,6 @@ export function loadPackagePipelineConfig(
     },
     options
   );
-}
-
-export function tryLoadPipelineConfig(
-  projectRoot: string,
-  options: PipelineConfigValidationOptions = {}
-): PipelineConfig | null {
-  return loadPipelineConfig(projectRoot, options);
 }
 
 export function parsePipelineConfigYaml(

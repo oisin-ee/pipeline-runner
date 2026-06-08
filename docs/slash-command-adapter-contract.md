@@ -1,9 +1,8 @@
 # Host Resource Adapter Contract
 
-Generated host resources are derived from `.pipeline/runners.yaml`,
-`.pipeline/profiles.yaml`, and `.pipeline/pipeline.yaml`. They do not maintain
-independent profile definitions or silently translate one runner into another
-host's default agent.
+Generated host resources are derived from package-owned
+`@oisincoveney/pipeline` config. They do not maintain independent profile
+definitions or silently translate one runner into another host's default agent.
 
 Install or check generated resources with:
 
