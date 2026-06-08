@@ -471,7 +471,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-epic-router:
     runner: codex
     description: Route epic sub-tickets into fixed implementation tracks.
@@ -636,7 +640,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-opencode-code-writer:
     runner: opencode
     scheduling_roles: [implementation]
@@ -842,7 +850,11 @@ const SCAFFOLD_FILES: Record<string, string> = {
     "You are the RED/test-write phase for the pipeline.",
     "Add focused failing tests for the requested behavior only.",
     "Do not change production code.",
-    "Return concrete failing-test evidence.",
+    "Return only valid JSON with top-level changes and verification.",
+    "Every changes entry must include summary, why, and files.",
+    "Use changes[].why to explain why each test change was made.",
+    "Include risks, followups, and lessons when present.",
+    "Do not use Markdown fences or prose outside the JSON object.",
     "",
   ].join("\n"),
   ".pipeline/prompts/epic-router.md": [

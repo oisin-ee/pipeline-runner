@@ -132,7 +132,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-epic-router:
     runner: codex
     description: Route epic sub-tickets into fixed implementation tracks.
@@ -297,7 +301,11 @@ profiles:
     network:
       mode: inherit
     output:
-      format: text
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair:
+        enabled: true
+        max_attempts: 1
   pipeline-opencode-code-writer:
     runner: opencode
     scheduling_roles: [implementation]

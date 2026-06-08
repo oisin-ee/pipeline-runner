@@ -249,7 +249,16 @@ if (
     path.join(process.cwd(), "pipeline-feature.test.ts"),
     "starts red for the configured project test command\\n"
   );
-  process.stdout.write("wrote failing tracer test");
+  process.stdout.write(JSON.stringify({
+    changes: [
+      {
+        summary: "Added tracer failing test",
+        why: "The RED phase needs a focused failing test before implementation",
+        files: ["pipeline-feature.test.ts"]
+      }
+    ],
+    verification: ["project-test fails before implementation"]
+  }));
   process.exit(0);
 }
 

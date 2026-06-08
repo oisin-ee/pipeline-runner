@@ -135,6 +135,14 @@ describe("initPipelineProject", () => {
         max_attempts: 1,
       },
     });
+    expect(config.profiles["pipeline-test-writer"].output).toMatchObject({
+      format: "json_schema",
+      schema_path: ".pipeline/schemas/implementation.schema.json",
+      repair: {
+        enabled: true,
+        max_attempts: 1,
+      },
+    });
   });
 
   it("keeps prompt files, schema files, and host resource inputs package-owned", async () => {

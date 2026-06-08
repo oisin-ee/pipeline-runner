@@ -149,11 +149,15 @@ profiles:
     runner: codex
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
-    instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code." }
+    instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
+    output:
+      format: json_schema
+      schema_path: .pipeline/schemas/implementation.schema.json
+      repair: { enabled: true, max_attempts: 1 }
   pipeline-epic-router:
     runner: codex
     description: Route epic sub-tickets into fixed implementation tracks.
