@@ -236,22 +236,39 @@ describe("runTypecheck", () => {
 // ─── runSemgrep ─────────────────────────────────────────────────────────────
 
 describe("runSemgrep", () => {
-  it("runs semgrep ci config through uvx by default", async () => {
+  it("runs semgrep ci config through uvx against changed files by default", async () => {
+    mockExistsSync.mockReturnValue(true);
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
       stdout: "semgrep ok",
       stderr: "",
     } as any);
 
-    const result = await runSemgrep("/fake/worktree");
+    const result = await runSemgrep("/fake/worktree", undefined, [
+      "src/app.ts",
+    ]);
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("semgrep ok");
     expect(mockExeca).toHaveBeenCalledWith(
       "uvx",
-      ["semgrep", "scan", "--config=p/ci", "--error", "."],
+      ["semgrep", "scan", "--config=p/ci", "--error", "--", "src/app.ts"],
       expect.objectContaining({ cwd: "/fake/worktree" })
     );
+  });
+
+  it("skips default semgrep when no changed files still exist", async () => {
+    mockExistsSync.mockReturnValue(false);
+
+    const result = await runSemgrep("/fake/worktree", undefined, [
+      "deleted.ts",
+    ]);
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      output: "skipped: no changed files to scan",
+    });
+    expect(mockExeca).not.toHaveBeenCalled();
   });
 
   it("uses explicit PIPELINE_SEMGREP_COMMAND when provided", async () => {

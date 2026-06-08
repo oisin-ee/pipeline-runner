@@ -1078,6 +1078,24 @@ workflows:
 
   it("runs the default builtin semgrep gate through uvx", async () => {
     const project = tempProject();
+    writeProjectFile(project, "src/app.ts", "export const value = 1;\n");
+    execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: project,
+      stdio: "ignore",
+    });
+    execFileSync("git", ["config", "user.name", "Test User"], {
+      cwd: project,
+      stdio: "ignore",
+    });
+    execFileSync("git", ["add", "src/app.ts"], {
+      cwd: project,
+      stdio: "ignore",
+    });
+    execFileSync("git", ["commit", "-m", "initial"], {
+      cwd: project,
+      stdio: "ignore",
+    });
     delete process.env.PIPELINE_SEMGREP_COMMAND;
     const config = baseConfig(`
   semgrep-flow:
@@ -1098,7 +1116,10 @@ workflows:
 
     const result = await runPipelineFromConfig({
       config,
-      executor: executor({ checked: "done" }),
+      executor: () => {
+        writeProjectFile(project, "src/app.ts", "export const value = 2;\n");
+        return { exitCode: 0, stdout: "done" };
+      },
       task: "semgrep",
       workflowId: "semgrep-flow",
       worktreePath: project,
@@ -1112,7 +1133,7 @@ workflows:
     });
     expect(mockExeca).toHaveBeenCalledWith(
       "uvx",
-      ["semgrep", "scan", "--config=p/ci", "--error", "."],
+      ["semgrep", "scan", "--config=p/ci", "--error", "--", "src/app.ts"],
       expect.objectContaining({ cwd: project })
     );
   });

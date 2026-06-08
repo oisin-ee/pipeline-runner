@@ -45,7 +45,11 @@ export async function executeBuiltin(
       };
     }
     case "semgrep": {
-      const result = await runSemgrep(context.worktreePath, context.signal);
+      const result = await runSemgrep(
+        context.worktreePath,
+        context.signal,
+        runtimeChangedFiles(context)
+      );
       return {
         evidence: builtinCommandEvidence("semgrep", result),
         exitCode: result.exitCode,
@@ -59,6 +63,16 @@ export async function executeBuiltin(
         output: "",
       };
   }
+}
+
+function runtimeChangedFiles(context: RuntimeContext): string[] {
+  return [
+    ...new Set(
+      [...context.nodeSnapshots.values()].flatMap((snapshot) => [
+        ...snapshot.files,
+      ])
+    ),
+  ].sort();
 }
 
 function builtinCommandEvidence(

@@ -178,10 +178,30 @@ export async function runTypecheck(
 
 export async function runSemgrep(
   worktreePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  changedFiles?: Iterable<string>
 ): Promise<{ command?: string; exitCode: number; output: string }> {
-  const projectCommand = envCommand("PIPELINE_SEMGREP_COMMAND") ?? {
-    args: ["semgrep", "scan", "--config=p/ci", "--error", "."],
+  const overrideCommand = envCommand("PIPELINE_SEMGREP_COMMAND");
+  const targets = changedFiles
+    ? [...new Set(changedFiles)].filter((file) =>
+        existsSync(join(worktreePath, file))
+      )
+    : undefined;
+  if (!overrideCommand && targets && targets.length === 0) {
+    return {
+      command: "uvx semgrep scan --config=p/ci --error",
+      exitCode: 0,
+      output: "skipped: no changed files to scan",
+    };
+  }
+  const projectCommand = overrideCommand ?? {
+    args: [
+      "semgrep",
+      "scan",
+      "--config=p/ci",
+      "--error",
+      ...(targets ? ["--", ...targets] : ["."]),
+    ],
     command: "uvx",
   };
 
