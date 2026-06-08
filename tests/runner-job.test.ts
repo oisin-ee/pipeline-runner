@@ -563,6 +563,93 @@ describe("runner-job entrypoint", () => {
     }
   });
 
+  it("flushes runner job phase events before schedule preparation completes", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const dir = await mkdtemp(join(tmpdir(), "pipe-runner-phase-flush-"));
+    const postedBodies: string[] = [];
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      postedBodies.push(String(init?.body));
+      return Promise.resolve(okResponse());
+    });
+    let releaseSchedule: (() => void) | undefined;
+    const scheduleGate = new Promise<void>((resolve) => {
+      releaseSchedule = resolve;
+    });
+    const prepareSchedule = vi.fn(async (config) => {
+      await scheduleGate;
+      return { config, workflowId: "default" };
+    });
+
+    try {
+      await writeTestSkills(dir);
+      await writePipelineFixture(dir);
+      const authTokenFilePath = join(dir, "event-token");
+      await writeFile(authTokenFilePath, "console-token");
+      const payloadFile = join(dir, "payload.json");
+      await writeFile(
+        payloadFile,
+        JSON.stringify({
+          ...validPayload(),
+          events: {
+            ...validEvents(),
+            authTokenFile: authTokenFilePath,
+          },
+        })
+      );
+
+      const runPromise = runRunnerJob({
+        env: { PIPELINE_TARGET_PATH: dir },
+        fetch: fetchMock,
+        payloadFile,
+        pipelineRunner: vi.fn(() => runtimeResult("PASS")),
+        prepareSchedule,
+        prepareWorkspace: vi.fn(async () => ({
+          env: { PIPELINE_TARGET_PATH: dir },
+          worktreePath: dir,
+        })),
+      });
+
+      await vi.waitFor(() => {
+        expect(prepareSchedule).toHaveBeenCalled();
+      });
+
+      const postedEvents = postedBodies.flatMap((postedBody) => {
+        const body = JSON.parse(postedBody) as {
+          events: Array<{ log?: { message: string }; type: string }>;
+        };
+        return body.events;
+      });
+      expect(postedEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner workspace prepared",
+            }),
+            type: "runner.job.phase",
+          }),
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner environment ready",
+            }),
+            type: "runner.job.phase",
+          }),
+          expect.objectContaining({
+            log: expect.objectContaining({
+              message: "runner environment setup skipped",
+            }),
+            type: "runner.job.phase",
+          }),
+        ])
+      );
+
+      releaseSchedule?.();
+      await expect(runPromise).resolves.toBe(0);
+    } finally {
+      releaseSchedule?.();
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it("commits and pushes successful runner job changes without requiring a PR", async () => {
     const { runRunnerJob } = await loadRunnerModule();
     const dir = await mkdtemp(join(tmpdir(), "pipe-runner-git-delivery-"));
@@ -1055,12 +1142,13 @@ describe("runner-job entrypoint", () => {
       expect(exitCode).toBe(70);
       expect(io.stderrText()).toMatch(STARTUP_FAILURE_RE);
       expect(fetchMock.mock.calls[0]).toBeDefined();
-      const body = JSON.parse(
-        String(
-          (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body
-        )
-      ) as { events: Record<string, unknown>[] };
-      expect(body.events).toContainEqual(
+      const postedEvents = fetchMock.mock.calls.flatMap((call) => {
+        const body = JSON.parse(
+          String((call as unknown as [string, RequestInit])[1].body)
+        ) as { events: Record<string, unknown>[] };
+        return body.events;
+      });
+      expect(postedEvents).toContainEqual(
         expect.objectContaining({
           finalResult: {
             outcome: "FAIL",
@@ -1242,13 +1330,20 @@ describe("runner-job entrypoint", () => {
       expect(options.signal.aborted).toBe(true);
       return runtimeResult("CANCELLED");
     });
+    let fetchCallCount = 0;
+    const fetchMock = vi.fn(() => {
+      fetchCallCount += 1;
+      return fetchCallCount <= 3
+        ? Promise.resolve(okResponse())
+        : Promise.reject(new Error("console unavailable"));
+    });
 
     await withPayloadContext(async ({ env, payloadFile }) => {
       const exitCode = await runRunnerJob({
         cwd: process.cwd(),
         env,
         payloadFile,
-        fetch: vi.fn(() => Promise.reject(new Error("console unavailable"))),
+        fetch: fetchMock,
         pipelineRunner,
         signalEmitter: signals,
         stderr: io.stderr,

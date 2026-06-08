@@ -261,22 +261,32 @@ async function prepareReadyWorkspace(
   workspace: RunnerWorkspacePreparation;
 }> {
   const workspace = await prepareWorkspace(options, payload, env);
-  sink.recordRunnerJobPhase("workspace.prepared", "runner workspace prepared", {
-    worktreePath: workspace.worktreePath,
-  });
+  await recordRunnerJobPhase(
+    sink,
+    "workspace.prepared",
+    "runner workspace prepared",
+    {
+      worktreePath: workspace.worktreePath,
+    }
+  );
   const readiness = assertRunnerDevspaceReady(workspace.worktreePath);
   const config = applyRunnerOrchestrator(
     requireRunnerConfig(readiness),
     options.orchestrator
   );
-  sink.recordRunnerJobPhase("environment.ready", "runner environment ready");
+  await recordRunnerJobPhase(
+    sink,
+    "environment.ready",
+    "runner environment ready"
+  );
   const setupStatus = await runRunnerEnvironmentSetup({
     config,
     env: workspace.env,
     runCommand: options.runDevspaceCommand,
     worktreePath: workspace.worktreePath,
   });
-  sink.recordRunnerJobPhase(
+  await recordRunnerJobPhase(
+    sink,
     `environment.setup.${setupStatus}`,
     `runner environment setup ${setupStatus}`
   );
@@ -299,6 +309,16 @@ async function prepareReadyWorkspace(
     workflowId: compiled.workflowId,
     workspace,
   };
+}
+
+async function recordRunnerJobPhase(
+  sink: RunnerEventSink,
+  phase: string,
+  message: string,
+  output?: Record<string, unknown>
+): Promise<void> {
+  sink.recordRunnerJobPhase(phase, message, output);
+  await sink.flush();
 }
 
 function applyRunnerOrchestrator(
@@ -381,9 +401,14 @@ async function generateRunnerSchedule(
     task,
     worktreePath: workspace.worktreePath,
   });
-  sink.recordRunnerJobPhase("schedule.generated", "runner schedule generated", {
-    path: result.path,
-  });
+  await recordRunnerJobPhase(
+    sink,
+    "schedule.generated",
+    "runner schedule generated",
+    {
+      path: result.path,
+    }
+  );
   const compiled = compileScheduleArtifact(
     config,
     result.artifact,
