@@ -436,7 +436,7 @@ async function executeNode(
   };
   let retry: NodeAttemptRetry | undefined;
 
-  for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
+  for (let attempt = 1; ; attempt += 1) {
     try {
       const cycle = await executeNodeAttemptCycle(node, context, attempt, last);
       last = cycle.last;
@@ -445,6 +445,16 @@ async function executeNode(
         return cycle.result;
       }
       retry = retryCandidateForCycle(node, cycle, last, attempt);
+      if (
+        await remediateCoverageFailure({
+          attempt,
+          context,
+          node,
+          retry,
+        })
+      ) {
+        continue;
+      }
       recordNodeEvent(context, node.id, {
         at: now(),
         attempt,
@@ -517,6 +527,158 @@ async function executeNode(
   });
   emitNodeFinish(context, result);
   return result;
+}
+
+async function remediateCoverageFailure(input: {
+  attempt: number;
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  retry: NodeAttemptRetry;
+}): Promise<boolean> {
+  if (
+    input.retry.retryReason !== "gate_failure" ||
+    !hasSchedulingRole(input.context, input.node, "coverage")
+  ) {
+    return false;
+  }
+  const implementationNodes = upstreamImplementationNodes(
+    input.context,
+    input.node
+  ).filter(
+    (candidate) =>
+      input.context.nodeStates.get(candidate.id)?.status === "passed"
+  );
+  if (implementationNodes.length === 0) {
+    return false;
+  }
+
+  for (const implementationNode of implementationNodes) {
+    if (isCancelled(input.context)) {
+      return false;
+    }
+    const beforeSnapshot = await snapshotChangedFiles(
+      input.context.worktreePath
+    );
+    const beforeOutput = input.context.lastOutputByNode.get(
+      implementationNode.id
+    );
+    const result = await executeImplementationRemediation({
+      attempt: input.attempt,
+      context: input.context,
+      coverageNode: input.node,
+      implementationNode,
+      retry: input.retry,
+    });
+    if (result.status !== "passed") {
+      return false;
+    }
+    const changed = diffChangedFiles(
+      beforeSnapshot,
+      await snapshotChangedFiles(input.context.worktreePath),
+      input.context.worktreePath
+    );
+    if (changed.files.size === 0 && result.output === beforeOutput) {
+      return false;
+    }
+    input.context.lastOutputByNode.set(implementationNode.id, result.output);
+  }
+  return true;
+}
+
+async function executeImplementationRemediation(input: {
+  attempt: number;
+  context: RuntimeContext;
+  coverageNode: PlannedWorkflowNode;
+  implementationNode: PlannedWorkflowNode;
+  retry: NodeAttemptRetry;
+}): Promise<RuntimeNodeResult> {
+  const node: PlannedWorkflowNode = {
+    ...input.implementationNode,
+    artifacts: undefined,
+    dependents: [],
+    gates: undefined,
+    id: `${input.implementationNode.id}:remediate:${input.coverageNode.id}:${input.attempt}`,
+    needs: [],
+    retries: undefined,
+  };
+  const originalTask = input.context.task;
+  input.context.task = remediationTask({
+    coverageNode: input.coverageNode,
+    originalTask,
+    retry: input.retry,
+  });
+  try {
+    return await executeNode(node, input.context);
+  } finally {
+    input.context.task = originalTask;
+  }
+}
+
+function remediationTask(input: {
+  coverageNode: PlannedWorkflowNode;
+  originalTask: string;
+  retry: NodeAttemptRetry;
+}): string {
+  return [
+    "Remediate a pipeline coverage failure.",
+    "",
+    "Original task:",
+    input.originalTask,
+    "",
+    "Coverage node:",
+    input.coverageNode.id,
+    "",
+    "Failed gate:",
+    input.retry.gate,
+    "",
+    "Failure reason:",
+    input.retry.reason,
+    "",
+    "Coverage failure feedback:",
+    ...input.retry.evidence.map((item) => `- ${item}`),
+    "",
+    "Update the implementation so the coverage node can pass on its next run.",
+  ].join("\n");
+}
+
+function upstreamImplementationNodes(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): PlannedWorkflowNode[] {
+  const visited = new Set<string>();
+  const ordered: PlannedWorkflowNode[] = [];
+  const visit = (nodeId: string): void => {
+    if (visited.has(nodeId)) {
+      return;
+    }
+    visited.add(nodeId);
+    const candidate = context.plan.graph.node(nodeId);
+    if (!candidate) {
+      return;
+    }
+    for (const need of candidate.needs) {
+      visit(need);
+    }
+    if (hasSchedulingRole(context, candidate, "implementation")) {
+      ordered.push(candidate);
+    }
+  };
+  for (const need of node.needs) {
+    visit(need);
+  }
+  return ordered;
+}
+
+function hasSchedulingRole(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  role: "coverage" | "implementation"
+): boolean {
+  return node.profile
+    ? (context.config.profiles[node.profile]?.scheduling_roles?.includes(
+        role
+      ) ?? false)
+    : false;
 }
 
 type NodeRetryPolicy = NodeRetryPolicyContract;

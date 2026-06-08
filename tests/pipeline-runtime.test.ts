@@ -1637,6 +1637,96 @@ workflows:
     );
   });
 
+  it("remediates implementation-role nodes when downstream coverage fails", async () => {
+    const project = tempProject();
+    const config = baseConfig(`
+  remediate-flow:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: a
+      - id: review
+        kind: agent
+        profile: b
+        needs: [implement]
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+`);
+    config.profiles.a.scheduling_roles = ["implementation"];
+    config.profiles.b.scheduling_roles = ["coverage"];
+    const seen: RunnerLaunchPlan[] = [];
+    let reviewAttempt = 0;
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        if (plan.nodeId === "review") {
+          reviewAttempt += 1;
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify(
+              reviewAttempt === 1
+                ? {
+                    acceptance: [
+                      {
+                        evidence: ["missing implementation evidence"],
+                        id: "AC1",
+                        verdict: "FAIL",
+                      },
+                    ],
+                    evidence: ["AC1 is not satisfied"],
+                    verdict: "FAIL",
+                  }
+                : {
+                    acceptance: [
+                      {
+                        evidence: ["remediation satisfied AC1"],
+                        id: "AC1",
+                        verdict: "PASS",
+                      },
+                    ],
+                    evidence: ["all criteria pass after remediation"],
+                    verdict: "PASS",
+                  }
+            ),
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: plan.nodeId.includes(":remediate:")
+            ? "remediated implementation output"
+            : "implementation output",
+        };
+      },
+      task: "acceptance remediation",
+      taskContext: {
+        acceptanceCriteria: [{ id: "AC1", text: "Criterion one" }],
+      },
+      workflowId: "remediate-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement",
+      "review",
+      "implement:remediate:review:1",
+      "review",
+    ]);
+    expect(seen[2]?.args.join("\n")).toContain("Coverage failure feedback:");
+    expect(seen[2]?.args.join("\n")).toContain("acceptance criterion 'AC1'");
+    expect(result.nodeStates.review).toMatchObject({
+      attempts: 2,
+      status: "passed",
+    });
+  });
+
   it("injects stdout gate JSON contracts into agent prompts", async () => {
     const project = tempProject();
     const seen: RunnerLaunchPlan[] = [];
