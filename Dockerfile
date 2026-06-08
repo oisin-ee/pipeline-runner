@@ -15,6 +15,8 @@ RUN npm install --include=dev \
   && npm run build:cli \
   && npm pack --ignore-scripts --pack-destination /tmp
 
+FROM alpine/helm:4.2.0@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 AS helm
+
 FROM node:24-bookworm-slim AS runner
 
 ARG PIPELINE_PACKAGE_VERSION=local
@@ -38,6 +40,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates gh git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
+COPY --from=helm /usr/bin/helm /usr/local/bin/helm
 COPY --from=builder /tmp/oisincoveney-pipeline-*.tgz /tmp/pipeline-package.tgz
 RUN npm install -g \
     /tmp/pipeline-package.tgz \
@@ -52,6 +55,7 @@ RUN npm install -g \
   && command -v codex \
   && command -v opencode \
   && command -v claude \
+  && command -v helm \
   && command -v gh
 
 ENTRYPOINT ["oisin-pipeline"]
