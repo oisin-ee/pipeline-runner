@@ -124,6 +124,7 @@ const PACKAGE_DEFAULT_PROFILES_YAML = `version: 1
 mcp_gateway:
   provider: toolhive
   mode: local
+  url: https://pipeline-mcp.momokaya.ee/mcp/
   url_env: PIPELINE_MCP_GATEWAY_URL
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
   default_profile: default

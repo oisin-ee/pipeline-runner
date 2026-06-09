@@ -8,7 +8,7 @@
       },
       "oauth": false,
       "type": "remote",
-      "url": "http://127.0.0.1:4483/mcp"
+      "url": "https://pipeline-mcp.momokaya.ee/mcp/"
     }
   },
   "lsp": true,

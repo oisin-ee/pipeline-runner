@@ -80,7 +80,7 @@ describe("initPipelineProject", () => {
     );
     expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
       type: "remote",
-      url: "http://127.0.0.1:4483/mcp",
+      url: "https://pipeline-mcp.momokaya.ee/mcp/",
     });
 
     const config = loadPipelineConfig(dir);

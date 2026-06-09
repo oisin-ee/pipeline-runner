@@ -181,7 +181,7 @@ describe("installCommands", () => {
 
     const codex = readFileSync(join(dir, ".codex/config.toml"), "utf8");
     expect(codex).toContain("[mcp_servers.pipeline-gateway]");
-    expect(codex).toContain('url = "http://127.0.0.1:4483/mcp"');
+    expect(codex).toContain('url = "https://pipeline-mcp.momokaya.ee/mcp/"');
     expect(codex).toContain("[mcp_servers.pipeline-gateway.env_http_headers]");
     expect(codex).toContain(
       'Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"'
@@ -194,7 +194,7 @@ describe("installCommands", () => {
       enabled: true,
       oauth: false,
       type: "remote",
-      url: "http://127.0.0.1:4483/mcp",
+      url: "https://pipeline-mcp.momokaya.ee/mcp/",
     });
     expect(opencode.mcp["pipeline-gateway"].headers).toEqual({
       Authorization: "{env:PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
