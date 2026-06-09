@@ -370,7 +370,7 @@ scheduler:
         green-implementation:
           category: green
           profile: pipeline-code-writer
-          models: [kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
+          models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         verification:
           category: verification
           profile: pipeline-verifier
@@ -385,7 +385,7 @@ scheduler:
         research:
           category: research
           profile: pipeline-researcher
-          models: [kimi-for-coding/k2p6, zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
+          models: [openai/gpt-5.5-fast, zai-coding-plan/glm-5.1, kimi-for-coding/k2p6]
         red-tests:
           category: red
           profile: pipeline-test-writer
@@ -397,7 +397,7 @@ scheduler:
         green-frontend:
           category: green
           profile: pipeline-code-writer
-          models: [kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
+          models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         acceptance-review:
           category: acceptance
           profile: pipeline-acceptance-reviewer

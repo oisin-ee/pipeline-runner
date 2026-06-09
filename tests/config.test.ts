@@ -1378,6 +1378,22 @@ describe("execute/quick scheduler integration", () => {
     ).toBeGreaterThan(1);
   });
 
+  it("prefers non-Kimi first-choice models for progress-critical scheduler nodes", () => {
+    const config = readRepoPipelineYaml();
+    const quickCatalog = config.scheduler?.node_catalogs?.quick as any;
+    const executeCatalog = config.scheduler?.node_catalogs?.execute as any;
+
+    expect(quickCatalog.nodes["green-implementation"].models[0]).not.toBe(
+      "kimi-for-coding/k2p6"
+    );
+    expect(executeCatalog.nodes.research.models[0]).not.toBe(
+      "kimi-for-coding/k2p6"
+    );
+    expect(executeCatalog.nodes["green-frontend"].models[0]).not.toBe(
+      "kimi-for-coding/k2p6"
+    );
+  });
+
   it("keeps legacy epic-router package assets out of the active profile graph", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
