@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,7 +8,7 @@ const LINE_RE = /\r?\n/;
 const LEADING_SLASHES_RE = /^\/+/;
 const TRAILING_SLASHES_RE = /\/+$/;
 const IMAGE_JOB_RE = /image|docker|container|ghcr/i;
-const DOCKERFILE_BASE_IMAGE_RE = /FROM\s+(?:oven\/bun|node):/i;
+const DOCKERFILE_BASE_IMAGE_RE = /FROM\s+node:/i;
 const CODEX_NPM_PACKAGE_RE = /@openai\/codex@\$\{CODEX_PACKAGE_VERSION\}/;
 const OPENCODE_NPM_PACKAGE_RE = /opencode-ai@\$\{OPENCODE_PACKAGE_VERSION\}/;
 const CLAUDE_NPM_PACKAGE_RE =
@@ -39,13 +38,10 @@ const UV_IMAGE_STAGE_RE =
 const UV_COPY_RE = /COPY\s+--from=uv\s+\/uv\s+\/uvx\s+\/usr\/local\/bin\//;
 const UVX_COMMAND_RE = /command -v uvx/;
 const NPM_GLOBAL_INSTALL_RE = /npm\s+install\s+-g/i;
-const LOCAL_PIPELINE_COPY_RE = /COPY\s+(?:package\.json|src|defaults)\b/i;
-const PACKAGE_SKILLS_COPY_RE = /COPY\s+\.agents\/skills\s+\.\/\.agents\/skills/;
-const PIPELINE_SKILLS_COPY_RE =
-  /COPY\s+\.pipeline\/skills\s+\.\/\.pipeline\/skills/;
-const LOCAL_PIPELINE_INSTALL_RE =
-  /npm\s+install\s+-g[\s\S]*\/tmp\/pipeline-package\.tgz/i;
-const NPM_BUILD_RE = /npm\s+run\s+build/i;
+const PUBLISHED_PIPELINE_INSTALL_RE =
+  /@oisincoveney\/pipeline@\$\{PIPELINE_PACKAGE_VERSION\}/;
+const LOCAL_PIPELINE_PACKAGE_RE =
+  /npm\s+pack|pipeline-package\.tgz|\/tmp\/oisincoveney-pipeline|COPY\s+(?:package\.json|src|defaults|\.agents|\.pipeline)\b|npm\s+run\s+build/i;
 const BUN_BUILD_RE = /bun\s+(?:install|run\s+build(?::cli)?)/i;
 const GIT_RE = /\bgit\b/i;
 const GITHUB_CLI_RE = /\bgh\b/i;
@@ -66,10 +62,12 @@ const DOCKER_BUILD_RE = /\bdocker\s+build\b/;
 const DOCKER_RUN_RE = /\bdocker\s+run\b/;
 const RUNNER_JOB_RE = /runner-job/;
 const SEMANTIC_RELEASE_RE = /semantic-release/;
-const IMAGE_JOB_FORBIDDEN_RELEASE_RE = /semantic-release|NPM_TOKEN/;
 const PACKAGES_WRITE_RE = /packages:\s*write/i;
 const DOCKER_LOGIN_ACTION_RE = /docker\/login-action/i;
 const DOCKER_BUILD_PUSH_ACTION_RE = /docker\/build-push-action/i;
+const LOCAL_IMAGE_PACKAGE_RE = /npm pack|pipeline-package\.tgz/;
+const IMPERATIVE_PACKAGE_RESOLUTION_RE = /npm view|gitHead|node <<|for attempt/;
+const NPM_AUTH_TOKEN_RE = /NPM_TOKEN|NODE_AUTH_TOKEN/;
 const CONTRACT_VERSION_ARG_RE = /ARG\s+RUNNER_JOB_CONTRACT_VERSION=1/;
 const CONTRACT_VERSION_LABEL_RE =
   /pipeline\.oisin\.dev\.runner-contract-version=\$\{RUNNER_JOB_CONTRACT_VERSION\}/;
@@ -81,11 +79,13 @@ const SHA_IMAGE_TAG = [
   GITHUB_SHA_EXPRESSION,
 ].join("");
 const LATEST_IMAGE_TAG = "ghcr.io/oisin-ee/pipeline-runner:latest";
-const REQUIRED_PACKED_ASSETS = [
+const REQUIRED_PUBLISHED_PACKAGE_ASSET_ENTRIES = [
   ".agents/skills/research/SKILL.md",
   ".agents/skills/verify/SKILL.md",
   ".pipeline/skills/schedule-graph-shaping/SKILL.md",
 ];
+const PIPELINE_PACKAGE_DEFAULT_RE = /ARG\s+PIPELINE_PACKAGE_VERSION=latest/;
+const PIPELINE_PACKAGE_BUILD_ARG_RE = /PIPELINE_PACKAGE_VERSION=latest/;
 
 function readProjectFile(path: string): string {
   return readFileSync(join(root, path), "utf8");
@@ -132,32 +132,17 @@ function serialize(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function packedPackageFiles(): string[] {
-  const stdout = execFileSync(
-    "npm",
-    ["pack", "--dry-run", "--json", "--ignore-scripts"],
-    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
-  );
-  const [pack] = JSON.parse(stdout) as Array<{
-    files: Array<{ path: string }>;
-  }>;
-  return pack.files.map((file) => file.path);
-}
-
 describe("runner container image packaging", () => {
   it("defines a Dockerfile for the runner image", () => {
     expect(existsSync(join(root, "Dockerfile"))).toBe(true);
   });
 
-  it("builds the local pipeline checkout and installs agent CLIs from npm", () => {
+  it("installs the published pipeline package and agent CLIs from npm", () => {
     const dockerfile = readProjectFile("Dockerfile");
 
     expect(dockerfile).toMatch(DOCKERFILE_BASE_IMAGE_RE);
-    expect(dockerfile).toMatch(LOCAL_PIPELINE_COPY_RE);
-    expect(dockerfile).toMatch(PACKAGE_SKILLS_COPY_RE);
-    expect(dockerfile).toMatch(PIPELINE_SKILLS_COPY_RE);
-    expect(dockerfile).toMatch(NPM_BUILD_RE);
-    expect(dockerfile).toMatch(LOCAL_PIPELINE_INSTALL_RE);
+    expect(dockerfile).toMatch(PIPELINE_PACKAGE_DEFAULT_RE);
+    expect(dockerfile).toMatch(PUBLISHED_PIPELINE_INSTALL_RE);
     expect(dockerfile).toMatch(NPM_GLOBAL_INSTALL_RE);
     expect(dockerfile).toMatch(PNPM_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(PNPM_COMMAND_RE);
@@ -181,6 +166,7 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(CLAUDE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(GIT_RE);
     expect(dockerfile).toMatch(GITHUB_CLI_RE);
+    expect(dockerfile).not.toMatch(LOCAL_PIPELINE_PACKAGE_RE);
     expect(dockerfile).not.toMatch(BUN_BUILD_RE);
   });
 
@@ -230,10 +216,59 @@ describe("runner container image packaging", () => {
     expect(imageSmokeTest).toMatch(RUNNER_JOB_RE);
   });
 
-  it("packs package-owned skill assets required by generated schedules", () => {
-    expect(packedPackageFiles()).toEqual(
-      expect.arrayContaining(REQUIRED_PACKED_ASSETS)
+  it("publishes package-owned skill assets required by generated schedules", () => {
+    const pkg = JSON.parse(readProjectFile("package.json")) as {
+      files?: string[];
+    };
+
+    expect(pkg.files).toEqual(
+      expect.arrayContaining([".agents/skills", ".pipeline/skills"])
     );
+    for (const path of REQUIRED_PUBLISHED_PACKAGE_ASSET_ENTRIES) {
+      expect(existsSync(join(root, path))).toBe(true);
+    }
+  });
+});
+
+describe("runner image npm release dependency", () => {
+  it("builds the runner image after the npm release and installs the published latest package", () => {
+    const jobs = workflowJobs();
+    const imageJobs = imagePublishingJobs();
+
+    expect(jobs["runner-image"]?.needs).toBe("release");
+    expect(serialize(imageJobs)).toMatch(PIPELINE_PACKAGE_BUILD_ARG_RE);
+    expect(serialize(imageJobs)).not.toMatch(LOCAL_IMAGE_PACKAGE_RE);
+    expect(serialize(imageJobs)).not.toMatch(IMPERATIVE_PACKAGE_RESOLUTION_RE);
+  });
+
+  it("does not expose npm publish credentials to the image job", () => {
+    const imagePublishing = serialize(imagePublishingJobs());
+
+    expect(imagePublishing).not.toMatch(NPM_AUTH_TOKEN_RE);
+  });
+});
+
+describe("runner image publishing workflow", () => {
+  it("publishes the runner image in a separate job after npm semantic-release", () => {
+    const jobs = workflowJobs();
+    const releaseJob = jobs.release;
+    const imageJobs = imagePublishingJobs();
+
+    expect(serialize(releaseJob)).toMatch(SEMANTIC_RELEASE_RE);
+    expect(imageJobs.map(([id]) => id)).not.toContain("release");
+    expect(imageJobs.length).toBeGreaterThan(0);
+    expect(jobs["runner-image"]?.needs).toBe("release");
+  });
+
+  it("pushes ghcr.io/oisin-ee/pipeline-runner with git SHA and latest tags", () => {
+    const imagePublishing = serialize(imagePublishingJobs());
+    const workflow = readProjectFile(".github/workflows/publish.yml");
+
+    expect(workflow).toMatch(PACKAGES_WRITE_RE);
+    expect(imagePublishing).toMatch(DOCKER_LOGIN_ACTION_RE);
+    expect(imagePublishing).toMatch(DOCKER_BUILD_PUSH_ACTION_RE);
+    expect(imagePublishing).toContain(SHA_IMAGE_TAG);
+    expect(imagePublishing).toContain(LATEST_IMAGE_TAG);
   });
 });
 
@@ -250,36 +285,5 @@ describe("runner image Docker build context", () => {
     expect(hasIgnorePattern(lines, ["node_modules"])).toBe(true);
     expect(hasIgnorePattern(lines, ["dist"])).toBe(true);
     expect(hasIgnorePattern(lines, ["coverage"])).toBe(true);
-  });
-});
-
-describe("runner image publishing workflow", () => {
-  it("publishes the runner image in a separate job from npm semantic-release", () => {
-    const jobs = workflowJobs();
-    const releaseJob = jobs.release;
-    const imageJobs = imagePublishingJobs();
-
-    expect(serialize(releaseJob)).toMatch(SEMANTIC_RELEASE_RE);
-    expect(imageJobs.map(([id]) => id)).not.toContain("release");
-    expect(imageJobs.length).toBeGreaterThan(0);
-    expect(serialize(imageJobs)).not.toMatch(IMAGE_JOB_FORBIDDEN_RELEASE_RE);
-  });
-
-  it("builds the runner image directly from the checked-out local package", () => {
-    const imagePublishing = serialize(imagePublishingJobs());
-
-    expect(imagePublishing).not.toContain("needs");
-    expect(imagePublishing).not.toContain("PIPELINE_PACKAGE_VERSION=latest");
-  });
-
-  it("pushes ghcr.io/oisin-ee/pipeline-runner with git SHA and latest tags", () => {
-    const imagePublishing = serialize(imagePublishingJobs());
-    const workflow = readProjectFile(".github/workflows/publish.yml");
-
-    expect(workflow).toMatch(PACKAGES_WRITE_RE);
-    expect(imagePublishing).toMatch(DOCKER_LOGIN_ACTION_RE);
-    expect(imagePublishing).toMatch(DOCKER_BUILD_PUSH_ACTION_RE);
-    expect(imagePublishing).toContain(SHA_IMAGE_TAG);
-    expect(imagePublishing).toContain(LATEST_IMAGE_TAG);
   });
 });
