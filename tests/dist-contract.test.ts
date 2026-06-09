@@ -1,13 +1,23 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const readDistFile = (path: string): string =>
-  readFileSync(join(import.meta.dirname, "..", "dist", path), "utf8");
+const JS_SUFFIX_RE = /\.js$/u;
 
-describe("published dist contracts", () => {
-  it("keeps RED test-writing directly upstream of GREEN in the packaged scheduler", () => {
-    const schedulePlanner = readDistFile("schedule-planner.js");
+const readPipelineFile = (path: string): string => {
+  const distPath = join(import.meta.dirname, "..", "dist", path);
+  if (existsSync(distPath)) {
+    return readFileSync(distPath, "utf8");
+  }
+  return readFileSync(
+    join(import.meta.dirname, "..", "src", path.replace(JS_SUFFIX_RE, ".ts")),
+    "utf8"
+  );
+};
+
+describe("scheduler and install command contracts", () => {
+  it("keeps RED test-writing directly upstream of GREEN in the scheduler artifact", () => {
+    const schedulePlanner = readPipelineFile("schedule-planner.js");
 
     expect(schedulePlanner).toContain('id: "green-implementation"');
     expect(schedulePlanner).toContain('needs: ["red-tests"]');
@@ -20,8 +30,8 @@ describe("published dist contracts", () => {
     expect(schedulePlanner).not.toContain('id: "mechanical-red-fallow"');
   });
 
-  it("renders scheduled entrypoint dispatch in the packaged install commands", () => {
-    const installCommands = readDistFile("install-commands.js");
+  it("renders scheduled entrypoint dispatch in the install command artifact", () => {
+    const installCommands = readPipelineFile("install-commands.js");
 
     expect(installCommands).toContain(
       "function orchestratorEntrypointDispatchBlock"

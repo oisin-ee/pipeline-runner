@@ -32,7 +32,6 @@ const SCHEDULE_PATH_RE =
 const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/;
 const NO_REPO_COPY_RE = /clone|copy|mirror/i;
 const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/;
-const LOCAL_GATEWAY_URL_RE = /^http:\/\/127\.0\.0\.1:\d+\/mcp$/;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const ORIGINAL_PIPELINE_TEST_COMMAND = process.env.PIPELINE_TEST_COMMAND;
@@ -1122,8 +1121,8 @@ describe("execute", () => {
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         type: "remote",
       });
-      expect(opencode.mcp["pipeline-gateway"].url).toMatch(
-        LOCAL_GATEWAY_URL_RE
+      expect(opencode.mcp["pipeline-gateway"].url).toBe(
+        "https://pipeline-mcp.momokaya.ee/mcp/"
       );
     });
   });
