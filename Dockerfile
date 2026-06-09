@@ -6,6 +6,8 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 WORKDIR /app
 COPY package.json tsconfig.json tsdown.config.ts ./
+COPY .agents/skills ./.agents/skills
+COPY .pipeline/skills ./.pipeline/skills
 COPY src ./src
 COPY defaults ./defaults
 COPY docs ./docs

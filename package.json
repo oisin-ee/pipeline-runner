@@ -91,6 +91,8 @@
     }
   },
   "files": [
+    ".agents/skills",
+    ".pipeline/skills",
     "defaults",
     "dist",
     "docs",

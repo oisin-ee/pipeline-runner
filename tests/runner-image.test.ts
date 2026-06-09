@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -39,6 +40,9 @@ const UV_COPY_RE = /COPY\s+--from=uv\s+\/uv\s+\/uvx\s+\/usr\/local\/bin\//;
 const UVX_COMMAND_RE = /command -v uvx/;
 const NPM_GLOBAL_INSTALL_RE = /npm\s+install\s+-g/i;
 const LOCAL_PIPELINE_COPY_RE = /COPY\s+(?:package\.json|src|defaults)\b/i;
+const PACKAGE_SKILLS_COPY_RE = /COPY\s+\.agents\/skills\s+\.\/\.agents\/skills/;
+const PIPELINE_SKILLS_COPY_RE =
+  /COPY\s+\.pipeline\/skills\s+\.\/\.pipeline\/skills/;
 const LOCAL_PIPELINE_INSTALL_RE =
   /npm\s+install\s+-g[\s\S]*\/tmp\/pipeline-package\.tgz/i;
 const NPM_BUILD_RE = /npm\s+run\s+build/i;
@@ -77,6 +81,11 @@ const SHA_IMAGE_TAG = [
   GITHUB_SHA_EXPRESSION,
 ].join("");
 const LATEST_IMAGE_TAG = "ghcr.io/oisin-ee/pipeline-runner:latest";
+const REQUIRED_PACKED_ASSETS = [
+  ".agents/skills/research/SKILL.md",
+  ".agents/skills/verify/SKILL.md",
+  ".pipeline/skills/schedule-graph-shaping/SKILL.md",
+];
 
 function readProjectFile(path: string): string {
   return readFileSync(join(root, path), "utf8");
@@ -123,6 +132,18 @@ function serialize(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function packedPackageFiles(): string[] {
+  const stdout = execFileSync(
+    "npm",
+    ["pack", "--dry-run", "--json", "--ignore-scripts"],
+    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+  );
+  const [pack] = JSON.parse(stdout) as Array<{
+    files: Array<{ path: string }>;
+  }>;
+  return pack.files.map((file) => file.path);
+}
+
 describe("runner container image packaging", () => {
   it("defines a Dockerfile for the runner image", () => {
     expect(existsSync(join(root, "Dockerfile"))).toBe(true);
@@ -133,6 +154,8 @@ describe("runner container image packaging", () => {
 
     expect(dockerfile).toMatch(DOCKERFILE_BASE_IMAGE_RE);
     expect(dockerfile).toMatch(LOCAL_PIPELINE_COPY_RE);
+    expect(dockerfile).toMatch(PACKAGE_SKILLS_COPY_RE);
+    expect(dockerfile).toMatch(PIPELINE_SKILLS_COPY_RE);
     expect(dockerfile).toMatch(NPM_BUILD_RE);
     expect(dockerfile).toMatch(LOCAL_PIPELINE_INSTALL_RE);
     expect(dockerfile).toMatch(NPM_GLOBAL_INSTALL_RE);
@@ -205,6 +228,12 @@ describe("runner container image packaging", () => {
     expect(imageSmokeTest).toMatch(DOCKER_BUILD_RE);
     expect(imageSmokeTest).toMatch(DOCKER_RUN_RE);
     expect(imageSmokeTest).toMatch(RUNNER_JOB_RE);
+  });
+
+  it("packs package-owned skill assets required by generated schedules", () => {
+    expect(packedPackageFiles()).toEqual(
+      expect.arrayContaining(REQUIRED_PACKED_ASSETS)
+    );
   });
 });
 
