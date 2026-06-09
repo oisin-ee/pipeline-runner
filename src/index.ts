@@ -52,7 +52,7 @@ import {
 
 const PATH_SEPARATOR_RE = /[\\/]/;
 const LINE_RE = /\r?\n/;
-interface PipeOptions {
+interface ExecuteOptions {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
   schedule?: string;
@@ -60,12 +60,12 @@ interface PipeOptions {
 }
 
 /**
- * Config-driven `pipe` entrypoint. Package-owned defaults are the source of
+ * Config-driven `execute` entrypoint. Package-owned defaults are the source of
  * truth; repo-local pipeline files are ignored by runtime loading.
  */
-export function pipe(
+export function execute(
   description: string,
-  options: PipeOptions = {}
+  options: ExecuteOptions = {}
 ): Promise<void> {
   try {
     if (!description.trim()) {
@@ -73,9 +73,8 @@ export function pipe(
     }
 
     const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-    const runner = options.pipelineRunner ?? runPipelineFromConfig;
     return runConfiguredPipeline({
-      pipelineRunner: runner,
+      pipelineRunner: options.pipelineRunner,
       entrypoint: options.entrypoint,
       schedule: options.schedule,
       task: description,
@@ -85,6 +84,13 @@ export function pipe(
   } catch (err) {
     return Promise.reject(err as Error);
   }
+}
+
+export function quick(
+  description: string,
+  options: Omit<ExecuteOptions, "entrypoint"> = {}
+): Promise<void> {
+  return execute(description, { ...options, entrypoint: "quick" });
 }
 
 interface RunFlags {
@@ -140,6 +146,13 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
     inputs.entrypoint
   );
   if (scheduledEntrypoint) {
+    if (inputs.pipelineRunner) {
+      await runAndPrintPipeline({
+        ...inputs,
+        config,
+      });
+      return;
+    }
     const result = await generateScheduleArtifact({
       config,
       entrypointId: scheduledEntrypoint,
@@ -149,7 +162,10 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
     console.log(`Schedule generated: ${result.path}`);
     const compiled = compileScheduleArtifact(
       config,
-      result.artifact,
+      parseScheduleArtifact(
+        readFileSync(resolve(inputs.worktreePath, result.path), "utf8"),
+        result.path
+      ),
       inputs.worktreePath
     );
     await runAndPrintPipeline({
@@ -189,7 +205,7 @@ function scheduledEntrypointId(
   if (workflowId) {
     return null;
   }
-  const id = entrypointId ?? "pipe";
+  const id = entrypointId ?? "execute";
   const entrypoint = config.entrypoints[id];
   return entrypoint && "schedule" in entrypoint ? id : null;
 }
@@ -405,7 +421,7 @@ export function createCliProgram(): Command {
     .exitOverride();
 
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
-    await pipe(descriptionParts.join(" "), {
+    await execute(descriptionParts.join(" "), {
       entrypoint: flags.entrypoint,
       schedule: flags.schedule,
       workflow: flags.workflow,
@@ -417,15 +433,6 @@ export function createCliProgram(): Command {
     .description(
       "Run a workflow from package-owned @oisincoveney/pipeline config"
     )
-    .argument("<description...>", "task description")
-    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
-    .option("--schedule <schedule>", "approved schedule YAML to execute")
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action(runAction);
-
-  program
-    .command("pipe")
-    .description("Alias for run")
     .argument("<description...>", "task description")
     .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
     .option("--schedule <schedule>", "approved schedule YAML to execute")
@@ -655,7 +662,7 @@ export function createCliProgram(): Command {
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,
     configuredPipeline,
-    (entrypoint, task) => pipe(task, { entrypoint })
+    (entrypoint, task) => execute(task, { entrypoint })
   );
   if (configuredEntrypointCommands.size > 0) {
     program.configureHelp({
@@ -700,7 +707,7 @@ function lintShadowedEntrypoints(config: PipelineConfig): ConfigLintWarning[] {
     .filter((id) => BUILTIN_PIPE_COMMANDS.has(id))
     .map((id) => ({
       ruleId: "entrypoint-shadowed",
-      message: `entrypoint '${id}' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint ${id} ...'`,
+      message: `entrypoint '${id}' is shadowed by the builtin subcommand; invoke via 'oisin-pipeline run --entrypoint ${id} ...'`,
     }));
 }
 
@@ -808,32 +815,7 @@ function formatConfigLintWarning(warning: ConfigLintWarning): string {
 
 export async function runCli(argv: string[]): Promise<void> {
   const program = createCliProgram();
-  // When invoked via the `pipe` bin entry (or its legacy aliases), prepend
-  // the `pipe` subcommand so Commander parses the remaining args correctly.
-  const scriptName = argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
-  if (scriptName === "pipe") {
-    const firstArg = argv[2];
-    if (firstArg && shouldParsePipeArgsDirectly(program, firstArg)) {
-      await program.parseAsync(argv, { from: "node" });
-      return;
-    }
-    await program.parseAsync(
-      [argv[0] ?? "node", argv[1] ?? "pipe", "run", ...argv.slice(2)],
-      { from: "node" }
-    );
-    return;
-  }
   await program.parseAsync(argv, { from: "node" });
-}
-
-function shouldParsePipeArgsDirectly(
-  program: Command,
-  firstArg: string
-): boolean {
-  if (firstArg === "help" || firstArg === "-h" || firstArg === "--help") {
-    return true;
-  }
-  return program.commands.some((command) => command.name() === firstArg);
 }
 
 export async function runDoctor(cwd: string): Promise<DoctorResult> {
@@ -925,9 +907,7 @@ export function isCliEntrypoint(argv: string[]): boolean {
   const name = scriptName(argv);
   const entrypoint = normalizeEntrypointPath(argv[1]);
   const modulePath = normalizeEntrypointPath(fileURLToPath(import.meta.url));
-  return (
-    entrypoint === modulePath || name === "pipe" || name === "oisin-pipeline"
-  );
+  return entrypoint === modulePath || name === "oisin-pipeline";
 }
 
 function normalizeEntrypointPath(path: string | undefined): string | undefined {

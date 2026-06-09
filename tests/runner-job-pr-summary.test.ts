@@ -7,6 +7,7 @@ const VALIDATED_IMPLEMENTATION_CHANGE_RE = /validated implementation change/;
 
 function payload(): RunnerJobPayload {
   return {
+    command: "execute",
     contractVersion: "1",
     delivery: { pullRequest: true },
     events: {

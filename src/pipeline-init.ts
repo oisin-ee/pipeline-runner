@@ -42,7 +42,7 @@ export async function initPipelineProject(
   const cwd = options.cwd ?? process.cwd();
   const skillInstaller = options.skillInstaller ?? installDefaultSkillsWithCli;
   await skillInstaller(DEFAULT_SKILL_INSTALLS, cwd);
-  const result = await installCommands({ cwd, host: "all" });
+  const result = await installCommands({ cwd, force: true, host: "all" });
   return {
     files: result.items.map((item) => item.path),
   };

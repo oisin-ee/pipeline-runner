@@ -27,11 +27,20 @@ import {
   type PipelineSkillInstaller,
 } from "../src/pipeline-init";
 
-const mockExeca = vi.mocked(execa);
-
+const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 beforeEach(() => {
   mockExeca.mockReset();
 });
+
+function bootstrappedHostFilesExist(root: string): boolean {
+  return [
+    ".agents/skills/research/SKILL.md",
+    ".agents/skills/execute/SKILL.md",
+    ".opencode/commands/execute.md",
+    ".codex/config.toml",
+    ".opencode/opencode.json",
+  ].every((relativePath) => existsSync(join(root, relativePath)));
+}
 
 describe("initPipelineProject", () => {
   let dir: string;
@@ -54,19 +63,15 @@ describe("initPipelineProject", () => {
   it("bootstraps skills and generated host resources without repo-local pipeline config", async () => {
     const result = await init();
 
-    expect(result.files).toContain(".agents/skills/pipe/SKILL.md");
-    expect(result.files).toContain(".opencode/commands/pipe.md");
+    expect(result.files).toContain(".agents/skills/execute/SKILL.md");
+    expect(result.files).toContain(".agents/skills/quick/SKILL.md");
+    expect(result.files).toContain(".opencode/commands/execute.md");
+    expect(result.files).toContain(".opencode/commands/quick.md");
     expect(result.files).toContain(".codex/config.toml");
     expect(result.files).toContain(".opencode/opencode.json");
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-    expect(existsSync(join(dir, ".agents/skills/research/SKILL.md"))).toBe(
-      true
-    );
-    expect(existsSync(join(dir, ".agents/skills/pipe/SKILL.md"))).toBe(true);
-    expect(existsSync(join(dir, ".opencode/commands/pipe.md"))).toBe(true);
-    expect(existsSync(join(dir, ".codex/config.toml"))).toBe(true);
-    expect(existsSync(join(dir, ".opencode/opencode.json"))).toBe(true);
+    expect(bootstrappedHostFilesExist(dir)).toBe(true);
     expect(readFileSync(join(dir, ".codex/config.toml"), "utf8")).toContain(
       "[mcp_servers.pipeline-gateway]"
     );
@@ -79,13 +84,13 @@ describe("initPipelineProject", () => {
     });
 
     const config = loadPipelineConfig(dir);
-    expect(config.default_workflow).toBe("default");
-    expect(config.entrypoints.pipe).toMatchObject({
-      schedule: "pipe-schedule",
-    });
-    expect(config.entrypoints.epic).toMatchObject({
-      schedule: "epic-schedule",
-    });
+    expect(config.default_workflow).toBe("inspect");
+    expect(config.entrypoints).toEqual(
+      expect.objectContaining({
+        execute: expect.objectContaining({ schedule: "execute-schedule" }),
+        quick: expect.objectContaining({ schedule: "quick-schedule" }),
+      })
+    );
     expect(config.profiles["pipeline-researcher"].mcp_servers).toEqual([
       "pipeline-gateway",
     ]);

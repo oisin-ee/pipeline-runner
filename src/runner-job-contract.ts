@@ -49,6 +49,8 @@ export const runnerDeliverySchema = z
   })
   .strict();
 
+export const runnerExecutionCommandSchema = z.enum(["execute", "quick"]);
+
 export const runnerEventsSchema = z
   .object({
     authHeader: z.string().min(1).default("Authorization"),
@@ -74,6 +76,7 @@ export const runnerJobPayloadSchema = z
       .default(RUNNER_JOB_CONTRACT_VERSION),
     delivery: runnerDeliverySchema.default({ pullRequest: false }),
     events: runnerEventsSchema,
+    command: runnerExecutionCommandSchema.default("execute"),
     momokaya: runnerMomokayaContextSchema.optional(),
     repository: runnerRepositoryContextSchema,
     run: runnerRunIdentitySchema,
@@ -82,6 +85,9 @@ export const runnerJobPayloadSchema = z
   .strict();
 
 export type RunnerDelivery = z.infer<typeof runnerDeliverySchema>;
+export type RunnerExecutionCommand = z.infer<
+  typeof runnerExecutionCommandSchema
+>;
 export type RunnerEvents = z.infer<typeof runnerEventsSchema>;
 export type RunnerJobPayload = z.infer<typeof runnerJobPayloadSchema>;
 export type RunnerMomokayaContext = z.infer<typeof runnerMomokayaContextSchema>;
@@ -127,6 +133,7 @@ export type RunnerJobPayloadParseResult =
     };
 
 export interface BuildRunnerJobPayloadOptions {
+  command?: RunnerExecutionCommand;
   delivery?: RunnerDelivery;
   events: RunnerEvents;
   momokaya?: RunnerMomokayaContext;
@@ -322,9 +329,10 @@ export function buildRunnerJobPayload(
 ): RunnerJobPayload {
   return runnerJobPayloadSchema.parse({
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
+    command: options.command,
     delivery: options.delivery,
     events: options.events,
-    momokaya: options.momokaya,
+    ...(options.momokaya ? { momokaya: options.momokaya } : {}),
     repository: options.repository,
     run: options.run,
     task: options.task,

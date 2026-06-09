@@ -39,6 +39,7 @@ export interface PlannedWorkflowNode {
   id: string;
   index: number;
   kind: WorkflowNodeKind;
+  models?: string[];
   needs: string[];
   nodes?: string[];
   profile?: string;
@@ -531,6 +532,7 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
     id: node.id,
     index,
     kind: node.kind,
+    models: node.models,
     needs: node.needs ?? [],
     nodes: node.kind === "group" ? node.nodes : undefined,
     profile: "profile" in node ? node.profile : undefined,

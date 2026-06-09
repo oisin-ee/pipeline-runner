@@ -97,37 +97,11 @@ export async function runTests(
     };
   }
 
-  try {
-    const result = await execa(projectCommand.command, projectCommand.args, {
-      cancelSignal: signal,
-      cwd: worktreePath,
-      shell: projectCommand.shell,
-    });
-    const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
-    return {
-      command: displayCommand(projectCommand),
-      exitCode: result.exitCode ?? 0,
-      output,
-      failingTests: [],
-    };
-  } catch (err) {
-    const e = err as {
-      exitCode?: number;
-      message?: string;
-      shortMessage?: string;
-      stderr?: string;
-      stdout?: string;
-    };
-    const output =
-      [e.stdout, e.stderr].filter(Boolean).join("\n") ||
-      [e.shortMessage, e.message].filter(Boolean).join("\n");
-    return {
-      command: displayCommand(projectCommand),
-      exitCode: e.exitCode ?? 1,
-      output,
-      failingTests: parseFailingTests(output),
-    };
-  }
+  const result = await runProjectCommand(projectCommand, worktreePath, signal);
+  return {
+    ...result,
+    failingTests: result.exitCode === 0 ? [] : parseFailingTests(result.output),
+  };
 }
 
 // ─── runTypecheck ─────────────────────────────────────────────────────────────
@@ -143,6 +117,45 @@ export async function runTypecheck(
   if (!projectCommand) {
     return { exitCode: 0, output: "skipped" };
   }
+  return await runProjectCommand(projectCommand, worktreePath, signal);
+}
+
+// ─── runLint ──────────────────────────────────────────────────────────────────
+
+export async function runLint(
+  worktreePath: string,
+  signal?: AbortSignal
+): Promise<{ command?: string; exitCode: number; output: string }> {
+  const projectCommand =
+    envCommand("PIPELINE_LINT_COMMAND") ??
+    (await resolvePackageScript(worktreePath, "lint"));
+
+  if (!projectCommand) {
+    return { exitCode: 0, output: "skipped" };
+  }
+  return await runProjectCommand(projectCommand, worktreePath, signal);
+}
+
+// ─── runFallow ────────────────────────────────────────────────────────────────
+
+export async function runFallow(
+  worktreePath: string,
+  signal?: AbortSignal
+): Promise<{ command?: string; exitCode: number; output: string }> {
+  const projectCommand = envCommand("PIPELINE_FALLOW_COMMAND") ??
+    (await resolvePackageScript(worktreePath, "fallow")) ?? {
+      args: ["audit"],
+      command: "fallow",
+    };
+
+  return runProjectCommand(projectCommand, worktreePath, signal);
+}
+
+async function runProjectCommand(
+  projectCommand: ProjectCommand,
+  worktreePath: string,
+  signal?: AbortSignal
+): Promise<{ command?: string; exitCode: number; output: string }> {
   try {
     const result = await execa(projectCommand.command, projectCommand.args, {
       cancelSignal: signal,
@@ -156,22 +169,41 @@ export async function runTypecheck(
       output,
     };
   } catch (err) {
-    const e = err as {
-      exitCode?: number;
-      message?: string;
-      shortMessage?: string;
-      stderr?: string;
-      stdout?: string;
-    };
-    const output =
-      [e.stdout, e.stderr].filter(Boolean).join("\n") ||
-      [e.shortMessage, e.message].filter(Boolean).join("\n");
+    const e = commandError(err);
     return {
       command: displayCommand(projectCommand),
       exitCode: e.exitCode ?? 1,
-      output,
+      output: commandErrorOutput(e),
     };
   }
+}
+
+function commandError(err: unknown): {
+  exitCode?: number;
+  message?: string;
+  shortMessage?: string;
+  stderr?: string;
+  stdout?: string;
+} {
+  return err as {
+    exitCode?: number;
+    message?: string;
+    shortMessage?: string;
+    stderr?: string;
+    stdout?: string;
+  };
+}
+
+function commandErrorOutput(err: {
+  message?: string;
+  shortMessage?: string;
+  stderr?: string;
+  stdout?: string;
+}): string {
+  return (
+    [err.stdout, err.stderr].filter(Boolean).join("\n") ||
+    [err.shortMessage, err.message].filter(Boolean).join("\n")
+  );
 }
 
 // ─── runSemgrep ──────────────────────────────────────────────────────────────
@@ -205,35 +237,7 @@ export async function runSemgrep(
     command: "uvx",
   };
 
-  try {
-    const result = await execa(projectCommand.command, projectCommand.args, {
-      cancelSignal: signal,
-      cwd: worktreePath,
-      shell: projectCommand.shell,
-    });
-    const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
-    return {
-      command: displayCommand(projectCommand),
-      exitCode: result.exitCode ?? 0,
-      output,
-    };
-  } catch (err) {
-    const e = err as {
-      exitCode?: number;
-      message?: string;
-      shortMessage?: string;
-      stderr?: string;
-      stdout?: string;
-    };
-    const output =
-      [e.stdout, e.stderr].filter(Boolean).join("\n") ||
-      [e.shortMessage, e.message].filter(Boolean).join("\n");
-    return {
-      command: displayCommand(projectCommand),
-      exitCode: e.exitCode ?? 1,
-      output,
-    };
-  }
+  return await runProjectCommand(projectCommand, worktreePath, signal);
 }
 
 // ─── artifactExists ───────────────────────────────────────────────────────────

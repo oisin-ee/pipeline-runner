@@ -179,7 +179,13 @@ describe("runner event sink", () => {
     await expect(sink.flush()).rejects.toThrow(
       new RegExp(`event sink.*${status}: status ${status}`, "i")
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((await parseBodies(fetchMock))[1].events).toEqual([
+      expect.objectContaining({
+        finalResult: { outcome: "PASS", workflowId: "default" },
+        type: "workflow.finish",
+      }),
+    ]);
   });
 
   it("flushes batches in the same order events were recorded", async () => {

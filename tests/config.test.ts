@@ -19,7 +19,6 @@ import {
 } from "../src/config";
 
 const MIN_ITEMS_MESSAGE_RE = /at least|>=1|too small/i;
-const STUB_OR_DEFAULT_RE = /stub|default/i;
 const LINE_RE = /\r?\n/;
 
 const VALID_RUNNERS_YAML = `
@@ -220,6 +219,55 @@ function captureConfigError(action: () => unknown): PipelineConfigError {
   throw new Error("Expected PipelineConfigError");
 }
 
+function expectedPackageScheduledEntrypoints(): Record<string, unknown> {
+  return {
+    execute: { schedule: "execute-schedule" },
+    quick: { schedule: "quick-schedule" },
+    inspect: { workflow: "inspect" },
+  };
+}
+
+function expectedPackageSchedules(): Record<string, Record<string, string>> {
+  return {
+    "execute-schedule": {
+      baseline: "execute",
+      planner_profile: "pipeline-schedule-planner",
+      node_catalog: "execute",
+    },
+    "quick-schedule": {
+      baseline: "quick",
+      planner_profile: "pipeline-schedule-planner",
+      node_catalog: "quick",
+    },
+  };
+}
+
+function expectedSchedulerCommands(): Record<string, Record<string, string>> {
+  return {
+    execute: {
+      catalog: "execute",
+      schedule: "execute-schedule",
+    },
+    quick: {
+      catalog: "quick",
+      schedule: "quick-schedule",
+    },
+  };
+}
+
+function expectedExecuteRequiredCategories(): string[] {
+  return [
+    "intake",
+    "research",
+    "red",
+    "green",
+    "mechanical",
+    "acceptance",
+    "verification",
+    "learn",
+  ];
+}
+
 describe("loadPipelineConfig", () => {
   it("loads package-owned defaults when the repo has no pipeline files", () => {
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-defaults-"));
@@ -228,14 +276,12 @@ describe("loadPipelineConfig", () => {
     const config = loadPipelineConfig(project);
 
     expect(existsSync(join(project, ".pipeline"))).toBe(false);
-    expect(config.default_workflow).toBe("default");
-    expect(config.entrypoints.pipe).toMatchObject({
-      schedule: "pipe-schedule",
-    });
-    expect(config.entrypoints.inspect).toMatchObject({ workflow: "inspect" });
-    expect(config.entrypoints.epic).toMatchObject({
-      schedule: "epic-schedule",
-    });
+    expect(config.default_workflow).toBe("inspect");
+    expect(config.entrypoints).toMatchObject(
+      expectedPackageScheduledEntrypoints()
+    );
+    expect(config.entrypoints.pipe).toBeUndefined();
+    expect(config.entrypoints.epic).toBeUndefined();
     expect(config.runners.codex.type).toBe("codex");
     expect(config.runners.opencode.type).toBe("opencode");
     expect(
@@ -248,24 +294,29 @@ describe("loadPipelineConfig", () => {
       ["pipeline-inspector", "opencode"],
       ["pipeline-schedule-planner", "opencode"],
       ["pipeline-test-writer", "opencode"],
-      ["pipeline-epic-router", "opencode"],
       ["pipeline-code-writer", "opencode"],
       ["pipeline-acceptance-reviewer", "opencode"],
       ["pipeline-thermo-nuclear-reviewer", "opencode"],
       ["pipeline-verifier", "opencode"],
       ["pipeline-learner", "opencode"],
     ]);
-    expect(config.schedules["pipe-schedule"]).toMatchObject({
-      baseline: "pipe",
-      planner_profile: "pipeline-schedule-planner",
-    });
-    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
-      "research",
-      "red",
-      "green",
-      "acceptance",
-      "verify",
-      "learn",
+    expect(config.schedules["execute-schedule"]).toMatchObject(
+      expectedPackageSchedules()["execute-schedule"]
+    );
+    expect(config.schedules["quick-schedule"]).toMatchObject(
+      expectedPackageSchedules()["quick-schedule"]
+    );
+    expect(config.scheduler.commands).toMatchObject(
+      expectedSchedulerCommands()
+    );
+    expect(
+      (config.scheduler.node_catalogs.execute as any).required_categories
+    ).toEqual(expectedExecuteRequiredCategories());
+    expect(
+      config.scheduler.node_catalogs.execute.nodes["red-tests"].models
+    ).toEqual(expect.any(Array));
+    expect(config.workflows.inspect.nodes.map((node) => node.id)).toEqual([
+      "inspect",
     ]);
     expect(config.profiles["pipeline-code-writer"].scheduling_roles).toEqual([
       "implementation",
@@ -417,7 +468,7 @@ profiles:`
 
     const config = loadPipelineConfig(project);
 
-    expect(config.default_workflow).toBe("default");
+    expect(config.default_workflow).toBe("inspect");
     expect(config.profiles["pipeline-researcher"]).toBeDefined();
   });
 
@@ -428,7 +479,7 @@ profiles:`
 
     const config = loadPipelineConfig(project);
 
-    expect(config.default_workflow).toBe("default");
+    expect(config.default_workflow).toBe("inspect");
     expect(config.profiles["pipeline-researcher"]).toBeDefined();
   });
 
@@ -622,11 +673,11 @@ workflows:
 version: 1
 default_workflow: default
 schedules:
-  pipe-schedule:
-    baseline: pipe
+  execute-schedule:
+    baseline: execute
     planner_profile: researcher
-  epic-schedule:
-    baseline: epic
+  quick-schedule:
+    baseline: quick
     planner_profile: researcher
 orchestrator:
   profile: orchestrator
@@ -639,8 +690,8 @@ workflows:
 `,
     });
 
-    expect(config.schedules["epic-schedule"]).toMatchObject({
-      baseline: "epic",
+    expect(config.schedules["quick-schedule"]).toMatchObject({
+      baseline: "quick",
       planner_profile: "researcher",
     });
   });
@@ -755,7 +806,7 @@ version: 1
 default_workflow: default
 schedules:
   bad-schedule:
-    baseline: pipe
+    baseline: execute
     planner_profile: missing-planner
 orchestrator:
   profile: orchestrator
@@ -1250,127 +1301,106 @@ workflows:
   });
 });
 
-describe("epic entrypoint integration", () => {
+describe("execute/quick scheduler integration", () => {
   function readRepoPipelineYaml(): any {
     return parse(
       readFileSync(join(process.cwd(), ".pipeline/pipeline.yaml"), "utf8")
     );
   }
 
-  it("declares scheduled pipe/epic entrypoints and keeps the epic-drain workflow available", () => {
+  it("declares scheduled execute/quick entrypoints and removes legacy entrypoints", () => {
     const config = readRepoPipelineYaml();
+    const entrypoints = config.entrypoints ?? {};
+    const schedules = config.schedules ?? {};
 
-    expect(config.entrypoints?.epic).toEqual({
-      schedule: "epic-schedule",
-      description:
-        "Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.",
-    });
-    expect(config.entrypoints?.pipe).toMatchObject({
-      schedule: "pipe-schedule",
-    });
-    expect(config.schedules?.["pipe-schedule"]).toMatchObject({
-      baseline: "pipe",
-      planner_profile: "pipeline-schedule-planner",
-    });
-    expect(config.schedules?.["epic-schedule"]).toMatchObject({
-      baseline: "epic",
-      planner_profile: "pipeline-schedule-planner",
-    });
-
-    const workflow = config.workflows?.["epic-drain"];
-    expect(workflow, "workflows.epic-drain should exist").toBeDefined();
-    expect(workflow.description).toBe(
-      "Research, route, parallel-implement tracks in isolated worktrees, integrate, thermo-nuclear review."
+    expect(Object.keys(entrypoints).sort()).toEqual([
+      "execute",
+      "inspect",
+      "quick",
+    ]);
+    expect(entrypoints.execute).toMatchObject({ schedule: "execute-schedule" });
+    expect(entrypoints.quick).toMatchObject({ schedule: "quick-schedule" });
+    expect(entrypoints.inspect).toMatchObject({ workflow: "inspect" });
+    expect(entrypoints.pipe).toBeUndefined();
+    expect(entrypoints.epic).toBeUndefined();
+    expect(schedules["execute-schedule"]).toMatchObject(
+      expectedPackageSchedules()["execute-schedule"]
     );
-    expect(workflow.nodes.map((node: { id: string }) => node.id)).toEqual([
-      "research",
-      "plan",
-      "implement",
-      "merge",
-      "review",
-    ]);
-    expect(workflow.nodes[0]).toMatchObject({
-      id: "research",
-      kind: "agent",
-      profile: "pipeline-researcher",
-    });
-    expect(workflow.nodes[1]).toMatchObject({
-      id: "plan",
-      kind: "agent",
-      profile: "pipeline-epic-router",
-      needs: ["research"],
-    });
+    expect(schedules["quick-schedule"]).toMatchObject(
+      expectedPackageSchedules()["quick-schedule"]
+    );
+    expect(config.workflows?.default).toBeUndefined();
+    expect(config.workflows?.infra).toBeUndefined();
+    expect(config.workflows?.["epic-drain"]).toBeUndefined();
+  });
 
-    const implement = workflow.nodes[2];
-    expect(implement).toMatchObject({
-      id: "implement",
-      kind: "parallel",
-      needs: ["plan"],
-    });
-    expect(implement.nodes.map((node: { id: string }) => node.id)).toEqual([
-      "test",
-      "frontend",
-      "backend",
-      "k8s",
+  it("declares configurable scheduler node catalogs with model fallback arrays", () => {
+    const config = readRepoPipelineYaml();
+    const commands = (config.scheduler?.commands ?? {}) as Record<
+      string,
+      { schedule: string }
+    >;
+    const executeCatalog = config.scheduler?.node_catalogs?.execute as any;
+
+    expect(
+      Object.entries(commands)
+        .map(([id, value]) => [id, value.schedule])
+        .sort(([left], [right]) => left.localeCompare(right))
+    ).toEqual([
+      ["execute", "execute-schedule"],
+      ["quick", "quick-schedule"],
     ]);
-    const expectedChildWorkflows = {
-      test: "default",
-      frontend: "default",
-      backend: "default",
-      k8s: "infra",
-    };
-    for (const [track, childWorkflow] of Object.entries(
-      expectedChildWorkflows
-    )) {
-      expect(
-        implement.nodes.find((node: { id: string }) => node.id === track)
-      ).toMatchObject({
-        id: track,
-        kind: "workflow",
-        workflow: childWorkflow,
-        worktree_root: `.pipeline/runs/\${runId}/${track}`,
-      });
+    expect(commands.execute).toMatchObject(expectedSchedulerCommands().execute);
+    expect(commands.quick).toMatchObject(expectedSchedulerCommands().quick);
+    expect(executeCatalog.required_categories).toEqual(
+      expectedExecuteRequiredCategories()
+    );
+    for (const nodeId of [
+      "red-tests",
+      "green-backend",
+      "green-frontend",
+    ] as const) {
+      expect(executeCatalog.nodes[nodeId].models).toEqual(expect.any(Array));
     }
-    expect(config.workflows?.test).toBeUndefined();
-    expect(config.workflows?.frontend).toBeUndefined();
-    expect(config.workflows?.backend).toBeUndefined();
-    expect(config.workflows?.k8s).toBeUndefined();
-
-    expect(workflow.nodes[3]).toMatchObject({
-      id: "merge",
-      kind: "builtin",
-      builtin: "drain-merge",
-      needs: ["implement"],
-    });
-    expect(workflow.nodes[4]).toMatchObject({
-      id: "review",
-      kind: "agent",
-      profile: "pipeline-thermo-nuclear-reviewer",
-      needs: ["merge"],
-    });
-    expect(workflow.nodes[4].gates).toEqual([
-      { id: "review-verdict", kind: "verdict", target: "stdout" },
-    ]);
+    expect(
+      config.scheduler?.node_catalogs?.quick.nodes["green-implementation"]
+        .models
+    ).toEqual(expect.any(Array));
+    expect(
+      config.scheduler?.node_catalogs?.execute.nodes["red-tests"].models.length
+    ).toBeGreaterThan(1);
+    expect(
+      config.scheduler?.node_catalogs?.execute.nodes["green-backend"].models
+        .length
+    ).toBeGreaterThan(1);
   });
 
-  it("declares infra as a default-shaped stub workflow", () => {
-    const config = readRepoPipelineYaml();
-    const infra = config.workflows?.infra;
-    const defaultWorkflow = config.workflows?.default;
+  it("keeps legacy epic-router package assets out of the active profile graph", () => {
+    const profilesYaml = readFileSync(
+      join(process.cwd(), ".pipeline/profiles.yaml"),
+      "utf8"
+    );
+    const profilesConfig = parse(profilesYaml) as {
+      profiles?: Record<string, any>;
+    };
 
-    expect(infra, "workflows.infra should exist").toBeDefined();
-    expect(infra.description).toEqual(
-      expect.stringMatching(STUB_OR_DEFAULT_RE)
-    );
-    expect(infra.nodes.map((node: { id: string }) => node.id)).toEqual(
-      defaultWorkflow.nodes.map((node: { id: string }) => node.id)
-    );
-    expect(infra.nodes.map((node: { kind: string }) => node.kind)).toEqual(
-      defaultWorkflow.nodes.map((node: { kind: string }) => node.kind)
-    );
+    expect(profilesConfig.profiles?.["pipeline-epic-router"]).toBeUndefined();
+    expect(
+      profilesConfig.profiles?.["pipeline-thermo-nuclear-reviewer"]
+    ).toBeDefined();
   });
 
-  it("declares OpenCode as a first-class pipeline runner with schedulable profile variants", () => {
+  it("ignores pipeline run worktrees", () => {
+    const gitignore = readFileSync(join(process.cwd(), ".gitignore"), "utf8")
+      .split(LINE_RE)
+      .map((line) => line.trim());
+
+    expect(gitignore).toContain(".pipeline/runs/");
+  });
+});
+
+describe("opencode profile integration", () => {
+  it("declares the installed critique skill and reviewer profile contract", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
       "utf8"
@@ -1415,110 +1445,6 @@ describe("epic entrypoint integration", () => {
       scheduling_roles: ["coverage"],
       instructions: { path: ".pipeline/prompts/verifier.md" },
     });
-  });
-
-  it("ignores epic run worktrees", () => {
-    const gitignore = readFileSync(join(process.cwd(), ".gitignore"), "utf8")
-      .split(LINE_RE)
-      .map((line) => line.trim());
-
-    expect(gitignore).toContain(".pipeline/runs/");
-  });
-});
-
-describe("epic-router asset bundle", () => {
-  it("declares the pipeline-epic-router profile with the read-only routing contract", () => {
-    const profilesYaml = readFileSync(
-      join(process.cwd(), ".pipeline/profiles.yaml"),
-      "utf8"
-    );
-    const profilesConfig = parse(profilesYaml) as {
-      profiles?: Record<string, any>;
-    };
-    const profile = profilesConfig.profiles?.["pipeline-epic-router"];
-
-    expect(
-      profile,
-      "profiles.pipeline-epic-router should exist in .pipeline/profiles.yaml"
-    ).toBeDefined();
-    expect(profile).toMatchObject({
-      runner: "codex",
-      instructions: { path: ".pipeline/prompts/epic-router.md" },
-      filesystem: {
-        mode: "read-only",
-        allow: ["**/*"],
-        deny: ["node_modules/**", "dist/**", ".git/**"],
-      },
-      network: { mode: "inherit" },
-      output: {
-        format: "json_schema",
-        schema_path: ".pipeline/schemas/epic-plan.schema.json",
-        repair: {
-          enabled: true,
-          max_attempts: 1,
-        },
-      },
-    });
-    expect(profile.mcp_servers).toEqual(["pipeline-gateway"]);
-    expect(profile.tools).toEqual(["read", "list", "grep", "glob", "bash"]);
-  });
-
-  it("validates the epic plan schema contract for fixed tracks and ticket ids", () => {
-    const schema = JSON.parse(
-      readFileSync(
-        join(process.cwd(), ".pipeline/schemas/epic-plan.schema.json"),
-        "utf8"
-      )
-    );
-    const ajv = new Ajv({ allErrors: true, strict: false });
-    const validate = ajv.compile(schema);
-
-    const goodPlan = {
-      test: [
-        {
-          id: "PIPE-31.9",
-          title: "Config: epic-router asset bundle",
-          rationale: "The work is primarily test and config contract coverage.",
-        },
-      ],
-      frontend: [],
-      backend: [{ id: "PIPE-31.2" }],
-      k8s: [],
-      rationale: "Routes each sub-ticket into one fixed epic-drain track.",
-    };
-
-    expect(validate(goodPlan), JSON.stringify(validate.errors)).toBe(true);
-    expect(
-      validate({
-        test: [],
-        frontend: [],
-        backend: [],
-        rationale: "Missing the fixed k8s track.",
-      }),
-      "plans must include every fixed epic-drain track key"
-    ).toBe(false);
-    expect(
-      validate({
-        test: [{ title: "Missing required id" }],
-        frontend: [],
-        backend: [],
-        k8s: [],
-      }),
-      "tickets must include an id"
-    ).toBe(false);
-  });
-
-  it("documents the epic routing prompt contract", () => {
-    const prompt = readFileSync(
-      join(process.cwd(), ".pipeline/prompts/epic-router.md"),
-      "utf8"
-    );
-
-    expect(prompt).toContain("Backlog MCP");
-    expect(prompt).toContain("exactly one");
-    expect(prompt).toContain("test, frontend, backend, k8s");
-    expect(prompt).toContain(".pipeline/schemas/epic-plan.schema.json");
-    expect(prompt).toContain("Do not modify any files");
   });
 });
 

@@ -20,8 +20,7 @@ import type { RunnerLaunchPlan } from "../src/runner";
 vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
-
-const gitMock = vi.hoisted(() => {
+const gitMock = (() => {
   interface GitStatusResult {
     files: { path: string }[];
   }
@@ -56,7 +55,7 @@ const gitMock = vi.hoisted(() => {
       status: () => client.status(options),
     })),
   };
-});
+})();
 
 vi.mock("simple-git", () => ({
   default: gitMock.simpleGit,

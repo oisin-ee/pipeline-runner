@@ -17,26 +17,22 @@ vi.mock("execa", () => ({
 
 import { execa } from "execa";
 
-const mockExeca = vi.mocked(execa);
+const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const DESCRIPTION_RE = /description/i;
 const FAILURE_DETAILS_RE =
   /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
 const PACKAGE_INSPECT_COMMAND_RE = /inspect\s+Read-only repository inspection/;
-const PACKAGE_EPIC_COMMAND_RE =
-  /epic\s+Route an epic's tickets into specialist/;
+const PACKAGE_EXECUTE_COMMAND_RE =
+  /execute\s+Full planner-generated pipeline for\s+repository work/;
+const PACKAGE_QUICK_COMMAND_RE =
+  /quick\s+Compact planner-generated pipeline for\s+small work/;
 const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
-const UNKNOWN_ENTRYPOINT_OR_CONFIG_RE =
-  /Unknown pipeline entrypoint 'epic'|PIPELINE_CONFIG|Invalid pipeline config|Invalid workflow plan|missing workflow/i;
-const PLAN_RESEARCH_RE = /- research kind=agent needs=none/;
-const PLAN_PLAN_RE = /- plan kind=agent needs=research/;
-const PLAN_IMPLEMENT_RE = /- implement kind=workflow needs=plan/;
-const PLAN_MERGE_RE = /- merge kind=builtin needs=implement/;
-const PLAN_REVIEW_RE = /- review kind=agent needs=merge/;
-const SCHEDULE_MEMORY_ID_RE = /Schedule generated: memory:run-\d{14}/;
+const SCHEDULE_PATH_RE =
+  /Schedule generated: \.pipeline\/runs\/run-\d{14}\/schedule\.yaml/;
 const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/;
-const WARNING_RE = /warning/i;
 const NO_REPO_COPY_RE = /clone|copy|mirror/i;
 const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/;
+const LOCAL_GATEWAY_URL_RE = /^http:\/\/127\.0\.0\.1:\d+\/mcp$/;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const ORIGINAL_PIPELINE_TEST_COMMAND = process.env.PIPELINE_TEST_COMMAND;
@@ -120,6 +116,24 @@ function mockAgentStdout(command: string, args?: string[]): string {
     return "";
   }
   const prompt = Array.isArray(args) ? args.join("\n") : "";
+  if (prompt.includes("Create a pipeline schedule")) {
+    return [
+      "version: 1",
+      "kind: pipeline-schedule",
+      "schedule_id: run-20260603010101",
+      "source_entrypoint: execute",
+      "task: CLI scheduled fixture",
+      "generated_at: 2026-06-03T01:01:01.000Z",
+      "root_workflow: root",
+      "workflows:",
+      "  root:",
+      "    nodes:",
+      "      - id: scheduled",
+      "        kind: command",
+      "        command: [node, -e, \"console.log('scheduled')\"]",
+      "",
+    ].join("\n");
+  }
   return JSON.stringify(
     MOCK_AGENT_RESPONSES.find(({ matches }) => matches(prompt))?.response ??
       DEFAULT_MOCK_AGENT_RESPONSE
@@ -155,6 +169,22 @@ interface CliOutputCapture {
   stdout: string;
   thrown?: unknown;
 }
+
+const EXECUTE_SHIP_IT_ARGV = [
+  "node",
+  "/repo/node_modules/.bin/oisin-pipeline",
+  "execute",
+  "ship",
+  "it",
+];
+
+const GATEWAY_DOCTOR_ARGV = [
+  "node",
+  "/repo/node_modules/.bin/oisin-pipeline",
+  "mcp",
+  "gateway",
+  "doctor",
+];
 
 function spyOutput(spy: ConsoleSpy): string {
   return spy.mock.calls.map(([message]) => String(message)).join("\n");
@@ -196,13 +226,48 @@ async function withCliTempDir(
   }
 }
 
+async function withDirectInitDir(
+  prefix: string,
+  run: (fixture: { dir: string; runCli: RunCli }) => Promise<void>
+): Promise<void> {
+  const { runCli } = await import("../src/index");
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+  try {
+    process.env.PIPELINE_TARGET_PATH = dir;
+    await run({ dir, runCli });
+  } finally {
+    restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function generatedHostFilesExist(root: string, paths: string[]): boolean {
+  return paths.every((relativePath) => existsSync(join(root, relativePath)));
+}
+
+function hasMcpmRegistration(): boolean {
+  return mockExeca.mock.calls.some(
+    ([command, args]) =>
+      command === "uvx" && Array.isArray(args) && args.includes("mcpm")
+  );
+}
+
+function executeShipIt(runCli: RunCli): Promise<void> {
+  return runCli(EXECUTE_SHIP_IT_ARGV);
+}
+
+function runGatewayDoctor(runCli: RunCli): Promise<void> {
+  return runCli(GATEWAY_DOCTOR_ARGV);
+}
+
 async function prepareGatewayWorkspace(
   runCli: RunCli,
   dir: string,
   options: { init?: boolean } = {}
 ): Promise<void> {
   if (options.init) {
-    await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+    await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
   }
   mkdirSync(join(dir, ".serena"), { recursive: true });
   writeFileSync(join(dir, ".serena/project.yml"), "name: test\n");
@@ -210,42 +275,16 @@ async function prepareGatewayWorkspace(
   writeFileSync(join(dir, "package.json"), "{}\n");
 }
 
-async function runPackageWorkflowCommand(
-  fixture: CliTargetFixture,
-  command: "explain-plan" | "validate"
-): Promise<CliOutputCapture> {
-  let thrown: unknown;
-  try {
-    await fixture.runCli([
-      "node",
-      "/repo/node_modules/.bin/pipe",
-      command,
-      "--workflow",
-      "epic-drain",
-    ]);
-  } catch (err) {
-    thrown = err;
-  }
-  const stderr = fixture.stderr();
-  const stdout = fixture.output();
-  return {
-    failureText: [
-      thrown instanceof Error ? thrown.message : String(thrown ?? ""),
-      stderr,
-      stdout,
-    ].join("\n"),
-    stderr,
-    stdout,
-    thrown,
-  };
-}
-
 async function validateCliLintFixture(
   fixture: CliTempFixture,
   parts: Parameters<typeof writeCliValidateLintConfig>[1]
 ): Promise<CliOutputCapture> {
   writeCliValidateLintConfig(fixture.dir, parts);
-  await fixture.runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+  await fixture.runCli([
+    "node",
+    "/repo/node_modules/.bin/oisin-pipeline",
+    "validate",
+  ]);
   return {
     stderr: fixture.stderr(),
     stdout: fixture.output(),
@@ -292,7 +331,6 @@ afterEach(() => {
   }
   restoreEnv("PIPELINE_TEST_COMMAND", ORIGINAL_PIPELINE_TEST_COMMAND);
 });
-
 function installMockSkills(args: string[], cwd = process.cwd()): void {
   const skillIndex = args.indexOf("--skill");
   if (skillIndex < 0) {
@@ -475,17 +513,17 @@ profiles:
 version: 1
 default_workflow: inspect
 entrypoints:
-  pipe:
-    schedule: pipe-schedule
-    description: Generated pipe schedule
+  execute:
+    schedule: execute-schedule
+    description: Generated execute schedule
   inspect:
     workflow: inspect
     description: Inspect static workflow
 orchestrator:
   profile: orchestrator
 schedules:
-  pipe-schedule:
-    baseline: pipe
+  execute-schedule:
+    baseline: execute
     planner_profile: pipeline-schedule-planner
 workflows:
   inspect:
@@ -978,87 +1016,64 @@ describe("planPhaseLifecycle", () => {
 
 // ─── CLI entry ────────────────────────────────────────────────────────────────
 
-describe("pipe", () => {
-  it("exports a pipe function", async () => {
+describe("execute", () => {
+  it("exports execute and quick functions", async () => {
     const mod = await import("../src/index");
-    expect(typeof mod.pipe).toBe("function");
+    expect(typeof mod.execute).toBe("function");
+    expect(typeof mod.quick).toBe("function");
   });
 
-  it("supports direct pipe init invocation from the pipe binary", async () => {
-    const { runCli } = await import("../src/index");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+  it("supports direct init invocation from the package binary", async () => {
+    await withDirectInitDir("pipeline-cli-init-", async ({ dir, runCli }) => {
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-      expect(existsSync(join(dir, ".agents/skills/pipe/SKILL.md"))).toBe(true);
-      expect(existsSync(join(dir, ".opencode/commands/pipe.md"))).toBe(true);
-      expect(existsSync(join(dir, ".codex/config.toml"))).toBe(true);
-      expect(existsSync(join(dir, ".opencode/opencode.json"))).toBe(true);
       expect(
-        mockExeca.mock.calls.some(
-          ([command, args]) =>
-            command === "uvx" && Array.isArray(args) && args.includes("mcpm")
-        )
-      ).toBe(false);
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
+        generatedHostFilesExist(dir, [
+          ".agents/skills/execute/SKILL.md",
+          ".opencode/commands/execute.md",
+          ".codex/config.toml",
+          ".opencode/opencode.json",
+        ])
+      ).toBe(true);
+      expect(hasMcpmRegistration()).toBe(false);
+    });
   });
 
   it("does not run MCPM registration during init", async () => {
-    const { runCli } = await import("../src/index");
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-init-redacted-mcp-"));
-    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    await withDirectInitDir(
+      "pipeline-cli-init-redacted-mcp-",
+      async ({ runCli }) => {
+        process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
+          "Basic test-basic-payload";
+        mockExeca.mockImplementation(((
+          command: string,
+          args?: string[],
+          options?: { cwd?: string }
+        ) => {
+          if (
+            command === "npx" &&
+            Array.isArray(args) &&
+            args.includes("skills") &&
+            args.includes("add")
+          ) {
+            installMockSkills(
+              args,
+              (options as { cwd?: string } | undefined)?.cwd
+            );
+          }
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+        }) as any);
 
-    try {
-      process.env.PIPELINE_TARGET_PATH = dir;
-      process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
-        "Basic test-basic-payload";
-      mockExeca.mockImplementation(((
-        command: string,
-        args?: string[],
-        options?: { cwd?: string }
-      ) => {
-        if (
-          command === "npx" &&
-          Array.isArray(args) &&
-          args.includes("skills") &&
-          args.includes("add")
-        ) {
-          installMockSkills(
-            args,
-            (options as { cwd?: string } | undefined)?.cwd
-          );
-        }
-        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
-      }) as any);
-
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-
-      expect(
-        mockExeca.mock.calls.some(
-          ([command, args]) =>
-            command === "uvx" && Array.isArray(args) && args.includes("mcpm")
-        )
-      ).toBe(false);
-    } finally {
-      if (originalTargetPath === undefined) {
-        delete process.env.PIPELINE_TARGET_PATH;
-      } else {
-        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "init",
+        ]);
+        expect(hasMcpmRegistration()).toBe(false);
       }
-      rmSync(dir, { recursive: true, force: true });
-    }
+    );
   });
 
   it("initializes gateway-only MCP config when gateway authorization is missing", async () => {
@@ -1067,7 +1082,11 @@ describe("pipe", () => {
       async ({ dir, output, runCli }) => {
         delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "init",
+        ]);
 
         expect(
           mockExeca.mock.calls.some(
@@ -1088,9 +1107,12 @@ describe("pipe", () => {
 
   it("initializes host resources into PIPELINE_TARGET_PATH", async () => {
     await withCliTempDir("pipeline-cli-install-", async ({ dir, runCli }) => {
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
-      expect(existsSync(join(dir, ".opencode", "commands", "pipe.md"))).toBe(
+      expect(existsSync(join(dir, ".opencode", "commands", "execute.md"))).toBe(
+        true
+      );
+      expect(existsSync(join(dir, ".opencode", "commands", "quick.md"))).toBe(
         true
       );
       expect(existsSync(join(dir, ".opencode", "opencode.json"))).toBe(true);
@@ -1099,11 +1121,10 @@ describe("pipe", () => {
       );
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         type: "remote",
-        url: "http://127.0.0.1:4483/mcp",
       });
-      expect(
-        existsSync(join(process.cwd(), ".opencode", "commands", "pipe.md"))
-      ).toBe(true);
+      expect(opencode.mcp["pipeline-gateway"].url).toMatch(
+        LOCAL_GATEWAY_URL_RE
+      );
     });
   });
 
@@ -1132,7 +1153,6 @@ describe("pipe", () => {
     });
     expect(pkg.bin).toEqual({
       "oisin-pipeline": "dist/index.js",
-      pipe: "dist/index.js",
     });
     expect(pkg.exports?.["."]).toEqual({
       import: "./dist/index.js",
@@ -1166,12 +1186,12 @@ describe("pipe", () => {
   });
 
   it("throws if no description provided", async () => {
-    const { pipe } = await import("../src/index");
-    await expect(pipe("")).rejects.toThrow(DESCRIPTION_RE);
+    const { execute } = await import("../src/index");
+    await expect(execute("")).rejects.toThrow(DESCRIPTION_RE);
   });
 
-  it("runs the YAML runtime through the pipe function", async () => {
-    const { pipe } = await import("../src/index");
+  it("runs the YAML runtime through the execute function", async () => {
+    const { execute } = await import("../src/index");
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -1243,7 +1263,7 @@ describe("pipe", () => {
     let progress: string[] = [];
     let finalOutput = "";
     try {
-      await pipe("PIPE-42 trivial NOOP", {
+      await execute("PIPE-42 trivial NOOP", {
         pipelineRunner,
         workflow: "custom",
       });
@@ -1279,7 +1299,7 @@ describe("pipe", () => {
   });
 
   it("passes entrypoint aliases through the CLI runner", async () => {
-    const { pipe } = await import("../src/index");
+    const { execute } = await import("../src/index");
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const error = vi
       .spyOn(console, "error")
@@ -1299,7 +1319,7 @@ describe("pipe", () => {
     });
 
     try {
-      await pipe("ship", { entrypoint: "quick", pipelineRunner });
+      await execute("ship", { entrypoint: "quick", pipelineRunner });
     } finally {
       log.mockRestore();
       error.mockRestore();
@@ -1313,22 +1333,28 @@ describe("pipe", () => {
     );
   });
 
-  it("generates and executes schedule artifacts for scheduled pipe entrypoints", async () => {
+  it("generates and executes schedule artifacts for scheduled execute entrypoints", async () => {
     await withCliTempDir(
       "pipeline-cli-schedule-plan-",
       async ({ dir, output, runCli }) => {
         writeScheduledCliConfig(dir);
         process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "execute",
+          "ship",
+          "it",
+        ]);
 
         const stdout = output();
         expect(stdout).toContain("Schedule generated:");
         expect(stdout).not.toContain("Run after approval:");
         expect(stdout).toMatch(SCHEDULE_RUN_WORKFLOW_RE);
         expect(execaCommands()).toContain("opencode");
-        expect(stdout).toMatch(SCHEDULE_MEMORY_ID_RE);
-        expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(false);
+        expect(stdout).toMatch(SCHEDULE_PATH_RE);
+        expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(true);
       }
     );
   });
@@ -1345,7 +1371,7 @@ describe("pipe", () => {
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-a
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Ship it
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1354,7 +1380,7 @@ workflows:
     nodes:
       - id: scheduled
         kind: command
-        command: [scheduled-bin]
+        command: [node, -e, "console.log('scheduled')"]
         task_context:
           id: PC-37.2
           title: Build API endpoint
@@ -1367,7 +1393,7 @@ workflows:
 
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "run",
           "--schedule",
           schedulePath,
@@ -1375,11 +1401,6 @@ workflows:
           "it",
         ]);
 
-        expect(mockExeca).toHaveBeenCalledWith(
-          "scheduled-bin",
-          [],
-          expect.objectContaining({ cwd: dir })
-        );
         expect(output()).toContain("Workflow: schedule-approved-a-root");
       }
     );
@@ -1421,7 +1442,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-opencode
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Ship it with OpenCode
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1436,7 +1457,7 @@ workflows:
 
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "run",
           "--schedule",
           schedulePath,
@@ -1466,7 +1487,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-b
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Inspect it
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1475,20 +1496,20 @@ workflows:
     nodes:
       - id: scheduled
         kind: command
-        command: [scheduled-bin]
+        command: [node, -e, "console.log('scheduled')"]
 `
         );
 
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "validate",
           "--schedule",
           schedulePath,
         ]);
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "explain-plan",
           "--schedule",
           schedulePath,
@@ -1510,7 +1531,7 @@ workflows:
       async ({ dir, runCli }) => {
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "inspect",
           "ship",
           "it",
@@ -1526,17 +1547,18 @@ workflows:
     );
   });
 
-  it("lists package entrypoint subcommands with descriptions in pipe help", async () => {
+  it("lists package entrypoint subcommands with descriptions in CLI help", async () => {
     await withCliTempDir("pipeline-cli-entrypoint-help-", async () => {
       const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
 
       expect(help).toMatch(PACKAGE_INSPECT_COMMAND_RE);
-      expect(help).toMatch(PACKAGE_EPIC_COMMAND_RE);
+      expect(help).toMatch(PACKAGE_EXECUTE_COMMAND_RE);
+      expect(help).toMatch(PACKAGE_QUICK_COMMAND_RE);
     });
   });
 
-  it("describes package-owned config as the runtime source in pipe help", async () => {
+  it("describes package-owned config as the runtime source in CLI help", async () => {
     await withCliTempDir("pipeline-cli-package-help-", async () => {
       const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
@@ -1553,10 +1575,14 @@ workflows:
       async ({ dir, output, runCli }) => {
         writeCliEntrypointConfig(dir);
 
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "validate",
+        ]);
 
         const stdout = output();
-        expect(stdout).toContain("OK: default");
+        expect(stdout).toContain("OK: inspect");
         expect(stdout).not.toContain("validate-entrypoint");
         expect(execaCommands()).not.toContain("validate-start-bin");
         expect(execaCommands()).not.toContain("validate-entrypoint-bin");
@@ -1564,16 +1590,16 @@ workflows:
     );
   });
 
-  it("supports the package collision escape hatch via pipe run --entrypoint", async () => {
+  it("supports explicit scheduled entrypoint execution via run --entrypoint", async () => {
     await withCliTempDir("pipeline-cli-collision-run-", async ({ runCli }) => {
       process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
       await runCli([
         "node",
-        "/repo/node_modules/.bin/pipe",
+        "/repo/node_modules/.bin/oisin-pipeline",
         "run",
         "--entrypoint",
-        "pipe",
+        "execute",
         "ship",
         "collision",
       ]);
@@ -1582,7 +1608,7 @@ workflows:
     });
   });
 
-  it("keeps pipe init and doctor bootstrap commands reachable without config", async () => {
+  it("keeps init and doctor bootstrap commands reachable without config", async () => {
     const { runCli } = await import("../src/index");
     const initDir = mkdtempSync(join(tmpdir(), "pipeline-cli-bootstrap-init-"));
     const doctorDir = mkdtempSync(
@@ -1593,11 +1619,15 @@ workflows:
 
     try {
       process.env.PIPELINE_TARGET_PATH = initDir;
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
       expect(existsSync(join(initDir, ".pipeline"))).toBe(false);
 
       process.env.PIPELINE_TARGET_PATH = doctorDir;
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "doctor"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "doctor",
+      ]);
       expect(
         log.mock.calls.map(([message]) => String(message)).join("\n")
       ).toContain("PASS pipeline-config: valid");
@@ -1617,20 +1647,15 @@ workflows:
     await withCliTempDir("pipeline-cli-malformed-", async ({ dir, runCli }) => {
       writeMalformedCliConfig(dir);
       process.env.PIPELINE_TEST_COMMAND = "test-bin";
-
-      await expect(
-        runCli(["node", "/repo/node_modules/.bin/pipe", "ship", "it"])
-      ).resolves.toBeUndefined();
+      await expect(executeShipIt(runCli)).resolves.toBeUndefined();
       expect(execaCommands()).toContain("opencode");
     });
   });
 
-  it("runs from package config when pipe is invoked without repo pipeline config", async () => {
+  it("runs from package config when execute is invoked without repo pipeline config", async () => {
     await withCliTempDir("pipeline-cli-missing-", async ({ runCli }) => {
       process.env.PIPELINE_TEST_COMMAND = "test-bin";
-      await expect(
-        runCli(["node", "/repo/node_modules/.bin/pipe", "ship it"])
-      ).resolves.toBeUndefined();
+      await expect(executeShipIt(runCli)).resolves.toBeUndefined();
       expect(execaCommands()).toContain("opencode");
     });
   });
@@ -1645,7 +1670,11 @@ workflows:
           "version: 1\ndefault_workflow: default\nworkflows: {}\n"
         );
 
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "init",
+        ]);
 
         expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
         expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
@@ -1658,53 +1687,58 @@ workflows:
 
   it("validates and explains the initialized YAML plan", async () => {
     await withCliTempDir("pipeline-cli-plan-", async ({ output, runCli }) => {
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "explain-plan"]);
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "doctor"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "validate",
+      ]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "explain-plan",
+      ]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "doctor",
+      ]);
 
       const stdout = output();
-      expect(stdout).toContain("OK: default");
-      expect(stdout).toContain("Workflow: default");
+      expect(stdout).toContain("OK: inspect");
+      expect(stdout).toContain("Workflow: inspect");
       expect(stdout).not.toContain("strategy=");
       expect(stdout).toContain("Doctor: PASS");
     });
   });
 
-  it("validates the epic-drain workflow without treating current warnings as fatal", async () => {
+  it("validates the package inspect workflow without legacy warnings", async () => {
     await withCliTarget(process.cwd(), async (fixture) => {
-      const { failureText, stderr, stdout, thrown } =
-        await runPackageWorkflowCommand(fixture, "validate");
-      expect(failureText).not.toMatch(UNKNOWN_ENTRYPOINT_OR_CONFIG_RE);
-      expect(thrown).toBeUndefined();
-      expect(stderr).toContain(
-        "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
-      );
-      expect(stdout).toContain("OK: epic-drain");
+      await fixture.runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "validate",
+      ]);
+      expect(fixture.stderr()).not.toContain("WARN ");
+      expect(fixture.output()).toContain("OK: inspect");
     });
   });
 
-  it("explains the epic-drain package workflow topology", async () => {
+  it("explains the package inspect workflow topology", async () => {
     await withCliTarget(process.cwd(), async (fixture) => {
-      const { failureText, stdout, thrown } = await runPackageWorkflowCommand(
-        fixture,
-        "explain-plan"
-      );
-      expect(failureText).not.toMatch(UNKNOWN_ENTRYPOINT_OR_CONFIG_RE);
-      expect(thrown).toBeUndefined();
-      expect(stdout).toContain("Workflow: epic-drain");
-      expect(stdout).toContain(
-        "Batches: [research] -> [plan] -> [implement] -> [merge] -> [review]"
-      );
-      expect(stdout).toMatch(PLAN_RESEARCH_RE);
-      expect(stdout).toMatch(PLAN_PLAN_RE);
-      expect(stdout).toMatch(PLAN_IMPLEMENT_RE);
-      expect(stdout).toMatch(PLAN_MERGE_RE);
-      expect(stdout).toMatch(PLAN_REVIEW_RE);
+      await fixture.runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "explain-plan",
+      ]);
+      const stdout = fixture.output();
+      expect(stdout).toContain("Workflow: inspect");
+      expect(stdout).toContain("Batches: [inspect]");
+      expect(stdout).toContain("- inspect kind=agent needs=none");
     });
   });
 
-  it("validate emits WARN entrypoint-shadowed when configured entrypoints collide with builtins", async () => {
+  it("validate ignores repo-local entrypoint collisions because package config owns runtime", async () => {
     await withCliTempDir("pipeline-cli-lint-entrypoint-", async (fixture) => {
       const { stderr, stdout } = await validateCliLintFixture(fixture, {
         pipeline: `
@@ -1728,10 +1762,8 @@ workflows:
 `,
       });
 
-      expect(stderr).toContain(
-        "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
-      );
-      expect(stdout).toContain("OK: default");
+      expect(stderr).not.toContain("WARN entrypoint-shadowed");
+      expect(stdout).toContain("OK: inspect");
     });
   });
 
@@ -1757,12 +1789,16 @@ profiles:
 `,
         });
 
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "validate",
+        ]);
 
         const stderrOutput = stderr();
         expect(stderrOutput).not.toContain("missing-skill");
         expect(stderrOutput).not.toContain(".pipeline/prompts/missing.md");
-        expect(output()).toContain("OK: default");
+        expect(output()).toContain("OK: inspect");
       }
     );
   });
@@ -1851,7 +1887,11 @@ workflows:
           }
         }
 
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "validate",
+        ]);
 
         const stderrOutput = stderr();
         expect(stderrOutput).not.toContain(
@@ -1861,25 +1901,23 @@ workflows:
           "profiles.pipeline-epic-router.output.schema_path references missing file '.pipeline/schemas/epic-plan.schema.json'"
         );
         expect(stderrOutput).not.toContain("WARN missing-file-reference");
-        expect(output()).toContain("OK: default");
+        expect(output()).toContain("OK: inspect");
       }
     );
   });
 
-  it("validate --strict rejects package lint warnings without repo-local missing-file warnings", async () => {
+  it("validate --strict ignores repo-local lint warnings and validates package config", async () => {
     await withCliTempDir(
       "pipeline-cli-lint-thermo-review-present-",
-      async ({ dir, runCli, stderr }) => {
+      async ({ dir, output, runCli, stderr }) => {
         writeThermoNuclearReviewValidateFixture(dir, { includeSkill: true });
 
-        await expect(
-          runCli([
-            "node",
-            "/repo/node_modules/.bin/pipe",
-            "validate",
-            "--strict",
-          ])
-        ).rejects.toThrow(WARNING_RE);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "validate",
+          "--strict",
+        ]);
 
         const stderrOutput = stderr();
         expect(stderrOutput).not.toContain("WARN missing-file-reference");
@@ -1892,7 +1930,8 @@ workflows:
         expect(stderrOutput).not.toContain(
           "profiles.pipeline-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
         );
-        expect(stderrOutput).toContain("WARN entrypoint-shadowed");
+        expect(stderrOutput).not.toContain("WARN entrypoint-shadowed");
+        expect(output()).toContain("OK: inspect");
       }
     );
   });
@@ -1903,13 +1942,17 @@ workflows:
       async ({ dir, output, runCli, stderr }) => {
         writeThermoNuclearReviewValidateFixture(dir, { includeSkill: false });
 
-        await runCli(["node", "/repo/node_modules/.bin/pipe", "validate"]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "validate",
+        ]);
 
         const missingFileWarnings = stderr()
           .split("\n")
           .filter((line) => line.includes("WARN missing-file-reference"));
         expect(missingFileWarnings).toEqual([]);
-        expect(output()).toContain("OK: default");
+        expect(output()).toContain("OK: inspect");
       }
     );
   });
@@ -1935,7 +1978,7 @@ workflows:
       });
 
       expect(stderr).not.toContain("WARN singleton-parallel");
-      expect(stdout).toContain("OK: default");
+      expect(stdout).toContain("OK: inspect");
     });
   });
 
@@ -1963,14 +2006,14 @@ workflows:
       });
 
       expect(stderr).not.toContain("WARN worktree-root-style");
-      expect(stdout).toContain("OK: default");
+      expect(stdout).toContain("OK: inspect");
     });
   });
 
-  it("validate --strict rejects when lint warnings exist and still emits WARN output", async () => {
+  it("validate --strict ignores repo-local lint warnings because package config owns runtime", async () => {
     await withCliTempDir(
       "pipeline-cli-lint-strict-",
-      async ({ dir, runCli, stderr }) => {
+      async ({ dir, output, runCli, stderr }) => {
         writeCliValidateLintConfig(dir, {
           pipeline: `
 version: 1
@@ -1990,18 +2033,15 @@ workflows:
 `,
         });
 
-        await expect(
-          runCli([
-            "node",
-            "/repo/node_modules/.bin/pipe",
-            "validate",
-            "--strict",
-          ])
-        ).rejects.toThrow(WARNING_RE);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "validate",
+          "--strict",
+        ]);
 
-        expect(stderr()).toContain(
-          "WARN entrypoint-shadowed: entrypoint 'pipe' is shadowed by the builtin subcommand; invoke via 'pipe run --entrypoint pipe ...'"
-        );
+        expect(stderr()).not.toContain("WARN entrypoint-shadowed");
+        expect(output()).toContain("OK: inspect");
       }
     );
   });
@@ -2030,13 +2070,13 @@ profiles:
 
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "validate",
           "--no-lint",
         ]);
 
         expect(stderr()).not.toContain("WARN ");
-        expect(output()).toContain("OK: default");
+        expect(output()).toContain("OK: inspect");
       }
     );
   });
@@ -2049,7 +2089,7 @@ profiles:
 
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "validate",
           "--strict",
           "--no-lint",
@@ -2081,7 +2121,7 @@ workflows:
 
         await runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "validate",
           "--no-lint",
         ]);
@@ -2094,7 +2134,7 @@ workflows:
   it("doctor reports missing prerequisites", async () => {
     await withCliTempDir("pipeline-cli-doctor-", async ({ dir, runCli }) => {
       const { runDoctor } = await import("../src/index");
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
       mockExeca.mockImplementation(((command: string) => {
         if (command === "opencode") {
           return Promise.reject({ shortMessage: "opencode missing" });
@@ -2125,7 +2165,7 @@ workflows:
       process.env.PIPELINE_TARGET_PATH = dir;
       process.env.PIPELINE_MCP_GATEWAY_URL = "https://gateway.example/mcp";
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
       mkdirSync(join(dir, ".codex"), { recursive: true });
       mkdirSync(join(dir, ".opencode"), { recursive: true });
       writeFileSync(
@@ -2139,7 +2179,7 @@ workflows:
 
       await runCli([
         "node",
-        "/repo/node_modules/.bin/pipe",
+        "/repo/node_modules/.bin/oisin-pipeline",
         "mcp",
         "gateway",
         "configure-host",
@@ -2192,21 +2232,16 @@ workflows:
       process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
       global.fetch = vi.fn().mockResolvedValue({ status: 200 }) as any;
-      await runCli(["node", "/repo/node_modules/.bin/pipe", "init"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
       writeFileSync(
         join(dir, ".mcp.json"),
         JSON.stringify({ mcpServers: { legacy: { command: "uvx" } } })
       );
 
-      await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/pipe",
-          "mcp",
-          "gateway",
-          "doctor",
-        ])
-      ).rejects.toThrow("MCP gateway doctor checks failed.");
+      const gatewayDoctor = runGatewayDoctor(runCli);
+      await expect(gatewayDoctor).rejects.toThrow(
+        "MCP gateway doctor checks failed."
+      );
 
       const output = log.mock.calls.flat().join("\n");
       expect(output).toContain("legacy-direct-mcp");
@@ -2250,20 +2285,14 @@ workflows:
         );
       });
 
-      await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/pipe",
-          "mcp",
-          "gateway",
-          "doctor",
-        ])
-      ).rejects.toThrow("MCP gateway doctor checks failed.");
+      await expect(runGatewayDoctor(runCli)).rejects.toThrow(
+        "MCP gateway doctor checks failed."
+      );
 
-      const output = log.mock.calls.flat().join("\n");
-      expect(output).toContain("gateway-required-tools");
-      expect(output).toContain("missing:");
-      expect(output).toContain("backlog");
+      const outputLines = log.mock.calls.flat().map((value) => String(value));
+      expect(outputLines.join("\n")).toContain("gateway-required-tools");
+      expect(outputLines.join("\n")).toContain("missing:");
+      expect(outputLines.join("\n")).toContain("backlog");
     } finally {
       log.mockRestore();
       global.fetch = originalFetch;
@@ -2287,7 +2316,7 @@ workflows:
 
       await runCli([
         "node",
-        "/repo/node_modules/.bin/pipe",
+        "/repo/node_modules/.bin/oisin-pipeline",
         "mcp",
         "gateway",
         "reconcile",
@@ -2341,7 +2370,7 @@ workflows:
       await prepareGatewayWorkspace(runCli, dir, { init: true });
       await runCli([
         "node",
-        "/repo/node_modules/.bin/pipe",
+        "/repo/node_modules/.bin/oisin-pipeline",
         "mcp",
         "gateway",
         "local-start",
@@ -2398,7 +2427,7 @@ workflows:
       await expect(
         runCli([
           "node",
-          "/repo/node_modules/.bin/pipe",
+          "/repo/node_modules/.bin/oisin-pipeline",
           "mcp",
           "gateway",
           "local-start",
@@ -2418,7 +2447,7 @@ workflows:
   });
 
   it("surfaces YAML runtime failures from pipe", async () => {
-    const { pipe } = await import("../src/index");
+    const { execute } = await import("../src/index");
 
     const pipelineRunner = vi.fn().mockResolvedValue({
       agentInvocations: [],
@@ -2451,7 +2480,7 @@ workflows:
     });
 
     await expect(
-      pipe("ship it", { pipelineRunner, workflow: "default" })
+      execute("ship it", { pipelineRunner, workflow: "default" })
     ).rejects.toThrow(FAILURE_DETAILS_RE);
   });
 });

@@ -1,7 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import simpleGit from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 import { diffChangedFiles, snapshotChangedFiles } from "./changed-files";
 
@@ -19,11 +19,15 @@ function tempProject(): string {
   return dir;
 }
 
+function git(dir: string, args: string[]): void {
+  execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+}
+
 describe("changed file snapshots", () => {
-  it("returns an empty snapshot outside a git worktree", async () => {
+  it("returns an empty snapshot outside a git worktree", () => {
     const dir = tempProject();
 
-    await expect(snapshotChangedFiles(dir)).resolves.toMatchObject({
+    expect(snapshotChangedFiles(dir)).toMatchObject({
       files: new Set(),
       fingerprints: new Map(),
     });
@@ -31,13 +35,12 @@ describe("changed file snapshots", () => {
 
   it("detects already-dirty tracked files that change during a node", async () => {
     const dir = tempProject();
-    const git = simpleGit({ baseDir: dir });
-    await git.init();
-    await git.addConfig("user.email", "test@example.com");
-    await git.addConfig("user.name", "Test User");
+    git(dir, ["init"]);
+    git(dir, ["config", "user.email", "test@example.com"]);
+    git(dir, ["config", "user.name", "Test User"]);
     writeFileSync(join(dir, "app.ts"), "export const value = 1;\n");
-    await git.add(["app.ts"]);
-    await git.commit("initial");
+    git(dir, ["add", "app.ts"]);
+    git(dir, ["commit", "-m", "initial"]);
 
     writeFileSync(join(dir, "app.ts"), "export const value = 2;\n");
     const before = await snapshotChangedFiles(dir);

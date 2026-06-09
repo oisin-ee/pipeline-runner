@@ -3,24 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("execa", () => ({
-  execa: vi.fn(),
-}));
-
-const detectMock = vi.hoisted(() => vi.fn());
-
-vi.mock("package-manager-detector/detect", () => ({
-  detect: detectMock,
-}));
-
-import { execa } from "execa";
-
 const WORKSPACE_PATH = "/workspace";
 const REDACTED_RE = /<redacted>/;
 const REPOSITORY_REQUIRED_RE = /repository is required/;
 const SECRET_TOKEN_RE = /super-secret-token/;
-
-const mockExeca = vi.mocked(execa);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -95,8 +81,8 @@ describe("runner-job workspace bootstrap", () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-runner-workspace-"));
     try {
       writeFileSync(join(dir, "package.json"), JSON.stringify({}));
-      detectMock.mockResolvedValueOnce({ agent: "pnpm" });
-      mockExeca.mockResolvedValueOnce({
+      const detectPackageManager = vi.fn().mockResolvedValue({ agent: "pnpm" });
+      const runCommand = vi.fn().mockResolvedValue({
         exitCode: 0,
         stdout: "Lockfile is up to date",
         stderr: "",
@@ -105,16 +91,23 @@ describe("runner-job workspace bootstrap", () => {
         "../src/runner-job/workspace.js"
       );
 
-      const result = await installRunnerWorkspaceDependencies(dir, {
-        NPM_CONFIG_AUDIT: "false",
-      });
+      const result = await installRunnerWorkspaceDependencies(
+        dir,
+        {
+          NPM_CONFIG_AUDIT: "false",
+        },
+        {
+          detectPackageManager,
+          runCommand,
+        }
+      );
 
       expect(result).toEqual({
         command: "pnpm i --frozen-lockfile",
         output: "Lockfile is up to date",
         status: "installed",
       });
-      expect(mockExeca).toHaveBeenCalledWith(
+      expect(runCommand).toHaveBeenCalledWith(
         "pnpm",
         ["i", "--frozen-lockfile"],
         {

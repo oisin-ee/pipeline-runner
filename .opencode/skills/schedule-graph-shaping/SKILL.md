@@ -1,7 +1,7 @@
 ---
 compatibility: opencode
 description: >-
-  Use when generating or reviewing pipeline schedule graphs for a task or epic.
+  Use when generating or reviewing pipeline schedule graphs for backlog work.
   Shapes explicit root DAGs by grouping related tickets and verification work by
   goal, dependency, and evidence instead of defaulting to one full
   RED/GREEN/VERIFY chain per ticket.

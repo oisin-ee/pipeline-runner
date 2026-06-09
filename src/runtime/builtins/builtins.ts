@@ -1,4 +1,11 @@
-import { runJscpd, runSemgrep, runTests, runTypecheck } from "../../gates";
+import {
+  runFallow,
+  runJscpd,
+  runLint,
+  runSemgrep,
+  runTests,
+  runTypecheck,
+} from "../../gates";
 import type { PlannedWorkflowNode } from "../../workflow-planner";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { executeDrainMergeBuiltin } from "../drain-merge";
@@ -32,6 +39,22 @@ export async function executeBuiltin(
       const result = await runTypecheck(context.worktreePath, context.signal);
       return {
         evidence: builtinCommandEvidence("typecheck", result),
+        exitCode: result.exitCode,
+        output: result.output,
+      };
+    }
+    case "lint": {
+      const result = await runLint(context.worktreePath, context.signal);
+      return {
+        evidence: builtinCommandEvidence("lint", result),
+        exitCode: result.exitCode,
+        output: result.output,
+      };
+    }
+    case "fallow": {
+      const result = await runFallow(context.worktreePath, context.signal);
+      return {
+        evidence: builtinCommandEvidence("fallow", result),
         exitCode: result.exitCode,
         output: result.output,
       };

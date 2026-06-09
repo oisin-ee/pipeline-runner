@@ -39,7 +39,7 @@ entrypoints:
     schedule: nightly-schedule
 schedules:
   nightly-schedule:
-    baseline: pipe
+    baseline: execute
 workflows:
 ${extraWorkflow}
   default:

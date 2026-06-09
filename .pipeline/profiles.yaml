@@ -160,25 +160,6 @@ profiles:
       mode: inherit
     output:
       format: text
-  pipeline-epic-router:
-    runner: codex
-    description: Route epic sub-tickets into fixed implementation tracks.
-    instructions:
-      path: .pipeline/prompts/epic-router.md
-    mcp_servers: [pipeline-gateway]
-    tools: [read, list, grep, glob, bash]
-    filesystem:
-      mode: read-only
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
-    output:
-      format: json_schema
-      schema_path: .pipeline/schemas/epic-plan.schema.json
-      repair:
-        enabled: true
-        max_attempts: 1
   pipeline-code-writer:
     runner: codex
     scheduling_roles: [implementation]

@@ -51,6 +51,7 @@ export interface RunnerLaunchPlan {
   command: string;
   cwd: string;
   env: Record<string, string | undefined>;
+  model?: string;
   nodeId: string;
   outputFormat: string;
   profileId?: string;
@@ -61,6 +62,7 @@ export interface RunnerLaunchPlan {
 
 export interface RunnerLaunchInput {
   contextFile?: string | null;
+  model?: string;
   nodeId: string;
   profileId?: string;
   prompt: string;
@@ -112,9 +114,11 @@ function ensureOpencodeGitExcludes(worktreePath: string): void {
 function optionalModelArgs(
   harness: Harness,
   runner?: PipelineConfig["runners"][string],
-  actor?: ActorConfig
+  actor?: ActorConfig,
+  selectedModel?: string
 ): string[] {
   const model =
+    selectedModel ??
     actor?.model ??
     runner?.model ??
     (harness === "opencode"
@@ -129,6 +133,7 @@ type ActorConfig = ProfileConfig;
 interface NativeArgOptions {
   actor?: ActorConfig;
   config?: PipelineConfig;
+  model?: string;
   nodeId?: string;
   runner?: PipelineConfig["runners"][string];
 }
@@ -156,7 +161,12 @@ function harnessArgv(
         "--json",
         "-C",
         worktreePath,
-        ...optionalModelArgs(harness, options.runner, options.actor),
+        ...optionalModelArgs(
+          harness,
+          options.runner,
+          options.actor,
+          options.model
+        ),
         ...(options.config ? ["--ignore-user-config"] : []),
         ...skillArgs,
         "--dangerously-bypass-approvals-and-sandbox",
@@ -169,7 +179,12 @@ function harnessArgv(
             "run",
             "--format",
             "json",
-            ...optionalModelArgs(harness, options.runner, options.actor),
+            ...optionalModelArgs(
+              harness,
+              options.runner,
+              options.actor,
+              options.model
+            ),
             ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
@@ -182,7 +197,12 @@ function harnessArgv(
             "run",
             "--format",
             "json",
-            ...optionalModelArgs(harness, options.runner, options.actor),
+            ...optionalModelArgs(
+              harness,
+              options.runner,
+              options.actor,
+              options.model
+            ),
             ...skillArgs,
             "--dangerously-skip-permissions",
             "--dir",
@@ -319,6 +339,7 @@ function createActorLaunchPlan(
   const base = {
     cwd: input.worktreePath,
     env,
+    model: input.model ?? actor?.model ?? runner.model,
     nodeId: input.nodeId,
     outputFormat,
     profileId: input.profileId,
@@ -350,6 +371,7 @@ function createActorLaunchPlan(
       {
         actor,
         config,
+        model: input.model,
         nodeId: input.nodeId,
         runner,
       }

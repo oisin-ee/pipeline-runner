@@ -52,6 +52,11 @@ export type RunnerDependencyInstaller = (
   env: Record<string, string | undefined>
 ) => Promise<RunnerWorkspaceDependencyBootstrap>;
 
+export interface InstallRunnerWorkspaceDependenciesOptions {
+  detectPackageManager?: typeof detect;
+  runCommand?: typeof execa;
+}
+
 export async function prepareRunnerWorkspace(
   options: PrepareRunnerWorkspaceOptions
 ): Promise<RunnerWorkspacePreparation> {
@@ -101,7 +106,8 @@ export async function prepareRunnerWorkspace(
 
 export async function installRunnerWorkspaceDependencies(
   worktreePath: string,
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  options: InstallRunnerWorkspaceDependenciesOptions = {}
 ): Promise<RunnerWorkspaceDependencyBootstrap> {
   if (!existsSync(join(worktreePath, "package.json"))) {
     return {
@@ -110,7 +116,10 @@ export async function installRunnerWorkspaceDependencies(
     };
   }
 
-  const pm = await detect({ cwd: worktreePath, stopDir: worktreePath });
+  const pm = await (options.detectPackageManager ?? detect)({
+    cwd: worktreePath,
+    stopDir: worktreePath,
+  });
   const resolved = resolveCommand(pm?.agent ?? "npm", "frozen", []);
   if (!resolved) {
     throw new RunnerWorkspaceError(
@@ -118,10 +127,14 @@ export async function installRunnerWorkspaceDependencies(
     );
   }
 
-  const result = await execa(resolved.command, resolved.args, {
-    cwd: worktreePath,
-    env,
-  });
+  const result = await (options.runCommand ?? execa)(
+    resolved.command,
+    resolved.args,
+    {
+      cwd: worktreePath,
+      env,
+    }
+  );
   return {
     command: displayCommand(resolved.command, resolved.args),
     output: [result.stdout, result.stderr].filter(Boolean).join("\n"),

@@ -19,6 +19,7 @@ function validEvents(): Record<string, unknown> {
 
 function validPayload(): Record<string, unknown> {
   return {
+    command: "execute",
     contractVersion: RUNNER_JOB_CONTRACT_VERSION,
     delivery: { pullRequest: false },
     events: validEvents(),
@@ -87,6 +88,7 @@ describe("runner-job payload contract", () => {
 
     expect(parsed).toEqual(validPayload());
     expect(Object.keys(parsed).sort()).toEqual([
+      "command",
       "contractVersion",
       "delivery",
       "events",
@@ -94,6 +96,18 @@ describe("runner-job payload contract", () => {
       "run",
       "task",
     ]);
+  });
+
+  it("accepts quick as a valid runner execution command", async () => {
+    const { parseRunnerJobPayload } = await loadContractModule();
+    const payload = {
+      ...validPayload(),
+      command: "quick",
+    };
+
+    const parsed = parseRunnerJobPayload(JSON.stringify(payload));
+
+    expect(parsed.command).toBe("quick");
   });
 
   it("exports schemas and types for each payload component", async () => {

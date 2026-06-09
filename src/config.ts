@@ -54,10 +54,17 @@ const GATE_KINDS = [
   "json_schema",
   "verdict",
 ] as const;
-const BUILTIN_GATES = ["duplication", "semgrep", "test", "typecheck"] as const;
+const BUILTIN_GATES = [
+  "duplication",
+  "fallow",
+  "lint",
+  "semgrep",
+  "test",
+  "typecheck",
+] as const;
 const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
-const SCHEDULE_BASELINES = ["epic", "pipe"] as const;
-const SCHEDULE_STRATEGIES = ["planner", "team-graph"] as const;
+const SCHEDULE_BASELINES = ["execute", "quick"] as const;
+const SCHEDULE_STRATEGIES = ["planner"] as const;
 const SCHEDULING_ROLES = ["coverage", "implementation"] as const;
 const MCP_GATEWAY_BACKEND_LOCALITIES = [
   "repo-local",
@@ -241,14 +248,6 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/implementation.schema.json
       repair: { enabled: true, max_attempts: 1 }
-  pipeline-epic-router:
-    runner: opencode
-    description: Route epic sub-tickets into fixed implementation tracks.
-    instructions: { inline: "Route epic sub-tickets into implementation tracks." }
-    mcp_servers: [pipeline-gateway]
-    tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
-    network: { mode: inherit }
   pipeline-code-writer:
     runner: opencode
     scheduling_roles: [implementation]
@@ -321,17 +320,17 @@ profiles:
 `;
 
 const PACKAGE_DEFAULT_PIPELINE_YAML = `version: 1
-default_workflow: default
+default_workflow: inspect
 entrypoints:
-  pipe:
-    schedule: pipe-schedule
-    description: Full pipeline
+  quick:
+    schedule: quick-schedule
+    description: Compact planner-generated pipeline for small work
+  execute:
+    schedule: execute-schedule
+    description: Full planner-generated pipeline for repository work
   inspect:
     workflow: inspect
     description: Read-only repository inspection
-  epic:
-    schedule: epic-schedule
-    description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
 orchestrator:
   profile: orchestrator
 hooks:
@@ -347,15 +346,78 @@ hooks:
       - id: generated-defaults-audit
         function: generated-defaults-audit
         failure: fail
+scheduler:
+  commands:
+    quick:
+      schedule: quick-schedule
+      catalog: quick
+    execute:
+      schedule: execute-schedule
+      catalog: execute
+  node_catalogs:
+    quick:
+      required_categories: [intake, red, green, mechanical, verification]
+      nodes:
+        backlog-intake:
+          category: intake
+          profile: pipeline-researcher
+          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
+        red-tests:
+          category: red
+          profile: pipeline-test-writer
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
+        green-implementation:
+          category: green
+          profile: pipeline-code-writer
+          models: [kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
+        verification:
+          category: verification
+          profile: pipeline-verifier
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
+    execute:
+      required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
+      nodes:
+        backlog-intake:
+          category: intake
+          profile: pipeline-researcher
+          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
+        research:
+          category: research
+          profile: pipeline-researcher
+          models: [kimi-for-coding/k2p6, zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
+        red-tests:
+          category: red
+          profile: pipeline-test-writer
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
+        green-backend:
+          category: green
+          profile: pipeline-code-writer
+          models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
+        green-frontend:
+          category: green
+          profile: pipeline-code-writer
+          models: [kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
+        acceptance-review:
+          category: acceptance
+          profile: pipeline-acceptance-reviewer
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
+        verification:
+          category: verification
+          profile: pipeline-verifier
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
+        learn:
+          category: learn
+          profile: pipeline-learner
+          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
 schedules:
-  pipe-schedule:
-    baseline: pipe
+  quick-schedule:
+    baseline: quick
     planner_profile: pipeline-schedule-planner
-    strategy: team-graph
-  epic-schedule:
-    baseline: epic
+    node_catalog: quick
+  execute-schedule:
+    baseline: execute
     planner_profile: pipeline-schedule-planner
-    strategy: team-graph
+    node_catalog: execute
 workflows:
   inspect:
     description: Read-only repository inspection workflow.
@@ -363,114 +425,6 @@ workflows:
       - id: inspect
         kind: agent
         profile: pipeline-inspector
-  default:
-    description: Default research, red, green, acceptance, verify, learn workflow.
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: red
-        kind: agent
-        profile: pipeline-test-writer
-        needs: [research]
-        gates:
-          - id: red-test-file-policy
-            kind: changed_files
-            changed_files:
-              allow: ["**/*.test.*", "**/*.spec.*", "**/*_test.*", "**/__tests__/**", "test/**", "tests/**", "**/*.snap"]
-              require_any: ["**/*.test.*", "**/*.spec.*", "**/*_test.*", "**/__tests__/**", "test/**", "tests/**"]
-      - id: green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [red]
-      - id: acceptance
-        kind: agent
-        profile: pipeline-acceptance-reviewer
-        needs: [green]
-        gates:
-          - id: acceptance-coverage
-            kind: acceptance
-            target: stdout
-            required: false
-          - id: acceptance-verdict
-            kind: verdict
-            target: stdout
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [acceptance]
-        gates:
-          - id: verify-typecheck
-            kind: builtin
-            builtin: typecheck
-          - id: verify-tests
-            kind: builtin
-            builtin: test
-          - id: verify-semgrep
-            kind: builtin
-            builtin: semgrep
-          - id: verify-duplication
-            kind: builtin
-            builtin: duplication
-          - id: verify-verdict
-            kind: verdict
-            target: stdout
-      - id: learn
-        kind: agent
-        profile: pipeline-learner
-        needs: [verify]
-  infra:
-    description: Default-shaped stub workflow for infrastructure specialization.
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: red
-        kind: agent
-        profile: pipeline-test-writer
-        needs: [research]
-      - id: green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [red]
-      - id: acceptance
-        kind: agent
-        profile: pipeline-acceptance-reviewer
-        needs: [green]
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [acceptance]
-      - id: learn
-        kind: agent
-        profile: pipeline-learner
-        needs: [verify]
-  epic-drain:
-    description: Route epic work, execute implementation, drain merge, and review.
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: plan
-        kind: agent
-        profile: pipeline-epic-router
-        needs: [research]
-      - id: implement
-        kind: workflow
-        workflow: infra
-        needs: [plan]
-      - id: merge
-        kind: builtin
-        builtin: drain-merge
-        needs: [implement]
-      - id: review
-        kind: agent
-        profile: pipeline-thermo-nuclear-reviewer
-        needs: [merge]
-        gates:
-          - id: review-verdict
-            kind: verdict
-            target: stdout
 `;
 
 const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL = new URL(
@@ -837,6 +791,8 @@ const artifactSchema = z
   })
   .strict();
 
+const modelFallbacksSchema = z.array(z.string().min(1)).min(1);
+
 const changedFilesPolicySchema = z
   .object({
     allow: z.array(z.string()).optional(),
@@ -1093,8 +1049,40 @@ const schedulePolicySchema = z
     description: z.string().optional(),
     baseline: z.enum(SCHEDULE_BASELINES),
     max_parallel_nodes: z.number().int().positive().optional(),
+    node_catalog: z.string().min(1).optional(),
     planner_profile: z.string().optional(),
     strategy: z.enum(SCHEDULE_STRATEGIES).default("planner"),
+  })
+  .strict();
+
+const schedulerCommandSchema = z
+  .object({
+    catalog: z.string().min(1),
+    schedule: z.string().min(1),
+  })
+  .strict();
+
+const schedulerNodeTemplateSchema = z
+  .object({
+    category: z.string().min(1),
+    description: z.string().optional(),
+    gates: z.array(gateSchema).optional(),
+    models: modelFallbacksSchema,
+    profile: z.string().min(1),
+  })
+  .strict();
+
+const schedulerNodeCatalogSchema = z
+  .object({
+    nodes: strictRecord(schedulerNodeTemplateSchema).default({}),
+    required_categories: z.array(z.string().min(1)).default([]),
+  })
+  .strict();
+
+const schedulerConfigSchema = z
+  .object({
+    commands: strictRecord(schedulerCommandSchema).default({}),
+    node_catalogs: strictRecord(schedulerNodeCatalogSchema).default({}),
   })
   .strict();
 
@@ -1102,6 +1090,7 @@ const workflowNodeBaseSchema = z.object({
   artifacts: z.array(artifactSchema).optional(),
   gates: z.array(gateSchema).optional(),
   id: z.string(),
+  models: modelFallbacksSchema.optional(),
   needs: z.array(z.string()).optional(),
   retries: retriesSchema.optional(),
   task_context: nodeTaskContextSchema.optional(),
@@ -1259,6 +1248,10 @@ const pipelineFileSchema = z
       environment: { setup: [], smoke: [] },
       git: { committer: DEFAULT_RUNNER_JOB_GIT_COMMITTER },
     }),
+    scheduler: schedulerConfigSchema.default({
+      commands: {},
+      node_catalogs: {},
+    }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     workflows: strictRecord(workflowSchema).default({}),
@@ -1281,6 +1274,10 @@ const configSchemaBase = z
     }),
     rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),
+    scheduler: schedulerConfigSchema.default({
+      commands: {},
+      node_catalogs: {},
+    }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
@@ -1346,7 +1343,50 @@ function configReferenceIssues(
         read: (schedule) => schedule.planner_profile,
         registry: config.profiles,
       },
+      {
+        field: "node_catalog",
+        message: (scheduleId, value) =>
+          `schedule '${scheduleId}' references missing scheduler node catalog '${value}'`,
+        read: (schedule) => schedule.node_catalog,
+        registry: config.scheduler.node_catalogs,
+      },
     ]),
+    ...registryReferenceIssues(
+      "scheduler.commands",
+      config.scheduler.commands,
+      [
+        {
+          field: "catalog",
+          message: (commandId, value) =>
+            `scheduler command '${commandId}' references missing node catalog '${value}'`,
+          read: (command) => command.catalog,
+          registry: config.scheduler.node_catalogs,
+        },
+        {
+          field: "schedule",
+          message: (commandId, value) =>
+            `scheduler command '${commandId}' references missing schedule '${value}'`,
+          read: (command) => command.schedule,
+          registry: config.schedules,
+        },
+      ]
+    ),
+    ...Object.entries(config.scheduler.node_catalogs).flatMap(
+      ([catalogId, catalog]) =>
+        registryReferenceIssues(
+          `scheduler.node_catalogs.${catalogId}.nodes`,
+          catalog.nodes,
+          [
+            {
+              field: "profile",
+              message: (nodeId, value) =>
+                `scheduler node '${catalogId}.${nodeId}' references missing profile '${value}'`,
+              read: (node) => node.profile,
+              registry: config.profiles,
+            },
+          ]
+        )
+    ),
   ];
 }
 
@@ -1509,6 +1549,7 @@ export function parsePipelineConfigParts(
       runner_job: pipeline.runner_job,
       rules: profiles.rules,
       runners: runners.runners,
+      scheduler: pipeline.scheduler,
       schedules: pipeline.schedules,
       skills: profiles.skills,
       ...(pipeline.task_context ? { task_context: pipeline.task_context } : {}),

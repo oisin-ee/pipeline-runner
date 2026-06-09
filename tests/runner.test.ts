@@ -15,7 +15,6 @@ import { normalizeRunnerOutput } from "../src/runner-output.ts";
 import { opencodeCliRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
-
 function makeSimpleResult(stdout = "output", exitCode = 0) {
   return Promise.resolve({ stdout, exitCode }) as any;
 }

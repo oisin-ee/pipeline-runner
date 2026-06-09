@@ -1,6 +1,6 @@
 ---
 name: schedule-graph-shaping
-description: Use when generating or reviewing pipeline schedule graphs for a task or epic. Shapes explicit root DAGs by grouping related tickets and verification work by goal, dependency, and evidence instead of defaulting to one full RED/GREEN/VERIFY chain per ticket.
+description: Use when generating or reviewing pipeline schedule graphs for backlog work. Shapes explicit root DAGs by grouping related tickets and verification work by goal, dependency, and evidence instead of defaulting to one full RED/GREEN/VERIFY chain per ticket.
 ---
 
 # Schedule Graph Shaping
@@ -11,7 +11,7 @@ Use this when producing a `pipeline-schedule` YAML artifact.
 
 - Return only the artifact requested by the schedule planner. Do not add prose.
 - Generate exactly one workflow named `root`.
-- Do not use `kind: workflow` or embed configured workflow copies such as `default`, `infra`, `track`, or `epic-drain`.
+- Do not use `kind: workflow` or embed configured workflow copies such as `default`, `infra`, or `track`.
 - Every generated agent node must declare a configured `profile`.
 - Node IDs must be stable lowercase kebab-case and match `^[a-z][a-z0-9-]*$`.
 - Do not invent profiles, node-level skills, or unconfigured gates.

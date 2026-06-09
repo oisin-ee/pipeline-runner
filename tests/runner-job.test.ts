@@ -16,7 +16,6 @@ vi.mock("simple-git", () => ({
   default: simpleGitMock,
   simpleGit: simpleGitMock,
 }));
-
 const EVENT_SINK_URL = "https://console.example.test/api/runs/run_123/events";
 const RUNNER_JOB_CONTRACT_VERSION = "1";
 const MALFORMED_JSON_RE = /malformed|json/i;
@@ -53,6 +52,23 @@ const TEST_SKILLS = [
   "trace",
   "verify",
 ];
+
+async function waitForExpectation(assertion: () => void): Promise<void> {
+  const deadline = Date.now() + 1000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      assertion();
+      return;
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  if (lastError) {
+    throw lastError;
+  }
+}
 
 function validPayload(): Record<string, unknown> {
   return {
@@ -118,6 +134,27 @@ async function withPayloadContext<T>(
   }
 }
 
+async function writePayloadWithEventToken(
+  dir: string,
+  overrides: Record<string, unknown> = {}
+): Promise<{ authTokenFilePath: string; payloadFile: string }> {
+  const authTokenFilePath = join(dir, "event-token");
+  await writeFile(authTokenFilePath, "console-token");
+  const payloadFile = join(dir, "payload.json");
+  await writeFile(
+    payloadFile,
+    JSON.stringify({
+      ...validPayload(),
+      events: {
+        ...validEvents(),
+        authTokenFile: authTokenFilePath,
+      },
+      ...overrides,
+    })
+  );
+  return { authTokenFilePath, payloadFile };
+}
+
 function runtimeResult(outcome: "CANCELLED" | "FAIL" | "PASS"): any {
   return {
     agentInvocations: [],
@@ -130,7 +167,7 @@ function runtimeResult(outcome: "CANCELLED" | "FAIL" | "PASS"): any {
     nodeStates: {},
     nodes: [],
     outcome,
-    plan: { workflowId: "default" },
+    plan: { workflowId: "execute" },
     structuredOutputs:
       outcome === "PASS"
         ? [
@@ -242,6 +279,17 @@ async function writeTestSkills(root: string): Promise<void> {
   }
 }
 
+function okFetchMock() {
+  return vi.fn(async () => okResponse());
+}
+
+function runSuccessfulJob(
+  runRunnerJob: typeof import("../src/runner-job/run")["runRunnerJob"],
+  options: Parameters<typeof import("../src/runner-job/run")["runRunnerJob"]>[0]
+): Promise<number> {
+  return runRunnerJob(options);
+}
+
 async function writeIgnoredRepoLocalSmokeConfig(root: string): Promise<void> {
   const pipelineDir = join(root, ".pipeline");
   await mkdir(pipelineDir, { recursive: true });
@@ -307,7 +355,7 @@ describe("runner-job entrypoint", () => {
           }),
           runId: "run_123",
           task: "Ship PIPE-38",
-          workflowId: "default",
+          workflowId: "execute",
           worktreePath: process.cwd(),
         })
       );
@@ -347,11 +395,40 @@ describe("runner-job entrypoint", () => {
     });
   });
 
+  it("passes quick through the runner payload and schedules the quick entrypoint", async () => {
+    const { runRunnerJob } = await loadRunnerModule();
+    const fetchMock = okFetchMock();
+    const pipelineRunner = vi.fn((options) => {
+      expect(options.workflowId).toBe("quick");
+      return runtimeResult("PASS");
+    });
+    const prepareSchedule = vi.fn((config, command) => {
+      expect(command).toBe("quick");
+      return Promise.resolve({ config, workflowId: "quick" });
+    });
+
+    await withPayloadContext(
+      async ({ env, payloadFile }) => {
+        const exitCode = await runRunnerJob({
+          cwd: process.cwd(),
+          env,
+          payloadFile,
+          fetch: fetchMock,
+          pipelineRunner,
+          prepareSchedule,
+        });
+
+        expect(exitCode).toBe(0);
+        expect(prepareSchedule).toHaveBeenCalledTimes(1);
+        expect(pipelineRunner).toHaveBeenCalledTimes(1);
+      },
+      { command: "quick" }
+    );
+  });
+
   it("resolves ticket payloads before invoking the pipeline engine", async () => {
     const { runRunnerJob } = await loadRunnerModule();
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) => okResponse()
-    );
+    const fetchMock = okFetchMock();
     const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
 
     const dir = await mkdtemp(join(tmpdir(), "pipe-ticket-payload-"));
@@ -372,18 +449,17 @@ describe("runner-job entrypoint", () => {
       };
       await writeFile(payloadPath, JSON.stringify(payload));
 
-      const exitCode = await runRunnerJob({
+      const exitCode = await runSuccessfulJob(runRunnerJob, {
         env: { PIPELINE_TARGET_PATH: process.cwd() },
         payloadFile: payloadPath,
         fetch: fetchMock,
         pipelineRunner,
       });
-
       expect(exitCode).toBe(0);
       expect(pipelineRunner).toHaveBeenCalledWith(
         expect.objectContaining({
           task: "PIPE-49.2",
-          workflowId: "default",
+          workflowId: "execute",
         })
       );
     } finally {
@@ -393,13 +469,11 @@ describe("runner-job entrypoint", () => {
 
   it("uses the ticket id, not the ticket file body, as schedule identity", async () => {
     const { runRunnerJob } = await loadRunnerModule();
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) => okResponse()
-    );
+    const fetchMock = okFetchMock();
     const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
     const prepareSchedule = vi.fn(async (config) => ({
       config,
-      workflowId: "default",
+      workflowId: "execute",
     }));
 
     const dir = await mkdtemp(join(tmpdir(), "pipe-ticket-schedule-"));
@@ -437,17 +511,17 @@ describe("runner-job entrypoint", () => {
         })
       );
 
-      const exitCode = await runRunnerJob({
+      const exitCode = await runSuccessfulJob(runRunnerJob, {
         env: { PIPELINE_TARGET_PATH: dir },
         fetch: fetchMock,
         payloadFile: payloadPath,
         pipelineRunner,
         prepareSchedule,
       });
-
       expect(exitCode).toBe(0);
       expect(prepareSchedule).toHaveBeenCalledWith(
         expect.anything(),
+        "execute",
         "RONDO-017.02",
         expect.objectContaining({ worktreePath: dir }),
         expect.anything()
@@ -599,24 +673,12 @@ describe("runner-job entrypoint", () => {
     });
     const prepareSchedule = vi.fn(async (config) => {
       await scheduleGate;
-      return { config, workflowId: "default" };
+      return { config, workflowId: "execute" };
     });
 
     try {
       await writeTestSkills(dir);
-      const authTokenFilePath = join(dir, "event-token");
-      await writeFile(authTokenFilePath, "console-token");
-      const payloadFile = join(dir, "payload.json");
-      await writeFile(
-        payloadFile,
-        JSON.stringify({
-          ...validPayload(),
-          events: {
-            ...validEvents(),
-            authTokenFile: authTokenFilePath,
-          },
-        })
-      );
+      const { payloadFile } = await writePayloadWithEventToken(dir);
 
       const runPromise = runRunnerJob({
         env: { PIPELINE_TARGET_PATH: dir },
@@ -630,7 +692,7 @@ describe("runner-job entrypoint", () => {
         })),
       });
 
-      await vi.waitFor(() => {
+      await waitForExpectation(() => {
         expect(prepareSchedule).toHaveBeenCalled();
       });
 
@@ -1181,7 +1243,7 @@ describe("runner-job entrypoint", () => {
         expect.objectContaining({
           finalResult: {
             outcome: "FAIL",
-            workflowId: "pipe",
+            workflowId: "execute",
           },
           type: "workflow.finish",
         }),
@@ -1221,7 +1283,7 @@ describe("runner-job entrypoint", () => {
         expect.objectContaining({
           finalResult: {
             outcome: "FAIL",
-            workflowId: "pipe",
+            workflowId: "execute",
           },
           type: "workflow.finish",
         })
@@ -1269,7 +1331,7 @@ describe("runner-job entrypoint", () => {
         expect.objectContaining({
           finalResult: {
             outcome: "FAIL",
-            workflowId: "pipe",
+            workflowId: "execute",
           },
           type: "workflow.finish",
         }),
@@ -1378,34 +1440,21 @@ readiness.config.default_workflow;
         join(dir, ".pipeline", "pipeline.yaml"),
         "version: 1\ndefault_workflow: repo-local\norchestrator: { profile: repo-local }\nworkflows: {}\n"
       );
-      const authTokenFilePath = join(dir, "event-token");
-      await writeFile(authTokenFilePath, "console-token");
-      const payloadFile = join(dir, "payload.json");
-      await writeFile(
-        payloadFile,
-        JSON.stringify({
-          ...validPayload(),
-          events: {
-            ...validEvents(),
-            authTokenFile: authTokenFilePath,
-          },
-        })
-      );
+      const { payloadFile } = await writePayloadWithEventToken(dir);
 
-      const exitCode = await runRunnerJob({
+      const exitCode = await runSuccessfulJob(runRunnerJob, {
         cwd: dir,
         payloadFile,
-        fetch: vi.fn(async () => okResponse()),
+        fetch: okFetchMock(),
         pipelineRunner,
       });
-
       expect(exitCode).toBe(0);
       expect(pipelineRunner).toHaveBeenCalledWith(
         expect.objectContaining({
           config: expect.objectContaining({
-            default_workflow: "default",
+            default_workflow: "inspect",
           }),
-          workflowId: "default",
+          workflowId: "execute",
         })
       );
     } finally {
@@ -1744,14 +1793,13 @@ describe("runner-job orchestrator argument", () => {
 
       const pipelineRunner = vi.fn(() => runtimeResult("PASS"));
 
-      const exitCode = await runRunnerJob({
+      const exitCode = await runSuccessfulJob(runRunnerJob, {
         env: { PIPELINE_TARGET_PATH: process.cwd() },
         payloadFile: payloadPath,
         orchestrator: "opencode",
-        fetch: vi.fn(async () => okResponse()),
+        fetch: okFetchMock(),
         pipelineRunner,
       });
-
       expect(exitCode).toBe(0);
       expect(pipelineRunner).toHaveBeenCalledWith(
         expect.objectContaining({

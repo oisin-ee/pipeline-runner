@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { PipelineConfig } from "../../config";
 import { gatewayServerForProfile } from "../../mcp/gateway";
+import { selectNodeModel } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
 import { resolveFileReference } from "../../path-refs";
 import {
@@ -39,7 +40,9 @@ export async function executeAgentNode(
     };
   }
   const prompt = renderAgentPrompt(node, context);
+  const modelSelection = selectNodeModel(node);
   const plan = createRunnerLaunchPlan(context.config, {
+    model: modelSelection.model,
     nodeId: node.id,
     profileId: node.profile,
     prompt,
@@ -64,6 +67,10 @@ export async function executeAgentNode(
   return {
     evidence: [
       `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId}`,
+      `model selection: ${modelSelection.model ?? "profile/default"} (${modelSelection.reason})`,
+      ...(modelSelection.skipped.length
+        ? [`model fallbacks skipped: ${modelSelection.skipped.join(", ")}`]
+        : []),
       ...finalized.evidence,
       ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
       ...(result.timedOut ? ["agent timed out"] : []),

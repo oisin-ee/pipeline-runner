@@ -10,7 +10,9 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pipe } from "../src/index";
+import { parsePipelineConfigParts } from "../src/config";
+import { execute } from "../src/index";
+import { runPipelineFromConfig } from "../src/pipeline-runtime";
 
 interface LoggedCommand {
   args?: string[];
@@ -414,6 +416,33 @@ function readCommandLog(logPath: string): LoggedCommand[] {
     .map((line) => JSON.parse(line) as LoggedCommand);
 }
 
+function runTracerPipeline(
+  env: TracerEnvironment,
+  task: string
+): Promise<void> {
+  const config = parsePipelineConfigParts(
+    {
+      pipeline: readFileSync(
+        join(env.worktreePath, ".pipeline/pipeline.yaml"),
+        "utf8"
+      ),
+      profiles: readFileSync(
+        join(env.worktreePath, ".pipeline/profiles.yaml"),
+        "utf8"
+      ),
+      runners: readFileSync(
+        join(env.worktreePath, ".pipeline/runners.yaml"),
+        "utf8"
+      ),
+    },
+    env.worktreePath
+  );
+  return execute(task, {
+    pipelineRunner: (input) => runPipelineFromConfig({ ...input, config }),
+    workflow: "default",
+  });
+}
+
 describe("PIPE-14 tracer-bullet pipeline", () => {
   let env: TracerEnvironment;
   let originalPath: string | undefined;
@@ -504,7 +533,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
   it("runs the integrated tracer to PASS through real child-process commands", async () => {
     process.env.PIPELINE_TRACER_VERDICT = "PASS";
 
-    await pipe("PIPE-14 tracer bullet", { workflow: "default" });
+    await runTracerPipeline(env, "PIPE-14 tracer bullet");
 
     const rolePrompts = readCommandLog(env.logPath)
       .filter((entry) => entry.type === "role")
@@ -541,7 +570,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     process.env.PIPELINE_TRACER_VERDICT = "FAIL";
 
     await expect(
-      pipe("PIPE-14 tracer bullet", { workflow: "default" })
+      runTracerPipeline(env, "PIPE-14 tracer bullet")
     ).rejects.toThrow("Pipeline failed");
 
     const rolePrompts = readCommandLog(env.logPath)

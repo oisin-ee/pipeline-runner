@@ -109,12 +109,6 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
-  pipeline-epic-router:
-    runner: codex
-    instructions: { inline: Route }
-    tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only }
-    network: { mode: inherit }
   pipeline-thermo-nuclear-reviewer:
     runner: codex
     scheduling_roles: [coverage]
@@ -132,22 +126,24 @@ profiles:
 
 const PIPELINE = `
 version: 1
-default_workflow: default
+default_workflow: inspect
 entrypoints:
-  pipe:
-    schedule: default-schedule
+  execute:
+    schedule: execute-schedule
     description: Generated schedule
-  epic:
-    schedule: epic-schedule
-    description: Generated epic schedule
+  quick:
+    schedule: quick-schedule
+    description: Compact generated schedule
+  inspect:
+    workflow: inspect
 orchestrator:
   profile: orchestrator
 schedules:
-  default-schedule:
-    baseline: pipe
+  execute-schedule:
+    baseline: execute
     planner_profile: pipeline-schedule-planner
-  epic-schedule:
-    baseline: epic
+  quick-schedule:
+    baseline: quick
     planner_profile: pipeline-schedule-planner
 workflows:
   inspect:
@@ -155,84 +151,6 @@ workflows:
       - id: inspect
         kind: agent
         profile: pipeline-researcher
-  default:
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: red
-        kind: agent
-        profile: pipeline-test-writer
-        needs: [research]
-        gates:
-          - id: red-test-file-policy
-            kind: changed_files
-            changed_files:
-              allow: ["**/*.test.*", "tests/**"]
-              require_any: ["**/*.test.*", "tests/**"]
-      - id: green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [red]
-      - id: acceptance
-        kind: agent
-        profile: pipeline-acceptance-reviewer
-        needs: [green]
-        gates:
-          - id: acceptance-coverage
-            kind: acceptance
-            target: stdout
-            required: false
-          - id: acceptance-verdict
-            kind: verdict
-            target: stdout
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [acceptance]
-        gates:
-          - id: verify-typecheck
-            kind: builtin
-            builtin: typecheck
-          - id: verify-tests
-            kind: builtin
-            builtin: test
-          - id: verify-verdict
-            kind: verdict
-            target: stdout
-      - id: learn
-        kind: agent
-        profile: pipeline-learner
-        needs: [verify]
-  epic-drain:
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: plan
-        kind: agent
-        profile: pipeline-epic-router
-        needs: [research]
-      - id: implement
-        kind: parallel
-        needs: [plan]
-        nodes:
-          - id: test
-            kind: workflow
-            workflow: default
-            worktree_root: .pipeline/runs/\${runId}/test
-      - id: merge
-        kind: builtin
-        builtin: drain-merge
-        needs: [implement]
-      - id: review
-        kind: agent
-        profile: pipeline-thermo-nuclear-reviewer
-        needs: [merge]
-        gates:
-          - id: review-verdict
-            kind: verdict
-            target: stdout
   execute-slice:
     nodes:
       - id: research
@@ -325,6 +243,55 @@ function writeBacklogTask(
   );
 }
 
+function buildScheduleYaml(options: {
+  generatedAt?: string;
+  nodes: string[];
+  scheduleId: string;
+  task: string;
+}): string {
+  const generatedAt = options.generatedAt ?? "2026-06-03T12:00:00.000Z";
+  return [
+    "version: 1",
+    "kind: pipeline-schedule",
+    `schedule_id: ${options.scheduleId}`,
+    "source_entrypoint: execute",
+    `task: ${options.task}`,
+    `generated_at: ${generatedAt}`,
+    "root_workflow: root",
+    "workflows:",
+    "  root:",
+    "    nodes:",
+    ...options.nodes.map((line) => `      ${line}`),
+    "",
+  ].join("\n");
+}
+
+async function generateScheduleWithPrompt(options: {
+  entrypointId?: string;
+  runId: string;
+  schedule: string;
+  task: string;
+  worktreePath: string;
+}): Promise<{
+  prompt: string;
+  result: Awaited<ReturnType<typeof generateScheduleArtifact>>;
+}> {
+  const seenPrompts: string[] = [];
+  const result = await generateScheduleArtifact({
+    config: config(),
+    entrypointId: options.entrypointId ?? "execute",
+    executor: (plan) => {
+      seenPrompts.push(plan.args.join("\n"));
+      return { exitCode: 0, stdout: options.schedule };
+    },
+    generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+    runId: options.runId,
+    task: options.task,
+    worktreePath: options.worktreePath,
+  });
+  return { prompt: seenPrompts[0] ?? "", result };
+}
+
 describe("schedule artifacts", () => {
   it("accepts explicit scheduling roles in profile config", () => {
     const parsed = parsePipelineConfigParts({
@@ -349,119 +316,6 @@ describe("schedule artifacts", () => {
     ).toEqual(["coverage"]);
   });
 
-  it("generates an explicit team graph schedule when policy requests team-graph", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-team-graph-"));
-    writeBacklogTask(
-      dir,
-      "PIPE-60",
-      "Team graph epic",
-      "## Description\n\nParent.",
-      { parentTaskId: "" }
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-60.1",
-      "First specialist",
-      "## Description\n\nFirst.\n\n## Acceptance Criteria\n\n- [ ] #1 First works\n",
-      { parentTaskId: "PIPE-60" }
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-60.2",
-      "Second specialist",
-      "## Description\n\nSecond.\n\n## Acceptance Criteria\n\n- [ ] #1 Second works\n",
-      { dependencies: ["PIPE-60.1"], parentTaskId: "PIPE-60" }
-    );
-    const teamConfig = config();
-    teamConfig.schedules["default-schedule"].strategy = "team-graph";
-
-    try {
-      const result = await generateScheduleArtifact({
-        config: teamConfig,
-        entrypointId: "pipe",
-        executor: () => {
-          throw new Error("team graph strategy should not invoke planner");
-        },
-        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
-        runId: "run-team-graph",
-        task: "PIPE-60",
-        worktreePath: dir,
-      });
-
-      expect(result.artifact.workflows.root.nodes).toEqual([
-        expect.objectContaining({
-          id: "lead-plan",
-          kind: "agent",
-          profile: "pipeline-schedule-planner",
-        }),
-        expect.objectContaining({
-          id: "specialists",
-          kind: "parallel",
-          needs: ["lead-plan"],
-          nodes: expect.arrayContaining([
-            expect.objectContaining({
-              id: "specialist-pipe-60-1",
-              kind: "agent",
-              profile: "pipeline-code-writer",
-              task_context: expect.objectContaining({ id: "PIPE-60.1" }),
-            }),
-            expect.objectContaining({
-              id: "specialist-pipe-60-2",
-              kind: "agent",
-              needs: ["specialist-pipe-60-1"],
-              profile: "pipeline-code-writer",
-              task_context: expect.objectContaining({ id: "PIPE-60.2" }),
-            }),
-            expect.objectContaining({
-              id: "specialist-coverage",
-              kind: "agent",
-              needs: ["specialist-pipe-60-1", "specialist-pipe-60-2"],
-              profile: "pipeline-verifier",
-            }),
-          ]),
-        }),
-        expect.objectContaining({
-          builtin: "drain-merge",
-          id: "integration",
-          kind: "builtin",
-          needs: ["specialists"],
-        }),
-        expect.objectContaining({
-          id: "acceptance-review",
-          kind: "agent",
-          needs: ["integration"],
-          profile: "pipeline-acceptance-reviewer",
-        }),
-        expect.objectContaining({
-          id: "verify",
-          kind: "agent",
-          needs: ["acceptance-review"],
-          profile: "pipeline-verifier",
-        }),
-      ]);
-      const specialists = result.artifact.workflows.root.nodes[1];
-      if (specialists.kind !== "parallel") {
-        throw new Error("expected specialists parallel node");
-      }
-      for (const node of specialists.nodes.filter(
-        (child) =>
-          child.kind === "agent" && child.profile === "pipeline-code-writer"
-      )) {
-        if (node.kind !== "agent") {
-          throw new Error("expected specialist agent");
-        }
-        expect(teamConfig.profiles[node.profile].filesystem?.mode).toBe(
-          "workspace-write"
-        );
-      }
-      expect(() =>
-        compileScheduleArtifact(teamConfig, result.artifact, dir)
-      ).not.toThrow();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   it("does not infer scheduling roles from default profile ids", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-role-contract-"));
     const profilesWithoutRoles = PROFILES.replaceAll(
@@ -477,7 +331,7 @@ describe("schedule artifacts", () => {
 version: 1
 kind: pipeline-schedule
 schedule_id: run-role-contract
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Role contract
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -493,7 +347,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: roleConfig,
-          entrypointId: "pipe",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: schedule }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-role-contract",
@@ -516,7 +370,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-unsafe-team
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Unsafe team
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -542,7 +396,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: config(),
-          entrypointId: "pipe",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: unsafeSchedule }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-unsafe-team",
@@ -562,7 +416,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: config(),
-          entrypointId: "pipe",
+          entrypointId: "execute",
           executor: () => ({
             exitCode: 1,
             stderr: "codex auth missing",
@@ -593,7 +447,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-profile-fit
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Profile fit
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -612,7 +466,7 @@ workflows:
     try {
       await generateScheduleArtifact({
         config: richConfig,
-        entrypointId: "pipe",
+        entrypointId: "execute",
         executor: (plan) => {
           prompt = plan.args.join("\n");
           return { exitCode: 0, stdout: schedule };
@@ -641,7 +495,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-a
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Implement generated schedules
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -677,7 +531,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-a
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Implement generated schedules
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -700,7 +554,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-jsonl
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Implement generated schedules
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -723,7 +577,7 @@ workflows:
     try {
       const result = await generateScheduleArtifact({
         config: config(),
-        entrypointId: "pipe",
+        entrypointId: "execute",
         executor: () => ({
           exitCode: 0,
           stdout: [
@@ -742,7 +596,8 @@ workflows:
       });
 
       expect(result.artifact.schedule_id).toBe("run-jsonl");
-      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+      expect(result.path).toBe(".pipeline/runs/run-jsonl/schedule.yaml");
+      expect(existsSync(join(dir, result.path))).toBe(true);
       expect(
         result.artifact.workflows.root.nodes.map((node) => node.id)
       ).toEqual(["research", "implement", "verify"]);
@@ -757,7 +612,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-repair
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Implement PIPE-44
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -780,7 +635,7 @@ workflows:
     try {
       const result = await generateScheduleArtifact({
         config: config(),
-        entrypointId: "pipe",
+        entrypointId: "execute",
         executor: () => ({ exitCode: 0, stdout: schedule }),
         generatedAt: new Date("2026-06-03T12:00:00.000Z"),
         runId: "run-repair",
@@ -801,8 +656,8 @@ workflows:
       expect(result.artifact.workflows.root.nodes[2]).toMatchObject({
         needs: ["green-scheduler-roles"],
       });
-      expect(result.path).toBe("memory:run-repair");
-      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+      expect(result.path).toBe(".pipeline/runs/run-repair/schedule.yaml");
+      expect(existsSync(join(dir, result.path))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -821,7 +676,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-opencode-repair
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Repair OpenCode schedule
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -845,7 +700,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-opencode-repair
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Repair OpenCode schedule
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -870,7 +725,7 @@ workflows:
     try {
       const result = await generateScheduleArtifact({
         config: opencodeConfig,
-        entrypointId: "pipe",
+        entrypointId: "execute",
         executor: (plan) => {
           prompts.push(plan.args.join("\n"));
           nodeIds.push(plan.nodeId);
@@ -925,7 +780,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-builtin-repair
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Run PIPE-2
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -940,7 +795,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-builtin-repair
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Run PIPE-2
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -957,7 +812,7 @@ workflows:
     try {
       const result = await generateScheduleArtifact({
         config: config(),
-        entrypointId: "pipe",
+        entrypointId: "execute",
         executor: (plan) => {
           prompts.push(plan.args.join("\n"));
           nodeIds.push(plan.nodeId);
@@ -977,7 +832,7 @@ workflows:
 
       expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
       expect(prompts[0]).toContain(
-        "Allowed builtin values: drain-merge, duplication, semgrep, test, typecheck"
+        "Allowed builtin values: drain-merge, duplication, fallow, lint, semgrep, test, typecheck"
       );
       expect(prompts[1]).toContain("unsupported generated builtin");
       expect(result.artifact.workflows.root.nodes).toContainEqual({
@@ -998,7 +853,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-coverage-fan-in
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Cover generated implementation
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1016,7 +871,7 @@ workflows:
     try {
       const result = await generateScheduleArtifact({
         config: config(),
-        entrypointId: "pipe",
+        entrypointId: "execute",
         executor: () => ({ exitCode: 0, stdout: uncoveredSchedule }),
         generatedAt: new Date("2026-06-03T12:00:00.000Z"),
         runId: "run-coverage-fan-in",
@@ -1044,7 +899,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-parallel-coverage-fan-in
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Cover parallel implementation
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1072,7 +927,7 @@ workflows:
     try {
       const result = await generateScheduleArtifact({
         config: config(),
-        entrypointId: "pipe",
+        entrypointId: "execute",
         executor: () => ({ exitCode: 0, stdout: uncoveredSchedule }),
         generatedAt: new Date("2026-06-03T12:00:00.000Z"),
         runId: "run-parallel-coverage-fan-in",
@@ -1108,7 +963,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-invalid
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Bad: compact scalar
 `;
 
@@ -1116,7 +971,7 @@ task: Bad: compact scalar
       await expect(
         generateScheduleArtifact({
           config: config(),
-          entrypointId: "pipe",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: malformed }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-invalid",
@@ -1151,87 +1006,74 @@ task: Bad: compact scalar
       "Resolve backlog children",
       "## Description\n\nLoad child tickets.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Work units come from Backlog.\n<!-- AC:END -->"
     );
-    const seenPrompts: string[] = [];
-    const schedule = `
-version: 1
-kind: pipeline-schedule
-schedule_id: run-epic
-source_entrypoint: epic
-task: PIPE-41
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: scheduler-context-red
-        kind: agent
-        profile: pipeline-test-writer
-        needs: [research]
-      - id: pipe-41-7-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [scheduler-context-red]
-        task_context:
-          id: PIPE-41.7
-      - id: pipe-41-8-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [scheduler-context-red]
-        task_context:
-          id: PIPE-41.8
-      - id: scheduler-context-acceptance
-        kind: agent
-        profile: pipeline-acceptance-reviewer
-        needs: [pipe-41-7-green, pipe-41-8-green]
-      - id: scheduler-context-verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [scheduler-context-acceptance]
-      - id: merge
-        kind: builtin
-        builtin: drain-merge
-        needs: [scheduler-context-verify]
-      - id: review
-        kind: agent
-        profile: pipeline-thermo-nuclear-reviewer
-        needs: [merge]
-`;
+    const schedule = buildScheduleYaml({
+      scheduleId: "run-epic",
+      task: "PIPE-41",
+      nodes: [
+        "- id: research",
+        "  kind: agent",
+        "  profile: pipeline-researcher",
+        "- id: scheduler-context-red",
+        "  kind: agent",
+        "  profile: pipeline-test-writer",
+        "  needs: [research]",
+        "- id: pipe-41-7-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [scheduler-context-red]",
+        "  task_context:",
+        "    id: PIPE-41.7",
+        "- id: pipe-41-8-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [scheduler-context-red]",
+        "  task_context:",
+        "    id: PIPE-41.8",
+        "- id: scheduler-context-acceptance",
+        "  kind: agent",
+        "  profile: pipeline-acceptance-reviewer",
+        "  needs: [pipe-41-7-green, pipe-41-8-green]",
+        "- id: scheduler-context-verify",
+        "  kind: agent",
+        "  profile: pipeline-verifier",
+        "  needs: [scheduler-context-acceptance]",
+        "- id: merge",
+        "  kind: builtin",
+        "  builtin: drain-merge",
+        "  needs: [scheduler-context-verify]",
+        "- id: review",
+        "  kind: agent",
+        "  profile: pipeline-thermo-nuclear-reviewer",
+        "  needs: [merge]",
+      ],
+    });
 
     try {
-      const result = await generateScheduleArtifact({
-        config: config(),
-        entrypointId: "epic",
-        executor: (plan) => {
-          seenPrompts.push(plan.args.join("\n"));
-          return { exitCode: 0, stdout: schedule };
-        },
-        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+      const { prompt, result } = await generateScheduleWithPrompt({
         runId: "run-epic",
+        schedule,
         task: "PIPE-41",
         worktreePath: dir,
       });
 
-      expect(seenPrompts[0]).toContain("Planner mode: constrained agent graph");
-      expect(seenPrompts[0]).toContain("Backlog work units:");
-      expect(seenPrompts[0]).toContain("Backlog parent context:");
-      expect(seenPrompts[0]).toContain("Agent-driven workflow scheduling");
-      expect(seenPrompts[0]).toContain("PIPE-41.7");
-      expect(seenPrompts[0]).toContain("PIPE-41.8");
-      expect(seenPrompts[0]).toContain("Allowed profiles:");
-      expect(seenPrompts[0]).toContain("pipeline-code-writer");
-      expect(seenPrompts[0]).not.toContain("Allowed workflows:");
-      expect(seenPrompts[0]).toContain("Do not use kind: workflow");
-      expect(seenPrompts[0]).toContain("root_workflow: root");
-      expect(seenPrompts[0]).toContain("Shape the graph by intent");
-      expect(seenPrompts[0]).toContain(
+      expect(prompt).toContain("Planner mode: constrained agent graph");
+      expect(prompt).toContain("Backlog work units:");
+      expect(prompt).toContain("Backlog parent context:");
+      expect(prompt).toContain("Agent-driven workflow scheduling");
+      expect(prompt).toContain("PIPE-41.7");
+      expect(prompt).toContain("PIPE-41.8");
+      expect(prompt).toContain("Allowed profiles:");
+      expect(prompt).toContain("pipeline-code-writer");
+      expect(prompt).not.toContain("Allowed workflows:");
+      expect(prompt).toContain("Do not use kind: workflow");
+      expect(prompt).toContain("root_workflow: root");
+      expect(prompt).toContain("Shape the graph by intent");
+      expect(prompt).toContain(
         "Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket"
       );
-      expect(seenPrompts[0]).toContain("red-test-file-policy");
-      expect(seenPrompts[0]).toContain("changed_files:");
-      expect(seenPrompts[0]).toContain("require_any:");
+      expect(prompt).toContain("red-test-file-policy");
+      expect(prompt).toContain("changed_files:");
+      expect(prompt).toContain("require_any:");
       expect(Object.keys(result.artifact.workflows)).toEqual(["root"]);
       expect(result.artifact.workflows.root.nodes).toEqual(
         expect.arrayContaining([
@@ -1328,66 +1170,52 @@ workflows:
       "## Description\n\nVerify rollout.",
       { dependencies: ["PC-37.2", "PC-37.3"], parentTaskId: "PC-37" }
     );
-    const seenPrompts: string[] = [];
-    const schedule = `
-version: 1
-kind: pipeline-schedule
-schedule_id: run-pc37
-source_entrypoint: epic
-task: PC-37
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: pc-37-1-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [research]
-        task_context:
-          id: PC-37.1
-      - id: pc-37-2-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [pc-37-1-green]
-        task_context:
-          id: PC-37.2
-      - id: pc-37-3-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [pc-37-1-green]
-        task_context:
-          id: PC-37.3
-      - id: pc-37-4-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [pc-37-2-green, pc-37-3-green]
-        task_context:
-          id: PC-37.4
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [pc-37-4-green]
-`;
+    const schedule = buildScheduleYaml({
+      scheduleId: "run-pc37",
+      task: "PC-37",
+      nodes: [
+        "- id: research",
+        "  kind: agent",
+        "  profile: pipeline-researcher",
+        "- id: pc-37-1-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [research]",
+        "  task_context:",
+        "    id: PC-37.1",
+        "- id: pc-37-2-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [pc-37-1-green]",
+        "  task_context:",
+        "    id: PC-37.2",
+        "- id: pc-37-3-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [pc-37-1-green]",
+        "  task_context:",
+        "    id: PC-37.3",
+        "- id: pc-37-4-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [pc-37-2-green, pc-37-3-green]",
+        "  task_context:",
+        "    id: PC-37.4",
+        "- id: verify",
+        "  kind: agent",
+        "  profile: pipeline-verifier",
+        "  needs: [pc-37-4-green]",
+      ],
+    });
 
     try {
-      await generateScheduleArtifact({
-        config: config(),
-        entrypointId: "epic",
-        executor: (plan) => {
-          seenPrompts.push(plan.args.join("\n"));
-          return { exitCode: 0, stdout: schedule };
-        },
-        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+      const { prompt } = await generateScheduleWithPrompt({
         runId: "run-pc37",
+        schedule,
         task: "PC-37",
         worktreePath: dir,
       });
 
-      const prompt = seenPrompts[0] ?? "";
       expect(prompt).toContain(
         "Preserve Backlog dependency ids as schedule needs edges"
       );
@@ -1436,7 +1264,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-pc37-invalid
-source_entrypoint: epic
+source_entrypoint: execute
 task: PC-37
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1474,7 +1302,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: config(),
-          entrypointId: "epic",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: invalidSchedule }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-pc37-invalid",
@@ -1505,7 +1333,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-epic
-source_entrypoint: epic
+source_entrypoint: execute
 task: PIPE-41
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1532,7 +1360,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: config(),
-          entrypointId: "epic",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: schedule }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-epic",
@@ -1565,56 +1393,42 @@ workflows:
       "Resolve backlog children",
       "## Description\n\nLoad child tickets."
     );
-    const seenPrompts: string[] = [];
-    const schedule = `
-version: 1
-kind: pipeline-schedule
-schedule_id: run-single
-source_entrypoint: pipe
-task: PIPE-41.7
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: pipe-41-7-red
-        kind: agent
-        profile: pipeline-test-writer
-        needs: [research]
-        task_context:
-          id: PIPE-41.7
-      - id: pipe-41-7-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [pipe-41-7-red]
-        task_context:
-          id: PIPE-41.7
-      - id: pipe-41-7-verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [pipe-41-7-green]
-        task_context:
-          id: PIPE-41.7
-`;
+    const schedule = buildScheduleYaml({
+      scheduleId: "run-single",
+      task: "PIPE-41.7",
+      nodes: [
+        "- id: research",
+        "  kind: agent",
+        "  profile: pipeline-researcher",
+        "- id: pipe-41-7-red",
+        "  kind: agent",
+        "  profile: pipeline-test-writer",
+        "  needs: [research]",
+        "  task_context:",
+        "    id: PIPE-41.7",
+        "- id: pipe-41-7-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [pipe-41-7-red]",
+        "  task_context:",
+        "    id: PIPE-41.7",
+        "- id: pipe-41-7-verify",
+        "  kind: agent",
+        "  profile: pipeline-verifier",
+        "  needs: [pipe-41-7-green]",
+        "  task_context:",
+        "    id: PIPE-41.7",
+      ],
+    });
 
     try {
-      const result = await generateScheduleArtifact({
-        config: config(),
-        entrypointId: "pipe",
-        executor: (plan) => {
-          seenPrompts.push(plan.args.join("\n"));
-          return { exitCode: 0, stdout: schedule };
-        },
-        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+      const { prompt, result } = await generateScheduleWithPrompt({
         runId: "run-single",
+        schedule,
         task: "PIPE-41.7",
         worktreePath: dir,
       });
 
-      const prompt = seenPrompts[0] ?? "";
       expect(prompt).toContain("id: PIPE-41.7");
       expect(prompt).not.toContain("id: PIPE-41.8");
       expect(result.artifact.workflows.root.nodes).toEqual(
@@ -1671,55 +1485,41 @@ workflows:
       "## Description\n\nSecond child.",
       { parentTaskId: "PIPE-51" }
     );
-    const seenPrompts: string[] = [];
-    const schedule = `
-version: 1
-kind: pipeline-schedule
-schedule_id: run-multi-epic
-source_entrypoint: epic
-task: Execute PIPE-50 and PIPE-51
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: pipe-50-1-green
-        kind: agent
-        profile: pipeline-code-writer
-        task_context:
-          id: PIPE-50.1
-      - id: pipe-50-1-1-green
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [pipe-50-1-green]
-        task_context:
-          id: PIPE-50.1.1
-      - id: pipe-51-1-green
-        kind: agent
-        profile: pipeline-code-writer
-        task_context:
-          id: PIPE-51.1
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [pipe-50-1-1-green, pipe-51-1-green]
-`;
+    const schedule = buildScheduleYaml({
+      scheduleId: "run-multi-epic",
+      task: "Execute PIPE-50 and PIPE-51",
+      nodes: [
+        "- id: pipe-50-1-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  task_context:",
+        "    id: PIPE-50.1",
+        "- id: pipe-50-1-1-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [pipe-50-1-green]",
+        "  task_context:",
+        "    id: PIPE-50.1.1",
+        "- id: pipe-51-1-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  task_context:",
+        "    id: PIPE-51.1",
+        "- id: verify",
+        "  kind: agent",
+        "  profile: pipeline-verifier",
+        "  needs: [pipe-50-1-1-green, pipe-51-1-green]",
+      ],
+    });
 
     try {
-      await generateScheduleArtifact({
-        config: config(),
-        entrypointId: "epic",
-        executor: (plan) => {
-          seenPrompts.push(plan.args.join("\n"));
-          return { exitCode: 0, stdout: schedule };
-        },
-        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+      const { prompt } = await generateScheduleWithPrompt({
         runId: "run-multi-epic",
+        schedule,
         task: "Execute PIPE-50 and PIPE-51",
         worktreePath: dir,
       });
 
-      const prompt = seenPrompts[0] ?? "";
       expect(prompt).toContain("id: PIPE-50.1");
       expect(prompt).toContain("id: PIPE-50.1.1");
       expect(prompt).toContain("id: PIPE-51.1");
@@ -1755,7 +1555,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-epic
-source_entrypoint: epic
+source_entrypoint: execute
 task: PIPE-41
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1778,7 +1578,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: config(),
-          entrypointId: "epic",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: shortcut }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-epic",
@@ -1798,7 +1598,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-epic
-source_entrypoint: epic
+source_entrypoint: execute
 task: Ad hoc epic
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1814,7 +1614,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: roleConfig,
-          entrypointId: "epic",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: shortcut }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-epic",
@@ -1844,7 +1644,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-custom-implementation
-source_entrypoint: epic
+source_entrypoint: execute
 task: Ad hoc epic
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1860,7 +1660,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: roleConfig,
-          entrypointId: "epic",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: shortcut }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-custom-implementation",
@@ -1891,7 +1691,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-custom-cover
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Covered implementation
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -1911,7 +1711,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: roleConfig,
-          entrypointId: "pipe",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: covered }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-custom-cover",
@@ -1969,7 +1769,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-custom-dependency
-source_entrypoint: epic
+source_entrypoint: execute
 task: PC-37
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -2001,7 +1801,7 @@ workflows:
       await expect(
         generateScheduleArtifact({
           config: roleConfig,
-          entrypointId: "epic",
+          entrypointId: "execute",
           executor: () => ({ exitCode: 0, stdout: invalidSchedule }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
           runId: "run-custom-dependency",
@@ -2019,7 +1819,7 @@ workflows:
 version: 1
 kind: pipeline-schedule
 schedule_id: run-covered
-source_entrypoint: pipe
+source_entrypoint: execute
 task: Covered implementation
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root

@@ -17,6 +17,7 @@ import {
 import {
   parseRunnerJobPayloadWithIssues,
   type RecoverableRunnerJobPayloadEnvelope,
+  type RunnerExecutionCommand,
   type RunnerJobPayload,
   type RunnerJobPayloadValidationError,
   type RunnerTask,
@@ -54,7 +55,13 @@ type FetchLike = (
 ) => Promise<Response>;
 
 type PipelineRunner = typeof runPipelineFromConfig;
-type SchedulePreparer = typeof generateRunnerSchedule;
+type SchedulePreparer = (
+  config: PipelineConfig,
+  command: RunnerExecutionCommand,
+  task: string,
+  workspace: RunnerWorkspacePreparation,
+  sink: RunnerEventSink
+) => Promise<{ config: PipelineConfig; workflowId: string }>;
 type WorkspacePreparer = typeof prepareRunnerWorkspace;
 type GatewayReconciler = (
   config: PipelineConfig,
@@ -125,7 +132,6 @@ const EXIT_FAIL = 1;
 const EXIT_CANCELLED = 130;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
-const RUNNER_SCHEDULE_ENTRYPOINT = "pipe";
 
 export async function runRunnerJob(
   options: RunnerJobOptions = {}
@@ -168,7 +174,7 @@ export async function runRunnerJob(
     signalCount += 1;
     if (signalCount === 1) {
       signalExitCode = exitCode;
-      sink.recordCancellation(RUNNER_SCHEDULE_ENTRYPOINT);
+      sink.recordCancellation(payload.command);
       signalFinalResultRecorded = true;
       controller.abort();
       return;
@@ -234,7 +240,7 @@ export async function runRunnerJob(
     await recordRunnerStartupFailure(sink, message, stderr, {
       cancelled: signalExitCode !== undefined,
     });
-    recordFinalResultIfMissing(sink, "FAIL", RUNNER_SCHEDULE_ENTRYPOINT, {
+    recordFinalResultIfMissing(sink, "FAIL", payload.command, {
       sawWorkflowFinish,
       signalFinalResultRecorded,
     });
@@ -341,13 +347,19 @@ async function prepareReadyWorkspace(
     `runner environment setup ${setupStatus}`
   );
   const task = resolveRunnerTask(payload.task, workspace.worktreePath);
-  const prepareSchedule =
-    options.prepareSchedule ??
-    (options.pipelineRunner
-      ? useConfiguredDefaultWorkflow
-      : generateRunnerSchedule);
+  if (options.pipelineRunner && !options.prepareSchedule) {
+    return {
+      config,
+      readiness,
+      task,
+      workflowId: payload.command,
+      workspace,
+    };
+  }
+  const prepareSchedule = options.prepareSchedule ?? generateRunnerSchedule;
   const compiled = await prepareSchedule(
     config,
+    payload.command,
     runnerScheduleTask(payload.task, task),
     workspace,
     sink
@@ -415,21 +427,16 @@ function runnerScheduleTask(task: RunnerTask, resolvedTask: string): string {
   return task.kind === "ticket" ? task.id : resolvedTask;
 }
 
-function useConfiguredDefaultWorkflow(
-  config: PipelineConfig
-): Promise<{ config: PipelineConfig; workflowId: string }> {
-  return Promise.resolve({ config, workflowId: config.default_workflow });
-}
-
 async function generateRunnerSchedule(
   config: PipelineConfig,
+  command: RunnerExecutionCommand,
   task: string,
   workspace: RunnerWorkspacePreparation,
   sink: RunnerEventSink
 ): Promise<{ config: PipelineConfig; workflowId: string }> {
   const result = await generateScheduleArtifact({
     config,
-    entrypointId: RUNNER_SCHEDULE_ENTRYPOINT,
+    entrypointId: command,
     task,
     worktreePath: workspace.worktreePath,
   });
@@ -759,7 +766,7 @@ async function reportPreparedValidationFailure(
       sink.recordSchemaValidationFailure(
         failure.error.message,
         failure.error.issues,
-        RUNNER_SCHEDULE_ENTRYPOINT
+        "execute"
       );
       await flushAndReport(sink.flush, failure.stderr);
     } catch {

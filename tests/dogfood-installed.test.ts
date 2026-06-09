@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -301,15 +302,12 @@ describe("installed dogfood configuration", () => {
     });
 
     expect(
-      compileWorkflowPlan(config, "default").topologicalOrder.map(
-        (node) => node.id
-      )
-    ).toEqual(["research", "red", "green", "acceptance", "verify", "learn"]);
-    expect(
       compileWorkflowPlan(config, "inspect").topologicalOrder.map(
         (node) => node.id
       )
     ).toEqual(["inspect"]);
+    expect(config.workflows.default).toBeUndefined();
+    expect(config.workflows["epic-drain"]).toBeUndefined();
   });
 
   it("keeps installed host resources aligned with orchestrator and agent grants", () => {
@@ -495,7 +493,7 @@ describe("installed dogfood configuration", () => {
 version: 1
 kind: pipeline-schedule
 schedule_id: run-pc37-dogfood
-source_entrypoint: epic
+source_entrypoint: execute
 task: PC-37
 generated_at: 2026-06-03T12:00:00.000Z
 root_workflow: root
@@ -549,7 +547,7 @@ workflows:
 
     const generated = await generateScheduleArtifact({
       config,
-      entrypointId: "epic",
+      entrypointId: "execute",
       executor: () => ({ exitCode: 0, stdout: plannerSchedule }),
       generatedAt: new Date("2026-06-03T12:00:00.000Z"),
       runId: "run-pc37-dogfood",
@@ -585,7 +583,10 @@ workflows:
         "PC-37.6",
       ])
     );
-    expect(generated.path).toBe("memory:run-pc37-dogfood");
+    expect(generated.path).toBe(
+      ".pipeline/runs/run-pc37-dogfood/schedule.yaml"
+    );
+    expect(existsSync(join(project, generated.path))).toBe(true);
     expect(
       generatedNodes.some(
         (node) => node.task_context?.title === "Build API endpoint"
@@ -604,28 +605,31 @@ workflows:
       new Set(compiled.plan.topologicalOrder.map((node) => node.id))
     ).toEqual(
       new Set([
-        "lead-plan",
-        "specialists",
-        "integration",
-        "acceptance-review",
+        "research",
+        "pc-37-1-green",
+        "pc-37-2-green",
+        "pc-37-3-green",
+        "pc-37-4-green",
+        "pc-37-5-green",
+        "pc-37-6-green",
         "verify",
       ])
     );
     expect(
-      generatedNodes.find((node) => node.id === "specialist-pc-37-2")
+      generatedNodes.find((node) => node.id === "pc-37-2-green")
     ).toMatchObject({
       kind: "agent",
-      needs: ["specialist-pc-37-1"],
+      needs: ["pc-37-1-green"],
     });
     expect(
-      generatedNodes.find((node) => node.id === "specialist-pc-37-6")
+      generatedNodes.find((node) => node.id === "pc-37-6-green")
     ).toMatchObject({
       kind: "agent",
       needs: [
-        "specialist-pc-37-2",
-        "specialist-pc-37-3",
-        "specialist-pc-37-4",
-        "specialist-pc-37-5",
+        "pc-37-2-green",
+        "pc-37-3-green",
+        "pc-37-4-green",
+        "pc-37-5-green",
       ],
     });
   });
@@ -633,6 +637,34 @@ workflows:
   it("runs deterministic dogfood options as a repeatable test", async () => {
     const project = tempProject();
     writeDogfoodProject(project);
+    const { execa } = await import("execa");
+    const execaMock = execa as unknown as {
+      getMockImplementation?: () => unknown;
+      mockImplementation?: (implementation: unknown) => unknown;
+    };
+    const previousExecaImplementation = execaMock.getMockImplementation?.();
+    execaMock.mockImplementation?.(
+      (
+        command: string,
+        args: string[] = [],
+        options?: { cwd?: string; env?: Record<string, string> }
+      ) => {
+        const result = spawnSync(command, args, {
+          cwd: options?.cwd,
+          encoding: "utf8",
+          env: { ...process.env, ...(options?.env ?? {}) },
+        });
+        const response = {
+          exitCode: result.status ?? 0,
+          stderr: result.stderr ?? "",
+          stdout: result.stdout ?? "",
+        };
+        if ((result.status ?? 0) !== 0) {
+          return Promise.reject(response);
+        }
+        return Promise.resolve(response);
+      }
+    );
     const previousTestCommand = process.env.PIPELINE_TEST_COMMAND;
     const previousTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
     process.env.PIPELINE_TEST_COMMAND =
@@ -658,6 +690,9 @@ workflows:
         delete process.env.PIPELINE_TYPECHECK_COMMAND;
       } else {
         process.env.PIPELINE_TYPECHECK_COMMAND = previousTypecheckCommand;
+      }
+      if (previousExecaImplementation && execaMock.mockImplementation) {
+        execaMock.mockImplementation(previousExecaImplementation);
       }
     }
     expect(result.outcome, JSON.stringify(result, null, 2)).toBe("PASS");
@@ -775,7 +810,7 @@ workflows:
     const initial = applyGoalStateEvent(
       createGoalState({
         runId: "opencode-goal-loop",
-        scheduleId: "team-graph-opencode",
+        scheduleId: "planner-opencode",
         schedulePath: ".pipeline/runs/opencode-goal-loop/schedule.yaml",
         task: "Dogfood OpenCode goal loop",
         taskContext: {
@@ -790,7 +825,7 @@ workflows:
           id: "PIPE-52.12",
           title: "Dogfood OpenCode first goal loop",
         },
-        workflowId: "team-graph-opencode",
+        workflowId: "planner-opencode",
       }),
       {
         edges: [
@@ -821,7 +856,7 @@ workflows:
           },
         ],
         type: "workflow.planned",
-        workflowId: "team-graph-opencode",
+        workflowId: "planner-opencode",
       }
     );
     const failed = applyGoalStateEvent(initial, {
@@ -920,7 +955,7 @@ workflows:
         return applyGoalStateEvent(verified, {
           outcome: "PASS",
           type: "workflow.finish",
-          workflowId: "team-graph-opencode",
+          workflowId: "planner-opencode",
         });
       },
       writePrompt: (attempt, prompt) => {

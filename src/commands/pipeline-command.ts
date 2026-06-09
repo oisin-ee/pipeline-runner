@@ -3,7 +3,6 @@ import type { PipelineConfig } from "../config";
 
 export const BUILTIN_PIPE_COMMANDS = new Set([
   "run",
-  "pipe",
   "validate",
   "explain-plan",
   "doctor",

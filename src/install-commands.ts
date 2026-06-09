@@ -131,7 +131,7 @@ function entrypointEntries(config: PipelineConfig): EntrypointEntry[] {
     ? entries
     : [
         [
-          "pipe",
+          "execute",
           {
             description: "Run the configured pipeline workflow",
             workflow: config.default_workflow,
@@ -342,7 +342,7 @@ function dispatchBlock(
     nodePromptContract(plan.workflowId, routes),
     "Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
     "If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.",
-    "Do not use `pipe`, `oisin-pipeline`, or package scripts to execute workflow nodes.",
+    "Do not bypass configured runner subprocesses or package-configured gates when executing workflow nodes.",
     hostSpecificDispatchGuard(host, nativeRoutes, cliRoutes),
   ]
     .filter((line): line is string => Boolean(line))
@@ -361,10 +361,10 @@ function entrypointDispatchBlock(
   return [
     `Generate a schedule for entrypoint \`${id}\` and the user task.`,
     `The schedule policy is \`${entrypoint.schedule}\`.`,
-    `Run \`pipe run --entrypoint ${id} <task description>\` to generate and execute the schedule artifact.`,
+    `Run \`oisin-pipeline run --entrypoint ${id} <task description>\` to generate and execute the schedule artifact.`,
     "The pipeline CLI runtime is the deterministic graph scheduler for scheduled entrypoints.",
     "It launches configured Codex/OpenCode agent subprocesses as soon as their dependencies pass.",
-    "Use `pipe run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.",
+    "Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.",
   ].join("\n");
 }
 
@@ -838,8 +838,8 @@ function projectAgentsMdDefinition(
       "",
       "This repository uses package-owned `@oisincoveney/pipeline` config.",
       "",
-      "- Use `$pipe`, `$inspect`, or `$epic` for Codex skill entrypoints when the user asks for pipeline workflows.",
-      "- Use `/pipe`, `/inspect`, or `/epic` for Codex or OpenCode slash-command entrypoints when available.",
+      "- Use `$quick`, `$execute`, or `$inspect` for Codex skill entrypoints when the user asks for pipeline workflows.",
+      "- Use `/quick`, `/execute`, or `/inspect` for Codex or OpenCode slash-command entrypoints when available.",
       "- Load and follow the relevant skill from `.agents/skills` before doing specialized work.",
       "- Prefer the package-defined pipeline profiles and generated command surfaces over ad hoc subagent prompts.",
       "",
@@ -1115,7 +1115,10 @@ function entrypointIdFromGeneratedPath(
   return;
 }
 
-function invocationForHost(host: CommandHost, entrypointId = "pipe"): string {
+function invocationForHost(
+  host: CommandHost,
+  entrypointId = "execute"
+): string {
   const prefix: Record<CommandHost, string> = {
     codex: "$",
     opencode: "/",

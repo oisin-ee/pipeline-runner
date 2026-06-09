@@ -42,8 +42,7 @@
     "access": "public"
   },
   "bin": {
-    "oisin-pipeline": "dist/index.js",
-    "pipe": "dist/index.js"
+    "oisin-pipeline": "dist/index.js"
   },
   "exports": {
     ".": {
@@ -104,7 +103,6 @@
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
     "typecheck": "tsc --noEmit",
-    "pipe": "bun src/index.ts pipe",
     "build": "bun run build:cli",
     "check": "ultracite check",
     "fix": "ultracite fix",

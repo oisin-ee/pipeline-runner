@@ -1,4 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { alg, Graph } from "@dagrejs/graphlib";
 import matter from "gray-matter";
@@ -39,6 +45,8 @@ const SCHEDULE_PLANNER_REPAIR_ATTEMPTS = 1;
 const SCHEDULE_BUILTINS = [
   "drain-merge",
   "duplication",
+  "fallow",
+  "lint",
   "semgrep",
   "test",
   "typecheck",
@@ -214,199 +222,46 @@ export async function generateScheduleArtifact(
   const planningContext: SchedulePlanningContext = {
     ...loadBacklogPlanningContext(options.task, options.worktreePath),
   };
-  if (policy.strategy === "team-graph") {
-    const artifact = hydrateScheduleTaskContexts(
-      teamGraphScheduleArtifact({
-        baseline,
-        config: options.config,
-        planningContext,
-      }),
-      planningContext
-    );
-    validateScheduleArtifact(options.config, artifact, planningContext);
-    compileScheduleArtifact(options.config, artifact, options.worktreePath);
-    return { artifact, path: `memory:${artifact.schedule_id}` };
-  }
   const artifact = hydrateScheduleTaskContexts(
-    addGeneratedImplementationCoverage(
+    applyNodeCatalogModelFallbacks(
       options.config,
-      await planScheduleArtifact(
-        baseline,
-        policy.planner_profile,
-        options,
-        planningContext
+      policy.node_catalog,
+      addGeneratedImplementationCoverage(
+        options.config,
+        await planScheduleArtifact(
+          baseline,
+          policy.planner_profile,
+          options,
+          planningContext
+        )
       )
     ),
     planningContext
   );
   validateScheduleArtifact(options.config, artifact, planningContext);
   compileScheduleArtifact(options.config, artifact, options.worktreePath);
-  return { artifact, path: `memory:${artifact.schedule_id}` };
-}
-
-function teamGraphScheduleArtifact(input: {
-  baseline: ScheduleArtifact;
-  config: PipelineConfig;
-  planningContext: SchedulePlanningContext;
-}): ScheduleArtifact {
   return {
-    ...input.baseline,
-    root_workflow: "root",
-    workflows: {
-      root: {
-        description: "Generated explicit team graph schedule.",
-        nodes: teamGraphNodes(input.config, input.planningContext),
-      },
-    },
+    artifact,
+    path: persistScheduleArtifact(options.worktreePath, artifact),
   };
 }
 
-function teamGraphNodes(
-  config: PipelineConfig,
-  planningContext: SchedulePlanningContext
-): WorkflowNode[] {
-  const specialistNodes = teamGraphSpecialistNodes(
-    config,
-    planningContext.workUnits
-  );
-  return [
-    {
-      id: "lead-plan",
-      kind: "agent",
-      profile: preferredProfile(config, [
-        "pipeline-schedule-planner",
-        "pipeline-researcher",
-      ]),
-    },
-    {
-      id: "specialists",
-      kind: "parallel",
-      needs: ["lead-plan"],
-      nodes: specialistNodes,
-    },
-    {
-      builtin: "drain-merge",
-      id: "integration",
-      kind: "builtin",
-      needs: ["specialists"],
-    },
-    {
-      gates: [
-        {
-          id: "acceptance-coverage",
-          kind: "acceptance",
-          required: false,
-          target: "stdout",
-        },
-        { id: "acceptance-verdict", kind: "verdict", target: "stdout" },
-      ],
-      id: "acceptance-review",
-      kind: "agent",
-      needs: ["integration"],
-      profile: preferredProfile(config, [
-        "pipeline-acceptance-reviewer",
-        "pipeline-verifier",
-      ]),
-    },
-    {
-      gates: generatedCoverageGates("verify"),
-      id: "verify",
-      kind: "agent",
-      needs: ["acceptance-review"],
-      profile: preferredProfile(config, [
-        "pipeline-verifier",
-        "pipeline-thermo-nuclear-reviewer",
-      ]),
-    },
-  ];
-}
-
-function teamGraphSpecialistNodes(
-  config: PipelineConfig,
-  workUnits: BacklogWorkUnit[]
-): WorkflowNode[] {
-  const implementationProfile = preferredImplementationProfile(config);
-  const coverageProfile = preferredProfile(config, [
-    "pipeline-verifier",
-    "pipeline-acceptance-reviewer",
-    "pipeline-thermo-nuclear-reviewer",
-  ]);
-  if (workUnits.length === 0) {
-    return [
-      {
-        id: "specialist-implementation",
-        kind: "agent",
-        profile: implementationProfile,
-      },
-      {
-        gates: generatedCoverageGates("specialist-coverage"),
-        id: "specialist-coverage",
-        kind: "agent",
-        needs: ["specialist-implementation"],
-        profile: coverageProfile,
-      },
-    ];
-  }
-  const usedIds = new Set<string>();
-  const nodeIdsByWorkUnit = new Map(
-    workUnits.map((unit) => [
-      unit.id,
-      uniqueGeneratedId(`specialist-${unit.id}`, usedIds, "specialist"),
-    ])
-  );
-  const specialists: WorkflowNode[] = workUnits.map((unit) => {
-    const needs = (unit.dependencies ?? []).flatMap((dependencyId) => {
-      const nodeId = nodeIdsByWorkUnit.get(dependencyId);
-      return nodeId ? [nodeId] : [];
-    });
-    return {
-      id: nodeIdsByWorkUnit.get(unit.id) ?? "specialist",
-      kind: "agent",
-      ...(needs.length > 0 ? { needs } : {}),
-      profile: implementationProfile,
-      task_context: { id: unit.id },
-    };
-  });
-  return [
-    ...specialists,
-    {
-      gates: generatedCoverageGates("specialist-coverage"),
-      id: "specialist-coverage",
-      kind: "agent",
-      needs: specialists.map((node) => node.id),
-      profile: coverageProfile,
-    },
-  ];
-}
-
-function preferredImplementationProfile(config: PipelineConfig): string {
-  if (
-    config.profiles["pipeline-code-writer"]?.scheduling_roles?.includes(
-      "implementation"
-    )
-  ) {
-    return "pipeline-code-writer";
-  }
-  const implementationProfile = Object.entries(config.profiles).find(
-    ([, profile]) => profile.scheduling_roles?.includes("implementation")
-  );
-  return (
-    implementationProfile?.[0] ??
-    preferredProfile(config, ["pipeline-code-writer", "pipeline-researcher"])
-  );
-}
-
-function preferredProfile(
-  config: PipelineConfig,
-  profileIds: string[]
+function persistScheduleArtifact(
+  worktreePath: string,
+  artifact: ScheduleArtifact
 ): string {
-  const profile = profileIds.find((id) => config.profiles[id]);
-  if (!profile) {
-    throw new ScheduleArtifactError(
-      `team graph strategy requires one of these configured profiles: ${profileIds.join(", ")}`
-    );
-  }
-  return profile;
+  const relativePath = join(
+    ".pipeline",
+    "runs",
+    artifact.schedule_id,
+    "schedule.yaml"
+  );
+  const fullPath = join(worktreePath, relativePath);
+  mkdirSync(join(worktreePath, ".pipeline", "runs", artifact.schedule_id), {
+    recursive: true,
+  });
+  writeFileSync(fullPath, stringify(artifact));
+  return relativePath;
 }
 
 function addGeneratedImplementationCoverage(
@@ -509,6 +364,8 @@ function generatedCoverageGates(
   return [
     { builtin: "typecheck", id: `${nodeId}-typecheck`, kind: "builtin" },
     { builtin: "test", id: `${nodeId}-tests`, kind: "builtin" },
+    { builtin: "lint", id: `${nodeId}-lint`, kind: "builtin" },
+    { builtin: "fallow", id: `${nodeId}-fallow`, kind: "builtin" },
     { builtin: "semgrep", id: `${nodeId}-semgrep`, kind: "builtin" },
     {
       builtin: "duplication",
@@ -517,6 +374,86 @@ function generatedCoverageGates(
     },
     { id: `${nodeId}-verdict`, kind: "verdict", target: "stdout" },
   ];
+}
+
+function applyNodeCatalogModelFallbacks(
+  config: PipelineConfig,
+  catalogId: string | undefined,
+  artifact: ScheduleArtifact
+): ScheduleArtifact {
+  if (!catalogId) {
+    return artifact;
+  }
+  const catalog = config.scheduler.node_catalogs[catalogId];
+  if (!catalog) {
+    return artifact;
+  }
+  return {
+    ...artifact,
+    workflows: Object.fromEntries(
+      Object.entries(artifact.workflows).map(([workflowId, workflow]) => [
+        workflowId,
+        {
+          ...workflow,
+          nodes: workflow.nodes.map((node) =>
+            applyNodeCatalogModelsToNode(node, catalog.nodes)
+          ),
+        },
+      ])
+    ),
+  };
+}
+
+function applyNodeCatalogModelsToNode(
+  node: WorkflowNode,
+  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
+): WorkflowNode {
+  switch (node.kind) {
+    case "agent":
+      return applyNodeCatalogModelsToAgentNode(node, templates);
+    case "parallel":
+      return applyNodeCatalogModelsToParallelNode(node, templates);
+    default:
+      return node;
+  }
+}
+
+function applyNodeCatalogModelsToParallelNode(
+  node: WorkflowNode & { kind: "parallel" },
+  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
+): WorkflowNode {
+  return {
+    ...node,
+    nodes: node.nodes.map((child) =>
+      applyNodeCatalogModelsToNode(child, templates)
+    ),
+  };
+}
+
+function applyNodeCatalogModelsToAgentNode(
+  node: WorkflowNode & { kind: "agent" },
+  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
+): WorkflowNode {
+  if (node.models?.length) {
+    return node;
+  }
+  const template = nodeCatalogTemplateFor(node, templates);
+  return template ? { ...node, models: template.models } : node;
+}
+
+function nodeCatalogTemplateFor(
+  node: WorkflowNode & { kind: "agent" },
+  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
+) {
+  const template =
+    templates[node.id] ??
+    Object.values(templates).find((candidate) =>
+      node.id.includes(candidate.category)
+    ) ??
+    Object.values(templates).find(
+      (candidate) => candidate.profile === node.profile
+    );
+  return template;
 }
 
 export function scheduleArtifactPath(
@@ -591,104 +528,78 @@ function baselineScheduleArtifact(input: {
 
 function baselineWorkflows(
   baseline: ScheduleBaseline,
-  config: PipelineConfig
+  _config: PipelineConfig
 ): { rootWorkflow: string; workflows: ScheduleArtifact["workflows"] } {
-  if (baseline === "pipe") {
-    const workflow = config.workflows.default;
-    return workflow
-      ? {
-          rootWorkflow: "root",
-          workflows: configuredWorkflowClosureWithRootAlias(config, "default"),
-        }
-      : { rootWorkflow: "root", workflows: pipeBaselineWorkflow() };
+  if (baseline === "quick") {
+    return { rootWorkflow: "root", workflows: quickBaselineWorkflow() };
   }
 
-  return { rootWorkflow: "root", workflows: epicBaselineWorkflow() };
+  return { rootWorkflow: "root", workflows: executeBaselineWorkflow() };
 }
 
-function configuredWorkflowClosure(
-  config: PipelineConfig,
-  rootWorkflowId: string
-): ScheduleArtifact["workflows"] {
-  const workflows: ScheduleArtifact["workflows"] = {};
-  const queue = [rootWorkflowId];
-  while (queue.length > 0) {
-    const workflowId = queue.shift();
-    if (!workflowId || workflows[workflowId]) {
-      continue;
-    }
-    const workflow = config.workflows[workflowId];
-    if (!workflow) {
-      continue;
-    }
-    workflows[workflowId] = structuredClone(workflow);
-    for (const node of allWorkflowNodes({ [workflowId]: workflow })) {
-      if (node.kind === "workflow") {
-        queue.push(node.workflow);
-      }
-    }
-  }
-  return workflows;
-}
-
-function configuredWorkflowClosureWithRootAlias(
-  config: PipelineConfig,
-  rootWorkflowId: string
-): ScheduleArtifact["workflows"] {
-  const workflows = configuredWorkflowClosure(config, rootWorkflowId);
-  const rootWorkflow = workflows[rootWorkflowId];
-  if (!rootWorkflow) {
-    return workflows;
-  }
-  const { [rootWorkflowId]: _, ...embeddedWorkflows } = workflows;
-  return { root: rootWorkflow, ...embeddedWorkflows };
-}
-
-function pipeBaselineWorkflow(): ScheduleArtifact["workflows"] {
+function quickBaselineWorkflow(): ScheduleArtifact["workflows"] {
   return {
     root: {
-      description: "Generated pipe schedule.",
+      description: "Compact generated quick schedule seed.",
       nodes: [
-        { id: "research", kind: "agent", profile: "pipeline-researcher" },
+        { id: "backlog-intake", kind: "agent", profile: "pipeline-researcher" },
+        {
+          id: "red-tests",
+          kind: "agent",
+          needs: ["backlog-intake"],
+          profile: "pipeline-test-writer",
+        },
         {
           id: "implement",
           kind: "agent",
-          needs: ["research"],
+          needs: ["red-tests"],
           profile: "pipeline-code-writer",
+        },
+        {
+          builtin: "test",
+          id: "mechanical-tests",
+          kind: "builtin",
+          needs: ["implement"],
+        },
+        {
+          builtin: "typecheck",
+          id: "mechanical-typecheck",
+          kind: "builtin",
+          needs: ["implement"],
         },
         {
           gates: [
             { builtin: "typecheck", id: "verify-typecheck", kind: "builtin" },
             { builtin: "test", id: "verify-tests", kind: "builtin" },
+            { builtin: "lint", id: "verify-lint", kind: "builtin" },
+            { builtin: "fallow", id: "verify-fallow", kind: "builtin" },
             { kind: "verdict", id: "verify-verdict", target: "stdout" },
           ],
           id: "verify",
           kind: "agent",
-          needs: ["implement"],
+          needs: ["mechanical-tests", "mechanical-typecheck"],
           profile: "pipeline-verifier",
-        },
-        {
-          id: "learn",
-          kind: "agent",
-          needs: ["verify"],
-          profile: "pipeline-learner",
         },
       ],
     },
   };
 }
 
-function epicBaselineWorkflow(): ScheduleArtifact["workflows"] {
+function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
   return {
     root: {
-      description: "Generated explicit epic schedule seed.",
+      description: "Full generated execute schedule seed.",
       nodes: [
-        { id: "research", kind: "agent", profile: "pipeline-researcher" },
         {
-          id: "plan",
+          id: "backlog-intake",
           kind: "agent",
-          needs: ["research"],
-          profile: "pipeline-epic-router",
+          profile: "pipeline-researcher",
+        },
+        {
+          id: "research",
+          kind: "agent",
+          needs: ["backlog-intake"],
+          profile: "pipeline-researcher",
         },
         {
           gates: [
@@ -716,16 +627,69 @@ function epicBaselineWorkflow(): ScheduleArtifact["workflows"] {
               kind: "changed_files",
             },
           ],
-          id: "example-ticket-red",
+          id: "red-tests",
           kind: "agent",
-          needs: ["plan"],
+          needs: ["research"],
           profile: "pipeline-test-writer",
         },
         {
-          id: "example-ticket-green",
+          builtin: "test",
+          id: "mechanical-red-tests",
+          kind: "builtin",
+          needs: ["red-tests"],
+        },
+        {
+          builtin: "typecheck",
+          id: "mechanical-red-typecheck",
+          kind: "builtin",
+          needs: ["red-tests"],
+        },
+        {
+          builtin: "lint",
+          id: "mechanical-red-lint",
+          kind: "builtin",
+          needs: ["red-tests"],
+        },
+        {
+          builtin: "fallow",
+          id: "mechanical-red-fallow",
+          kind: "builtin",
+          needs: ["red-tests"],
+        },
+        {
+          id: "green-implementation",
           kind: "agent",
-          needs: ["example-ticket-red"],
+          needs: [
+            "mechanical-red-tests",
+            "mechanical-red-typecheck",
+            "mechanical-red-lint",
+            "mechanical-red-fallow",
+          ],
           profile: "pipeline-code-writer",
+        },
+        {
+          builtin: "test",
+          id: "mechanical-green-tests",
+          kind: "builtin",
+          needs: ["green-implementation"],
+        },
+        {
+          builtin: "typecheck",
+          id: "mechanical-green-typecheck",
+          kind: "builtin",
+          needs: ["green-implementation"],
+        },
+        {
+          builtin: "lint",
+          id: "mechanical-green-lint",
+          kind: "builtin",
+          needs: ["green-implementation"],
+        },
+        {
+          builtin: "fallow",
+          id: "mechanical-green-fallow",
+          kind: "builtin",
+          needs: ["green-implementation"],
         },
         {
           gates: [
@@ -737,15 +701,22 @@ function epicBaselineWorkflow(): ScheduleArtifact["workflows"] {
             },
             { id: "acceptance-verdict", kind: "verdict", target: "stdout" },
           ],
-          id: "example-ticket-acceptance",
+          id: "acceptance-review",
           kind: "agent",
-          needs: ["example-ticket-green"],
+          needs: [
+            "mechanical-green-tests",
+            "mechanical-green-typecheck",
+            "mechanical-green-lint",
+            "mechanical-green-fallow",
+          ],
           profile: "pipeline-acceptance-reviewer",
         },
         {
           gates: [
             { builtin: "typecheck", id: "verify-typecheck", kind: "builtin" },
             { builtin: "test", id: "verify-tests", kind: "builtin" },
+            { builtin: "lint", id: "verify-lint", kind: "builtin" },
+            { builtin: "fallow", id: "verify-fallow", kind: "builtin" },
             { builtin: "semgrep", id: "verify-semgrep", kind: "builtin" },
             {
               builtin: "duplication",
@@ -754,23 +725,16 @@ function epicBaselineWorkflow(): ScheduleArtifact["workflows"] {
             },
             { id: "verify-verdict", kind: "verdict", target: "stdout" },
           ],
-          id: "example-ticket-verify",
+          id: "verification",
           kind: "agent",
-          needs: ["example-ticket-acceptance"],
+          needs: ["acceptance-review"],
           profile: "pipeline-verifier",
         },
         {
-          builtin: "drain-merge",
-          id: "merge",
-          kind: "builtin",
-          needs: ["example-ticket-verify"],
-        },
-        {
-          gates: [{ id: "review-verdict", kind: "verdict", target: "stdout" }],
-          id: "review",
+          id: "learn",
           kind: "agent",
-          needs: ["merge"],
-          profile: "pipeline-thermo-nuclear-reviewer",
+          needs: ["verification"],
+          profile: "pipeline-learner",
         },
       ],
     },
@@ -958,10 +922,11 @@ function plannerPrompt(
     "Return only YAML matching kind: pipeline-schedule.",
     "Preserve version, kind, schedule_id, source_entrypoint, task, and generated_at. Keep root_workflow: root.",
     "All workflow ids, node ids, gate ids, and needs references must match ^[a-z][a-z0-9-]*$: use lowercase hyphenated ids, never underscores.",
-    "Generate exactly one workflow named root. Do not embed default, epic-drain, infra, track, or other configured workflow copies.",
+    "Generate exactly one workflow named root. Do not embed default, infra, track, or other configured workflow copies.",
     "Use only explicit generated agent, builtin, command, parallel, or group nodes. Do not use kind: workflow.",
     "Node schema contract:",
-    "- Agent node fields: id, kind: agent, profile, optional needs, gates, artifacts, retries, task_context, timeout_ms. Do not emit instructions, skills, tools, filesystem, network, model, or runner on nodes.",
+    "- Agent node fields: id, kind: agent, profile, optional models, needs, gates, artifacts, retries, task_context, timeout_ms. Do not emit instructions, skills, tools, filesystem, network, model, or runner on nodes.",
+    "- Agent models must be a YAML sequence copied from the configured scheduler node catalog. Do not emit a scalar model field.",
     "- Command node fields: id, kind: command, command, optional needs, gates, artifacts, retries, task_context, timeout_ms. command must be a YAML sequence of strings such as command: [bun, run, test], never a scalar string.",
     "- Builtin node fields: id, kind: builtin, builtin, optional needs, gates, artifacts, retries, task_context, timeout_ms.",
     `- Allowed builtin values: ${SCHEDULE_BUILTINS.join(", ")}. Do not emit dependency or other invented builtin ids.`,
@@ -983,11 +948,14 @@ function plannerPrompt(
       .sort()
       .map((id) => allowedProfilePromptLine(config, id)),
     "",
+    "Scheduler node catalog:",
+    schedulerCatalogPrompt(config, entrypointId),
+    "",
     "Gate recipes:",
     "- Prefer preserving valid gates from the baseline workflows instead of recreating them.",
     "- RED/test coverage may use changed_files gates on test-writing nodes. A changed_files gate must include a changed_files object with allow and/or require_any glob arrays.",
     "- Acceptance coverage may use acceptance and verdict gates. Acceptance gates may use target: stdout and required: false.",
-    "- Verification may use builtin typecheck, test, semgrep, duplication, plus verdict gates.",
+    "- Verification may use builtin typecheck, test, lint, fallow, semgrep, duplication, plus verdict gates.",
     "",
     "Backlog work units:",
     planningContext.workUnits.length > 0
@@ -1017,7 +985,7 @@ function plannerRepairPrompt(inputs: {
     "Preserve the task, generated_at, schedule_id, source_entrypoint, version, and root_workflow values.",
     "Generate exactly one workflow named root.",
     "Do not add fields outside the workflow node schema.",
-    "Agent nodes must not contain instructions, skills, tools, filesystem, network, model, or runner fields. Keep intent in task_context.id and the selected configured profile only.",
+    "Agent nodes must not contain instructions, skills, tools, filesystem, network, model, or runner fields. models is allowed only as a YAML sequence copied from the scheduler node catalog.",
     "Command nodes must use command as a YAML sequence of strings, never as a scalar string.",
     `Builtin nodes and gates may only use: ${SCHEDULE_BUILTINS.join(", ")}.`,
     "Keep valid gates and needs edges when they satisfy the schema.",
@@ -1049,6 +1017,28 @@ function allowedProfilePromptLine(config: PipelineConfig, id: string): string {
     `output: ${profile.output?.format ?? "text"}`,
   ].filter(Boolean);
   return `- ${id} (${fields.join("; ")})`;
+}
+
+function schedulerCatalogPrompt(
+  config: PipelineConfig,
+  entrypointId: string
+): string {
+  const catalog = resolveSchedulerCatalog(config, entrypointId);
+  if (!catalog) {
+    return "No scheduler node catalog configured for this entrypoint.";
+  }
+  return stringify({
+    required_categories: catalog.required_categories,
+    nodes: catalog.nodes,
+  });
+}
+
+function resolveSchedulerCatalog(config: PipelineConfig, entrypointId: string) {
+  const command = config.scheduler.commands[entrypointId];
+  return (
+    config.scheduler.node_catalogs[command?.catalog ?? entrypointId] ??
+    config.scheduler.node_catalogs[entrypointId]
+  );
 }
 
 function effectiveSchedulingRoles(

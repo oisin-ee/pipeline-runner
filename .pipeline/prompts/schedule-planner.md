@@ -5,7 +5,7 @@ Generate a constrained agent graph as a specialized `pipeline-schedule` YAML art
 Keep the graph auditable: execution must include research, implementation, and verification.
 When the schedule policy requests team graph behavior, represent collaboration as explicit DAG nodes: lead/planner, parallel specialist nodes, integration or drain-merge, acceptance reviewer, and verifier. Do not use hidden team state.
 
-Generate exactly one workflow named `root`. Do not embed `default`, `epic-drain`, `infra`, `track`, or other configured workflow copies. Use explicit generated agent, builtin, command, parallel, or group nodes. Do not use `kind: workflow`.
+Generate exactly one workflow named `root`. Do not embed `default`, `infra`, `track`, or other configured workflow copies. Use explicit generated agent, builtin, command, parallel, or group nodes. Do not use `kind: workflow`.
 
 Use the provided backlog work units as the source of truth when present. Assign each work unit to explicit generated agent nodes with only its `task_context.id`, use only allowed configured profiles, and ensure profiles with the `implementation` scheduling role have downstream profiles with the `coverage` scheduling role. Do not invent profiles or node-level skill overrides.
 Do not copy backlog descriptions or acceptance criteria into output; the scheduler hydrates them from the assigned `task_context.id` after parsing.
