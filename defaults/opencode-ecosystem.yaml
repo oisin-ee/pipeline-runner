@@ -50,6 +50,15 @@ ecosystem_code:
     role: OpenTelemetry plugin pattern for runtime observability
     default_stack: true
     source: https://www.npmjs.com/package/@devtheops/opencode-plugin-otel
+  - id: opencode-goal-plugin
+    name: opencode-goal-plugin
+    package: "@prevalentware/opencode-goal-plugin"
+    plugin:
+      kind: npm
+      package: "@prevalentware/opencode-goal-plugin"
+    role: Codex-style long-running goal mode with /goal slash command, persistent state, evidence-gated completion, and TUI sidebar
+    default_stack: true
+    source: https://www.npmjs.com/package/@prevalentware/opencode-goal-plugin
   - id: opencode-snip
     name: opencode-snip
     role: prompt snippet and command-discipline helper patterns

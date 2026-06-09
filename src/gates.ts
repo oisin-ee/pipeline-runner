@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
 import { resolveCommand } from "package-manager-detector/commands";
@@ -35,6 +35,8 @@ interface ProjectCommand {
   shell?: boolean;
 }
 
+type PackageManagerAgent = Parameters<typeof resolveCommand>[0];
+
 function displayCommand(command: ProjectCommand): string {
   return [command.command, ...command.args].join(" ");
 }
@@ -70,12 +72,43 @@ async function resolvePackageScript(
     return null;
   }
 
-  const pm = await detect({ cwd: worktreePath, stopDir: worktreePath });
-  const resolved = resolveCommand(pm?.agent ?? "npm", "run", [scriptName]);
+  const resolved = resolveCommand(
+    await detectPackageManagerAgent(worktreePath),
+    "run",
+    [scriptName]
+  );
   if (!resolved) {
     return null;
   }
   return { command: resolved.command, args: resolved.args };
+}
+
+async function detectPackageManagerAgent(
+  worktreePath: string
+): Promise<PackageManagerAgent> {
+  const pm = await detect({ cwd: worktreePath, stopDir: worktreePath });
+  return (pm?.agent ?? "npm") as PackageManagerAgent;
+}
+
+async function resolvePackageBinaryCommand(
+  worktreePath: string,
+  binary: string,
+  args: string[]
+): Promise<ProjectCommand | null> {
+  if (!existsSync(join(worktreePath, "package.json"))) {
+    return null;
+  }
+
+  switch (await detectPackageManagerAgent(worktreePath)) {
+    case "bun":
+      return { command: "bun", args: ["x", binary, ...args] };
+    case "pnpm":
+      return { command: "pnpm", args: ["exec", binary, ...args] };
+    case "yarn":
+      return { command: "yarn", args: ["exec", binary, ...args] };
+    default:
+      return { command: "npx", args: [binary, ...args] };
+  }
 }
 
 // ─── runTests ─────────────────────────────────────────────────────────────────
@@ -133,7 +166,9 @@ export async function runLint(
   if (!projectCommand) {
     return { exitCode: 0, output: "skipped" };
   }
-  return await runProjectCommand(projectCommand, worktreePath, signal);
+  return await runProjectCommand(projectCommand, worktreePath, signal, {
+    hidePipelineRuns: true,
+  });
 }
 
 // ─── runFallow ────────────────────────────────────────────────────────────────
@@ -143,19 +178,26 @@ export async function runFallow(
   signal?: AbortSignal
 ): Promise<{ command?: string; exitCode: number; output: string }> {
   const projectCommand = envCommand("PIPELINE_FALLOW_COMMAND") ??
-    (await resolvePackageScript(worktreePath, "fallow")) ?? {
+    (await resolvePackageScript(worktreePath, "fallow")) ??
+    (await resolvePackageBinaryCommand(worktreePath, "fallow", ["audit"])) ?? {
       args: ["audit"],
       command: "fallow",
     };
 
-  return runProjectCommand(projectCommand, worktreePath, signal);
+  return runProjectCommand(projectCommand, worktreePath, signal, {
+    hidePipelineRuns: true,
+  });
 }
 
 async function runProjectCommand(
   projectCommand: ProjectCommand,
   worktreePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: { hidePipelineRuns?: boolean }
 ): Promise<{ command?: string; exitCode: number; output: string }> {
+  const hiddenRuns = options?.hidePipelineRuns
+    ? hidePipelineRunsDirectory(worktreePath)
+    : null;
   try {
     const result = await execa(projectCommand.command, projectCommand.args, {
       cancelSignal: signal,
@@ -175,7 +217,33 @@ async function runProjectCommand(
       exitCode: e.exitCode ?? 1,
       output: commandErrorOutput(e),
     };
+  } finally {
+    hiddenRuns?.restore();
   }
+}
+
+function hidePipelineRunsDirectory(
+  worktreePath: string
+): { restore: () => void } | null {
+  const pipelineDir = join(worktreePath, ".pipeline");
+  const runsDir = join(pipelineDir, "runs");
+  if (!existsSync(runsDir)) {
+    return null;
+  }
+
+  const hiddenRunsDir = join(
+    pipelineDir,
+    `.runs-hidden-${process.pid}-${Date.now()}`
+  );
+  renameSync(runsDir, hiddenRunsDir);
+  return {
+    restore: () => {
+      if (!existsSync(hiddenRunsDir)) {
+        return;
+      }
+      renameSync(hiddenRunsDir, runsDir);
+    },
+  };
 }
 
 function commandError(err: unknown): {

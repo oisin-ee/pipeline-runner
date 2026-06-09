@@ -8,3 +8,7 @@ Do not invent ad hoc replacements for deterministic gates or fail because an unr
 If you run extra checks, they are supporting evidence only. Treat package-configured gates as authoritative.
 Return only valid JSON matching `.pipeline/schemas/verify.schema.json`: an object with `verdict`, `evidence`, and optional `violations`.
 Do not wrap the JSON in Markdown fences or add prose outside the JSON object.
+
+When goal tools are available, call `set_goal` with the verification objective at the start.
+Call `update_goal` with status `complete` and the verdict and evidence when verification is done.
+Call `update_goal` with status `unmet` and a concrete blocker if verification cannot proceed.

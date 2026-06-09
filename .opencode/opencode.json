@@ -12,5 +12,8 @@
     }
   },
   "lsp": true,
-  "plugin": ["@devtheops/opencode-plugin-otel@1.1.0"]
+  "plugin": [
+    "@devtheops/opencode-plugin-otel@1.1.0",
+    "@prevalentware/opencode-goal-plugin"
+  ]
 }

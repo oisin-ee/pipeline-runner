@@ -35,20 +35,16 @@ hooks: generated-defaults-audit
 Instructions:
 Orchestrate package-owned pipeline config.
 
-Run workflow `inspect` for the user task.
-OpenCode native routes:
-- inspect: Task tool subagent_type=pipeline-inspector model=openai/gpt-5.5 runner=opencode needs=none
+Generate a schedule for entrypoint `quick` and the user task.
+The schedule policy is `quick-schedule`.
+Run `oisin-pipeline run --entrypoint quick <task description>` to generate and execute the schedule artifact.
+The pipeline CLI runtime is the deterministic graph scheduler for scheduled entrypoints.
+It launches configured Codex/OpenCode agent subprocesses as soon as their dependencies pass.
+Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.
 
-For each native node prompt include:
-- user task
-- workflow id: inspect
-- node id
-- profile id
-- runner id
-- profile instructions reference
-- profile grants
-- dependency outputs
-
-Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
-If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.
-Do not bypass configured runner subprocesses or package-configured gates when executing workflow nodes.
+Generate a schedule for entrypoint `execute` and the user task.
+The schedule policy is `execute-schedule`.
+Run `oisin-pipeline run --entrypoint execute <task description>` to generate and execute the schedule artifact.
+The pipeline CLI runtime is the deterministic graph scheduler for scheduled entrypoints.
+It launches configured Codex/OpenCode agent subprocesses as soon as their dependencies pass.
+Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.

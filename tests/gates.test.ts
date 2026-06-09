@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +26,7 @@ import {
   artifactExists,
   runFallow,
   runJscpd,
+  runLint,
   runSemgrep,
   runTests,
   runTypecheck,
@@ -305,6 +312,26 @@ describe("runFallow", () => {
     );
   });
 
+  it("uses package-manager exec fallback when a repo has package.json but no fallow script", async () => {
+    detectMock.mockResolvedValueOnce({ agent: "pnpm" });
+    const worktree = tempWorktree({ lint: "custom-lint" });
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: "fallow ok",
+      stderr: "",
+    } as any);
+
+    const result = await runFallow(worktree);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.command).toBe("pnpm exec fallow audit");
+    expect(mockExeca).toHaveBeenCalledWith(
+      "pnpm",
+      ["exec", "fallow", "audit"],
+      expect.objectContaining({ cwd: worktree })
+    );
+  });
+
   it("uses explicit PIPELINE_FALLOW_COMMAND when provided", async () => {
     process.env.PIPELINE_FALLOW_COMMAND = "make fallow";
     const worktree = tempWorktree();
@@ -322,6 +349,50 @@ describe("runFallow", () => {
       [],
       expect.objectContaining({ cwd: worktree, shell: true })
     );
+  });
+});
+
+describe("pipeline run artifact isolation", () => {
+  it("hides .pipeline/runs while lint executes and restores it afterwards", async () => {
+    const worktree = tempWorktree({ lint: "custom-lint" });
+    const runsDir = join(worktree, ".pipeline", "runs");
+    mkdirSync(runsDir, { recursive: true });
+    writeFileSync(join(runsDir, "schedule.yaml"), "kind: pipeline-schedule\n");
+    mockExeca.mockImplementationOnce(() => {
+      expect(existsSync(runsDir)).toBe(false);
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: "lint ok",
+      } as any;
+    });
+
+    const result = await runLint(worktree);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("lint ok");
+    expect(existsSync(runsDir)).toBe(true);
+  });
+
+  it("hides .pipeline/runs while fallow executes and restores it afterwards", async () => {
+    const worktree = tempWorktree({ fallow: "custom-fallow" });
+    const runsDir = join(worktree, ".pipeline", "runs");
+    mkdirSync(runsDir, { recursive: true });
+    writeFileSync(join(runsDir, "schedule.yaml"), "kind: pipeline-schedule\n");
+    mockExeca.mockImplementationOnce(() => {
+      expect(existsSync(runsDir)).toBe(false);
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: "fallow ok",
+      } as any;
+    });
+
+    const result = await runFallow(worktree);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("fallow ok");
+    expect(existsSync(runsDir)).toBe(true);
   });
 });
 
