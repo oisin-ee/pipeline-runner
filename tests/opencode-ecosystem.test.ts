@@ -31,6 +31,7 @@ describe("OpenCode ecosystem manifest", () => {
       "opencode-background-agents",
       "opencode-handoff",
       "opencode-plugin-otel",
+      "opencode-goal-plugin",
       "opencode-snip",
       "opencode-mem",
       "cupcake",

@@ -103,7 +103,10 @@ describe("installCommands", () => {
       readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
     );
     expect(opencode.lsp).toBe(true);
-    expect(opencode.plugin).toEqual(["@devtheops/opencode-plugin-otel@1.1.0"]);
+    expect(opencode.plugin).toEqual([
+      "@devtheops/opencode-plugin-otel@1.1.0",
+      "@prevalentware/opencode-goal-plugin",
+    ]);
     const orchestrator = readFileSync(
       join(dir, ".opencode/agents/pipeline-orchestrator.md"),
       "utf8"
