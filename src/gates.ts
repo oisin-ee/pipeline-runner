@@ -107,7 +107,7 @@ async function resolvePackageBinaryCommand(
     case "yarn":
       return { command: "yarn", args: ["exec", binary, ...args] };
     default:
-      return { command: "npx", args: [binary, ...args] };
+      return { command: "npx", args: ["--yes", binary, ...args] };
   }
 }
 

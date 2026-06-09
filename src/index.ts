@@ -823,6 +823,7 @@ export async function runDoctor(cwd: string): Promise<DoctorResult> {
     checkCommand("npx", ["--version"], cwd),
     checkCommand("codex", ["--version"], cwd),
     checkCommand("opencode", ["--version"], cwd),
+    checkCommand("fallow", ["--version"], cwd),
   ]);
   const configCheck = checkPipelineConfig(cwd);
   const checks = [...commandChecks, configCheck];
