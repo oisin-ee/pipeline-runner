@@ -20,7 +20,21 @@ import type { RunnerLaunchPlan } from "../src/runner";
 vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
-const gitMock = (() => {
+interface GitMock {
+  client: {
+    add: ReturnType<typeof vi.fn>;
+    addConfig: ReturnType<typeof vi.fn>;
+    commit: ReturnType<typeof vi.fn>;
+    raw: ReturnType<typeof vi.fn>;
+    revparse: ReturnType<typeof vi.fn>;
+    status: ReturnType<typeof vi.fn>;
+  };
+  simpleGit: ReturnType<typeof vi.fn>;
+}
+
+let gitMock: GitMock;
+
+(() => {
   interface GitStatusResult {
     files: { path: string }[];
   }
@@ -44,7 +58,7 @@ const gitMock = (() => {
       })
     ),
   };
-  return {
+  gitMock = {
     client,
     simpleGit: vi.fn((options?: { baseDir?: string }) => ({
       add: client.add,
@@ -58,7 +72,7 @@ const gitMock = (() => {
 })();
 
 vi.mock("simple-git", () => ({
-  default: gitMock.simpleGit,
+  default: (options?: { baseDir?: string }) => gitMock.simpleGit(options),
 }));
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;

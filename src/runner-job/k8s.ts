@@ -10,9 +10,11 @@ export interface BuildRunnerJobK8sManifestOptions {
   orchestrator: "codex" | "opencode";
   payloadConfigMapKey: string;
   payloadConfigMapName: string;
+  serviceAccountName?: string;
 }
 
 export const RUNNER_JOB_IMAGE = "ghcr.io/oisin-ee/pipeline-runner:latest";
+const RUNNER_JOB_SERVICE_ACCOUNT = "pipeline-runner";
 
 export interface K8sJobManifest {
   apiVersion: "batch/v1";
@@ -36,6 +38,7 @@ export interface K8sJobManifest {
         }>;
         imagePullSecrets?: Array<{ name: string }>;
         restartPolicy: string;
+        serviceAccountName: string;
         volumes: Array<{
           configMap?: {
             items: Array<{ key: string; path: string }>;
@@ -191,6 +194,8 @@ export function buildRunnerJobK8sManifest(
             ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
             : {}),
           restartPolicy: "Never",
+          serviceAccountName:
+            options.serviceAccountName ?? RUNNER_JOB_SERVICE_ACCOUNT,
           volumes,
         },
       },

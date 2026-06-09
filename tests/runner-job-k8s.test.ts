@@ -106,6 +106,31 @@ describe("runner-job K8s manifest builder", () => {
     });
   });
 
+  describe("service account", () => {
+    it("uses the existing pipeline-runner service account by default", async () => {
+      const { buildRunnerJobK8sManifest } = await loadK8sModule();
+
+      const manifest = buildRunnerJobK8sManifest(BASE_OPTIONS);
+
+      expect(manifest.spec.template.spec.serviceAccountName).toBe(
+        "pipeline-runner"
+      );
+    });
+
+    it("allows callers to select another existing service account explicitly", async () => {
+      const { buildRunnerJobK8sManifest } = await loadK8sModule();
+
+      const manifest = buildRunnerJobK8sManifest({
+        ...BASE_OPTIONS,
+        serviceAccountName: "custom-runner",
+      });
+
+      expect(manifest.spec.template.spec.serviceAccountName).toBe(
+        "custom-runner"
+      );
+    });
+  });
+
   describe("container spec — env / envFrom", () => {
     it("does not set env on the runner container", async () => {
       const { buildRunnerJobK8sManifest } = await loadK8sModule();
