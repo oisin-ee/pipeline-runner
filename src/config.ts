@@ -238,7 +238,7 @@ profiles:
     runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
-    instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
+    instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code. Only edit files matching test paths such as **/*.test.*, **/*.spec.*, **/*_test.*, **/__tests__/**, test/**, or tests/**. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
     skills: [test]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]

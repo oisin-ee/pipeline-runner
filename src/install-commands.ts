@@ -368,6 +368,24 @@ function entrypointDispatchBlock(
   ].join("\n");
 }
 
+function orchestratorEntrypointDispatchBlock(
+  host: ActiveCommandHost,
+  config: PipelineConfig
+): string | undefined {
+  const scheduledEntrypoints = entrypointEntries(config).filter(
+    ([, entrypoint]) => !("workflow" in entrypoint)
+  );
+  if (scheduledEntrypoints.length === 0) {
+    return dispatchBlock(host, config);
+  }
+  return scheduledEntrypoints
+    .map(([id, entrypoint]) =>
+      entrypointDispatchBlock(host, config, id, entrypoint)
+    )
+    .filter((block): block is string => Boolean(block))
+    .join("\n\n");
+}
+
 function nativeDispatchBlock(
   host: ActiveCommandHost,
   routes: AgentDispatchRoute[]
@@ -725,7 +743,7 @@ function opencodeDefinitions(
           "",
           orchestratorBlock(config),
           "",
-          dispatchBlock("opencode", config),
+          orchestratorEntrypointDispatchBlock("opencode", config),
         ]).join("\n")
       ),
       host: "opencode",

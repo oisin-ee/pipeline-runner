@@ -332,6 +332,9 @@ describe("loadPipelineConfig", () => {
         max_attempts: 1,
       },
     });
+    expect(
+      config.profiles["pipeline-test-writer"].instructions.inline
+    ).toContain("Only edit files matching test paths");
     expect(config.profiles["pipeline-researcher"].timeout_ms).toBe(900_000);
     expect(
       config.profiles["pipeline-researcher"].instructions.inline

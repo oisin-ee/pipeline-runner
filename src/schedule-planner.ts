@@ -633,38 +633,9 @@ function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
           profile: "pipeline-test-writer",
         },
         {
-          builtin: "test",
-          id: "mechanical-red-tests",
-          kind: "builtin",
-          needs: ["red-tests"],
-        },
-        {
-          builtin: "typecheck",
-          id: "mechanical-red-typecheck",
-          kind: "builtin",
-          needs: ["red-tests"],
-        },
-        {
-          builtin: "lint",
-          id: "mechanical-red-lint",
-          kind: "builtin",
-          needs: ["red-tests"],
-        },
-        {
-          builtin: "fallow",
-          id: "mechanical-red-fallow",
-          kind: "builtin",
-          needs: ["red-tests"],
-        },
-        {
           id: "green-implementation",
           kind: "agent",
-          needs: [
-            "mechanical-red-tests",
-            "mechanical-red-typecheck",
-            "mechanical-red-lint",
-            "mechanical-red-fallow",
-          ],
+          needs: ["red-tests"],
           profile: "pipeline-code-writer",
         },
         {
@@ -954,6 +925,7 @@ function plannerPrompt(
     "Gate recipes:",
     "- Prefer preserving valid gates from the baseline workflows instead of recreating them.",
     "- RED/test coverage may use changed_files gates on test-writing nodes. A changed_files gate must include a changed_files object with allow and/or require_any glob arrays.",
+    "- Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes. RED tests are expected to make checks fail until GREEN implementation fixes the behavior.",
     "- Acceptance coverage may use acceptance and verdict gates. Acceptance gates may use target: stdout and required: false.",
     "- Verification may use builtin typecheck, test, lint, fallow, semgrep, duplication, plus verdict gates.",
     "",

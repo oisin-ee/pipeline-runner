@@ -30,6 +30,8 @@ const REPAIR_NODE_SCHEMA_RE =
   /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/s;
 const WORKFLOW_TASK_ASSIGNMENT_RE =
   /backlog work unit assignments must use explicit generated agent nodes/i;
+const GREEN_AFTER_RED_RE =
+  /id: green-implementation[\s\S]*needs:\s+- red-tests/;
 
 const RUNNERS = `
 version: 1
@@ -428,6 +430,68 @@ workflows:
           worktreePath: dir,
         })
       ).rejects.toThrow(PLANNER_FAILURE_WITH_DETAILS_RE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps RED test-writing directly upstream of GREEN in the execute baseline", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-red-green-"));
+    let prompt = "";
+    const schedule = buildScheduleYaml({
+      scheduleId: "run-red-green",
+      task: "Red green contract",
+      nodes: [
+        "- id: red-tests",
+        "  kind: agent",
+        "  profile: pipeline-test-writer",
+        "- id: green-implementation",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  needs: [red-tests]",
+        "- id: acceptance-review",
+        "  kind: agent",
+        "  profile: pipeline-acceptance-reviewer",
+        "  needs: [green-implementation]",
+        "- id: verification",
+        "  kind: agent",
+        "  profile: pipeline-verifier",
+        "  needs: [acceptance-review]",
+        "- id: learn",
+        "  kind: agent",
+        "  profile: pipeline-learner",
+        "  needs: [verification]",
+      ],
+    });
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "execute",
+        executor: (plan) => {
+          prompt = plan.args.join("\n");
+          return { exitCode: 0, stdout: schedule };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-red-green",
+        task: "Red green contract",
+        worktreePath: dir,
+      });
+
+      expect(prompt).toContain("green-implementation");
+      expect(prompt).toMatch(GREEN_AFTER_RED_RE);
+      expect(prompt).not.toContain("mechanical-red-tests");
+      expect(prompt).not.toContain("mechanical-red-typecheck");
+      expect(prompt).not.toContain("mechanical-red-lint");
+      expect(prompt).not.toContain("mechanical-red-fallow");
+      expect(result.artifact.workflows.root.nodes).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "mechanical-red-tests" }),
+          expect.objectContaining({ id: "mechanical-red-typecheck" }),
+          expect.objectContaining({ id: "mechanical-red-lint" }),
+          expect.objectContaining({ id: "mechanical-red-fallow" }),
+        ])
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1074,6 +1138,9 @@ task: Bad: compact scalar
       expect(prompt).toContain("red-test-file-policy");
       expect(prompt).toContain("changed_files:");
       expect(prompt).toContain("require_any:");
+      expect(prompt).toContain(
+        "Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes."
+      );
       expect(Object.keys(result.artifact.workflows)).toEqual(["root"]);
       expect(result.artifact.workflows.root.nodes).toEqual(
         expect.arrayContaining([

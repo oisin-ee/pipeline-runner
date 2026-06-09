@@ -147,6 +147,18 @@ describe("installCommands", () => {
     expect(codexInspectCommand).toContain(
       "opencode run --agent pipeline-inspector --format json"
     );
+    expect(orchestrator).toContain(
+      "Generate a schedule for entrypoint `quick`"
+    );
+    expect(orchestrator).toContain(
+      "Run `oisin-pipeline run --entrypoint quick <task description>`"
+    );
+    expect(orchestrator).toContain(
+      "Generate a schedule for entrypoint `execute`"
+    );
+    expect(orchestrator).not.toContain(
+      "Run workflow `inspect` for the user task."
+    );
   });
 
   it("installs the pipeline gateway project config for Codex and OpenCode together", async () => {
