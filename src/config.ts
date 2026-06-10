@@ -230,6 +230,7 @@ profiles:
     runner: opencode
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions: { inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only." }
+    timeout_ms: 300000
     skills: [schedule-graph-shaping]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]

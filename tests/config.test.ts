@@ -336,6 +336,9 @@ describe("loadPipelineConfig", () => {
       config.profiles["pipeline-test-writer"].instructions.inline
     ).toContain("Only edit files matching test paths");
     expect(config.profiles["pipeline-researcher"].timeout_ms).toBe(900_000);
+    expect(config.profiles["pipeline-schedule-planner"].timeout_ms).toBe(
+      300_000
+    );
     expect(
       config.profiles["pipeline-researcher"].instructions.inline
     ).toContain("do not perform open-ended repository exploration");

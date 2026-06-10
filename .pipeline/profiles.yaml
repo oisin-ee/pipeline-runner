@@ -131,6 +131,7 @@ profiles:
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions:
       path: .pipeline/prompts/schedule-planner.md
+    timeout_ms: 300000
     skills: [schedule-graph-shaping]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
