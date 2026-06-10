@@ -1200,6 +1200,70 @@ task: Bad: compact scalar
     }
   });
 
+  it("gives planners lowercase Backlog ticket work units", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-lowercase-ticket-")
+    );
+    writeBacklogTask(
+      dir,
+      "jalgpall-2",
+      "Adopt pg-boss for refresh queue + scheduler + retries",
+      "## Description\n\nReplace the refresh queue.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Refresh jobs are scheduled through pg-boss.\n<!-- AC:END -->",
+      { parentTaskId: "" }
+    );
+    const schedule = buildScheduleYaml({
+      scheduleId: "run-jalgpall-2",
+      task: "jalgpall-2",
+      nodes: [
+        "- id: jalgpall-2-green",
+        "  kind: agent",
+        "  profile: pipeline-code-writer",
+        "  task_context:",
+        "    id: jalgpall-2",
+        "- id: jalgpall-2-verify",
+        "  kind: agent",
+        "  profile: pipeline-verifier",
+        "  needs: [jalgpall-2-green]",
+      ],
+    });
+
+    try {
+      const { prompt, result } = await generateScheduleWithPrompt({
+        runId: "run-jalgpall-2",
+        schedule,
+        task: "jalgpall-2",
+        worktreePath: dir,
+      });
+
+      expect(prompt).toContain("Backlog work units:");
+      expect(prompt).toContain("jalgpall-2");
+      expect(prompt).toContain(
+        "Adopt pg-boss for refresh queue + scheduler + retries"
+      );
+      expect(prompt).not.toContain("No backlog child tickets were resolved");
+      expect(result.artifact.workflows.root.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "jalgpall-2-green",
+            task_context: expect.objectContaining({
+              acceptance_criteria: [
+                {
+                  id: "1",
+                  text: "Refresh jobs are scheduled through pg-boss.",
+                },
+              ],
+              description: "Replace the refresh queue.",
+              id: "jalgpall-2",
+              title: "Adopt pg-boss for refresh queue + scheduler + retries",
+            }),
+          }),
+        ])
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("passes Backlog child dependency metadata to the schedule planner", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-pc37-"));
     writeBacklogTask(

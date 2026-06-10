@@ -3,8 +3,9 @@ interface TicketResult {
   ticketId: string | null;
 }
 
-const TICKET_RE = /^([A-Z]+-\d+(?:\.\d+)*)\b\s*(.*)$/s;
-const TICKET_ID_RE = /\b([A-Z]+-\d+(?:\.\d+)*)\b/g;
+const TICKET_ID_SOURCE = String.raw`(?=[A-Za-z0-9.-]*\d)[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+(?:\.[A-Za-z0-9]+)*`;
+const TICKET_RE = new RegExp(`^(${TICKET_ID_SOURCE})\\b\\s*(.*)$`, "s");
+const TICKET_ID_RE = new RegExp(`\\b(${TICKET_ID_SOURCE})\\b`, "g");
 
 /**
  * Extract a Backlog.md ticket id (e.g. "PIPE-42") from the start of a free-form
