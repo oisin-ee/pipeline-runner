@@ -37,7 +37,7 @@ const ENTRYPOINT_PATH_PATTERNS: Record<ActiveCommandHost, RegExp[]> = {
   ],
   opencode: [/^\.opencode\/commands\/([^/]+)\.md$/],
 };
-export const COMMAND_HOSTS = ["opencode", "codex"] as const;
+const COMMAND_HOSTS = ["opencode", "codex"] as const;
 
 type ActiveCommandHost = (typeof COMMAND_HOSTS)[number];
 export type CommandHost = ActiveCommandHost;
@@ -361,11 +361,20 @@ function entrypointDispatchBlock(
   return [
     `Generate a schedule for entrypoint \`${id}\` and the user task.`,
     `The schedule policy is \`${entrypoint.schedule}\`.`,
-    `Run \`oisin-pipeline run --entrypoint ${id} <task description>\` to generate and execute the schedule artifact.`,
-    "The pipeline CLI runtime is the deterministic graph scheduler for scheduled entrypoints.",
-    "It launches configured Codex/OpenCode agent subprocesses as soon as their dependencies pass.",
+    `Run \`oisin-pipeline ${id} <task description>\` to submit the pipeline as a k8s job.`,
+    "The pipeline runtime executes inside a Kubernetes pod using the package-owned runner image.",
+    `Use \`oisin-pipeline ${id} --local <task description>\` for local execution instead.`,
     "Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.",
   ].join("\n");
+}
+
+function scheduledEntrypointK8sNote(
+  entrypoint: PipelineConfig["entrypoints"][string]
+): string | undefined {
+  if ("workflow" in entrypoint) {
+    return;
+  }
+  return "Submit Kubernetes runner Jobs by default through `oisin-pipeline quick` and `oisin-pipeline execute`.";
 }
 
 function orchestratorEntrypointDispatchBlock(
@@ -713,6 +722,8 @@ function opencodeDefinitions(
           "",
           orchestratorBlock(config),
           "",
+          scheduledEntrypointK8sNote(entrypoint),
+          scheduledEntrypointK8sNote(entrypoint) ? "" : undefined,
           entrypointDispatchBlock("opencode", config, id, entrypoint),
         ]).join("\n")
       ),
@@ -799,6 +810,8 @@ function codexDefinitions(
           "",
           orchestratorBlock(config),
           "",
+          scheduledEntrypointK8sNote(entrypoint),
+          scheduledEntrypointK8sNote(entrypoint) ? "" : undefined,
           entrypointDispatchBlock("codex", config, id, entrypoint),
         ]).join("\n")
       ),
@@ -821,6 +834,8 @@ function codexDefinitions(
           "",
           orchestratorBlock(config),
           "",
+          scheduledEntrypointK8sNote(entrypoint),
+          scheduledEntrypointK8sNote(entrypoint) ? "" : undefined,
           entrypointDispatchBlock("codex", config, id, entrypoint),
         ]).join("\n")
       ),

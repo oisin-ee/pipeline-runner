@@ -154,7 +154,10 @@ describe("installCommands", () => {
       "Generate a schedule for entrypoint `quick`"
     );
     expect(orchestrator).toContain(
-      "Run `oisin-pipeline run --entrypoint quick <task description>`"
+      "Run `oisin-pipeline quick <task description>`"
+    );
+    expect(orchestrator).toContain(
+      "Use `oisin-pipeline quick --local <task description>` for local execution instead"
     );
     expect(orchestrator).toContain(
       "Generate a schedule for entrypoint `execute`"
@@ -216,10 +219,11 @@ describe("installCommands", () => {
       const content = readFileSync(join(dir, path), "utf8");
       expect(content).toContain("Generate a schedule for entrypoint");
       expect(content).toContain(
-        "The pipeline CLI runtime is the deterministic graph scheduler"
+        "Submit Kubernetes runner Jobs by default through `oisin-pipeline quick` and `oisin-pipeline execute`"
       );
+      expect(content).toContain("Use `oisin-pipeline ");
       expect(content).toContain(
-        "Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning"
+        "--local <task description>` for local execution instead"
       );
     }
   });

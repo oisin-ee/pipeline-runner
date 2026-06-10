@@ -170,6 +170,26 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
     }
   });
 
+  it("documents Kubernetes runner prerequisites and quick/execute k8s default", () => {
+    const guide = readFileSync(
+      join(process.cwd(), "docs/operator-guide.md"),
+      "utf8"
+    );
+
+    expect(guide).toContain("submit Kubernetes runner Jobs by default");
+    expect(guide).toContain("PIPELINE_EVENT_URL");
+    expect(guide).toContain("oisin-pipeline quick");
+    expect(guide).toContain("oisin-pipeline execute");
+    expect(guide).toContain("--local");
+    expect(guide).toContain("ServiceAccount");
+    expect(guide).toContain("codex-auth-1");
+    expect(guide).toContain("opencode-auth-1");
+    expect(guide).toContain("pipeline-runner-event-auth");
+    expect(guide).toContain("pipeline-runner-github-auth");
+    expect(guide).toContain("oisin-pipeline quick --local");
+    expect(guide).toContain("oisin-pipeline execute --local");
+  });
+
   it("keeps generated prompts and command text from naming repo-local YAML as the runtime source", () => {
     const generatedText = [
       `src/config.ts\n${readFileSync(join(process.cwd(), "src/config.ts"), "utf8")}`,

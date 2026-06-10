@@ -21,6 +21,7 @@ import {
   installCommands,
   parseCommandHost,
 } from "./install-commands";
+import { submitK8sRunnerJob } from "./k8s-submit";
 import {
   configureGatewayHosts,
   type GatewayHostScope,
@@ -662,7 +663,18 @@ export function createCliProgram(): Command {
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,
     configuredPipeline,
-    (entrypoint, task) => execute(task, { entrypoint })
+    async (entrypoint, task, opts) => {
+      if (!opts.local && (entrypoint === "quick" || entrypoint === "execute")) {
+        const result = await submitK8sRunnerJob({
+          entrypoint: entrypoint as "execute" | "quick",
+          task,
+          eventUrl: process.env.PIPELINE_EVENT_URL ?? "",
+        });
+        console.log(`Job submitted: ${result.jobName} in ${result.namespace}`);
+      } else {
+        await execute(task, { entrypoint });
+      }
+    }
   );
   if (configuredEntrypointCommands.size > 0) {
     program.configureHelp({
