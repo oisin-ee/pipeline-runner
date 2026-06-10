@@ -157,7 +157,10 @@ function nativeProfileEntries(
   );
 }
 
-function orchestratorProfile(config: PipelineConfig): ActorConfig {
+function orchestratorProfile(config: PipelineConfig): ActorConfig | undefined {
+  if (!config.orchestrator) {
+    return;
+  }
   const profile = config.profiles[config.orchestrator.profile];
   if (!profile) {
     throw new Error(
@@ -274,12 +277,16 @@ function grants(actor: ActorConfig): string {
 }
 
 function orchestratorBlock(config: PipelineConfig): string {
+  const profile = orchestratorProfile(config);
+  if (!profile) {
+    return "Configured orchestrator: none";
+  }
   return [
     "Configured orchestrator:",
-    grants(orchestratorProfile(config)),
+    grants(profile),
     `hooks: ${Object.keys(config.hooks.functions).join(", ") || "none"}`,
     "",
-    instructionsPointer(orchestratorProfile(config)),
+    instructionsPointer(profile),
   ].join("\n");
 }
 
@@ -660,11 +667,12 @@ function opencodeDefinitions(
   config: PipelineConfig,
   cwd: string
 ): CommandDefinition[] {
+  const orchestrator = orchestratorProfile(config);
   return [
     ...entrypointCommandDefinitions("opencode", config, (id, entrypoint) => ({
       content: markdown(
         {
-          agent: "pipeline-orchestrator",
+          ...(orchestrator ? { agent: "pipeline-orchestrator" } : {}),
           description: entrypointDescription(id, entrypoint),
         },
         compactLines([
@@ -689,30 +697,35 @@ function opencodeDefinitions(
       invocation: invocationForHost("opencode"),
       path: ".opencode/opencode.json",
     },
-    {
-      content: markdown(
-        {
-          description: "Orchestrate the configured pipeline and enforce gates.",
-          mode: "primary",
-          permission: opencodePermission(orchestratorProfile(config), {
-            allowedTaskAgents: agentDispatchRoutes("opencode", config)
-              .filter((route) => route.kind !== "cli")
-              .map((route) => route.nativeAgentId)
-              .filter((id): id is string => Boolean(id)),
-          }),
-        },
-        compactLines([
-          header("opencode").trimEnd(),
-          "",
-          orchestratorBlock(config),
-          "",
-          orchestratorEntrypointDispatchBlock("opencode", config),
-        ]).join("\n")
-      ),
-      host: "opencode",
-      invocation: invocationForHost("opencode"),
-      path: ".opencode/agents/pipeline-orchestrator.md",
-    },
+    ...(orchestrator
+      ? [
+          {
+            content: markdown(
+              {
+                description:
+                  "Orchestrate the configured pipeline and enforce gates.",
+                mode: "primary",
+                permission: opencodePermission(orchestrator, {
+                  allowedTaskAgents: agentDispatchRoutes("opencode", config)
+                    .filter((route) => route.kind !== "cli")
+                    .map((route) => route.nativeAgentId)
+                    .filter((id): id is string => Boolean(id)),
+                }),
+              },
+              compactLines([
+                header("opencode").trimEnd(),
+                "",
+                orchestratorBlock(config),
+                "",
+                orchestratorEntrypointDispatchBlock("opencode", config),
+              ]).join("\n")
+            ),
+            host: "opencode" as const,
+            invocation: invocationForHost("opencode"),
+            path: ".opencode/agents/pipeline-orchestrator.md",
+          },
+        ]
+      : []),
     ...nativeProfileEntries("opencode", config).map(([id, profile]) => ({
       content: markdown(
         {

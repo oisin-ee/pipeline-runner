@@ -1,10 +1,12 @@
+import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import simpleGit, { type SimpleGit } from "simple-git";
+import { promisify } from "node:util";
 import type { PipelineConfig } from "../config";
 import type { RunnerCommandPayload } from "../runner-command-contract";
 
 const DEFAULT_WORKSPACE_PATH = "/workspace";
+const execGit = promisify(execFile);
 
 export interface RunnerGitRefs {
   finalRef: string;
@@ -38,11 +40,16 @@ export async function prepareRunnerGitWorkspace(
   }
   const worktreePath = options.workspacePath ?? DEFAULT_WORKSPACE_PATH;
   mkdirSync(dirname(worktreePath), { recursive: true });
-  await simpleGit().clone(payload.repository.url, worktreePath, ["--no-tags"]);
-  const git = simpleGit({ baseDir: worktreePath });
-  await git.checkout(
-    payload.repository.sha ?? `origin/${payload.repository.baseBranch}`
-  );
+  await runGit(dirname(worktreePath), [
+    "clone",
+    "--no-tags",
+    payload.repository.url,
+    worktreePath,
+  ]);
+  await runGit(worktreePath, [
+    "checkout",
+    payload.repository.sha ?? `origin/${payload.repository.baseBranch}`,
+  ]);
   return worktreePath;
 }
 
@@ -51,11 +58,15 @@ export async function mergeDependencyRefs(input: {
   payload: RunnerCommandPayload;
   worktreePath: string;
 }): Promise<void> {
-  const git = simpleGit({ baseDir: input.worktreePath });
   for (const nodeId of input.dependencyNodeIds) {
     const ref = runnerGitRefs(input.payload, nodeId).nodeRef;
-    await git.raw(["fetch", "origin", ref]);
-    await git.raw(["merge", "--no-ff", "--no-edit", "FETCH_HEAD"]);
+    await runGit(input.worktreePath, ["fetch", "origin", ref]);
+    await runGit(input.worktreePath, [
+      "merge",
+      "--no-ff",
+      "--no-edit",
+      "FETCH_HEAD",
+    ]);
   }
 }
 
@@ -65,10 +76,13 @@ export async function commitAndPushNodeRef(input: {
   payload: RunnerCommandPayload;
   worktreePath: string;
 }): Promise<string> {
-  const git = simpleGit({ baseDir: input.worktreePath });
-  await commitChangesIfNeeded(git, input.nodeId, input.committer);
-  const sha = (await git.revparse(["HEAD"])).trim();
-  await git.raw([
+  await commitChangesIfNeeded(
+    input.worktreePath,
+    input.nodeId,
+    input.committer
+  );
+  const sha = (await runGit(input.worktreePath, ["rev-parse", "HEAD"])).trim();
+  await runGit(input.worktreePath, [
     "push",
     "origin",
     `HEAD:${runnerGitRefs(input.payload, input.nodeId).nodeRef}`,
@@ -87,10 +101,9 @@ export async function promoteFinalRef(input: {
     payload: input.payload,
     worktreePath: input.worktreePath,
   });
-  const git = simpleGit({ baseDir: input.worktreePath });
-  await commitChangesIfNeeded(git, "final", input.committer);
-  const sha = (await git.revparse(["HEAD"])).trim();
-  await git.raw([
+  await commitChangesIfNeeded(input.worktreePath, "final", input.committer);
+  const sha = (await runGit(input.worktreePath, ["rev-parse", "HEAD"])).trim();
+  await runGit(input.worktreePath, [
     "push",
     "origin",
     `HEAD:${runnerGitRefs(input.payload, "final").finalRef}`,
@@ -99,16 +112,35 @@ export async function promoteFinalRef(input: {
 }
 
 async function commitChangesIfNeeded(
-  git: SimpleGit,
+  worktreePath: string,
   nodeId: string,
   committer: PipelineConfig["runner_command"]["git"]["committer"]
 ): Promise<void> {
-  const status = await git.status();
-  if (status.files.length === 0) {
+  const status = await runGit(worktreePath, [
+    "status",
+    "--porcelain",
+    "--untracked-files=all",
+  ]);
+  if (status.trim().length === 0) {
     return;
   }
-  await git.add(["--all"]);
-  await git.addConfig("user.name", committer.name, false, "local");
-  await git.addConfig("user.email", committer.email, false, "local");
-  await git.commit(`pipeline: ${nodeId}`);
+  await runGit(worktreePath, ["add", "--all"]);
+  await runGit(worktreePath, [
+    "config",
+    "--local",
+    "user.name",
+    committer.name,
+  ]);
+  await runGit(worktreePath, [
+    "config",
+    "--local",
+    "user.email",
+    committer.email,
+  ]);
+  await runGit(worktreePath, ["commit", "-m", `pipeline: ${nodeId}`]);
+}
+
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execGit("git", args, { cwd, encoding: "utf8" });
+  return stdout;
 }

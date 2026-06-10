@@ -133,6 +133,11 @@ hooks:
         failure: ignore
 `;
 
+const VALID_PIPELINE_WITHOUT_ORCHESTRATOR_YAML = VALID_PIPELINE_YAML.replace(
+  "orchestrator:\n  profile: orchestrator\n",
+  ""
+);
+
 const VALID_PARTS: PipelineConfigParts = {
   pipeline: VALID_PIPELINE_YAML,
   profiles: VALID_PROFILES_YAML,
@@ -285,10 +290,9 @@ describe("loadPipelineConfig", () => {
     expect(config.runners.opencode.type).toBe("opencode");
     expect(
       Object.entries(config.profiles)
-        .filter(([id]) => id === "orchestrator" || id.startsWith("pipeline-"))
+        .filter(([id]) => id.startsWith("pipeline-"))
         .map(([id, profile]) => [id, profile.runner])
     ).toEqual([
-      ["orchestrator", "opencode"],
       ["pipeline-researcher", "opencode"],
       ["pipeline-inspector", "opencode"],
       ["pipeline-schedule-planner", "opencode"],
@@ -374,7 +378,7 @@ describe("loadPipelineConfig", () => {
     expect(config.version).toBe(1);
     expect(config.default_workflow).toBe("default");
     expect(config.runners.opencode.type).toBe("opencode");
-    expect(config.orchestrator.profile).toBe("orchestrator");
+    expect(config.orchestrator?.profile).toBe("orchestrator");
     expect(config.profiles.orchestrator.model).toBe("gpt-5-orchestrator");
     expect(config.profiles.researcher.runner).toBe("opencode");
     expect(config.profiles.researcher.output?.repair).toEqual({
@@ -398,6 +402,23 @@ describe("loadPipelineConfig", () => {
       },
       timeout_ms: 5000,
     });
+  });
+
+  it("parses a minimal custom pipeline config without an orchestrator", () => {
+    const project = makeProject({
+      ...VALID_PARTS,
+      pipeline: VALID_PIPELINE_WITHOUT_ORCHESTRATOR_YAML,
+    });
+
+    const config = parseProjectParts(project, {
+      pipeline: VALID_PIPELINE_WITHOUT_ORCHESTRATOR_YAML,
+    });
+
+    expect(config.default_workflow).toBe("default");
+    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
+      "research",
+      "red",
+    ]);
   });
 
   it("accepts a configured runner command git committer", () => {

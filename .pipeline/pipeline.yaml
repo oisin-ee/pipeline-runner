@@ -10,8 +10,6 @@ entrypoints:
   inspect:
     workflow: inspect
     description: Read-only repository inspection
-orchestrator:
-  profile: orchestrator
 hooks:
   functions:
     generated-defaults-audit:

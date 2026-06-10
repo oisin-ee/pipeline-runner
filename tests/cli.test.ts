@@ -315,6 +315,9 @@ beforeEach(() => {
     ) {
       installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
     }
+    if (isUidotshInstallCommand(command, args)) {
+      installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
+    }
     return Promise.resolve({
       exitCode: 0,
       stderr: "",
@@ -334,6 +337,10 @@ afterEach(() => {
   restoreEnv("PIPELINE_TEST_COMMAND", ORIGINAL_PIPELINE_TEST_COMMAND);
 });
 function installMockSkills(args: string[], cwd = process.cwd()): void {
+  if (args.includes("@uidotsh/install")) {
+    writeMockSkills(DEFAULT_TEST_SKILLS, cwd);
+    return;
+  }
   const skillIndex = args.indexOf("--skill");
   if (skillIndex < 0) {
     return;
@@ -344,6 +351,10 @@ function installMockSkills(args: string[], cwd = process.cwd()): void {
   const skills = requestedSkills.includes("*")
     ? DEFAULT_TEST_SKILLS
     : requestedSkills;
+  writeMockSkills(skills, cwd);
+}
+
+function writeMockSkills(skills: string[], cwd: string): void {
   const lock: Record<string, unknown> = { skills: {}, version: 1 };
   for (const skill of skills) {
     const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
@@ -352,6 +363,17 @@ function installMockSkills(args: string[], cwd = process.cwd()): void {
     (lock.skills as Record<string, unknown>)[skill] = { source: "mock" };
   }
   writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
+}
+
+function isUidotshInstallCommand(
+  command: string,
+  args: string[] | undefined
+): args is string[] {
+  return (
+    command === "npx" &&
+    Array.isArray(args) &&
+    args.includes("@uidotsh/install")
+  );
 }
 
 function writeCliProjectFile(
@@ -711,8 +733,8 @@ function isSkillsInstallCommand(
   return (
     command === "npx" &&
     Array.isArray(args) &&
-    args.includes("skills") &&
-    args.includes("add")
+    ((args.includes("skills") && args.includes("add")) ||
+      args.includes("@uidotsh/install"))
   );
 }
 
@@ -1038,6 +1060,14 @@ describe("execute", () => {
           ".opencode/opencode.json",
         ])
       ).toBe(true);
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) =>
+            command === "npx" &&
+            Array.isArray(args) &&
+            args.includes("@uidotsh/install")
+        )
+      ).toBe(true);
       expect(hasMcpmRegistration()).toBe(false);
     });
   });
@@ -1053,12 +1083,7 @@ describe("execute", () => {
           args?: string[],
           options?: { cwd?: string }
         ) => {
-          if (
-            command === "npx" &&
-            Array.isArray(args) &&
-            args.includes("skills") &&
-            args.includes("add")
-          ) {
+          if (isSkillsInstallCommand(command, args)) {
             installMockSkills(
               args,
               (options as { cwd?: string } | undefined)?.cwd

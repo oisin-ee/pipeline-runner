@@ -185,9 +185,38 @@ import {
 } from "@oisincoveney/pipeline/hooks";
 
 const parts: PipelineConfigParts = {
-  pipeline: "version: 1\\ndefault_workflow: smoke\\norchestrator: { profile: orchestrator }\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
-  profiles: "version: 1\\nprofiles:\\n  orchestrator:\\n    runner: local\\n    instructions: { inline: Coordinate the smoke workflow. }\\n",
+  pipeline: "version: 1\\ndefault_workflow: smoke\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
+  profiles: "version: 1\\nprofiles: {}\\n",
   runners: "version: 1\\nrunners:\\n  local:\\n    type: command\\n    command: node\\n    capabilities: { native_subagents: false }\\n",
+};
+
+const configWithoutOrchestrator: PipelineConfig = {
+  default_workflow: "smoke",
+  entrypoints: {},
+  hooks: { functions: {}, on: {} },
+  mcp_servers: {},
+  profiles: {},
+  runner_command: {
+    environment: { setup: [], smoke: [] },
+    git: { committer: { email: "git@example.com", name: "git-bot" } },
+  },
+  rules: {},
+  runners: {},
+  scheduler: { commands: {}, node_catalogs: {} },
+  schedules: {},
+  skills: {},
+  version: 1,
+  workflows: {
+    smoke: {
+      nodes: [
+        {
+          command: ["node", "-e", "console.log('ok')"],
+          id: "check",
+          kind: "command",
+        },
+      ],
+    },
+  },
 };
 
 const config: PipelineConfig = parsePipelineConfigParts(parts, "/tmp/project");
@@ -272,6 +301,7 @@ void formattedError;
 void runnerType;
 void nodeKind;
 void scheduledPlan;
+void configWithoutOrchestrator;
 void parsedPayload;
 void runnerManifest;
 `,

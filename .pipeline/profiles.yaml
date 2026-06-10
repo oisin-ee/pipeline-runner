@@ -71,20 +71,6 @@ mcp_gateway:
       tool_prefixes: [backlog]
 
 profiles:
-  orchestrator:
-    runner: opencode
-    instructions:
-      path: .pipeline/prompts/orchestrator.md
-    rules: [test-first, verification]
-    skills: [scope, doubt]
-    mcp_servers: [pipeline-gateway]
-    tools: [read, list, grep, glob, bash]
-    filesystem:
-      mode: read-only
-      allow: ["**/*"]
-      deny: ["node_modules/**", "dist/**", ".git/**"]
-    network:
-      mode: inherit
   pipeline-researcher:
     runner: opencode
     description: Research the requested task and produce structured findings.

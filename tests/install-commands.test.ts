@@ -58,7 +58,6 @@ describe("installCommands", () => {
       ".opencode/commands/execute.md",
       ".opencode/commands/inspect.md",
       ".opencode/opencode.json",
-      ".opencode/agents/pipeline-orchestrator.md",
       ".opencode/agents/pipeline-inspector.md",
       ".opencode/skills/critique/SKILL.md",
       ".opencode/skills/doubt/SKILL.md",
@@ -92,13 +91,9 @@ describe("installCommands", () => {
       "@prevalentware/opencode-goal-plugin",
       "oc-codex-multi-auth",
     ]);
-    const orchestrator = readFileSync(
-      join(dir, ".opencode/agents/pipeline-orchestrator.md"),
-      "utf8"
-    );
-    expect(orchestrator).toContain("mode: primary");
-    expect(orchestrator).toContain("task:");
-    expect(orchestrator).toContain("pipeline-inspector: allow");
+    expect(
+      existsSync(join(dir, ".opencode/agents/pipeline-orchestrator.md"))
+    ).toBe(false);
     const inspector = readFileSync(
       join(dir, ".opencode/agents/pipeline-inspector.md"),
       "utf8"
@@ -125,19 +120,28 @@ describe("installCommands", () => {
     expect(localPlugin).toContain("@oisincoveney/pipeline:host=opencode");
     expect(localPlugin).toContain("PipelineGoalContext");
     expect(localPlugin).toContain("experimental.session.compacting");
-    expect(orchestrator).toContain(
+    const quickCommand = readFileSync(
+      join(dir, ".opencode/commands/quick.md"),
+      "utf8"
+    );
+    const executeCommand = readFileSync(
+      join(dir, ".opencode/commands/execute.md"),
+      "utf8"
+    );
+    expect(quickCommand).toContain("Configured orchestrator: none");
+    expect(quickCommand).toContain(
       "Generate a schedule for entrypoint `quick`"
     );
-    expect(orchestrator).toContain(
+    expect(quickCommand).toContain(
       "Run `moka submit --quick <task description>`"
     );
-    expect(orchestrator).toContain(
+    expect(quickCommand).toContain(
       "Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster."
     );
-    expect(orchestrator).toContain(
+    expect(executeCommand).toContain(
       "Generate a schedule for entrypoint `execute`"
     );
-    expect(orchestrator).not.toContain(
+    expect(executeCommand).not.toContain(
       "Run workflow `inspect` for the user task."
     );
   });

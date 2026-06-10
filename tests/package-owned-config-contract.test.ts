@@ -18,6 +18,10 @@ const STALE_DOC_RUNTIME_SOURCE_RE =
   /\.pipeline\/pipeline\.yaml[\s\S]{0,120}(source of truth|required|fails without|runtime|runner jobs)|source of truth[\s\S]{0,120}\.pipeline\/pipeline\.yaml|runs a static workflow from `.pipeline\/pipeline\.yaml`/i;
 const STALE_GENERATED_RUNTIME_SOURCE_RE =
   /source of truth[\s\S]{0,160}\.pipeline\/pipeline\.yaml|\.pipeline\/pipeline\.yaml[\s\S]{0,160}(source of truth|blocking|authoritative|declares a gate|declared a gate)/i;
+const MISSING_EVENT_URL_FAILURE_DOC_RE =
+  /without (PIPELINE_EVENT_URL|it)[^\n.]*fails|fails with a validation error/i;
+const CLUSTER_SCOPED_CRD_PREFLIGHT_RE =
+  /customresourcedefinitions|CustomResourceDefinition|\bcrds?\b|kubectl\s+get\s+crd/i;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -170,6 +174,8 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
     expect(guide).toContain("submits Argo Workflows by default");
     expect(guide).toContain("--schedule <path>");
     expect(guide).toContain("PIPELINE_EVENT_URL");
+    expect(guide).toContain("Momokaya default event sink");
+    expect(guide).not.toMatch(MISSING_EVENT_URL_FAILURE_DOC_RE);
     expect(guide).toContain('moka submit "fix the login bug" --quick');
     expect(guide).toContain('moka submit "Implement PIPE-54"');
     expect(guide).toContain("--kubeconfig <path>");
@@ -183,6 +189,14 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
     expect(guide).not.toContain("moka submit --local");
     expect(guide).not.toContain("oisin-pipeline quick");
     expect(guide).not.toContain("oisin-pipeline execute");
+  });
+
+  it("keeps submit code free of cluster-scoped CRD preflight checks", () => {
+    const submitSources = ["src/moka-submit.ts", "src/argo-submit.ts"]
+      .map((path) => readFileSync(join(process.cwd(), path), "utf8"))
+      .join("\n");
+
+    expect(submitSources).not.toMatch(CLUSTER_SCOPED_CRD_PREFLIGHT_RE);
   });
 
   it("keeps generated prompts and command text from naming repo-local YAML as the runtime source", () => {

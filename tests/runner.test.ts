@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("execa", () => ({
   execa: vi.fn(),
@@ -15,6 +15,10 @@ import { normalizeRunnerOutput } from "../src/runner-output.ts";
 import { opencodeCliRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
+const originalPipelineAgentTimeoutMs = process.env.PIPELINE_AGENT_TIMEOUT_MS;
+const originalPipelineMcpGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
+const originalPipelineMcpGatewayAuthorization =
+  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 function makeSimpleResult(stdout = "output", exitCode = 0) {
   return Promise.resolve({ stdout, exitCode }) as any;
 }
@@ -25,6 +29,23 @@ beforeEach(() => {
   process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:8787/mcp";
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "test-gateway-token";
 });
+
+afterEach(() => {
+  restoreEnv("PIPELINE_AGENT_TIMEOUT_MS", originalPipelineAgentTimeoutMs);
+  restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalPipelineMcpGatewayUrl);
+  restoreEnv(
+    "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+    originalPipelineMcpGatewayAuthorization
+  );
+});
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
 
 function parseTestConfig(parts: {
   pipeline: string;

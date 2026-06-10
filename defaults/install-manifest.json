@@ -2,8 +2,7 @@
   "version": 1,
   "skills": [
     {
-      "source": "oisincoveney/skills",
-      "args": ["--agent", "opencode", "--skill", "*", "--yes", "--copy"]
+      "source": "@uidotsh/install"
     }
   ]
 }

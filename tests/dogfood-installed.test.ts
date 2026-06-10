@@ -310,64 +310,24 @@ describe("installed dogfood configuration", () => {
     expect(config.workflows["epic-drain"]).toBeUndefined();
   });
 
-  it("keeps installed host resources aligned with orchestrator and agent grants", () => {
+  it("keeps installed host resources aligned with package defaults and agent grants", () => {
     const config = loadPipelineConfig(process.cwd(), {
       allowMissingLintFileReferences: true,
     });
     const root = process.cwd();
+    expect(config.orchestrator).toBeUndefined();
     for (const surface of entrypointCommandSurfaces(config)) {
       expect(existsSync(join(root, surface.path)), surface.path).toBe(true);
       const content = readFileSync(join(root, surface.path), "utf8");
-      const profile = config.profiles[config.orchestrator.profile];
-      expect(profile).toBeTruthy();
-      expect(content).toContain("Configured orchestrator:");
-      expect(content).toContain(`model: ${profile.model ?? "default"}`);
-      expect(content).toContain(`tools: ${(profile.tools ?? []).join(", ")}`);
-      expect(content).toContain(`rules: ${(profile.rules ?? []).join(", ")}`);
-      expect(content).toContain(`skills: ${(profile.skills ?? []).join(", ")}`);
-      expect(content).toContain(
-        `mcp_servers: ${(profile.mcp_servers ?? []).join(", ")}`
-      );
-      expect(content).toContain(`filesystem: ${profile.filesystem?.mode}`);
-      expect(content).toContain(`network: ${profile.network?.mode}`);
-      expect(content).toContain(
-        `hooks: ${Object.keys(config.hooks.functions).join(", ")}`
-      );
+      expect(content).toContain("Configured orchestrator: none");
+      expect(content).not.toContain("agent: pipeline-orchestrator");
       expect(content).toContain(surface.invocation);
       expect(content).toContain(surface.targetId);
     }
 
-    const pipelineOrchestratorContent = readFileSync(
-      join(root, ".opencode/agents/pipeline-orchestrator.md"),
-      "utf8"
-    );
-    const profile = config.profiles[config.orchestrator.profile];
-    expect(profile).toBeTruthy();
-    expect(pipelineOrchestratorContent).toContain("Configured orchestrator:");
-    expect(pipelineOrchestratorContent).toContain(
-      `model: ${profile.model ?? "default"}`
-    );
-    expect(pipelineOrchestratorContent).toContain(
-      `tools: ${(profile.tools ?? []).join(", ")}`
-    );
-    expect(pipelineOrchestratorContent).toContain(
-      `rules: ${(profile.rules ?? []).join(", ")}`
-    );
-    expect(pipelineOrchestratorContent).toContain(
-      `skills: ${(profile.skills ?? []).join(", ")}`
-    );
-    expect(pipelineOrchestratorContent).toContain(
-      `mcp_servers: ${(profile.mcp_servers ?? []).join(", ")}`
-    );
-    expect(pipelineOrchestratorContent).toContain(
-      `filesystem: ${profile.filesystem?.mode}`
-    );
-    expect(pipelineOrchestratorContent).toContain(
-      `network: ${profile.network?.mode}`
-    );
-    expect(pipelineOrchestratorContent).toContain(
-      `hooks: ${Object.keys(config.hooks.functions).join(", ")}`
-    );
+    expect(
+      existsSync(join(root, ".opencode/agents/pipeline-orchestrator.md"))
+    ).toBe(false);
 
     for (const profileId of workflowProfileIds(config)) {
       const runner = config.profiles[profileId]?.runner;
@@ -938,6 +898,9 @@ function flattenDogfoodNodes(
 
 function configuredDogfoodOrchestrator(project: string) {
   const config = loadFixturePipelineConfig(project);
+  if (!config.orchestrator) {
+    throw new Error("Expected dogfood fixture to configure an orchestrator");
+  }
   const profile = config.profiles[config.orchestrator.profile];
   return {
     hooks: Object.keys(config.hooks.functions),

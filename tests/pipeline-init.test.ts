@@ -28,8 +28,18 @@ import {
 } from "../src/pipeline-init";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
+const ORIGINAL_UIDOTSH_TOKEN = process.env.UIDOTSH_TOKEN;
 beforeEach(() => {
   mockExeca.mockReset();
+  delete process.env.UIDOTSH_TOKEN;
+});
+
+afterEach(() => {
+  if (ORIGINAL_UIDOTSH_TOKEN === undefined) {
+    delete process.env.UIDOTSH_TOKEN;
+  } else {
+    process.env.UIDOTSH_TOKEN = ORIGINAL_UIDOTSH_TOKEN;
+  }
 });
 
 function bootstrappedHostFilesExist(root: string): boolean {
@@ -121,15 +131,24 @@ describe("initPipelineProject", () => {
     expect("mcps" in manifest).toBe(false);
   });
 
-  it("installs default skills with the skills CLI", async () => {
-    await installDefaultSkillsWithCli(
-      [{ source: "oisincoveney/skills", args: ["--agent", "opencode"] }],
-      dir
-    );
+  it("installs default skills with the ui.sh installer", async () => {
+    await installDefaultSkillsWithCli([{ source: "@uidotsh/install" }], dir);
 
     expect(mockExeca).toHaveBeenCalledWith(
       "npx",
-      ["--yes", "skills", "add", "oisincoveney/skills", "--agent", "opencode"],
+      ["--yes", "@uidotsh/install"],
+      expect.objectContaining({ cwd: dir })
+    );
+  });
+
+  it("passes UIDOTSH_TOKEN to the ui.sh installer when configured", async () => {
+    process.env.UIDOTSH_TOKEN = "test-token";
+
+    await installDefaultSkillsWithCli([{ source: "@uidotsh/install" }], dir);
+
+    expect(mockExeca).toHaveBeenCalledWith(
+      "npx",
+      ["--yes", "@uidotsh/install", "--token=test-token"],
       expect.objectContaining({ cwd: dir })
     );
   });

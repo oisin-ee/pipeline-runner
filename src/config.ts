@@ -182,14 +182,6 @@ skills:
     path: .agents/skills/verify/SKILL.md
     source_root: package
 profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: "Orchestrate package-owned pipeline config." }
-    skills: [scope, doubt]
-    mcp_servers: [pipeline-gateway]
-    tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
-    network: { mode: inherit }
   pipeline-researcher:
     runner: opencode
     description: Research the requested task and produce structured findings.
@@ -320,8 +312,6 @@ entrypoints:
   inspect:
     workflow: inspect
     description: Read-only repository inspection
-orchestrator:
-  profile: orchestrator
 hooks:
   functions:
     generated-defaults-audit:
@@ -1225,7 +1215,7 @@ const pipelineFileSchema = z
     default_workflow: z.string(),
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
-    orchestrator: orchestratorSchema,
+    orchestrator: orchestratorSchema.optional(),
     runner_command: runnerCommandConfigSchema.default({
       environment: { setup: [], smoke: [] },
       git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
@@ -1248,7 +1238,7 @@ const configSchemaBase = z
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     mcp_gateway: mcpGatewaySchema.optional(),
     mcp_servers: strictRecord(mcpServerSchema).default({}),
-    orchestrator: orchestratorSchema,
+    orchestrator: orchestratorSchema.optional(),
     profiles: strictRecord(profileSchema).default({}),
     runner_command: runnerCommandConfigSchema.default({
       environment: { setup: [], smoke: [] },
@@ -1526,7 +1516,7 @@ export function parsePipelineConfigParts(
       hooks: pipeline.hooks,
       ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
       mcp_servers: profiles.mcp_servers,
-      orchestrator: pipeline.orchestrator,
+      ...(pipeline.orchestrator ? { orchestrator: pipeline.orchestrator } : {}),
       profiles: profiles.profiles,
       runner_command: pipeline.runner_command,
       rules: profiles.rules,
@@ -1599,12 +1589,14 @@ export function validatePipelineConfig(
   validateRegistryIds("workflows", config.workflows, issues);
   validateRegistryIds("entrypoints", config.entrypoints, issues);
 
-  const orchestratorProfile = config.profiles[config.orchestrator.profile];
-  if (!orchestratorProfile) {
-    issues.push({
-      path: "orchestrator.profile",
-      message: `orchestrator references missing profile '${config.orchestrator.profile}'`,
-    });
+  if (config.orchestrator) {
+    const orchestratorProfile = config.profiles[config.orchestrator.profile];
+    if (!orchestratorProfile) {
+      issues.push({
+        path: "orchestrator.profile",
+        message: `orchestrator references missing profile '${config.orchestrator.profile}'`,
+      });
+    }
   }
 
   for (const [profileId, profile] of Object.entries(config.profiles)) {

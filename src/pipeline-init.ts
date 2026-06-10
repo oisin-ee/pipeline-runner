@@ -24,9 +24,15 @@ export async function installDefaultSkillsWithCli(
   cwd: string
 ): Promise<void> {
   for (const spec of specs) {
+    const token = process.env.UIDOTSH_TOKEN?.trim();
     await execa(
       "npx",
-      ["--yes", "skills", "add", spec.source, ...(spec.args ?? [])],
+      [
+        "--yes",
+        spec.source,
+        ...(token ? [`--token=${token}`] : []),
+        ...(spec.args ?? []),
+      ],
       {
         cwd,
         stderr: "inherit",

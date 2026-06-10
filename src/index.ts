@@ -1247,6 +1247,9 @@ function formatOrchestratorPlan(
   config: PipelineConfig,
   worktreePath: string
 ): string {
+  if (!config.orchestrator) {
+    return "Orchestrator: not configured";
+  }
   const orchestrator = config.profiles[config.orchestrator.profile];
   const launch = createOrchestratorLaunchPlan(config, {
     nodeId: "orchestrator",

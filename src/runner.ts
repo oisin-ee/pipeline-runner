@@ -238,6 +238,9 @@ export function createOrchestratorLaunchPlan(
   config: PipelineConfig,
   input: Omit<RunnerLaunchInput, "profileId">
 ): RunnerLaunchPlan {
+  if (!config.orchestrator) {
+    throw new RunnerCapabilityError("orchestrator profile is not configured");
+  }
   return createActorLaunchPlan(
     config,
     {

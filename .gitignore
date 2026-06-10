@@ -63,3 +63,4 @@ rulesync.local.jsonc
 !.pi/prompts/inspect.md
 !.pi/prompts/epic.md
 **/.pi/skills/
+.opencode/

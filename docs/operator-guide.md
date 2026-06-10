@@ -97,9 +97,11 @@ moka doctor
 
 `moka init`
 
-Installs default project skills and generated OpenCode host resources, including
-the singleton `pipeline-gateway` MCP entry. OpenCode is the package default
-runtime. `moka init` does not create repo-local `.pipeline` config files.
+Installs default project skills with `npx @uidotsh/install` and generated
+OpenCode host resources, including the singleton `pipeline-gateway` MCP entry.
+Set `UIDOTSH_TOKEN` in the shell environment so the ui.sh installer does not
+prompt for the token. OpenCode is the package default runtime. `moka init` does
+not create repo-local `.pipeline` config files.
 
 ```shell
 moka init
@@ -128,8 +130,8 @@ description and current git context, creates payload/schedule ConfigMaps, and
 submits an Argo Workflow that runs the graph as DAG tasks using the package-owned
 runner image.
 
-Set `PIPELINE_EVENT_URL` to configure the runner event sink. Without it,
-`moka submit` fails with a validation error.
+`moka submit` uses the Momokaya default event sink unless overridden with
+`PIPELINE_EVENT_URL` or `--event-url`.
 
 ```shell
 export PIPELINE_EVENT_URL="https://console.example.com/api/pipeline/runner-events"
