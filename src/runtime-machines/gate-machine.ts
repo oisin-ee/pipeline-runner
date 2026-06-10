@@ -6,7 +6,7 @@ import type {
   RuntimeObservabilityEmitter,
 } from "./contracts";
 
-export interface GateEvaluationInput {
+interface GateEvaluationInput {
   actor: RuntimeActorDescriptor;
   emit?: RuntimeObservabilityEmitter;
   evaluate: () => Promise<RuntimeGateResult> | RuntimeGateResult;

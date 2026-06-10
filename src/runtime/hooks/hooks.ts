@@ -80,7 +80,7 @@ interface RuntimeHookInvocationResult {
   hookResult?: HookResult;
 }
 
-export function hookBindingsForContext(
+function hookBindingsForContext(
   context: RuntimeContext,
   event: HookEvent,
   node?: PlannedWorkflowNode,

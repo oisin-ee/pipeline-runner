@@ -12,7 +12,7 @@ export type {
   RuntimeNodeResult,
 } from "../runtime/contracts";
 
-export const runtimeActorKinds = [
+const runtimeActorKinds = [
   "pipeline",
   "workflow",
   "node",
@@ -54,8 +54,6 @@ export const workflowStateNames = [
   "cancelled",
 ] as const;
 
-export type WorkflowStateName = (typeof workflowStateNames)[number];
-
 export const nodeStateNames = [
   "pending",
   "ready",
@@ -77,8 +75,6 @@ export const nodeStateNames = [
   "skipped",
 ] as const;
 
-export type RuntimeNodeStateName = (typeof nodeStateNames)[number];
-
 export const hookStateNames = [
   "queued",
   "running",
@@ -88,8 +84,6 @@ export const hookStateNames = [
   "skipped",
 ] as const;
 
-export type HookStateName = (typeof hookStateNames)[number];
-
 export const gateStateNames = [
   "pending",
   "running",
@@ -98,8 +92,6 @@ export const gateStateNames = [
   "timedOut",
   "cancelled",
 ] as const;
-
-export type GateStateName = (typeof gateStateNames)[number];
 
 export type RetryReason = "exit_nonzero" | "gate_failure" | "timeout";
 

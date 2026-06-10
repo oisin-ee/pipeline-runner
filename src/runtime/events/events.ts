@@ -9,6 +9,7 @@ import {
   createRuntimeInspectionBridge,
   type XStateInspectionEvent,
 } from "../../runtime-observability-inspection";
+import { isRecord } from "../../safe-json";
 import type {
   GateSpec,
   PipelineRuntimeEvent,
@@ -20,7 +21,6 @@ import type {
   RuntimeStructuredOutput,
 } from "../contracts";
 import {
-  isRecord,
   parseRuntimeOutput,
   validateJsonSchemaSource,
 } from "../json-validation";
@@ -34,7 +34,7 @@ export function createPublicRuntimeObservabilityEmitter(
   };
 }
 
-export function runtimeObservabilityEventToPipelineEvent(
+function runtimeObservabilityEventToPipelineEvent(
   event: RuntimeObservabilityEvent,
   workflowId: string
 ): PipelineRuntimeEvent {

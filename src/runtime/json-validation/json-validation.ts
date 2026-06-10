@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv, { type AnySchema, type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
-import { parseJson as parseSafeJson } from "../../safe-json";
+import { isRecord, parseJson as parseSafeJson } from "../../safe-json";
 import {
   standardOutputSchemaJson,
   standardOutputSchemaNameFromPath,
@@ -119,10 +119,6 @@ function formatJsonSchemaErrors(errors: ErrorObject[]): string[] {
     const path = error.instancePath || "$";
     return `${path} ${error.message ?? "failed validation"}`.trim();
   });
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function parseJsonObject(value: unknown): Record<string, unknown> {

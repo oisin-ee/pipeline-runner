@@ -4,7 +4,7 @@ import { createActor, waitFor } from "xstate";
 import { artifactExists } from "../../gates";
 import { runtimeActorId } from "../../runtime-machines/contracts";
 import { gateEvaluationMachine } from "../../runtime-machines/gate-machine";
-import { parseJson as parseSafeJson } from "../../safe-json";
+import { isRecord, parseJson as parseSafeJson } from "../../safe-json";
 import type { PlannedWorkflowNode } from "../../workflow-planner";
 import { executeBuiltin } from "../builtins";
 import { executeCommand } from "../command-executor";
@@ -29,11 +29,7 @@ import {
   runtimeInspection,
   runtimeSystemId,
 } from "../events";
-import {
-  isRecord,
-  readOptionalFile,
-  validateJsonSchemaSource,
-} from "../json-validation";
+import { readOptionalFile, validateJsonSchemaSource } from "../json-validation";
 
 export type GateFailureHook = (
   node: PlannedWorkflowNode,
@@ -119,7 +115,7 @@ async function runGateEvaluationActor(
   return result;
 }
 
-export function nodeGateSpecs(
+function nodeGateSpecs(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): GateSpec[] {
@@ -130,7 +126,7 @@ export function nodeGateSpecs(
   ];
 }
 
-export function artifactGateSpecs(node: PlannedWorkflowNode): GateSpec[] {
+function artifactGateSpecs(node: PlannedWorkflowNode): GateSpec[] {
   return (node.artifacts ?? []).map(
     (artifact): GateSpec => ({
       id: `artifact:${artifact.path}`,
@@ -141,7 +137,7 @@ export function artifactGateSpecs(node: PlannedWorkflowNode): GateSpec[] {
   );
 }
 
-export function schemaGateSpecs(
+function schemaGateSpecs(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): GateSpec[] {
@@ -390,7 +386,7 @@ function effectiveTaskContext(
   return node.taskContext ?? context.taskContext;
 }
 
-export function acceptanceEntries(
+function acceptanceEntries(
   value: unknown,
   key = "acceptance"
 ): Record<string, unknown>[] {

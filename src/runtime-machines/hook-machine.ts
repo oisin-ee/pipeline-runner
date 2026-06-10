@@ -6,13 +6,13 @@ import type {
   RuntimeObservabilityEmitter,
 } from "./contracts";
 
-export interface HookInvocationResult {
+interface HookInvocationResult {
   failure?: RuntimeFailure;
   reason?: string;
   status: "passed" | "failed" | "timedOut" | "skipped";
 }
 
-export interface HookInvocationInput {
+interface HookInvocationInput {
   actor: RuntimeActorDescriptor;
   emit?: RuntimeObservabilityEmitter;
   execute: () => Promise<HookInvocationResult> | HookInvocationResult;

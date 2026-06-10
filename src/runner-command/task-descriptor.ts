@@ -4,7 +4,7 @@ import { parseJson } from "../safe-json";
 
 export const DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH = "/etc/pipeline/task.json";
 
-export const runnerTaskDescriptorSchema = z
+const runnerTaskDescriptorSchema = z
   .object({
     nodeId: z.string().min(1),
   })
@@ -18,7 +18,7 @@ export function buildRunnerTaskDescriptor(
   return runnerTaskDescriptorSchema.parse({ nodeId });
 }
 
-export function parseRunnerTaskDescriptor(raw: string): RunnerTaskDescriptor {
+function parseRunnerTaskDescriptor(raw: string): RunnerTaskDescriptor {
   return runnerTaskDescriptorSchema.parse(
     parseJson(raw, "runner task descriptor JSON")
   );

@@ -13,10 +13,8 @@ import type {
 } from "../contracts";
 import { createPublicRuntimeObservabilityEmitter } from "../events";
 
-export const RUN_ID_TOKEN_RE = /\$\{runId\}/g;
-export const NODE_ID_TOKEN_RE = /\$\{nodeId\}/g;
-export const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
-export const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
+const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
 
 export function createRuntimeContext(
   options: PipelineRuntimeOptions
@@ -95,7 +93,7 @@ export function resolveWorkflowSelection(
   return entrypoint.workflow;
 }
 
-export function runtimeMaxParallelNodes(
+function runtimeMaxParallelNodes(
   options: PipelineRuntimeOptions,
   plan: WorkflowExecutionPlan
 ): number | undefined {
@@ -115,15 +113,11 @@ export function normalizeMaxParallelNodes(value: number): number {
   return value;
 }
 
-export function planReferencesRunIdTemplate(
-  plan: WorkflowExecutionPlan
-): boolean {
+function planReferencesRunIdTemplate(plan: WorkflowExecutionPlan): boolean {
   return nodesReferenceRunIdTemplate(plan.topologicalOrder);
 }
 
-export function nodesReferenceRunIdTemplate(
-  nodes: PlannedWorkflowNode[]
-): boolean {
+function nodesReferenceRunIdTemplate(nodes: PlannedWorkflowNode[]): boolean {
   return nodes.some((node) => nodesReferenceRunIdTemplate(node.children ?? []));
 }
 
@@ -131,7 +125,7 @@ export function generateRuntimeRunId(): string {
   return `run-${randomUUID()}`;
 }
 
-export function initialNodeStates(
+function initialNodeStates(
   plan: WorkflowExecutionPlan
 ): Map<string, NodeExecutionState> {
   return new Map(

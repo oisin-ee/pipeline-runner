@@ -336,7 +336,7 @@ function normalizeAgentOutput(
   return normalizeRunnerOutput(plan, stdout);
 }
 
-export function renderAgentPrompt(
+function renderAgentPrompt(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): string {
@@ -440,7 +440,7 @@ function renderProfileOutputContract(
   ].join("\n");
 }
 
-export function effectiveTaskContext(
+function effectiveTaskContext(
   node: PlannedWorkflowNode,
   context: Pick<RuntimeContext, "taskContext">
 ): PipelineTaskContext | undefined {

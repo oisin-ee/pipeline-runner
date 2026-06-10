@@ -12,8 +12,8 @@ import type { PipelineConfig } from "../config";
 import { resolveRepoLocalBackendSpecs } from "./repo-local-backends";
 import { renderToolHiveVmcpInventory } from "./toolhive-vmcp";
 
-export const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
-export const DEFAULT_LOCAL_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
+const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
+const DEFAULT_LOCAL_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
 const LEGACY_CODEX_MCP_RE =
   /^\s*\[mcp_servers\.(?!pipeline-gateway(?:\]|\.env_http_headers\]))/m;
 const LEGACY_OPENCODE_MCP_RE = /"mcp"\s*:\s*{(?!\s*"pipeline-gateway")/s;
@@ -63,16 +63,14 @@ interface ToolHiveListWorkload {
   url?: unknown;
 }
 
-export class PipelineMcpGatewayError extends Error {
+class PipelineMcpGatewayError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PipelineMcpGatewayError";
   }
 }
 
-export function profileNeedsMcpGateway(
-  actor: ActorConfig | undefined
-): boolean {
+function profileNeedsMcpGateway(actor: ActorConfig | undefined): boolean {
   return (actor?.mcp_servers ?? []).length > 0;
 }
 
@@ -89,7 +87,7 @@ export function gatewayServerForProfile(
   };
 }
 
-export function gatewayServer(
+function gatewayServer(
   config: PipelineConfig,
   env: NodeJS.ProcessEnv = process.env
 ): McpServerConfig {
@@ -103,7 +101,7 @@ export function gatewayServer(
   };
 }
 
-export function configuredGateway(config: PipelineConfig): McpGatewayConfig {
+function configuredGateway(config: PipelineConfig): McpGatewayConfig {
   if (!config.mcp_gateway) {
     throw new PipelineMcpGatewayError(
       "Profiles that declare mcp_servers require top-level mcp_gateway configuration."
@@ -112,7 +110,7 @@ export function configuredGateway(config: PipelineConfig): McpGatewayConfig {
   return config.mcp_gateway;
 }
 
-export function gatewayUrl(
+function gatewayUrl(
   gateway: McpGatewayConfig,
   env: NodeJS.ProcessEnv = process.env
 ): string {

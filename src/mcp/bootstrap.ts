@@ -7,7 +7,7 @@ export interface PipelineSkillInstallSpec {
   source: string;
 }
 
-export class PipelineDefaultManifestError extends Error {
+class PipelineDefaultManifestError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PipelineDefaultManifestError";
@@ -35,7 +35,7 @@ const defaultInstallManifestSchema = z
   })
   .strict();
 
-export interface DefaultInstallManifest {
+interface DefaultInstallManifest {
   skills: PipelineSkillInstallSpec[];
   version: 1;
 }

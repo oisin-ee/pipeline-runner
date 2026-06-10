@@ -8,7 +8,7 @@ import type {
   RuntimeNodeResult,
 } from "./contracts";
 
-export interface ActorNodeExecutionState {
+interface ActorNodeExecutionState {
   attempts: number;
   evidence: string[];
   exitCode?: number;
@@ -39,7 +39,7 @@ export interface ActorNodeExecutionState {
     | "skipped";
 }
 
-export interface NodeExecutionInput {
+interface NodeExecutionInput {
   actor: RuntimeActorDescriptor;
   nodeId: string;
 }
@@ -49,9 +49,7 @@ interface NodeExecutionContext {
   state: ActorNodeExecutionState;
 }
 
-export function initialNodeExecutionState(
-  nodeId: string
-): ActorNodeExecutionState {
+function initialNodeExecutionState(nodeId: string): ActorNodeExecutionState {
   return {
     attempts: 0,
     evidence: [],

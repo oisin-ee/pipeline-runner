@@ -133,17 +133,6 @@ export async function markPhase(
   await runBacklog(["task", "edit", taskId, "--status", status], worktreePath);
 }
 
-async function appendPhaseNote(
-  taskId: string,
-  note: string,
-  worktreePath: string
-): Promise<void> {
-  await runBacklog(
-    ["task", "edit", taskId, "--append-notes", note],
-    worktreePath
-  );
-}
-
 function formatFailureNote(failure: GateFailure): string {
   const evidence = failure.evidence
     .map((item) => item.trim())
@@ -189,33 +178,4 @@ export function planPhaseLifecycle(
   }
 
   return { statusUpdates };
-}
-
-export async function applyPhaseLifecycle(
-  swarm: SwarmTaskMap,
-  result: PipelineLifecycleResult,
-  worktreePath: string,
-  opts: { alreadyStarted?: PhaseSuffix[] } = {}
-): Promise<void> {
-  const plan = planPhaseLifecycle(swarm, result);
-  for (const update of plan.statusUpdates) {
-    const suffix = (Object.keys(swarm.phases) as PhaseSuffix[]).find(
-      (s) => swarm.phases[s] === update.taskId
-    );
-    if (
-      update.status === "In Progress" &&
-      suffix !== undefined &&
-      opts.alreadyStarted?.includes(suffix)
-    ) {
-      continue;
-    }
-    await markPhase(update.taskId, update.status, worktreePath);
-  }
-  if (plan.failureNote) {
-    await appendPhaseNote(
-      plan.failureNote.taskId,
-      plan.failureNote.note,
-      worktreePath
-    );
-  }
 }

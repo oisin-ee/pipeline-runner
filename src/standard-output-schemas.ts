@@ -87,7 +87,7 @@ const STANDARD_OUTPUT_SCHEMAS = {
 
 export type StandardOutputSchemaName = keyof typeof STANDARD_OUTPUT_SCHEMAS;
 
-export const standardOutputSchemaNames = Object.freeze(
+const standardOutputSchemaNames = Object.freeze(
   Object.keys(STANDARD_OUTPUT_SCHEMAS).sort()
 ) as readonly StandardOutputSchemaName[];
 
@@ -105,9 +105,7 @@ export function standardOutputSchemaJson(
   );
 }
 
-export function standardOutputSchemaPath(
-  name: StandardOutputSchemaName
-): string {
+function standardOutputSchemaPath(name: StandardOutputSchemaName): string {
   return `.pipeline/schemas/${name}.schema.json`;
 }
 
