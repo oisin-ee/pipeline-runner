@@ -26,6 +26,7 @@ const PACKAGE_EXECUTE_COMMAND_RE =
   /execute\s+Full planner-generated pipeline for\s+repository work/;
 const PACKAGE_QUICK_COMMAND_RE =
   /quick\s+Compact planner-generated pipeline for\s+small work/;
+
 const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
 const SCHEDULE_PATH_RE =
   /Schedule generated: \.pipeline\/runs\/run-\d{14}\/schedule\.yaml/;
@@ -173,6 +174,7 @@ const EXECUTE_SHIP_IT_ARGV = [
   "node",
   "/repo/node_modules/.bin/oisin-pipeline",
   "execute",
+  "--local",
   "ship",
   "it",
 ];
@@ -1343,6 +1345,7 @@ describe("execute", () => {
           "node",
           "/repo/node_modules/.bin/oisin-pipeline",
           "execute",
+          "--local",
           "ship",
           "it",
         ]);
@@ -1565,6 +1568,32 @@ workflows:
       expect(help).toContain("package-owned @oisincoveney/pipeline config");
       expect(help).not.toContain(".pipeline/pipeline.yaml");
       expect(help).not.toMatch(PIPELINE_YAML_SOURCE_RE);
+    });
+  });
+
+  it("registers quick and execute entrypoints with --local fallback", async () => {
+    await withCliTempDir("pipeline-cli-entrypoint-local-", async () => {
+      const { createCliProgram } = await import("../src/index");
+      const program = createCliProgram();
+      const k8sRun = program.commands.find(
+        (command) => command.name() === "k8s-run"
+      );
+      const quickCmd = program.commands.find(
+        (command) => command.name() === "quick"
+      );
+      const executeCmd = program.commands.find(
+        (command) => command.name() === "execute"
+      );
+
+      expect(k8sRun).toBeUndefined();
+      expect(quickCmd?.helpInformation()).toContain("--local");
+      expect(executeCmd?.helpInformation()).toContain("--local");
+      expect(quickCmd?.helpInformation()).toContain(
+        "Compact planner-generated pipeline for small work"
+      );
+      expect(executeCmd?.helpInformation()).toContain(
+        "Full planner-generated pipeline for repository work"
+      );
     });
   });
 

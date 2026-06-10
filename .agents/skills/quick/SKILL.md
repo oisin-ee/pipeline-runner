@@ -20,9 +20,11 @@ hooks: generated-defaults-audit
 Instructions:
 Orchestrate package-owned pipeline config.
 
+Submit Kubernetes runner Jobs by default through `oisin-pipeline quick` and `oisin-pipeline execute`.
+
 Generate a schedule for entrypoint `quick` and the user task.
 The schedule policy is `quick-schedule`.
-Run `oisin-pipeline run --entrypoint quick <task description>` to generate and execute the schedule artifact.
-The pipeline CLI runtime is the deterministic graph scheduler for scheduled entrypoints.
-It launches configured Codex/OpenCode agent subprocesses as soon as their dependencies pass.
+Run `oisin-pipeline quick <task description>` to submit the pipeline as a k8s job.
+The pipeline runtime executes inside a Kubernetes pod using the package-owned runner image.
+Use `oisin-pipeline quick --local <task description>` for local execution instead.
 Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.

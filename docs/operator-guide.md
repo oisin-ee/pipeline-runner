@@ -250,6 +250,48 @@ The runner does not own the console database, event store, Job builder, Kueue
 watcher, or UI. Do not add a runner-side Kubernetes API kind, database, console
 deployment per run, or separate language stack for this integration.
 
+
+
+### K8s-native pipeline execution (quick and execute)
+
+The `quick` and `execute` entrypoints submit Kubernetes runner Jobs by default. Each command builds a runner job payload from the task description
+and current git context, creates a ConfigMap, and submits a `batch/v1` Job that
+runs the pipeline inside a pod using the package-owned runner image.
+
+Set `PIPELINE_EVENT_URL` to configure the runner event sink. Without it, the
+command fails with a validation error.
+
+#### Prerequisites
+
+The following must exist in the target namespace:
+
+- **ServiceAccount** `pipeline-runner` with RBAC to read pods/logs (for
+  debugging).
+- **Secret** `codex-auth-1` with key `auth.json` (Codex authentication).
+- **Secret** `opencode-auth-1` with key `auth.json` (OpenCode authentication).
+- **Secret** `pipeline-runner-event-auth` with key `token` (event sink bearer
+  token, mounted at `/etc/pipeline/event-auth/token`).
+- **Secret** `pipeline-runner-github-auth` with keys `gitconfig`,
+  `git-credentials`, `hosts.yml` (GitHub authentication for `git` and `gh`).
+- A pipeline-console event sink endpoint reachable from the pod.
+
+#### Usage
+
+```shell
+export PIPELINE_EVENT_URL="https://console.example.com/api/pipeline/runner-events"
+oisin-pipeline quick "fix the login bug"
+oisin-pipeline execute "Implement PIPE-53"
+```
+
+#### Local execution fallback
+
+Use the `--local` flag for workstation-local execution:
+
+```shell
+oisin-pipeline quick --local "fix the login bug"
+oisin-pipeline execute --local "Implement PIPE-53"
+```
+
 Generated invocations include:
 
 ```text
