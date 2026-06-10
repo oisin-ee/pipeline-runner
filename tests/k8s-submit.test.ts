@@ -13,7 +13,10 @@ interface JobBody {
   spec?: {
     template?: {
       spec?: {
-        containers?: Array<{ volumeMounts?: Record<string, unknown>[] }>;
+        containers?: Array<{
+          env?: Array<{ name: string; value: string }>;
+          volumeMounts?: Record<string, unknown>[];
+        }>;
         serviceAccountName?: string;
         volumes?: Record<string, unknown>[];
       };
@@ -114,6 +117,11 @@ vi.mock("simple-git", () => ({
 
 async function loadK8sSubmitModule() {
   return await import("../src/k8s-submit");
+}
+
+function getLastJobSpec() {
+  const job = k8sMock.batchApi.createNamespacedJob.mock.calls[0]?.[1];
+  return (job as JobBody | undefined)?.spec?.template?.spec;
 }
 
 function parsePayloadFromConfigMap(): Record<string, unknown> {
@@ -350,6 +358,54 @@ describe("k8s-submit core submission", () => {
       "/etc/pipeline/payload.json",
       "codex",
     ]);
+  });
+
+  it("mounts the openai accounts secret at the global oc-codex-multi-auth path and sets the env var", async () => {
+    const { submitK8sRunnerJob } = await loadK8sSubmitModule();
+
+    await submitK8sRunnerJob({
+      entrypoint: "execute",
+      eventUrl: "https://events.example.test/runs/run-123/events",
+      opencodeOpenaiAccounts: {
+        key: "accounts.json",
+        name: "opencode-openai-accounts-1",
+      },
+      task: "Implement PIPE-53",
+    });
+
+    const podSpec = getLastJobSpec();
+    expect(podSpec?.containers?.[0]?.volumeMounts).toContainEqual(
+      expect.objectContaining({
+        mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
+        name: "opencode-openai-accounts-1",
+        subPath: "accounts.json",
+      })
+    );
+    expect(podSpec?.volumes).toContainEqual(
+      expect.objectContaining({ name: "opencode-openai-accounts-1" })
+    );
+    expect(podSpec?.containers?.[0]?.env).toContainEqual({
+      name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
+      value: "false",
+    });
+  });
+
+  it("omits the openai accounts volume and env when opencodeOpenaiAccounts is not provided", async () => {
+    const { submitK8sRunnerJob } = await loadK8sSubmitModule();
+
+    await submitK8sRunnerJob({
+      entrypoint: "execute",
+      eventUrl: "https://events.example.test/runs/run-123/events",
+      task: "Implement PIPE-53",
+    });
+
+    const podSpec = getLastJobSpec();
+    expect(podSpec?.containers?.[0]?.volumeMounts).not.toContainEqual(
+      expect.objectContaining({
+        mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
+      })
+    );
+    expect(podSpec?.containers?.[0]?.env).toBeUndefined();
   });
 
   it("throws descriptive errors for missing git remote and kube API failures", async () => {

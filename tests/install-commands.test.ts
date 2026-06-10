@@ -106,6 +106,7 @@ describe("installCommands", () => {
     expect(opencode.plugin).toEqual([
       "@devtheops/opencode-plugin-otel@1.1.0",
       "@prevalentware/opencode-goal-plugin",
+      "oc-codex-multi-auth",
     ]);
     const orchestrator = readFileSync(
       join(dir, ".opencode/agents/pipeline-orchestrator.md"),
