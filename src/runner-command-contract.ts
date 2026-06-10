@@ -6,14 +6,14 @@ import { parseJson } from "./safe-json";
 
 const RUNNER_COMMAND_CONTRACT_VERSION = "1";
 
-const gitRemoteUrlSchema = z
+export const gitRemoteUrlSchema = z
   .string()
   .min(1)
   .refine((value) => isGitRemoteUrl(value), {
     message: "must be a valid git remote URL",
   });
 
-const runnerRunIdentitySchema = z
+export const runnerRunIdentitySchema = z
   .object({
     id: z.string().min(1),
     project: z.string().min(1),
@@ -21,13 +21,13 @@ const runnerRunIdentitySchema = z
   })
   .strict();
 
-const runnerWorkflowIdentitySchema = z
+export const runnerWorkflowIdentitySchema = z
   .object({
     id: z.string().min(1),
   })
   .strict();
 
-const runnerTaskPromptSchema = z
+export const runnerTaskPromptSchema = z
   .object({
     kind: z.literal("prompt"),
     prompt: z.string().min(1),
@@ -35,7 +35,7 @@ const runnerTaskPromptSchema = z
   })
   .strict();
 
-const runnerTaskTicketSchema = z
+export const runnerTaskTicketSchema = z
   .object({
     id: z.string().min(1),
     kind: z.literal("ticket"),
@@ -44,12 +44,12 @@ const runnerTaskTicketSchema = z
   })
   .strict();
 
-const runnerTaskSchema = z.discriminatedUnion("kind", [
+export const runnerTaskSchema = z.discriminatedUnion("kind", [
   runnerTaskPromptSchema,
   runnerTaskTicketSchema,
 ]);
 
-const runnerRepositoryContextSchema = z
+export const runnerRepositoryContextSchema = z
   .object({
     baseBranch: z.string().min(1),
     sha: z.string().min(1).optional(),
@@ -57,7 +57,7 @@ const runnerRepositoryContextSchema = z
   })
   .strict();
 
-const runnerDeliverySchema = z
+export const runnerDeliverySchema = z
   .object({
     pullRequest: z.boolean().default(false),
   })
@@ -82,7 +82,7 @@ const mokaSubmissionSchema = z.discriminatedUnion("kind", [
   mokaCommandSubmissionSchema,
 ]);
 
-const runnerEventsSchema = z
+export const runnerEventsSchema = z
   .object({
     authHeader: z.string().min(1).default("Authorization"),
     authTokenFile: z.string().min(1),

@@ -6,20 +6,27 @@ import { simpleGit } from "simple-git";
 import { z } from "zod";
 import {
   buildCommandScheduleYaml,
-  type SubmitRunnerArgoWorkflowOptions,
-  type SubmitRunnerArgoWorkflowResult,
   submitRunnerArgoWorkflow,
 } from "./argo-submit";
 import type { PipelineConfig } from "./config";
 import {
   buildRunnerCommandPayload,
   type MokaSubmission,
+  type RunnerCommandPayload,
+  type RunnerRepositoryContext,
+  type RunnerRunIdentity,
+  type RunnerTask,
+  runnerDeliverySchema,
+  runnerRepositoryContextSchema,
+  runnerRunIdentitySchema,
+  runnerTaskSchema,
 } from "./runner-command-contract";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
   parseScheduleArtifact,
 } from "./schedule-planner";
+import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
 const MOMOKAYA_EVENT_AUTH_SECRET_KEY = "OISIN_PIPELINE_EVENT_AUTH_TOKEN";
 const MOMOKAYA_EVENT_AUTH_SECRET_NAME = "pipeline-runner-event-auth";
@@ -35,10 +42,39 @@ const imagePullPolicySchema = z
   .enum(["Always", "IfNotPresent", "Never"])
   .default("Always");
 
+const mokaSubmitTaskInputSchema = z.union([
+  z.string().min(1),
+  runnerTaskSchema,
+]);
+
+const mokaSubmitEventsSchema = z
+  .object({
+    authHeader: z.string().min(1).default("Authorization"),
+    authTokenFile: z.string().min(1).optional(),
+    url: z.string().url(),
+  })
+  .strict();
+
+export const mokaSubmitResultSchema = workflowSubmitResultSchema;
+
 const mokaSubmitBaseOptionsSchema = z
   .object({
+    delivery: runnerDeliverySchema.default({ pullRequest: false }),
+    eventAuthSecretKey: z
+      .string()
+      .min(1)
+      .default(MOMOKAYA_EVENT_AUTH_SECRET_KEY),
+    eventAuthSecretName: z
+      .string()
+      .min(1)
+      .default(MOMOKAYA_EVENT_AUTH_SECRET_NAME),
     eventUrl: z.string().url().default(MOMOKAYA_EVENT_URL),
+    events: mokaSubmitEventsSchema.optional(),
     generateName: z.string().min(1).optional(),
+    githubAuthSecretName: z
+      .string()
+      .min(1)
+      .default(MOMOKAYA_GITHUB_AUTH_SECRET_NAME),
     image: z.string().min(1).optional(),
     imagePullPolicy: imagePullPolicySchema,
     imagePullSecretName: z
@@ -48,7 +84,13 @@ const mokaSubmitBaseOptionsSchema = z
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).default("momokaya-pipeline"),
+    opencodeAuthSecretName: z
+      .string()
+      .min(1)
+      .default(MOMOKAYA_OPENCODE_AUTH_SECRET_NAME),
     queueName: z.string().min(1).default(MOMOKAYA_QUEUE_NAME),
+    repository: runnerRepositoryContextSchema.optional(),
+    run: runnerRunIdentitySchema.optional(),
     serviceAccountName: z
       .string()
       .min(1)
@@ -60,7 +102,8 @@ const mokaGraphSubmitOptionsSchema = mokaSubmitBaseOptionsSchema
   .extend({
     mode: z.enum(["full", "quick"]),
     schedulePath: z.string().min(1).optional(),
-    task: z.string().min(1),
+    scheduleYaml: z.string().min(1).optional(),
+    task: mokaSubmitTaskInputSchema,
     type: z.literal("graph"),
   })
   .strict();
@@ -68,25 +111,31 @@ const mokaGraphSubmitOptionsSchema = mokaSubmitBaseOptionsSchema
 const mokaCommandSubmitOptionsSchema = mokaSubmitBaseOptionsSchema
   .extend({
     commandArgv: z.array(z.string().min(1)).min(1),
-    task: z.string().min(1).optional(),
+    task: mokaSubmitTaskInputSchema.optional(),
     type: z.literal("command"),
   })
   .strict();
 
-const mokaSubmitOptionsSchema = z.discriminatedUnion("type", [
+export const mokaSubmitOptionsSchema = z.discriminatedUnion("type", [
   mokaGraphSubmitOptionsSchema,
   mokaCommandSubmitOptionsSchema,
 ]);
 
-type MokaSubmitOptions = z.input<typeof mokaSubmitOptionsSchema> & {
+export type MokaSubmitOptionsInput = z.input<typeof mokaSubmitOptionsSchema>;
+export type MokaSubmitOptionsOutput = z.output<typeof mokaSubmitOptionsSchema>;
+export type MokaSubmitInput = MokaSubmitOptionsInput & {
   config: PipelineConfig;
-  worktreePath: string;
+  worktreePath?: string;
 };
 
 type ParsedMokaSubmitOptions = z.output<typeof mokaSubmitOptionsSchema> & {
   config: PipelineConfig;
-  worktreePath: string;
+  worktreePath?: string;
 };
+
+export type MokaSubmitOptions = MokaSubmitInput;
+export type MokaSubmitOutput = z.output<typeof mokaSubmitResultSchema>;
+export type MokaSubmitResult = MokaSubmitOutput;
 
 interface MokaGitContext {
   baseBranch: string;
@@ -101,28 +150,51 @@ interface SubmitMokaDependencies {
   readFile?: (path: string) => string;
   resolveGitContext?: (worktreePath: string) => Promise<MokaGitContext>;
   submitWorkflow?: (
-    options: SubmitRunnerArgoWorkflowOptions
-  ) => Promise<SubmitRunnerArgoWorkflowResult>;
+    options: MokaWorkflowSubmitOptions
+  ) => Promise<MokaSubmitOutput>;
+}
+
+interface MokaWorkflowSubmitOptions {
+  config: PipelineConfig;
+  eventAuthSecretKey?: string;
+  eventAuthSecretName?: string;
+  generateName?: string;
+  githubAuthSecretName?: string;
+  image?: string;
+  imagePullPolicy?: "Always" | "IfNotPresent" | "Never";
+  imagePullSecretName?: string;
+  kubeconfigPath?: string;
+  name?: string;
+  namespace?: string;
+  opencodeAuthSecretName?: string;
+  payloadJson: string;
+  queueName?: string;
+  scheduleYaml: string;
+  serviceAccountName?: string;
 }
 
 type ParsedMokaGraphOptions = z.output<typeof mokaGraphSubmitOptionsSchema> & {
   config: PipelineConfig;
-  worktreePath: string;
+  worktreePath?: string;
 };
 
 type ParsedMokaCommandOptions = z.output<
   typeof mokaCommandSubmitOptionsSchema
 > & {
   config: PipelineConfig;
-  worktreePath: string;
+  worktreePath?: string;
 };
 
 type ParsedMokaBaseOptions = z.output<typeof mokaSubmitBaseOptionsSchema>;
 
+type ParsedMokaWithRun = ParsedMokaBaseOptions & {
+  run?: RunnerRunIdentity;
+};
+
 export function submitMoka(
-  rawOptions: MokaSubmitOptions,
+  rawOptions: MokaSubmitInput,
   dependencies: SubmitMokaDependencies = {}
-): Promise<SubmitRunnerArgoWorkflowResult> {
+): Promise<MokaSubmitOutput> {
   const { config, worktreePath, ...schemaOptions } = rawOptions;
   const options = mokaSubmitOptionsSchema.parse(schemaOptions);
   const parsedOptions: ParsedMokaSubmitOptions = {
@@ -135,53 +207,78 @@ export function submitMoka(
     : submitMokaGraph(parsedOptions, dependencies);
 }
 
+function resolveSubmitWorkflow(
+  dependencies: SubmitMokaDependencies
+): (options: MokaWorkflowSubmitOptions) => Promise<MokaSubmitOutput> {
+  return dependencies.submitWorkflow ?? submitRunnerArgoWorkflow;
+}
+
+function submitRunId(
+  options: ParsedMokaWithRun,
+  dependencies: SubmitMokaDependencies
+): string {
+  return options.run?.id ?? generateRunId(dependencies);
+}
+
+function commandTask(options: ParsedMokaCommandOptions): RunnerTask {
+  if (options.task) {
+    return normalizeTask(options.task);
+  }
+  return normalizeTask(options.commandArgv.join(" "));
+}
+
 async function submitMokaGraph(
   options: ParsedMokaGraphOptions,
   dependencies: SubmitMokaDependencies
-): Promise<SubmitRunnerArgoWorkflowResult> {
-  const git = await resolveGit(options.worktreePath, dependencies);
-  const submitWorkflow =
-    dependencies.submitWorkflow ?? submitRunnerArgoWorkflow;
-  const runId = generateRunId(dependencies);
-  const scheduleYaml = await graphScheduleYaml(options, dependencies, runId);
+): Promise<MokaSubmitOutput> {
+  const submitWorkflow = resolveSubmitWorkflow(dependencies);
+  const runId = submitRunId(options, dependencies);
+  const task = normalizeTask(options.task);
+  const context = await resolveSubmissionContext(options, dependencies, runId);
+  const scheduleYaml = await graphScheduleYaml(
+    options,
+    dependencies,
+    runId,
+    taskDescription(task)
+  );
   const workflowId = scheduleWorkflowId(options, scheduleYaml);
-  return submitWorkflow({
+  const result = await submitWorkflow({
     ...workflowSubmitOptions(options),
     config: options.config,
     generateName: options.generateName ?? `moka-${options.mode}-`,
     payloadJson: runnerPayloadJson({
-      git,
+      context,
       options,
       submission: { kind: "graph", mode: options.mode },
-      task: options.task,
+      task,
       runId,
       workflowId,
     }),
     scheduleYaml,
   });
+  return mokaSubmitResultSchema.parse(result);
 }
 
 async function submitMokaCommand(
   options: ParsedMokaCommandOptions,
   dependencies: SubmitMokaDependencies
-): Promise<SubmitRunnerArgoWorkflowResult> {
-  const git = await resolveGit(options.worktreePath, dependencies);
-  const task = options.task ?? options.commandArgv.join(" ");
-  const submitWorkflow =
-    dependencies.submitWorkflow ?? submitRunnerArgoWorkflow;
-  const runId = generateRunId(dependencies);
+): Promise<MokaSubmitOutput> {
+  const runId = submitRunId(options, dependencies);
+  const task = commandTask(options);
+  const context = await resolveSubmissionContext(options, dependencies, runId);
+  const submitWorkflow = resolveSubmitWorkflow(dependencies);
   const scheduleYaml = buildCommandScheduleYaml({
     command: options.commandArgv,
     scheduleId: runId,
-    task,
+    task: taskDescription(task),
   });
   const workflowId = scheduleWorkflowId(options, scheduleYaml);
-  return submitWorkflow({
+  const result = await submitWorkflow({
     ...workflowSubmitOptions(options),
     config: options.config,
     generateName: options.generateName ?? "moka-command-",
     payloadJson: runnerPayloadJson({
-      git,
+      context,
       options,
       submission: { argv: options.commandArgv, kind: "command" },
       task,
@@ -190,35 +287,73 @@ async function submitMokaCommand(
     }),
     scheduleYaml,
   });
+  return mokaSubmitResultSchema.parse(result);
 }
 
 async function graphScheduleYaml(
   options: z.output<typeof mokaGraphSubmitOptionsSchema> & {
     config: PipelineConfig;
-    worktreePath: string;
+    worktreePath?: string;
   },
   dependencies: SubmitMokaDependencies,
-  runId: string
+  runId: string,
+  task: string
 ): Promise<string> {
-  const readFile =
-    dependencies.readFile ?? ((path) => readFileSync(path, "utf8"));
-  if (options.schedulePath) {
-    return readFile(options.schedulePath);
+  const explicitScheduleYaml = readExplicitGraphScheduleYaml(
+    options,
+    dependencies
+  );
+  if (explicitScheduleYaml) {
+    return explicitScheduleYaml;
   }
+  const worktreePath = requireScheduleWorktreePath(options);
   const generateSchedule =
     dependencies.generateSchedule ?? generateScheduleArtifact;
   const schedule = await generateSchedule({
     config: options.config,
     entrypointId: options.mode === "quick" ? "quick" : "execute",
     runId,
-    task: options.task,
-    worktreePath: options.worktreePath,
+    task,
+    worktreePath,
   });
-  return readFile(resolve(options.worktreePath, schedule.path));
+  return readScheduleFile(dependencies, resolve(worktreePath, schedule.path));
+}
+
+function readExplicitGraphScheduleYaml(
+  options: z.output<typeof mokaGraphSubmitOptionsSchema>,
+  dependencies: SubmitMokaDependencies
+): string | null {
+  if (options.scheduleYaml) {
+    return options.scheduleYaml;
+  }
+  if (options.schedulePath) {
+    return readScheduleFile(dependencies, options.schedulePath);
+  }
+  return null;
+}
+
+function readScheduleFile(
+  dependencies: SubmitMokaDependencies,
+  path: string
+): string {
+  const readFile =
+    dependencies.readFile ?? ((filePath) => readFileSync(filePath, "utf8"));
+  return readFile(path);
+}
+
+function requireScheduleWorktreePath(options: {
+  worktreePath?: string;
+}): string {
+  if (!options.worktreePath) {
+    throw new Error(
+      "worktreePath is required when moka submit generates a graph schedule"
+    );
+  }
+  return options.worktreePath;
 }
 
 function scheduleWorkflowId(
-  options: { config: PipelineConfig; worktreePath: string },
+  options: { config: PipelineConfig; worktreePath?: string },
   scheduleYaml: string
 ): string {
   return compileScheduleArtifact(
@@ -230,60 +365,157 @@ function scheduleWorkflowId(
 
 function workflowSubmitOptions(
   options: ParsedMokaBaseOptions
-): Omit<
-  SubmitRunnerArgoWorkflowOptions,
-  "config" | "payloadJson" | "scheduleYaml"
-> {
+): Omit<MokaWorkflowSubmitOptions, "config" | "payloadJson" | "scheduleYaml"> {
   return {
-    eventAuthSecretKey: MOMOKAYA_EVENT_AUTH_SECRET_KEY,
-    eventAuthSecretName: MOMOKAYA_EVENT_AUTH_SECRET_NAME,
-    githubAuthSecretName: MOMOKAYA_GITHUB_AUTH_SECRET_NAME,
+    eventAuthSecretKey: options.eventAuthSecretKey,
+    eventAuthSecretName: options.eventAuthSecretName,
+    githubAuthSecretName: options.githubAuthSecretName,
     image: options.image,
     imagePullPolicy: options.imagePullPolicy,
     imagePullSecretName: options.imagePullSecretName,
     kubeconfigPath: options.kubeconfigPath,
     name: options.name,
     namespace: options.namespace,
-    opencodeAuthSecretName: MOMOKAYA_OPENCODE_AUTH_SECRET_NAME,
+    opencodeAuthSecretName: options.opencodeAuthSecretName,
     queueName: options.queueName,
     serviceAccountName: options.serviceAccountName,
   };
 }
 
+interface MokaSubmissionContext {
+  repository: RunnerRepositoryContext;
+  run: RunnerRunIdentity;
+}
+
 function runnerPayloadJson(input: {
-  git: MokaGitContext;
+  context: MokaSubmissionContext;
   options: ParsedMokaBaseOptions;
   submission: MokaSubmission;
   runId: string;
-  task: string;
+  task: RunnerTask;
   workflowId: string;
 }): string {
   return JSON.stringify(
     buildRunnerCommandPayload({
-      delivery: { pullRequest: false },
+      delivery: input.options.delivery,
       events: runnerEvents(input.options),
       repository: {
-        baseBranch: input.git.baseBranch,
-        sha: input.git.sha,
-        url: input.git.url,
+        baseBranch: input.context.repository.baseBranch,
+        sha: input.context.repository.sha,
+        url: input.context.repository.url,
       },
       run: {
         id: input.runId,
-        project: input.git.project,
+        project: input.context.run.project,
+        requestedBy: input.context.run.requestedBy,
       },
       submission: input.submission,
-      task: { kind: "prompt", prompt: input.task },
+      task: input.task,
       workflow: { id: input.workflowId },
     })
   );
 }
 
-function runnerEvents(options: ParsedMokaBaseOptions) {
+function runnerEvents(
+  options: ParsedMokaBaseOptions
+): RunnerCommandPayload["events"] {
+  if (options.events) {
+    return {
+      authHeader: options.events.authHeader,
+      authTokenFile:
+        options.events.authTokenFile ?? eventAuthTokenFile(options),
+      url: options.events.url,
+    };
+  }
   return {
     authHeader: "Authorization",
-    authTokenFile: `/etc/pipeline/event-auth/${MOMOKAYA_EVENT_AUTH_SECRET_KEY}`,
+    authTokenFile: eventAuthTokenFile(options),
     url: options.eventUrl,
   };
+}
+
+function eventAuthTokenFile(options: ParsedMokaBaseOptions): string {
+  return `/etc/pipeline/event-auth/${options.eventAuthSecretKey}`;
+}
+
+async function resolveSubmissionContext(
+  options: ParsedMokaBaseOptions & { worktreePath?: string },
+  dependencies: SubmitMokaDependencies,
+  runId: string
+): Promise<MokaSubmissionContext> {
+  const explicitContext = explicitSubmissionContext(options);
+  if (explicitContext) {
+    return explicitContext;
+  }
+  const git = await resolveRequiredGit(options, dependencies);
+  return {
+    repository: repositoryContext(options, git),
+    run: runContext(options, git, runId),
+  };
+}
+
+function explicitSubmissionContext(
+  options: ParsedMokaBaseOptions
+): MokaSubmissionContext | null {
+  if (!(options.repository && options.run)) {
+    return null;
+  }
+  return {
+    repository: options.repository,
+    run: options.run,
+  };
+}
+
+function resolveRequiredGit(
+  options: { worktreePath?: string },
+  dependencies: SubmitMokaDependencies
+): Promise<MokaGitContext> {
+  if (!options.worktreePath) {
+    throw new Error(
+      "worktreePath is required when moka submit must resolve repository or run context"
+    );
+  }
+  return resolveGit(options.worktreePath, dependencies);
+}
+
+function repositoryContext(
+  options: ParsedMokaBaseOptions,
+  git: MokaGitContext
+): RunnerRepositoryContext {
+  return (
+    options.repository ?? {
+      baseBranch: git.baseBranch,
+      sha: git.sha,
+      url: git.url,
+    }
+  );
+}
+
+function runContext(
+  options: ParsedMokaBaseOptions,
+  git: MokaGitContext,
+  runId: string
+): RunnerRunIdentity {
+  return (
+    options.run ?? {
+      id: runId,
+      project: git.project,
+    }
+  );
+}
+
+function normalizeTask(task: string | RunnerTask): RunnerTask {
+  if (typeof task === "string") {
+    return { kind: "prompt", prompt: task };
+  }
+  return task;
+}
+
+function taskDescription(task: RunnerTask): string {
+  if (task.kind === "prompt") {
+    return task.prompt;
+  }
+  return task.title ? `${task.id} ${task.title}` : task.id;
 }
 
 async function resolveGit(

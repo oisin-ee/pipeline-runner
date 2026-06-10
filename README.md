@@ -163,6 +163,13 @@ Submitters can import the executable contract from
 `@oisincoveney/pipeline/runner-command-contract` for payload construction,
 validation, contract-version checks, and JSON Schema generation.
 
+Pipeline Console submits hosted runs through `@oisincoveney/pipeline/moka-submit`.
+The subpath exports `mokaSubmitOptionsSchema`, `mokaSubmitResultSchema`,
+`MokaSubmitOptionsInput`, `MokaSubmitOptionsOutput`, `MokaSubmitInput`,
+`MokaSubmitOutput`, and `submitMoka` so callers can validate prompt or ticket
+tasks with explicit repository, run, delivery, event sink, and runner settings
+without importing Argo, Kubernetes, or runner-command internals.
+
 ## Configuration Model
 
 Runtime execution uses package-owned defaults. Tests and advanced embedding code
