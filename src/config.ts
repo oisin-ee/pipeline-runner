@@ -19,7 +19,6 @@ const NODE_KINDS = [
   "builtin",
   "group",
   "parallel",
-  "workflow",
 ] as const;
 const HOOK_EVENTS = [
   "workflow.start",
@@ -76,7 +75,7 @@ const MCP_GATEWAY_WORKSPACE_PATH_SOURCES = [
   "cwd",
 ] as const;
 const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
-export const DEFAULT_RUNNER_JOB_GIT_COMMITTER = {
+const DEFAULT_RUNNER_COMMAND_GIT_COMMITTER = {
   email: "git@oisin.ee",
   name: "oisin-bot",
 } as const;
@@ -1120,18 +1119,12 @@ type ParallelWorkflowNode = WorkflowNodeBase & {
   kind: "parallel";
   nodes: WorkflowNode[];
 };
-type ChildWorkflowNode = WorkflowNodeBase & {
-  kind: "workflow";
-  workflow: string;
-  worktree_root?: string;
-};
 type WorkflowNode =
   | AgentWorkflowNode
   | CommandWorkflowNode
   | BuiltinWorkflowNode
   | GroupWorkflowNode
-  | ParallelWorkflowNode
-  | ChildWorkflowNode;
+  | ParallelWorkflowNode;
 
 const workflowNodeSchema: z.ZodType<WorkflowNode> = z.lazy(() =>
   z.discriminatedUnion("kind", [
@@ -1165,13 +1158,6 @@ const workflowNodeSchema: z.ZodType<WorkflowNode> = z.lazy(() =>
         nodes: z.array(workflowNodeSchema).min(1),
       })
       .strict(),
-    workflowNodeBaseSchema
-      .extend({
-        kind: z.literal("workflow"),
-        workflow: z.string(),
-        worktree_root: z.string().optional(),
-      })
-      .strict(),
   ])
 );
 
@@ -1183,7 +1169,7 @@ export const workflowSchema = z
   })
   .strict();
 
-const runnerJobCommandSchema = z
+const runnerCommandCommandSchema = z
   .object({
     args: z.array(z.string()).default([]),
     command: z.string().min(1),
@@ -1191,33 +1177,39 @@ const runnerJobCommandSchema = z
   })
   .strict();
 
-const runnerJobEnvironmentSchema = z
+const runnerCommandEnvironmentSchema = z
   .object({
-    setup: z.array(runnerJobCommandSchema).default([]),
-    smoke: z.array(runnerJobCommandSchema).default([]),
+    setup: z.array(runnerCommandCommandSchema).default([]),
+    smoke: z.array(runnerCommandCommandSchema).default([]),
   })
   .strict();
 
-const runnerJobGitCommitterSchema = z
+const runnerCommandGitCommitterSchema = z
   .object({
-    email: z.string().email().default(DEFAULT_RUNNER_JOB_GIT_COMMITTER.email),
-    name: z.string().min(1).default(DEFAULT_RUNNER_JOB_GIT_COMMITTER.name),
+    email: z
+      .string()
+      .email()
+      .default(DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.email),
+    name: z.string().min(1).default(DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.name),
   })
   .strict();
 
-const runnerJobGitSchema = z
+const runnerCommandGitSchema = z
   .object({
-    committer: runnerJobGitCommitterSchema.default(
-      DEFAULT_RUNNER_JOB_GIT_COMMITTER
+    committer: runnerCommandGitCommitterSchema.default(
+      DEFAULT_RUNNER_COMMAND_GIT_COMMITTER
     ),
   })
   .strict();
 
-const runnerJobConfigSchema = z
+const runnerCommandConfigSchema = z
   .object({
-    environment: runnerJobEnvironmentSchema.default({ setup: [], smoke: [] }),
-    git: runnerJobGitSchema.default({
-      committer: DEFAULT_RUNNER_JOB_GIT_COMMITTER,
+    environment: runnerCommandEnvironmentSchema.default({
+      setup: [],
+      smoke: [],
+    }),
+    git: runnerCommandGitSchema.default({
+      committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER,
     }),
   })
   .strict();
@@ -1246,9 +1238,9 @@ const pipelineFileSchema = z
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     orchestrator: orchestratorSchema,
-    runner_job: runnerJobConfigSchema.default({
+    runner_command: runnerCommandConfigSchema.default({
       environment: { setup: [], smoke: [] },
-      git: { committer: DEFAULT_RUNNER_JOB_GIT_COMMITTER },
+      git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
     }),
     scheduler: schedulerConfigSchema.default({
       commands: {},
@@ -1270,9 +1262,9 @@ const configSchemaBase = z
     mcp_servers: strictRecord(mcpServerSchema).default({}),
     orchestrator: orchestratorSchema,
     profiles: strictRecord(profileSchema).default({}),
-    runner_job: runnerJobConfigSchema.default({
+    runner_command: runnerCommandConfigSchema.default({
       environment: { setup: [], smoke: [] },
-      git: { committer: DEFAULT_RUNNER_JOB_GIT_COMMITTER },
+      git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
     }),
     rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),
@@ -1548,7 +1540,7 @@ export function parsePipelineConfigParts(
       mcp_servers: profiles.mcp_servers,
       orchestrator: pipeline.orchestrator,
       profiles: profiles.profiles,
-      runner_job: pipeline.runner_job,
+      runner_command: pipeline.runner_command,
       rules: profiles.rules,
       runners: runners.runners,
       scheduler: pipeline.scheduler,
@@ -1954,12 +1946,6 @@ function validateWorkflowNodeKind(
     issues.push({
       path: `workflows.${workflowId}.nodes.${node.id}.profile`,
       message: `node '${node.id}' references missing profile '${node.profile}'`,
-    });
-  }
-  if (node.kind === "workflow" && !config.workflows[node.workflow]) {
-    issues.push({
-      path: `workflows.${workflowId}.nodes.${node.id}.workflow`,
-      message: `node '${node.id}' references missing workflow '${node.workflow}'`,
     });
   }
 }

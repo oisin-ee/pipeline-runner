@@ -1,11 +1,13 @@
 ---
 id: PIPE-53.1
 title: 'k8s-submit: core submission module + tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 19:53'
+updated_date: '2026-06-10 14:10'
 labels:
   - implementation
+  - superseded
 dependencies: []
 references:
   - src/k8s-submit.ts
@@ -53,3 +55,9 @@ Function does 4 sequential ops:
 
 Library: @kubernetes/client-node v1.4.0 (official kubernetes-client/javascript, Apache-2.0). Uses KubeConfig, CoreV1Api, BatchV1Api.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Superseded by PIPE-54. Do not implement this k8s Job/--local plan; the accepted direction is the Moka submit command surface backed by Argo Workflows.
+<!-- SECTION:FINAL_SUMMARY:END -->

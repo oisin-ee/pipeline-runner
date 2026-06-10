@@ -5,7 +5,7 @@ FROM ghcr.io/astral-sh/uv:0.9.17@sha256:5cb6b54d2bc3fe2eb9a8483db958a0b9eebf9edf
 FROM node:24-bookworm-slim AS runner
 
 ARG PIPELINE_PACKAGE_VERSION=latest
-ARG RUNNER_JOB_CONTRACT_VERSION=1
+ARG RUNNER_COMMAND_CONTRACT_VERSION=1
 ARG CODEX_PACKAGE_VERSION=0.137.0
 ARG OPENCODE_PACKAGE_VERSION=1.15.13
 ARG CLAUDE_CODE_PACKAGE_VERSION=2.1.162
@@ -17,7 +17,7 @@ ARG TOOLHIVE_VERSION=0.29.1
 ARG TOOLHIVE_LINUX_AMD64_SHA256=a70f9b74493c7d3d8b62187e5b838e4333b07477810b83eb5086879b9fa37bc8
 
 LABEL pipeline.oisin.dev.pipeline-package-version=${PIPELINE_PACKAGE_VERSION}
-LABEL pipeline.oisin.dev.runner-contract-version=${RUNNER_JOB_CONTRACT_VERSION}
+LABEL pipeline.oisin.dev.runner-contract-version=${RUNNER_COMMAND_CONTRACT_VERSION}
 
 ENV HOME=/root
 ENV CODEX_HOME=/root/.codex
@@ -46,7 +46,7 @@ RUN npm install -g \
     "bun@${BUN_PACKAGE_VERSION}" \
     "fallow@${FALLOW_PACKAGE_VERSION}" \
   && npm cache clean --force \
-  && command -v oisin-pipeline \
+  && command -v moka \
   && command -v bun \
   && command -v pnpm \
   && command -v codex \
@@ -61,5 +61,5 @@ RUN npm install -g \
 
 RUN npx -y oc-codex-multi-auth@${OC_CODEX_MULTI_AUTH_VERSION}
 
-ENTRYPOINT ["oisin-pipeline"]
-CMD ["runner-job"]
+ENTRYPOINT ["moka"]
+CMD ["runner-command"]

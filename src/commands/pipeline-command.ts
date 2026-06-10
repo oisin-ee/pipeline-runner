@@ -9,8 +9,28 @@ export const BUILTIN_PIPE_COMMANDS = new Set([
   "init",
   "install-commands",
   "mcp",
-  "runner-job",
+  "submit",
+  "argo",
+  "runner-command",
 ]);
+
+export interface EntrypointCommandFlags {
+  codexAuthSecret?: string;
+  eventAuthKey?: string;
+  eventAuthSecret?: string;
+  eventUrl?: string;
+  githubAuthSecret?: string;
+  image?: string;
+  imagePullPolicy?: string;
+  imagePullSecret?: string;
+  kubeconfig?: string;
+  namespace?: string;
+  opencodeAuthSecret?: string;
+  orchestrator?: string;
+  queueName?: string;
+  schedule?: string;
+  serviceAccount?: string;
+}
 
 export function registerConfiguredEntrypointCommands(
   program: Command,
@@ -18,7 +38,7 @@ export function registerConfiguredEntrypointCommands(
   runEntrypoint: (
     entrypoint: string,
     task: string,
-    opts: { local?: boolean }
+    opts: EntrypointCommandFlags
   ) => Promise<void>
 ): Set<string> {
   const registered = new Set<string>();
@@ -30,16 +50,36 @@ export function registerConfiguredEntrypointCommands(
     if (reservedCommands.has(id)) {
       continue;
     }
-    program
+    const command = program
       .command(id)
       .description(entrypoint.description ?? `Run the ${id} workflow`)
-      .argument("<description...>", "task description")
-      .option("--local", "run locally instead of submitting as a k8s job")
-      .action(
-        async (descriptionParts: string[], flags: { local?: boolean }) => {
-          await runEntrypoint(id, descriptionParts.join(" "), flags);
-        }
-      );
+      .argument("<description...>", "task description");
+    if ("schedule" in entrypoint) {
+      command
+        .option("--namespace <namespace>", "Workflow namespace")
+        .option("--schedule <path>", "approved schedule YAML to submit")
+        .option("--kubeconfig <path>", "kubeconfig path")
+        .option("--orchestrator <name>", "runner orchestrator (codex|opencode)")
+        .option(
+          "--queue-name <name>",
+          "Kueue LocalQueue label for Workflow pods"
+        )
+        .option("--service-account <name>", "Workflow service account")
+        .option("--image <image>", "runner image")
+        .option("--image-pull-policy <policy>", "runner image pull policy")
+        .option("--image-pull-secret <name>", "imagePullSecret name")
+        .option("--event-url <url>", "runner event sink URL")
+        .option("--event-auth-secret <name>", "event auth Secret name")
+        .option("--event-auth-key <key>", "event auth Secret key")
+        .option("--codex-auth-secret <name>", "Codex auth Secret name")
+        .option("--opencode-auth-secret <name>", "OpenCode auth Secret name")
+        .option("--github-auth-secret <name>", "GitHub auth Secret name");
+    }
+    command.action(
+      async (descriptionParts: string[], flags: EntrypointCommandFlags) => {
+        await runEntrypoint(id, descriptionParts.join(" "), flags);
+      }
+    );
     registered.add(id);
     reservedCommands.add(id);
   }

@@ -155,10 +155,10 @@ describe("installCommands", () => {
       "Generate a schedule for entrypoint `quick`"
     );
     expect(orchestrator).toContain(
-      "Run `oisin-pipeline quick <task description>`"
+      "Run `moka submit --quick <task description>`"
     );
     expect(orchestrator).toContain(
-      "Use `oisin-pipeline quick --local <task description>` for local execution instead"
+      "Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster."
     );
     expect(orchestrator).toContain(
       "Generate a schedule for entrypoint `execute`"
@@ -220,12 +220,11 @@ describe("installCommands", () => {
       const content = readFileSync(join(dir, path), "utf8");
       expect(content).toContain("Generate a schedule for entrypoint");
       expect(content).toContain(
-        "Submit Kubernetes runner Jobs by default through `oisin-pipeline quick` and `oisin-pipeline execute`"
+        "Submit Momokaya work as Argo Workflows through `moka submit` and `moka submit --quick`"
       );
-      expect(content).toContain("Use `oisin-pipeline ");
-      expect(content).toContain(
-        "--local <task description>` for local execution instead"
-      );
+      expect(content).toContain("Use `moka submit ");
+      expect(content).toContain("--kubeconfig <path>");
+      expect(content).not.toContain("--local <task description>");
     }
   });
 

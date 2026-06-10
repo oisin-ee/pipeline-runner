@@ -16,7 +16,6 @@ import {
   type ScheduleArtifact,
 } from "../src/schedule-planner";
 
-const EXTERNAL_WORKFLOW_RE = /external workflow/i;
 const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
 const WORK_UNIT_DEPENDENCY_RE =
@@ -30,8 +29,6 @@ const PLANNER_TIMEOUT_FAILURE_RE =
   /schedule planner 'pipeline-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/s;
 const REPAIR_NODE_SCHEMA_RE =
   /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/s;
-const WORKFLOW_TASK_ASSIGNMENT_RE =
-  /backlog work unit assignments must use explicit generated agent nodes/i;
 const GREEN_AFTER_RED_RE =
   /id: green-implementation[\s\S]*needs:\s+- red-tests/;
 
@@ -619,28 +616,6 @@ workflows:
     expect(compiled.config.workflows["schedule-run-a-root"]).toBeDefined();
   });
 
-  it("rejects workflow nodes that reference workflows outside the artifact", () => {
-    const artifact = parseScheduleArtifact(`
-version: 1
-kind: pipeline-schedule
-schedule_id: run-a
-source_entrypoint: execute
-task: Implement generated schedules
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: external
-        kind: workflow
-        workflow: default
-`);
-
-    expect(() => compileScheduleArtifact(config(), artifact)).toThrow(
-      EXTERNAL_WORKFLOW_RE
-    );
-  });
-
   it("parses a planner schedule from codex JSONL agent output", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-jsonl-"));
     const schedule = `
@@ -1158,7 +1133,6 @@ task: Bad: compact scalar
       expect(prompt).toContain("Allowed profiles:");
       expect(prompt).toContain("pipeline-code-writer");
       expect(prompt).not.toContain("Allowed workflows:");
-      expect(prompt).toContain("Do not use kind: workflow");
       expect(prompt).toContain("root_workflow: root");
       expect(prompt).toContain("Shape the graph by intent");
       expect(prompt).toContain(
@@ -1470,64 +1444,6 @@ workflows:
           worktreePath: dir,
         })
       ).rejects.toThrow(WORK_UNIT_DEPENDENCY_RE);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects backlog assignments hidden behind workflow-reference nodes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-workflow-ref-"));
-    writeBacklogTask(
-      dir,
-      "PIPE-41",
-      "Agent-driven workflow scheduling",
-      "## Description\n\nParent epic."
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-41.7",
-      "Propagate node context",
-      "## Description\n\nCarry context."
-    );
-    const schedule = `
-version: 1
-kind: pipeline-schedule
-schedule_id: run-epic
-source_entrypoint: execute
-task: PIPE-41
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: pipe-41-7
-        kind: workflow
-        workflow: default
-        task_context:
-          id: PIPE-41.7
-  default:
-    nodes:
-      - id: implement
-        kind: agent
-        profile: pipeline-code-writer
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [implement]
-`;
-
-    try {
-      await expect(
-        generateScheduleArtifact({
-          config: config(),
-          entrypointId: "execute",
-          executor: () => ({ exitCode: 0, stdout: schedule }),
-          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
-          runId: "run-epic",
-          task: "PIPE-41",
-          worktreePath: dir,
-        })
-      ).rejects.toThrow(WORKFLOW_TASK_ASSIGNMENT_RE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

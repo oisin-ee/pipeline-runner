@@ -22,10 +22,10 @@ const DESCRIPTION_RE = /description/i;
 const FAILURE_DETAILS_RE =
   /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
 const PACKAGE_INSPECT_COMMAND_RE = /inspect\s+Read-only repository inspection/;
-const PACKAGE_EXECUTE_COMMAND_RE =
-  /execute\s+Full planner-generated pipeline for\s+repository work/;
-const PACKAGE_QUICK_COMMAND_RE =
-  /quick\s+Compact planner-generated pipeline for\s+small work/;
+const MOKA_SUBMIT_COMMAND_RE =
+  /submit\s+\[options\]\s+\[input\.\.\.\]\s+Submit work to Momokaya as an Argo Workflow/;
+const PACKAGE_EXECUTE_TOP_LEVEL_COMMAND_RE = /\n\s+execute\s/;
+const PACKAGE_QUICK_TOP_LEVEL_COMMAND_RE = /\n\s+quick\s/;
 
 const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
 const SCHEDULE_PATH_RE =
@@ -173,8 +173,9 @@ interface CliOutputCapture {
 const EXECUTE_SHIP_IT_ARGV = [
   "node",
   "/repo/node_modules/.bin/oisin-pipeline",
+  "run",
+  "--entrypoint",
   "execute",
-  "--local",
   "ship",
   "it",
 ];
@@ -1153,7 +1154,7 @@ describe("execute", () => {
       publishConfig: { access: "public" },
     });
     expect(pkg.bin).toEqual({
-      "oisin-pipeline": "dist/index.js",
+      moka: "dist/index.js",
     });
     expect(pkg.exports?.["."]).toEqual({
       import: "./dist/index.js",
@@ -1180,9 +1181,9 @@ describe("execute", () => {
       import: "./dist/pipeline-runtime.js",
       types: "./dist/pipeline-runtime.d.ts",
     });
-    expect(pkg.exports?.["./runner-job-contract"]).toEqual({
-      import: "./dist/runner-job-contract.js",
-      types: "./dist/runner-job-contract.d.ts",
+    expect(pkg.exports?.["./runner-command-contract"]).toEqual({
+      import: "./dist/runner-command-contract.js",
+      types: "./dist/runner-command-contract.d.ts",
     });
   });
 
@@ -1344,8 +1345,9 @@ describe("execute", () => {
         await runCli([
           "node",
           "/repo/node_modules/.bin/oisin-pipeline",
+          "run",
+          "--entrypoint",
           "execute",
-          "--local",
           "ship",
           "it",
         ]);
@@ -1555,8 +1557,10 @@ workflows:
       const help = createCliProgram().helpInformation();
 
       expect(help).toMatch(PACKAGE_INSPECT_COMMAND_RE);
-      expect(help).toMatch(PACKAGE_EXECUTE_COMMAND_RE);
-      expect(help).toMatch(PACKAGE_QUICK_COMMAND_RE);
+      expect(help).toMatch(MOKA_SUBMIT_COMMAND_RE);
+      expect(help).not.toMatch(PACKAGE_EXECUTE_TOP_LEVEL_COMMAND_RE);
+      expect(help).not.toMatch(PACKAGE_QUICK_TOP_LEVEL_COMMAND_RE);
+      expect(help).not.toContain("runner-job");
     });
   });
 
@@ -1565,35 +1569,76 @@ workflows:
       const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
 
-      expect(help).toContain("package-owned @oisincoveney/pipeline config");
+      expect(help.replace(/\s+/g, " ")).toContain(
+        "package-owned @oisincoveney/pipeline config"
+      );
       expect(help).not.toContain(".pipeline/pipeline.yaml");
       expect(help).not.toMatch(PIPELINE_YAML_SOURCE_RE);
     });
   });
 
-  it("registers quick and execute entrypoints with --local fallback", async () => {
-    await withCliTempDir("pipeline-cli-entrypoint-local-", async () => {
+  it("registers moka submit as the graph submission command", async () => {
+    await withCliTempDir("pipeline-cli-moka-submit-", async () => {
       const { createCliProgram } = await import("../src/index");
       const program = createCliProgram();
       const k8sRun = program.commands.find(
         (command) => command.name() === "k8s-run"
       );
-      const quickCmd = program.commands.find(
-        (command) => command.name() === "quick"
-      );
-      const executeCmd = program.commands.find(
-        (command) => command.name() === "execute"
+      const submitCmd = program.commands.find(
+        (command) => command.name() === "submit"
       );
 
       expect(k8sRun).toBeUndefined();
-      expect(quickCmd?.helpInformation()).toContain("--local");
-      expect(executeCmd?.helpInformation()).toContain("--local");
-      expect(quickCmd?.helpInformation()).toContain(
-        "Compact planner-generated pipeline for small work"
+      expect(
+        program.commands.find((command) => command.name() === "quick")
+      ).toBeUndefined();
+      expect(
+        program.commands.find((command) => command.name() === "execute")
+      ).toBeUndefined();
+      const help = submitCmd?.helpInformation() ?? "";
+      expect(help).not.toContain("--local");
+      expect(help).toContain("--quick");
+      expect(help).toContain("--schedule <path>");
+      expect(help).toContain("--command");
+      expect(help).toContain("--event-url <url>");
+    });
+  });
+
+  it("exposes explicit argv submission through moka submit --command", async () => {
+    await withCliTempDir("pipeline-cli-moka-submit-command-", async () => {
+      const { createCliProgram } = await import("../src/index");
+      const program = createCliProgram();
+      const argoCmd = program.commands.find(
+        (command) => command.name() === "argo"
       );
-      expect(executeCmd?.helpInformation()).toContain(
-        "Full planner-generated pipeline for repository work"
+      const submitCommand = program.commands.find(
+        (command) => command.name() === "submit"
       );
+
+      expect(
+        argoCmd?.commands.find((command) => command.name() === "submit-command")
+      ).toBeUndefined();
+      expect(submitCommand).toBeDefined();
+      const help = submitCommand?.helpInformation() ?? "";
+      expect(help).toContain("[input...]");
+      expect(help).toContain("--event-url <url>");
+      expect(help).toContain("--task <text>");
+      expect(help).toContain("--command");
+      expect(help).not.toContain("command-file");
+      expect(help).not.toContain("command-json");
+      expect(help).not.toContain("node-id");
+    });
+  });
+
+  it("does not expose public Argo render commands", async () => {
+    await withCliTempDir("pipeline-cli-argo-render-", async () => {
+      const { createCliProgram } = await import("../src/index");
+      const program = createCliProgram();
+      const argoCmd = program.commands.find(
+        (command) => command.name() === "argo"
+      );
+
+      expect(argoCmd).toBeUndefined();
     });
   });
 
@@ -2010,34 +2055,6 @@ workflows:
     });
   });
 
-  it("validate ignores repo-local worktree-root style lint fixtures", async () => {
-    await withCliTempDir("pipeline-cli-lint-worktree-", async (fixture) => {
-      const { stderr, stdout } = await validateCliLintFixture(fixture, {
-        pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: nested
-        kind: workflow
-        workflow: child
-        worktree_root: tmp/pipeline-runs/\${runId}/\${nodeId}
-  child:
-    nodes:
-      - id: child-task
-        kind: command
-        command: [node, --version]
-`,
-      });
-
-      expect(stderr).not.toContain("WARN worktree-root-style");
-      expect(stdout).toContain("OK: inspect");
-    });
-  });
-
   it("validate --strict ignores repo-local lint warnings because package config owns runtime", async () => {
     await withCliTempDir(
       "pipeline-cli-lint-strict-",
@@ -2120,37 +2137,6 @@ profiles:
           "/repo/node_modules/.bin/oisin-pipeline",
           "validate",
           "--strict",
-          "--no-lint",
-        ]);
-
-        expect(stderr()).not.toContain("WARN ");
-      }
-    );
-  });
-
-  it("validate ignores repo-local undefined workflow fixtures", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-workflow-",
-      async ({ dir, runCli, stderr }) => {
-        writeCliValidateLintConfig(dir, {
-          pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: missing-child
-        kind: workflow
-        workflow: undefined-child
-`,
-        });
-
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
           "--no-lint",
         ]);
 

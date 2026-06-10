@@ -17,7 +17,7 @@ function loadSinkModule(): Promise<Record<string, any>> {
 }
 
 function loadContractModule(): Promise<Record<string, any>> {
-  return import("../src/runner-job-contract");
+  return import("../src/runner-command-contract");
 }
 
 function requestFromCall(call: unknown[]): Request {

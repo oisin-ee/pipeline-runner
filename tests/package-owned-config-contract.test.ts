@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -11,7 +12,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-const OPTIONAL_RUNNER_CONFIG_RE = /\bconfig\?:\s*PipelineConfig\b/;
 const PUBLIC_MISSING_CONFIG_API_RE =
   /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/i;
 const STALE_DOC_RUNTIME_SOURCE_RE =
@@ -113,23 +113,14 @@ function expectCommandToFail(
 }
 
 describe("package-owned config runtime contract", () => {
-  it("does not keep runner-job repository-config guard affordances", () => {
-    const devspaceSource = readFileSync(
-      join(process.cwd(), "src/runner-job/devspace.ts"),
-      "utf8"
+  it("does not keep the old runner-job command implementation", () => {
+    expect(
+      existsSync(join(process.cwd(), "src/commands/runner-job-command.ts"))
+    ).toBe(false);
+    expect(existsSync(join(process.cwd(), "src/runner-job/run.ts"))).toBe(
+      false
     );
-    const runnerSource = readFileSync(
-      join(process.cwd(), "src/runner-job/run.ts"),
-      "utf8"
-    );
-
-    expect(devspaceSource).not.toMatch(OPTIONAL_RUNNER_CONFIG_RE);
-    expect(runnerSource).not.toContain(
-      "Runner jobs require a repository pipeline config"
-    );
-    expect(runnerSource).not.toContain(
-      ".pipeline/pipeline.yaml is required for runner jobs"
-    );
+    expect(existsSync(join(process.cwd(), "src/k8s-submit.ts"))).toBe(false);
   });
 
   it("does not expose missing-config affordances in the public config API", () => {
@@ -170,24 +161,26 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
     }
   });
 
-  it("documents Kubernetes runner prerequisites and quick/execute k8s default", () => {
+  it("documents Kubernetes runner prerequisites and quick/execute Argo default", () => {
     const guide = readFileSync(
       join(process.cwd(), "docs/operator-guide.md"),
       "utf8"
     );
 
-    expect(guide).toContain("submit Kubernetes runner Jobs by default");
+    expect(guide).toContain("submits Argo Workflows by default");
+    expect(guide).toContain("--schedule <path>");
     expect(guide).toContain("PIPELINE_EVENT_URL");
-    expect(guide).toContain("oisin-pipeline quick");
-    expect(guide).toContain("oisin-pipeline execute");
-    expect(guide).toContain("--local");
+    expect(guide).toContain('moka submit "fix the login bug" --quick');
+    expect(guide).toContain('moka submit "Implement PIPE-54"');
+    expect(guide).toContain("--kubeconfig <path>");
     expect(guide).toContain("ServiceAccount");
     expect(guide).toContain("codex-auth-1");
     expect(guide).toContain("opencode-auth-1");
     expect(guide).toContain("pipeline-runner-event-auth");
     expect(guide).toContain("pipeline-runner-github-auth");
-    expect(guide).toContain("oisin-pipeline quick --local");
-    expect(guide).toContain("oisin-pipeline execute --local");
+    expect(guide).not.toContain("moka submit --local");
+    expect(guide).not.toContain("oisin-pipeline quick");
+    expect(guide).not.toContain("oisin-pipeline execute");
   });
 
   it("keeps generated prompts and command text from naming repo-local YAML as the runtime source", () => {

@@ -3,7 +3,7 @@ import type { PipelineRuntimeEvent } from "./pipeline-runtime";
 import {
   mapRuntimeEventToRunnerEventRecords as mapRuntimeEventRecords,
   type RunnerEventRecord,
-} from "./runner-job-contract";
+} from "./runner-command-contract";
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -30,7 +30,7 @@ export interface RunnerEventSink {
     outcome: "CANCELLED" | "FAIL" | "PASS",
     workflowId: string
   ) => void;
-  recordRunnerJobPhase: (
+  recordRunnerCommandPhase: (
     phase: string,
     message: string,
     output?: Record<string, unknown>
@@ -151,7 +151,7 @@ export function createRunnerEventSink(
     recordFinalResult(outcome, workflowId) {
       recordRuntimeEvent({ outcome, type: "workflow.finish", workflowId });
     },
-    recordRunnerJobPhase(phase, message, output) {
+    recordRunnerCommandPhase(phase, message, output) {
       queue.push({
         ...nextEnvelope(),
         log: {
@@ -159,7 +159,7 @@ export function createRunnerEventSink(
           message,
           output: { phase, ...output },
         },
-        type: "runner.job.phase",
+        type: "runner.command.phase",
       });
       scheduleFlush();
     },

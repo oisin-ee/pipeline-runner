@@ -341,8 +341,8 @@ function dispatchBlock(
     cliDispatchBlock(host, cliRoutes),
     nodePromptContract(plan.workflowId, routes),
     "Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
-    "If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.",
-    "Do not bypass configured runner subprocesses or package-configured gates when executing workflow nodes.",
+    "If a node returns targeted evidence and has no configured blocking gate, advance to the next node.",
+    "Do not bypass configured runner subprocesses or package-configured gates when executing nodes.",
     hostSpecificDispatchGuard(host, nativeRoutes, cliRoutes),
   ]
     .filter((line): line is string => Boolean(line))
@@ -361,10 +361,12 @@ function entrypointDispatchBlock(
   return [
     `Generate a schedule for entrypoint \`${id}\` and the user task.`,
     `The schedule policy is \`${entrypoint.schedule}\`.`,
-    `Run \`oisin-pipeline ${id} <task description>\` to submit the pipeline as a k8s job.`,
-    "The pipeline runtime executes inside a Kubernetes pod using the package-owned runner image.",
-    `Use \`oisin-pipeline ${id} --local <task description>\` for local execution instead.`,
-    "Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.",
+    id === "quick"
+      ? "Run `moka submit --quick <task description>` to submit the graph as an Argo Workflow."
+      : `Run \`moka submit <task description>\` to submit the \`${id}\` graph as an Argo Workflow.`,
+    "The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.",
+    "Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster.",
+    "Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.",
   ].join("\n");
 }
 
@@ -374,7 +376,7 @@ function scheduledEntrypointK8sNote(
   if ("workflow" in entrypoint) {
     return;
   }
-  return "Submit Kubernetes runner Jobs by default through `oisin-pipeline quick` and `oisin-pipeline execute`.";
+  return "Submit Momokaya work as Argo Workflows through `moka submit` and `moka submit --quick`.";
 }
 
 function orchestratorEntrypointDispatchBlock(

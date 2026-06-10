@@ -1,16 +1,13 @@
 import { createActor, waitFor } from "xstate";
 import type { PipelineConfigError } from "./config";
-import { effectiveTaskContext, executeAgentNode } from "./runtime/agent-node";
+import { executeAgentNode } from "./runtime/agent-node";
 import { executeBuiltin } from "./runtime/builtins";
 import {
   diffChangedFiles,
   snapshotChangedFiles,
 } from "./runtime/changed-files";
 import { executeCommand } from "./runtime/command-executor";
-import {
-  createRuntimeContext,
-  planContainsWorktreeBackedWorkflowNode,
-} from "./runtime/context";
+import { createRuntimeContext } from "./runtime/context";
 import type {
   NodeAttemptCycleResult,
   NodeAttemptResult,
@@ -25,7 +22,6 @@ import type {
   RuntimeStructuredOutput,
 } from "./runtime/contracts";
 import {
-  childReporter,
   emit,
   emitNodeFinish,
   emitNodeOutputRecorded,
@@ -41,12 +37,6 @@ import { dispatchHooks } from "./runtime/hooks";
 import { parseJsonObject } from "./runtime/json-validation";
 import { executeParallelNode } from "./runtime/parallel-node";
 import {
-  commitWorkflowNodeWorktree,
-  prepareWorkflowNodeWorktree,
-  removeWorkflowNodeWorktree,
-  workflowBaseSha,
-} from "./runtime/worktrees";
-import {
   type NodeRetryPolicyContract,
   type RetryReason,
   runtimeActorId,
@@ -60,6 +50,12 @@ import {
   workflowSchedulerMachine,
 } from "./runtime-machines/workflow-machine";
 import type { PlannedWorkflowNode } from "./workflow-planner";
+
+export interface ScheduledWorkflowTaskRuntimeOptions
+  extends PipelineRuntimeOptions {
+  dependencyOutputs?: Map<string, string> | Record<string, string>;
+  nodeId: string;
+}
 
 export type {
   AcceptanceCriterion,
@@ -83,10 +79,19 @@ export function runPipelineFromConfig(
   return runPipelineWithContext(context);
 }
 
+export function runScheduledWorkflowTask(
+  options: ScheduledWorkflowTaskRuntimeOptions
+): Promise<RuntimeNodeResult> {
+  const { dependencyOutputs, nodeId, ...runtimeOptions } = options;
+  const context = createRuntimeContext(runtimeOptions);
+  hydrateDependencyOutputs(context, dependencyOutputs);
+  recordNodeEvent(context, nodeId, { at: now(), type: "READY" });
+  return executePlannedNode(nodeId, context);
+}
+
 async function runPipelineWithContext(
   context: RuntimeContext
 ): Promise<PipelineRuntimeResult> {
-  await pinWorkflowBaseSha(context);
   const workflowActor = startWorkflowSchedulerActor(context);
   const snapshot = await waitFor(
     workflowActor,
@@ -157,12 +162,6 @@ function startWorkflowSchedulerActor(
   return actor;
 }
 
-async function pinWorkflowBaseSha(context: RuntimeContext): Promise<void> {
-  if (planContainsWorktreeBackedWorkflowNode(context.plan)) {
-    await workflowBaseSha(context);
-  }
-}
-
 function shouldContinueAfterNodeResult(
   result: RuntimeNodeResult,
   context: RuntimeContext
@@ -196,7 +195,7 @@ async function executePlannedNode(
   nodeId: string,
   context: RuntimeContext
 ): Promise<RuntimeNodeResult> {
-  const node = context.plan.graph.node(nodeId);
+  const node = plannedNodeById(context, nodeId);
   if (!node) {
     throw new Error(`workflow scheduler referenced unknown node '${nodeId}'`);
   }
@@ -208,6 +207,32 @@ async function executePlannedNode(
     node
   );
   return result;
+}
+
+function plannedNodeById(
+  context: RuntimeContext,
+  nodeId: string
+): PlannedWorkflowNode | undefined {
+  return (
+    context.plan.graph.node(nodeId) ??
+    findPlannedNode(context.plan.topologicalOrder, nodeId)
+  );
+}
+
+function findPlannedNode(
+  nodes: PlannedWorkflowNode[],
+  nodeId: string
+): PlannedWorkflowNode | undefined {
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      return node;
+    }
+    const child = findPlannedNode(node.children ?? [], nodeId);
+    if (child) {
+      return child;
+    }
+  }
+  return;
 }
 
 function workflowRuntimeResult(
@@ -316,6 +341,35 @@ function runtimeStructuredOutputs(
   context: RuntimeContext
 ): RuntimeStructuredOutput[] {
   return [...context.structuredOutputs];
+}
+
+function hydrateDependencyOutputs(
+  context: RuntimeContext,
+  dependencyOutputs: ScheduledWorkflowTaskRuntimeOptions["dependencyOutputs"]
+): void {
+  const outputs =
+    dependencyOutputs instanceof Map
+      ? dependencyOutputs
+      : new Map(Object.entries(dependencyOutputs ?? {}));
+  const finishedAt = now();
+  for (const [nodeId, output] of outputs) {
+    const existing = context.nodeStates.get(nodeId);
+    context.lastOutputByNode.set(nodeId, output);
+    context.inheritedOutputNodeIds.add(nodeId);
+    context.nodeStates.set(nodeId, {
+      attempts: existing?.attempts ?? 1,
+      evidence: [
+        ...(existing?.evidence ?? []),
+        "dependency output inherited from Argo artifact",
+      ],
+      exitCode: existing?.exitCode ?? 0,
+      finishedAt: existing?.finishedAt ?? finishedAt,
+      gates: existing?.gates ?? [],
+      id: nodeId,
+      output,
+      status: "passed",
+    });
+  }
 }
 
 function cancelledFailure(): RuntimeFailure {
@@ -1134,168 +1188,17 @@ function executeNodeAttempt(
     case "parallel":
       return executeParallelNode(node, context, {
         executeNode,
-        isDrainMergeNode,
         markNodeReady: (childContext, childId) =>
           recordNodeEvent(childContext, childId, {
             at: now(),
             type: "READY",
           }),
       });
-    case "workflow":
-      return executeWorkflowNode(node, context);
     default: {
       const _exhaustive: never = node.kind;
       throw new Error(`Unsupported node kind: ${String(_exhaustive)}`);
     }
   }
-}
-
-async function executeWorkflowNode(
-  node: PlannedWorkflowNode,
-  context: RuntimeContext
-): Promise<NodeAttemptResult> {
-  if (!node.workflow) {
-    return {
-      evidence: [`workflow node '${node.id}' has no workflow`],
-      exitCode: 1,
-      output: "",
-    };
-  }
-
-  const worktree = await prepareWorkflowNodeWorktree(node, context);
-  const childContext = createRuntimeContext({
-    config: context.config,
-    executor: context.executor,
-    hookPolicy: context.hookPolicy,
-    reporter: childReporter(context, node.id),
-    runId: context.runId,
-    signal: context.signal,
-    task: context.task,
-    taskContext: effectiveTaskContext(node, context),
-    workflowId: node.workflow,
-    worktreePath: worktree.worktreePath ?? context.worktreePath,
-  });
-  childContext.baseSha = context.baseSha;
-  childContext.hookResults = new Map(context.hookResults);
-  childContext.lastOutputByNode = workflowChildInheritedOutputs(node, context);
-  childContext.inheritedOutputNodeIds = new Set(
-    childContext.lastOutputByNode.keys()
-  );
-
-  const result = await runPipelineWithContext(childContext);
-  context.agentInvocations.push(...result.agentInvocations);
-  if (result.outcome === "PASS" && worktree.worktreePath) {
-    try {
-      worktree.commitSha = await commitWorkflowNodeWorktree(
-        worktree.worktreePath,
-        node.id,
-        context.config.runner_job.git.committer
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        evidence: [
-          `workflow '${result.plan.workflowId}' passed`,
-          `workflow worktree commit failed: ${message}`,
-          `inspect workflow worktree: cd ${worktree.worktreePath}`,
-        ],
-        exitCode: 1,
-        output: JSON.stringify({
-          baseSha: worktree.baseSha,
-          branch: worktree.branch,
-          commitSha: worktree.commitSha ?? null,
-          nodeResults: result.nodes.map((child) => ({
-            nodeId: child.nodeId,
-            status: child.status,
-          })),
-          status: "FAIL",
-          worktreePath: worktree.worktreePath,
-          workflowId: result.plan.workflowId,
-        }),
-      };
-    }
-  }
-  if (
-    result.outcome === "PASS" &&
-    worktree.worktreePath &&
-    !shouldPreserveWorkflowNodeWorktree(node, context)
-  ) {
-    await removeWorkflowNodeWorktree(worktree.worktreePath);
-  }
-  const output = JSON.stringify({
-    baseSha: worktree.baseSha,
-    branch: worktree.branch,
-    ...(worktree.worktreePath ? { commitSha: worktree.commitSha ?? null } : {}),
-    nodeResults: result.nodes.map((child) => ({
-      nodeId: child.nodeId,
-      status: child.status,
-    })),
-    status: result.outcome,
-    worktreePath: worktree.worktreePath,
-    workflowId: result.plan.workflowId,
-  });
-  return {
-    evidence: [
-      result.outcome === "PASS"
-        ? `workflow '${result.plan.workflowId}' passed`
-        : `workflow '${result.plan.workflowId}' failed`,
-      ...(result.outcome === "PASS" || !worktree.worktreePath
-        ? []
-        : [`inspect workflow worktree: cd ${worktree.worktreePath}`]),
-      ...result.failureDetails.flatMap((failure) => failure.evidence),
-    ],
-    exitCode: result.outcome === "PASS" ? 0 : 1,
-    output,
-  };
-}
-
-function shouldPreserveWorkflowNodeWorktree(
-  node: PlannedWorkflowNode,
-  context: RuntimeContext
-): boolean {
-  if (context.preserveSuccessfulWorkflowWorktrees) {
-    return true;
-  }
-  const plannedNode = context.plan.graph.node(node.id);
-  return (
-    plannedNode?.dependents.length > 0 &&
-    plannedNode.dependents.every((dependentId) =>
-      isDrainMergeNode(context.plan.graph.node(dependentId))
-    )
-  );
-}
-
-function workflowChildInheritedOutputs(
-  node: PlannedWorkflowNode,
-  context: RuntimeContext
-): Map<string, string> {
-  const siblingNodeIds = new Set(
-    context.plan.topologicalOrder.map((candidate) => candidate.id)
-  );
-  return new Map(
-    [...context.lastOutputByNode].map(([nodeId, output]) => [
-      nodeId,
-      filterWorkflowChildRoutedOutput(output, node.id, siblingNodeIds),
-    ])
-  );
-}
-
-function filterWorkflowChildRoutedOutput(
-  output: string,
-  childNodeId: string,
-  siblingNodeIds: Set<string>
-): string {
-  const parsed = parseJsonObject(output);
-  if (!Object.hasOwn(parsed, childNodeId)) {
-    return output;
-  }
-  const routedSiblingKeys = Object.keys(parsed).filter((key) =>
-    siblingNodeIds.has(key)
-  );
-  if (routedSiblingKeys.length <= 1) {
-    return output;
-  }
-  return JSON.stringify({ [childNodeId]: parsed[childNodeId] });
 }
 
 async function dispatchGateFailureHook(

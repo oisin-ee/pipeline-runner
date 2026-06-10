@@ -5,11 +5,23 @@ agent context it provides.
 
 ## Command Cheat Sheet
 
-Use either binary name:
+Use the Momokaya submission binary for cluster work:
 
 ```shell
-pipe ...
-oisin-pipeline ...
+moka ...
+```
+
+`moka submit "<task>"`
+
+Generates the proper graph schedule for the task, builds the runner payload
+from the current git context, and submits an Argo Workflow to the Momokaya
+cluster.
+
+```shell
+moka submit "Implement PIPE-54"
+moka submit "fix the login bug" --quick
+moka submit --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-54"
+moka submit --command -- codex -p "fix this bug"
 ```
 
 `pipe "<task>"`
@@ -119,144 +131,133 @@ pipe install-commands --host all --force
 
 Host choices are `all`, `opencode`, and `codex`.
 
-`pipe runner-job`
+`moka submit --command -- <command...>`
 
-Runs the in-pod backend worker entrypoint. The job reads the runner payload
-from a JSON file and reads the event auth token from a file path configured in
-the payload's `events.authTokenFile`. It prepares `PIPELINE_TARGET_PATH` or
-clones the requested repository into `/workspace`, generates a task-specific
-schedule, and appends runtime events to the Console endpoint configured by
-payload `events.url`.
+Submits one explicit argv command as an Argo Workflow. The command becomes a
+one-task schedule artifact, Argo owns the Workflow/DAG execution, and the runner
+container only executes the argv it receives.
 
-The runner job does not call the Kubernetes API. Validation errors exit `64`,
-startup errors exit `70`, runtime failure exits `1`, cancellation exits `130`,
-and SIGTERM/SIGINT cancellation exits `130`.
+`moka submit` and `moka submit --quick` submit Argo Workflows. If
+`--schedule <path>` is provided, that approved schedule is used. Without
+`--schedule`, the package generates the schedule first and then submits it.
+There is no separate `--local` flow; local usage means submitting to a local
+Kubernetes cluster.
 
-Local dry run:
+The runner container entrypoint is `runner-command`. Validation errors exit
+`64`, startup errors exit `70`, command failure exits `1`, cancellation exits
+`130`, and SIGTERM/SIGINT cancellation exits `130`.
 
-```shell
-cat > /tmp/payload.json << 'EOF'
-{"contractVersion":"1","run":{"id":"run-uid-1","project":"alpha","requestedBy":"@agent"},"repository":{"url":"https://github.com/oisin-ee/pipeline-runner.git","baseBranch":"main"},"task":{"kind":"prompt","prompt":"PIPE-38"},"delivery":{"pullRequest":false},"events":{"url":"http://127.0.0.1:3000/api/pipeline/runner-events","authHeader":"Authorization","authTokenFile":"/tmp/event-token"}}
-EOF
-echo -n "dev-token" > /tmp/event-token
-PIPELINE_TARGET_PATH=/path/to/target/repo pipe runner-job --payload-file /tmp/payload.json --orchestrator codex
-```
-
-Kubernetes dry run shape (file-only, no env vars for payload or auth):
+Argo Workflow shape:
 
 ```yaml
-apiVersion: batch/v1
-kind: Job
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
 metadata:
   generateName: pipeline-run-alpha-
+  namespace: momokaya-pipeline
   labels:
-    kueue.x-k8s.io/queue-name: momokaya-runner
     pipeline.oisin.dev/project: alpha
     pipeline.oisin.dev/run-id: run-uid-1
-    pipeline.oisin.dev/source: pipeline-console
-    pipeline.oisin.dev/task: PIPE-38
-    pipeline.oisin.dev/workflow: default
+    pipeline.oisin.dev/source: argo-workflow
 spec:
-  template:
-    spec:
-      serviceAccountName: pipeline-runner
-      restartPolicy: Never
-      containers:
-        - name: runner
-          image: ghcr.io/oisin-ee/pipeline-runner:latest
-          imagePullPolicy: Always
-          args:
-            - --payload-file
-            - /etc/pipeline/payload.json
-            - codex
-          volumeMounts:
-            - name: pipeline-payload
-              mountPath: /etc/pipeline/payload.json
-              subPath: payload.json
-              readOnly: true
-            - name: pipeline-event-auth
-              mountPath: /etc/pipeline/event-auth
-              readOnly: true
-            - name: codex-auth
-              mountPath: /root/.codex
-              readOnly: true
-            - name: opencode-auth
-              mountPath: /root/.local/share/opencode
-              readOnly: true
-      volumes:
-        - name: pipeline-payload
-          configMap:
-            name: pipeline-run-alpha-payload
-            items:
-              - key: payload.json
-                path: payload.json
-        - name: pipeline-event-auth
-          secret:
-            secretName: pipeline-runner-event-auth
-            items:
-              - key: token
-                path: token
-        - name: codex-auth
-          secret:
-            secretName: codex-auth-1
-            defaultMode: 0400
-        - name: opencode-auth
-          secret:
-            secretName: opencode-auth-1
-            defaultMode: 0400
+  entrypoint: pipeline
+  onExit: pipeline-finalizer
+  serviceAccountName: pipeline-runner
+  templates:
+    - name: pipeline
+      dag:
+        tasks:
+          - name: node-one
+            template: task-one
+    - name: task-one
+      container:
+        command: [moka]
+        args:
+          - runner-command
+          - --payload-file
+          - /etc/pipeline/payload.json
+          - --schedule-file
+          - /etc/pipeline/schedule.yaml
+        volumeMounts:
+          - name: payload
+            mountPath: /etc/pipeline/payload.json
+            subPath: payload.json
+          - name: schedule
+            mountPath: /etc/pipeline/schedule.yaml
+            subPath: schedule.yaml
+          - name: task-one
+            mountPath: /etc/pipeline/task.json
+            subPath: task.json
+    - name: pipeline-finalizer
+      container:
+        command: [moka]
+        args:
+          - runner-finalize
+          - --payload-file
+          - /etc/pipeline/payload.json
+          - --schedule-file
+          - /etc/pipeline/schedule.yaml
+          - --argo-status
+          - "{{workflow.status}}"
 ```
 
-The package-owned Kubernetes Job manifest uses
+The package-owned Argo Workflow uses
 `ghcr.io/oisin-ee/pipeline-runner:latest` with `imagePullPolicy: Always`.
 Console runner settings include queue name, service account, CPU/memory
-requests and limits, active deadline, TTL, backoff limit, event sink URL, auth
-header, and auth token file path. The runner-side event auth token is mounted
-as a file via Secret volume at the path configured in `events.authTokenFile`.
+requests and limits, active deadline, TTL, event sink URL, auth header, and
+auth token file path. The runner-side event auth token is mounted as a file via
+Secret volume at the path configured in `events.authTokenFile`.
 Codex auth is the native file
 `/root/.codex/auth.json` from Secret `codex-auth-1`; OpenCode auth is the
 native file `/root/.local/share/opencode/auth.json` from Secret
 `opencode-auth-1`. Do not use `CODEX_AUTH_JSON` or `OPENCODE_AUTH_JSON` env
-materialization in runner Jobs. The orchestrator argument (`codex` or
-`opencode`) tells the runner which agent CLI to use for node execution.
+materialization in runner Workflows.
 
 The runner payload contract lives at
-`@oisincoveney/pipeline/runner-job-contract`. `pipeline-console` should create
-payloads with `buildRunnerJobPayload` and can use
-`runnerJobPayloadJsonSchema` for neutral validation or generated docs. The
+`@oisincoveney/pipeline/runner-command-contract`. Submitters should create
+payloads with `buildRunnerCommandPayload`, include `workflow.id` in the payload,
+and can use `runnerCommandPayloadSchema` for validation or generated docs. The
 runner image labels `pipeline.oisin.dev.runner-contract-version` and
 `pipeline.oisin.dev.pipeline-package-version`, plus the console
 `runner.expectedContractVersion` setting and
-`pipeline.oisin.dev/runner-contract-version` Job label, give operators a fast
-way to detect image/dependency skew before starting Jobs.
+`pipeline.oisin.dev/runner-contract-version` Workflow label, give operators a
+fast way to detect image/dependency skew before starting Workflows.
 
 Troubleshooting:
 
-- Missing payload: pass `--payload-file <path>` to the runner-job command; exit
+- Missing payload: pass `--payload-file <path>` to the runner-command task; exit
   code is `64`.
+- Missing schedule or task descriptor: mount `--schedule-file <path>` and
+  `/etc/pipeline/task.json`; exit code is `64`.
 - Schema validation: unsupported payload fields or incompatible `contractVersion`
   exit `64`; recoverable payloads also post
   `runner.schema.validation` and a failing `workflow.finish` event.
 - Invalid auth: confirm the event auth token file content matches the console
   API token; 401/403 event sink responses are terminal.
-- Missing target path: set `PIPELINE_TARGET_PATH` to the repository worktree the
-  runner should clone or execute; package-owned config is loaded at runtime.
+- Missing target path: mount or clone the repository worktree at the path used
+  by the command task; package-owned config is loaded at runtime when the
+  command invokes `pipe`.
 - Missing agent CLI: run `pipe doctor` or install the CLI required by the
   selected runner profile before starting work.
-- Cancellation: console deletes the Job; the runner handles SIGTERM/SIGINT with
-  `AbortSignal`, records cancellation/final result events, flushes, and exits
-  `130`.
+- Cancellation: console terminates the Workflow; the runner handles
+  SIGTERM/SIGINT with `AbortSignal`, records cancellation/final result events,
+  flushes, and exits `130`.
 
-The runner does not own the console database, event store, Job builder, Kueue
-watcher, or UI. Do not add a runner-side Kubernetes API kind, database, console
+The runner does not own the console database, event store, Workflow builder,
+Kueue watcher, or UI. Do not add a runner-side Kubernetes API kind, database, console
 deployment per run, or separate language stack for this integration.
 
 
 
-### K8s-native pipeline execution (quick and execute)
+### Moka Argo-native Graph Execution
 
-The `quick` and `execute` entrypoints submit Kubernetes runner Jobs by default. Each command builds a runner job payload from the task description
-and current git context, creates a ConfigMap, and submits a `batch/v1` Job that
-runs the pipeline inside a pod using the package-owned runner image.
+`moka submit` submits Argo Workflows by default. `moka submit "<task>"` uses the
+full graph. `moka submit "<task>" --quick` uses the quick graph. When
+`--schedule <path>` is provided, the command uses that approved schedule. When
+no schedule is provided, the command creates a schedule through the package
+scheduler, builds a runner payload from the task description and current git
+context, creates payload/schedule ConfigMaps, and submits an Argo Workflow that
+runs the graph as DAG tasks using the package-owned runner image.
 
 Set `PIPELINE_EVENT_URL` to configure the runner event sink. Without it, the
 command fails with a validation error.
@@ -279,18 +280,13 @@ The following must exist in the target namespace:
 
 ```shell
 export PIPELINE_EVENT_URL="https://console.example.com/api/pipeline/runner-events"
-oisin-pipeline quick "fix the login bug"
-oisin-pipeline execute "Implement PIPE-53"
+moka submit "fix the login bug" --quick
+moka submit "Implement PIPE-54"
 ```
 
-#### Local execution fallback
-
-Use the `--local` flag for workstation-local execution:
-
-```shell
-oisin-pipeline quick --local "fix the login bug"
-oisin-pipeline execute --local "Implement PIPE-53"
-```
+For a local cluster, point the same commands at that cluster with
+`--kubeconfig <path>` and `--namespace <namespace>`. There is no separate
+workstation-local runtime path.
 
 Generated invocations include:
 
@@ -304,7 +300,7 @@ target worktree.
 
 ## OpenCode-First Operation
 
-Package-owned defaults select OpenCode for built-in profiles and runner-job
+Package-owned defaults select OpenCode for built-in profiles and runner-command
 orchestration. Codex compatibility stays generated through `$pipe`, `$inspect`,
 `$epic`, and Codex agent config, but it is not the default package runtime.
 
@@ -349,10 +345,10 @@ bun run test
 bun run test:image
 ```
 
-`bun run test:image` builds the local runner image and runs an empty payload
-file through the `runner-job` command with a payload file and event token file
-mount. The smoke test passes only when the container reaches runner validation
-and exits with code `64`.
+`bun run test:image` builds the runner image and runs an empty payload file
+through the `runner-command` command with payload and event-token mounts. The
+smoke test passes only when the container reaches runner validation and exits
+with code `64`.
 
 ## How The Package Works
 
@@ -412,33 +408,21 @@ profiles/workflows to the planner, validates the returned
 approved artifact separately with `pipe run --schedule <schedule.yaml>`.
 
 Agent-generated schedules must assign each backlog child ticket exactly once
-with node-level `task_context`, embed every referenced workflow in the artifact,
-use only configured profiles/workflows, and keep implementation branches behind
-acceptance, verification, or review coverage.
+with node-level `task_context`, use explicit agent, command, builtin, group, or
+parallel nodes, and keep implementation branches behind acceptance,
+verification, or review coverage.
 
 Workflow nodes are strict by `kind`:
 
 - `kind: agent` launches a configured profile.
 - `kind: command` runs a subprocess command.
 - `kind: builtin` runs built-in runtime behavior such as `drain-merge`.
-- `kind: workflow` invokes another named workflow, optionally in an isolated
-  worktree.
+- `kind: group` groups existing nodes behind a single dependency target.
 - `kind: parallel` runs a fixed set of child nodes concurrently.
 
 Structural parallelism in checked-in workflows is fixed in YAML. Scheduled
 epics can generate a constrained approval-time DAG, but they still cannot
 invent profiles, workflows, or node-level skill overrides.
-
-`kind: workflow` worktrees support `${runId}` and `${nodeId}`:
-
-```yaml
-worktree_root: .pipeline/runs/${runId}/frontend
-```
-
-`drain-merge` consumes the output from parallel workflow children, skips failed
-or non-worktree children, checks that mergeable branches share a base SHA, and
-merges passing branches into an integration branch in declaration order. It
-reports conflicts for manual resolution and does not auto-resolve them.
 
 ## Adding Skills
 

@@ -1,11 +1,13 @@
 ---
 id: PIPE-53.2
 title: 'k8s-submit: add @kubernetes/client-node dependency'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 19:53'
+updated_date: '2026-06-10 14:10'
 labels:
   - dependency
+  - superseded
 dependencies: []
 references:
   - package.json
@@ -30,3 +32,9 @@ ordinal: 160000
 <!-- SECTION:PLAN:BEGIN -->
 Add @kubernetes/client-node v1.4.0 to dependencies in package.json. Run pnpm install to update lockfile. Official npm package from kubernetes-client/javascript, Apache-2.0.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Superseded by PIPE-54. Do not implement this k8s Job/--local plan; the accepted direction is the Moka submit command surface backed by Argo Workflows.
+<!-- SECTION:FINAL_SUMMARY:END -->

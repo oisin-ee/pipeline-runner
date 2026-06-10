@@ -12,8 +12,6 @@ import {
 
 // Literal pipeline template tokens; interpolating the inner literal keeps the
 // "${" sequence out of the source so noTemplateCurlyInString stays satisfied.
-const WORKTREE_TEMPLATE = `.pipeline/worktrees/$${"{runId}"}/$${"{nodeId}"}`;
-
 const DEFAULT_PROJECT = mkdtempSync(
   join(tmpdir(), "workflow-planner-default-")
 );
@@ -168,59 +166,9 @@ describe("compileWorkflowPlan", () => {
     });
   });
 
-  it("carries workflow-node worktree_root as planned worktreeRoot", () => {
+  it("preserves task_context on parallel children", () => {
     const config = genericWorkflowConfig();
     config.workflows.scratch.nodes = [
-      {
-        id: "child",
-        kind: "workflow",
-        workflow: "subflow",
-      } as PipelineConfig["workflows"][string]["nodes"][number] & {
-        worktree_root: string;
-      },
-    ];
-    (
-      config.workflows.scratch
-        .nodes[0] as PipelineConfig["workflows"][string]["nodes"][number] & {
-        worktree_root: string;
-      }
-    ).worktree_root = WORKTREE_TEMPLATE;
-    config.workflows.subflow = {
-      nodes: [
-        {
-          id: "research",
-          kind: "agent",
-          profile: "pipeline-researcher",
-        },
-      ],
-    };
-
-    const plan = compileWorkflowPlan(config, "scratch");
-
-    expect(plan.topologicalOrder[0]).toMatchObject({
-      id: "child",
-      kind: "workflow",
-      worktreeRoot: WORKTREE_TEMPLATE,
-    });
-  });
-
-  it("preserves workflow-node task_context on planned nodes and parallel children", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.scratch.nodes = [
-      {
-        id: "child",
-        kind: "workflow",
-        nodes: undefined,
-        task_context: {
-          id: "PIPE-41.7",
-          title: "Node context",
-          description: "Use this child ticket.",
-          acceptance_criteria: [
-            { id: "1", text: "Pass node context to child workflow." },
-          ],
-        },
-        workflow: "subflow",
-      } as PipelineConfig["workflows"][string]["nodes"][number],
       {
         id: "fanout",
         kind: "parallel",
@@ -240,27 +188,10 @@ describe("compileWorkflowPlan", () => {
         ],
       } as PipelineConfig["workflows"][string]["nodes"][number],
     ];
-    config.workflows.subflow = {
-      nodes: [
-        {
-          id: "research",
-          kind: "agent",
-          profile: "pipeline-researcher",
-        },
-      ],
-    };
 
     const plan = compileWorkflowPlan(config, "scratch");
 
-    expect(plan.topologicalOrder[0].taskContext).toEqual({
-      id: "PIPE-41.7",
-      title: "Node context",
-      description: "Use this child ticket.",
-      acceptanceCriteria: [
-        { id: "1", text: "Pass node context to child workflow." },
-      ],
-    });
-    expect(plan.topologicalOrder[1].children?.[0]?.taskContext).toEqual({
+    expect(plan.topologicalOrder[0].children?.[0]?.taskContext).toEqual({
       id: "PIPE-41.8",
       title: "Branch context",
       acceptanceCriteria: [{ id: "1", text: "Preserve child branch context." }],

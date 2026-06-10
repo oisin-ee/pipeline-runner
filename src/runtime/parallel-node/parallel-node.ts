@@ -12,7 +12,6 @@ export interface ParallelNodeRuntime {
     node: PlannedWorkflowNode,
     context: RuntimeContext
   ) => Promise<RuntimeNodeResult>;
-  isDrainMergeNode: (node: PlannedWorkflowNode | undefined) => boolean;
   markNodeReady: (context: RuntimeContext, nodeId: string) => void;
 }
 
@@ -37,8 +36,7 @@ export async function executeParallelNode(
     children,
     context.plan.execution.failFast
       ? linkedAbort.controller.signal
-      : context.signal,
-    runtime
+      : context.signal
   );
   try {
     const results = context.plan.execution.failFast
@@ -64,8 +62,7 @@ function createParallelChildContext(
   context: RuntimeContext,
   parentNodeId: string,
   children: PlannedWorkflowNode[],
-  signal: AbortSignal | undefined,
-  runtime: ParallelNodeRuntime
+  signal: AbortSignal | undefined
 ): RuntimeContext {
   return {
     ...context,
@@ -92,26 +89,9 @@ function createParallelChildContext(
       topologicalOrder: children,
     },
     parentParallelNodeId: parentNodeId,
-    preserveSuccessfulWorkflowWorktrees:
-      context.preserveSuccessfulWorkflowWorktrees ||
-      parallelFeedsDrainMerge(parentNodeId, context, runtime),
     reporter: childReporter(context, parentNodeId),
     ...(signal ? { signal } : {}),
   };
-}
-
-function parallelFeedsDrainMerge(
-  parentNodeId: string,
-  context: RuntimeContext,
-  runtime: ParallelNodeRuntime
-): boolean {
-  const parent = context.plan.graph.node(parentNodeId);
-  return (
-    parent?.dependents.length > 0 &&
-    parent.dependents.every((dependentId) =>
-      runtime.isDrainMergeNode(context.plan.graph.node(dependentId))
-    )
-  );
 }
 
 function createLinkedAbortController(signal?: AbortSignal): {

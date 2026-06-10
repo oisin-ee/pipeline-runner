@@ -62,7 +62,6 @@ export function createRuntimeContext(
     nodeActors: new Map(),
     ...(observability ? { observability } : {}),
     plan,
-    preserveSuccessfulWorkflowWorktrees: false,
     ...(options.reporter ? { reporter: options.reporter } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     structuredOutputs: [],
@@ -116,22 +115,6 @@ export function normalizeMaxParallelNodes(value: number): number {
   return value;
 }
 
-export function planContainsWorktreeBackedWorkflowNode(
-  plan: WorkflowExecutionPlan
-): boolean {
-  return nodesContainWorktreeBackedWorkflowNode(plan.topologicalOrder);
-}
-
-export function nodesContainWorktreeBackedWorkflowNode(
-  nodes: PlannedWorkflowNode[]
-): boolean {
-  return nodes.some(
-    (node) =>
-      (node.kind === "workflow" && Boolean(node.worktreeRoot)) ||
-      nodesContainWorktreeBackedWorkflowNode(node.children ?? [])
-  );
-}
-
 export function planReferencesRunIdTemplate(
   plan: WorkflowExecutionPlan
 ): boolean {
@@ -141,11 +124,7 @@ export function planReferencesRunIdTemplate(
 export function nodesReferenceRunIdTemplate(
   nodes: PlannedWorkflowNode[]
 ): boolean {
-  return nodes.some(
-    (node) =>
-      (node.worktreeRoot?.search(RUN_ID_TOKEN_RE) ?? -1) !== -1 ||
-      nodesReferenceRunIdTemplate(node.children ?? [])
-  );
+  return nodes.some((node) => nodesReferenceRunIdTemplate(node.children ?? []));
 }
 
 export function generateRuntimeRunId(): string {

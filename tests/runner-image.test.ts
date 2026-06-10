@@ -45,8 +45,8 @@ const LOCAL_PIPELINE_PACKAGE_RE =
 const BUN_BUILD_RE = /bun\s+(?:install|run\s+build(?::cli)?)/i;
 const GIT_RE = /\bgit\b/i;
 const GITHUB_CLI_RE = /\bgh\b/i;
-const RUNNER_JOB_ENTRYPOINT_RE =
-  /ENTRYPOINT\s+\["oisin-pipeline"\][\s\S]*CMD\s+\["runner-job"\]/i;
+const RUNNER_COMMAND_ENTRYPOINT_RE =
+  /ENTRYPOINT\s+\["moka"\][\s\S]*CMD\s+\["runner-command"\]/i;
 const RUNNER_ENTRYPOINT_COPY_RE =
   /COPY\s+docker\/runner-entrypoint\.sh\s+\/usr\/local\/bin\/runner-entrypoint/i;
 const RUNNER_NODE_ENV_PRODUCTION_RE = /ENV\s+NODE_ENV=production/;
@@ -60,7 +60,7 @@ const AUTH_JSON_ENV_RE = /CODEX_AUTH_JSON|OPENCODE_AUTH_JSON|PI_AUTH_JSON/;
 const PIPELINE_CONSOLE_RE = /pipeline-console|apps\/console/i;
 const DOCKER_BUILD_RE = /\bdocker\s+build\b/;
 const DOCKER_RUN_RE = /\bdocker\s+run\b/;
-const RUNNER_JOB_RE = /runner-job/;
+const RUNNER_COMMAND_RE = /runner-command/;
 const SEMANTIC_RELEASE_RE = /semantic-release/;
 const PACKAGES_WRITE_RE = /packages:\s*write/i;
 const DOCKER_LOGIN_ACTION_RE = /docker\/login-action/i;
@@ -68,9 +68,9 @@ const DOCKER_BUILD_PUSH_ACTION_RE = /docker\/build-push-action/i;
 const LOCAL_IMAGE_PACKAGE_RE = /npm pack|pipeline-package\.tgz/;
 const IMPERATIVE_PACKAGE_RESOLUTION_RE = /npm view|gitHead|node <<|for attempt/;
 const NPM_AUTH_TOKEN_RE = /NPM_TOKEN|NODE_AUTH_TOKEN/;
-const CONTRACT_VERSION_ARG_RE = /ARG\s+RUNNER_JOB_CONTRACT_VERSION=1/;
+const CONTRACT_VERSION_ARG_RE = /ARG\s+RUNNER_COMMAND_CONTRACT_VERSION=1/;
 const CONTRACT_VERSION_LABEL_RE =
-  /pipeline\.oisin\.dev\.runner-contract-version=\$\{RUNNER_JOB_CONTRACT_VERSION\}/;
+  /pipeline\.oisin\.dev\.runner-contract-version=\$\{RUNNER_COMMAND_CONTRACT_VERSION\}/;
 const PACKAGE_VERSION_LABEL_RE =
   /pipeline\.oisin\.dev\.pipeline-package-version=\$\{PIPELINE_PACKAGE_VERSION\}/;
 const GITHUB_SHA_EXPRESSION = ["$", "{{ github.sha }}"].join("");
@@ -137,7 +137,7 @@ describe("runner container image packaging", () => {
     expect(existsSync(join(root, "Dockerfile"))).toBe(true);
   });
 
-  it("installs the published pipeline package and agent CLIs from npm", () => {
+  it("installs the published pipeline package and agent CLIs from npm by default", () => {
     const dockerfile = readProjectFile("Dockerfile");
 
     expect(dockerfile).toMatch(DOCKERFILE_BASE_IMAGE_RE);
@@ -178,10 +178,10 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(PACKAGE_VERSION_LABEL_RE);
   });
 
-  it("starts the Kubernetes runner Job entrypoint by default", () => {
+  it("starts the generic runner command entrypoint by default", () => {
     const dockerfile = readProjectFile("Dockerfile").replace(/\s+/g, " ");
 
-    expect(dockerfile).toMatch(RUNNER_JOB_ENTRYPOINT_RE);
+    expect(dockerfile).toMatch(RUNNER_COMMAND_ENTRYPOINT_RE);
   });
 
   it("uses native agent auth file mounts instead of env materialization", () => {
@@ -213,7 +213,7 @@ describe("runner container image packaging", () => {
     expect(imageSmokeTest).toBeDefined();
     expect(imageSmokeTest).toMatch(DOCKER_BUILD_RE);
     expect(imageSmokeTest).toMatch(DOCKER_RUN_RE);
-    expect(imageSmokeTest).toMatch(RUNNER_JOB_RE);
+    expect(imageSmokeTest).toMatch(RUNNER_COMMAND_RE);
   });
 
   it("publishes package-owned skill assets required by generated schedules", () => {

@@ -1,11 +1,13 @@
 ---
 id: PIPE-53.3
 title: 'k8s-submit: register k8s-run CLI command and --local flag'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 19:53'
+updated_date: '2026-06-10 14:10'
 labels:
   - cli
+  - superseded
 dependencies:
   - PIPE-53.1
 references:
@@ -41,3 +43,9 @@ Changes to src/index.ts (~60 lines):
 4. Add --local option to existing run command (no-op flag, documentation signal)
 5. Error handling: Zod validation errors -> print issues, exit 64. K8s API errors -> print message, exit 1.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Superseded by PIPE-54. Do not implement this k8s Job/--local plan; the accepted direction is the Moka submit command surface backed by Argo Workflows.
+<!-- SECTION:FINAL_SUMMARY:END -->

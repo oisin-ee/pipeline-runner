@@ -13,10 +13,10 @@ reads the payload from `--payload-file` and uses `events.authTokenFile` to
 locate the event auth token file.
 
 The executable payload contract lives in this package at
-`@oisincoveney/pipeline/runner-job-contract`. Console code must build runner
-payloads through `buildRunnerJobPayload` instead of hand-shaping JSON. The same
-subpath exports `parseRunnerJobPayload`, `RUNNER_JOB_CONTRACT_VERSION`, and
-`runnerJobPayloadJsonSchema` for validation, tests, and docs.
+`@oisincoveney/pipeline/runner-command-contract`. Console code must build runner
+payloads through `buildRunnerCommandPayload` instead of hand-shaping JSON. The same
+subpath exports `parseRunnerCommandPayload` and `runnerCommandPayloadSchema` for
+validation, tests, and docs.
 
 ```json
 {
@@ -118,7 +118,7 @@ with outcome `FAIL`, and exits `64`. If identity or event config is not
 recoverable, it writes the validation error to stderr and exits `64` without
 posting events.
 
-Runner-job environment phases are emitted as `runner.job.phase` log events:
+Runner-command phases are emitted as `runner.command.phase` log events:
 workspace preparation, environment readiness, optional setup, generated schedule,
 optional smoke status, PR delivery status, and final runtime events. The PR URL is
 emitted as run evidence when delivery succeeds.
@@ -128,7 +128,7 @@ emitted as run evidence when delivery succeeds.
 Package-owned config declares stable runner setup and smoke commands:
 
 ```yaml
-runner_job:
+runner_command:
   environment:
     setup:
       - command: bun
@@ -175,14 +175,14 @@ are used.
 
 ## Boundary
 
-The `pipeline` command is its own user-facing command and runtime. The
-`runner-job` command is a separate Kubernetes/self-contained adapter that uses
-the pipeline engine after preparing the workspace. The pipeline runtime does not
-import runner-job modules, and there is no compatibility shim or
-`kubernetes-runner` surface.
+The `pipeline` command is its own user-facing command and runtime. Argo
+Workflow submission is the Kubernetes control plane path. The in-container
+`runner-command` adapter executes the argv supplied by an Argo task after
+validating the shared payload. The pipeline runtime does not import Kubernetes
+submission modules, and there is no compatibility shim or `kubernetes-runner`
+surface.
 
-The runner executes a generated task-specific schedule using the existing
-TypeScript runtime, translates runtime events, flushes final events, and exits
-with a deterministic code. It does not create Kubernetes resources, query
-Kubernetes, write console database records, run migrations, or import
-`pipeline-console` source.
+The runner executes one explicit command, translates runtime events, flushes
+final events, and exits with a deterministic code. It does not create
+Kubernetes resources, query Kubernetes, write console database records, run
+migrations, or import `pipeline-console` source.

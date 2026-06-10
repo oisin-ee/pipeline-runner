@@ -339,7 +339,6 @@ export interface OutputRepairContext {
 
 export interface RuntimeContext {
   agentInvocations: RunnerLaunchPlan[];
-  baseSha?: Promise<string>;
   config: PipelineConfig;
   executor: (
     plan: RunnerLaunchPlan,
@@ -358,7 +357,6 @@ export interface RuntimeContext {
   observability?: RuntimeObservabilityEmitter;
   parentParallelNodeId?: string;
   plan: WorkflowExecutionPlan;
-  preserveSuccessfulWorkflowWorktrees?: boolean;
   reporter?: (event: PipelineRuntimeEvent) => void;
   runId?: string;
   signal?: AbortSignal;

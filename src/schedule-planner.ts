@@ -481,15 +481,6 @@ function rewriteNodeReferences(
   node: WorkflowNode,
   mappedIds: Map<string, string>
 ): WorkflowNode {
-  if (node.kind === "workflow") {
-    const workflow = mappedIds.get(node.workflow);
-    if (!workflow) {
-      throw new ScheduleArtifactError(
-        `schedule workflow node '${node.id}' references external workflow '${node.workflow}'`
-      );
-    }
-    return { ...node, workflow };
-  }
   if (node.kind === "parallel") {
     if (!Array.isArray(node.nodes)) {
       throw new ScheduleArtifactError(
@@ -900,7 +891,7 @@ function plannerPrompt(
     "Preserve version, kind, schedule_id, source_entrypoint, task, and generated_at. Keep root_workflow: root.",
     "All workflow ids, node ids, gate ids, and needs references must match ^[a-z][a-z0-9-]*$: use lowercase hyphenated ids, never underscores.",
     "Generate exactly one workflow named root. Do not embed default, infra, track, or other configured workflow copies.",
-    "Use only explicit generated agent, builtin, command, parallel, or group nodes. Do not use kind: workflow.",
+    "Use only explicit generated agent, builtin, command, parallel, or group nodes.",
     "Node schema contract:",
     "- Agent node fields: id, kind: agent, profile, optional models, needs, gates, artifacts, retries, task_context, timeout_ms. Do not emit instructions, skills, tools, filesystem, network, model, or runner on nodes.",
     "- Agent models must be a YAML sequence copied from the configured scheduler node catalog. Do not emit a scalar model field.",
@@ -962,7 +953,7 @@ function plannerRepairPrompt(inputs: {
     "Return only YAML matching kind: pipeline-schedule. Do not use Markdown fences or prose.",
     "Preserve the task, generated_at, schedule_id, source_entrypoint, version, and root_workflow values.",
     "Generate exactly one workflow named root.",
-    "Do not add fields outside the workflow node schema.",
+    "Do not add fields outside the node schema.",
     "Agent nodes must not contain instructions, skills, tools, filesystem, network, model, or runner fields. models is allowed only as a YAML sequence copied from the scheduler node catalog.",
     "Command nodes must use command as a YAML sequence of strings, never as a scalar string.",
     `Builtin nodes and gates may only use: ${SCHEDULE_BUILTINS.join(", ")}.`,
@@ -1112,11 +1103,8 @@ function validateScheduleArtifact(
 ): void {
   const issues = [
     ...generatedRootWorkflowIssues(artifact),
-    ...workflowReferenceNodeIssues(artifact),
-    ...workflowAssignedWorkUnitIssues(artifact, planningContext.workUnits),
     ...missingAssignedWorkUnitIssues(artifact, planningContext.workUnits),
     ...workUnitDependencyIssues(config, artifact, planningContext.workUnits),
-    ...invalidWorkflowPrimitiveIssues(config, artifact),
     ...unsupportedGeneratedBuiltinIssues(artifact),
     ...implementationCoverageIssues(config, artifact),
     ...unsafeParallelWorktreeIssues(config, artifact),
@@ -1147,10 +1135,7 @@ function unsafeParallelWorktreeIssues(
           if (writeCapable.length <= 1) {
             return [];
           }
-          if (
-            writeCapable.every((child) => hasIsolatedWorkflowWorktree(child)) ||
-            hasDownstreamDrainMerge(node.id, dependentsByNeed)
-          ) {
+          if (hasDownstreamDrainMerge(node.id, dependentsByNeed)) {
             return [];
           }
           return [
@@ -1194,19 +1179,12 @@ function isWriteCapableParallelChild(
   if (node.kind === "command") {
     return true;
   }
-  if (node.kind === "workflow") {
-    return !node.worktree_root;
-  }
   if (node.kind === "parallel") {
     return node.nodes.some((child) =>
       isWriteCapableParallelChild(config, child)
     );
   }
   return false;
-}
-
-function hasIsolatedWorkflowWorktree(node: WorkflowNode): boolean {
-  return node.kind === "workflow" && Boolean(node.worktree_root);
 }
 
 function hasDownstreamDrainMerge(
@@ -1253,38 +1231,6 @@ function generatedRootWorkflowIssues(artifact: ScheduleArtifact): string[] {
     );
   }
   return issues;
-}
-
-function workflowReferenceNodeIssues(artifact: ScheduleArtifact): string[] {
-  const workflowNodes = allWorkflowNodes(artifact.workflows).filter(
-    (node) => node.kind === "workflow"
-  );
-  return workflowNodes.length > 0
-    ? [
-        `generated schedules must use explicit agent/builtin nodes, not workflow-reference nodes: ${workflowNodes.map((node) => node.id).join(", ")}`,
-      ]
-    : [];
-}
-
-function workflowAssignedWorkUnitIssues(
-  artifact: ScheduleArtifact,
-  workUnits: BacklogWorkUnit[]
-): string[] {
-  if (workUnits.length === 0) {
-    return [];
-  }
-  const workUnitIds = new Set(workUnits.map((unit) => unit.id));
-  const workflowAssignments = allWorkflowNodes(artifact.workflows)
-    .filter((node) => node.kind === "workflow")
-    .filter((node) => {
-      const id = node.task_context?.id;
-      return id ? workUnitIds.has(id) : false;
-    });
-  return workflowAssignments.length > 0
-    ? [
-        `backlog work unit assignments must use explicit generated agent nodes, not workflow-reference nodes: ${workflowAssignments.map((node) => node.id).join(", ")}`,
-      ]
-    : [];
 }
 
 function hydrateScheduleTaskContexts(
@@ -1448,29 +1394,6 @@ function hasPathToNode(
     queue.push(...(dependentsByNeed.get(node.id) ?? []));
   }
   return false;
-}
-
-function invalidWorkflowPrimitiveIssues(
-  config: PipelineConfig,
-  artifact: ScheduleArtifact
-): string[] {
-  const allowed = new Set(Object.keys(config.workflows));
-  return allWorkflowNodes(artifact.workflows).flatMap((node) => {
-    if (node.kind !== "workflow") {
-      return [];
-    }
-    if (!artifact.workflows[node.workflow]) {
-      return [
-        `workflow node '${node.id}' references workflow '${node.workflow}' that is not embedded in the schedule artifact`,
-      ];
-    }
-    if (!allowed.has(node.workflow)) {
-      return [
-        `workflow node '${node.id}' references workflow '${node.workflow}' that is not declared in config`,
-      ];
-    }
-    return [];
-  });
 }
 
 function unsupportedGeneratedBuiltinIssues(

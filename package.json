@@ -6,6 +6,7 @@
     "ajv-formats": "^3.0.1",
     "commander": "^14.0.3",
     "execa": "^9.5.2",
+    "git-url-parse": "^16.1.0",
     "gray-matter": "^4.0.3",
     "ky": "^2.0.2",
     "micromatch": "^4.0.8",
@@ -43,12 +44,20 @@
     "access": "public"
   },
   "bin": {
-    "oisin-pipeline": "dist/index.js"
+    "moka": "dist/index.js"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./argo-workflow": {
+      "types": "./dist/argo-workflow.d.ts",
+      "import": "./dist/argo-workflow.js"
+    },
+    "./argo-submit": {
+      "types": "./dist/argo-submit.d.ts",
+      "import": "./dist/argo-submit.js"
     },
     "./config": {
       "types": "./dist/config.d.ts",
@@ -66,13 +75,9 @@
       "types": "./dist/runner.d.ts",
       "import": "./dist/runner.js"
     },
-    "./runner-job-contract": {
-      "types": "./dist/runner-job-contract.d.ts",
-      "import": "./dist/runner-job-contract.js"
-    },
-    "./runner-job-k8s": {
-      "types": "./dist/runner-job-k8s.d.ts",
-      "import": "./dist/runner-job-k8s.js"
+    "./runner-command-contract": {
+      "types": "./dist/runner-command-contract.d.ts",
+      "import": "./dist/runner-command-contract.js"
     },
     "./runtime/goal-loop": {
       "types": "./dist/runtime/goal-loop.d.ts",
@@ -102,7 +107,7 @@
   "scripts": {
     "build:cli": "tsdown",
     "test": "vitest run",
-    "test:image": "mkdir -p /tmp/pipeline-test && printf '{}' > /tmp/pipeline-test/payload.json && printf 'test-token' > /tmp/pipeline-test/event-token && docker build -t pipeline-runner:test . && docker run --rm -v /tmp/pipeline-test/payload.json:/etc/pipeline/payload.json:ro -v /tmp/pipeline-test/event-token:/etc/pipeline/event-auth:ro pipeline-runner:test runner-job --payload-file /etc/pipeline/payload.json --orchestrator codex; test $? -eq 64",
+    "test:image": "mkdir -p /tmp/pipeline-test && printf '{}' > /tmp/pipeline-test/payload.json && printf 'kind: pipeline-schedule\\nversion: 1\\nschedule_id: smoke\\ngenerated_at: 2026-06-10T00:00:00.000Z\\nsource_entrypoint: custom\\ntask: smoke\\nroot_workflow: root\\nworkflows:\\n  root:\\n    nodes:\\n      - id: smoke\\n        kind: command\\n        command: [true]\\n' > /tmp/pipeline-test/schedule.yaml && printf '{\"nodeId\":\"smoke\"}' > /tmp/pipeline-test/task.json && printf 'test-token' > /tmp/pipeline-test/event-token && docker build -t pipeline-runner:test . && docker run --rm -v /tmp/pipeline-test/payload.json:/etc/pipeline/payload.json:ro -v /tmp/pipeline-test/schedule.yaml:/etc/pipeline/schedule.yaml:ro -v /tmp/pipeline-test/task.json:/etc/pipeline/task.json:ro -v /tmp/pipeline-test/event-token:/etc/pipeline/event-auth/token:ro pipeline-runner:test runner-command --payload-file /etc/pipeline/payload.json --schedule-file /etc/pipeline/schedule.yaml; test $? -eq 64",
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
     "typecheck": "tsc --noEmit",

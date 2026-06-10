@@ -113,13 +113,15 @@ describe("package public app-facing API", () => {
 
     expect(readme).toContain("@oisincoveney/pipeline/config");
     expect(readme).toContain("@oisincoveney/pipeline/planner");
-    expect(readme).toContain("@oisincoveney/pipeline/runner-job-contract");
-    expect(readme).toContain("@oisincoveney/pipeline/runner-job-k8s");
+    expect(readme).toContain("@oisincoveney/pipeline/argo-workflow");
+    expect(readme).toContain("@oisincoveney/pipeline/argo-submit");
+    expect(readme).toContain("@oisincoveney/pipeline/runner-command-contract");
     expect(readme).toContain("@oisincoveney/pipeline/runtime");
     expect(readme).toContain("@oisincoveney/pipeline/schedule");
     expect(readme).toContain("@oisincoveney/pipeline/hooks");
-    expect(readme).toContain("buildRunnerJobPayload");
-    expect(readme).toContain("buildRunnerJobK8sManifest");
+    expect(readme).toContain("buildRunnerArgoWorkflowManifest");
+    expect(readme).toContain("submitRunnerArgoWorkflow");
+    expect(readme).toContain("buildRunnerCommandPayload");
     expect(readme).toContain("loadPipelineConfig");
     expect(readme).toContain("compileWorkflowPlan");
     expect(readme).toContain("compileScheduleArtifact");
@@ -165,15 +167,16 @@ import {
   type ScheduleArtifact,
 } from "@oisincoveney/pipeline/schedule";
 import {
-  RUNNER_JOB_CONTRACT_VERSION,
-  buildRunnerJobPayload,
-  parseRunnerJobPayload,
-  type RunnerJobPayload,
-} from "@oisincoveney/pipeline/runner-job-contract";
+  buildRunnerCommandPayload,
+  parseRunnerCommandPayload,
+  runnerCommandPayloadSchema,
+  type RunnerCommandPayload,
+} from "@oisincoveney/pipeline/runner-command-contract";
 import {
-  buildRunnerJobK8sManifest,
-  type K8sJobManifest,
-} from "@oisincoveney/pipeline/runner-job-k8s";
+  buildRunnerArgoWorkflowManifest,
+  runnerArgoWorkflowManifestSchema,
+  type ArgoWorkflowManifest,
+} from "@oisincoveney/pipeline/argo-workflow";
 import {
   defineHook,
   parseHookResult,
@@ -221,7 +224,7 @@ const eventType = (event: PipelineRuntimeEvent) => event.type;
 const formattedError = formatConfigError(
   new PipelineConfigError("PIPELINE_CONFIG_VALIDATION_ERROR", "invalid")
 );
-const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
+const runnerPayload: RunnerCommandPayload = buildRunnerCommandPayload({
   events: {
     authHeader: "Authorization",
     authTokenFile: "/etc/pipeline/event-auth/token",
@@ -235,26 +238,29 @@ const runnerPayload: RunnerJobPayload = buildRunnerJobPayload({
     id: "run_123",
     project: "project_123",
   },
+  workflow: {
+    id: "workflow_123",
+  },
   task: {
     kind: "prompt",
     prompt: "Ship PIPE-42",
   },
 });
-const parsedPayload: RunnerJobPayload = parseRunnerJobPayload(
+const parsedPayload: RunnerCommandPayload = parseRunnerCommandPayload(
   JSON.stringify(runnerPayload)
 );
-const runnerManifest: K8sJobManifest = buildRunnerJobK8sManifest({
-  codexAuthSecretName: "codex-auth-1",
-  eventAuthSecretName: "pipeline-runner-event-auth",
-  eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
-  imagePullSecretName: "ghcr-pull-secret",
-  jobName: "pipeline-runner-smoke",
+runnerCommandPayloadSchema.parse(parsedPayload);
+const runnerManifest: ArgoWorkflowManifest = buildRunnerArgoWorkflowManifest({
+  generateName: "pipeline-runner-smoke-",
   namespace: "momokaya-pipeline",
-  opencodeAuthSecretName: "opencode-auth-1",
   orchestrator: "codex",
+  plan,
   payloadConfigMapName: "pipeline-runner-payload",
   payloadConfigMapKey: "payload.json",
+  scheduleConfigMapName: "pipeline-runner-schedule",
+  taskDescriptorConfigMapName: "pipeline-runner-tasks",
 });
+runnerArgoWorkflowManifestSchema.parse(runnerManifest);
 
 void loadPipelineConfig;
 void WorkflowPlannerError;
@@ -267,7 +273,6 @@ void formattedError;
 void runnerType;
 void nodeKind;
 void scheduledPlan;
-void RUNNER_JOB_CONTRACT_VERSION;
 void parsedPayload;
 void runnerManifest;
 `,
@@ -322,8 +327,8 @@ import { PipelineConfigError, loadPipelineConfig, parsePipelineConfigParts } fro
 import { WorkflowPlannerError, compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
 import { formatConfigError, runPipelineFromConfig } from "@oisincoveney/pipeline/runtime";
 import { compileScheduleArtifact, parseScheduleArtifact } from "@oisincoveney/pipeline/schedule";
-import { RUNNER_JOB_CONTRACT_VERSION, buildRunnerJobPayload, parseRunnerJobPayload } from "@oisincoveney/pipeline/runner-job-contract";
-import { buildRunnerJobK8sManifest } from "@oisincoveney/pipeline/runner-job-k8s";
+import { buildRunnerCommandPayload, parseRunnerCommandPayload, runnerCommandPayloadSchema } from "@oisincoveney/pipeline/runner-command-contract";
+import { buildRunnerArgoWorkflowManifest } from "@oisincoveney/pipeline/argo-workflow";
 import { defineHook, parseHookResult } from "@oisincoveney/pipeline/hooks";
 
 const values = [
@@ -336,9 +341,9 @@ const values = [
   parseScheduleArtifact,
   formatConfigError,
   runPipelineFromConfig,
-  buildRunnerJobPayload,
-  parseRunnerJobPayload,
-  buildRunnerJobK8sManifest,
+  buildRunnerCommandPayload,
+  parseRunnerCommandPayload,
+  buildRunnerArgoWorkflowManifest,
   defineHook,
   parseHookResult,
 ];
@@ -346,8 +351,8 @@ const values = [
 if (values.some((value) => typeof value !== "function")) {
   throw new Error("public API subpath did not expose expected runtime values");
 }
-if (typeof RUNNER_JOB_CONTRACT_VERSION !== "string") {
-  throw new Error("runner job contract version was not exported");
+if (typeof runnerCommandPayloadSchema.parse !== "function") {
+  throw new Error("runner command payload schema was not exported");
 }
 `,
       "utf8"

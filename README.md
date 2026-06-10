@@ -116,20 +116,22 @@ target repository.
 ## Pipeline Console Runner Image
 
 `oisin-pipeline` is also the runner package/image used by `pipeline-console`.
-The console owns Kubernetes Job creation, run listing, cancellation, event
-storage, Kueue discovery, and UI rendering. This package owns the in-container
-`runner-job` command: payload validation, existing runtime invocation, event
-translation, authenticated event posting, signal cancellation, and final event
-flushing.
+The control plane owns Argo Workflow submission, run listing, cancellation,
+event storage, Kueue discovery, and UI rendering. This package owns the
+in-container `runner-command` command used by Argo Workflow DAG tasks: payload
+validation, direct argv execution, event translation, authenticated event
+posting, signal cancellation, and final event flushing.
 
-The console starts the image with the payload as a mounted ConfigMap file and
-the event auth token as a mounted Secret file. The runner reads the payload
-from `--payload-file` and reads the event auth token from the file path
-specified in `events.authTokenFile`. No environment variables are used for
-payload or auth token delivery. The payload contract is documented in
+Argo starts the image with payload, schedule, and per-task descriptor files
+mounted from ConfigMaps, plus the event auth token mounted from a Secret. The
+runner reads `--payload-file`, `--schedule-file`, and `/etc/pipeline/task.json`;
+the payload contains the workflow id and the task descriptor contains the node
+id. The event auth token still comes from the file path specified in
+`events.authTokenFile`; payload JSON, task identity, and auth token material are
+not delivered through environment variables. The payload contract is documented in
 [`docs/pipeline-console-runner-contract.md`](docs/pipeline-console-runner-contract.md).
 The executable contract is exported from
-`@oisincoveney/pipeline/runner-job-contract` for payload construction,
+`@oisincoveney/pipeline/runner-command-contract` for payload construction,
 validation, contract-version checks, and JSON Schema generation.
 Use `PIPELINE_TARGET_PATH=/path/to/worktree` when the checked-out target repo is
 mounted somewhere other than the process working directory.
@@ -225,25 +227,18 @@ workflow. See `docs/config-architecture.md` for the host support matrix.
 
 ### Structural Parallelism
 
-Workflows can compose other workflows with fixed YAML structure. A
-`kind: workflow` node invokes another named workflow; without `worktree_root` it
-runs in the current worktree, and with `worktree_root` it runs in an isolated
-git worktree. A `kind: parallel` node contains a fixed set of child nodes that
-run concurrently after dependencies pass. This is structural parallelism, not
-dynamic fanout: agents may route work to tracks, but the branch topology stays
-auditable in YAML.
+Workflows and generated schedules can express fixed parallel structure. A
+`kind: parallel` node contains a fixed set of child nodes that run concurrently
+after dependencies pass. A `kind: group` node groups existing nodes behind a
+single dependency target. This is structural parallelism, not dynamic fanout:
+agents may route work to tracks, but the branch topology stays auditable in YAML
+or in the generated schedule artifact.
 
-The built-in `epic` entrypoint uses those primitives:
+The scheduler emits explicit root DAGs for epics:
 
 ```yaml
-entrypoints:
-  epic:
-    workflow: epic-drain
-    description: Route an epic's tickets into specialist tracks, run them in parallel, then thermo-nuclear review.
-
 workflows:
-  epic-drain:
-    description: Research, route, parallel-implement tracks in isolated worktrees, integrate, thermo-nuclear review.
+  root:
     nodes:
       - id: research
         kind: agent
@@ -257,39 +252,26 @@ workflows:
         needs: [plan]
         nodes:
           - id: test
-            kind: workflow
-            workflow: default
-            worktree_root: .pipeline/runs/${runId}/test
+            kind: agent
+            profile: pipeline-code-writer
           - id: frontend
-            kind: workflow
-            workflow: default
-            worktree_root: .pipeline/runs/${runId}/frontend
+            kind: agent
+            profile: pipeline-code-writer
           - id: backend
-            kind: workflow
-            workflow: default
-            worktree_root: .pipeline/runs/${runId}/backend
+            kind: agent
+            profile: pipeline-code-writer
           - id: k8s
-            kind: workflow
-            workflow: infra
-            worktree_root: .pipeline/runs/${runId}/k8s
-      - id: merge
-        kind: builtin
-        builtin: drain-merge
-        needs: [implement]
-      - id: review
+            kind: agent
+            profile: pipeline-code-writer
+      - id: verify
         kind: agent
-        profile: pipeline-thermo-nuclear-reviewer
-        needs: [merge]
-        gates:
-          - { id: review-verdict, kind: verdict, target: stdout }
+        profile: pipeline-verifier
+        needs: [implement]
 ```
 
-Use `.pipeline/runs/${runId}/<track>` for isolated track worktrees; the default
-`.gitignore` excludes `.pipeline/runs/`. The `drain-merge` builtin consumes the
-parallel output, skips non-passing or non-worktree children, verifies mergeable
-branches share a base SHA, and merges passing branches into an integration
-branch in declaration order. It reports merge conflicts; it does not resolve
-them automatically.
+For Argo execution, Git refs carry node state across DAG tasks. Runner tasks
+derive state refs from `payload.run.id`, `payload.workflow.id`, and the mounted
+task descriptor node id.
 
 Default profile skills and generated host resources are installed by
 `pipe init`. Runtime MCP projection and host-specific isolation policy live in
@@ -367,12 +349,6 @@ runners:
 - Parallel DAG batches run concurrently after dependencies and gates pass.
 - `kind: parallel` child sets are fixed in YAML; routing agents decide which
   work belongs in each declared track, not how many tracks exist.
-- `kind: workflow` nodes invoke named workflows and can run in isolated
-  worktrees when `worktree_root` is set.
-- Worktree roots support `${runId}` and `${nodeId}` templates and should live
-  under `.pipeline/runs/` for generated run artifacts.
-- `drain-merge` merges passing worktree branches in declaration order and
-  reports conflicts for manual resolution.
 - Workflow execution can cap parallelism and enable fail-fast batch stopping.
 - Nodes can declare bounded retries, retry reasons, backoff, and execution
   timeouts.
@@ -418,11 +394,10 @@ Runner Job producers can import the shared payload contract:
 
 ```ts
 import {
-  RUNNER_JOB_CONTRACT_VERSION,
-  buildRunnerJobPayload,
-  parseRunnerJobPayload,
-  runnerJobPayloadJsonSchema,
-} from "@oisincoveney/pipeline/runner-job-contract";
+  buildRunnerCommandPayload,
+  parseRunnerCommandPayload,
+  runnerCommandPayloadSchema,
+} from "@oisincoveney/pipeline/runner-command-contract";
 ```
 
 ## Verification
@@ -437,4 +412,6 @@ bun run build:cli
 ```
 
 
-Runner Kubernetes Jobs can be generated with `buildRunnerJobK8sManifest` from `@oisincoveney/pipeline/runner-job-k8s`.
+Argo Workflows can be rendered with `buildRunnerArgoWorkflowManifest` from
+`@oisincoveney/pipeline/argo-workflow` and submitted with
+`submitRunnerArgoWorkflow` from `@oisincoveney/pipeline/argo-submit`.

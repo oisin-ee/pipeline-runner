@@ -1,11 +1,13 @@
 ---
 id: PIPE-53.4
 title: 'k8s-submit: update skill and command files for k8s by default'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 19:53'
+updated_date: '2026-06-10 14:10'
 labels:
   - docs
+  - superseded
 dependencies:
   - PIPE-53.3
 references:
@@ -55,3 +57,9 @@ to:
 
 Also update the description line from 'It launches configured Codex/OpenCode agent subprocesses...' to reflect k8s execution.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Superseded by PIPE-54. Do not implement this k8s Job/--local plan; the accepted direction is the Moka submit command surface backed by Argo Workflows.
+<!-- SECTION:FINAL_SUMMARY:END -->

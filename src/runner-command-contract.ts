@@ -1,11 +1,19 @@
 import { readFileSync } from "node:fs";
+import parseGitUrl from "git-url-parse";
 import { z } from "zod";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime";
 import { parseJson } from "./safe-json";
 
-export const RUNNER_JOB_CONTRACT_VERSION = "1";
+const RUNNER_COMMAND_CONTRACT_VERSION = "1";
 
-export const runnerRunIdentitySchema = z
+const gitRemoteUrlSchema = z
+  .string()
+  .min(1)
+  .refine((value) => isGitRemoteUrl(value), {
+    message: "must be a valid git remote URL",
+  });
+
+const runnerRunIdentitySchema = z
   .object({
     id: z.string().min(1),
     project: z.string().min(1),
@@ -13,7 +21,13 @@ export const runnerRunIdentitySchema = z
   })
   .strict();
 
-export const runnerTaskPromptSchema = z
+const runnerWorkflowIdentitySchema = z
+  .object({
+    id: z.string().min(1),
+  })
+  .strict();
+
+const runnerTaskPromptSchema = z
   .object({
     kind: z.literal("prompt"),
     prompt: z.string().min(1),
@@ -21,7 +35,7 @@ export const runnerTaskPromptSchema = z
   })
   .strict();
 
-export const runnerTaskTicketSchema = z
+const runnerTaskTicketSchema = z
   .object({
     id: z.string().min(1),
     kind: z.literal("ticket"),
@@ -30,28 +44,45 @@ export const runnerTaskTicketSchema = z
   })
   .strict();
 
-export const runnerTaskSchema = z.discriminatedUnion("kind", [
+const runnerTaskSchema = z.discriminatedUnion("kind", [
   runnerTaskPromptSchema,
   runnerTaskTicketSchema,
 ]);
 
-export const runnerRepositoryContextSchema = z
+const runnerRepositoryContextSchema = z
   .object({
     baseBranch: z.string().min(1),
     sha: z.string().min(1).optional(),
-    url: z.string().url(),
+    url: gitRemoteUrlSchema,
   })
   .strict();
 
-export const runnerDeliverySchema = z
+const runnerDeliverySchema = z
   .object({
     pullRequest: z.boolean().default(false),
   })
   .strict();
 
-export const runnerExecutionCommandSchema = z.enum(["execute", "quick"]);
+const mokaGraphSubmissionSchema = z
+  .object({
+    kind: z.literal("graph"),
+    mode: z.enum(["full", "quick"]),
+  })
+  .strict();
 
-export const runnerEventsSchema = z
+const mokaCommandSubmissionSchema = z
+  .object({
+    argv: z.array(z.string().min(1)).min(1),
+    kind: z.literal("command"),
+  })
+  .strict();
+
+const mokaSubmissionSchema = z.discriminatedUnion("kind", [
+  mokaGraphSubmissionSchema,
+  mokaCommandSubmissionSchema,
+]);
+
+const runnerEventsSchema = z
   .object({
     authHeader: z.string().min(1).default("Authorization"),
     authTokenFile: z.string().min(1),
@@ -59,7 +90,7 @@ export const runnerEventsSchema = z
   })
   .strict();
 
-export const runnerMomokayaContextSchema = z
+const runnerMomokayaContextSchema = z
   .object({
     automationNamespace: z.string().min(1).optional(),
     previewEnabled: z.boolean(),
@@ -67,79 +98,76 @@ export const runnerMomokayaContextSchema = z
   })
   .strict();
 
-export const runnerJobPayloadSchema = z
+export const runnerCommandPayloadSchema = z
   .object({
     contractVersion: z
-      .literal(RUNNER_JOB_CONTRACT_VERSION, {
-        error: "runner job payload contract version must be 1",
+      .literal(RUNNER_COMMAND_CONTRACT_VERSION, {
+        error: "runner command payload contract version must be 1",
       })
-      .default(RUNNER_JOB_CONTRACT_VERSION),
+      .default(RUNNER_COMMAND_CONTRACT_VERSION),
     delivery: runnerDeliverySchema.default({ pullRequest: false }),
     events: runnerEventsSchema,
-    command: runnerExecutionCommandSchema.default("execute"),
     momokaya: runnerMomokayaContextSchema.optional(),
     repository: runnerRepositoryContextSchema,
     run: runnerRunIdentitySchema,
+    submission: mokaSubmissionSchema.default({ kind: "graph", mode: "full" }),
     task: runnerTaskSchema,
+    workflow: runnerWorkflowIdentitySchema,
   })
   .strict();
 
 export type RunnerDelivery = z.infer<typeof runnerDeliverySchema>;
-export type RunnerExecutionCommand = z.infer<
-  typeof runnerExecutionCommandSchema
->;
 export type RunnerEvents = z.infer<typeof runnerEventsSchema>;
-export type RunnerJobPayload = z.infer<typeof runnerJobPayloadSchema>;
+export type MokaSubmission = z.infer<typeof mokaSubmissionSchema>;
+export type RunnerCommandPayload = z.infer<typeof runnerCommandPayloadSchema>;
 export type RunnerMomokayaContext = z.infer<typeof runnerMomokayaContextSchema>;
 export type RunnerRepositoryContext = z.infer<
   typeof runnerRepositoryContextSchema
 >;
 export type RunnerRunIdentity = z.infer<typeof runnerRunIdentitySchema>;
-export type RunnerTaskPrompt = z.infer<typeof runnerTaskPromptSchema>;
-export type RunnerTaskTicket = z.infer<typeof runnerTaskTicketSchema>;
 export type RunnerTask = z.infer<typeof runnerTaskSchema>;
+export type RunnerWorkflowIdentity = z.infer<
+  typeof runnerWorkflowIdentitySchema
+>;
 
-export const runnerJobPayloadJsonSchema = z.toJSONSchema(
-  runnerJobPayloadSchema
-);
-
-export interface RunnerJobPayloadValidationIssue {
+export interface RunnerCommandPayloadValidationIssue {
   code: string;
   message: string;
   path: string;
 }
 
-export interface RecoverableRunnerJobPayloadEnvelope {
+interface RecoverableRunnerCommandPayloadEnvelope {
   events: RunnerEvents;
   run: RunnerRunIdentity;
 }
 
-export class RunnerJobPayloadValidationError extends Error {
-  readonly issues: RunnerJobPayloadValidationIssue[];
+export class RunnerCommandPayloadValidationError extends Error {
+  readonly issues: RunnerCommandPayloadValidationIssue[];
 
-  constructor(message: string, issues: RunnerJobPayloadValidationIssue[]) {
+  constructor(message: string, issues: RunnerCommandPayloadValidationIssue[]) {
     super(message);
-    this.name = "RunnerJobPayloadValidationError";
+    this.name = "RunnerCommandPayloadValidationError";
     this.issues = issues;
   }
 }
 
-export type RunnerJobPayloadParseResult =
-  | { ok: true; payload: RunnerJobPayload }
+type RunnerCommandPayloadParseResult =
+  | { ok: true; payload: RunnerCommandPayload }
   | {
-      error: RunnerJobPayloadValidationError;
+      error: RunnerCommandPayloadValidationError;
       ok: false;
-      recoverable?: RecoverableRunnerJobPayloadEnvelope;
+      recoverable?: RecoverableRunnerCommandPayloadEnvelope;
     };
 
-export interface BuildRunnerJobPayloadOptions {
-  command?: RunnerExecutionCommand;
+export interface BuildRunnerCommandPayloadOptions {
   delivery?: RunnerDelivery;
   events: RunnerEvents;
   momokaya?: RunnerMomokayaContext;
   repository: RunnerRepositoryContext;
   run: RunnerRunIdentity;
+  submission?: MokaSubmission;
   task: RunnerTask;
+  workflow: RunnerWorkflowIdentity;
 }
 
 export interface ResolveRunnerEventSinkAuthTokenOptions {
@@ -295,7 +323,7 @@ export type RunnerEventRecord =
         | "node.output.recorded"
         | "output.repair"
         | "run.cancelled"
-        | "runner.job.phase"
+        | "runner.command.phase"
         | "runner.schema.validation"
         | "runtime.observability";
     })
@@ -303,6 +331,8 @@ export type RunnerEventRecord =
       finalResult: RunnerFinalResultDetails;
       type: "workflow.finish";
     });
+
+type RunnerEventRecordBase = Pick<RunnerEventEnvelope, "at" | "sequence">;
 
 export function resolveRunnerEventSinkAuthToken(
   options: ResolveRunnerEventSinkAuthTokenOptions
@@ -318,44 +348,50 @@ export function resolveRunnerEventSinkAuthToken(
   );
 }
 
-export function resolveRunnerEventSinkAuthHeader(
-  options: ResolveRunnerEventSinkAuthTokenOptions
-): string {
-  return `Bearer ${resolveRunnerEventSinkAuthToken(options)}`;
-}
-
-export function buildRunnerJobPayload(
-  options: BuildRunnerJobPayloadOptions
-): RunnerJobPayload {
-  return runnerJobPayloadSchema.parse({
-    contractVersion: RUNNER_JOB_CONTRACT_VERSION,
-    command: options.command,
+export function buildRunnerCommandPayload(
+  options: BuildRunnerCommandPayloadOptions
+): RunnerCommandPayload {
+  return runnerCommandPayloadSchema.parse({
+    contractVersion: RUNNER_COMMAND_CONTRACT_VERSION,
     delivery: options.delivery,
     events: options.events,
     ...(options.momokaya ? { momokaya: options.momokaya } : {}),
     repository: options.repository,
     run: options.run,
+    submission: options.submission,
     task: options.task,
+    workflow: options.workflow,
   });
 }
 
-export function parseRunnerJobPayload(rawPayload: string): RunnerJobPayload {
-  const result = parseRunnerJobPayloadWithIssues(rawPayload);
+function isGitRemoteUrl(value: string): boolean {
+  try {
+    parseGitUrl(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function parseRunnerCommandPayload(
+  rawPayload: string
+): RunnerCommandPayload {
+  const result = parseRunnerCommandPayloadWithIssues(rawPayload);
   if (!result.ok) {
     throw result.error;
   }
   return result.payload;
 }
 
-export function parseRunnerJobPayloadWithIssues(
+function parseRunnerCommandPayloadWithIssues(
   rawPayload: string
-): RunnerJobPayloadParseResult {
+): RunnerCommandPayloadParseResult {
   let parsed: unknown;
   try {
     parsed = parseJson(rawPayload, "runner payload JSON");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const error = new RunnerJobPayloadValidationError(
+    const error = new RunnerCommandPayloadValidationError(
       `Malformed runner payload JSON: ${message}`,
       [
         {
@@ -367,11 +403,11 @@ export function parseRunnerJobPayloadWithIssues(
     );
     return { error, ok: false };
   }
-  const result = runnerJobPayloadSchema.safeParse(parsed);
+  const result = runnerCommandPayloadSchema.safeParse(parsed);
   if (!result.success) {
-    const issues = runnerJobPayloadIssues(result.error);
-    const error = new RunnerJobPayloadValidationError(
-      formatRunnerJobPayloadIssues(issues, parsed),
+    const issues = runnerCommandPayloadIssues(result.error);
+    const error = new RunnerCommandPayloadValidationError(
+      formatRunnerCommandPayloadIssues(issues, parsed),
       issues
     );
     return {
@@ -387,11 +423,25 @@ export function mapRuntimeEventToRunnerEventRecords(
   event: PipelineRuntimeEvent,
   context: RunnerEventMappingContext
 ): RunnerEventRecord[] {
-  const record = {
+  const record: RunnerEventRecordBase = {
     at: context.timestamp,
     sequence: context.sequence ?? 1,
   };
+  return (
+    mapWorkflowRunnerEvent(event, context, record) ??
+    mapNodeRunnerEvent(event, record) ??
+    mapGateRunnerEvent(event, record) ??
+    mapArtifactRunnerEvent(event, record) ??
+    mapLogRunnerEvent(event, record) ??
+    throwUnhandledRuntimeEvent(event)
+  );
+}
 
+function mapWorkflowRunnerEvent(
+  event: PipelineRuntimeEvent,
+  context: RunnerEventMappingContext,
+  record: RunnerEventRecordBase
+): RunnerEventRecord[] | null {
   switch (event.type) {
     case "workflow.planned": {
       const planRecord: RunnerEventRecord = {
@@ -428,6 +478,27 @@ export function mapRuntimeEventToRunnerEventRecords(
           },
         },
       ];
+    case "workflow.finish":
+      return [
+        {
+          ...record,
+          type: event.type,
+          finalResult: {
+            outcome: event.outcome,
+            workflowId: event.workflowId,
+          },
+        },
+      ];
+    default:
+      return null;
+  }
+}
+
+function mapNodeRunnerEvent(
+  event: PipelineRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord[] | null {
+  switch (event.type) {
     case "node.start":
       return [
         {
@@ -486,6 +557,16 @@ export function mapRuntimeEventToRunnerEventRecords(
           }),
         },
       ];
+    default:
+      return null;
+  }
+}
+
+function mapGateRunnerEvent(
+  event: PipelineRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord[] | null {
+  switch (event.type) {
     case "gate.start":
       return [
         {
@@ -517,6 +598,16 @@ export function mapRuntimeEventToRunnerEventRecords(
           }),
         },
       ];
+    default:
+      return null;
+  }
+}
+
+function mapArtifactRunnerEvent(
+  event: PipelineRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord[] | null {
+  switch (event.type) {
     case "artifact.check.start":
       return [
         {
@@ -604,6 +695,16 @@ export function mapRuntimeEventToRunnerEventRecords(
           }),
         },
       ];
+    default:
+      return null;
+  }
+}
+
+function mapLogRunnerEvent(
+  event: PipelineRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord[] | null {
+  switch (event.type) {
     case "node.output.recorded":
       return [
         {
@@ -648,19 +749,8 @@ export function mapRuntimeEventToRunnerEventRecords(
           }),
         },
       ];
-    case "workflow.finish":
-      return [
-        {
-          ...record,
-          type: event.type,
-          finalResult: {
-            outcome: event.outcome,
-            workflowId: event.workflowId,
-          },
-        },
-      ];
     default:
-      return assertNever(event);
+      return null;
   }
 }
 
@@ -675,8 +765,8 @@ function formatLogMessage(output: unknown): string {
   }
 }
 
-function formatRunnerJobPayloadIssues(
-  issues: RunnerJobPayloadValidationIssue[],
+function formatRunnerCommandPayloadIssues(
+  issues: RunnerCommandPayloadValidationIssue[],
   _payload: unknown
 ): string {
   return issues
@@ -684,9 +774,9 @@ function formatRunnerJobPayloadIssues(
     .join("; ");
 }
 
-function runnerJobPayloadIssues(
+function runnerCommandPayloadIssues(
   error: z.ZodError
-): RunnerJobPayloadValidationIssue[] {
+): RunnerCommandPayloadValidationIssue[] {
   return error.issues.flatMap((issue) => {
     const path = issue.path.join(".");
     if (issue.code === "unrecognized_keys" && Array.isArray(issue.keys)) {
@@ -718,7 +808,7 @@ function runnerJobPayloadIssues(
       return [
         {
           code: issue.code,
-          message: `runner job payload contract version must be ${RUNNER_JOB_CONTRACT_VERSION}`,
+          message: `runner command payload contract version must be ${RUNNER_COMMAND_CONTRACT_VERSION}`,
           path,
         },
       ];
@@ -736,7 +826,7 @@ function runnerJobPayloadIssues(
 function recoverablePayloadEnvelope(
   payload: unknown
 ):
-  | { recoverable: RecoverableRunnerJobPayloadEnvelope }
+  | { recoverable: RecoverableRunnerCommandPayloadEnvelope }
   | Record<string, never> {
   const envelope = readRecord(payload);
   if (!envelope) {
@@ -769,6 +859,6 @@ function readRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled runtime event: ${String(value)}`);
+function throwUnhandledRuntimeEvent(value: PipelineRuntimeEvent): never {
+  throw new Error(`Unhandled runtime event: ${value.type}`);
 }

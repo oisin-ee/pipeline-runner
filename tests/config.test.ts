@@ -382,7 +382,7 @@ describe("loadPipelineConfig", () => {
       enabled: true,
       max_attempts: 1,
     });
-    expect(config.runner_job.git.committer).toEqual({
+    expect(config.runner_command.git.committer).toEqual({
       email: "git@oisin.ee",
       name: "oisin-bot",
     });
@@ -401,12 +401,12 @@ describe("loadPipelineConfig", () => {
     });
   });
 
-  it("accepts a configured runner job git committer", () => {
+  it("accepts a configured runner command git committer", () => {
     const config = parseParts({
-      pipeline: `${VALID_PIPELINE_YAML}\nrunner_job:\n  git:\n    committer:\n      name: pipeline-bot\n      email: pipeline-bot@example.com\n`,
+      pipeline: `${VALID_PIPELINE_YAML}\nrunner_command:\n  git:\n    committer:\n      name: pipeline-bot\n      email: pipeline-bot@example.com\n`,
     });
 
-    expect(config.runner_job.git.committer).toEqual({
+    expect(config.runner_command.git.committer).toEqual({
       email: "pipeline-bot@example.com",
       name: "pipeline-bot",
     });
@@ -1026,9 +1026,10 @@ workflows:
     expect(error.message).toContain("Unrecognized key");
   });
 
-  it("accepts workflow nodes that reference declared workflows", () => {
-    const config = parseParts({
-      pipeline: `
+  it("rejects workflow nodes", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `
 version: 1
 default_workflow: default
 orchestrator:
@@ -1045,46 +1046,14 @@ workflows:
         kind: agent
         profile: researcher
 `,
-    });
+      })
+    );
 
-    expect(config.workflows.default.nodes[0]).toMatchObject({
-      id: "child",
-      kind: "workflow",
-      workflow: "subflow",
-    });
+    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
+    expect(error.message).toContain("Invalid discriminator value");
   });
 
-  it("accepts worktree_root on workflow nodes and preserves it", () => {
-    const config = parseParts({
-      pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: child
-        kind: workflow
-        workflow: subflow
-        worktree_root: .pipeline/worktrees/\${runId}/\${nodeId}
-  subflow:
-    nodes:
-      - id: research
-        kind: agent
-        profile: researcher
-`,
-    });
-
-    expect(config.workflows.default.nodes[0]).toMatchObject({
-      id: "child",
-      kind: "workflow",
-      workflow: "subflow",
-      worktree_root: `.pipeline/worktrees/$${"{runId}"}/$${"{nodeId}"}`,
-    });
-  });
-
-  it("accepts deeply nested parallel and workflow nodes without colliding with group child references", () => {
+  it("accepts deeply nested parallel nodes without colliding with group child references", () => {
     const config = parseParts({
       pipeline: `
 version: 1
@@ -1104,23 +1073,18 @@ workflows:
         kind: parallel
         needs: [grouped]
         nodes:
-          - id: child-workflow
-            kind: workflow
-            workflow: subflow
+          - id: child-command
+            kind: command
+            command: [echo, child]
           - id: nested
             kind: parallel
             nodes:
               - id: nested-command
                 kind: command
                 command: [echo, nested]
-              - id: nested-workflow
-                kind: workflow
-                workflow: subflow
-  subflow:
-    nodes:
-      - id: research
-        kind: agent
-        profile: researcher
+              - id: nested-agent
+                kind: agent
+                profile: researcher
 `,
     });
 
@@ -1140,14 +1104,14 @@ workflows:
     });
     expect(fanout.kind).toBe("parallel");
     expect(fanout.nodes.map((node) => node.id)).toEqual([
-      "child-workflow",
+      "child-command",
       "nested",
     ]);
     expect(fanout.nodes[1]).toMatchObject({
       kind: "parallel",
       nodes: [
         expect.objectContaining({ id: "nested-command", kind: "command" }),
-        expect.objectContaining({ id: "nested-workflow", kind: "workflow" }),
+        expect.objectContaining({ id: "nested-agent", kind: "agent" }),
       ],
     });
   });
@@ -1181,7 +1145,7 @@ workflows:
     );
   });
 
-  it("rejects workflow nodes without a workflow field", () => {
+  it("rejects workflow node syntax without a workflow field", () => {
     const error = captureConfigError(() =>
       parseParts({
         pipeline: `
@@ -1199,31 +1163,7 @@ workflows:
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("workflow");
-  });
-
-  it("rejects workflow nodes that reference missing workflows", () => {
-    const error = captureConfigError(() =>
-      parseParts({
-        pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: child
-        kind: workflow
-        workflow: missing
-`,
-      })
-    );
-
-    expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain(
-      "node 'child' references missing workflow 'missing'"
-    );
+    expect(error.message).toContain("Invalid discriminator value");
   });
 
   it("rejects unsupported hook events", () => {

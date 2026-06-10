@@ -6,7 +6,7 @@ Date: 2026-06-08
 
 ## Decision
 
-OpenCode is the default runtime for built-in package profiles and runner-job orchestrator selection. Codex remains a compatibility runner for hosts, projects, and workflows that still need the Codex command surface.
+OpenCode is the default runtime for built-in package profiles and runner-command execution. Codex remains a compatibility runner for hosts, projects, and workflows that still need the Codex command surface.
 
 The package-owned OpenCode stack is cohesive and batteries-included:
 
@@ -46,7 +46,7 @@ The package still needs its own scheduler and state model because the pipeline c
 
 ## Consequences
 
-`PIPE-52.2` must switch built-in defaults and runner-job selection to OpenCode while preserving Codex compatibility paths.
+`PIPE-52.2` must switch built-in defaults and runner-command execution to OpenCode while preserving Codex compatibility paths.
 
 `PIPE-52.3`, `PIPE-52.4`, and `PIPE-52.5` must define and enforce durable goal state, continuation prompts, and verification gates in pipeline-owned state rather than OpenCode plugin session state.
 

@@ -9,7 +9,7 @@ import {
   BUILTIN_PIPE_COMMANDS,
   registerConfiguredEntrypointCommands,
 } from "./commands/pipeline-command";
-import { registerRunnerJobCommand } from "./commands/runner-job-command";
+import { registerRunnerCommandCommand } from "./commands/runner-command-command";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -21,7 +21,6 @@ import {
   installCommands,
   parseCommandHost,
 } from "./install-commands";
-import { submitK8sRunnerJob } from "./k8s-submit";
 import {
   configureGatewayHosts,
   type GatewayHostScope,
@@ -31,6 +30,7 @@ import {
   runGatewayDoctor,
   startLocalGateway,
 } from "./mcp/gateway";
+import { submitMoka } from "./moka-submit";
 import { resolvePackageAssetPath } from "./package-assets";
 import { formatPipelineInitResult, initPipelineProject } from "./pipeline-init";
 import {
@@ -118,6 +118,11 @@ interface RunInputs {
   task: string;
   workflow?: string;
   worktreePath: string;
+}
+
+interface ArgoCommandOptionOptions {
+  kubeconfig?: boolean;
+  orchestratorDescription?: string;
 }
 
 async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
@@ -405,6 +410,35 @@ interface ValidateFlags {
   workflow?: string;
 }
 
+interface MokaSubmitFlags {
+  codexAuthSecret?: string;
+  command?: boolean;
+  eventAuthKey?: string;
+  eventAuthSecret?: string;
+  eventUrl?: string;
+  generateName?: string;
+  githubAuthSecret?: string;
+  image?: string;
+  imagePullPolicy?: string;
+  imagePullSecret?: string;
+  kubeconfig?: string;
+  name?: string;
+  namespace?: string;
+  opencodeAuthSecret?: string;
+  orchestrator?: string;
+  queueName?: string;
+  quick?: boolean;
+  schedule?: string;
+  serviceAccount?: string;
+  task?: string;
+}
+
+type MokaSubmitInput = Parameters<typeof submitMoka>[0];
+type MokaSubmitCommonOptions = Omit<
+  MokaSubmitInput,
+  "commandArgv" | "mode" | "schedulePath" | "task" | "type"
+>;
+
 type ConfigWorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
 
 interface ConfigLintWarning {
@@ -416,10 +450,7 @@ export function createCliProgram(): Command {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const configuredPipeline = loadConfiguredEntrypoints(cwd);
   const program = new Command();
-  program
-    .name("@oisincoveney/pipeline")
-    .description("Run package-owned @oisincoveney/pipeline config")
-    .exitOverride();
+  program.name("moka").description("Submit work to Momokaya").exitOverride();
 
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
     await execute(descriptionParts.join(" "), {
@@ -485,7 +516,7 @@ export function createCliProgram(): Command {
 
   program
     .command("explain-plan")
-    .description("Explain workflow nodes, runners, gates, hooks, and artifacts")
+    .description("Explain nodes, runners, gates, hooks, and artifacts")
     .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
     .option("--schedule <schedule>", "approved schedule YAML to explain")
     .option("--workflow <workflow>", "workflow id from package config")
@@ -658,22 +689,31 @@ export function createCliProgram(): Command {
       console.log(formatInstallCommandsResult(result));
     });
 
-  registerRunnerJobCommand(program);
+  addMokaSubmitOptions(
+    program
+      .command("submit")
+      .description("Submit work to Momokaya as an Argo Workflow")
+      .argument(
+        "[input...]",
+        "task description, or command argv with --command"
+      )
+  ).action(async (input: string[], flags: MokaSubmitFlags) => {
+    const result = await runMokaSubmitFromCli(input, flags);
+    console.log(
+      `Workflow submitted: ${result.workflowName} in ${result.namespace}`
+    );
+    if (result.workflowUid) {
+      console.log(`Workflow UID: ${result.workflowUid}`);
+    }
+  });
+
+  registerRunnerCommandCommand(program);
 
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,
-    configuredPipeline,
-    async (entrypoint, task, opts) => {
-      if (!opts.local && (entrypoint === "quick" || entrypoint === "execute")) {
-        const result = await submitK8sRunnerJob({
-          entrypoint: entrypoint as "execute" | "quick",
-          task,
-          eventUrl: process.env.PIPELINE_EVENT_URL ?? "",
-        });
-        console.log(`Job submitted: ${result.jobName} in ${result.namespace}`);
-      } else {
-        await execute(task, { entrypoint });
-      }
+    omitConfiguredEntrypoints(configuredPipeline, ["execute", "quick"]),
+    async (entrypoint, task, _opts) => {
+      await execute(task, { entrypoint });
     }
   );
   if (configuredEntrypointCommands.size > 0) {
@@ -690,10 +730,133 @@ export function createCliProgram(): Command {
   return program;
 }
 
+function addMokaSubmitOptions(command: Command): Command {
+  return addRunnerArgoOptions(
+    command
+      .option("--quick", "submit the compact graph")
+      .option("--command", "treat input after -- as explicit argv")
+      .option("--schedule <path>", "approved schedule YAML to submit")
+      .option("--event-url <url>", "runner event sink URL")
+      .option("--task <text>", "task description for command-mode metadata"),
+    {
+      kubeconfig: true,
+      orchestratorDescription: "runner orchestrator metadata",
+    }
+  );
+}
+
+function runMokaSubmitFromCli(
+  input: string[],
+  flags: MokaSubmitFlags
+): ReturnType<typeof submitMoka> {
+  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+  const config = loadPipelineConfig(cwd, {
+    allowMissingLintFileReferences: true,
+  });
+  const commonOptions = mokaCommonSubmitOptions({
+    config,
+    cwd,
+    eventUrl: resolveMokaEventUrl(flags),
+    flags,
+  });
+  if (flags.command) {
+    return submitMokaCommandFromCli(input, flags, commonOptions);
+  }
+  return submitMokaGraphFromCli(input, flags, commonOptions);
+}
+
+function resolveMokaEventUrl(flags: MokaSubmitFlags): string {
+  const eventUrl = flags.eventUrl ?? process.env.PIPELINE_EVENT_URL;
+  if (eventUrl) {
+    return eventUrl;
+  }
+  throw new Error(
+    "PIPELINE_EVENT_URL or --event-url is required to submit to Momokaya"
+  );
+}
+
+function mokaCommonSubmitOptions(input: {
+  config: PipelineConfig;
+  cwd: string;
+  eventUrl: string;
+  flags: MokaSubmitFlags;
+}): MokaSubmitCommonOptions {
+  return {
+    codexAuthSecretName: input.flags.codexAuthSecret,
+    config: input.config,
+    eventAuthSecretKey: input.flags.eventAuthKey,
+    eventAuthSecretName: input.flags.eventAuthSecret,
+    eventUrl: input.eventUrl,
+    generateName: input.flags.generateName,
+    githubAuthSecretName: input.flags.githubAuthSecret,
+    image: input.flags.image,
+    imagePullPolicy: parseImagePullPolicy(input.flags.imagePullPolicy),
+    imagePullSecretName: input.flags.imagePullSecret,
+    kubeconfigPath: input.flags.kubeconfig,
+    name: input.flags.name,
+    namespace: input.flags.namespace,
+    opencodeAuthSecretName: input.flags.opencodeAuthSecret,
+    orchestrator: parseOrchestrator(input.flags.orchestrator),
+    queueName: input.flags.queueName,
+    serviceAccountName: input.flags.serviceAccount,
+    worktreePath: input.cwd,
+  };
+}
+
+function submitMokaCommandFromCli(
+  input: string[],
+  flags: MokaSubmitFlags,
+  commonOptions: MokaSubmitCommonOptions
+): ReturnType<typeof submitMoka> {
+  if (flags.quick || flags.schedule) {
+    throw new Error("--command cannot be combined with --quick or --schedule");
+  }
+  if (input.length === 0) {
+    throw new Error("Command argv is required when --command is set");
+  }
+  return submitMoka({
+    ...commonOptions,
+    commandArgv: input,
+    task: flags.task,
+    type: "command",
+  });
+}
+
+function submitMokaGraphFromCli(
+  input: string[],
+  flags: MokaSubmitFlags,
+  commonOptions: MokaSubmitCommonOptions
+): ReturnType<typeof submitMoka> {
+  const task = input.join(" ").trim();
+  if (!task) {
+    throw new Error("Task description is required");
+  }
+  return submitMoka({
+    ...commonOptions,
+    mode: flags.quick ? "quick" : "full",
+    schedulePath: flags.schedule,
+    task,
+    type: "graph",
+  });
+}
+
 function loadConfiguredEntrypoints(cwd: string): PipelineConfig {
   return loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
+}
+
+function omitConfiguredEntrypoints(
+  config: PipelineConfig,
+  ids: string[]
+): PipelineConfig {
+  const omitted = new Set(ids);
+  return {
+    ...config,
+    entrypoints: Object.fromEntries(
+      Object.entries(config.entrypoints).filter(([id]) => !omitted.has(id))
+    ),
+  };
 }
 
 function parseGatewayHostScope(value: string): GatewayHostScope {
@@ -701,6 +864,65 @@ function parseGatewayHostScope(value: string): GatewayHostScope {
     return value;
   }
   throw new Error("scope must be project or global");
+}
+
+function addRunnerArgoOptions(
+  command: Command,
+  options: ArgoCommandOptionOptions = {}
+): Command {
+  command
+    .option("--name <name>", "Workflow metadata.name")
+    .option("--generate-name <prefix>", "Workflow metadata.generateName")
+    .option(
+      "--namespace <namespace>",
+      "Workflow namespace",
+      "momokaya-pipeline"
+    );
+  if (options.kubeconfig) {
+    command.option("--kubeconfig <path>", "kubeconfig path");
+  }
+  return command
+    .addOption(
+      new Option(
+        "--orchestrator <name>",
+        options.orchestratorDescription ?? "runner orchestrator"
+      )
+        .choices(["codex", "opencode"])
+        .default("opencode")
+    )
+    .option("--queue-name <name>", "Kueue LocalQueue label for Workflow pods")
+    .option("--service-account <name>", "Workflow service account")
+    .option("--image <image>", "runner image")
+    .addOption(
+      new Option("--image-pull-policy <policy>", "runner image pull policy")
+        .choices(["Always", "IfNotPresent", "Never"])
+        .default("Always")
+    )
+    .option("--image-pull-secret <name>", "imagePullSecret name")
+    .option("--event-auth-secret <name>", "event auth Secret name")
+    .option("--event-auth-key <key>", "event auth Secret key")
+    .option("--codex-auth-secret <name>", "Codex auth Secret name")
+    .option("--opencode-auth-secret <name>", "OpenCode auth Secret name")
+    .option("--github-auth-secret <name>", "GitHub auth Secret name");
+}
+
+function parseImagePullPolicy(
+  value: string | undefined
+): "Always" | "IfNotPresent" | "Never" {
+  if (value === "IfNotPresent" || value === "Never") {
+    return value;
+  }
+  return "Always";
+}
+
+function parseOrchestrator(value: string | undefined): "codex" | "opencode" {
+  if (value === "codex" || value === "opencode") {
+    return value;
+  }
+  if (value) {
+    throw new Error("orchestrator must be codex or opencode");
+  }
+  return "opencode";
 }
 
 function lintPipelineConfig(
@@ -797,28 +1019,6 @@ function lintWorkflowNode(
       lintWorkflowNode(warnings, child);
     }
   }
-  if (
-    node.kind === "workflow" &&
-    node.worktree_root &&
-    !isPipelineWorktreeRoot(node.worktree_root)
-  ) {
-    warnings.push({
-      ruleId: "worktree-root-style",
-      message: `node '${node.id}' worktree_root '${node.worktree_root}' is outside the suggested .pipeline/runs/ root; this is a style nudge, not an error`,
-    });
-  }
-}
-
-const LEADING_DOT_SLASH = /^\.\//;
-
-function isPipelineWorktreeRoot(worktreeRoot: string): boolean {
-  const normalized = worktreeRoot
-    .replaceAll("\\", "/")
-    .replace(LEADING_DOT_SLASH, "");
-  return (
-    normalized.startsWith(".pipeline/runs/") ||
-    normalized.startsWith(".pipeline/drain/")
-  );
 }
 
 function formatConfigLintWarning(warning: ConfigLintWarning): string {
@@ -920,7 +1120,7 @@ export function isCliEntrypoint(argv: string[]): boolean {
   const name = scriptName(argv);
   const entrypoint = normalizeEntrypointPath(argv[1]);
   const modulePath = normalizeEntrypointPath(fileURLToPath(import.meta.url));
-  return entrypoint === modulePath || name === "oisin-pipeline";
+  return entrypoint === modulePath || name === "moka";
 }
 
 function normalizeEntrypointPath(path: string | undefined): string | undefined {

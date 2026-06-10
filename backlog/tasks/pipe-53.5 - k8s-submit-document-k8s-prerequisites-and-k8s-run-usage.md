@@ -1,11 +1,13 @@
 ---
 id: PIPE-53.5
 title: 'k8s-submit: document k8s prerequisites and k8s-run usage'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 19:54'
+updated_date: '2026-06-10 14:10'
 labels:
   - docs
+  - superseded
 dependencies:
   - PIPE-53.3
 references:
@@ -57,3 +59,9 @@ Use --local on the run command for workstation-local execution:
 
 oisin-pipeline run --local --entrypoint quick 'fix the login bug'
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Superseded by PIPE-54. Do not implement this k8s Job/--local plan; the accepted direction is the Moka submit command surface backed by Argo Workflows.
+<!-- SECTION:FINAL_SUMMARY:END -->

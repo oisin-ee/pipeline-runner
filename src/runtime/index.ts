@@ -11,4 +11,3 @@ export * from "./gates";
 export * from "./hooks";
 export * from "./json-validation";
 export * from "./parallel-node";
-export * from "./worktrees";

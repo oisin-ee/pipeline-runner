@@ -6,8 +6,6 @@ import {
   resolveWorkflowSelection,
 } from "./context";
 
-const RUN_ID_PREFIX_RE = /^run-/;
-
 function configWithWorkflow(extraWorkflow = "") {
   return parsePipelineConfigParts({
     runners: `
@@ -78,27 +76,20 @@ describe("runtime context", () => {
     );
   });
 
-  it("creates a runtime context with defaults and generated run id only when referenced", () => {
-    const withoutRunIdTemplate = createRuntimeContext({
+  it("creates a runtime context with defaults and honors explicit run id", () => {
+    const withoutRunId = createRuntimeContext({
       config: configWithWorkflow(),
       task: "task",
     });
-    const withRunIdTemplate = createRuntimeContext({
-      config: configWithWorkflow(`
-  templated:
-    nodes:
-      - id: child
-        kind: workflow
-        workflow: default
-        worktree_root: .pipeline/worktrees/$${"{runId}"}/$${"{nodeId}"}
-`),
+    const withRunId = createRuntimeContext({
+      config: configWithWorkflow(),
+      runId: "run-explicit",
       task: "task",
-      workflowId: "templated",
     });
 
-    expect(withoutRunIdTemplate.runId).toBeUndefined();
-    expect(withRunIdTemplate.runId).toMatch(RUN_ID_PREFIX_RE);
-    expect(withRunIdTemplate.hookPolicy).toEqual({
+    expect(withoutRunId.runId).toBeUndefined();
+    expect(withRunId.runId).toBe("run-explicit");
+    expect(withRunId.hookPolicy).toEqual({
       allowCommandHooks: true,
       allowUntrustedCommandHooks: true,
       env: {},
@@ -106,11 +97,11 @@ describe("runtime context", () => {
       outputLimitBytes: 65_536,
       timeoutMs: 30_000,
     });
-    expect(withRunIdTemplate.nodeStates.get("child")).toMatchObject({
+    expect(withRunId.nodeStates.get("a")).toMatchObject({
       attempts: 0,
       evidence: [],
       gates: [],
-      id: "child",
+      id: "a",
       status: "pending",
     });
   });

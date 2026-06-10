@@ -46,8 +46,6 @@ export interface PlannedWorkflowNode {
   retries?: WorkflowNode["retries"];
   taskContext?: PlannedWorkflowTaskContext;
   timeoutMs?: number;
-  workflow?: string;
-  worktreeRoot?: string;
 }
 
 export interface PlannedWorkflowTaskContext {
@@ -538,8 +536,6 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
     profile: "profile" in node ? node.profile : undefined,
     retries: node.retries,
     taskContext: plannedTaskContext(node.task_context),
-    workflow: "workflow" in node ? node.workflow : undefined,
-    worktreeRoot: "worktree_root" in node ? node.worktree_root : undefined,
   };
   if (node.timeout_ms) {
     planned.timeoutMs = node.timeout_ms;
