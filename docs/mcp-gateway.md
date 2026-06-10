@@ -94,8 +94,14 @@ contains only `pipeline-gateway`.
 OpenCode receives that gateway through `.opencode/opencode.json` alongside the
 package-owned runtime projection: `lsp: true`, pinned plugin entries, generated
 agents, projected skills, explicit permissions, and local TypeScript plugins.
-Those resources give OpenCode richer runtime assistance without changing MCP
-ownership: upstream servers still live behind the gateway.
+`moka init` and `moka install-commands` merge this OpenCode project config:
+existing repo-local plugin entries are preserved while missing package defaults
+such as `oc-codex-multi-auth` are appended. Existing `mcp.pipeline-gateway`
+settings are also preserved; use `moka mcp gateway configure-host` when the
+host MCP config must be deliberately rewritten. Restart OpenCode after config
+changes because it loads config at startup. These resources give OpenCode richer
+runtime assistance without changing MCP ownership: upstream servers still live
+behind the gateway.
 
 ## Candidate Gateway Implementations
 
@@ -112,7 +118,9 @@ local ToolHive availability for local mode, and legacy direct MCP entries. Use
 singleton `pipeline-gateway` remote entry. Use `moka install-commands --host all`
 to refresh generated host files after package upgrades, and use
 `moka mcp gateway configure-host` as an explicit migration or repair command
-when existing host MCP config must be rewritten with a backup.
+when existing host MCP config must be rewritten with a backup. The hosted gateway
+requires `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to be set in the OpenCode
+environment.
 
 The package-owned MCP inventory exposed through the ecosystem manifest includes
 `pipeline-gateway`, Context7, uidotsh, Qdrant, Fallow, Serena, Backlog, GitHub,

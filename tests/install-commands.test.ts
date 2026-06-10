@@ -231,6 +231,58 @@ describe("installCommands", () => {
     );
   });
 
+  it("preserves repo-local OpenCode auth plugin and gateway config", async () => {
+    mkdirSync(join(dir, ".opencode"), { recursive: true });
+    const existingGateway = {
+      enabled: true,
+      headers: { Authorization: "{env:CUSTOM_GATEWAY_TOKEN}" },
+      oauth: false,
+      timeout: 30_000,
+      type: "remote",
+      url: "https://custom.example/mcp",
+    };
+    writeFileSync(
+      join(dir, ".opencode/opencode.json"),
+      `${JSON.stringify(
+        {
+          $schema: "https://opencode.ai/config.json",
+          lsp: false,
+          mcp: {
+            "pipeline-gateway": existingGateway,
+          },
+          plugin: ["repo-local-auth-plugin"],
+        },
+        null,
+        2
+      )}\n`
+    );
+
+    const result = await installCommands({
+      cwd: dir,
+      force: true,
+      host: "all",
+    });
+
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        action: "update",
+        host: "opencode",
+        path: ".opencode/opencode.json",
+      })
+    );
+    const opencode = JSON.parse(
+      readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
+    );
+    expect(opencode.lsp).toBe(false);
+    expect(opencode.mcp["pipeline-gateway"]).toEqual(existingGateway);
+    expect(opencode.plugin).toEqual([
+      "repo-local-auth-plugin",
+      "@devtheops/opencode-plugin-otel@1.1.0",
+      "@prevalentware/opencode-goal-plugin",
+      "oc-codex-multi-auth",
+    ]);
+  });
+
   it("is idempotent and check passes after install", async () => {
     await installCommands({ cwd: dir, host: "all" });
 

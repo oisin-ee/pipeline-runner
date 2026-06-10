@@ -342,10 +342,15 @@ moka mcp gateway local-status
 moka mcp gateway local-start
 ```
 
-`moka init` writes generated command surfaces and the singleton gateway server
-into project host config. Use `moka mcp gateway configure-host` as an explicit
-migration or repair command when direct upstream MCP entries need to be removed
-from existing host config with a backup.
+`moka init` writes generated command surfaces and merges the singleton gateway
+server into project host config. For OpenCode, existing repo-local plugin entries
+are preserved while missing package defaults such as `oc-codex-multi-auth` are
+appended, and an existing `mcp.pipeline-gateway` entry is preserved. Use
+`moka mcp gateway configure-host` as an explicit migration or repair command
+when direct upstream MCP entries need to be removed from existing host config
+with a backup. The hosted gateway requires `PIPELINE_MCP_GATEWAY_AUTHORIZATION`
+in the OpenCode environment. Restart OpenCode after config changes because it
+loads config at startup.
 
 ## Profile Grant Rules
 

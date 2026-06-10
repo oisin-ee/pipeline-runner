@@ -9,6 +9,7 @@ import {
   type PipelineConfig,
 } from "./config";
 import { renderOpenCodeGatewayConfig } from "./mcp/gateway";
+import { mergeOpenCodeProjectConfig } from "./opencode-project-config";
 import { resolvePackageAssetPath } from "./package-assets";
 import { resolveFileReference } from "./path-refs";
 import { compileWorkflowPlan } from "./workflow-planner";
@@ -23,6 +24,7 @@ const AGENTS_MD_START = "<!-- @oisincoveney/pipeline:agents:start -->";
 const AGENTS_MD_END = "<!-- @oisincoveney/pipeline:agents:end -->";
 const SINGLE_OPENCODE_PLUGIN_ARRAY_RE =
   /\n {2}"plugin": \[\n {4}("[^"]+")\n {2}\]/;
+const OPENCODE_PROJECT_CONFIG_PATH = ".opencode/opencode.json";
 const ENTRYPOINT_PATH_PATTERNS: Record<ActiveCommandHost, RegExp[]> = {
   opencode: [/^\.opencode\/commands\/([^/]+)\.md$/],
 };
@@ -54,6 +56,13 @@ export interface InstallCommandsOptions {
 
 export interface InstallCommandsResult {
   items: CommandInstallPlanItem[];
+}
+
+interface InstallCommandsContext {
+  cwd: string;
+  definitions: CommandDefinition[];
+  host: CommandHostSelection;
+  wantedPaths: Set<string>;
 }
 
 interface CommandDefinition {
@@ -940,6 +949,30 @@ function invocationForHost(
   return `${prefix[host]}${entrypointId} <task description>`;
 }
 
+interface ResolvedCommandDefinitionContent {
+  conflict: boolean;
+  content: string;
+}
+
+function resolveDefinitionContent(
+  definition: CommandDefinition,
+  target: string
+): ResolvedCommandDefinitionContent {
+  if (definition.path !== OPENCODE_PROJECT_CONFIG_PATH || !existsSync(target)) {
+    return { conflict: false, content: definition.content };
+  }
+
+  const projection = JSON.parse(definition.content) as Record<string, unknown>;
+  const merged = mergeOpenCodeProjectConfig(
+    readFileSync(target, "utf8"),
+    projection
+  );
+  if (!merged.ok) {
+    return { conflict: true, content: definition.content };
+  }
+  return { conflict: false, content: merged.content };
+}
+
 function actionFor(
   path: string,
   content: string,
@@ -989,86 +1022,198 @@ function upsertGeneratedBlock(
   return `${current.trimEnd()}${separator}${content}`;
 }
 
-export async function installCommands(
-  options: InstallCommandsOptions = {}
-): Promise<InstallCommandsResult> {
+function installActionForDefinition(
+  definition: CommandDefinition,
+  target: string,
+  resolved: ResolvedCommandDefinitionContent,
+  force: boolean
+): InstallAction {
+  if (resolved.conflict) {
+    return "conflict";
+  }
+  return actionFor(
+    target,
+    resolved.content,
+    force || definition.path === OPENCODE_PROJECT_CONFIG_PATH,
+    definition.block
+  );
+}
+
+async function writeDefinition(
+  definition: CommandDefinition,
+  target: string,
+  content: string
+): Promise<void> {
+  await mkdir(dirname(target), { recursive: true });
+  if (definition.block && existsSync(target)) {
+    await writeFile(
+      target,
+      upsertGeneratedBlock(
+        readFileSync(target, "utf8"),
+        content,
+        definition.block
+      )
+    );
+    return;
+  }
+  await writeFile(target, content);
+}
+
+function shouldSkipInstallWrite(
+  options: InstallCommandsOptions,
+  action: InstallAction
+): boolean {
+  return Boolean(
+    options.check ||
+      options.dryRun ||
+      action === "unchanged" ||
+      action === "conflict"
+  );
+}
+
+async function installDefinition(
+  cwd: string,
+  definition: CommandDefinition,
+  options: InstallCommandsOptions
+): Promise<CommandInstallPlanItem> {
+  const target = join(cwd, definition.path);
+  const resolved = resolveDefinitionContent(definition, target);
+  const action = installActionForDefinition(
+    definition,
+    target,
+    resolved,
+    Boolean(options.force)
+  );
+  const item = commandInstallPlanItem(definition, action);
+  if (!shouldSkipInstallWrite(options, action)) {
+    await writeDefinition(definition, target, resolved.content);
+  }
+  return item;
+}
+
+function commandInstallPlanItem(
+  definition: CommandDefinition,
+  action: InstallAction
+): CommandInstallPlanItem {
+  return {
+    action,
+    host: definition.host,
+    invocation: definition.invocation,
+    path: definition.path,
+  };
+}
+
+function installCommandsContext(
+  options: InstallCommandsOptions
+): InstallCommandsContext {
   const cwd = options.cwd ?? process.cwd();
   const host = options.host ?? "all";
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
-  const items: CommandInstallPlanItem[] = [];
   const definitions = definitionsFor(host, config, cwd);
-  const wantedPaths = new Set(definitions.map((definition) => definition.path));
+  return {
+    cwd,
+    definitions,
+    host,
+    wantedPaths: new Set(definitions.map((definition) => definition.path)),
+  };
+}
 
+async function installDefinitions(
+  cwd: string,
+  definitions: CommandDefinition[],
+  options: InstallCommandsOptions
+): Promise<CommandInstallPlanItem[]> {
+  const items: CommandInstallPlanItem[] = [];
   for (const definition of definitions) {
-    const target = join(cwd, definition.path);
-    const action = actionFor(
-      target,
-      definition.content,
-      Boolean(options.force),
-      definition.block
-    );
-    items.push({
-      action,
-      host: definition.host,
-      invocation: definition.invocation,
-      path: definition.path,
-    });
-
-    if (options.check || options.dryRun || action === "unchanged") {
-      continue;
-    }
-    if (action === "conflict") {
-      continue;
-    }
-
-    await mkdir(dirname(target), { recursive: true });
-    if (definition.block && existsSync(target)) {
-      await writeFile(
-        target,
-        upsertGeneratedBlock(
-          readFileSync(target, "utf8"),
-          definition.content,
-          definition.block
-        )
-      );
-    } else {
-      await writeFile(target, definition.content);
-    }
+    items.push(await installDefinition(cwd, definition, options));
   }
+  return items;
+}
 
-  const obsoleteItems = await obsoleteGeneratedItems(cwd, host, wantedPaths);
+function shouldRemoveObsoleteItems(options: InstallCommandsOptions): boolean {
+  return !(options.check || options.dryRun);
+}
+
+async function removeObsoleteItems(
+  cwd: string,
+  items: CommandInstallPlanItem[],
+  options: InstallCommandsOptions
+): Promise<void> {
+  if (!shouldRemoveObsoleteItems(options)) {
+    return;
+  }
+  for (const item of items) {
+    await rm(join(cwd, item.path), { force: true });
+  }
+}
+
+function actionIsConflict(item: CommandInstallPlanItem): boolean {
+  return item.action === "conflict";
+}
+
+function actionIsChanged(item: CommandInstallPlanItem): boolean {
+  return item.action !== "unchanged";
+}
+
+function assertNoInstallConflicts(
+  options: InstallCommandsOptions,
+  items: CommandInstallPlanItem[]
+): void {
+  if (options.dryRun) {
+    return;
+  }
+  const conflicts = items.filter(actionIsConflict);
+  if (conflicts.length === 0) {
+    return;
+  }
+  throw new Error(
+    [
+      "Refusing to overwrite manually edited command files.",
+      ...conflicts.map((item) => `- ${item.path}`),
+      "Re-run with --force to overwrite them.",
+    ].join("\n")
+  );
+}
+
+function assertInstallCheckCurrent(
+  options: InstallCommandsOptions,
+  items: CommandInstallPlanItem[]
+): void {
+  if (!options.check) {
+    return;
+  }
+  const changedItems = items.filter(actionIsChanged);
+  if (changedItems.length === 0) {
+    return;
+  }
+  throw new Error(
+    [
+      "Installed command files are not up to date.",
+      ...changedItems.map((item) => `- ${item.path}: ${item.action}`),
+    ].join("\n")
+  );
+}
+
+export async function installCommands(
+  options: InstallCommandsOptions = {}
+): Promise<InstallCommandsResult> {
+  const context = installCommandsContext(options);
+  const items = await installDefinitions(
+    context.cwd,
+    context.definitions,
+    options
+  );
+  const obsoleteItems = await obsoleteGeneratedItems(
+    context.cwd,
+    context.host,
+    context.wantedPaths
+  );
   items.push(...obsoleteItems);
-  if (!(options.check || options.dryRun)) {
-    for (const item of obsoleteItems) {
-      await rm(join(cwd, item.path), { force: true });
-    }
-  }
-
-  if (!options.dryRun && items.some((item) => item.action === "conflict")) {
-    throw new Error(
-      [
-        "Refusing to overwrite manually edited command files.",
-        ...items
-          .filter((item) => item.action === "conflict")
-          .map((item) => `- ${item.path}`),
-        "Re-run with --force to overwrite them.",
-      ].join("\n")
-    );
-  }
-
-  if (options.check && items.some((item) => item.action !== "unchanged")) {
-    throw new Error(
-      [
-        "Installed command files are not up to date.",
-        ...items
-          .filter((item) => item.action !== "unchanged")
-          .map((item) => `- ${item.path}: ${item.action}`),
-      ].join("\n")
-    );
-  }
-
+  await removeObsoleteItems(context.cwd, obsoleteItems, options);
+  assertNoInstallConflicts(options, items);
+  assertInstallCheckCurrent(options, items);
   return { items };
 }
 
