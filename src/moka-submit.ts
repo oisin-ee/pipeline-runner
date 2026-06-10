@@ -21,6 +21,12 @@ import {
   parseScheduleArtifact,
 } from "./schedule-planner";
 
+const MOMOKAYA_CODEX_AUTH_SECRET_NAME = "codex-auth-1";
+const MOMOKAYA_EVENT_AUTH_SECRET_KEY = "OISIN_PIPELINE_EVENT_AUTH_TOKEN";
+const MOMOKAYA_EVENT_AUTH_SECRET_NAME = "pipeline-runner-event-auth";
+const MOMOKAYA_GITHUB_AUTH_SECRET_NAME = "oisin-bot-github-auth";
+const MOMOKAYA_OPENCODE_AUTH_SECRET_NAME = "opencode-auth-1";
+
 const imagePullPolicySchema = z
   .enum(["Always", "IfNotPresent", "Never"])
   .default("Always");
@@ -29,22 +35,14 @@ const orchestratorSchema = z.enum(["codex", "opencode"]).default("opencode");
 
 const mokaSubmitBaseOptionsSchema = z
   .object({
-    codexAuthSecretName: z.string().min(1).optional(),
-    eventAuthSecretKey: z.string().min(1).default("token"),
-    eventAuthSecretName: z
-      .string()
-      .min(1)
-      .default("pipeline-runner-event-auth"),
     eventUrl: z.string().url(),
     generateName: z.string().min(1).optional(),
-    githubAuthSecretName: z.string().min(1).optional(),
     image: z.string().min(1).optional(),
     imagePullPolicy: imagePullPolicySchema,
     imagePullSecretName: z.string().min(1).optional(),
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).default("momokaya-pipeline"),
-    opencodeAuthSecretName: z.string().min(1).optional(),
     orchestrator: orchestratorSchema,
     queueName: z.string().min(1).optional(),
     serviceAccountName: z.string().min(1).optional(),
@@ -230,17 +228,17 @@ function workflowSubmitOptions(
   "config" | "payloadJson" | "scheduleYaml"
 > {
   return {
-    codexAuthSecretName: options.codexAuthSecretName,
-    eventAuthSecretKey: options.eventAuthSecretKey,
-    eventAuthSecretName: options.eventAuthSecretName,
-    githubAuthSecretName: options.githubAuthSecretName,
+    codexAuthSecretName: MOMOKAYA_CODEX_AUTH_SECRET_NAME,
+    eventAuthSecretKey: MOMOKAYA_EVENT_AUTH_SECRET_KEY,
+    eventAuthSecretName: MOMOKAYA_EVENT_AUTH_SECRET_NAME,
+    githubAuthSecretName: MOMOKAYA_GITHUB_AUTH_SECRET_NAME,
     image: options.image,
     imagePullPolicy: options.imagePullPolicy,
     imagePullSecretName: options.imagePullSecretName,
     kubeconfigPath: options.kubeconfigPath,
     name: options.name,
     namespace: options.namespace,
-    opencodeAuthSecretName: options.opencodeAuthSecretName,
+    opencodeAuthSecretName: MOMOKAYA_OPENCODE_AUTH_SECRET_NAME,
     orchestrator: options.orchestrator,
     queueName: options.queueName,
     serviceAccountName: options.serviceAccountName,
@@ -278,7 +276,7 @@ function runnerPayloadJson(input: {
 function runnerEvents(options: ParsedMokaBaseOptions) {
   return {
     authHeader: "Authorization",
-    authTokenFile: `/etc/pipeline/event-auth/${options.eventAuthSecretKey}`,
+    authTokenFile: `/etc/pipeline/event-auth/${MOMOKAYA_EVENT_AUTH_SECRET_KEY}`,
     url: options.eventUrl,
   };
 }

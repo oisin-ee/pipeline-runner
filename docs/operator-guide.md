@@ -270,11 +270,16 @@ The following must exist in the target namespace:
   debugging).
 - **Secret** `codex-auth-1` with key `auth.json` (Codex authentication).
 - **Secret** `opencode-auth-1` with key `auth.json` (OpenCode authentication).
-- **Secret** `pipeline-runner-event-auth` with key `token` (event sink bearer
-  token, mounted at `/etc/pipeline/event-auth/token`).
-- **Secret** `pipeline-runner-github-auth` with keys `gitconfig`,
+- **Secret** `pipeline-runner-event-auth` with key
+  `OISIN_PIPELINE_EVENT_AUTH_TOKEN` (event sink bearer token, mounted at
+  `/etc/pipeline/event-auth/OISIN_PIPELINE_EVENT_AUTH_TOKEN`).
+- **Secret** `oisin-bot-github-auth` with keys `gitconfig`,
   `git-credentials`, `hosts.yml` (GitHub authentication for `git` and `gh`).
 - A pipeline-console event sink endpoint reachable from the pod.
+
+Credential rotation is owned by the infra repository scripts. `moka submit`
+references the managed Momokaya Secret names; it does not accept per-run auth
+Secret overrides.
 
 #### Usage
 

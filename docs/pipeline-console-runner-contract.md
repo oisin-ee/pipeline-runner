@@ -43,7 +43,7 @@ validation, tests, and docs.
   "events": {
     "url": "https://console.example/api/pipeline/runner-events",
     "authHeader": "Authorization",
-    "authTokenFile": "/etc/pipeline/event-auth/token"
+    "authTokenFile": "/etc/pipeline/event-auth/OISIN_PIPELINE_EVENT_AUTH_TOKEN"
   }
 }
 ```
@@ -162,9 +162,10 @@ Expected runner Job secrets and mounts include:
 
 - `codex-auth-1` mounted at `/root/.codex/auth.json`
 - `opencode-auth-1` mounted at `/root/.local/share/opencode/auth.json`
-- Event auth Secret mounted at a path configured via `events.authTokenFile`
+- `pipeline-runner-event-auth` mounted at
+  `/etc/pipeline/event-auth/OISIN_PIPELINE_EVENT_AUTH_TOKEN`
 - MCP gateway auth Secret mounted at a path referenced by the runner
-- GitHub auth usable by both `git` and `gh`
+- `oisin-bot-github-auth` mounted for GitHub auth usable by both `git` and `gh`
 
 The runner image sets `HOME=/root` and `CODEX_HOME=/root/.codex`; Kubernetes
 must project each numbered auth Secret with the key `auth.json` into the target

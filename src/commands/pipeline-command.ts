@@ -15,17 +15,12 @@ export const BUILTIN_PIPE_COMMANDS = new Set([
 ]);
 
 export interface EntrypointCommandFlags {
-  codexAuthSecret?: string;
-  eventAuthKey?: string;
-  eventAuthSecret?: string;
   eventUrl?: string;
-  githubAuthSecret?: string;
   image?: string;
   imagePullPolicy?: string;
   imagePullSecret?: string;
   kubeconfig?: string;
   namespace?: string;
-  opencodeAuthSecret?: string;
   orchestrator?: string;
   queueName?: string;
   schedule?: string;
@@ -68,12 +63,7 @@ export function registerConfiguredEntrypointCommands(
         .option("--image <image>", "runner image")
         .option("--image-pull-policy <policy>", "runner image pull policy")
         .option("--image-pull-secret <name>", "imagePullSecret name")
-        .option("--event-url <url>", "runner event sink URL")
-        .option("--event-auth-secret <name>", "event auth Secret name")
-        .option("--event-auth-key <key>", "event auth Secret key")
-        .option("--codex-auth-secret <name>", "Codex auth Secret name")
-        .option("--opencode-auth-secret <name>", "OpenCode auth Secret name")
-        .option("--github-auth-secret <name>", "GitHub auth Secret name");
+        .option("--event-url <url>", "runner event sink URL");
     }
     command.action(
       async (descriptionParts: string[], flags: EntrypointCommandFlags) => {

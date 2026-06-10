@@ -411,20 +411,15 @@ interface ValidateFlags {
 }
 
 interface MokaSubmitFlags {
-  codexAuthSecret?: string;
   command?: boolean;
-  eventAuthKey?: string;
-  eventAuthSecret?: string;
   eventUrl?: string;
   generateName?: string;
-  githubAuthSecret?: string;
   image?: string;
   imagePullPolicy?: string;
   imagePullSecret?: string;
   kubeconfig?: string;
   name?: string;
   namespace?: string;
-  opencodeAuthSecret?: string;
   orchestrator?: string;
   queueName?: string;
   quick?: boolean;
@@ -782,20 +777,15 @@ function mokaCommonSubmitOptions(input: {
   flags: MokaSubmitFlags;
 }): MokaSubmitCommonOptions {
   return {
-    codexAuthSecretName: input.flags.codexAuthSecret,
     config: input.config,
-    eventAuthSecretKey: input.flags.eventAuthKey,
-    eventAuthSecretName: input.flags.eventAuthSecret,
     eventUrl: input.eventUrl,
     generateName: input.flags.generateName,
-    githubAuthSecretName: input.flags.githubAuthSecret,
     image: input.flags.image,
     imagePullPolicy: parseImagePullPolicy(input.flags.imagePullPolicy),
     imagePullSecretName: input.flags.imagePullSecret,
     kubeconfigPath: input.flags.kubeconfig,
     name: input.flags.name,
     namespace: input.flags.namespace,
-    opencodeAuthSecretName: input.flags.opencodeAuthSecret,
     orchestrator: parseOrchestrator(input.flags.orchestrator),
     queueName: input.flags.queueName,
     serviceAccountName: input.flags.serviceAccount,
@@ -898,12 +888,7 @@ function addRunnerArgoOptions(
         .choices(["Always", "IfNotPresent", "Never"])
         .default("Always")
     )
-    .option("--image-pull-secret <name>", "imagePullSecret name")
-    .option("--event-auth-secret <name>", "event auth Secret name")
-    .option("--event-auth-key <key>", "event auth Secret key")
-    .option("--codex-auth-secret <name>", "Codex auth Secret name")
-    .option("--opencode-auth-secret <name>", "OpenCode auth Secret name")
-    .option("--github-auth-secret <name>", "GitHub auth Secret name");
+    .option("--image-pull-secret <name>", "imagePullSecret name");
 }
 
 function parseImagePullPolicy(

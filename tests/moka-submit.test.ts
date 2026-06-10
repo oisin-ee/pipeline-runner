@@ -40,6 +40,17 @@ function captureSubmitCall(calls: CapturedSubmitOptions[]) {
   };
 }
 
+const MOMOKAYA_MANAGED_AUTH = {
+  codexAuthSecretName: "codex-auth-1",
+  eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
+  eventAuthSecretName: "pipeline-runner-event-auth",
+  githubAuthSecretName: "oisin-bot-github-auth",
+  opencodeAuthSecretName: "opencode-auth-1",
+};
+
+const MOMOKAYA_EVENT_AUTH_TOKEN_FILE =
+  "/etc/pipeline/event-auth/OISIN_PIPELINE_EVENT_AUTH_TOKEN";
+
 describe("submitMoka", () => {
   it("submits a full graph by generating an execute schedule", async () => {
     const generatedSchedulePath = ".pipeline/runs/run-1/schedule.yaml";
@@ -93,7 +104,9 @@ describe("submitMoka", () => {
       generateName: "moka-full-",
       scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
     });
+    expect(calls[0]).toMatchObject(MOMOKAYA_MANAGED_AUTH);
     expect(payload).toMatchObject({
+      events: { authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE },
       submission: { kind: "graph", mode: "full" },
       workflow: { id: "schedule-run-1-root" },
     });
@@ -135,7 +148,9 @@ describe("submitMoka", () => {
       generateName: "moka-quick-",
       scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
     });
+    expect(calls[0]).toMatchObject(MOMOKAYA_MANAGED_AUTH);
     expect(payload).toMatchObject({
+      events: { authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE },
       submission: { kind: "graph", mode: "quick" },
       workflow: { id: "schedule-run-quick-root" },
     });
@@ -165,7 +180,9 @@ describe("submitMoka", () => {
       generateName: "moka-command-",
       scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
     });
+    expect(calls[0]).toMatchObject(MOMOKAYA_MANAGED_AUTH);
     expect(payload).toMatchObject({
+      events: { authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE },
       submission: { argv: ["codex", "-p", "fix"], kind: "command" },
       workflow: { id: "schedule-run-command-root" },
     });
