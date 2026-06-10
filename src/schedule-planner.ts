@@ -869,9 +869,15 @@ async function runSchedulePlanner(
 
 function plannerFailureMessage(
   plannerProfile: string,
-  result: { exitCode: number; stderr?: string; stdout: string }
+  result: {
+    exitCode: number;
+    stderr?: string;
+    stdout: string;
+    timedOut?: boolean;
+  }
 ): string {
   const details = [
+    result.timedOut ? "timed out waiting for scheduler subprocess" : undefined,
     result.stderr?.trim() ? `stderr:\n${result.stderr.trim()}` : undefined,
     result.stdout.trim() ? `stdout:\n${result.stdout.trim()}` : undefined,
   ].filter((value): value is string => Boolean(value));

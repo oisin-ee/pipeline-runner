@@ -26,6 +26,8 @@ const SHARED_WORKTREE_PARALLEL_RE =
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
   /schedule planner 'pipeline-schedule-planner' failed with exit 1.*codex auth missing.*partial planner output/s;
+const PLANNER_TIMEOUT_FAILURE_RE =
+  /schedule planner 'pipeline-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/s;
 const REPAIR_NODE_SCHEMA_RE =
   /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/s;
 const WORKFLOW_TASK_ASSIGNMENT_RE =
@@ -430,6 +432,33 @@ workflows:
           worktreePath: dir,
         })
       ).rejects.toThrow(PLANNER_FAILURE_WITH_DETAILS_RE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes timeout details when the planner subprocess times out", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-planner-timeout-")
+    );
+
+    try {
+      await expect(
+        generateScheduleArtifact({
+          config: config(),
+          entrypointId: "execute",
+          executor: () => ({
+            exitCode: 1,
+            stderr: "",
+            stdout: "",
+            timedOut: true,
+          }),
+          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+          runId: "run-planner-timeout",
+          task: "Expose planner timeout",
+          worktreePath: dir,
+        })
+      ).rejects.toThrow(PLANNER_TIMEOUT_FAILURE_RE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
