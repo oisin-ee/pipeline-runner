@@ -7,40 +7,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("execa", () => ({
-  execa: vi.fn(),
-}));
-
-import { execa } from "execa";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadPipelineConfig } from "../src/config";
-import {
-  DEFAULT_INSTALL_MANIFEST,
-  DEFAULT_SKILL_INSTALLS,
-} from "../src/mcp/bootstrap";
 import {
   formatPipelineInitResult,
   initPipelineProject,
-  installDefaultSkillsWithCli,
-  type PipelineSkillInstaller,
 } from "../src/pipeline-init";
-
-const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
-const ORIGINAL_UIDOTSH_TOKEN = process.env.UIDOTSH_TOKEN;
-beforeEach(() => {
-  mockExeca.mockReset();
-  delete process.env.UIDOTSH_TOKEN;
-});
-
-afterEach(() => {
-  if (ORIGINAL_UIDOTSH_TOKEN === undefined) {
-    delete process.env.UIDOTSH_TOKEN;
-  } else {
-    process.env.UIDOTSH_TOKEN = ORIGINAL_UIDOTSH_TOKEN;
-  }
-});
 
 function bootstrappedHostFilesExist(root: string): boolean {
   return [
@@ -64,7 +37,6 @@ describe("initPipelineProject", () => {
   const init = (options: Parameters<typeof initPipelineProject>[0] = {}) =>
     initPipelineProject({
       cwd: dir,
-      skillInstaller: fakeSkillInstaller,
       ...options,
     });
 
@@ -118,41 +90,6 @@ describe("initPipelineProject", () => {
     );
   });
 
-  it("loads default installs from the package manifest", () => {
-    const manifest = JSON.parse(
-      readFileSync("defaults/install-manifest.json", "utf8")
-    ) as {
-      skills: unknown[];
-      version: number;
-    };
-
-    expect(DEFAULT_INSTALL_MANIFEST.version).toBe(1);
-    expect(DEFAULT_SKILL_INSTALLS).toEqual(manifest.skills);
-    expect("mcps" in manifest).toBe(false);
-  });
-
-  it("installs default skills with the ui.sh installer", async () => {
-    await installDefaultSkillsWithCli([{ source: "@uidotsh/install" }], dir);
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "npx",
-      ["--yes", "@uidotsh/install"],
-      expect.objectContaining({ cwd: dir })
-    );
-  });
-
-  it("passes UIDOTSH_TOKEN to the ui.sh installer when configured", async () => {
-    process.env.UIDOTSH_TOKEN = "test-token";
-
-    await installDefaultSkillsWithCli([{ source: "@uidotsh/install" }], dir);
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "npx",
-      ["--yes", "@uidotsh/install", "--token=test-token"],
-      expect.objectContaining({ cwd: dir })
-    );
-  });
-
   it("does not write generated host resources when skill installation fails", async () => {
     await expect(
       initPipelineProject({
@@ -179,33 +116,3 @@ describe("initPipelineProject", () => {
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
   });
 });
-
-const DEFAULT_TEST_SKILLS = [
-  "critique",
-  "diagnose",
-  "doubt",
-  "execute",
-  "fix",
-  "grill",
-  "improve",
-  "library-first-development",
-  "migrate",
-  "optimize",
-  "quality-gate",
-  "research",
-  "scope",
-  "secure",
-  "spec",
-  "test",
-  "trace",
-  "verify",
-];
-
-const fakeSkillInstaller: PipelineSkillInstaller = (_specs, cwd) => {
-  for (const skill of DEFAULT_TEST_SKILLS) {
-    const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `---\nname: ${skill}\n---\n\n# ${skill}\n`);
-  }
-  return Promise.resolve();
-};

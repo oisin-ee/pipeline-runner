@@ -97,11 +97,10 @@ moka doctor
 
 `moka init`
 
-Installs default project skills with `npx @uidotsh/install` and generated
-OpenCode host resources, including the singleton `pipeline-gateway` MCP entry.
-Set `UIDOTSH_TOKEN` in the shell environment so the ui.sh installer does not
-prompt for the token. OpenCode is the package default runtime. `moka init` does
-not create repo-local `.pipeline` config files.
+Vendors the package's default project skills and generated OpenCode host
+resources, including the singleton `pipeline-gateway` MCP entry. OpenCode is the
+package default runtime. `moka init` does not create repo-local `.pipeline`
+config files.
 
 ```shell
 moka init

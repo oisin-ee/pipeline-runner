@@ -1,14 +1,9 @@
-import { execa } from "execa";
+import { cp, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { installCommands } from "./install-commands";
-import {
-  DEFAULT_SKILL_INSTALLS,
-  type PipelineSkillInstallSpec,
-} from "./mcp/bootstrap";
+import { resolvePackageAssetPath } from "./package-assets";
 
-export type PipelineSkillInstaller = (
-  specs: PipelineSkillInstallSpec[],
-  cwd: string
-) => Promise<void>;
+export type PipelineSkillInstaller = (cwd: string) => Promise<void>;
 
 export interface PipelineInitOptions {
   cwd?: string;
@@ -19,35 +14,20 @@ export interface PipelineInitResult {
   files: string[];
 }
 
-export async function installDefaultSkillsWithCli(
-  specs: PipelineSkillInstallSpec[],
-  cwd: string
-): Promise<void> {
-  for (const spec of specs) {
-    const token = process.env.UIDOTSH_TOKEN?.trim();
-    await execa(
-      "npx",
-      [
-        "--yes",
-        spec.source,
-        ...(token ? [`--token=${token}`] : []),
-        ...(spec.args ?? []),
-      ],
-      {
-        cwd,
-        stderr: "inherit",
-        stdout: "inherit",
-      }
-    );
-  }
+async function installDefaultSkillsFromPackage(cwd: string): Promise<void> {
+  const source = resolvePackageAssetPath(".agents/skills");
+  const target = join(cwd, ".agents", "skills");
+  await mkdir(dirname(target), { recursive: true });
+  await cp(source, target, { force: true, recursive: true });
 }
 
 export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const skillInstaller = options.skillInstaller ?? installDefaultSkillsWithCli;
-  await skillInstaller(DEFAULT_SKILL_INSTALLS, cwd);
+  const skillInstaller =
+    options.skillInstaller ?? installDefaultSkillsFromPackage;
+  await skillInstaller(cwd);
   const result = await installCommands({ cwd, force: true, host: "all" });
   return {
     files: result.items.map((item) => item.path),

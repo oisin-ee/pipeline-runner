@@ -43,11 +43,10 @@ Initialize package-owned pipeline support:
 moka init
 ```
 
-`moka init` installs default project skills with `npx @uidotsh/install`, then
-writes generated OpenCode command surfaces plus the singleton `pipeline-gateway`
-MCP entry. Set `UIDOTSH_TOKEN` before running `moka init` so the ui.sh installer
-does not prompt for the token. OpenCode is the package default runtime. The
-command does not create repo-local `.pipeline` config files.
+`moka init` vendors the package's default project skills, then writes generated
+OpenCode command surfaces plus the singleton `pipeline-gateway` MCP entry.
+OpenCode is the package default runtime. The command does not create repo-local
+`.pipeline` config files.
 
 The default MCP gateway can run locally or point at the hosted Momokaya gateway.
 Set `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to the full HTTP `Authorization` header

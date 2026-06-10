@@ -315,9 +315,6 @@ beforeEach(() => {
     ) {
       installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
     }
-    if (isUidotshInstallCommand(command, args)) {
-      installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
-    }
     return Promise.resolve({
       exitCode: 0,
       stderr: "",
@@ -337,10 +334,6 @@ afterEach(() => {
   restoreEnv("PIPELINE_TEST_COMMAND", ORIGINAL_PIPELINE_TEST_COMMAND);
 });
 function installMockSkills(args: string[], cwd = process.cwd()): void {
-  if (args.includes("@uidotsh/install")) {
-    writeMockSkills(DEFAULT_TEST_SKILLS, cwd);
-    return;
-  }
   const skillIndex = args.indexOf("--skill");
   if (skillIndex < 0) {
     return;
@@ -363,17 +356,6 @@ function writeMockSkills(skills: string[], cwd: string): void {
     (lock.skills as Record<string, unknown>)[skill] = { source: "mock" };
   }
   writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
-}
-
-function isUidotshInstallCommand(
-  command: string,
-  args: string[] | undefined
-): args is string[] {
-  return (
-    command === "npx" &&
-    Array.isArray(args) &&
-    args.includes("@uidotsh/install")
-  );
 }
 
 function writeCliProjectFile(
@@ -733,8 +715,8 @@ function isSkillsInstallCommand(
   return (
     command === "npx" &&
     Array.isArray(args) &&
-    ((args.includes("skills") && args.includes("add")) ||
-      args.includes("@uidotsh/install"))
+    args.includes("skills") &&
+    args.includes("add")
   );
 }
 
@@ -1067,7 +1049,7 @@ describe("execute", () => {
             Array.isArray(args) &&
             args.includes("@uidotsh/install")
         )
-      ).toBe(true);
+      ).toBe(false);
       expect(hasMcpmRegistration()).toBe(false);
     });
   });
