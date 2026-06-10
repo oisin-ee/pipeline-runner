@@ -65,7 +65,7 @@ interface MockAgentResponse {
 const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
   {
     matches: (prompt) =>
-      prompt.includes("pipeline-acceptance-reviewer") ||
+      prompt.includes("moka-acceptance-reviewer") ||
       prompt.includes("acceptance reviewer"),
     response: {
       verdict: "PASS",
@@ -76,7 +76,7 @@ const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
   },
   {
     matches: (prompt) =>
-      prompt.includes("pipeline-verifier") || prompt.includes("verifier"),
+      prompt.includes("moka-verifier") || prompt.includes("verifier"),
     response: {
       verdict: "PASS",
       evidence: ["verified by CLI fixture"],
@@ -84,14 +84,14 @@ const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
   },
   {
     matches: (prompt) =>
-      prompt.includes("pipeline-learner") || prompt.includes("LEARN phase"),
+      prompt.includes("moka-learner") || prompt.includes("LEARN phase"),
     response: {
       qdrant: { attempted: true, succeeded: true },
       evidence: ["stored lesson"],
     },
   },
   {
-    matches: (prompt) => prompt.includes("pipeline-researcher"),
+    matches: (prompt) => prompt.includes("moka-researcher"),
     response: {
       ac: ["package OpenCode schedule completes"],
       findings: ["researched package schedule"],
@@ -489,29 +489,29 @@ profiles:
   orchestrator:
     runner: local
     instructions: { inline: Orchestrate }
-  pipeline-researcher:
+  moka-researcher:
     runner: local
     instructions: { inline: Research }
-  pipeline-code-writer:
+  moka-code-writer:
     runner: local
     instructions: { inline: Implement }
-  pipeline-opencode-code-writer:
+  moka-opencode-code-writer:
     runner: opencode
     model: openai/gpt-5.4-mini
     instructions: { inline: Implement with OpenCode }
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write }
     network: { mode: inherit }
-  pipeline-verifier:
+  moka-verifier:
     runner: local
     instructions: { inline: Verify }
-  pipeline-learner:
+  moka-learner:
     runner: local
     instructions: { inline: Learn }
-  pipeline-thermo-nuclear-reviewer:
+  moka-thermo-nuclear-reviewer:
     runner: local
     instructions: { inline: Review }
-  pipeline-schedule-planner:
+  moka-schedule-planner:
     runner: local
     instructions: { inline: Plan schedule }
 `,
@@ -530,7 +530,7 @@ orchestrator:
 schedules:
   execute-schedule:
     baseline: execute
-    planner_profile: pipeline-schedule-planner
+    planner_profile: moka-schedule-planner
 workflows:
   inspect:
     nodes:
@@ -774,7 +774,7 @@ profiles:
       inline: Orchestrate
     filesystem:
       mode: read-only
-  pipeline-thermo-nuclear-reviewer:
+  moka-thermo-nuclear-reviewer:
     runner: opencode
     instructions:
       path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
@@ -804,7 +804,7 @@ workflows:
     nodes:
       - id: review
         kind: agent
-        profile: pipeline-thermo-nuclear-reviewer
+        profile: moka-thermo-nuclear-reviewer
 `,
     ".pipeline/schemas/review.schema.json": `{"type":"object"}\n`,
   });
@@ -1214,7 +1214,7 @@ describe("execute", () => {
       reporter?.({
         attempt: 1,
         nodeId: "inspect",
-        profile: "pipeline-inspector",
+        profile: "moka-inspector",
         runnerId: "opencode",
         type: "node.start",
       });
@@ -1295,7 +1295,7 @@ describe("execute", () => {
     );
     expect(progress).toContain("Pipeline starting: custom (inspect)");
     expect(progress).toContain(
-      "Node starting: inspect runner=opencode profile=pipeline-inspector attempt=1"
+      "Node starting: inspect runner=opencode profile=moka-inspector attempt=1"
     );
     expect(progress).toContain(
       "Runtime observed: runtime.state.enter - node actor pipeline.node.run-123.custom.inspect entered running"
@@ -1461,7 +1461,7 @@ workflows:
     nodes:
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
 `
         );
 
@@ -1920,7 +1920,7 @@ profiles:
       mode: read-only
     network:
       mode: inherit
-  pipeline-epic-router:
+  moka-epic-router:
     runner: opencode
     instructions:
       path: .pipeline/prompts/epic-router.md
@@ -1974,10 +1974,10 @@ workflows:
 
         const stderrOutput = stderr();
         expect(stderrOutput).not.toContain(
-          "profiles.pipeline-epic-router.instructions.path references missing file '.pipeline/prompts/epic-router.md'"
+          "profiles.moka-epic-router.instructions.path references missing file '.pipeline/prompts/epic-router.md'"
         );
         expect(stderrOutput).not.toContain(
-          "profiles.pipeline-epic-router.output.schema_path references missing file '.pipeline/schemas/epic-plan.schema.json'"
+          "profiles.moka-epic-router.output.schema_path references missing file '.pipeline/schemas/epic-plan.schema.json'"
         );
         expect(stderrOutput).not.toContain("WARN missing-file-reference");
         expect(output()).toContain("OK: inspect");
@@ -2004,10 +2004,10 @@ workflows:
           "skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
         );
         expect(stderrOutput).not.toContain(
-          "profiles.pipeline-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
+          "profiles.moka-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
         );
         expect(stderrOutput).not.toContain(
-          "profiles.pipeline-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
+          "profiles.moka-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
         );
         expect(stderrOutput).not.toContain("WARN entrypoint-shadowed");
         expect(output()).toContain("OK: inspect");

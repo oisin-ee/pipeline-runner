@@ -139,6 +139,15 @@ mcp_gateway:
       workspace_path_source: PIPELINE_TARGET_PATH
       tool_prefixes: [backlog]
 skills:
+  execute:
+    path: .agents/skills/execute/SKILL.md
+    source_root: package
+  inspect:
+    path: .agents/skills/inspect/SKILL.md
+    source_root: package
+  quick:
+    path: .agents/skills/quick/SKILL.md
+    source_root: package
   critique:
     path: .agents/skills/critique/SKILL.md
     source_root: package
@@ -182,7 +191,16 @@ skills:
     path: .agents/skills/verify/SKILL.md
     source_root: package
 profiles:
-  pipeline-researcher:
+  moka-orchestrator:
+    runner: opencode
+    description: Orchestrate the configured pipeline and enforce gates.
+    instructions: { inline: "Orchestrate the configured pipeline through package-defined entrypoints, native agents, and gates. Do not bypass configured runner subprocesses or package-configured gates." }
+    skills: [execute, quick, inspect]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    network: { mode: inherit }
+  moka-researcher:
     runner: opencode
     description: Research the requested task and produce structured findings.
     instructions: { inline: "Inspect first-party source, tests, docs, and task context for the current task only. Produce concise findings with file references and stop; do not perform open-ended repository exploration." }
@@ -196,7 +214,7 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/research.schema.json
       repair: { enabled: true, max_attempts: 1 }
-  pipeline-inspector:
+  moka-inspector:
     runner: opencode
     description: Inspect the repository without modifying files.
     instructions: { inline: "Inspect the repository without modifying files." }
@@ -205,7 +223,7 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
-  pipeline-schedule-planner:
+  moka-schedule-planner:
     runner: opencode
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions: { inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only." }
@@ -215,7 +233,7 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
     network: { mode: inherit }
-  pipeline-test-writer:
+  moka-test-writer:
     runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
@@ -229,7 +247,7 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/implementation.schema.json
       repair: { enabled: true, max_attempts: 1 }
-  pipeline-code-writer:
+  moka-code-writer:
     runner: opencode
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
@@ -243,7 +261,7 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/implementation.schema.json
       repair: { enabled: true, max_attempts: 1 }
-  pipeline-acceptance-reviewer:
+  moka-acceptance-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
@@ -257,7 +275,7 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/acceptance.schema.json
       repair: { enabled: true, max_attempts: 1 }
-  pipeline-thermo-nuclear-reviewer:
+  moka-thermo-nuclear-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
     description: Perform the final thermo-nuclear code quality review of the integration branch.
@@ -271,7 +289,7 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/review.schema.json
       repair: { enabled: true, max_attempts: 1 }
-  pipeline-verifier:
+  moka-verifier:
     runner: opencode
     scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
@@ -285,7 +303,7 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/verify.schema.json
       repair: { enabled: true, max_attempts: 1 }
-  pipeline-learner:
+  moka-learner:
     runner: opencode
     description: Store durable lessons from the completed run.
     instructions: { inline: "Store durable lessons from the completed run when useful." }
@@ -302,6 +320,8 @@ profiles:
 
 const PACKAGE_DEFAULT_PIPELINE_YAML = `version: 1
 default_workflow: inspect
+orchestrator:
+  profile: moka-orchestrator
 entrypoints:
   quick:
     schedule: quick-schedule
@@ -339,63 +359,63 @@ scheduler:
       nodes:
         backlog-intake:
           category: intake
-          profile: pipeline-researcher
+          profile: moka-researcher
           models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
         red-tests:
           category: red
-          profile: pipeline-test-writer
+          profile: moka-test-writer
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
         green-implementation:
           category: green
-          profile: pipeline-code-writer
+          profile: moka-code-writer
           models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         verification:
           category: verification
-          profile: pipeline-verifier
+          profile: moka-verifier
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
     execute:
       required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
       nodes:
         backlog-intake:
           category: intake
-          profile: pipeline-researcher
+          profile: moka-researcher
           models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
         research:
           category: research
-          profile: pipeline-researcher
+          profile: moka-researcher
           models: [openai/gpt-5.5-fast, zai-coding-plan/glm-5.1, kimi-for-coding/k2p6]
         red-tests:
           category: red
-          profile: pipeline-test-writer
+          profile: moka-test-writer
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
         green-backend:
           category: green
-          profile: pipeline-code-writer
+          profile: moka-code-writer
           models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         green-frontend:
           category: green
-          profile: pipeline-code-writer
+          profile: moka-code-writer
           models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         acceptance-review:
           category: acceptance
-          profile: pipeline-acceptance-reviewer
+          profile: moka-acceptance-reviewer
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
         verification:
           category: verification
-          profile: pipeline-verifier
+          profile: moka-verifier
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
         learn:
           category: learn
-          profile: pipeline-learner
+          profile: moka-learner
           models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
 schedules:
   quick-schedule:
     baseline: quick
-    planner_profile: pipeline-schedule-planner
+    planner_profile: moka-schedule-planner
     node_catalog: quick
   execute-schedule:
     baseline: execute
-    planner_profile: pipeline-schedule-planner
+    planner_profile: moka-schedule-planner
     node_catalog: execute
 workflows:
   inspect:
@@ -403,7 +423,7 @@ workflows:
     nodes:
       - id: inspect
         kind: agent
-        profile: pipeline-inspector
+        profile: moka-inspector
 `;
 
 const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL = new URL(

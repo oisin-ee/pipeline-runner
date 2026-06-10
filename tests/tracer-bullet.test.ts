@@ -222,7 +222,7 @@ log({ type: "role", args, prompt, cwd: process.cwd() });
 if (
   prompt.includes("You are a researcher") ||
   prompt.includes("You are a bounded researcher") ||
-  prompt.includes("pipeline-researcher")
+  prompt.includes("moka-researcher")
 ) {
   process.stdout.write(JSON.stringify({
     ac: ["integrated tracer reaches deterministic pipeline behavior"],
@@ -234,7 +234,7 @@ if (
 
 if (
   prompt.includes("You are the LEARN phase") ||
-  prompt.includes("pipeline-learner")
+  prompt.includes("moka-learner")
 ) {
   process.stdout.write(JSON.stringify({
     qdrant: { attempted: true, succeeded: true },
@@ -245,7 +245,7 @@ if (
 
 if (
   prompt.includes("You are a test-writer") ||
-  prompt.includes("pipeline-test-writer")
+  prompt.includes("moka-test-writer")
 ) {
   fs.writeFileSync(
     path.join(process.cwd(), "pipeline-feature.test.ts"),
@@ -266,7 +266,7 @@ if (
 
 if (
   prompt.includes("You are a code-writer") ||
-  prompt.includes("pipeline-code-writer")
+  prompt.includes("moka-code-writer")
 ) {
   fs.writeFileSync(
     path.join(process.cwd(), "pipeline-feature.impl"),
@@ -287,7 +287,7 @@ if (
 
 if (
   prompt.includes("You are an acceptance reviewer") ||
-  prompt.includes("pipeline-acceptance-reviewer")
+  prompt.includes("moka-acceptance-reviewer")
 ) {
   process.stdout.write(JSON.stringify({
     verdict: "PASS",
@@ -300,7 +300,7 @@ if (
 
 if (
   prompt.includes("You are a code verifier") ||
-  prompt.includes("pipeline-verifier")
+  prompt.includes("moka-verifier")
 ) {
   const verdict = process.env.PIPELINE_TRACER_VERDICT || "PASS";
   const evidence =
@@ -544,7 +544,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
       rolePrompts.some(
         (prompt) =>
           prompt.includes("code verifier") ||
-          prompt.includes("pipeline-verifier")
+          prompt.includes("moka-verifier")
       )
     ).toBe(true);
     expect(
@@ -570,7 +570,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
       rolePrompts.some(
         (prompt) =>
           prompt.includes("code verifier") ||
-          prompt.includes("pipeline-verifier")
+          prompt.includes("moka-verifier")
       )
     ).toBe(true);
     expect(rolePrompts.some((prompt) => prompt.includes("LEARN phase"))).toBe(

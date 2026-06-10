@@ -79,6 +79,9 @@ interface CommandDefinition {
 type EntrypointEntry = [string, PipelineConfig["entrypoints"][string]];
 type ProfileEntry = [string, PipelineConfig["profiles"][string]];
 type ActorConfig = PipelineConfig["profiles"][string];
+
+const OPENCODE_ORCHESTRATOR_AGENT_ID = "MoKa Orchestrator";
+const MOKA_PROFILE_PREFIX = "moka-";
 type EcosystemCode = OpenCodeEcosystemManifest["ecosystem_code"][number];
 
 interface OpencodePermissionOptions {
@@ -109,17 +112,7 @@ function markdown(data: Record<string, unknown>, body: string): string {
 }
 
 function profileEntries(config: PipelineConfig): ProfileEntry[] {
-  const profileIds = new Set<string>();
-  for (const workflow of Object.values(config.workflows)) {
-    for (const node of workflow.nodes) {
-      if (node.kind === "agent" && node.profile) {
-        profileIds.add(node.profile);
-      }
-    }
-  }
-  return [...profileIds]
-    .sort((a, b) => a.localeCompare(b))
-    .map((id) => [id, config.profiles[id]] as ProfileEntry);
+  return Object.entries(config.profiles).sort(([a], [b]) => a.localeCompare(b));
 }
 
 function entrypointEntries(config: PipelineConfig): EntrypointEntry[] {
@@ -161,8 +154,9 @@ function nativeProfileEntries(
   host: ActiveCommandHost,
   config: PipelineConfig
 ): ProfileEntry[] {
-  return profileEntries(config).filter(([_, profile]) =>
-    canRunNatively(host, profile)
+  return profileEntries(config).filter(
+    ([id, profile]) =>
+      id !== config.orchestrator?.profile && canRunNatively(host, profile)
   );
 }
 
@@ -251,7 +245,7 @@ function dispatchRouteForAgent(
       ...route,
       kind: "native-named-agent",
       ...(model ? { model } : {}),
-      nativeAgentId: route.profileId,
+      nativeAgentId: nativeAgentIdForHost(host, route.profileId),
       runnerId,
     };
   }
@@ -261,7 +255,7 @@ function dispatchRouteForAgent(
       ...route,
       kind: "native-model-agent",
       ...(model ? { model } : {}),
-      nativeAgentId: route.profileId,
+      nativeAgentId: nativeAgentIdForHost(host, route.profileId),
       runnerId,
     };
   }
@@ -270,6 +264,29 @@ function dispatchRouteForAgent(
     kind: "cli",
     runnerId,
   };
+}
+
+function nativeAgentIdForHost(host: ActiveCommandHost, profileId: string): string {
+  return host === "opencode" ? opencodeAgentName(profileId) : profileId;
+}
+
+function opencodeAgentName(profileId: string): string {
+  if (!profileId.startsWith(MOKA_PROFILE_PREFIX)) {
+    return profileId;
+  }
+  const displayName = profileId
+    .slice(MOKA_PROFILE_PREFIX.length)
+    .split("-")
+    .map(opencodeAgentNamePart)
+    .join(" ");
+  return `MoKa ${displayName}`;
+}
+
+function opencodeAgentNamePart(part: string): string {
+  if (part === "opencode") {
+    return "OpenCode";
+  }
+  return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
 }
 
 function grants(actor: ActorConfig): string {
@@ -413,7 +430,7 @@ function cliDispatchLine(route: AgentDispatchRoute): string {
 
 function runnerCliCommand(route: AgentDispatchRoute): string {
   if (route.runnerId === "opencode") {
-    return `opencode run --agent ${route.profileId} --format json --dir <repo-root> <node prompt>`;
+    return `opencode run --agent "${opencodeAgentName(route.profileId)}" --format json --dir <repo-root> <node prompt>`;
   }
   throw new Error(
     `runner '${route.runnerId}' cannot be represented as a supported native or CLI route`
@@ -681,7 +698,7 @@ function opencodeDefinitions(
     ...entrypointCommandDefinitions("opencode", config, (id, entrypoint) => ({
       content: markdown(
         {
-          ...(orchestrator ? { agent: "pipeline-orchestrator" } : {}),
+          ...(orchestrator ? { agent: OPENCODE_ORCHESTRATOR_AGENT_ID } : {}),
           description: entrypointDescription(id, entrypoint),
         },
         compactLines([
@@ -714,6 +731,7 @@ function opencodeDefinitions(
                 description:
                   "Orchestrate the configured pipeline and enforce gates.",
                 mode: "primary",
+                name: OPENCODE_ORCHESTRATOR_AGENT_ID,
                 permission: opencodePermission(orchestrator, {
                   allowedTaskAgents: agentDispatchRoutes("opencode", config)
                     .filter((route) => route.kind !== "cli")
@@ -731,13 +749,14 @@ function opencodeDefinitions(
             ),
             host: "opencode" as const,
             invocation: invocationForHost("opencode"),
-            path: ".opencode/agents/pipeline-orchestrator.md",
+            path: `.opencode/agents/${OPENCODE_ORCHESTRATOR_AGENT_ID}.md`,
           },
         ]
       : []),
     ...nativeProfileEntries("opencode", config).map(([id, profile]) => ({
       content: markdown(
         {
+          name: nativeAgentIdForHost("opencode", id),
           description: profile.description ?? id,
           hidden: false,
           mode: "subagent",
@@ -757,7 +776,7 @@ function opencodeDefinitions(
       ),
       host: "opencode" as const,
       invocation: invocationForHost("opencode"),
-      path: `.opencode/agents/${id}.md`,
+      path: `.opencode/agents/${nativeAgentIdForHost("opencode", id)}.md`,
     })),
     ...opencodeSkillProjections(config, cwd).map(opencodeSkillDefinition),
     ...localPluginDefinitions(),

@@ -1,5 +1,7 @@
 version: 1
 default_workflow: inspect
+orchestrator:
+  profile: moka-orchestrator
 entrypoints:
   quick:
     schedule: quick-schedule
@@ -40,63 +42,63 @@ scheduler:
       nodes:
         backlog-intake:
           category: intake
-          profile: pipeline-researcher
+          profile: moka-researcher
           models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
         red-tests:
           category: red
-          profile: pipeline-test-writer
+          profile: moka-test-writer
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
         green-implementation:
           category: green
-          profile: pipeline-code-writer
+          profile: moka-code-writer
           models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         verification:
           category: verification
-          profile: pipeline-verifier
+          profile: moka-verifier
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
     execute:
       required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
       nodes:
         backlog-intake:
           category: intake
-          profile: pipeline-researcher
+          profile: moka-researcher
           models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
         research:
           category: research
-          profile: pipeline-researcher
+          profile: moka-researcher
           models: [openai/gpt-5.5-fast, zai-coding-plan/glm-5.1, kimi-for-coding/k2p6]
         red-tests:
           category: red
-          profile: pipeline-test-writer
+          profile: moka-test-writer
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
         green-backend:
           category: green
-          profile: pipeline-code-writer
+          profile: moka-code-writer
           models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         green-frontend:
           category: green
-          profile: pipeline-code-writer
+          profile: moka-code-writer
           models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
         acceptance-review:
           category: acceptance
-          profile: pipeline-acceptance-reviewer
+          profile: moka-acceptance-reviewer
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
         verification:
           category: verification
-          profile: pipeline-verifier
+          profile: moka-verifier
           models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
         learn:
           category: learn
-          profile: pipeline-learner
+          profile: moka-learner
           models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
 schedules:
   quick-schedule:
     baseline: quick
-    planner_profile: pipeline-schedule-planner
+    planner_profile: moka-schedule-planner
     node_catalog: quick
   execute-schedule:
     baseline: execute
-    planner_profile: pipeline-schedule-planner
+    planner_profile: moka-schedule-planner
     node_catalog: execute
 workflows:
   inspect:
@@ -104,4 +106,4 @@ workflows:
     nodes:
       - id: inspect
         kind: agent
-        profile: pipeline-inspector
+        profile: moka-inspector

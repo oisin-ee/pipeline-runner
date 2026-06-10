@@ -35,6 +35,7 @@ import {
 import { compileWorkflowPlan } from "../src/workflow-planner";
 
 const tempDirs: string[] = [];
+const RUNNER_ORCHESTRATOR_METADATA_RE = /runner orchestrator metadata/i;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -310,24 +311,35 @@ describe("installed dogfood configuration", () => {
     expect(config.workflows["epic-drain"]).toBeUndefined();
   });
 
+  it("does not expose runner orchestrator metadata in installed moka submit help", () => {
+    const result = spawnSync("moka", ["submit", "--help"], {
+      encoding: "utf8",
+    });
+    const help = `${result.stdout}\n${result.stderr}`;
+
+    expect(result.status, help).toBe(0);
+    expect(help).not.toContain("--orchestrator");
+    expect(help).not.toMatch(RUNNER_ORCHESTRATOR_METADATA_RE);
+  });
+
   it("keeps installed host resources aligned with package defaults and agent grants", () => {
     const config = loadPipelineConfig(process.cwd(), {
       allowMissingLintFileReferences: true,
     });
     const root = process.cwd();
-    expect(config.orchestrator).toBeUndefined();
+    expect(config.orchestrator).toEqual({ profile: "moka-orchestrator" });
     for (const surface of entrypointCommandSurfaces(config)) {
       expect(existsSync(join(root, surface.path)), surface.path).toBe(true);
       const content = readFileSync(join(root, surface.path), "utf8");
-      expect(content).toContain("Configured orchestrator: none");
-      expect(content).not.toContain("agent: pipeline-orchestrator");
+      expect(content).toContain("agent: MoKa Orchestrator");
+      expect(content).toContain("Configured orchestrator:");
       expect(content).toContain(surface.invocation);
       expect(content).toContain(surface.targetId);
     }
 
     expect(
-      existsSync(join(root, ".opencode/agents/pipeline-orchestrator.md"))
-    ).toBe(false);
+      existsSync(join(root, ".opencode/agents/MoKa Orchestrator.md"))
+    ).toBe(true);
 
     for (const profileId of workflowProfileIds(config)) {
       const runner = config.profiles[profileId]?.runner;
@@ -369,46 +381,46 @@ workflows:
     nodes:
       - id: research
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
       - id: pc-37-1-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
         task_context:
           id: PC-37.1
       - id: pc-37-2-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [pc-37-1-green]
         task_context:
           id: PC-37.2
       - id: pc-37-3-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [pc-37-1-green]
         task_context:
           id: PC-37.3
       - id: pc-37-4-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
         task_context:
           id: PC-37.4
       - id: pc-37-5-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
         task_context:
           id: PC-37.5
       - id: pc-37-6-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [pc-37-2-green, pc-37-3-green, pc-37-4-green, pc-37-5-green]
         task_context:
           id: PC-37.6
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [pc-37-6-green]
 `;
 
@@ -704,21 +716,21 @@ workflows:
             id: "green",
             kind: "agent",
             needs: [],
-            profile: "pipeline-code-writer",
+            profile: "moka-code-writer",
             runnerId: "opencode",
           },
           {
             id: "acceptance",
             kind: "agent",
             needs: ["green"],
-            profile: "pipeline-acceptance-reviewer",
+            profile: "moka-acceptance-reviewer",
             runnerId: "opencode",
           },
           {
             id: "verify",
             kind: "agent",
             needs: ["acceptance"],
-            profile: "pipeline-verifier",
+            profile: "moka-verifier",
             runnerId: "opencode",
           },
         ],
@@ -747,7 +759,7 @@ workflows:
         evidence: ["acceptance review ran"],
         verdict: "FAIL",
       },
-      profile: "pipeline-acceptance-reviewer",
+      profile: "moka-acceptance-reviewer",
       schemaPath: ".pipeline/schemas/acceptance.schema.json",
       type: "node.output.recorded",
     });
@@ -768,7 +780,7 @@ workflows:
       worktreePath: project,
     });
     expect(continuationLaunch.runnerId).toBe("opencode");
-    expect(continuationLaunch.profileId).toBe("pipeline-code-writer");
+    expect(continuationLaunch.profileId).toBe("moka-code-writer");
     expect(continuationLaunch.args).toContain("run");
     expect(continuationLaunch.args).toContain(
       "Continue the OpenCode goal-loop dogfood."
@@ -803,7 +815,7 @@ workflows:
             evidence: ["acceptance passed"],
             verdict: "PASS",
           },
-          profile: "pipeline-acceptance-reviewer",
+          profile: "moka-acceptance-reviewer",
           schemaPath: ".pipeline/schemas/acceptance.schema.json",
           type: "node.output.recorded",
         });
@@ -815,7 +827,7 @@ workflows:
             evidence: ["real package OpenCode launch plan inspected"],
             verdict: "PASS",
           },
-          profile: "pipeline-verifier",
+          profile: "moka-verifier",
           schemaPath: ".pipeline/schemas/verify.schema.json",
           type: "node.output.recorded",
         });
@@ -881,9 +893,27 @@ function nativeAgentPathFor(
   profileId: string
 ): string | undefined {
   if (runner === "opencode") {
-    return `.opencode/agents/${profileId}.md`;
+    return `.opencode/agents/${opencodeAgentName(profileId)}.md`;
   }
   return;
+}
+
+function opencodeAgentName(profileId: string): string {
+  if (!profileId.startsWith("moka-")) {
+    return profileId;
+  }
+  return `MoKa ${profileId
+    .slice("moka-".length)
+    .split("-")
+    .map(opencodeAgentNamePart)
+    .join(" ")}`;
+}
+
+function opencodeAgentNamePart(part: string): string {
+  if (part === "opencode") {
+    return "OpenCode";
+  }
+  return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
 }
 
 function flattenDogfoodNodes(

@@ -170,7 +170,7 @@ export function createGoalContinuationLaunchPlan(input: {
 }): RunnerLaunchPlan {
   return createRunnerLaunchPlan(input.config, {
     nodeId: input.nodeId ?? "goal-continuation",
-    profileId: input.profileId ?? "pipeline-code-writer",
+    profileId: input.profileId ?? "moka-code-writer",
     prompt: input.prompt,
     worktreePath: input.worktreePath,
   });

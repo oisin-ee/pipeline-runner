@@ -371,7 +371,7 @@ skills:
     path: .agents/skills/accessibility-review/SKILL.md
 
 profiles:
-  pipeline-frontend-reviewer:
+  moka-frontend-reviewer:
     runner: opencode
     instructions:
       path: .pipeline/prompts/frontend-reviewer.md
@@ -390,7 +390,7 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 
 profiles:
-  pipeline-router:
+  moka-router:
     runner: opencode
     instructions:
       path: .pipeline/prompts/router.md

@@ -24,9 +24,9 @@ const SHARED_WORKTREE_PARALLEL_RE =
   /write-capable children sharing a worktree/i;
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
-  /schedule planner 'pipeline-schedule-planner' failed with exit 1.*planner auth missing.*partial planner output/s;
+  /schedule planner 'moka-schedule-planner' failed with exit 1.*planner auth missing.*partial planner output/s;
 const PLANNER_TIMEOUT_FAILURE_RE =
-  /schedule planner 'pipeline-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/s;
+  /schedule planner 'moka-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/s;
 const REPAIR_NODE_SCHEMA_RE =
   /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/s;
 const GREEN_AFTER_RED_RE =
@@ -59,7 +59,7 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
-  pipeline-schedule-planner:
+  moka-schedule-planner:
     runner: opencode
     instructions: { inline: Plan schedules }
     tools: [read, list, grep, glob, bash]
@@ -67,47 +67,47 @@ profiles:
     network: { mode: inherit }
     output:
       format: text
-  pipeline-researcher:
+  moka-researcher:
     runner: opencode
     instructions: { inline: Research }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
-  pipeline-test-writer:
+  moka-test-writer:
     runner: opencode
     instructions: { inline: Test }
     tools: [read, edit, write, bash]
     filesystem: { mode: workspace-write }
     network: { mode: inherit }
-  pipeline-code-writer:
+  moka-code-writer:
     runner: opencode
     scheduling_roles: [implementation]
     instructions: { inline: Implement }
     tools: [read, edit, write, bash]
     filesystem: { mode: workspace-write }
     network: { mode: inherit }
-  pipeline-verifier:
+  moka-verifier:
     runner: opencode
     scheduling_roles: [coverage]
     instructions: { inline: Verify }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
-  pipeline-acceptance-reviewer:
+  moka-acceptance-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
     instructions: { inline: Acceptance }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
-  pipeline-thermo-nuclear-reviewer:
+  moka-thermo-nuclear-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
     instructions: { inline: Review }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
-  pipeline-learner:
+  moka-learner:
     runner: opencode
     instructions: { inline: Learn }
     tools: [read, list, grep, glob, bash]
@@ -132,32 +132,32 @@ orchestrator:
 schedules:
   execute-schedule:
     baseline: execute
-    planner_profile: pipeline-schedule-planner
+    planner_profile: moka-schedule-planner
   quick-schedule:
     baseline: quick
-    planner_profile: pipeline-schedule-planner
+    planner_profile: moka-schedule-planner
 workflows:
   inspect:
     nodes:
       - id: inspect
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
   execute-slice:
     nodes:
       - id: research
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
       - id: acceptance
         kind: agent
-        profile: pipeline-acceptance-reviewer
+        profile: moka-acceptance-reviewer
         needs: [implement]
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [acceptance]
 `;
 
@@ -293,14 +293,14 @@ describe("schedule artifacts", () => {
 
     expect(
       (
-        parsed.profiles["pipeline-code-writer"] as unknown as {
+        parsed.profiles["moka-code-writer"] as unknown as {
           scheduling_roles: string[];
         }
       ).scheduling_roles
     ).toEqual(["implementation"]);
     expect(
       (
-        parsed.profiles["pipeline-verifier"] as unknown as {
+        parsed.profiles["moka-verifier"] as unknown as {
           scheduling_roles: string[];
         }
       ).scheduling_roles
@@ -331,7 +331,7 @@ workflows:
     nodes:
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
 `;
 
     try {
@@ -373,13 +373,13 @@ workflows:
         nodes:
           - id: frontend
             kind: agent
-            profile: pipeline-code-writer
+            profile: moka-code-writer
           - id: backend
             kind: agent
-            profile: pipeline-code-writer
+            profile: moka-code-writer
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [specialists]
 `;
 
@@ -401,7 +401,7 @@ workflows:
   });
 
   it("includes planner stderr when the planner exits non-zero", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-planner-fail-"));
+    const dir = mkdtempSync(join(tmpdir(), "moka-schedule-planner-fail-"));
 
     try {
       await expect(
@@ -426,7 +426,7 @@ workflows:
 
   it("includes timeout details when the planner subprocess times out", async () => {
     const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-planner-timeout-")
+      join(tmpdir(), "moka-schedule-planner-timeout-")
     );
 
     try {
@@ -460,22 +460,22 @@ workflows:
       nodes: [
         "- id: red-tests",
         "  kind: agent",
-        "  profile: pipeline-test-writer",
+        "  profile: moka-test-writer",
         "- id: green-implementation",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [red-tests]",
         "- id: acceptance-review",
         "  kind: agent",
-        "  profile: pipeline-acceptance-reviewer",
+        "  profile: moka-acceptance-reviewer",
         "  needs: [green-implementation]",
         "- id: verification",
         "  kind: agent",
-        "  profile: pipeline-verifier",
+        "  profile: moka-verifier",
         "  needs: [acceptance-review]",
         "- id: learn",
         "  kind: agent",
-        "  profile: pipeline-learner",
+        "  profile: moka-learner",
         "  needs: [verification]",
       ],
     });
@@ -516,8 +516,8 @@ workflows:
   it("shows runner, model, grants, and output metadata for allowed planner profiles", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-profile-fit-"));
     const richConfig = config();
-    richConfig.profiles["pipeline-opencode-code-writer"] = {
-      ...richConfig.profiles["pipeline-code-writer"],
+    richConfig.profiles["moka-opencode-code-writer"] = {
+      ...richConfig.profiles["moka-code-writer"],
       description: "Implement production code with OpenCode.",
       model: "openai/gpt-5.4-mini",
       runner: "opencode",
@@ -536,10 +536,10 @@ workflows:
     nodes:
       - id: implement
         kind: agent
-        profile: pipeline-opencode-code-writer
+        profile: moka-opencode-code-writer
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [implement]
 `;
 
@@ -557,7 +557,7 @@ workflows:
         worktreePath: dir,
       });
 
-      expect(prompt).toContain("- pipeline-opencode-code-writer");
+      expect(prompt).toContain("- moka-opencode-code-writer");
       expect(prompt).toContain("runner: opencode");
       expect(prompt).toContain("model: openai/gpt-5.4-mini");
       expect(prompt).toContain("scheduling_roles: implementation");
@@ -584,14 +584,14 @@ workflows:
     nodes:
       - id: research
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [implement]
 `);
 
@@ -621,14 +621,14 @@ workflows:
     nodes:
       - id: research_role_contract
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
       - id: green_scheduler_roles
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research_role_contract]
       - id: verify_real_schedule_flows
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [green_scheduler_roles]
 `;
 
@@ -668,8 +668,8 @@ workflows:
       join(tmpdir(), "pipeline-schedule-opencode-repair-")
     );
     const opencodeConfig = config();
-    opencodeConfig.profiles["pipeline-schedule-planner"] = {
-      ...opencodeConfig.profiles["pipeline-schedule-planner"],
+    opencodeConfig.profiles["moka-schedule-planner"] = {
+      ...opencodeConfig.profiles["moka-schedule-planner"],
       runner: "opencode",
     };
     const invalidSchedule = `
@@ -688,12 +688,12 @@ workflows:
         command: backlog task dev-k8s-01 --plain
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [inspect-devspace]
         instructions: Implement the ticket without changing pipeline-console.
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [implement]
 `;
     const repairedSchedule = `
@@ -712,11 +712,11 @@ workflows:
         command: [backlog, task, dev-k8s-01, --plain]
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [inspect-devspace]
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [implement]
 `;
     const prompts: string[] = [];
@@ -762,7 +762,7 @@ workflows:
         id: "implement",
         kind: "agent",
         needs: ["inspect-devspace"],
-        profile: "pipeline-code-writer",
+        profile: "moka-code-writer",
       });
       expect(() =>
         compileScheduleArtifact(opencodeConfig, result.artifact, dir)
@@ -862,10 +862,10 @@ workflows:
     nodes:
       - id: green-state
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
       - id: green-header-picker
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
 `;
 
     try {
@@ -883,7 +883,7 @@ workflows:
         id: "generated-coverage",
         kind: "agent",
         needs: ["green-state", "green-header-picker"],
-        profile: "pipeline-verifier",
+        profile: "moka-verifier",
       });
       compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
@@ -911,13 +911,13 @@ workflows:
         nodes:
           - id: implement-current-club-state
             kind: agent
-            profile: pipeline-code-writer
+            profile: moka-code-writer
           - id: implement-club-picker-header
             kind: agent
-            profile: pipeline-code-writer
+            profile: moka-code-writer
           - id: implement-signout-reset
             kind: agent
-            profile: pipeline-code-writer
+            profile: moka-code-writer
       - id: integration
         kind: builtin
         builtin: drain-merge
@@ -947,7 +947,7 @@ workflows:
               "implement-club-picker-header",
               "implement-signout-reset",
             ],
-            profile: "pipeline-verifier",
+            profile: "moka-verifier",
           }),
         ]),
       });
@@ -1012,30 +1012,30 @@ task: Bad: compact scalar
       nodes: [
         "- id: research",
         "  kind: agent",
-        "  profile: pipeline-researcher",
+        "  profile: moka-researcher",
         "- id: scheduler-context-red",
         "  kind: agent",
-        "  profile: pipeline-test-writer",
+        "  profile: moka-test-writer",
         "  needs: [research]",
         "- id: pipe-41-7-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [scheduler-context-red]",
         "  task_context:",
         "    id: PIPE-41.7",
         "- id: pipe-41-8-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [scheduler-context-red]",
         "  task_context:",
         "    id: PIPE-41.8",
         "- id: scheduler-context-acceptance",
         "  kind: agent",
-        "  profile: pipeline-acceptance-reviewer",
+        "  profile: moka-acceptance-reviewer",
         "  needs: [pipe-41-7-green, pipe-41-8-green]",
         "- id: scheduler-context-verify",
         "  kind: agent",
-        "  profile: pipeline-verifier",
+        "  profile: moka-verifier",
         "  needs: [scheduler-context-acceptance]",
         "- id: merge",
         "  kind: builtin",
@@ -1043,7 +1043,7 @@ task: Bad: compact scalar
         "  needs: [scheduler-context-verify]",
         "- id: review",
         "  kind: agent",
-        "  profile: pipeline-thermo-nuclear-reviewer",
+        "  profile: moka-thermo-nuclear-reviewer",
         "  needs: [merge]",
       ],
     });
@@ -1063,7 +1063,7 @@ task: Bad: compact scalar
       expect(prompt).toContain("PIPE-41.7");
       expect(prompt).toContain("PIPE-41.8");
       expect(prompt).toContain("Allowed profiles:");
-      expect(prompt).toContain("pipeline-code-writer");
+      expect(prompt).toContain("moka-code-writer");
       expect(prompt).not.toContain("Allowed workflows:");
       expect(prompt).toContain("root_workflow: root");
       expect(prompt).toContain("Shape the graph by intent");
@@ -1082,12 +1082,12 @@ task: Bad: compact scalar
           expect.objectContaining({
             id: "scheduler-context-red",
             kind: "agent",
-            profile: "pipeline-test-writer",
+            profile: "moka-test-writer",
           }),
           expect.objectContaining({
             id: "pipe-41-7-green",
             kind: "agent",
-            profile: "pipeline-code-writer",
+            profile: "moka-code-writer",
             task_context: expect.objectContaining({
               acceptance_criteria: [
                 { id: "1", text: "Prompts include task context." },
@@ -1100,7 +1100,7 @@ task: Bad: compact scalar
           expect.objectContaining({
             id: "pipe-41-8-green",
             kind: "agent",
-            profile: "pipeline-code-writer",
+            profile: "moka-code-writer",
             task_context: expect.objectContaining({
               acceptance_criteria: [
                 { id: "1", text: "Work units come from Backlog." },
@@ -1119,13 +1119,13 @@ task: Bad: compact scalar
             id: "scheduler-context-acceptance",
             kind: "agent",
             needs: ["pipe-41-7-green", "pipe-41-8-green"],
-            profile: "pipeline-acceptance-reviewer",
+            profile: "moka-acceptance-reviewer",
           }),
           expect.objectContaining({
             id: "scheduler-context-verify",
             kind: "agent",
             needs: ["scheduler-context-acceptance"],
-            profile: "pipeline-verifier",
+            profile: "moka-verifier",
           }),
         ])
       );
@@ -1152,12 +1152,12 @@ task: Bad: compact scalar
       nodes: [
         "- id: jalgpall-2-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  task_context:",
         "    id: jalgpall-2",
         "- id: jalgpall-2-verify",
         "  kind: agent",
-        "  profile: pipeline-verifier",
+        "  profile: moka-verifier",
         "  needs: [jalgpall-2-green]",
       ],
     });
@@ -1242,34 +1242,34 @@ task: Bad: compact scalar
       nodes: [
         "- id: research",
         "  kind: agent",
-        "  profile: pipeline-researcher",
+        "  profile: moka-researcher",
         "- id: pc-37-1-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [research]",
         "  task_context:",
         "    id: PC-37.1",
         "- id: pc-37-2-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [pc-37-1-green]",
         "  task_context:",
         "    id: PC-37.2",
         "- id: pc-37-3-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [pc-37-1-green]",
         "  task_context:",
         "    id: PC-37.3",
         "- id: pc-37-4-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [pc-37-2-green, pc-37-3-green]",
         "  task_context:",
         "    id: PC-37.4",
         "- id: verify",
         "  kind: agent",
-        "  profile: pipeline-verifier",
+        "  profile: moka-verifier",
         "  needs: [pc-37-4-green]",
       ],
     });
@@ -1339,28 +1339,28 @@ workflows:
     nodes:
       - id: research
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
       - id: pc-37-1-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
         task_context:
           id: PC-37.1
       - id: pc-37-2-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
         task_context:
           id: PC-37.2
       - id: pc-37-3-green
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         needs: [research]
         task_context:
           id: PC-37.3
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [pc-37-1-green, pc-37-2-green, pc-37-3-green]
 `;
 
@@ -1407,22 +1407,22 @@ workflows:
       nodes: [
         "- id: research",
         "  kind: agent",
-        "  profile: pipeline-researcher",
+        "  profile: moka-researcher",
         "- id: pipe-41-7-red",
         "  kind: agent",
-        "  profile: pipeline-test-writer",
+        "  profile: moka-test-writer",
         "  needs: [research]",
         "  task_context:",
         "    id: PIPE-41.7",
         "- id: pipe-41-7-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [pipe-41-7-red]",
         "  task_context:",
         "    id: PIPE-41.7",
         "- id: pipe-41-7-verify",
         "  kind: agent",
-        "  profile: pipeline-verifier",
+        "  profile: moka-verifier",
         "  needs: [pipe-41-7-green]",
         "  task_context:",
         "    id: PIPE-41.7",
@@ -1443,7 +1443,7 @@ workflows:
         expect.arrayContaining([
           expect.objectContaining({
             id: "pipe-41-7-green",
-            profile: "pipeline-code-writer",
+            profile: "moka-code-writer",
             task_context: expect.objectContaining({
               id: "PIPE-41.7",
               title: "Propagate node context",
@@ -1499,23 +1499,23 @@ workflows:
       nodes: [
         "- id: pipe-50-1-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  task_context:",
         "    id: PIPE-50.1",
         "- id: pipe-50-1-1-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  needs: [pipe-50-1-green]",
         "  task_context:",
         "    id: PIPE-50.1.1",
         "- id: pipe-51-1-green",
         "  kind: agent",
-        "  profile: pipeline-code-writer",
+        "  profile: moka-code-writer",
         "  task_context:",
         "    id: PIPE-51.1",
         "- id: verify",
         "  kind: agent",
-        "  profile: pipeline-verifier",
+        "  profile: moka-verifier",
         "  needs: [pipe-50-1-1-green, pipe-51-1-green]",
       ],
     });
@@ -1572,13 +1572,13 @@ workflows:
     nodes:
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
         task_context:
           id: PIPE-41.7
           title: Propagate node context
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [implement]
 `;
 
@@ -1615,7 +1615,7 @@ workflows:
     nodes:
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
 `;
 
     try {
@@ -1642,7 +1642,7 @@ workflows:
     const roleConfig = removeCoverageSchedulingRoles(
       configWithSchedulingRoles([
         {
-          baseProfileId: "pipeline-code-writer",
+          baseProfileId: "moka-code-writer",
           profileId: "custom-implementer",
           roles: ["implementation"],
         },
@@ -1685,12 +1685,12 @@ workflows:
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-custom-cover-"));
     const roleConfig = configWithSchedulingRoles([
       {
-        baseProfileId: "pipeline-code-writer",
-        profileId: "pipeline-code-writer",
+        baseProfileId: "moka-code-writer",
+        profileId: "moka-code-writer",
         roles: ["implementation"],
       },
       {
-        baseProfileId: "pipeline-verifier",
+        baseProfileId: "moka-verifier",
         profileId: "custom-verifier",
         roles: ["coverage"],
       },
@@ -1708,7 +1708,7 @@ workflows:
     nodes:
       - id: implement
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
       - id: verify
         kind: agent
         profile: custom-verifier
@@ -1763,12 +1763,12 @@ workflows:
     );
     const roleConfig = configWithSchedulingRoles([
       {
-        baseProfileId: "pipeline-code-writer",
+        baseProfileId: "moka-code-writer",
         profileId: "custom-implementer",
         roles: ["implementation"],
       },
       {
-        baseProfileId: "pipeline-verifier",
+        baseProfileId: "moka-verifier",
         profileId: "custom-verifier",
         roles: ["coverage"],
       },
@@ -1786,7 +1786,7 @@ workflows:
     nodes:
       - id: research
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
       - id: pc-37-1-green
         kind: agent
         profile: custom-implementer
@@ -1836,17 +1836,17 @@ workflows:
     nodes:
       - id: implement-a
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
       - id: implement-b
         kind: agent
-        profile: pipeline-code-writer
+        profile: moka-code-writer
       - id: aggregate
         kind: command
         command: [echo, aggregate]
         needs: [implement-a, implement-b]
       - id: verify
         kind: agent
-        profile: pipeline-verifier
+        profile: moka-verifier
         needs: [aggregate]
 `);
 

@@ -71,7 +71,21 @@ mcp_gateway:
       tool_prefixes: [backlog]
 
 profiles:
-  pipeline-researcher:
+  moka-orchestrator:
+    runner: opencode
+    description: Orchestrate the configured pipeline and enforce gates.
+    instructions:
+      inline: Orchestrate the configured pipeline through package-defined entrypoints, native agents, and gates. Do not bypass configured runner subprocesses or package-configured gates.
+    skills: [execute, quick, inspect]
+    mcp_servers: [pipeline-gateway]
+    tools: [read, list, grep, glob, bash]
+    filesystem:
+      mode: read-only
+      allow: ["**/*"]
+      deny: ["node_modules/**", "dist/**", ".git/**"]
+    network:
+      mode: inherit
+  moka-researcher:
     runner: opencode
     description: Research the requested task and produce structured findings.
     instructions:
@@ -92,7 +106,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-inspector:
+  moka-inspector:
     runner: opencode
     description: Inspect the repository without modifying files.
     instructions:
@@ -112,7 +126,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-schedule-planner:
+  moka-schedule-planner:
     runner: opencode
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions:
@@ -129,7 +143,7 @@ profiles:
       mode: inherit
     output:
       format: text
-  pipeline-test-writer:
+  moka-test-writer:
     runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
@@ -147,7 +161,7 @@ profiles:
       mode: inherit
     output:
       format: text
-  pipeline-code-writer:
+  moka-code-writer:
     runner: opencode
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
@@ -165,7 +179,7 @@ profiles:
       mode: inherit
     output:
       format: text
-  pipeline-acceptance-reviewer:
+  moka-acceptance-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
@@ -187,7 +201,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-thermo-nuclear-reviewer:
+  moka-thermo-nuclear-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
     description: Perform the final thermo-nuclear code quality review of the integration branch.
@@ -208,7 +222,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-verifier:
+  moka-verifier:
     runner: opencode
     scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
@@ -230,7 +244,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-learner:
+  moka-learner:
     runner: opencode
     description: Store durable lessons from the completed run.
     instructions:
@@ -250,7 +264,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-opencode-researcher:
+  moka-opencode-researcher:
     runner: opencode
     description: Research the requested task and produce structured findings with OpenCode.
     instructions:
@@ -271,7 +285,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-opencode-test-writer:
+  moka-opencode-test-writer:
     runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior with OpenCode.
@@ -293,7 +307,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-opencode-code-writer:
+  moka-opencode-code-writer:
     runner: opencode
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass with OpenCode.
@@ -315,7 +329,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-opencode-acceptance-reviewer:
+  moka-opencode-acceptance-reviewer:
     runner: opencode
     scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion with OpenCode.
@@ -337,7 +351,7 @@ profiles:
       repair:
         enabled: true
         max_attempts: 1
-  pipeline-opencode-verifier:
+  moka-opencode-verifier:
     runner: opencode
     scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence with OpenCode.

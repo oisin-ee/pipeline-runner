@@ -145,7 +145,7 @@ describe("compileWorkflowPlan", () => {
       dependents: [],
       kind: "agent",
       needs: [],
-      profile: "pipeline-inspector",
+      profile: "moka-inspector",
     });
   });
 
@@ -157,7 +157,7 @@ describe("compileWorkflowPlan", () => {
     expect(config.workflows.scratch).toBeUndefined();
     expect(config.workflows["epic-drain"]).toBeUndefined();
     expect(config.workflows.infra).toBeUndefined();
-    expect(config.profiles["pipeline-epic-router"]).toBeUndefined();
+    expect(config.profiles["moka-epic-router"]).toBeUndefined();
     expect(config.entrypoints.execute).toMatchObject({
       schedule: "execute-schedule",
     });
@@ -176,7 +176,7 @@ describe("compileWorkflowPlan", () => {
           {
             id: "branch-a",
             kind: "agent",
-            profile: "pipeline-researcher",
+            profile: "moka-researcher",
             task_context: {
               id: "PIPE-41.8",
               title: "Branch context",
@@ -205,7 +205,7 @@ describe("compileWorkflowPlan", () => {
         {
           id: "research",
           kind: "agent",
-          profile: "pipeline-researcher",
+          profile: "moka-researcher",
         },
         {
           command: ["bun", "test"],
@@ -229,7 +229,7 @@ describe("compileWorkflowPlan", () => {
           id: "verify",
           kind: "agent",
           needs: ["quality"],
-          profile: "pipeline-verifier",
+          profile: "moka-verifier",
         },
       ],
     };
@@ -267,12 +267,12 @@ describe("compileWorkflowPlan", () => {
         {
           id: "left",
           kind: "agent",
-          profile: "pipeline-researcher",
+          profile: "moka-researcher",
         },
         {
           id: "right",
           kind: "agent",
-          profile: "pipeline-test-writer",
+          profile: "moka-test-writer",
         },
         {
           id: "quality",
@@ -453,7 +453,7 @@ describe("compileWorkflowPlan", () => {
         {
           id: "research",
           kind: "agent",
-          profile: "pipeline-researcher",
+          profile: "moka-researcher",
           retries: {
             backoff_ms: 500,
             max_attempts: 3,
@@ -499,12 +499,12 @@ describe("compileWorkflowPlan", () => {
       {
         id: "research",
         kind: "agent",
-        profile: "pipeline-researcher",
+        profile: "moka-researcher",
       },
       {
         id: "research",
         kind: "agent",
-        profile: "pipeline-test-writer",
+        profile: "moka-test-writer",
       },
     ];
 
@@ -523,7 +523,7 @@ describe("compileWorkflowPlan", () => {
       id: "research",
       kind: "agent",
       needs: ["missing"],
-      profile: "pipeline-researcher",
+      profile: "moka-researcher",
     };
 
     const error = capturePlannerError(() =>
@@ -542,13 +542,13 @@ describe("compileWorkflowPlan", () => {
         id: "a",
         kind: "agent",
         needs: ["b"],
-        profile: "pipeline-researcher",
+        profile: "moka-researcher",
       },
       {
         id: "b",
         kind: "agent",
         needs: ["a"],
-        profile: "pipeline-test-writer",
+        profile: "moka-test-writer",
       },
     ];
 

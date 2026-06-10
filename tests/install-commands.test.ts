@@ -58,13 +58,25 @@ describe("installCommands", () => {
       ".opencode/commands/execute.md",
       ".opencode/commands/inspect.md",
       ".opencode/opencode.json",
-      ".opencode/agents/pipeline-inspector.md",
+      ".opencode/agents/MoKa Orchestrator.md",
+      ".opencode/agents/MoKa Acceptance Reviewer.md",
+      ".opencode/agents/MoKa Code Writer.md",
+      ".opencode/agents/MoKa Inspector.md",
+      ".opencode/agents/MoKa Learner.md",
+      ".opencode/agents/MoKa Researcher.md",
+      ".opencode/agents/MoKa Schedule Planner.md",
+      ".opencode/agents/MoKa Test Writer.md",
+      ".opencode/agents/MoKa Thermo Nuclear Reviewer.md",
+      ".opencode/agents/MoKa Verifier.md",
       ".opencode/skills/critique/SKILL.md",
       ".opencode/skills/doubt/SKILL.md",
+      ".opencode/skills/execute/SKILL.md",
       ".opencode/skills/fix/SKILL.md",
+      ".opencode/skills/inspect/SKILL.md",
       ".opencode/skills/library-first-development/SKILL.md",
       ".opencode/skills/migrate/SKILL.md",
       ".opencode/skills/optimize/SKILL.md",
+      ".opencode/skills/quick/SKILL.md",
       ".opencode/skills/research/SKILL.md",
       ".opencode/skills/schedule-graph-shaping/SKILL.md",
       ".opencode/skills/scope/SKILL.md",
@@ -92,10 +104,10 @@ describe("installCommands", () => {
       "oc-codex-multi-auth",
     ]);
     expect(
-      existsSync(join(dir, ".opencode/agents/pipeline-orchestrator.md"))
-    ).toBe(false);
+      existsSync(join(dir, ".opencode/agents/MoKa Orchestrator.md"))
+    ).toBe(true);
     const inspector = readFileSync(
-      join(dir, ".opencode/agents/pipeline-inspector.md"),
+      join(dir, ".opencode/agents/MoKa Inspector.md"),
       "utf8"
     );
     expect(inspector).toContain("mode: subagent");
@@ -128,7 +140,8 @@ describe("installCommands", () => {
       join(dir, ".opencode/commands/execute.md"),
       "utf8"
     );
-    expect(quickCommand).toContain("Configured orchestrator: none");
+    expect(quickCommand).toContain("agent: MoKa Orchestrator");
+    expect(quickCommand).toContain("Configured orchestrator:");
     expect(quickCommand).toContain(
       "Generate a schedule for entrypoint `quick`"
     );

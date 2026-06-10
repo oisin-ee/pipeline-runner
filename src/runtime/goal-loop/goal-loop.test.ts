@@ -85,7 +85,7 @@ describe("pipeline goal loop", () => {
             evidence: ["acceptance passed"],
             verdict: "PASS",
           },
-          profile: "pipeline-acceptance-reviewer",
+          profile: "moka-acceptance-reviewer",
           schemaPath: ".pipeline/schemas/acceptance.schema.json",
           type: "node.output.recorded",
         });
@@ -97,7 +97,7 @@ describe("pipeline goal loop", () => {
             evidence: ["real CLI evidence present"],
             verdict: "PASS",
           },
-          profile: "pipeline-verifier",
+          profile: "moka-verifier",
           schemaPath: ".pipeline/schemas/verify.schema.json",
           type: "node.output.recorded",
         });
@@ -144,7 +144,7 @@ describe("pipeline goal loop", () => {
     });
 
     expect(plan.runnerId).toBe("opencode");
-    expect(plan.profileId).toBe("pipeline-code-writer");
+    expect(plan.profileId).toBe("moka-code-writer");
     expect(plan.args).toContain("run");
     expect(plan.args).toContain("Continue PIPE-52");
   });
@@ -173,7 +173,7 @@ function verifierFailureState(
         id: "verify",
         kind: "agent",
         needs: [],
-        profile: "pipeline-verifier",
+        profile: "moka-verifier",
         runnerId: "opencode",
       },
     ],
@@ -184,7 +184,7 @@ function verifierFailureState(
     applyGoalStateEvent(planned, {
       attempt: 1,
       nodeId: "verify",
-      profile: "pipeline-verifier",
+      profile: "moka-verifier",
       runnerId: "opencode",
       type: "node.start",
     }),
@@ -202,7 +202,7 @@ function verifierFailureState(
     attempt: 1,
     exitCode: 1,
     nodeId: "verify",
-    profile: "pipeline-verifier",
+    profile: "moka-verifier",
     runnerId: "opencode",
     status: "failed",
     type: "node.finish",

@@ -55,7 +55,7 @@ profiles:
     tools: [read, list, grep, glob, bash]
     filesystem:
       mode: read-only
-  pipeline-researcher:
+  moka-researcher:
     runner: opencode
     instructions:
       path: .pipeline/prompts/researcher.md
@@ -106,12 +106,12 @@ workflows:
     nodes:
       - id: inspect
         kind: agent
-        profile: pipeline-inspector
+        profile: moka-inspector
   default:
     nodes:
       - id: research
         kind: agent
-        profile: pipeline-researcher
+        profile: moka-researcher
       - id: verify
         kind: builtin
         builtin: test

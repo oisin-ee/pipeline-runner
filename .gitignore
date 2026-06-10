@@ -52,6 +52,9 @@ rulesync.local.jsonc
 !.rulesync/.aiignore
 **/.opencode/command/
 **/.opencode/agent/
+**/.opencode/agents/
+!.opencode/agents/
+!.opencode/agents/MoKa*.md
 **/.opencode/skill/
 **/.opencode/plugins/
 **/.opencode/memories/
@@ -63,4 +66,12 @@ rulesync.local.jsonc
 !.pi/prompts/inspect.md
 !.pi/prompts/epic.md
 **/.pi/skills/
+.opencode/*
+!.opencode/commands/
+!.opencode/commands/**
+!.opencode/agents/
+!.opencode/agents/MoKa*.md
+!.opencode/opencode.json
+!.opencode/skills/
+!.opencode/skills/**
 .opencode/

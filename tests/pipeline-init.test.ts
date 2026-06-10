@@ -65,7 +65,7 @@ describe("initPipelineProject", () => {
         quick: expect.objectContaining({ schedule: "quick-schedule" }),
       })
     );
-    expect(config.profiles["pipeline-researcher"].mcp_servers).toEqual([
+    expect(config.profiles["moka-researcher"].mcp_servers).toEqual([
       "pipeline-gateway",
     ]);
     expect(config.skills.research).toEqual({

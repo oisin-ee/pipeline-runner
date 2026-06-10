@@ -148,50 +148,50 @@ skills:
     used_by: [orchestrator]
   - id: inspect
     path: .agents/skills/inspect/SKILL.md
-    used_by: [pipeline-inspector]
+    used_by: [moka-inspector]
   - id: epic
     path: .agents/skills/epic/SKILL.md
-    used_by: [pipeline-epic-router]
+    used_by: [moka-epic-router]
   - id: execute
     path: .agents/skills/execute/SKILL.md
-    used_by: [pipeline-code-writer]
+    used_by: [moka-code-writer]
   - id: research
     path: .agents/skills/research/SKILL.md
-    used_by: [pipeline-researcher]
+    used_by: [moka-researcher]
   - id: library-first-development
     path: .agents/skills/library-first-development/SKILL.md
-    used_by: [pipeline-researcher, pipeline-code-writer]
+    used_by: [moka-researcher, moka-code-writer]
   - id: critique
     path: .agents/skills/critique/SKILL.md
-    used_by: [pipeline-thermo-nuclear-reviewer]
+    used_by: [moka-thermo-nuclear-reviewer]
   - id: verify
     path: .agents/skills/verify/SKILL.md
-    used_by: [pipeline-verifier]
+    used_by: [moka-verifier]
 prompts:
   - id: orchestrator
     source: package-default-profile
     used_by: [orchestrator]
   - id: researcher
     source: package-default-profile
-    used_by: [pipeline-researcher]
+    used_by: [moka-researcher]
   - id: inspector
     source: package-default-profile
-    used_by: [pipeline-inspector]
+    used_by: [moka-inspector]
   - id: schedule-planner
     source: package-default-profile
-    used_by: [pipeline-schedule-planner]
+    used_by: [moka-schedule-planner]
   - id: test-writer
     source: package-default-profile
-    used_by: [pipeline-test-writer]
+    used_by: [moka-test-writer]
   - id: code-writer
     source: package-default-profile
-    used_by: [pipeline-code-writer]
+    used_by: [moka-code-writer]
   - id: acceptance-reviewer
     source: package-default-profile
-    used_by: [pipeline-acceptance-reviewer]
+    used_by: [moka-acceptance-reviewer]
   - id: verifier
     source: package-default-profile
-    used_by: [pipeline-verifier]
+    used_by: [moka-verifier]
 host_capabilities:
   agents: true
   subagents: true

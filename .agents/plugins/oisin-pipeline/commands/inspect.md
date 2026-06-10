@@ -25,7 +25,7 @@ Orchestrate package-owned pipeline config.
 Run workflow `inspect` for the user task.
 These nodes are not Codex native routes.
 CLI routes:
-- inspect: opencode CLI profile=pipeline-inspector command=`opencode run --agent pipeline-inspector --format json --dir <repo-root> <node prompt>` needs=none
+- inspect: opencode CLI profile=moka-inspector command=`opencode run --agent "MoKa Inspector" --format json --dir <repo-root> <node prompt>` needs=none
 
 For each CLI node prompt include:
 - user task

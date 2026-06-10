@@ -73,9 +73,9 @@ mcp_gateway:
       tool_prefixes: [backlog]
 
 profiles:
-  pipeline-researcher:
+  moka-researcher:
     mcp_servers: [pipeline-gateway]
-  pipeline-test-writer:
+  moka-test-writer:
     mcp_servers: []
 ```
 

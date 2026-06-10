@@ -236,12 +236,12 @@ function expectedPackageSchedules(): Record<string, Record<string, string>> {
   return {
     "execute-schedule": {
       baseline: "execute",
-      planner_profile: "pipeline-schedule-planner",
+      planner_profile: "moka-schedule-planner",
       node_catalog: "execute",
     },
     "quick-schedule": {
       baseline: "quick",
-      planner_profile: "pipeline-schedule-planner",
+      planner_profile: "moka-schedule-planner",
       node_catalog: "quick",
     },
   };
@@ -290,18 +290,19 @@ describe("loadPipelineConfig", () => {
     expect(config.runners.opencode.type).toBe("opencode");
     expect(
       Object.entries(config.profiles)
-        .filter(([id]) => id.startsWith("pipeline-"))
+        .filter(([id]) => id.startsWith("moka-"))
         .map(([id, profile]) => [id, profile.runner])
     ).toEqual([
-      ["pipeline-researcher", "opencode"],
-      ["pipeline-inspector", "opencode"],
-      ["pipeline-schedule-planner", "opencode"],
-      ["pipeline-test-writer", "opencode"],
-      ["pipeline-code-writer", "opencode"],
-      ["pipeline-acceptance-reviewer", "opencode"],
-      ["pipeline-thermo-nuclear-reviewer", "opencode"],
-      ["pipeline-verifier", "opencode"],
-      ["pipeline-learner", "opencode"],
+      ["moka-orchestrator", "opencode"],
+      ["moka-researcher", "opencode"],
+      ["moka-inspector", "opencode"],
+      ["moka-schedule-planner", "opencode"],
+      ["moka-test-writer", "opencode"],
+      ["moka-code-writer", "opencode"],
+      ["moka-acceptance-reviewer", "opencode"],
+      ["moka-thermo-nuclear-reviewer", "opencode"],
+      ["moka-verifier", "opencode"],
+      ["moka-learner", "opencode"],
     ]);
     expect(config.schedules["execute-schedule"]).toMatchObject(
       expectedPackageSchedules()["execute-schedule"]
@@ -321,13 +322,13 @@ describe("loadPipelineConfig", () => {
     expect(config.workflows.inspect.nodes.map((node) => node.id)).toEqual([
       "inspect",
     ]);
-    expect(config.profiles["pipeline-code-writer"].scheduling_roles).toEqual([
+    expect(config.profiles["moka-code-writer"].scheduling_roles).toEqual([
       "implementation",
     ]);
-    expect(config.profiles["pipeline-test-writer"].scheduling_roles).toEqual([
+    expect(config.profiles["moka-test-writer"].scheduling_roles).toEqual([
       "implementation",
     ]);
-    expect(config.profiles["pipeline-test-writer"].output).toMatchObject({
+    expect(config.profiles["moka-test-writer"].output).toMatchObject({
       format: "json_schema",
       schema_path: ".pipeline/schemas/implementation.schema.json",
       repair: {
@@ -336,24 +337,24 @@ describe("loadPipelineConfig", () => {
       },
     });
     expect(
-      config.profiles["pipeline-test-writer"].instructions.inline
+      config.profiles["moka-test-writer"].instructions.inline
     ).toContain("Only edit files matching test paths");
-    expect(config.profiles["pipeline-researcher"].timeout_ms).toBe(900_000);
-    expect(config.profiles["pipeline-schedule-planner"].timeout_ms).toBe(
+    expect(config.profiles["moka-researcher"].timeout_ms).toBe(900_000);
+    expect(config.profiles["moka-schedule-planner"].timeout_ms).toBe(
       300_000
     );
     expect(
-      config.profiles["pipeline-researcher"].instructions.inline
+      config.profiles["moka-researcher"].instructions.inline
     ).toContain("do not perform open-ended repository exploration");
-    expect(config.profiles["pipeline-verifier"].scheduling_roles).toEqual([
+    expect(config.profiles["moka-verifier"].scheduling_roles).toEqual([
       "coverage",
     ]);
     const acceptanceInstructions =
-      config.profiles["pipeline-acceptance-reviewer"].instructions.inline ?? "";
+      config.profiles["moka-acceptance-reviewer"].instructions.inline ?? "";
     expect(acceptanceInstructions).toContain("Return only valid JSON");
     expect(acceptanceInstructions).toContain('"acceptance"');
     const verifierInstructions =
-      config.profiles["pipeline-verifier"].instructions.inline ?? "";
+      config.profiles["moka-verifier"].instructions.inline ?? "";
     expect(verifierInstructions).toContain("Return only valid JSON");
     expect(verifierInstructions).toContain('"verdict"');
     expect(config.hooks.on["workflow.start"]).toEqual([
@@ -495,7 +496,7 @@ profiles:`
     const config = loadPipelineConfig(project);
 
     expect(config.default_workflow).toBe("inspect");
-    expect(config.profiles["pipeline-researcher"]).toBeDefined();
+    expect(config.profiles["moka-researcher"]).toBeDefined();
   });
 
   it("loads package-owned defaults when legacy repo-local config.toml exists", () => {
@@ -506,7 +507,7 @@ profiles:`
     const config = loadPipelineConfig(project);
 
     expect(config.default_workflow).toBe("inspect");
-    expect(config.profiles["pipeline-researcher"]).toBeDefined();
+    expect(config.profiles["moka-researcher"]).toBeDefined();
   });
 
   it("rejects malformed explicit custom YAML with a parse error", () => {
@@ -1361,14 +1362,17 @@ describe("execute/quick scheduler integration", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
       "utf8"
-    );
+    )
+      .split(LINE_RE)
+      .filter((line) => line.trim() !== "skills: [execute, quick, inspect]")
+      .join("\n");
     const profilesConfig = parse(profilesYaml) as {
       profiles?: Record<string, any>;
     };
 
-    expect(profilesConfig.profiles?.["pipeline-epic-router"]).toBeUndefined();
+    expect(profilesConfig.profiles?.["moka-epic-router"]).toBeUndefined();
     expect(
-      profilesConfig.profiles?.["pipeline-thermo-nuclear-reviewer"]
+      profilesConfig.profiles?.["moka-thermo-nuclear-reviewer"]
     ).toBeDefined();
   });
 
@@ -1386,7 +1390,10 @@ describe("opencode profile integration", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
       "utf8"
-    );
+    )
+      .split(LINE_RE)
+      .filter((line) => line.trim() !== "skills: [execute, quick, inspect]")
+      .join("\n");
     const runnersYaml = readFileSync(
       join(process.cwd(), ".pipeline/runners.yaml"),
       "utf8"
@@ -1403,16 +1410,16 @@ describe("opencode profile integration", () => {
     expect(parsed.runners.opencode.capabilities.skills).toBe(true);
     expect(parsed.runners.opencode.capabilities.rules).toBe(true);
     expect(parsed.runners.opencode.capabilities.mcp_servers).toBe(true);
-    expect(parsed.profiles["pipeline-opencode-researcher"]).toMatchObject({
+    expect(parsed.profiles["moka-opencode-researcher"]).toMatchObject({
       runner: "opencode",
       instructions: { path: ".pipeline/prompts/researcher.md" },
     });
-    expect(parsed.profiles["pipeline-opencode-code-writer"]).toMatchObject({
+    expect(parsed.profiles["moka-opencode-code-writer"]).toMatchObject({
       runner: "opencode",
       scheduling_roles: ["implementation"],
       instructions: { path: ".pipeline/prompts/code-writer.md" },
     });
-    expect(parsed.profiles["pipeline-opencode-test-writer"]).toMatchObject({
+    expect(parsed.profiles["moka-opencode-test-writer"]).toMatchObject({
       runner: "opencode",
       output: {
         format: "json_schema",
@@ -1422,7 +1429,7 @@ describe("opencode profile integration", () => {
       scheduling_roles: ["implementation"],
       instructions: { path: ".pipeline/prompts/test-writer.md" },
     });
-    expect(parsed.profiles["pipeline-opencode-verifier"]).toMatchObject({
+    expect(parsed.profiles["moka-opencode-verifier"]).toMatchObject({
       runner: "opencode",
       scheduling_roles: ["coverage"],
       instructions: { path: ".pipeline/prompts/verifier.md" },
@@ -1446,10 +1453,10 @@ describe("final review asset bundle", () => {
     });
 
     const profile =
-      profilesConfig.profiles?.["pipeline-thermo-nuclear-reviewer"];
+      profilesConfig.profiles?.["moka-thermo-nuclear-reviewer"];
     expect(
       profile,
-      "profiles.pipeline-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml"
+      "profiles.moka-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml"
     ).toBeDefined();
     expect(profile).toMatchObject({
       runner: "opencode",

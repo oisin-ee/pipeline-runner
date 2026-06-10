@@ -52,9 +52,9 @@ const SCHEDULE_BUILTINS = [
   "typecheck",
 ] as const;
 const DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE = [
-  "pipeline-verifier",
-  "pipeline-acceptance-reviewer",
-  "pipeline-thermo-nuclear-reviewer",
+  "moka-verifier",
+  "moka-acceptance-reviewer",
+  "moka-thermo-nuclear-reviewer",
 ];
 
 const scheduleArtifactSchema = z
@@ -533,18 +533,18 @@ function quickBaselineWorkflow(): ScheduleArtifact["workflows"] {
     root: {
       description: "Compact generated quick schedule seed.",
       nodes: [
-        { id: "backlog-intake", kind: "agent", profile: "pipeline-researcher" },
+        { id: "backlog-intake", kind: "agent", profile: "moka-researcher" },
         {
           id: "red-tests",
           kind: "agent",
           needs: ["backlog-intake"],
-          profile: "pipeline-test-writer",
+          profile: "moka-test-writer",
         },
         {
           id: "implement",
           kind: "agent",
           needs: ["red-tests"],
-          profile: "pipeline-code-writer",
+          profile: "moka-code-writer",
         },
         {
           builtin: "test",
@@ -569,7 +569,7 @@ function quickBaselineWorkflow(): ScheduleArtifact["workflows"] {
           id: "verify",
           kind: "agent",
           needs: ["mechanical-tests", "mechanical-typecheck"],
-          profile: "pipeline-verifier",
+          profile: "moka-verifier",
         },
       ],
     },
@@ -584,13 +584,13 @@ function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
         {
           id: "backlog-intake",
           kind: "agent",
-          profile: "pipeline-researcher",
+          profile: "moka-researcher",
         },
         {
           id: "research",
           kind: "agent",
           needs: ["backlog-intake"],
-          profile: "pipeline-researcher",
+          profile: "moka-researcher",
         },
         {
           gates: [
@@ -621,13 +621,13 @@ function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
           id: "red-tests",
           kind: "agent",
           needs: ["research"],
-          profile: "pipeline-test-writer",
+          profile: "moka-test-writer",
         },
         {
           id: "green-implementation",
           kind: "agent",
           needs: ["red-tests"],
-          profile: "pipeline-code-writer",
+          profile: "moka-code-writer",
         },
         {
           builtin: "test",
@@ -671,7 +671,7 @@ function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
             "mechanical-green-lint",
             "mechanical-green-fallow",
           ],
-          profile: "pipeline-acceptance-reviewer",
+          profile: "moka-acceptance-reviewer",
         },
         {
           gates: [
@@ -690,13 +690,13 @@ function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
           id: "verification",
           kind: "agent",
           needs: ["acceptance-review"],
-          profile: "pipeline-verifier",
+          profile: "moka-verifier",
         },
         {
           id: "learn",
           kind: "agent",
           needs: ["verification"],
-          profile: "pipeline-learner",
+          profile: "moka-learner",
         },
       ],
     },
