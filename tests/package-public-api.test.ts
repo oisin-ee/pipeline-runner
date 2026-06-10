@@ -115,12 +115,14 @@ describe("package public app-facing API", () => {
     expect(readme).toContain("@oisincoveney/pipeline/planner");
     expect(readme).toContain("@oisincoveney/pipeline/argo-workflow");
     expect(readme).toContain("@oisincoveney/pipeline/argo-submit");
+    expect(readme).toContain("@oisincoveney/pipeline/moka-submit");
     expect(readme).toContain("@oisincoveney/pipeline/runner-command-contract");
     expect(readme).toContain("@oisincoveney/pipeline/runtime");
     expect(readme).toContain("@oisincoveney/pipeline/schedule");
     expect(readme).toContain("@oisincoveney/pipeline/hooks");
     expect(readme).toContain("buildRunnerArgoWorkflowManifest");
     expect(readme).toContain("submitRunnerArgoWorkflow");
+    expect(readme).toContain("submitMoka");
     expect(readme).toContain("buildRunnerCommandPayload");
     expect(readme).toContain("loadPipelineConfig");
     expect(readme).toContain("compileWorkflowPlan");
@@ -183,6 +185,16 @@ import {
   type HookContext,
   type HookResult,
 } from "@oisincoveney/pipeline/hooks";
+import {
+  mokaSubmitOptionsSchema,
+  mokaSubmitResultSchema,
+  submitMoka,
+  type MokaSubmitInput,
+  type MokaSubmitOptionsInput,
+  type MokaSubmitOptionsOutput,
+  type MokaSubmitOutput,
+  type MokaSubmitResult,
+} from "@oisincoveney/pipeline/moka-submit";
 
 const parts: PipelineConfigParts = {
   pipeline: "version: 1\\ndefault_workflow: smoke\\norchestrator: { profile: orchestrator }\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
@@ -219,6 +231,40 @@ const hookResult: HookResult = parseHookResult({
   status: "pass",
   summary: "parsed hook result",
 });
+const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
+  eventUrl: "https://console.example/api/pipeline/runner-events",
+  mode: "quick",
+  repository: {
+    baseBranch: "main",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+    url: "https://github.com/oisin-ee/pipeline-runner.git",
+  },
+  run: {
+    id: "run_123",
+    project: "pipeline-console",
+    requestedBy: "console-user@example.com",
+  },
+  scheduleYaml: ${JSON.stringify("kind: pipeline-schedule\nversion: 1\nschedule_id: smoke-a\ngenerated_at: 2026-06-03T12:00:00.000Z\nsource_entrypoint: execute\ntask: consumer compile smoke\nroot_workflow: root\nworkflows:\n  root:\n    nodes:\n      - id: check\n        kind: command\n        command: [node, -e, \"console.log('ok')\"]\n")},
+  task: {
+    id: "PIPE-56",
+    kind: "ticket",
+    title: "Expose typed Zod moka submit API for Pipeline Console",
+  },
+  type: "graph",
+});
+const mokaSubmitOutput: MokaSubmitOutput = mokaSubmitResultSchema.parse({
+  namespace: "momokaya-pipeline",
+  payloadConfigMapName: "payload",
+  scheduleConfigMapName: "schedule",
+  taskDescriptorConfigMapName: "tasks",
+  workflowName: "workflow",
+});
+const mokaSubmitTypedInput: MokaSubmitInput = {
+  ...mokaSubmitInput,
+  config,
+};
+const mokaSubmitRawOptions: MokaSubmitOptionsInput = mokaSubmitInput;
+const mokaSubmitResult: MokaSubmitResult = mokaSubmitOutput;
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
 const eventType = (event: PipelineRuntimeEvent) => event.type;
 const formattedError = formatConfigError(
@@ -267,6 +313,12 @@ void result;
 void taskContext;
 void hook;
 void hookResult;
+void mokaSubmitInput;
+void mokaSubmitOutput;
+void mokaSubmitTypedInput;
+void mokaSubmitRawOptions;
+void mokaSubmitResult;
+void submitMoka;
 void eventType;
 void formattedError;
 void runnerType;
@@ -329,6 +381,7 @@ import { compileScheduleArtifact, parseScheduleArtifact } from "@oisincoveney/pi
 import { buildRunnerCommandPayload, parseRunnerCommandPayload, runnerCommandPayloadSchema } from "@oisincoveney/pipeline/runner-command-contract";
 import { buildRunnerArgoWorkflowManifest } from "@oisincoveney/pipeline/argo-workflow";
 import { defineHook, parseHookResult } from "@oisincoveney/pipeline/hooks";
+import { mokaSubmitOptionsSchema, mokaSubmitResultSchema, submitMoka } from "@oisincoveney/pipeline/moka-submit";
 
 const values = [
   PipelineConfigError,
@@ -345,6 +398,7 @@ const values = [
   buildRunnerArgoWorkflowManifest,
   defineHook,
   parseHookResult,
+  submitMoka,
 ];
 
 if (values.some((value) => typeof value !== "function")) {
@@ -352,6 +406,12 @@ if (values.some((value) => typeof value !== "function")) {
 }
 if (typeof runnerCommandPayloadSchema.parse !== "function") {
   throw new Error("runner command payload schema was not exported");
+}
+if (typeof mokaSubmitOptionsSchema.parse !== "function") {
+  throw new Error("moka submit options schema was not exported");
+}
+if (typeof mokaSubmitResultSchema.parse !== "function") {
+  throw new Error("moka submit result schema was not exported");
 }
 `,
       "utf8"

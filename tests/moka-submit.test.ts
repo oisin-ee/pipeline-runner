@@ -8,7 +8,7 @@ import type {
 } from "../src/argo-submit";
 import { buildCommandScheduleYaml } from "../src/argo-submit";
 import { loadPipelineConfig } from "../src/config";
-import { submitMoka } from "../src/moka-submit";
+import { mokaSubmitOptionsSchema, submitMoka } from "../src/moka-submit";
 
 const PROJECT_ROOT = mkdtempSync(join(tmpdir(), "moka-submit-"));
 const CONFIG = loadPipelineConfig(PROJECT_ROOT);
@@ -251,5 +251,116 @@ describe("submitMoka", () => {
       submission: { argv: ["opencode", "run", "fix"], kind: "command" },
       workflow: { id: "schedule-run-custom-url-root" },
     });
+  });
+
+  it("submits a Console-provided ticket task without resolving local git", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+    const scheduleYaml = buildCommandScheduleYaml({
+      command: ["true"],
+      generatedAt: new Date("2026-06-10T00:00:00.000Z"),
+      scheduleId: "run-console",
+      task: "PIPE-56 Expose typed Zod moka submit API for Pipeline Console",
+    });
+
+    await submitMoka(
+      {
+        config: CONFIG,
+        delivery: { pullRequest: true },
+        eventAuthSecretKey: "CONSOLE_EVENT_TOKEN",
+        eventAuthSecretName: "console-event-auth",
+        events: {
+          authHeader: "X-Pipeline-Event-Token",
+          authTokenFile: "/var/run/pipeline/events/token",
+          url: "https://console.example/api/pipeline/runner-events",
+        },
+        githubAuthSecretName: "console-github-auth",
+        imagePullSecretName: "console-pull-secret",
+        mode: "quick",
+        namespace: "console-runners",
+        opencodeAuthSecretName: "console-opencode-auth",
+        repository: {
+          baseBranch: "main",
+          sha: "fedcba9876543210fedcba9876543210fedcba98",
+          url: "https://github.com/oisin-ee/pipeline-runner.git",
+        },
+        run: {
+          id: "run-console",
+          project: "pipeline-console",
+          requestedBy: "console-user@example.com",
+        },
+        scheduleYaml,
+        task: {
+          id: "PIPE-56",
+          kind: "ticket",
+          path: "backlog/tasks/pipe-56.md",
+          title: "Expose typed Zod moka submit API for Pipeline Console",
+        },
+        type: "graph",
+      },
+      {
+        resolveGitContext: () => {
+          throw new Error("local git should not be resolved for Console input");
+        },
+        submitWorkflow: captureSubmitCall(calls),
+      }
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      eventAuthSecretKey: "CONSOLE_EVENT_TOKEN",
+      eventAuthSecretName: "console-event-auth",
+      generateName: "moka-quick-",
+      githubAuthSecretName: "console-github-auth",
+      imagePullSecretName: "console-pull-secret",
+      namespace: "console-runners",
+      opencodeAuthSecretName: "console-opencode-auth",
+      scheduleYaml,
+    });
+    const payload = JSON.parse(calls[0].payloadJson);
+    expect(payload).toMatchObject({
+      delivery: { pullRequest: true },
+      events: {
+        authHeader: "X-Pipeline-Event-Token",
+        authTokenFile: "/var/run/pipeline/events/token",
+        url: "https://console.example/api/pipeline/runner-events",
+      },
+      repository: {
+        baseBranch: "main",
+        sha: "fedcba9876543210fedcba9876543210fedcba98",
+        url: "https://github.com/oisin-ee/pipeline-runner.git",
+      },
+      run: {
+        id: "run-console",
+        project: "pipeline-console",
+        requestedBy: "console-user@example.com",
+      },
+      submission: { kind: "graph", mode: "quick" },
+      task: {
+        id: "PIPE-56",
+        kind: "ticket",
+        path: "backlog/tasks/pipe-56.md",
+        title: "Expose typed Zod moka submit API for Pipeline Console",
+      },
+      workflow: { id: "schedule-run-console-root" },
+    });
+  });
+
+  it("rejects invalid public submit inputs with the exported Zod schema", () => {
+    const parsed = mokaSubmitOptionsSchema.safeParse({
+      mode: "full",
+      repository: {
+        baseBranch: "main",
+        url: "not a git URL",
+      },
+      run: {
+        id: "run-invalid",
+        project: "pipeline-console",
+      },
+      task: { kind: "prompt", prompt: "ship it" },
+      type: "graph",
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.path).toEqual(["repository", "url"]);
   });
 });

@@ -21,6 +21,7 @@ import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "./schedule-planner";
+import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
 const scheduleIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/);
 
@@ -66,17 +67,6 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     }
   );
 
-const submitRunnerArgoWorkflowResultSchema = z
-  .object({
-    namespace: z.string().min(1),
-    payloadConfigMapName: z.string().min(1),
-    scheduleConfigMapName: z.string().min(1),
-    taskDescriptorConfigMapName: z.string().min(1),
-    workflowName: z.string().min(1),
-    workflowUid: z.string().min(1).optional(),
-  })
-  .strict();
-
 const commandScheduleOptionsSchema = z
   .object({
     command: z.array(z.string().min(1)).min(1),
@@ -92,7 +82,7 @@ export type SubmitRunnerArgoWorkflowOptions = z.input<
   config: PipelineConfig;
 };
 export type SubmitRunnerArgoWorkflowResult = z.infer<
-  typeof submitRunnerArgoWorkflowResultSchema
+  typeof workflowSubmitResultSchema
 >;
 export type CommandScheduleOptions = z.input<
   typeof commandScheduleOptionsSchema
@@ -217,7 +207,7 @@ export async function submitRunnerArgoWorkflow(
     })
     .passthrough()
     .parse(response);
-  return submitRunnerArgoWorkflowResultSchema.parse({
+  return workflowSubmitResultSchema.parse({
     namespace: options.namespace,
     payloadConfigMapName,
     scheduleConfigMapName: scheduleArtifactConfigMapName,
