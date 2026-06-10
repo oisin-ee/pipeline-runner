@@ -41,7 +41,6 @@ const configMapSchema = z
 
 const submitRunnerArgoWorkflowOptionsSchema = z
   .object({
-    codexAuthSecretName: z.string().min(1).optional(),
     eventAuthSecretKey: z.string().min(1).optional(),
     eventAuthSecretName: z.string().min(1).optional(),
     generateName: z.string().min(1).optional(),
@@ -53,7 +52,6 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).default("momokaya-pipeline"),
     opencodeAuthSecretName: z.string().min(1).optional(),
-    orchestrator: z.enum(["codex", "opencode"]).default("opencode"),
     payloadJson: z.string().min(1),
     queueName: z.string().min(1).optional(),
     scheduleYaml: z.string().min(1),
@@ -101,10 +99,7 @@ export type CommandScheduleOptions = z.input<
 >;
 
 type CoreApi = Pick<CoreV1Api, "createNamespacedConfigMap">;
-type WorkflowApi = Pick<
-  CustomObjectsApi,
-  "createNamespacedCustomObject" | "getClusterCustomObject"
->;
+type WorkflowApi = Pick<CustomObjectsApi, "createNamespacedCustomObject">;
 
 export interface SubmitRunnerArgoWorkflowDependencies {
   coreApi?: CoreApi;
@@ -141,7 +136,6 @@ export async function submitRunnerArgoWorkflow(
     "pipeline.oisin.dev/workflow": compiled.workflowId,
   };
   const workflow = buildRunnerArgoWorkflowManifest({
-    codexAuthSecretName: options.codexAuthSecretName,
     eventAuthSecretKey: options.eventAuthSecretKey,
     eventAuthSecretName: options.eventAuthSecretName,
     generateName: options.generateName,
@@ -153,7 +147,6 @@ export async function submitRunnerArgoWorkflow(
     name: options.name,
     namespace: options.namespace,
     opencodeAuthSecretName: options.opencodeAuthSecretName,
-    orchestrator: options.orchestrator,
     payloadConfigMapName,
     plan: compiled.plan,
     queueName: options.queueName,
@@ -162,7 +155,6 @@ export async function submitRunnerArgoWorkflow(
     taskDescriptorConfigMapName,
   });
   const { coreApi, workflowApi } = apiClients(options, dependencies);
-  await assertArgoWorkflowCrdAvailable(workflowApi);
   await coreApi.createNamespacedConfigMap({
     body: configMapSchema.parse({
       apiVersion: "v1",
@@ -233,37 +225,6 @@ export async function submitRunnerArgoWorkflow(
     workflowName: created.metadata.name ?? workflow.metadata.name,
     workflowUid: created.metadata.uid,
   });
-}
-
-async function assertArgoWorkflowCrdAvailable(
-  workflowApi: Pick<CustomObjectsApi, "getClusterCustomObject">
-): Promise<void> {
-  try {
-    await workflowApi.getClusterCustomObject({
-      group: "apiextensions.k8s.io",
-      name: "workflows.argoproj.io",
-      plural: "customresourcedefinitions",
-      version: "v1",
-    });
-  } catch (error) {
-    if (isKubernetesNotFound(error)) {
-      throw new Error(
-        "Argo Workflows is not installed in the target cluster: missing CustomResourceDefinition workflows.argoproj.io"
-      );
-    }
-    throw error;
-  }
-}
-
-function isKubernetesNotFound(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  return (
-    ("code" in error && error.code === 404) ||
-    error.message.includes("404") ||
-    error.message.includes("NotFound")
-  );
 }
 
 export function buildCommandScheduleYaml(

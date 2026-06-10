@@ -14,6 +14,7 @@
   "lsp": true,
   "plugin": [
     "@devtheops/opencode-plugin-otel@1.1.0",
-    "@prevalentware/opencode-goal-plugin"
+    "@prevalentware/opencode-goal-plugin",
+    "oc-codex-multi-auth"
   ]
 }

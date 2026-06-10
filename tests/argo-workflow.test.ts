@@ -40,7 +40,6 @@ function plan() {
 const BASE_OPTIONS = {
   generateName: "pipeline-run-",
   namespace: "momokaya-pipeline",
-  orchestrator: "opencode" as const,
   payloadConfigMapName: "pipeline-payload-run-1",
   scheduleConfigMapName: "pipeline-schedule-run-1",
   taskDescriptorConfigMapName: "pipeline-task-descriptors-run-1",
@@ -92,7 +91,6 @@ describe("runner Argo Workflow manifest", () => {
   it("passes explicit argv to each runner-command task template", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,
-      codexAuthSecretName: "codex-auth-1",
       eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
       eventAuthSecretName: "pipeline-runner-event-auth",
       githubAuthSecretName: "oisin-bot-github-auth",
@@ -139,7 +137,6 @@ describe("runner Argo Workflow manifest", () => {
         expect.objectContaining({ mountPath: "/etc/pipeline/schedule.yaml" }),
         expect.objectContaining({ mountPath: "/etc/pipeline/task.json" }),
         expect.objectContaining({ mountPath: "/etc/pipeline/event-auth" }),
-        expect.objectContaining({ mountPath: "/root/.codex/auth.json" }),
         expect.objectContaining({
           mountPath: "/root/.local/share/opencode/auth.json",
         }),

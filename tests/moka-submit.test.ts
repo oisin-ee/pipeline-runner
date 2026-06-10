@@ -41,7 +41,6 @@ function captureSubmitCall(calls: CapturedSubmitOptions[]) {
 }
 
 const MOMOKAYA_MANAGED_AUTH = {
-  codexAuthSecretName: "codex-auth-1",
   eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
   eventAuthSecretName: "pipeline-runner-event-auth",
   githubAuthSecretName: "oisin-bot-github-auth",
@@ -161,7 +160,7 @@ describe("submitMoka", () => {
 
     await submitMoka(
       {
-        commandArgv: ["codex", "-p", "fix"],
+        commandArgv: ["opencode", "run", "fix"],
         config: CONFIG,
         eventUrl: "https://console.example/api/pipeline/runner-events",
         type: "command",
@@ -183,8 +182,74 @@ describe("submitMoka", () => {
     expect(calls[0]).toMatchObject(MOMOKAYA_MANAGED_AUTH);
     expect(payload).toMatchObject({
       events: { authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE },
-      submission: { argv: ["codex", "-p", "fix"], kind: "command" },
+      submission: { argv: ["opencode", "run", "fix"], kind: "command" },
       workflow: { id: "schedule-run-command-root" },
+    });
+  });
+
+  it("uses Momokaya production defaults when submit options omit overrides", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await submitMoka(
+      {
+        commandArgv: ["opencode", "run", "fix"],
+        config: CONFIG,
+        type: "command",
+        worktreePath: PROJECT_ROOT,
+      },
+      {
+        generateRunId: () => "run-defaults",
+        resolveGitContext: () => Promise.resolve(GIT),
+        submitWorkflow: captureSubmitCall(calls),
+      }
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
+      imagePullSecretName: "ghcr-pull-secret",
+      namespace: "momokaya-pipeline",
+      queueName: "momokaya-pipeline",
+      serviceAccountName: "pipeline-runner",
+    });
+    const payload = JSON.parse(calls[0].payloadJson);
+    expect(payload).toMatchObject({
+      events: {
+        authHeader: "Authorization",
+        authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE,
+        url: "https://pipeline-console.momokaya.ee/api/pipeline/runner-events",
+      },
+      submission: { argv: ["opencode", "run", "fix"], kind: "command" },
+      workflow: { id: "schedule-run-defaults-root" },
+    });
+  });
+
+  it("preserves an explicit custom event URL in the runner payload", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await submitMoka(
+      {
+        commandArgv: ["opencode", "run", "fix"],
+        config: CONFIG,
+        eventUrl: "https://console.example/api/pipeline/runner-events",
+        type: "command",
+        worktreePath: PROJECT_ROOT,
+      },
+      {
+        generateRunId: () => "run-custom-url",
+        resolveGitContext: () => Promise.resolve(GIT),
+        submitWorkflow: captureSubmitCall(calls),
+      }
+    );
+
+    expect(calls).toHaveLength(1);
+    const payload = JSON.parse(calls[0].payloadJson);
+    expect(payload).toMatchObject({
+      events: {
+        url: "https://console.example/api/pipeline/runner-events",
+      },
+      submission: { argv: ["opencode", "run", "fix"], kind: "command" },
+      workflow: { id: "schedule-run-custom-url-root" },
     });
   });
 });

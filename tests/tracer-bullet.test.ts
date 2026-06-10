@@ -52,9 +52,9 @@ function writeFixtureWorktree(worktreePath: string): void {
     join(worktreePath, ".pipeline", "runners.yaml"),
     `version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       rules: false
@@ -71,40 +71,40 @@ runners:
     `version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions:
       inline: Coordinate the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   researcher:
-    runner: codex
+    runner: opencode
     instructions:
       inline: You are a researcher for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     output: { format: text }
   test-writer:
-    runner: codex
+    runner: opencode
     instructions:
       inline: You are a test-writer for the tracer pipeline.
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write }
     output: { format: text }
   code-writer:
-    runner: codex
+    runner: opencode
     instructions:
       inline: You are a code-writer for the tracer pipeline.
     tools: [read, list, grep, glob, bash, edit, write]
     filesystem: { mode: workspace-write }
     output: { format: text }
   verifier:
-    runner: codex
+    runner: opencode
     instructions:
       inline: You are a code verifier for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     output: { format: text }
   learner:
-    runner: codex
+    runner: opencode
     instructions:
       inline: You are the LEARN phase for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
@@ -203,7 +203,7 @@ if (args[0] === "task" && args[1] === "create") {
 
   writeExecutable(
     env.binPath,
-    "codex",
+    "opencode",
     `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
@@ -314,22 +314,8 @@ if (
   process.exit(0);
 }
 
-process.stderr.write("Unknown codex prompt");
+process.stderr.write("Unknown opencode prompt");
 process.exit(1);
-`
-  );
-
-  writeExecutable(
-    env.binPath,
-    "opencode",
-    `#!/usr/bin/env node
-const { spawnSync } = require("node:child_process");
-const result = spawnSync("codex", process.argv.slice(2), {
-  cwd: process.cwd(),
-  env: process.env,
-  stdio: "inherit",
-});
-process.exit(result.status ?? 1);
 `
   );
 

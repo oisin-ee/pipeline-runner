@@ -3,15 +3,14 @@
 The v1 runtime pipeline is package-owned config. Package-owned defaults declare
 runner adapters, profiles, MCP gateway backends, the orchestrator profile,
 entrypoints, schedules, hooks, workflows, gates, artifacts, OpenCode host
-resources, and goal-loop contracts. OpenCode is the default package runtime;
-Codex remains a compatibility runner and generated host surface.
+resources, and goal-loop contracts. OpenCode is the package runtime.
 
 Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
 prompt constants.
 
 ## Complete Default Shape
 
-`pipe init` does not write this YAML into repositories. The runtime loads this
+`moka init` does not write this YAML into repositories. The runtime loads this
 shape from the installed package defaults.
 
 Default runners:
@@ -20,10 +19,10 @@ Default runners:
 version: 1
 
 runners:
-  codex:
-    type: codex
-    command: codex
-    model: gpt-5.5
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
       rules: true
@@ -49,7 +48,7 @@ mcp_servers: {}
 
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first]
@@ -57,7 +56,7 @@ profiles:
     filesystem:
       mode: read-only
   pipeline-researcher:
-    runner: codex
+    runner: opencode
     instructions:
       path: .pipeline/prompts/researcher.md
     rules: [test-first]
@@ -76,9 +75,15 @@ version: 1
 default_workflow: default
 
 entrypoints:
-  pipe:
-    schedule: pipe-schedule
-    description: Full pipeline
+  quick:
+    schedule: quick-schedule
+    description: Compact planner-generated pipeline for small work
+  execute:
+    schedule: execute-schedule
+    description: Full planner-generated pipeline for repository work
+  inspect:
+    workflow: inspect
+    description: Read-only repository inspection
 
 orchestrator:
   profile: orchestrator
@@ -87,13 +92,14 @@ hooks:
   functions: {}
   on: {}
 
-schedules:
-  pipe-schedule:
-    baseline: pipe
-    planner_profile: pipeline-schedule-planner
-  epic-schedule:
-    baseline: epic
-    planner_profile: pipeline-schedule-planner
+scheduler:
+  commands:
+    quick:
+      schedule: quick-schedule
+      catalog: quick
+    execute:
+      schedule: execute-schedule
+      catalog: execute
 
 workflows:
   inspect:
@@ -172,13 +178,13 @@ mcp_gateway:
 
 profiles:
   inspector:
-    runner: codex
+    runner: opencode
     mcp_servers: [pipeline-gateway]
 ```
 
-`pipe init` renders generated Codex and OpenCode host config with exactly one
+`moka init` renders generated OpenCode host config with exactly one
 remote MCP server named `pipeline-gateway`. Upstream MCP servers are managed by
-the ToolHive/vMCP gateway, not by Codex/OpenCode or pipeline worker sessions.
+the ToolHive/vMCP gateway, not by OpenCode or pipeline worker sessions.
 
 OpenCode host resources are generated from the same profile registry:
 
@@ -303,24 +309,21 @@ timeouts, output limits, sanitized env, and explicit trust flags.
 
 | Runner   | Native subagents | Rules | Skills | MCP | Outputs                   | Generated resources             |
 | -------- | ---------------- | ----- | ------ | --- | ------------------------- | ------------------------------- |
-| Codex    | yes              | yes   | yes    | yes | text, JSON, JSONL, schema | skill plus `.codex/agents`      |
 | OpenCode | yes              | yes   | yes    | yes | text, JSON, JSONL, schema | commands, agents, skills, plugins, LSP |
 | command  | no               | no    | no     | no  | declared by runner        | subprocess argv                 |
 
-Generated host resources follow a native runner rule. Codex runner nodes use
-Codex native agents. OpenCode runner nodes use OpenCode native agents. A
-Codex-hosted workflow may dispatch OpenCode runner nodes through the OpenCode
-CLI. Unsupported runner or host mappings fail closed instead of doing
-instruction-only translation or generic worker substitution.
+Generated host resources follow a native runner rule. OpenCode runner nodes use
+OpenCode native agents. Unsupported runner or host mappings fail closed instead
+of doing instruction-only translation or generic worker substitution.
 
 ## Troubleshooting
 
-- Missing host resources: run `pipe install-commands`; `pipe run` loads the
+- Missing host resources: run `moka install-commands`; `moka run` loads the
   installed package config.
 - Capability error: reduce the profile grants or choose a runner whose declared
   capabilities include the requested tools, filesystem, network, output, rules,
   skills, or MCP access.
-- Gate failure: inspect `pipe run` output for node, gate, reason, and evidence.
+- Gate failure: inspect `moka run` output for node, gate, reason, and evidence.
   Dependent nodes are not executed after a required gate fails.
 - Schema failure: ensure the agent emits valid JSON and that `schema_path`
   points to a JSON Schema file in the target worktree.

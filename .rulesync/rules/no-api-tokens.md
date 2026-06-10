@@ -9,7 +9,7 @@ globs: ["**/*"]
 Do not import or instantiate AI provider SDKs (`openai`, `new OpenAI()`).
 
 ## Intent
-The pipeline uses harness CLIs (codex, opencode, pi) so it works across all supported harnesses without hardcoding a provider. API tokens are not stored in this project.
+The pipeline uses supported harness CLIs such as OpenCode instead of hardcoding provider APIs. API tokens are not stored in this project.
 
 ## DO
 - Use `spawnAgent(harness, role, prompt, ...)` from `src/mastra/runner.ts`

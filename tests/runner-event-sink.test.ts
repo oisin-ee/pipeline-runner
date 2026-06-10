@@ -53,7 +53,7 @@ describe("runner event sink", () => {
       attempt: 1,
       nodeId: "red",
       profile: "pipeline-test-writer",
-      runnerId: "codex",
+      runnerId: "opencode",
       type: "node.start",
     });
     sink.recordRuntimeEvent({
@@ -90,7 +90,7 @@ describe("runner event sink", () => {
               attempt: 1,
               nodeId: "red",
               profile: "pipeline-test-writer",
-              runnerId: "codex",
+              runnerId: "opencode",
               status: "running",
             },
             at: TIMESTAMP,

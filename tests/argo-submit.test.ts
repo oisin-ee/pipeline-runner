@@ -81,7 +81,6 @@ describe("submitRunnerArgoWorkflow", () => {
         eventAuthSecretName: "pipeline-runner-event-auth",
         generateName: "pipeline-run-",
         namespace: "momokaya-pipeline",
-        orchestrator: "opencode",
         payloadJson: PAYLOAD,
         queueName: "momokaya-pipeline",
         scheduleYaml: SCHEDULE,
@@ -94,17 +93,6 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         },
         workflowApi: {
-          getClusterCustomObject(input) {
-            expect(input).toMatchObject({
-              group: "apiextensions.k8s.io",
-              name: "workflows.argoproj.io",
-              plural: "customresourcedefinitions",
-              version: "v1",
-            });
-            return Promise.resolve({
-              metadata: { name: "workflows.argoproj.io" },
-            });
-          },
           createNamespacedCustomObject(input) {
             createdWorkflows.push(input.body);
             return Promise.resolve({
@@ -122,6 +110,7 @@ describe("submitRunnerArgoWorkflow", () => {
     );
 
     expect(createdConfigMaps).toHaveLength(3);
+    expect(createdWorkflows).toHaveLength(1);
     expect(createdConfigMaps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -141,7 +130,6 @@ describe("submitRunnerArgoWorkflow", () => {
         }),
       ])
     );
-    expect(createdWorkflows).toHaveLength(1);
     expect(createdWorkflows[0]).toMatchObject({
       apiVersion: "argoproj.io/v1alpha1",
       kind: "Workflow",
@@ -170,51 +158,6 @@ describe("submitRunnerArgoWorkflow", () => {
       workflowName: "pipeline-run-abcde",
       workflowUid: "workflow-uid-1",
     });
-  });
-
-  it("fails before creating ConfigMaps when Argo Workflows is not installed", async () => {
-    const createdConfigMaps: unknown[] = [];
-    const createdWorkflows: unknown[] = [];
-
-    await expect(
-      submitRunnerArgoWorkflow(
-        {
-          config: DEFAULT_CONFIG,
-          eventAuthSecretKey: "token",
-          eventAuthSecretName: "pipeline-runner-event-auth",
-          generateName: "pipeline-run-",
-          namespace: "momokaya-pipeline",
-          orchestrator: "opencode",
-          payloadJson: PAYLOAD,
-          queueName: "momokaya-pipeline",
-          scheduleYaml: SCHEDULE,
-        },
-        {
-          coreApi: {
-            createNamespacedConfigMap(input) {
-              createdConfigMaps.push(input.body);
-              return Promise.resolve(input.body);
-            },
-          },
-          workflowApi: {
-            getClusterCustomObject() {
-              return Promise.reject(
-                Object.assign(new Error("NotFound"), { code: 404 })
-              );
-            },
-            createNamespacedCustomObject(input) {
-              createdWorkflows.push(input.body);
-              return Promise.resolve(input.body);
-            },
-          },
-        }
-      )
-    ).rejects.toThrow(
-      "Argo Workflows is not installed in the target cluster: missing CustomResourceDefinition workflows.argoproj.io"
-    );
-
-    expect(createdConfigMaps).toHaveLength(0);
-    expect(createdWorkflows).toHaveLength(0);
   });
 
   it("builds valid schedule YAML for a custom argv command", () => {

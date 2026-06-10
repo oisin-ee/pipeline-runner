@@ -24,7 +24,7 @@ const SHARED_WORKTREE_PARALLEL_RE =
   /write-capable children sharing a worktree/i;
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
-  /schedule planner 'pipeline-schedule-planner' failed with exit 1.*codex auth missing.*partial planner output/s;
+  /schedule planner 'pipeline-schedule-planner' failed with exit 1.*planner auth missing.*partial planner output/s;
 const PLANNER_TIMEOUT_FAILURE_RE =
   /schedule planner 'pipeline-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/s;
 const REPAIR_NODE_SCHEMA_RE =
@@ -35,20 +35,10 @@ const GREEN_AFTER_RED_RE =
 const RUNNERS = `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
-    model: gpt-5
-    capabilities:
-      native_subagents: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json_schema]
   opencode:
     type: opencode
     command: opencode
-    model: openai/gpt-5.4-mini
+    model: gpt-5
     capabilities:
       native_subagents: true
       rules: true
@@ -64,13 +54,13 @@ const PROFILES = `
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   pipeline-schedule-planner:
-    runner: codex
+    runner: opencode
     instructions: { inline: Plan schedules }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
@@ -78,47 +68,47 @@ profiles:
     output:
       format: text
   pipeline-researcher:
-    runner: codex
+    runner: opencode
     instructions: { inline: Research }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   pipeline-test-writer:
-    runner: codex
+    runner: opencode
     instructions: { inline: Test }
     tools: [read, edit, write, bash]
     filesystem: { mode: workspace-write }
     network: { mode: inherit }
   pipeline-code-writer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [implementation]
     instructions: { inline: Implement }
     tools: [read, edit, write, bash]
     filesystem: { mode: workspace-write }
     network: { mode: inherit }
   pipeline-verifier:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     instructions: { inline: Verify }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   pipeline-acceptance-reviewer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     instructions: { inline: Acceptance }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   pipeline-thermo-nuclear-reviewer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     instructions: { inline: Review }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
     network: { mode: inherit }
   pipeline-learner:
-    runner: codex
+    runner: opencode
     instructions: { inline: Learn }
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only }
@@ -420,7 +410,7 @@ workflows:
           entrypointId: "execute",
           executor: () => ({
             exitCode: 1,
-            stderr: "codex auth missing",
+            stderr: "planner auth missing",
             stdout: "partial planner output",
           }),
           generatedAt: new Date("2026-06-03T12:00:00.000Z"),
@@ -614,64 +604,6 @@ workflows:
       "verify",
     ]);
     expect(compiled.config.workflows["schedule-run-a-root"]).toBeDefined();
-  });
-
-  it("parses a planner schedule from codex JSONL agent output", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-jsonl-"));
-    const schedule = `
-version: 1
-kind: pipeline-schedule
-schedule_id: run-jsonl
-source_entrypoint: execute
-task: Implement generated schedules
-generated_at: 2026-06-03T12:00:00.000Z
-root_workflow: root
-workflows:
-  root:
-    nodes:
-      - id: research
-        kind: agent
-        profile: pipeline-researcher
-      - id: implement
-        kind: agent
-        profile: pipeline-code-writer
-        needs: [research]
-      - id: verify
-        kind: agent
-        profile: pipeline-verifier
-        needs: [implement]
-`;
-
-    try {
-      const result = await generateScheduleArtifact({
-        config: config(),
-        entrypointId: "execute",
-        executor: () => ({
-          exitCode: 0,
-          stdout: [
-            JSON.stringify({ type: "turn.started" }),
-            JSON.stringify({
-              item: { text: schedule, type: "agent_message" },
-              type: "item.completed",
-            }),
-            JSON.stringify({ type: "turn.completed" }),
-          ].join("\n"),
-        }),
-        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
-        runId: "run-jsonl",
-        task: "Implement generated schedules",
-        worktreePath: dir,
-      });
-
-      expect(result.artifact.schedule_id).toBe("run-jsonl");
-      expect(result.path).toBe(".pipeline/runs/run-jsonl/schedule.yaml");
-      expect(existsSync(join(dir, result.path))).toBe(true);
-      expect(
-        result.artifact.workflows.root.nodes.map((node) => node.id)
-      ).toEqual(["research", "implement", "verify"]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 
   it("canonicalizes generated planner node ids before validating the schedule", async () => {

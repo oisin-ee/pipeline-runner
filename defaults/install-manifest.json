@@ -3,7 +3,7 @@
   "skills": [
     {
       "source": "oisincoveney/skills",
-      "args": ["--agent", "codex", "--skill", "*", "--yes", "--copy"]
+      "args": ["--agent", "opencode", "--skill", "*", "--yes", "--copy"]
     }
   ]
 }

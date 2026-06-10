@@ -35,5 +35,5 @@ For each native node prompt include:
 - dependency outputs
 
 Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
-If a node returns targeted evidence and has no configured blocking gate, advance to the next workflow node.
-Do not bypass configured runner subprocesses or package-configured gates when executing workflow nodes.
+If a node returns targeted evidence and has no configured blocking gate, advance to the next node.
+Do not bypass configured runner subprocesses or package-configured gates when executing nodes.

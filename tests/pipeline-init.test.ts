@@ -35,9 +35,7 @@ beforeEach(() => {
 function bootstrappedHostFilesExist(root: string): boolean {
   return [
     ".agents/skills/research/SKILL.md",
-    ".agents/skills/execute/SKILL.md",
     ".opencode/commands/execute.md",
-    ".codex/config.toml",
     ".opencode/opencode.json",
   ].every((relativePath) => existsSync(join(root, relativePath)));
 }
@@ -63,18 +61,12 @@ describe("initPipelineProject", () => {
   it("bootstraps skills and generated host resources without repo-local pipeline config", async () => {
     const result = await init();
 
-    expect(result.files).toContain(".agents/skills/execute/SKILL.md");
-    expect(result.files).toContain(".agents/skills/quick/SKILL.md");
     expect(result.files).toContain(".opencode/commands/execute.md");
     expect(result.files).toContain(".opencode/commands/quick.md");
-    expect(result.files).toContain(".codex/config.toml");
     expect(result.files).toContain(".opencode/opencode.json");
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(bootstrappedHostFilesExist(dir)).toBe(true);
-    expect(readFileSync(join(dir, ".codex/config.toml"), "utf8")).toContain(
-      "[mcp_servers.pipeline-gateway]"
-    );
     const opencode = JSON.parse(
       readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
     );
@@ -110,7 +102,6 @@ describe("initPipelineProject", () => {
 
     expect(output).toContain("Initialized package-owned pipeline support:");
     expect(output).toContain("installed default skills");
-    expect(output).toContain("generated .codex/config.toml");
     expect(output).toContain("generated .opencode/opencode.json");
     expect(output).toContain(
       "no repo-local pipeline config files were created"
@@ -132,13 +123,13 @@ describe("initPipelineProject", () => {
 
   it("installs default skills with the skills CLI", async () => {
     await installDefaultSkillsWithCli(
-      [{ source: "oisincoveney/skills", args: ["--agent", "codex"] }],
+      [{ source: "oisincoveney/skills", args: ["--agent", "opencode"] }],
       dir
     );
 
     expect(mockExeca).toHaveBeenCalledWith(
       "npx",
-      ["--yes", "skills", "add", "oisincoveney/skills", "--agent", "codex"],
+      ["--yes", "skills", "add", "oisincoveney/skills", "--agent", "opencode"],
       expect.objectContaining({ cwd: dir })
     );
   });
@@ -153,7 +144,6 @@ describe("initPipelineProject", () => {
 
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-    expect(existsSync(join(dir, ".codex/config.toml"))).toBe(false);
     expect(existsSync(join(dir, ".opencode/opencode.json"))).toBe(false);
   });
 

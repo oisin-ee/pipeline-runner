@@ -24,9 +24,9 @@ const LINE_RE = /\r?\n/;
 const VALID_RUNNERS_YAML = `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     model: gpt-5-runner
     capabilities:
       native_subagents: true
@@ -54,7 +54,7 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     model: gpt-5-orchestrator
     instructions:
       path: .pipeline/prompts/orchestrator.md
@@ -70,7 +70,7 @@ profiles:
       mode: inherit
   researcher:
     model: gpt-5-agent
-    runner: codex
+    runner: opencode
     description: Research the requested change.
     instructions:
       path: .pipeline/prompts/researcher.md
@@ -91,7 +91,7 @@ profiles:
         enabled: true
         max_attempts: 1
   test-writer:
-    runner: codex
+    runner: opencode
     instructions:
       inline: Write failing tests.
     tools: [read, edit, write, bash]
@@ -282,7 +282,6 @@ describe("loadPipelineConfig", () => {
     );
     expect(config.entrypoints.pipe).toBeUndefined();
     expect(config.entrypoints.epic).toBeUndefined();
-    expect(config.runners.codex.type).toBe("codex");
     expect(config.runners.opencode.type).toBe("opencode");
     expect(
       Object.entries(config.profiles)
@@ -374,10 +373,10 @@ describe("loadPipelineConfig", () => {
 
     expect(config.version).toBe(1);
     expect(config.default_workflow).toBe("default");
-    expect(config.runners.codex.type).toBe("codex");
+    expect(config.runners.opencode.type).toBe("opencode");
     expect(config.orchestrator.profile).toBe("orchestrator");
     expect(config.profiles.orchestrator.model).toBe("gpt-5-orchestrator");
-    expect(config.profiles.researcher.runner).toBe("codex");
+    expect(config.profiles.researcher.runner).toBe("opencode");
     expect(config.profiles.researcher.output?.repair).toEqual({
       enabled: true,
       max_attempts: 1,
@@ -415,20 +414,20 @@ describe("loadPipelineConfig", () => {
   it("accepts canonical models and optional host-specific model overrides", () => {
     const config = parseParts({
       profiles: VALID_PROFILES_YAML.replace(
-        "    model: gpt-5-agent\n    runner: codex",
-        "    model: gpt-5-agent\n    host_models:\n      opencode: openai/gpt-5.3-codex\n    runner: codex"
+        "    model: gpt-5-agent\n    runner: opencode",
+        "    model: gpt-5-agent\n    host_models:\n      opencode: openai/gpt-5.3\n    runner: opencode"
       ),
       runners: VALID_RUNNERS_YAML.replace(
         "    model: gpt-5-runner",
-        "    model: gpt-5-runner\n    host_models:\n      opencode: openai/gpt-5.3-codex"
+        "    model: gpt-5-runner\n    host_models:\n      opencode: openai/gpt-5.3"
       ),
     });
 
-    expect(config.runners.codex.host_models?.opencode).toBe(
-      "openai/gpt-5.3-codex"
+    expect(config.runners.opencode.host_models?.opencode).toBe(
+      "openai/gpt-5.3"
     );
     expect(config.profiles.researcher.host_models?.opencode).toBe(
-      "openai/gpt-5.3-codex"
+      "openai/gpt-5.3"
     );
   });
 
@@ -514,7 +513,7 @@ describe("parsePipelineConfigParts", () => {
     const error = captureConfigError(() =>
       parseParts({
         profiles: VALID_PROFILES_YAML.replace(
-          "runner: codex",
+          "runner: opencode",
           "runner: missing-runner"
         ),
       })
@@ -1432,7 +1431,7 @@ describe("final review asset bundle", () => {
       "profiles.pipeline-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml"
     ).toBeDefined();
     expect(profile).toMatchObject({
-      runner: "codex",
+      runner: "opencode",
       instructions: {
         path: ".agents/skills/critique/SKILL.md",
       },

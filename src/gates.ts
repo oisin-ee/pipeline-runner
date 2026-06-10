@@ -332,7 +332,6 @@ const JSCPD_DEFAULT_IGNORES = [
   "**/.next/**",
   "**/.turbo/**",
   "**/.cache/**",
-  "**/.codex/**",
   "**/.serena/**",
   "**/.opencode/**",
   "**/.pipeline/host-resources/**",

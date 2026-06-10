@@ -253,7 +253,6 @@ runnerCommandPayloadSchema.parse(parsedPayload);
 const runnerManifest: ArgoWorkflowManifest = buildRunnerArgoWorkflowManifest({
   generateName: "pipeline-runner-smoke-",
   namespace: "momokaya-pipeline",
-  orchestrator: "codex",
   plan,
   payloadConfigMapName: "pipeline-runner-payload",
   payloadConfigMapKey: "payload.json",

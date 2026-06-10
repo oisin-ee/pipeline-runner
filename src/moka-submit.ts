@@ -21,31 +21,38 @@ import {
   parseScheduleArtifact,
 } from "./schedule-planner";
 
-const MOMOKAYA_CODEX_AUTH_SECRET_NAME = "codex-auth-1";
 const MOMOKAYA_EVENT_AUTH_SECRET_KEY = "OISIN_PIPELINE_EVENT_AUTH_TOKEN";
 const MOMOKAYA_EVENT_AUTH_SECRET_NAME = "pipeline-runner-event-auth";
+const MOMOKAYA_EVENT_URL =
+  "https://pipeline-console.momokaya.ee/api/pipeline/runner-events";
 const MOMOKAYA_GITHUB_AUTH_SECRET_NAME = "oisin-bot-github-auth";
+const MOMOKAYA_IMAGE_PULL_SECRET_NAME = "ghcr-pull-secret";
 const MOMOKAYA_OPENCODE_AUTH_SECRET_NAME = "opencode-auth-1";
+const MOMOKAYA_QUEUE_NAME = "momokaya-pipeline";
+const MOMOKAYA_RUNNER_SERVICE_ACCOUNT_NAME = "pipeline-runner";
 
 const imagePullPolicySchema = z
   .enum(["Always", "IfNotPresent", "Never"])
   .default("Always");
 
-const orchestratorSchema = z.enum(["codex", "opencode"]).default("opencode");
-
 const mokaSubmitBaseOptionsSchema = z
   .object({
-    eventUrl: z.string().url(),
+    eventUrl: z.string().url().default(MOMOKAYA_EVENT_URL),
     generateName: z.string().min(1).optional(),
     image: z.string().min(1).optional(),
     imagePullPolicy: imagePullPolicySchema,
-    imagePullSecretName: z.string().min(1).optional(),
+    imagePullSecretName: z
+      .string()
+      .min(1)
+      .default(MOMOKAYA_IMAGE_PULL_SECRET_NAME),
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).default("momokaya-pipeline"),
-    orchestrator: orchestratorSchema,
-    queueName: z.string().min(1).optional(),
-    serviceAccountName: z.string().min(1).optional(),
+    queueName: z.string().min(1).default(MOMOKAYA_QUEUE_NAME),
+    serviceAccountName: z
+      .string()
+      .min(1)
+      .default(MOMOKAYA_RUNNER_SERVICE_ACCOUNT_NAME),
   })
   .strict();
 
@@ -228,7 +235,6 @@ function workflowSubmitOptions(
   "config" | "payloadJson" | "scheduleYaml"
 > {
   return {
-    codexAuthSecretName: MOMOKAYA_CODEX_AUTH_SECRET_NAME,
     eventAuthSecretKey: MOMOKAYA_EVENT_AUTH_SECRET_KEY,
     eventAuthSecretName: MOMOKAYA_EVENT_AUTH_SECRET_NAME,
     githubAuthSecretName: MOMOKAYA_GITHUB_AUTH_SECRET_NAME,
@@ -239,7 +245,6 @@ function workflowSubmitOptions(
     name: options.name,
     namespace: options.namespace,
     opencodeAuthSecretName: MOMOKAYA_OPENCODE_AUTH_SECRET_NAME,
-    orchestrator: options.orchestrator,
     queueName: options.queueName,
     serviceAccountName: options.serviceAccountName,
   };

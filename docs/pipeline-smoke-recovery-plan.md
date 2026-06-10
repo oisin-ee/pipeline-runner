@@ -3,10 +3,10 @@
 The smoke target for v1 is the YAML runtime:
 
 ```sh
-pipe init
-pipe validate
-pipe explain-plan
-pipe run "smoke task"
+moka init
+moka validate
+moka explain-plan
+moka run "smoke task"
 ```
 
 The run is valid only when package-owned `@oisincoveney/pipeline` config

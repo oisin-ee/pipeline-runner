@@ -155,9 +155,9 @@ function baseConfig(extraWorkflow = "") {
     runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text, json, json_schema]
@@ -173,19 +173,19 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     tools: []
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
     output: { format: text }
   b:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent B }
     output: { format: text }
   structured:
-    runner: codex
+    runner: opencode
     instructions: { inline: Structured }
     output:
       format: json_schema
@@ -320,9 +320,9 @@ describe("runPipelineFromConfig", () => {
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       rules: true
@@ -346,14 +346,14 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     rules: [test-first]
     skills: [research]
     mcp_servers: [pipeline-gateway]
     tools: [read]
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
     rules: [test-first]
     skills: [research]
@@ -684,9 +684,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -695,11 +695,11 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     tools: []
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
 `,
       pipeline: `
@@ -1134,51 +1134,6 @@ workflows:
     expect(result.gates[0].evidence.join("\n")).toContain("uuid");
   });
 
-  it("validates JSON schema gates against the final Codex message instead of raw JSONL events", async () => {
-    const project = tempProject();
-    writeProjectFile(
-      project,
-      "schema.json",
-      JSON.stringify({
-        additionalProperties: false,
-        properties: { verdict: { enum: ["PASS"], type: "string" } },
-        required: ["verdict"],
-        type: "object",
-      })
-    );
-    const config = baseConfig(`
-  structured-flow:
-    nodes:
-      - id: structured
-        kind: agent
-        profile: structured
-`);
-    const codexJsonl = [
-      JSON.stringify({ type: "thread.started" }),
-      JSON.stringify({
-        item: {
-          text: JSON.stringify({ verdict: "PASS" }),
-          type: "agent_message",
-        },
-        type: "item.completed",
-      }),
-    ].join("\n");
-
-    const result = await runPipelineFromConfig({
-      config,
-      executor: () => ({ exitCode: 0, stdout: codexJsonl }),
-      task: "schema",
-      workflowId: "structured-flow",
-      worktreePath: project,
-    });
-
-    expect(result.outcome).toBe("PASS");
-    expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
-    expect(result.nodes[0].evidence).toContain(
-      "normalized runner output from codex JSONL"
-    );
-  });
-
   it("selects the latest OpenCode text event that validates against the profile schema", async () => {
     const project = tempProject();
     writeProjectFile(
@@ -1299,7 +1254,7 @@ workflows:
     expect(seen[1]).toMatchObject({
       outputFormat: "text",
       profileId: "structured:output-repair",
-      runnerId: "codex",
+      runnerId: "opencode",
     });
     expect(seen[1].args.join("\n")).toContain("Return only valid JSON");
   });
@@ -2100,9 +2055,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2111,11 +2066,11 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     tools: []
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
 `,
       pipeline: `
@@ -2177,9 +2132,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2188,10 +2143,10 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
 `,
       pipeline: `
@@ -2247,9 +2202,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2258,10 +2213,10 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
 `,
       pipeline: `
@@ -2329,9 +2284,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2340,10 +2295,10 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
 `,
       pipeline: `
@@ -2431,9 +2386,9 @@ export default async function audit(ctx) {
         runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2442,10 +2397,10 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
 `,
         pipeline: `
@@ -2518,9 +2473,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2529,10 +2484,10 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: Agent A }
 `,
       pipeline: `
@@ -2619,9 +2574,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2630,11 +2585,11 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     tools: []
   producer:
-    runner: codex
+    runner: opencode
     instructions: { inline: Produce artifact }
 `,
       pipeline: `
@@ -2693,7 +2648,7 @@ workflows:
               kind: "agent",
               needs: [],
               profile: "producer",
-              runnerId: "codex",
+              runnerId: "opencode",
             }),
           ],
           type: "workflow.planned",
@@ -2723,14 +2678,14 @@ workflows:
           attempt: 1,
           nodeId: "produce",
           profile: "producer",
-          runnerId: "codex",
+          runnerId: "opencode",
           type: "node.start",
         }),
         expect.objectContaining({
           attempt: 1,
           nodeId: "produce",
           profile: "producer",
-          runnerId: "codex",
+          runnerId: "opencode",
           type: "agent.start",
         }),
         expect.objectContaining({
@@ -2743,7 +2698,7 @@ workflows:
           attempt: 1,
           nodeId: "produce",
           profile: "producer",
-          runnerId: "codex",
+          runnerId: "opencode",
           type: "agent.finish",
         }),
         expect.objectContaining({
@@ -2908,9 +2863,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2919,7 +2874,7 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     tools: []
 `,
@@ -2982,9 +2937,9 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -2993,7 +2948,7 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
     tools: []
 `,

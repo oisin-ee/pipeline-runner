@@ -1,6 +1,6 @@
 # Pipeline Console Runner Contract
 
-`oisin-pipeline` provides the runner package and container image.
+`moka` is the runner package CLI used by the container image.
 `pipeline-console` creates, lists, and cancels Kubernetes Jobs, stores events,
 renders the UI, and owns Kueue/Kubernetes discovery. The runner does not own the
 console database, event store, Job builder, Kueue watcher, or UI.
@@ -66,8 +66,8 @@ Console event API token; the token value itself stays in Kubernetes secrets. The
 runner clones `repository.url` into `/workspace`, checks out a
 `pipeline/<task-or-run>` branch from `repository.sha` when present or
 `origin/<repository.baseBranch>` otherwise, sets `PIPELINE_TARGET_PATH`, loads
-package-owned `@oisincoveney/pipeline` config, generates a task-specific `pipe`
-schedule, and then invokes the pipeline engine.
+package-owned `@oisincoveney/pipeline` config, generates a task-specific `moka`
+schedule artifact, and then invokes the pipeline engine.
 
 Stable runtime config is package-owned. Repo-local artifacts are schedules,
 worktrees, agent prompts, logs, reports, verification evidence, and PR
@@ -160,25 +160,23 @@ environment and mounted secrets.
 
 Expected runner Job secrets and mounts include:
 
-- `codex-auth-1` mounted at `/root/.codex/auth.json`
 - `opencode-auth-1` mounted at `/root/.local/share/opencode/auth.json`
 - `pipeline-runner-event-auth` mounted at
   `/etc/pipeline/event-auth/OISIN_PIPELINE_EVENT_AUTH_TOKEN`
 - MCP gateway auth Secret mounted at a path referenced by the runner
 - `oisin-bot-github-auth` mounted for GitHub auth usable by both `git` and `gh`
 
-The runner image sets `HOME=/root` and `CODEX_HOME=/root/.codex`; Kubernetes
-must project each numbered auth Secret with the key `auth.json` into the target
-directory. The runner does not read event auth tokens or payloads from
-environment variables. No `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`,
-`PIPELINE_EVENT_API_TOKEN`, `CODEX_AUTH_JSON`, or `OPENCODE_AUTH_JSON` env vars
-are used.
+The runner image sets `HOME=/root`; Kubernetes must project each numbered auth
+Secret with the key `auth.json` into the target directory. The runner does not
+read event auth tokens or payloads from environment variables. No
+`OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`, `PIPELINE_EVENT_API_TOKEN`, or
+`OPENCODE_AUTH_JSON` env vars are used.
 
 ## Boundary
 
-The `pipeline` command is its own user-facing command and runtime. Argo
+The `moka` command is its own user-facing command and runtime. Argo
 Workflow submission is the Kubernetes control plane path. The in-container
-`runner-command` adapter executes the argv supplied by an Argo task after
+`moka runner-command` adapter executes the argv supplied by an Argo task after
 validating the shared payload. The pipeline runtime does not import Kubernetes
 submission modules, and there is no compatibility shim or `kubernetes-runner`
 surface.

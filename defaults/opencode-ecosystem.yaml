@@ -2,7 +2,7 @@ version: 1
 generated_by: "@oisincoveney/pipeline"
 runtime:
   default_runner: opencode
-  compatibility_runners: [codex]
+  compatibility_runners: []
   default_stack_direct: true
   state_authority: pipeline
 official_dependencies:
@@ -56,7 +56,7 @@ ecosystem_code:
     plugin:
       kind: npm
       package: "@prevalentware/opencode-goal-plugin"
-    role: Codex-style long-running goal mode with /goal slash command, persistent state, evidence-gated completion, and TUI sidebar
+    role: long-running goal mode with /goal slash command, persistent state, evidence-gated completion, and TUI sidebar
     default_stack: true
     source: https://www.npmjs.com/package/@prevalentware/opencode-goal-plugin
   - id: oc-codex-multi-auth
@@ -88,7 +88,7 @@ mcp_backends:
     locality: project-remote
     required: true
     credentials: [PIPELINE_MCP_GATEWAY_AUTHORIZATION]
-    role: singleton MCP server exposed to generated Codex and OpenCode host config
+    role: singleton MCP server exposed to generated OpenCode host config
   - id: context7
     name: Context7
     locality: shared-remote

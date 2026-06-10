@@ -9,7 +9,6 @@ const LEADING_SLASHES_RE = /^\/+/;
 const TRAILING_SLASHES_RE = /\/+$/;
 const IMAGE_JOB_RE = /image|docker|container|ghcr/i;
 const DOCKERFILE_BASE_IMAGE_RE = /FROM\s+node:/i;
-const CODEX_NPM_PACKAGE_RE = /@openai\/codex@\$\{CODEX_PACKAGE_VERSION\}/;
 const OPENCODE_NPM_PACKAGE_RE = /opencode-ai@\$\{OPENCODE_PACKAGE_VERSION\}/;
 const CLAUDE_NPM_PACKAGE_RE =
   /@anthropic-ai\/claude-code@\$\{CLAUDE_CODE_PACKAGE_VERSION\}/;
@@ -51,12 +50,10 @@ const RUNNER_ENTRYPOINT_COPY_RE =
   /COPY\s+docker\/runner-entrypoint\.sh\s+\/usr\/local\/bin\/runner-entrypoint/i;
 const RUNNER_NODE_ENV_PRODUCTION_RE = /ENV\s+NODE_ENV=production/;
 const RUNNER_HOME_RE = /ENV\s+HOME=\/root/;
-const RUNNER_CODEX_HOME_RE = /ENV\s+CODEX_HOME=\/root\/\.codex/;
-const RUNNER_CODEX_AUTH_DIR_RE = /mkdir\s+-p[\s\S]*"\$CODEX_HOME"/;
 const RUNNER_OPENCODE_AUTH_DIR_RE =
   /mkdir\s+-p[\s\S]*\/root\/\.local\/share\/opencode/;
 const RUNNER_GITHUB_AUTH_DIR_RE = /mkdir\s+-p[\s\S]*\/root\/\.config\/gh/;
-const AUTH_JSON_ENV_RE = /CODEX_AUTH_JSON|OPENCODE_AUTH_JSON|PI_AUTH_JSON/;
+const AUTH_JSON_ENV_RE = /OPENCODE_AUTH_JSON|PI_AUTH_JSON/;
 const PIPELINE_CONSOLE_RE = /pipeline-console|apps\/console/i;
 const DOCKER_BUILD_RE = /\bdocker\s+build\b/;
 const DOCKER_RUN_RE = /\bdocker\s+run\b/;
@@ -161,7 +158,6 @@ describe("runner container image packaging", () => {
     expect(dockerfile).toMatch(UV_IMAGE_STAGE_RE);
     expect(dockerfile).toMatch(UV_COPY_RE);
     expect(dockerfile).toMatch(UVX_COMMAND_RE);
-    expect(dockerfile).toMatch(CODEX_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(OPENCODE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(CLAUDE_NPM_PACKAGE_RE);
     expect(dockerfile).toMatch(GIT_RE);
@@ -188,8 +184,6 @@ describe("runner container image packaging", () => {
     const dockerfile = readProjectFile("Dockerfile");
 
     expect(dockerfile).toMatch(RUNNER_HOME_RE);
-    expect(dockerfile).toMatch(RUNNER_CODEX_HOME_RE);
-    expect(dockerfile).toMatch(RUNNER_CODEX_AUTH_DIR_RE);
     expect(dockerfile).toMatch(RUNNER_OPENCODE_AUTH_DIR_RE);
     expect(dockerfile).toMatch(RUNNER_GITHUB_AUTH_DIR_RE);
     expect(dockerfile).not.toMatch(RUNNER_NODE_ENV_PRODUCTION_RE);

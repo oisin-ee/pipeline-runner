@@ -195,7 +195,6 @@ export const runnerArgoWorkflowManifestSchema = z
 const buildRunnerArgoWorkflowOptionsSchema = z
   .object({
     activeDeadlineSeconds: z.number().int().positive().optional(),
-    codexAuthSecretName: kubernetesNameSchema.optional(),
     eventAuthSecretKey: z.string().min(1).optional(),
     eventAuthSecretName: kubernetesNameSchema.optional(),
     generateName: z.string().min(1).optional(),
@@ -218,7 +217,6 @@ const buildRunnerArgoWorkflowOptionsSchema = z
       })
       .strict()
       .optional(),
-    orchestrator: z.enum(["codex", "opencode"]),
     payloadConfigMapKey: z.string().min(1).default("payload.json"),
     payloadConfigMapName: kubernetesNameSchema,
     queueName: kubernetesNameSchema.optional(),
@@ -404,23 +402,6 @@ function runnerWorkflowStorage(
     });
   }
 
-  if (options.codexAuthSecretName) {
-    volumes.push({
-      name: "codex-auth",
-      secret: {
-        defaultMode: 0o400,
-        items: [{ key: "auth.json", path: "auth.json" }],
-        secretName: options.codexAuthSecretName,
-      },
-    });
-    volumeMounts.push({
-      mountPath: "/root/.codex/auth.json",
-      name: "codex-auth",
-      readOnly: true,
-      subPath: "auth.json",
-    });
-  }
-
   if (options.opencodeAuthSecretName) {
     volumes.push({
       name: "opencode-auth",
@@ -435,26 +416,6 @@ function runnerWorkflowStorage(
       name: "opencode-auth",
       readOnly: true,
       subPath: "auth.json",
-    });
-  }
-
-  if (options.opencodeOpenaiAccountsSecret) {
-    const accountsKey = options.opencodeOpenaiAccountsSecret.key;
-    volumes.push({
-      name: "opencode-openai-accounts",
-      secret: {
-        defaultMode: 0o400,
-        ...(accountsKey
-          ? { items: [{ key: accountsKey, path: accountsKey }] }
-          : {}),
-        secretName: options.opencodeOpenaiAccountsSecret.name,
-      },
-    });
-    volumeMounts.push({
-      mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
-      name: "opencode-openai-accounts",
-      readOnly: true,
-      ...(accountsKey ? { subPath: accountsKey } : {}),
     });
   }
 
@@ -519,16 +480,6 @@ function runnerCommandTemplate(
         RUNNER_WORKFLOW_SCHEDULE_PATH,
       ],
       command: ["moka"],
-      env: [
-        ...(options.opencodeOpenaiAccountsSecret
-          ? [
-              {
-                name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
-                value: "false",
-              },
-            ]
-          : []),
-      ],
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",

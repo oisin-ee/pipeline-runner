@@ -34,70 +34,6 @@ function parseTestConfig(parts: {
   return parsePipelineConfigParts(parts);
 }
 
-describe("spawnAgent — codex harness", () => {
-  it("invokes codex exec with bypass approvals and sandbox flag", async () => {
-    mockExeca.mockReturnValue(makeSimpleResult("codex output", 0));
-
-    const result = await spawnAgent(
-      "codex",
-      "test-writer",
-      "write tests",
-      null,
-      "/tmp/wt"
-    );
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "codex",
-      [
-        "exec",
-        "--json",
-        "-C",
-        "/tmp/wt",
-        "--dangerously-bypass-approvals-and-sandbox",
-        "--skip-git-repo-check",
-        "write tests",
-      ],
-      expect.not.objectContaining({ timeout: expect.any(Number) })
-    );
-    expect(mockExeca.mock.calls[0][2]).toEqual(
-      expect.objectContaining({ cwd: "/tmp/wt" })
-    );
-    expect(result).toEqual(
-      expect.objectContaining({ stdout: "codex output", exitCode: 0 })
-    );
-  });
-
-  it("returns timeout diagnostics instead of losing subprocess evidence", async () => {
-    mockExeca.mockRejectedValueOnce(
-      Object.assign(new Error("timed out"), {
-        exitCode: undefined,
-        stdout: "partial output",
-        stderr: "permission prompt",
-        timedOut: true,
-      })
-    );
-
-    const result = await spawnAgent(
-      "codex",
-      "test-writer",
-      "write tests",
-      null,
-      "/tmp/wt"
-    );
-
-    expect(result).toEqual(
-      expect.objectContaining({
-        exitCode: 1,
-        stderr: "permission prompt",
-        stdout: "partial output",
-        timedOut: true,
-      })
-    );
-    expect(result.argv).toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(result.argv).not.toContain('approval_policy="never"');
-  });
-});
-
 describe("spawnAgent — opencode harness", () => {
   it("invokes opencode run --format json --dir <worktree> <prompt> (no contextFile)", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
@@ -191,19 +127,13 @@ describe("createRunnerLaunchPlan", () => {
     runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
-    model: runner-codex
-    capabilities:
-      native_subagents: true
-      output_formats: [text, json, jsonl, json_schema]
   opencode:
     type: opencode
     command: opencode
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
-      output_formats: [text, json, jsonl]
+      output_formats: [text, json, jsonl, json_schema]
   shell:
     type: command
     command: node
@@ -216,11 +146,10 @@ runners:
 version: 1
 profiles:
   orchestrator:
-    runner: codex
-    model: orchestrator-codex
+    runner: opencode
+    model: orchestrator-model
     instructions: { inline: Orchestrate }
     tools: []
-  codex-agent: { runner: codex, model: agent-codex, instructions: { inline: Codex }, output: { format: jsonl } }
   opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, output: { format: json } }
   command-agent: { runner: shell, instructions: { inline: Shell }, output: { format: text } }
 `,
@@ -232,12 +161,11 @@ orchestrator:
 workflows:
   default:
     nodes:
-      - { id: run, kind: agent, profile: codex-agent }
+      - { id: run, kind: agent, profile: opencode-agent }
 `,
   });
 
   it.each([
-    ["codex-agent", "codex", "codex"],
     ["opencode-agent", "opencode", "opencode"],
     ["command-agent", "shell", "node"],
   ])("creates a deterministic launch plan for %s", (profileId, runnerId, command) => {
@@ -380,6 +308,7 @@ workflows:
 
   it("rejects unsupported output contracts before execution", () => {
     const bad = structuredClone(CONFIG);
+    bad.runners.opencode.capabilities.output_formats = ["text"];
     bad.profiles["opencode-agent"].output = { format: "json_schema" };
 
     expect(() =>
@@ -397,22 +326,15 @@ workflows:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
-    model: runner-codex
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
       skills: true
       mcp_servers: true
       tools: [read]
-      output_formats: [text]
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
       output_formats: [text]
 `,
       profiles: `
@@ -427,14 +349,13 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     model: orchestrator-model
     instructions: { inline: Orchestrate }
     skills: [research]
     mcp_servers: [pipeline-gateway]
     tools: [read]
-  codex-agent: { runner: codex, model: agent-model, instructions: { inline: Codex }, skills: [research], mcp_servers: [pipeline-gateway] }
-  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, mcp_servers: [pipeline-gateway] }
+  opencode-agent: { runner: opencode, model: agent-model, instructions: { inline: OpenCode }, skills: [research], mcp_servers: [pipeline-gateway] }
 `,
       pipeline: `
 version: 1
@@ -444,36 +365,22 @@ orchestrator:
 workflows:
   default:
     nodes:
-      - { id: run, kind: agent, profile: codex-agent }
+      - { id: run, kind: agent, profile: opencode-agent }
 `,
     });
 
-    const codex = createRunnerLaunchPlan(config, {
-      profileId: "codex-agent",
-      nodeId: "codex",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-    expect(codex.args).toContain("--model");
-    expect(codex.args).toContain("agent-model");
-    expect(codex.args).toContain("--ignore-user-config");
-    expect(codex.args).toContain(
-      'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
-    );
-    expect(codex.args.join("\n")).not.toContain("mcp_servers.");
-    expect(codex.args.join("\n")).not.toContain("docs.js");
-    expect(codex.args).toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(codex.args).not.toContain("--sandbox");
-    expect(codex.args).not.toContain('approval_policy="never"');
-
-    const opencode = createRunnerLaunchPlan(config, {
+    const agent = createRunnerLaunchPlan(config, {
       profileId: "opencode-agent",
-      nodeId: "opencode",
+      nodeId: "agent",
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });
-    expect(opencode.env).toEqual({});
-    expect(opencode.args.join("\n")).not.toContain("mcp_servers.");
+    expect(agent.args).toContain("--model");
+    expect(agent.args).toContain("agent-model");
+    expect(agent.args.join("\n")).not.toContain("mcp_servers.");
+    expect(agent.args.join("\n")).not.toContain("docs.js");
+    expect(agent.args).toContain("--dangerously-skip-permissions");
+    expect(agent.args).not.toContain("--sandbox");
 
     const orchestrator = createOrchestratorLaunchPlan(config, {
       nodeId: "orchestrator",
@@ -481,13 +388,9 @@ workflows:
       worktreePath: "/tmp/wt",
     });
     expect(orchestrator.profileId).toBe("orchestrator");
-    expect(orchestrator.runnerId).toBe("codex");
+    expect(orchestrator.runnerId).toBe("opencode");
     expect(orchestrator.args).toContain("--model");
     expect(orchestrator.args).toContain("orchestrator-model");
-    expect(orchestrator.args).toContain("--ignore-user-config");
-    expect(orchestrator.args).toContain(
-      'skills.config=[{ enabled = true, path = "/tmp/wt/.agents/skills/research/SKILL.md" }]'
-    );
     expect(orchestrator.args.join("\n")).not.toContain("mcp_servers.");
   });
 
@@ -498,13 +401,6 @@ workflows:
         runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
   opencode:
     type: opencode
     command: opencode
@@ -522,12 +418,8 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: Orchestrate }
-    mcp_servers: [pipeline-gateway]
-  codex-agent:
-    runner: codex
-    instructions: { inline: Codex }
     mcp_servers: [pipeline-gateway]
   opencode-agent:
     runner: opencode
@@ -542,41 +434,32 @@ orchestrator:
 workflows:
   default:
     nodes:
-      - { id: run, kind: agent, profile: codex-agent }
+      - { id: run, kind: agent, profile: opencode-agent }
 `,
       },
       project
     );
 
-    const codex = createRunnerLaunchPlan(config, {
-      profileId: "codex-agent",
-      nodeId: "codex",
+    const agent = createRunnerLaunchPlan(config, {
+      profileId: "opencode-agent",
+      nodeId: "agent",
       prompt: "do work",
       worktreePath: project,
     });
-    expect(codex.args.join("\n")).not.toContain("mcp_servers.pipeline-gateway");
-    expect(codex.args.join("\n")).not.toContain("mcp_servers.serena");
-    expect(codex.args.join("\n")).not.toContain(
+    expect(agent.args.join("\n")).not.toContain("mcp_servers.pipeline-gateway");
+    expect(agent.args.join("\n")).not.toContain("mcp_servers.serena");
+    expect(agent.args.join("\n")).not.toContain(
       "git+https://github.com/oraios/serena"
     );
-
-    const opencode = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
-      nodeId: "opencode",
-      prompt: "do work",
-      worktreePath: project,
-    });
-    expect(opencode.env).toEqual({});
-    expect(opencode.args.join("\n")).not.toContain("mcp_servers.");
   });
 
   it("falls back from actor model to runner model for launch plans", () => {
     const config = structuredClone(CONFIG);
-    config.profiles["codex-agent"].model = undefined;
+    config.profiles["opencode-agent"].model = undefined;
     config.profiles.orchestrator.model = undefined;
 
     const agent = createRunnerLaunchPlan(config, {
-      profileId: "codex-agent",
+      profileId: "opencode-agent",
       nodeId: "agent",
       prompt: "do work",
       worktreePath: "/tmp/wt",
@@ -587,22 +470,22 @@ workflows:
       worktreePath: "/tmp/wt",
     });
 
-    expect(agent.args).toContain("runner-codex");
-    expect(orchestrator.args).toContain("runner-codex");
+    expect(agent.args).toContain(config.runners.opencode.model);
+    expect(orchestrator.args).toContain(config.runners.opencode.model);
   });
 
-  it("uses Codex bypass mode for read-only profiles", () => {
+  it("uses OpenCode permission bypass mode for read-only profiles", () => {
     const config = structuredClone(CONFIG);
-    config.profiles["codex-agent"].filesystem = { mode: "read-only" };
+    config.profiles["opencode-agent"].filesystem = { mode: "read-only" };
 
     const plan = createRunnerLaunchPlan(config, {
-      profileId: "codex-agent",
+      profileId: "opencode-agent",
       nodeId: "node",
       prompt: "inspect",
       worktreePath: "/tmp/wt",
     });
 
-    expect(plan.args).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(plan.args).toContain("--dangerously-skip-permissions");
     expect(plan.args).not.toContain("--sandbox");
     expect(plan.args).not.toContain("read-only");
   });

@@ -122,7 +122,6 @@ interface RunInputs {
 
 interface ArgoCommandOptionOptions {
   kubeconfig?: boolean;
-  orchestratorDescription?: string;
 }
 
 async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
@@ -420,7 +419,6 @@ interface MokaSubmitFlags {
   kubeconfig?: string;
   name?: string;
   namespace?: string;
-  orchestrator?: string;
   queueName?: string;
   quick?: boolean;
   schedule?: string;
@@ -574,7 +572,7 @@ export function createCliProgram(): Command {
     .description("Rewrite host MCP config to the singleton pipeline gateway")
     .addOption(
       new Option("--host <host>", "host config to update")
-        .choices(["all", "opencode", "codex"])
+        .choices(["all", "opencode"])
         .default("all")
         .argParser(parseCommandHost)
     )
@@ -669,7 +667,7 @@ export function createCliProgram(): Command {
     )
     .addOption(
       new Option("--host <host>", "host command set to install")
-        .choices(["all", "opencode", "codex"])
+        .choices(["all", "opencode"])
         .default("all")
         .argParser(parseCommandHost)
     )
@@ -735,7 +733,6 @@ function addMokaSubmitOptions(command: Command): Command {
       .option("--task <text>", "task description for command-mode metadata"),
     {
       kubeconfig: true,
-      orchestratorDescription: "runner orchestrator metadata",
     }
   );
 }
@@ -761,12 +758,10 @@ function runMokaSubmitFromCli(
 }
 
 function resolveMokaEventUrl(flags: MokaSubmitFlags): string {
-  const eventUrl = flags.eventUrl ?? process.env.PIPELINE_EVENT_URL;
-  if (eventUrl) {
-    return eventUrl;
-  }
-  throw new Error(
-    "PIPELINE_EVENT_URL or --event-url is required to submit to Momokaya"
+  return (
+    flags.eventUrl ??
+    process.env.PIPELINE_EVENT_URL ??
+    "https://pipeline-console.momokaya.ee/api/pipeline/runner-events"
   );
 }
 
@@ -786,7 +781,6 @@ function mokaCommonSubmitOptions(input: {
     kubeconfigPath: input.flags.kubeconfig,
     name: input.flags.name,
     namespace: input.flags.namespace,
-    orchestrator: parseOrchestrator(input.flags.orchestrator),
     queueName: input.flags.queueName,
     serviceAccountName: input.flags.serviceAccount,
     worktreePath: input.cwd,
@@ -872,14 +866,6 @@ function addRunnerArgoOptions(
     command.option("--kubeconfig <path>", "kubeconfig path");
   }
   return command
-    .addOption(
-      new Option(
-        "--orchestrator <name>",
-        options.orchestratorDescription ?? "runner orchestrator"
-      )
-        .choices(["codex", "opencode"])
-        .default("opencode")
-    )
     .option("--queue-name <name>", "Kueue LocalQueue label for Workflow pods")
     .option("--service-account <name>", "Workflow service account")
     .option("--image <image>", "runner image")
@@ -900,16 +886,6 @@ function parseImagePullPolicy(
   return "Always";
 }
 
-function parseOrchestrator(value: string | undefined): "codex" | "opencode" {
-  if (value === "codex" || value === "opencode") {
-    return value;
-  }
-  if (value) {
-    throw new Error("orchestrator must be codex or opencode");
-  }
-  return "opencode";
-}
-
 function lintPipelineConfig(
   config: PipelineConfig,
   projectRoot: string
@@ -926,7 +902,7 @@ function lintShadowedEntrypoints(config: PipelineConfig): ConfigLintWarning[] {
     .filter((id) => BUILTIN_PIPE_COMMANDS.has(id))
     .map((id) => ({
       ruleId: "entrypoint-shadowed",
-      message: `entrypoint '${id}' is shadowed by the builtin subcommand; invoke via 'oisin-pipeline run --entrypoint ${id} ...'`,
+      message: `entrypoint '${id}' is shadowed by the builtin subcommand; invoke via 'moka run --entrypoint ${id} ...'`,
     }));
 }
 
@@ -1018,7 +994,6 @@ export async function runCli(argv: string[]): Promise<void> {
 export async function runDoctor(cwd: string): Promise<DoctorResult> {
   const commandChecks = await Promise.all([
     checkCommand("npx", ["--version"], cwd),
-    checkCommand("codex", ["--version"], cwd),
     checkCommand("opencode", ["--version"], cwd),
     checkCommand("fallow", ["--version"], cwd),
   ]);

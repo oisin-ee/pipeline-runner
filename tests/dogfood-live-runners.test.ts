@@ -9,7 +9,7 @@ const RUN_LIVE = process.env.PIPELINE_LIVE_RUNNERS === "1";
 const describeLive = RUN_LIVE ? describe : describe.skip;
 const FILESYSTEM_MODE_RE = /^(read-only|workspace-write)$/;
 
-const LIVE_HARNESSES = ["codex", "opencode"] as const;
+const LIVE_HARNESSES = ["opencode"] as const;
 type LiveHarness = (typeof LIVE_HARNESSES)[number];
 
 type OutputFormat = "json" | "json_schema" | "jsonl" | "text";
@@ -24,14 +24,6 @@ interface HarnessSmokeSpec {
 }
 
 const HARNESS_SPECS: Record<LiveHarness, HarnessSmokeSpec> = {
-  codex: {
-    filesystemModes: ["read-only", "workspace-write"],
-    mcpServers: true,
-    outputFormats: ["text", "json", "jsonl", "json_schema"],
-    rules: true,
-    skills: true,
-    tools: ["read", "list", "grep", "glob", "bash", "edit", "write"],
-  },
   opencode: {
     filesystemModes: ["read-only", "workspace-write"],
     mcpServers: true,
@@ -251,7 +243,7 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: "Orchestrate the live runner smoke." }
     rules: [live-rule]
     skills: [live-skill]
@@ -283,9 +275,9 @@ profiles:
       runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       rules: true
@@ -346,14 +338,14 @@ function assertLaunchPlanContainsGrants(
     "tool grants were not attached",
     diagnostic
   );
-  if (profile?.runner === "codex" || profile?.runner === "opencode") {
+  if (profile?.runner === "opencode") {
     assertSmoke(
       arrayEquals(profile.skills, ["live-skill"]),
       `${profile.runner} skill grant was not attached`,
       diagnostic
     );
   }
-  if (profile?.runner === "codex" || profile?.runner === "opencode") {
+  if (profile?.runner === "opencode") {
     assertSmoke(
       arrayEquals(profile?.mcp_servers, ["pipeline-gateway"]),
       "MCP grant was not attached",

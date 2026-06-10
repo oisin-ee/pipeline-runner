@@ -45,11 +45,11 @@ host-specific MCP config.
 1. Run or deploy a gateway that exposes one remote MCP endpoint.
 2. Configure the gateway with upstream servers and credentials.
 3. Configure `mcp_gateway` in package-owned profile config.
-4. Run `pipe mcp gateway reconcile` to render and apply the full ToolHive vMCP
+4. Run `moka mcp gateway reconcile` to render and apply the full ToolHive vMCP
    backend inventory for the current workspace.
-5. Run `pipe init` to write project Codex/OpenCode command surfaces and host
+5. Run `moka init` to write project Codex/OpenCode command surfaces and host
    MCP config.
-6. Run `pipe mcp gateway doctor` to verify gateway health and required tools.
+6. Run `moka mcp gateway doctor` to verify gateway health and required tools.
 7. Keep high-risk upstream capabilities controlled by gateway-side policy, not
    by asking every agent host to independently start or filter servers.
 
@@ -103,15 +103,15 @@ Use an off-the-shelf aggregator when possible:
 
 - ToolHive vMCP gateway: hosted or local aggregation behind a single MCP URL.
 
-Use `pipe mcp gateway reconcile` to render the complete aggregate backend list;
+Use `moka mcp gateway reconcile` to render the complete aggregate backend list;
 adding one backend must not replace the existing Context7, uidotsh, Qdrant,
-Fallow, Serena, or Backlog declarations. Use `pipe mcp gateway doctor` to check
+Fallow, Serena, or Backlog declarations. Use `moka mcp gateway doctor` to check
 required environment variables, gateway health, required `tools/list` prefixes,
 local ToolHive availability for local mode, and legacy direct MCP entries. Use
-`pipe init` to install generated Codex and OpenCode host surfaces with the
-singleton `pipeline-gateway` remote entry. Use `pipe install-commands --host all`
+`moka init` to install generated Codex and OpenCode host surfaces with the
+singleton `pipeline-gateway` remote entry. Use `moka install-commands --host all`
 to refresh generated host files after package upgrades, and use
-`pipe mcp gateway configure-host` as an explicit migration or repair command
+`moka mcp gateway configure-host` as an explicit migration or repair command
 when existing host MCP config must be rewritten with a backup.
 
 The package-owned MCP inventory exposed through the ecosystem manifest includes

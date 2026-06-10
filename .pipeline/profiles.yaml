@@ -72,7 +72,7 @@ mcp_gateway:
 
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions:
       path: .pipeline/prompts/orchestrator.md
     rules: [test-first, verification]
@@ -86,7 +86,7 @@ profiles:
     network:
       mode: inherit
   pipeline-researcher:
-    runner: codex
+    runner: opencode
     description: Research the requested task and produce structured findings.
     instructions:
       path: .pipeline/prompts/researcher.md
@@ -107,7 +107,7 @@ profiles:
         enabled: true
         max_attempts: 1
   pipeline-inspector:
-    runner: codex
+    runner: opencode
     description: Inspect the repository without modifying files.
     instructions:
       path: .pipeline/prompts/inspector.md
@@ -127,7 +127,7 @@ profiles:
         enabled: true
         max_attempts: 1
   pipeline-schedule-planner:
-    runner: codex
+    runner: opencode
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions:
       path: .pipeline/prompts/schedule-planner.md
@@ -144,7 +144,7 @@ profiles:
     output:
       format: text
   pipeline-test-writer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
     instructions:
@@ -162,7 +162,7 @@ profiles:
     output:
       format: text
   pipeline-code-writer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
     instructions:
@@ -180,7 +180,7 @@ profiles:
     output:
       format: text
   pipeline-acceptance-reviewer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
     instructions:
@@ -202,7 +202,7 @@ profiles:
         enabled: true
         max_attempts: 1
   pipeline-thermo-nuclear-reviewer:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     description: Perform the final thermo-nuclear code quality review of the integration branch.
     instructions:
@@ -223,7 +223,7 @@ profiles:
         enabled: true
         max_attempts: 1
   pipeline-verifier:
-    runner: codex
+    runner: opencode
     scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
     instructions:
@@ -245,7 +245,7 @@ profiles:
         enabled: true
         max_attempts: 1
   pipeline-learner:
-    runner: codex
+    runner: opencode
     description: Store durable lessons from the completed run.
     instructions:
       path: .pipeline/prompts/learner.md

@@ -2,7 +2,7 @@
 name: researcher
 targets: ["*"]
 description: "Read-only research agent. Explores codebase, reads docs, fetches web resources. Never writes files."
-codexcli:
+opencode:
   model: inherit
 ---
 

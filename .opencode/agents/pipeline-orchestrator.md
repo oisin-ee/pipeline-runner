@@ -37,14 +37,14 @@ Orchestrate package-owned pipeline config.
 
 Generate a schedule for entrypoint `quick` and the user task.
 The schedule policy is `quick-schedule`.
-Run `oisin-pipeline quick <task description>` to submit the pipeline as a k8s job.
-The pipeline runtime executes inside a Kubernetes pod using the package-owned runner image.
-Use `oisin-pipeline quick --local <task description>` for local execution instead.
-Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.
+Run `moka submit --quick <task description>` to submit the graph as an Argo Workflow.
+The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.
+Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster.
+Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.
 
 Generate a schedule for entrypoint `execute` and the user task.
 The schedule policy is `execute-schedule`.
-Run `oisin-pipeline execute <task description>` to submit the pipeline as a k8s job.
-The pipeline runtime executes inside a Kubernetes pod using the package-owned runner image.
-Use `oisin-pipeline execute --local <task description>` for local execution instead.
-Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.
+Run `moka submit <task description>` to submit the `execute` graph as an Argo Workflow.
+The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.
+Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster.
+Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.

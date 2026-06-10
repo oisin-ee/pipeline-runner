@@ -1,22 +1,8 @@
 # MCP Host Isolation
 
-`oisin-pipeline` treats project host config as the MCP client boundary. The
-generated Codex and OpenCode project configs declare exactly one remote MCP
-server: `pipeline-gateway`. `pipe init` owns those generated project configs for
-both hosts during setup.
-
-## Codex
-
-Codex `exec` supports `--ignore-user-config`, which skips
-`$CODEX_HOME/config.toml` while continuing to use Codex auth. Pipeline-managed
-Codex launches use that flag and rely on the project `.codex/config.toml`
-gateway entry.
-
-This prevents user-config MCP fan-out for pipeline-launched Codex agents. It
-does not claim to suppress every possible system, managed, plugin, or trusted
-project layer outside the CLI flag's documented scope.
-
-Reference: https://developers.openai.com/codex/config-basic
+`moka` treats project host config as the MCP client boundary. The generated
+OpenCode project config declares exactly one remote MCP server:
+`pipeline-gateway`. `moka init` owns that generated project config during setup.
 
 ## OpenCode
 

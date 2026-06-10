@@ -2,7 +2,7 @@
 name: verifier
 targets: ["*"]
 description: "Read-only verification agent. Reviews diffs and checks acceptance criteria. Never writes files."
-codexcli:
+opencode:
   model: inherit
 ---
 

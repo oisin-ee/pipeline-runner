@@ -129,7 +129,7 @@ describe("runner-command payload contract", () => {
     const payload = {
       ...validPayload(),
       submission: {
-        argv: ["codex", "-p", "fix this bug"],
+        argv: ["opencode", "run", "fix this bug"],
         kind: "command",
       },
     };
@@ -137,7 +137,7 @@ describe("runner-command payload contract", () => {
     const parsed = parseRunnerCommandPayload(JSON.stringify(payload));
 
     expect(parsed.submission).toEqual({
-      argv: ["codex", "-p", "fix this bug"],
+      argv: ["opencode", "run", "fix this bug"],
       kind: "command",
     });
   });
@@ -277,7 +277,7 @@ describe("runner-command payload contract", () => {
               kind: "agent",
               needs: [],
               profile: "pipeline-test-writer",
-              runnerId: "codex",
+              runnerId: "opencode",
             },
           ],
           type: "workflow.planned",
@@ -290,7 +290,7 @@ describe("runner-command payload contract", () => {
           attempt: 1,
           nodeId: "red",
           profile: "pipeline-test-writer",
-          runnerId: "codex",
+          runnerId: "opencode",
           type: "node.start",
         },
         { runId: "run_123", sequence: 3, timestamp: TIMESTAMP }
@@ -350,7 +350,7 @@ describe("runner-command payload contract", () => {
               kind: "agent",
               needs: [],
               profile: "pipeline-test-writer",
-              runnerId: "codex",
+              runnerId: "opencode",
             },
           ],
           workflowId: "default",
@@ -371,7 +371,7 @@ describe("runner-command payload contract", () => {
           attempt: 1,
           nodeId: "red",
           profile: "pipeline-test-writer",
-          runnerId: "codex",
+          runnerId: "opencode",
           status: "running",
         },
         at: TIMESTAMP,

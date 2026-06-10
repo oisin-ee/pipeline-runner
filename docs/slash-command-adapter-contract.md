@@ -7,26 +7,23 @@ definitions or silently translate one runner into another host's default agent.
 Install generated resources during setup, then check drift with:
 
 ```sh
-pipe init
-pipe install-commands --host all --check
+moka init
+moka install-commands --host all --check
 ```
 
 ## Host Mappings
 
 | Host     | Generated resources                                            | Invocation                        | Mechanical path                                                                                       |
 | -------- | -------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Codex    | `.agents/skills/<entrypoint>/SKILL.md`, `.codex/agents/*.toml` | `$pipe <task>`, `$inspect <task>` | Skills instruct Codex to use generated Codex agents for Codex runner nodes and OpenCode CLI for OpenCode runner nodes. |
-| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/skills/*/SKILL.md`, `.opencode/opencode.json` | `/pipe <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
+| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/skills/*/SKILL.md`, `.opencode/opencode.json` | `/quick <task>`, `/execute <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
 
 ## Projection Rules
 
 - Profile names, descriptions, instructions, tools, rules, skills, MCP servers,
   filesystem mode, network mode, and output contracts are read from YAML.
 - Scheduled entrypoints generate a reviewable schedule artifact first and do not
-  execute workflow nodes until `pipe run --schedule <schedule.yaml>` is invoked.
-- Codex runner nodes are Codex native agents.
+  execute workflow nodes until `moka run --schedule <schedule.yaml>` is invoked.
 - OpenCode runner nodes are OpenCode native agents.
-- Codex-hosted workflows dispatch OpenCode runner nodes through the OpenCode CLI.
 - Unsupported runner or host mappings fail closed. Instruction-only translation
   and generic worker substitution are not used as implicit fallbacks.
 - Host-specific formats can omit unsupported capabilities, but they must not

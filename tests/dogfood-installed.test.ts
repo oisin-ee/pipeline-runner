@@ -382,99 +382,6 @@ describe("installed dogfood configuration", () => {
         }
       }
     }
-
-    for (const profileId of workflowProfileIds(config)) {
-      const profile = config.profiles[profileId];
-      if (profile?.runner !== "codex") {
-        continue;
-      }
-
-      const codexAgentContent = readFileSync(
-        join(root, `.codex/agents/${profileId}.toml`),
-        "utf8"
-      );
-      const projectCodexConfig = readFileSync(
-        join(root, ".codex/config.toml"),
-        "utf8"
-      );
-      expect(codexAgentContent).toContain(`name = "${profileId}"`);
-      expect(codexAgentContent).toContain("developer_instructions = ");
-      expect(codexAgentContent).not.toContain("[mcp_servers.");
-      expect(projectCodexConfig).toContain(
-        "# @oisincoveney/pipeline:codex-agents:start"
-      );
-      expect(projectCodexConfig).toContain("[mcp_servers.pipeline-gateway]");
-      expect(projectCodexConfig).toContain(
-        "[mcp_servers.pipeline-gateway.env_http_headers]"
-      );
-      expect(projectCodexConfig).toContain("[agents]");
-      expect(projectCodexConfig).toContain("max_depth = 1");
-      expect(projectCodexConfig).not.toContain(`[agents.${profileId}]`);
-      for (const skillId of profile.skills ?? []) {
-        const skill = config.skills[skillId];
-        expect(skill, `${profileId} skill ${skillId}`).toBeTruthy();
-        const skillPath = join(root, skill.path);
-        const installedSkillPath = skill.path.replaceAll("\\", "/");
-        if (existsSync(skillPath)) {
-          expect(
-            codexAgentContent,
-            `${profileId} names skill ${skillId}`
-          ).toContain("[[skills.config]]");
-          expect(
-            codexAgentContent,
-            `${profileId} uses project-relative skill context`
-          ).not.toContain(skillPath);
-        } else {
-          expect(
-            codexAgentContent,
-            `${profileId} skips missing lint-only skill ${skillId}`
-          ).not.toContain(installedSkillPath);
-        }
-      }
-      for (const mcpId of profile.mcp_servers ?? []) {
-        if (mcpId === "pipeline-gateway") {
-          expect(config.mcp_gateway, `${profileId} MCP gateway`).toBeTruthy();
-        } else {
-          expect(
-            config.mcp_servers[mcpId],
-            `${profileId} MCP ${mcpId}`
-          ).toBeTruthy();
-        }
-        expect(
-          codexAgentContent,
-          `${profileId} does not start MCP ${mcpId} at host startup`
-        ).not.toContain(`[mcp_servers.${mcpId}]`);
-      }
-
-      const launch = createRunnerLaunchPlan(config, {
-        nodeId: profileId,
-        profileId,
-        prompt: "verify configured grants",
-        worktreePath: root,
-      });
-      const launchArgs = launch.args.join("\n");
-      for (const skillId of profile.skills ?? []) {
-        const skill = config.skills[skillId];
-        const skillPath = join(root, skill.path);
-        if (existsSync(skillPath)) {
-          expect(
-            launchArgs,
-            `${profileId} launches skill ${skillId}`
-          ).toContain(skillPath);
-        } else {
-          expect(
-            launchArgs,
-            `${profileId} skips missing lint-only skill ${skillId}`
-          ).not.toContain(skillPath);
-        }
-      }
-      for (const mcpId of profile.mcp_servers ?? []) {
-        expect(
-          launchArgs,
-          `${profileId} uses project MCP ${mcpId}`
-        ).not.toContain(`mcp_servers.${mcpId}.`);
-      }
-    }
   });
 
   it("validates and explains ticket-accurate epic schedules with task context through the CLI", async () => {
@@ -999,27 +906,13 @@ function workflowProfileIds(config: PipelineConfig) {
 }
 
 function entrypointCommandSurfaces(config: PipelineConfig) {
-  return Object.entries(config.entrypoints).flatMap(
-    ([entrypointId, entrypoint]) => [
-      {
-        invocation: `/${entrypointId} <task description>`,
-        path: `.opencode/commands/${entrypointId}.md`,
-        targetId:
-          "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
-      },
-      {
-        invocation: `$${entrypointId} <task description>`,
-        path: `.agents/skills/${entrypointId}/SKILL.md`,
-        targetId:
-          "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
-      },
-      {
-        invocation: `/${entrypointId} <task description>`,
-        path: `.agents/plugins/oisin-pipeline/commands/${entrypointId}.md`,
-        targetId:
-          "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
-      },
-    ]
+  return Object.entries(config.entrypoints).map(
+    ([entrypointId, entrypoint]) => ({
+      invocation: `/${entrypointId} <task description>`,
+      path: `.opencode/commands/${entrypointId}.md`,
+      targetId:
+        "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
+    })
   );
 }
 
@@ -1029,9 +922,6 @@ function nativeAgentPathFor(
 ): string | undefined {
   if (runner === "opencode") {
     return `.opencode/agents/${profileId}.md`;
-  }
-  if (runner === "codex") {
-    return `.codex/agents/${profileId}.toml`;
   }
   return;
 }

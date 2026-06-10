@@ -20,11 +20,11 @@ hooks: generated-defaults-audit
 Instructions:
 Orchestrate package-owned pipeline config.
 
-Submit Kubernetes runner Jobs by default through `oisin-pipeline quick` and `oisin-pipeline execute`.
+Submit Momokaya work as Argo Workflows through `moka submit` and `moka submit --quick`.
 
 Generate a schedule for entrypoint `execute` and the user task.
 The schedule policy is `execute-schedule`.
-Run `oisin-pipeline execute <task description>` to submit the pipeline as a k8s job.
-The pipeline runtime executes inside a Kubernetes pod using the package-owned runner image.
-Use `oisin-pipeline execute --local <task description>` for local execution instead.
-Use `oisin-pipeline run --schedule <schedule.yaml>` only when rerunning an existing schedule artifact.
+Run `moka submit <task description>` to submit the `execute` graph as an Argo Workflow.
+The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.
+Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster.
+Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.

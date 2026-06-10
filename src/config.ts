@@ -12,7 +12,7 @@ export const OPENCODE_ECOSYSTEM_MANIFEST_PATH =
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 
-const RUNNER_TYPES = ["codex", "opencode", "command"] as const;
+const RUNNER_TYPES = ["opencode", "command"] as const;
 const NODE_KINDS = [
   "agent",
   "command",
@@ -82,18 +82,6 @@ const DEFAULT_RUNNER_COMMAND_GIT_COMMITTER = {
 
 const PACKAGE_DEFAULT_RUNNERS_YAML = `version: 1
 runners:
-  codex:
-    type: codex
-    model: gpt-5.5
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: true
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit, disabled]
-      output_formats: [text, json, jsonl, json_schema]
   opencode:
     type: opencode
     model: openai/gpt-5.5

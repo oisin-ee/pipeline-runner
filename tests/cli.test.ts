@@ -112,7 +112,7 @@ const DEFAULT_MOCK_AGENT_RESPONSE = {
 };
 
 function mockAgentStdout(command: string, args?: string[]): string {
-  if (command !== "codex" && command !== "opencode") {
+  if (command !== "opencode") {
     return "";
   }
   const prompt = Array.isArray(args) ? args.join("\n") : "";
@@ -741,9 +741,9 @@ function writeThermoNuclearReviewValidateFixture(
     ".pipeline/runners.yaml": `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       skills: true
@@ -765,13 +765,13 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions:
       inline: Orchestrate
     filesystem:
       mode: read-only
   pipeline-thermo-nuclear-reviewer:
-    runner: codex
+    runner: opencode
     instructions:
       path: .agents/skills/thermo-nuclear-code-quality-review/SKILL.md
     skills: [thermo-nuclear-code-quality-review]
@@ -1035,7 +1035,6 @@ describe("execute", () => {
         generatedHostFilesExist(dir, [
           ".agents/skills/execute/SKILL.md",
           ".opencode/commands/execute.md",
-          ".codex/config.toml",
           ".opencode/opencode.json",
         ])
       ).toBe(true);
@@ -1209,7 +1208,7 @@ describe("execute", () => {
         attempt: 1,
         nodeId: "inspect",
         profile: "pipeline-inspector",
-        runnerId: "codex",
+        runnerId: "opencode",
         type: "node.start",
       });
       reporter?.({
@@ -1289,7 +1288,7 @@ describe("execute", () => {
     );
     expect(progress).toContain("Pipeline starting: custom (inspect)");
     expect(progress).toContain(
-      "Node starting: inspect runner=codex profile=pipeline-inspector attempt=1"
+      "Node starting: inspect runner=opencode profile=pipeline-inspector attempt=1"
     );
     expect(progress).toContain(
       "Runtime observed: runtime.state.enter - node actor pipeline.node.run-123.custom.inspect entered running"
@@ -1426,7 +1425,7 @@ workflows:
               JSON.stringify({ status: "pass", summary: command })
             );
           }
-          if (command === "opencode" || command === "codex") {
+          if (command === "opencode") {
             return Promise.resolve({
               exitCode: 0,
               stderr: "",
@@ -1884,9 +1883,9 @@ profiles:
           ".pipeline/runners.yaml": `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       rules: true
@@ -1906,7 +1905,7 @@ mcp_gateway:
   authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions:
       inline: Orchestrate
     tools: [read, list, grep, glob, bash]
@@ -1915,7 +1914,7 @@ profiles:
     network:
       mode: inherit
   pipeline-epic-router:
-    runner: codex
+    runner: opencode
     instructions:
       path: .pipeline/prompts/epic-router.md
     mcp_servers: [pipeline-gateway]
@@ -2180,12 +2179,7 @@ profiles:
       process.env.PIPELINE_MCP_GATEWAY_URL = "https://gateway.example/mcp";
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
-      mkdirSync(join(dir, ".codex"), { recursive: true });
       mkdirSync(join(dir, ".opencode"), { recursive: true });
-      writeFileSync(
-        join(dir, ".codex/config.toml"),
-        ["[mcp_servers.legacy]", 'command = "uvx"', ""].join("\n")
-      );
       writeFileSync(
         join(dir, ".opencode/opencode.json"),
         JSON.stringify({ mcp: { legacy: { type: "local" } } })
@@ -2199,19 +2193,9 @@ profiles:
         "configure-host",
       ]);
 
-      const codex = readFileSync(join(dir, ".codex/config.toml"), "utf8");
       const opencode = JSON.parse(
         readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
       );
-      expect(codex).toContain("[mcp_servers.pipeline-gateway]");
-      expect(codex).toContain('url = "https://gateway.example/mcp"');
-      expect(codex).toContain(
-        "[mcp_servers.pipeline-gateway.env_http_headers]"
-      );
-      expect(codex).toContain(
-        'Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"'
-      );
-      expect(codex).not.toContain("legacy");
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         enabled: true,
         oauth: false,
@@ -2220,7 +2204,6 @@ profiles:
       });
       expect(opencode.mcp.legacy).toBeUndefined();
       const output = log.mock.calls.flat().join("\n");
-      expect(output).toContain(".codex/config.toml");
       expect(output).toContain(".opencode/opencode.json");
       expect(output).toContain("backup=");
     } finally {

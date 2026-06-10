@@ -9,9 +9,9 @@ function contextForBuiltins(): RuntimeContext {
     runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text]
@@ -20,7 +20,7 @@ runners:
 version: 1
 profiles:
   a:
-    runner: codex
+    runner: opencode
     instructions: { inline: A }
 `,
     pipeline: `

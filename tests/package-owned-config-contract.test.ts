@@ -174,7 +174,6 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
     expect(guide).toContain('moka submit "Implement PIPE-54"');
     expect(guide).toContain("--kubeconfig <path>");
     expect(guide).toContain("ServiceAccount");
-    expect(guide).toContain("codex-auth-1");
     expect(guide).toContain("opencode-auth-1");
     expect(guide).toContain("pipeline-runner-event-auth");
     expect(guide).toContain("OISIN_PIPELINE_EVENT_AUTH_TOKEN");

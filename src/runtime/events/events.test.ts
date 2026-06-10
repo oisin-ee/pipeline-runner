@@ -17,9 +17,9 @@ function runtimeContextForEvents(
     runners: `
 version: 1
 runners:
-  codex:
-    type: codex
-    command: codex
+  opencode:
+    type: opencode
+    command: opencode
     capabilities:
       native_subagents: true
       output_formats: [text, json, json_schema]
@@ -28,7 +28,7 @@ runners:
 version: 1
 profiles:
   structured:
-    runner: codex
+    runner: opencode
     instructions: { inline: Structured }
     output:
       format: json_schema
@@ -97,7 +97,7 @@ describe("runtime events", () => {
             kind: "agent",
             needs: [],
             profile: "structured",
-            runnerId: "codex",
+            runnerId: "opencode",
           },
           { id: "b", kind: "command", needs: ["a"] },
         ],

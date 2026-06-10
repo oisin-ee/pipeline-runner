@@ -6,7 +6,6 @@ FROM node:24-bookworm-slim AS runner
 
 ARG PIPELINE_PACKAGE_VERSION=latest
 ARG RUNNER_COMMAND_CONTRACT_VERSION=1
-ARG CODEX_PACKAGE_VERSION=0.137.0
 ARG OPENCODE_PACKAGE_VERSION=1.15.13
 ARG CLAUDE_CODE_PACKAGE_VERSION=2.1.162
 ARG PNPM_PACKAGE_VERSION=10.24.0
@@ -20,14 +19,13 @@ LABEL pipeline.oisin.dev.pipeline-package-version=${PIPELINE_PACKAGE_VERSION}
 LABEL pipeline.oisin.dev.runner-contract-version=${RUNNER_COMMAND_CONTRACT_VERSION}
 
 ENV HOME=/root
-ENV CODEX_HOME=/root/.codex
 ENV NPM_CONFIG_AUDIT=false
 ENV NPM_CONFIG_FUND=false
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl gh git openssh-client \
-  && mkdir -p "$CODEX_HOME" /root/.local/share/opencode /root/.config/gh \
+  && mkdir -p /root/.local/share/opencode /root/.config/gh \
   && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL -o /tmp/toolhive.tar.gz "https://github.com/stacklok/toolhive/releases/download/v${TOOLHIVE_VERSION}/toolhive_${TOOLHIVE_VERSION}_linux_amd64.tar.gz" \
@@ -40,7 +38,6 @@ COPY --from=uv /uv /uvx /usr/local/bin/
 RUN npm install -g \
     "@oisincoveney/pipeline@${PIPELINE_PACKAGE_VERSION}" \
     "pnpm@${PNPM_PACKAGE_VERSION}" \
-    "@openai/codex@${CODEX_PACKAGE_VERSION}" \
     "opencode-ai@${OPENCODE_PACKAGE_VERSION}" \
     "@anthropic-ai/claude-code@${CLAUDE_CODE_PACKAGE_VERSION}" \
     "bun@${BUN_PACKAGE_VERSION}" \
@@ -49,7 +46,6 @@ RUN npm install -g \
   && command -v moka \
   && command -v bun \
   && command -v pnpm \
-  && command -v codex \
   && command -v opencode \
   && command -v claude \
   && command -v helm \

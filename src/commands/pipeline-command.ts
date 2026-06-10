@@ -21,7 +21,6 @@ export interface EntrypointCommandFlags {
   imagePullSecret?: string;
   kubeconfig?: string;
   namespace?: string;
-  orchestrator?: string;
   queueName?: string;
   schedule?: string;
   serviceAccount?: string;
@@ -54,7 +53,6 @@ export function registerConfiguredEntrypointCommands(
         .option("--namespace <namespace>", "Workflow namespace")
         .option("--schedule <path>", "approved schedule YAML to submit")
         .option("--kubeconfig <path>", "kubeconfig path")
-        .option("--orchestrator <name>", "runner orchestrator (codex|opencode)")
         .option(
           "--queue-name <name>",
           "Kueue LocalQueue label for Workflow pods"

@@ -11,8 +11,8 @@ const PARTS: PipelineConfigParts = {
   runners: `
 version: 1
 runners:
-  codex:
-    type: codex
+  opencode:
+    type: opencode
     capabilities:
       mcp_servers: true
       tools: [read]
@@ -41,7 +41,7 @@ mcp_gateway:
       tool_prefixes: [fallow]
 profiles:
   orchestrator:
-    runner: codex
+    runner: opencode
     instructions: { inline: "Run." }
     mcp_servers: [pipeline-gateway]
     tools: [read]

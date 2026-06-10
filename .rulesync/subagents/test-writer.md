@@ -2,7 +2,7 @@
 name: test-writer
 targets: ["*"]
 description: "Writes failing tests only. Restricted to *.test.ts and *.spec.ts files."
-codexcli:
+opencode:
   model: inherit
 ---
 

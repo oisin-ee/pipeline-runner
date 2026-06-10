@@ -5,15 +5,11 @@ import {
   readFileSync,
   rmSync,
 } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config";
-import { resolvePackageAssetPath } from "./package-assets";
-import { resolveFileReference } from "./path-refs";
-import { tomlValue } from "./toml";
 
-export type Harness = "codex" | "opencode";
+export type Harness = "opencode";
 export type AgentRole =
   | "researcher"
   | "test-writer"
@@ -76,13 +72,6 @@ export class RunnerCapabilityError extends Error {
   }
 }
 
-async function loadContext(contextFile: string | null): Promise<string> {
-  if (!contextFile) {
-    return "";
-  }
-  return await readFile(contextFile, "utf8");
-}
-
 const OPENCODE_EXCLUDES = [
   "node_modules/",
   ".opencode/node_modules/",
@@ -112,7 +101,6 @@ function ensureOpencodeGitExcludes(worktreePath: string): void {
 }
 
 function optionalModelArgs(
-  harness: Harness,
   runner?: PipelineConfig["runners"][string],
   actor?: ActorConfig,
   selectedModel?: string
@@ -121,9 +109,8 @@ function optionalModelArgs(
     selectedModel ??
     actor?.model ??
     runner?.model ??
-    (harness === "opencode"
-      ? (process.env.PIPELINE_OPENCODE_MODEL ?? "openai/gpt-5.5")
-      : process.env[`PIPELINE_${harness.toUpperCase()}_MODEL`]);
+    process.env.PIPELINE_OPENCODE_MODEL ??
+    "openai/gpt-5.5";
   return model ? ["--model", model] : [];
 }
 
@@ -142,80 +129,37 @@ interface NativeArgOptions {
  * Per-harness argv shape, excluding the leading harness binary name.
  */
 function harnessArgv(
-  harness: Harness,
   prompt: string,
   worktreePath: string,
   contextFile: string | null,
   options: NativeArgOptions = {}
 ): string[] {
-  const skillArgs = skillArgsFor(
-    harness,
-    options.config,
-    options.actor,
-    worktreePath
-  );
-  switch (harness) {
-    case "codex":
-      return [
-        "exec",
-        "--json",
-        "-C",
-        worktreePath,
-        ...optionalModelArgs(
-          harness,
-          options.runner,
-          options.actor,
-          options.model
-        ),
-        ...(options.config ? ["--ignore-user-config"] : []),
+  const skillArgs = skillArgsFor();
+  return contextFile
+    ? [
+        "run",
+        "--format",
+        "json",
+        ...optionalModelArgs(options.runner, options.actor, options.model),
         ...skillArgs,
-        "--dangerously-bypass-approvals-and-sandbox",
-        "--skip-git-repo-check",
+        "--dangerously-skip-permissions",
+        "--dir",
+        worktreePath,
+        prompt,
+        "--file",
+        contextFile,
+      ]
+    : [
+        "run",
+        "--format",
+        "json",
+        ...optionalModelArgs(options.runner, options.actor, options.model),
+        ...skillArgs,
+        "--dangerously-skip-permissions",
+        "--dir",
+        worktreePath,
         prompt,
       ];
-    case "opencode":
-      return contextFile
-        ? [
-            "run",
-            "--format",
-            "json",
-            ...optionalModelArgs(
-              harness,
-              options.runner,
-              options.actor,
-              options.model
-            ),
-            ...skillArgs,
-            "--dangerously-skip-permissions",
-            "--dir",
-            worktreePath,
-            prompt,
-            "--file",
-            contextFile,
-          ]
-        : [
-            "run",
-            "--format",
-            "json",
-            ...optionalModelArgs(
-              harness,
-              options.runner,
-              options.actor,
-              options.model
-            ),
-            ...skillArgs,
-            "--dangerously-skip-permissions",
-            "--dir",
-            worktreePath,
-            prompt,
-          ];
-    default: {
-      const _exhaustive: never = harness;
-      throw new Error(
-        `Unhandled harness in harnessArgv: ${String(_exhaustive)}`
-      );
-    }
-  }
 }
 
 /**
@@ -231,19 +175,12 @@ async function execaHarness(
     ensureOpencodeGitExcludes(worktreePath);
   }
 
-  // Codex's `exec` reads context via stdin (matches the prior spawnCodex).
-  const input =
-    harness === "codex" && contextFile
-      ? await loadContext(contextFile)
-      : undefined;
-
-  const argv = harnessArgv(harness, prompt, worktreePath, contextFile);
+  const argv = harnessArgv(prompt, worktreePath, contextFile);
   try {
     const result = await execa(harness, argv, {
       cwd: worktreePath,
-      stdin: input === undefined ? "ignore" : "pipe",
+      stdin: "ignore",
       ...agentTimeoutOption(),
-      ...(input === undefined ? {} : { input }),
     });
     return {
       argv,
@@ -364,7 +301,6 @@ function createActorLaunchPlan(
   return {
     ...base,
     args: harnessArgv(
-      runner.type,
       input.prompt,
       input.worktreePath,
       input.contextFile ?? null,
@@ -380,50 +316,8 @@ function createActorLaunchPlan(
   };
 }
 
-function skillArgsFor(
-  runnerType: RunnerType,
-  config: PipelineConfig | undefined,
-  actor: ActorConfig | undefined,
-  worktreePath: string
-): string[] {
-  const shouldValidatePaths = existsSync(worktreePath);
-  const paths = (actor?.skills ?? []).flatMap((id) => {
-    const skill = config?.skills[id];
-    const absolutePath = skill
-      ? resolveRunnerPathReference(worktreePath, skill)
-      : undefined;
-    if (!absolutePath) {
-      return [];
-    }
-    return shouldValidatePaths && !existsSync(absolutePath)
-      ? []
-      : [absolutePath];
-  });
-  if (paths.length === 0) {
-    return [];
-  }
-  if (runnerType === "codex") {
-    return [
-      "--config",
-      `skills.config=${tomlValue(
-        paths.map((path) => ({ enabled: true, path }))
-      )}`,
-    ];
-  }
+function skillArgsFor(): string[] {
   return [];
-}
-
-function resolveRunnerPathReference(
-  worktreePath: string,
-  ref: { path?: string; source_root?: "package" | "project" }
-): string | undefined {
-  if (!ref.path) {
-    return;
-  }
-  if (ref.source_root === "package") {
-    return resolvePackageAssetPath(ref.path);
-  }
-  return resolveFileReference(worktreePath, ref.path);
 }
 
 function renderArgv(args: string[], prompt: string, cwd: string): string[] {

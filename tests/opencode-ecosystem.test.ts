@@ -13,7 +13,7 @@ describe("OpenCode ecosystem manifest", () => {
     expect(manifest.version).toBe(1);
     expect(manifest.runtime).toMatchObject({
       default_runner: "opencode",
-      compatibility_runners: ["codex"],
+      compatibility_runners: [],
       default_stack_direct: true,
       state_authority: "pipeline",
     });
