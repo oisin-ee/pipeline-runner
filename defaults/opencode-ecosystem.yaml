@@ -59,6 +59,15 @@ ecosystem_code:
     role: Codex-style long-running goal mode with /goal slash command, persistent state, evidence-gated completion, and TUI sidebar
     default_stack: true
     source: https://www.npmjs.com/package/@prevalentware/opencode-goal-plugin
+  - id: oc-codex-multi-auth
+    name: oc-codex-multi-auth
+    package: oc-codex-multi-auth
+    plugin:
+      kind: npm
+      package: oc-codex-multi-auth
+    role: ChatGPT Plus/Pro OAuth with multi-account rotation, health checks, and Codex/GPT-5 routing for OpenCode
+    default_stack: true
+    source: https://github.com/ndycode/oc-codex-multi-auth
   - id: opencode-snip
     name: opencode-snip
     role: prompt snippet and command-discipline helper patterns

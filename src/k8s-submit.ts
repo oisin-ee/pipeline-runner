@@ -35,6 +35,7 @@ const k8sSubmitOptionsSchema = z
       key: "auth.json",
       name: "opencode-auth-1",
     }),
+    opencodeOpenaiAccounts: k8sSecretRefSchema.optional(),
     orchestrator: z.enum(["codex", "opencode"]).default("opencode"),
     serviceAccountName: z.string().min(1).default("pipeline-runner"),
     task: z.string().min(1),
@@ -178,6 +179,17 @@ export async function submitK8sRunnerJob(
         defaultMode: 0o400,
       },
     },
+    ...(options.opencodeOpenaiAccounts
+      ? [
+          {
+            name: options.opencodeOpenaiAccounts.name,
+            secret: {
+              secretName: options.opencodeOpenaiAccounts.name,
+              defaultMode: 0o400,
+            },
+          },
+        ]
+      : []),
     {
       name: options.githubAuth.name,
       secret: {
@@ -215,6 +227,16 @@ export async function submitK8sRunnerJob(
       subPath: options.opencodeAuth.key,
       readOnly: true,
     },
+    ...(options.opencodeOpenaiAccounts
+      ? [
+          {
+            name: options.opencodeOpenaiAccounts.name,
+            mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
+            subPath: options.opencodeOpenaiAccounts.key,
+            readOnly: true,
+          },
+        ]
+      : []),
     {
       name: options.githubAuth.name,
       mountPath: "/root/.gitconfig",
@@ -234,6 +256,10 @@ export async function submitK8sRunnerJob(
       readOnly: true,
     },
   ];
+
+  const env = options.opencodeOpenaiAccounts
+    ? [{ name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "false" }]
+    : [];
 
   const jobBody = {
     apiVersion: "batch/v1",
@@ -259,6 +285,7 @@ export async function submitK8sRunnerJob(
                 "/etc/pipeline/payload.json",
                 options.orchestrator,
               ],
+              ...(env.length > 0 ? { env } : {}),
               volumeMounts,
             },
           ],

@@ -32,6 +32,7 @@ describe("OpenCode ecosystem manifest", () => {
       "opencode-handoff",
       "opencode-plugin-otel",
       "opencode-goal-plugin",
+      "oc-codex-multi-auth",
       "opencode-snip",
       "opencode-mem",
       "cupcake",
