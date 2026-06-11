@@ -1,12 +1,20 @@
 import { execFile } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { PipelineConfig } from "../config";
 import type { RunnerCommandPayload } from "../runner-command-contract";
 
 const DEFAULT_WORKSPACE_PATH = "/workspace";
+const DEFAULT_GIT_CREDENTIAL_STORE = "/root/.git-credentials";
+const WRITABLE_GIT_CREDENTIAL_STORE = resolve(
+  tmpdir(),
+  "pipeline-git-credentials"
+);
 const execGit = promisify(execFile);
+
+let preparedCredentialStore: string | undefined;
 
 export interface RunnerGitRefs {
   finalRef: string;
@@ -150,7 +158,64 @@ async function configureGitCommitter(
   ]);
 }
 
+function runnerGitCommandArgs(args: string[]): string[] {
+  return [...gitCredentialConfigArgs(), ...args];
+}
+
 async function runGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execGit("git", args, { cwd, encoding: "utf8" });
+  const { stdout } = await execGit("git", runnerGitCommandArgs(args), {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
   return stdout;
+}
+
+function gitCredentialConfigArgs(): string[] {
+  const writablePath = prepareWritableGitCredentialStore();
+  if (!writablePath) {
+    return [];
+  }
+  return [
+    "-c",
+    "credential.helper=",
+    "-c",
+    `credential.helper=store --file=${writablePath}`,
+  ];
+}
+
+function prepareWritableGitCredentialStore(): string | undefined {
+  const sourcePath = availableGitCredentialStore();
+  if (!sourcePath) {
+    return;
+  }
+  const writablePath = writableGitCredentialStore();
+  copyGitCredentialStore(sourcePath, writablePath);
+  return writablePath;
+}
+
+function availableGitCredentialStore(): string | undefined {
+  const sourcePath =
+    process.env.PIPELINE_GIT_CREDENTIAL_STORE ?? DEFAULT_GIT_CREDENTIAL_STORE;
+  return existsSync(sourcePath) ? sourcePath : undefined;
+}
+
+function writableGitCredentialStore(): string {
+  return (
+    process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE ??
+    WRITABLE_GIT_CREDENTIAL_STORE
+  );
+}
+
+function copyGitCredentialStore(
+  sourcePath: string,
+  writablePath: string
+): void {
+  if (preparedCredentialStore === writablePath) {
+    return;
+  }
+  mkdirSync(dirname(writablePath), { recursive: true });
+  copyFileSync(sourcePath, writablePath);
+  chmodSync(writablePath, 0o600);
+  preparedCredentialStore = writablePath;
 }
