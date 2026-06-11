@@ -367,6 +367,13 @@ describe("loadPipelineConfig", () => {
     expect(generatedDefaultsAudit.command.join(" ")).toContain(
       "PIPELINE_HOOK_RESULT"
     );
+    expect(config.runner_command.environment.setup).toEqual([
+      {
+        args: ["install", "--frozen-lockfile"],
+        command: "pnpm",
+        required: true,
+      },
+    ]);
   });
 
   it("parses a complete valid custom config from explicit config parts", () => {

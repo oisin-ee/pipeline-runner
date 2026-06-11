@@ -345,6 +345,11 @@ hooks:
       - id: generated-defaults-audit
         function: generated-defaults-audit
         failure: fail
+runner_command:
+  environment:
+    setup:
+      - command: pnpm
+        args: [install, --frozen-lockfile]
 scheduler:
   commands:
     quick:
