@@ -499,29 +499,22 @@ async function executeNode(
         return cycle.result;
       }
       retry = retryCandidateForCycle(node, cycle, last, attempt);
-      const selfRemediation = await remediateWritableNodeFailure({
+      const remediation = await remediateFailedNode({
         attempt,
         context,
         node,
         retry,
       });
-      if (selfRemediation) {
+      if (remediation?.result) {
         recordNodeEvent(context, node.id, {
           at: now(),
-          result: selfRemediation,
+          result: remediation.result,
           type: "PASSED",
         });
-        emitNodeFinish(context, selfRemediation);
-        return selfRemediation;
+        emitNodeFinish(context, remediation.result);
+        return remediation.result;
       }
-      if (
-        await remediateCoverageFailure({
-          attempt,
-          context,
-          node,
-          retry,
-        })
-      ) {
+      if (remediation?.retryNode) {
         continue;
       }
       recordNodeEvent(context, node.id, {
@@ -596,6 +589,30 @@ async function executeNode(
   });
   emitNodeFinish(context, result);
   return result;
+}
+
+interface NodeRemediationResult {
+  result?: RuntimeNodeResult;
+  retryNode?: boolean;
+}
+
+async function remediateFailedNode(input: {
+  attempt: number;
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  retry: NodeAttemptRetry;
+}): Promise<NodeRemediationResult | null> {
+  const selfRemediation = await remediateWritableNodeFailure(input);
+  if (selfRemediation) {
+    return { result: selfRemediation };
+  }
+  if (await remediateCoverageFailure(input)) {
+    return { retryNode: true };
+  }
+  if (await remediateUpstreamImplementationFailure(input)) {
+    return { retryNode: true };
+  }
+  return null;
 }
 
 async function remediateWritableNodeFailure(input: {
@@ -679,6 +696,31 @@ async function remediateCoverageFailure(input: {
   ) {
     return false;
   }
+  return await remediatePassedImplementationAncestors(input);
+}
+
+async function remediateUpstreamImplementationFailure(input: {
+  attempt: number;
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  retry: NodeAttemptRetry;
+}): Promise<boolean> {
+  if (
+    isRemediationNode(input.node) ||
+    nodeCanWrite(input.context, input.node) ||
+    hasSchedulingRole(input.context, input.node, "coverage")
+  ) {
+    return false;
+  }
+  return await remediatePassedImplementationAncestors(input);
+}
+
+async function remediatePassedImplementationAncestors(input: {
+  attempt: number;
+  context: RuntimeContext;
+  node: PlannedWorkflowNode;
+  retry: NodeAttemptRetry;
+}): Promise<boolean> {
   const implementationNodes = upstreamImplementationNodes(
     input.context,
     input.node
@@ -691,35 +733,67 @@ async function remediateCoverageFailure(input: {
   }
 
   for (const implementationNode of implementationNodes) {
-    if (isCancelled(input.context)) {
+    if (!(await remediateImplementationAncestor(input, implementationNode))) {
       return false;
     }
-    const beforeSnapshot = await snapshotChangedFiles(
-      input.context.worktreePath
-    );
-    const beforeOutput = input.context.lastOutputByNode.get(
-      implementationNode.id
-    );
-    const result = await executeImplementationRemediation({
-      attempt: input.attempt,
-      context: input.context,
-      coverageNode: input.node,
-      implementationNode,
-      retry: input.retry,
-    });
-    if (result.status !== "passed") {
-      return false;
-    }
-    const changed = diffChangedFiles(
-      beforeSnapshot,
-      await snapshotChangedFiles(input.context.worktreePath),
-      input.context.worktreePath
-    );
-    if (changed.files.size === 0 && result.output === beforeOutput) {
-      return false;
-    }
-    input.context.lastOutputByNode.set(implementationNode.id, result.output);
   }
+  return true;
+}
+
+async function remediateImplementationAncestor(
+  input: {
+    attempt: number;
+    context: RuntimeContext;
+    node: PlannedWorkflowNode;
+    retry: NodeAttemptRetry;
+  },
+  implementationNode: PlannedWorkflowNode
+): Promise<boolean> {
+  if (isCancelled(input.context)) {
+    return false;
+  }
+  const beforeSnapshot = await snapshotChangedFiles(input.context.worktreePath);
+  const beforeOutput = input.context.lastOutputByNode.get(
+    implementationNode.id
+  );
+  const result = await executeImplementationRemediation({
+    attempt: input.attempt,
+    context: input.context,
+    coverageNode: input.node,
+    implementationNode,
+    retry: input.retry,
+  });
+  if (result.status !== "passed") {
+    return false;
+  }
+  return await recordImplementationRemediationEffect({
+    beforeOutput,
+    beforeSnapshot,
+    context: input.context,
+    implementationNode,
+    result,
+  });
+}
+
+async function recordImplementationRemediationEffect(input: {
+  beforeOutput: string | undefined;
+  beforeSnapshot: Awaited<ReturnType<typeof snapshotChangedFiles>>;
+  context: RuntimeContext;
+  implementationNode: PlannedWorkflowNode;
+  result: RuntimeNodeResult;
+}): Promise<boolean> {
+  const changed = diffChangedFiles(
+    input.beforeSnapshot,
+    await snapshotChangedFiles(input.context.worktreePath),
+    input.context.worktreePath
+  );
+  if (changed.files.size === 0 && input.result.output === input.beforeOutput) {
+    return false;
+  }
+  input.context.lastOutputByNode.set(
+    input.implementationNode.id,
+    input.result.output
+  );
   return true;
 }
 

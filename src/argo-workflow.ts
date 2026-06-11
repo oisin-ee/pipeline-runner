@@ -151,6 +151,7 @@ export const runnerArgoWorkflowManifestSchema = z
     kind: z.literal(ARGO_WORKFLOW_KIND),
     metadata: z
       .object({
+        annotations: z.record(z.string().min(1), z.string().min(1)).optional(),
         generateName: z.string().min(1).optional(),
         labels: z.record(z.string().min(1), labelValueSchema).optional(),
         name: z.string().min(1).optional(),
@@ -199,6 +200,9 @@ const buildRunnerArgoWorkflowOptionsSchema = z
     eventAuthSecretName: kubernetesNameSchema.optional(),
     generateName: z.string().min(1).optional(),
     githubAuthSecretName: kubernetesNameSchema.optional(),
+    annotations: z
+      .record(z.string().min(1), z.string().min(1).optional())
+      .default({}),
     image: z.string().min(1).default(RUNNER_WORKFLOW_IMAGE),
     imagePullPolicy: z
       .enum(["Always", "IfNotPresent", "Never"])
@@ -274,6 +278,7 @@ export function buildRunnerArgoWorkflowManifest(
     apiVersion: ARGO_WORKFLOW_API_VERSION,
     kind: ARGO_WORKFLOW_KIND,
     metadata: {
+      annotations: compactRecord(options.annotations),
       ...(options.name ? { name: options.name } : {}),
       ...(options.generateName ? { generateName: options.generateName } : {}),
       labels: compactRecord({

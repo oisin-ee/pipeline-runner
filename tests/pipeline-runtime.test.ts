@@ -78,6 +78,7 @@ vi.mock("simple-git", () => ({
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const tempDirs: string[] = [];
 const originalPipelineTestCommand = process.env.PIPELINE_TEST_COMMAND;
+const originalPipelineLintCommand = process.env.PIPELINE_LINT_COMMAND;
 const originalPipelineSemgrepCommand = process.env.PIPELINE_SEMGREP_COMMAND;
 const originalPipelineTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
 const CANCEL_PATTERN = /cancel/i;
@@ -105,6 +106,11 @@ afterEach(() => {
     delete process.env.PIPELINE_SEMGREP_COMMAND;
   } else {
     process.env.PIPELINE_SEMGREP_COMMAND = originalPipelineSemgrepCommand;
+  }
+  if (originalPipelineLintCommand === undefined) {
+    delete process.env.PIPELINE_LINT_COMMAND;
+  } else {
+    process.env.PIPELINE_LINT_COMMAND = originalPipelineLintCommand;
   }
   if (originalPipelineTypecheckCommand === undefined) {
     delete process.env.PIPELINE_TYPECHECK_COMMAND;
@@ -1505,6 +1511,64 @@ workflows:
     expect(remediationPrompt).toContain(
       "builtin 'typecheck' produced no output"
     );
+  });
+
+  it("remediates implementation-role nodes when downstream mechanical nodes fail", async () => {
+    const project = tempProject();
+    process.env.PIPELINE_LINT_COMMAND = "node -e process.exit(1)";
+    mockExeca
+      .mockRejectedValueOnce({
+        exitCode: 1,
+        stderr:
+          "eslint(require-await): Async function has no `await` expression.",
+        stdout: "",
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "ok" });
+    const config = baseConfig(`
+  remediate-mechanical-flow:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: a
+      - id: mechanical-lint
+        kind: builtin
+        builtin: lint
+        needs: [implement]
+`);
+    config.profiles.a.scheduling_roles = ["implementation"];
+    const seen: RunnerLaunchPlan[] = [];
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return {
+          exitCode: 0,
+          stdout: plan.nodeId.includes(":remediate:")
+            ? "removed async keyword"
+            : "implementation output",
+        };
+      },
+      task: "mechanical remediation",
+      workflowId: "remediate-mechanical-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement",
+      "implement:remediate:mechanical-lint:1",
+    ]);
+    const remediationPrompt = seen[1]?.args.join("\n") ?? "";
+    expect(remediationPrompt).toContain("Coverage node:\nmechanical-lint");
+    expect(remediationPrompt).toContain("Failed gate:\nmechanical-lint");
+    expect(remediationPrompt).toContain(
+      "eslint(require-await): Async function has no `await` expression."
+    );
+    expect(result.nodeStates["mechanical-lint"]).toMatchObject({
+      attempts: 2,
+      status: "passed",
+    });
   });
 
   it("injects stdout gate JSON contracts into agent prompts", async () => {

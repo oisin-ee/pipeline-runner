@@ -125,7 +125,16 @@ export async function submitRunnerArgoWorkflow(
     "pipeline.oisin.dev/source": "argo-workflow",
     "pipeline.oisin.dev/workflow": compiled.workflowId,
   };
+  const annotations =
+    payload.task.kind === "ticket"
+      ? {
+          "pipeline.oisin.dev/ticket-id": payload.task.id,
+          "pipeline.oisin.dev/ticket-project": payload.run.project,
+          "pipeline.oisin.dev/ticket-title": payload.task.title,
+        }
+      : {};
   const workflow = buildRunnerArgoWorkflowManifest({
+    annotations,
     eventAuthSecretKey: options.eventAuthSecretKey,
     eventAuthSecretName: options.eventAuthSecretName,
     generateName: options.generateName,

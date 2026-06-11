@@ -160,6 +160,66 @@ describe("submitRunnerArgoWorkflow", () => {
     });
   });
 
+  it("stores ticket metadata on submitted Argo Workflow annotations", async () => {
+    const createdWorkflows: unknown[] = [];
+    const payload = JSON.stringify({
+      ...JSON.parse(PAYLOAD),
+      task: {
+        id: "RONDO-017.01",
+        kind: "ticket",
+        path: "backlog/tasks/task-RONDO-017.01.md",
+        title: "Fix message persistence",
+      },
+    });
+
+    await submitRunnerArgoWorkflow(
+      {
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace: "momokaya-pipeline",
+        payloadJson: payload,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(input.body);
+            return Promise.resolve({
+              ...(input.body as Record<string, unknown>),
+              metadata: {
+                ...(input.body as { metadata: Record<string, unknown> })
+                  .metadata,
+                name: "pipeline-run-ticket",
+                uid: "workflow-ticket-uid",
+              },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows[0]).toMatchObject({
+      metadata: {
+        annotations: {
+          "pipeline.oisin.dev/ticket-id": "RONDO-017.01",
+          "pipeline.oisin.dev/ticket-project": "rondo",
+          "pipeline.oisin.dev/ticket-title": "Fix message persistence",
+        },
+        labels: {
+          "pipeline.oisin.dev/project": "rondo",
+          "pipeline.oisin.dev/run-id": "run-1",
+          "pipeline.oisin.dev/source": "argo-workflow",
+          "pipeline.oisin.dev/workflow": "schedule-submit-smoke-root",
+        },
+      },
+    });
+  });
+
   it("builds valid schedule YAML for a custom argv command", () => {
     const schedule = parseScheduleArtifact(
       buildCommandScheduleYaml({
