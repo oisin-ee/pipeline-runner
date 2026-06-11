@@ -81,12 +81,16 @@ describe("runner-command hook policy", () => {
     mocks.mergeDependencyRefs.mockResolvedValue(undefined);
     mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
     const fetch = vi.fn(async () => new Response(null, { status: 202 }));
+    const stdout = captureOutput();
+    const stderr = captureOutput();
 
     const exitCode = await runRunnerCommand({
       cwd: fixture.dir,
       fetch,
       payloadFile: fixture.payloadPath,
       scheduleFile: fixture.schedulePath,
+      stderr: stderr.stream,
+      stdout: stdout.stream,
       taskDescriptorFile: fixture.descriptorPath,
     });
 
@@ -99,4 +103,75 @@ describe("runner-command hook policy", () => {
       })
     );
   });
+
+  it("writes runner lifecycle progress to stdout without writing normal progress to stderr", async () => {
+    const fixture = writeRunnerCommandFixture({
+      runId: "run-logs",
+      tempPrefix: "runner-command-logs-",
+    });
+    const mocks = installMockState();
+    mocks.runScheduledWorkflowTask.mockResolvedValue({
+      evidence: [],
+      exitCode: 0,
+      output: "ok",
+      status: "passed",
+    });
+    mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
+    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
+    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
+    const fetch = vi.fn(async () => new Response(null, { status: 202 }));
+    const stdout = captureOutput();
+    const stderr = captureOutput();
+
+    const exitCode = await runRunnerCommand({
+      cwd: fixture.dir,
+      fetch,
+      payloadFile: fixture.payloadPath,
+      scheduleFile: fixture.schedulePath,
+      stderr: stderr.stream,
+      stdout: stdout.stream,
+      taskDescriptorFile: fixture.descriptorPath,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(logPhases(stdout.text())).toEqual(
+      expect.arrayContaining([
+        "payload.load:finish",
+        "git.workspace.prepare:start",
+        "task.run:start",
+        "git.node-ref.push:finish",
+        "event.flush:finish",
+      ])
+    );
+    expect(stdout.text()).not.toContain("test-token");
+    expect(stderr.text()).toBe("");
+  });
 });
+
+function captureOutput(): {
+  stream: { write: (chunk: string | Uint8Array) => boolean };
+  text: () => string;
+} {
+  let value = "";
+  return {
+    stream: {
+      write: (chunk) => {
+        value +=
+          typeof chunk === "string"
+            ? chunk
+            : Buffer.from(chunk).toString("utf8");
+        return true;
+      },
+    },
+    text: () => value,
+  };
+}
+
+function logPhases(content: string): string[] {
+  return content
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { phase: string; status: string })
+    .map((record) => `${record.phase}:${record.status}`);
+}

@@ -163,6 +163,7 @@ describe("runner Argo Workflow manifest", () => {
         expect.objectContaining({
           name: "runner-git-credentials",
           secret: expect.objectContaining({
+            defaultMode: 0o400,
             items: expect.arrayContaining([
               { key: "username", path: "username" },
               { key: "password", path: "password" },
@@ -173,6 +174,16 @@ describe("runner Argo Workflow manifest", () => {
             secretName: "git-credentials-secret",
           }),
         }),
+      ])
+    );
+    expect(manifest.spec.volumes).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ emptyDir: expect.anything() }),
+      ])
+    );
+    expect(manifest.spec.templates).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ initContainers: expect.anything() }),
       ])
     );
     expect(runner).not.toHaveProperty("outputs");

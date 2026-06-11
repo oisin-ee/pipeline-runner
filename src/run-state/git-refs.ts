@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -167,19 +168,45 @@ async function configureGitCommitter(
   ]);
 }
 
-function runnerGitCommandArgs(args: string[]): string[] {
-  const remoteUrl = remoteUrlFromGitArgs(args);
+function runnerGitCommandArgs(
+  args: string[],
+  remoteUrl: string | undefined
+): string[] {
   return [...gitCredentialConfigArgs(remoteUrl), ...args];
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
-  const remoteUrl = remoteUrlFromGitArgs(args);
-  const { stdout } = await execGit("git", runnerGitCommandArgs(args), {
-    cwd,
-    encoding: "utf8",
-    env: runnerGitEnv(remoteUrl),
-  });
+  const remoteUrl = await remoteUrlFromGitArgs(cwd, args);
+  assertSshCredentialsAvailable(remoteUrl);
+  const { stdout } = await execGit(
+    "git",
+    runnerGitCommandArgs(args, remoteUrl),
+    {
+      cwd,
+      encoding: "utf8",
+      env: runnerGitEnv(remoteUrl),
+    }
+  );
   return stdout;
+}
+
+function assertSshCredentialsAvailable(remoteUrl: string | undefined): void {
+  if (!(remoteUrl && isSshRemote(remoteUrl))) {
+    return;
+  }
+  const credentialsDir = gitCredentialsDir();
+  const missing = [
+    ["identity", resolve(credentialsDir, "identity")],
+    ["known_hosts", resolve(credentialsDir, "known_hosts")],
+  ]
+    .filter(([, filePath]) => !existsSync(filePath))
+    .map(([name]) => name);
+  if (missing.length === 0) {
+    return;
+  }
+  throw new Error(
+    `SSH git remote ${remoteUrl} requires mounted git credential file(s): ${missing.join(", ")}`
+  );
 }
 
 function gitCredentialConfigArgs(remoteUrl: string | undefined): string[] {
@@ -198,6 +225,14 @@ function gitCredentialConfigArgs(remoteUrl: string | undefined): string[] {
 function prepareWritableGitCredentialStore(
   remoteUrl: string | undefined
 ): string | undefined {
+  if (!remoteUrl) {
+    return existingPreparedBasicAuthCredentialStore(
+      writableGitCredentialStore()
+    );
+  }
+  if (!isHttpRemote(remoteUrl)) {
+    return;
+  }
   const writablePath = writableGitCredentialStore();
   const basicAuth = availableBasicAuthCredentials();
   if (basicAuth) {
@@ -285,11 +320,9 @@ function isPreparedBasicAuthCredentialStore(
 
 function runnerGitEnv(remoteUrl: string | undefined): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
-  if (remoteUrl && isSshRemote(remoteUrl)) {
-    const sshCommand = gitSshCommand();
-    if (sshCommand) {
-      env.GIT_SSH_COMMAND = sshCommand;
-    }
+  const sshCommand = gitSshCommand();
+  if (sshCommand && remoteUrl && isSshRemote(remoteUrl)) {
+    env.GIT_SSH_COMMAND = sshCommand;
   }
   return env;
 }
@@ -301,7 +334,7 @@ function gitSshCommand(): string | undefined {
   if (!(existsSync(identityPath) && existsSync(knownHostsPath))) {
     return;
   }
-  chmodSync(identityPath, 0o400);
+  ensureSshIdentityPermissions(identityPath);
   return [
     "ssh",
     "-i",
@@ -315,15 +348,83 @@ function gitSshCommand(): string | undefined {
   ].join(" ");
 }
 
+function ensureSshIdentityPermissions(identityPath: string): void {
+  try {
+    chmodSync(identityPath, 0o400);
+    return;
+  } catch (error) {
+    if (!(isReadOnlyFileSystemError(error) && isOwnerReadOnly(identityPath))) {
+      throw error;
+    }
+  }
+}
+
+function isReadOnlyFileSystemError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "EROFS"
+  );
+}
+
+function isOwnerReadOnly(path: string): boolean {
+  const permissions = statSync(path).mode.toString(8).slice(-3);
+  return (
+    ["4", "5", "6", "7"].includes(permissions[0] ?? "") &&
+    permissions.slice(1) === "00"
+  );
+}
+
 function readCredentialFile(path: string): string {
   return readFileSync(path, "utf8").trim();
 }
 
-function remoteUrlFromGitArgs(args: string[]): string | undefined {
+async function remoteUrlFromGitArgs(
+  cwd: string,
+  args: string[]
+): Promise<string | undefined> {
+  const literalRemoteUrl = literalRemoteUrlFromGitArgs(args);
+  if (literalRemoteUrl) {
+    return literalRemoteUrl;
+  }
+  const remoteName = remoteNameFromGitArgs(args);
+  if (!remoteName) {
+    return;
+  }
+  return await gitRemoteUrl(cwd, remoteName);
+}
+
+function literalRemoteUrlFromGitArgs(args: string[]): string | undefined {
   if (args[0] === "clone") {
     return args.find((arg) => isRemoteUrl(arg));
   }
+  if (args[0] === "fetch" || args[0] === "push" || args[0] === "ls-remote") {
+    const remoteArg = args[1];
+    return remoteArg && isRemoteUrl(remoteArg) ? remoteArg : undefined;
+  }
   return;
+}
+
+function remoteNameFromGitArgs(args: string[]): string | undefined {
+  if (args[0] === "fetch" || args[0] === "push" || args[0] === "ls-remote") {
+    const remoteArg = args[1];
+    if (remoteArg && !remoteArg.startsWith("-") && !isRemoteUrl(remoteArg)) {
+      return remoteArg;
+    }
+  }
+  return;
+}
+
+async function gitRemoteUrl(
+  cwd: string,
+  remoteName: string
+): Promise<string | undefined> {
+  const { stdout } = await execGit("git", ["remote", "get-url", remoteName], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  return stdout.trim() || undefined;
 }
 
 function isRemoteUrl(value: string): boolean {
@@ -337,6 +438,10 @@ function isRemoteUrl(value: string): boolean {
 
 function isSshRemote(value: string): boolean {
   return value.startsWith("ssh://") || isScpLikeSshRemote(value);
+}
+
+function isHttpRemote(value: string): boolean {
+  return value.startsWith("http://") || value.startsWith("https://");
 }
 
 function isScpLikeSshRemote(value: string): boolean {

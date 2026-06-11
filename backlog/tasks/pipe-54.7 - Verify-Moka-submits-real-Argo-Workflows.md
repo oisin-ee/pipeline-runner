@@ -4,7 +4,7 @@ title: Verify Moka submits real Argo Workflows
 status: To Do
 assignee: []
 created_date: '2026-06-10 14:10'
-updated_date: '2026-06-10 14:43'
+updated_date: '2026-06-11 15:24'
 labels:
   - momokaya
   - verification
@@ -12,6 +12,7 @@ labels:
 dependencies:
   - PIPE-54.5
   - PIPE-54.6
+  - PIPE-54.8
 references:
   - tests/cli.test.ts
   - tests/argo-submit.test.ts

@@ -1,0 +1,83 @@
+version: 1
+kind: pipeline-schedule
+schedule_id: run-94bda490017783d4
+source_entrypoint: quick
+task: Implement PIPE-54.8 Lower generated Moka graph submissions into Argo
+  Workflow DAGs
+generated_at: 2026-06-11T16:18:26.452Z
+root_workflow: root
+workflows:
+  root:
+    description: Lower Moka agent/builtin/parallel graph nodes into Argo DAG tasks
+    nodes:
+      - id: backlog-intake
+        kind: agent
+        profile: moka-researcher
+        models:
+          - opencode/deepseek-v4-flash-free
+          - openai/gpt-5.5-fast
+
+      - id: red-tests
+        kind: agent
+        needs:
+          - backlog-intake
+        profile: moka-test-writer
+        models:
+          - opencode/deepseek-v4-flash-free
+          - openai/gpt-5.5
+          - kimi-for-coding/kimi-k2-thinking
+        task_context:
+          id: PIPE-54.8
+
+      - id: implement
+        kind: agent
+        needs:
+          - red-tests
+        profile: moka-code-writer
+        models:
+          - opencode/deepseek-v4-flash-free
+          - kimi-for-coding/k2p6
+          - opencode-go/qwen3.7-max
+          - opencode-go/deepseek-v4-pro
+        task_context:
+          id: PIPE-54.8
+
+      - builtin: test
+        id: mechanical-tests
+        kind: builtin
+        needs:
+          - implement
+
+      - builtin: typecheck
+        id: mechanical-typecheck
+        kind: builtin
+        needs:
+          - implement
+
+      - gates:
+          - builtin: typecheck
+            id: verify-typecheck
+            kind: builtin
+          - builtin: test
+            id: verify-tests
+            kind: builtin
+          - builtin: lint
+            id: verify-lint
+            kind: builtin
+          - builtin: fallow
+            id: verify-fallow
+            kind: builtin
+          - kind: verdict
+            id: verify-verdict
+            target: stdout
+        id: verify
+        kind: agent
+        models:
+          - opencode/deepseek-v4-flash-free
+          - openai/gpt-5.5
+        needs:
+          - mechanical-tests
+          - mechanical-typecheck
+        profile: moka-verifier
+        task_context:
+          id: PIPE-54.8
