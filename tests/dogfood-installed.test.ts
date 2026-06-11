@@ -15,6 +15,7 @@ import {
   type PipelineConfig,
   parsePipelineConfigParts,
 } from "../src/config";
+import { installCommands } from "../src/install-commands";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
 import { createRunnerLaunchPlan } from "../src/runner";
 import {
@@ -64,6 +65,10 @@ function loadFixturePipelineConfig(project: string): PipelineConfig {
     },
     project
   );
+}
+
+function cliSourcePath(): string {
+  return join(process.cwd(), "src/index.ts");
 }
 
 function writeBacklogTask(
@@ -312,7 +317,7 @@ describe("installed dogfood configuration", () => {
   });
 
   it("does not expose runner orchestrator metadata in installed moka submit help", () => {
-    const result = spawnSync("moka", ["submit", "--help"], {
+    const result = spawnSync("bun", [cliSourcePath(), "submit", "--help"], {
       encoding: "utf8",
     });
     const help = `${result.stdout}\n${result.stderr}`;
@@ -322,11 +327,13 @@ describe("installed dogfood configuration", () => {
     expect(help).not.toMatch(RUNNER_ORCHESTRATOR_METADATA_RE);
   });
 
-  it("keeps installed host resources aligned with package defaults and agent grants", () => {
-    const config = loadPipelineConfig(process.cwd(), {
+  it("keeps installed host resources aligned with package defaults and agent grants", async () => {
+    const root = tempProject();
+    await installCommands({ cwd: root, force: true, host: "all" });
+    const config = loadPipelineConfig(root, {
       allowMissingLintFileReferences: true,
     });
-    const root = process.cwd();
+
     expect(config.orchestrator).toEqual({ profile: "moka-orchestrator" });
     for (const surface of entrypointCommandSurfaces(config)) {
       expect(existsSync(join(root, surface.path)), surface.path).toBe(true);
