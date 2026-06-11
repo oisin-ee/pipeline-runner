@@ -19,7 +19,6 @@ const originalPipelineAgentTimeoutMs = process.env.PIPELINE_AGENT_TIMEOUT_MS;
 const originalPipelineMcpGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
 const originalPipelineMcpGatewayAuthorization =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
-const originalPipelineOpencodeModel = process.env.PIPELINE_OPENCODE_MODEL;
 function makeSimpleResult(stdout = "output", exitCode = 0) {
   return Promise.resolve({ stdout, exitCode }) as any;
 }
@@ -38,7 +37,6 @@ afterEach(() => {
     "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
     originalPipelineMcpGatewayAuthorization
   );
-  restoreEnv("PIPELINE_OPENCODE_MODEL", originalPipelineOpencodeModel);
 });
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -69,8 +67,6 @@ describe("spawnAgent — opencode harness", () => {
         "run",
         "--format",
         "json",
-        "--model",
-        "opencode/deepseek-v4-flash-free",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -100,8 +96,6 @@ describe("spawnAgent — opencode harness", () => {
         "run",
         "--format",
         "json",
-        "--model",
-        "opencode/deepseek-v4-flash-free",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -153,7 +147,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: opencode/deepseek-v4-flash-free
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
       output_formats: [text, json, jsonl, json_schema]
@@ -261,7 +255,7 @@ workflows:
         "--format",
         "json",
         "--model",
-        "opencode/deepseek-v4-flash-free",
+        "openai/gpt-5.5",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -352,7 +346,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: opencode/deepseek-v4-flash-free
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
       skills: true
@@ -497,9 +491,7 @@ workflows:
     expect(orchestrator.args).toContain(config.runners.opencode.model);
   });
 
-  it("lets PIPELINE_OPENCODE_MODEL override actor and runner models", () => {
-    process.env.PIPELINE_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
-
+  it("uses explicit actor and runner models only", () => {
     const agent = createRunnerLaunchPlan(CONFIG, {
       profileId: "opencode-agent",
       nodeId: "agent",
@@ -512,10 +504,8 @@ workflows:
       worktreePath: "/tmp/wt",
     });
 
-    expect(agent.args).toContain("opencode/deepseek-v4-flash-free");
-    expect(agent.args).not.toContain("openai/gpt-5.5");
-    expect(orchestrator.args).toContain("opencode/deepseek-v4-flash-free");
-    expect(orchestrator.args).not.toContain("orchestrator-model");
+    expect(agent.args).toContain("openai/gpt-5.5");
+    expect(orchestrator.args).toContain("orchestrator-model");
   });
 
   it("uses OpenCode permission bypass mode for read-only profiles", () => {

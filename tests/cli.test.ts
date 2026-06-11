@@ -1560,11 +1560,7 @@ workflows:
 
         expect(mockExeca).toHaveBeenCalledWith(
           "opencode",
-          expect.arrayContaining([
-            "run",
-            "--model",
-            "opencode/deepseek-v4-flash-free",
-          ]),
+          expect.not.arrayContaining(["--model"]),
           expect.objectContaining({ cwd: dir })
         );
         expect(output()).toContain("Workflow: schedule-approved-opencode-root");
@@ -1636,11 +1632,7 @@ workflows:
 
         expect(mockExeca).toHaveBeenCalledWith(
           "opencode",
-          expect.arrayContaining([
-            "run",
-            "--model",
-            "opencode/deepseek-v4-flash-free",
-          ]),
+          expect.not.arrayContaining(["--model"]),
           expect.objectContaining({ cwd: dir })
         );
         expect(execaCommands()).not.toContain("quick-node-bin");

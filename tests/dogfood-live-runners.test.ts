@@ -290,7 +290,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: ${JSON.stringify(process.env.PIPELINE_OPENCODE_MODEL ?? "opencode/deepseek-v4-flash-free")}
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
       rules: true

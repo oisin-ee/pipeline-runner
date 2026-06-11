@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -697,6 +698,174 @@ workflows:
       expect(prompt).toContain("description: Implement production code");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC #7: Schedule artifact round-trip golden tests
+  it("round-trips a quick baseline schedule through generate -> parse -> compile", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-quick-roundtrip-")
+    );
+    const quickYaml = `
+version: 1
+kind: pipeline-schedule
+schedule_id: roundtrip-quick
+source_entrypoint: quick
+task: Quick round-trip
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: backlog-intake
+        kind: agent
+        profile: moka-researcher
+      - id: red-tests
+        kind: agent
+        profile: moka-test-writer
+        needs: [backlog-intake]
+      - id: implement
+        kind: agent
+        profile: moka-code-writer
+        needs: [red-tests]
+      - id: mechanical-tests
+        kind: builtin
+        builtin: test
+        needs: [implement]
+      - id: mechanical-typecheck
+        kind: builtin
+        builtin: typecheck
+        needs: [implement]
+      - id: verify
+        kind: agent
+        profile: moka-verifier
+        needs: [mechanical-tests, mechanical-typecheck]
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "quick",
+        executor: () => ({ exitCode: 0, stdout: quickYaml }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "roundtrip-quick",
+        task: "Quick round-trip",
+        worktreePath: dir,
+      });
+
+      const generated = readFileSync(join(dir, result.path), "utf8");
+      const parsed = parseScheduleArtifact(generated);
+      expect(parsed.schedule_id).toBe("roundtrip-quick");
+      expect(parsed.source_entrypoint).toBe("quick");
+      expect(parsed.root_workflow).toBe("root");
+
+      const compiled = compileScheduleArtifact(config(), parsed, dir);
+      expect(compiled.workflowId).toBe("schedule-roundtrip-quick-root");
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
+        "red-tests"
+      );
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
+        "implement"
+      );
+      expect(
+        compiled.config.workflows["schedule-roundtrip-quick-root"]
+      ).toBeDefined();
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("round-trips an execute baseline schedule through generate -> parse -> compile", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-execute-roundtrip-")
+    );
+    const executeYaml = `
+version: 1
+kind: pipeline-schedule
+schedule_id: roundtrip-execute
+source_entrypoint: execute
+task: Execute round-trip
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: backlog-intake
+        kind: agent
+        profile: moka-researcher
+      - id: research
+        kind: agent
+        profile: moka-researcher
+        needs: [backlog-intake]
+      - id: red-tests
+        kind: agent
+        profile: moka-test-writer
+        needs: [research]
+      - id: green-implementation
+        kind: agent
+        profile: moka-code-writer
+        needs: [red-tests]
+      - id: mechanical-green-tests
+        kind: builtin
+        builtin: test
+        needs: [green-implementation]
+      - id: mechanical-green-typecheck
+        kind: builtin
+        builtin: typecheck
+        needs: [green-implementation]
+      - id: mechanical-green-lint
+        kind: builtin
+        builtin: lint
+        needs: [green-implementation]
+      - id: mechanical-green-fallow
+        kind: builtin
+        builtin: fallow
+        needs: [green-implementation]
+      - id: verification
+        kind: agent
+        profile: moka-verifier
+        needs:
+          [mechanical-green-tests, mechanical-green-typecheck, mechanical-green-lint, mechanical-green-fallow]
+      - id: code-quality-review
+        kind: agent
+        profile: moka-thermo-nuclear-reviewer
+        needs:
+          [mechanical-green-tests, mechanical-green-typecheck, mechanical-green-lint, mechanical-green-fallow]
+      - id: learn
+        kind: agent
+        profile: moka-learner
+        needs: [verification, code-quality-review]
+`;
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "execute",
+        executor: () => ({ exitCode: 0, stdout: executeYaml }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "roundtrip-execute",
+        task: "Execute round-trip",
+        worktreePath: dir,
+      });
+
+      const generated = readFileSync(join(dir, result.path), "utf8");
+      const parsed = parseScheduleArtifact(generated);
+      expect(parsed.schedule_id).toBe("roundtrip-execute");
+      expect(parsed.source_entrypoint).toBe("execute");
+
+      const compiled = compileScheduleArtifact(config(), parsed, dir);
+      expect(compiled.workflowId).toBe("schedule-roundtrip-execute-root");
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
+        "green-implementation"
+      );
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
+        "verification"
+      );
+      expect(
+        compiled.config.workflows["schedule-roundtrip-execute-root"]
+      ).toBeDefined();
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 

@@ -7,23 +7,10 @@ export interface ModelSelection {
 }
 
 const DISABLED_MODELS_ENV = "PIPELINE_DISABLED_MODELS";
-const MODEL_OVERRIDE_ENV = "PIPELINE_OPENCODE_MODEL";
 
 export function selectNodeModel(node: PlannedWorkflowNode): ModelSelection {
   const models = node.models ?? [];
-  return forcedModelSelection(models) ?? fallbackModelSelection(models);
-}
-
-function forcedModelSelection(models: string[]): ModelSelection | undefined {
-  const override = process.env[MODEL_OVERRIDE_ENV]?.trim();
-  if (!override) {
-    return;
-  }
-  return {
-    model: override,
-    reason: `forced by ${MODEL_OVERRIDE_ENV}`,
-    skipped: models,
-  };
+  return fallbackModelSelection(models);
 }
 
 function fallbackModelSelection(models: string[]): ModelSelection {

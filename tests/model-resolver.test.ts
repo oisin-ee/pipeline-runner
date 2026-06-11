@@ -2,11 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { selectNodeModel } from "../src/model-resolver";
 import type { PlannedWorkflowNode } from "../src/workflow-planner";
 
-const originalPipelineOpencodeModel = process.env.PIPELINE_OPENCODE_MODEL;
 const originalPipelineDisabledModels = process.env.PIPELINE_DISABLED_MODELS;
 
 afterEach(() => {
-  restoreEnv("PIPELINE_OPENCODE_MODEL", originalPipelineOpencodeModel);
   restoreEnv("PIPELINE_DISABLED_MODELS", originalPipelineDisabledModels);
 });
 
@@ -34,30 +32,27 @@ function node(models: string[]): PlannedWorkflowNode {
 }
 
 describe("selectNodeModel", () => {
-  it("uses PIPELINE_OPENCODE_MODEL ahead of explicit node fallbacks", () => {
-    process.env.PIPELINE_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
-    process.env.PIPELINE_DISABLED_MODELS = "opencode/deepseek-v4-flash-free";
-
+  it("uses explicit node model order", () => {
     const selected = selectNodeModel(
       node(["openai/gpt-5.5", "kimi-for-coding/k2p6"])
     );
 
     expect(selected).toEqual({
-      model: "opencode/deepseek-v4-flash-free",
-      reason: "forced by PIPELINE_OPENCODE_MODEL",
-      skipped: ["openai/gpt-5.5", "kimi-for-coding/k2p6"],
+      model: "openai/gpt-5.5",
+      reason: "selected first enabled model from node fallback array",
+      skipped: [],
     });
   });
 
-  it("skips disabled models when no override is configured", () => {
+  it("skips disabled models", () => {
     process.env.PIPELINE_DISABLED_MODELS = "openai/gpt-5.5";
 
     const selected = selectNodeModel(
-      node(["openai/gpt-5.5", "opencode/deepseek-v4-flash-free"])
+      node(["openai/gpt-5.5", "kimi-for-coding/k2p6"])
     );
 
     expect(selected).toMatchObject({
-      model: "opencode/deepseek-v4-flash-free",
+      model: "kimi-for-coding/k2p6",
       skipped: ["openai/gpt-5.5"],
     });
   });

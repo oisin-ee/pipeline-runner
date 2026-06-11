@@ -14,7 +14,6 @@ workflows:
         kind: agent
         profile: moka-researcher
         models:
-          - opencode/deepseek-v4-flash-free
           - openai/gpt-5.5-fast
 
       - id: red-tests
@@ -23,7 +22,6 @@ workflows:
           - backlog-intake
         profile: moka-test-writer
         models:
-          - opencode/deepseek-v4-flash-free
           - openai/gpt-5.5
           - kimi-for-coding/kimi-k2-thinking
         task_context:
@@ -35,10 +33,9 @@ workflows:
           - red-tests
         profile: moka-code-writer
         models:
-          - opencode/deepseek-v4-flash-free
+          - openai/gpt-5.5
           - kimi-for-coding/k2p6
           - opencode-go/qwen3.7-max
-          - opencode-go/deepseek-v4-pro
         task_context:
           id: PIPE-54.8
 
@@ -73,7 +70,6 @@ workflows:
         id: verify
         kind: agent
         models:
-          - opencode/deepseek-v4-flash-free
           - openai/gpt-5.5
         needs:
           - mechanical-tests
