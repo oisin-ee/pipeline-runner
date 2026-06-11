@@ -51,7 +51,7 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     imagePullSecretName: z.string().min(1).optional(),
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
-    namespace: z.string().min(1).default("momokaya-pipeline"),
+    namespace: z.string().min(1),
     opencodeAuthSecretName: z.string().min(1).optional(),
     payloadJson: z.string().min(1),
     queueName: z.string().min(1).optional(),

@@ -30,6 +30,10 @@ import {
   runGatewayDoctor,
   startLocalGateway,
 } from "./mcp/gateway";
+import {
+  loadMokaGlobalConfig,
+  type MokaGlobalConfig,
+} from "./moka-global-config";
 import { submitMoka } from "./moka-submit";
 import { resolvePackageAssetPath } from "./package-assets";
 import { formatPipelineInitResult, initPipelineProject } from "./pipeline-init";
@@ -759,11 +763,13 @@ function runMokaSubmitFromCli(
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
+  const globalConfig = loadMokaGlobalConfig();
   const commonOptions = mokaCommonSubmitOptions({
     config,
     cwd,
-    eventUrl: resolveMokaEventUrl(flags),
+    eventUrl: resolveMokaEventUrl(flags, globalConfig),
     flags,
+    globalConfig,
   });
   if (flags.command) {
     return submitMokaCommandFromCli(input, flags, commonOptions);
@@ -771,32 +777,39 @@ function runMokaSubmitFromCli(
   return submitMokaGraphFromCli(input, flags, commonOptions);
 }
 
-function resolveMokaEventUrl(flags: MokaSubmitFlags): string {
-  return (
-    flags.eventUrl ??
-    process.env.PIPELINE_EVENT_URL ??
-    "https://pipeline-console.momokaya.ee/api/pipeline/runner-events"
-  );
+function resolveMokaEventUrl(
+  flags: MokaSubmitFlags,
+  globalConfig?: MokaGlobalConfig | null
+): string | undefined {
+  return flags.eventUrl ?? globalConfig?.momokaya.submit.eventUrl;
 }
 
 function mokaCommonSubmitOptions(input: {
   config: PipelineConfig;
   cwd: string;
-  eventUrl: string;
+  eventUrl?: string;
   flags: MokaSubmitFlags;
+  globalConfig?: MokaGlobalConfig | null;
 }): MokaSubmitCommonOptions {
+  const momokaya = input.globalConfig?.momokaya;
   return {
     config: input.config,
     eventUrl: input.eventUrl,
+    eventAuthSecretKey: momokaya?.submit.eventAuthSecretKey,
+    eventAuthSecretName: momokaya?.submit.eventAuthSecretName,
     generateName: input.flags.generateName,
+    githubAuthSecretName: momokaya?.submit.githubAuthSecretName,
     image: input.flags.image,
     imagePullPolicy: parseImagePullPolicy(input.flags.imagePullPolicy),
-    imagePullSecretName: input.flags.imagePullSecret,
-    kubeconfigPath: input.flags.kubeconfig,
+    imagePullSecretName:
+      input.flags.imagePullSecret ?? momokaya?.submit.imagePullSecretName,
+    kubeconfigPath: input.flags.kubeconfig ?? momokaya?.kubernetes.kubeconfig,
     name: input.flags.name,
-    namespace: input.flags.namespace,
-    queueName: input.flags.queueName,
-    serviceAccountName: input.flags.serviceAccount,
+    namespace: input.flags.namespace ?? momokaya?.kubernetes.namespace,
+    opencodeAuthSecretName: momokaya?.submit.opencodeAuthSecretName,
+    queueName: input.flags.queueName ?? momokaya?.submit.queueName,
+    serviceAccountName:
+      input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
     worktreePath: input.cwd,
   };
 }
@@ -871,11 +884,7 @@ function addRunnerArgoOptions(
   command
     .option("--name <name>", "Workflow metadata.name")
     .option("--generate-name <prefix>", "Workflow metadata.generateName")
-    .option(
-      "--namespace <namespace>",
-      "Workflow namespace",
-      "momokaya-pipeline"
-    );
+    .option("--namespace <namespace>", "Workflow namespace");
   if (options.kubeconfig) {
     command.option("--kubeconfig <path>", "kubeconfig path");
   }

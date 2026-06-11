@@ -199,6 +199,11 @@ import {
   type MokaSubmitOutput,
   type MokaSubmitResult,
 } from "@oisincoveney/pipeline/moka-submit";
+import {
+  mokaGlobalConfigSchema,
+  parseMokaGlobalConfig,
+  type MokaGlobalConfig,
+} from "@oisincoveney/pipeline/moka-global-config";
 
 const parts: PipelineConfigParts = {
   pipeline: "version: 1\\ndefault_workflow: smoke\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
@@ -304,7 +309,7 @@ const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
   type: "graph",
 });
 const mokaSubmitOutput: MokaSubmitOutput = mokaSubmitResultSchema.parse({
-  namespace: "momokaya-pipeline",
+  namespace: "pipeline-namespace",
   payloadConfigMapName: "payload",
   scheduleConfigMapName: "schedule",
   taskDescriptorConfigMapName: "tasks",
@@ -316,6 +321,10 @@ const mokaSubmitTypedInput: MokaSubmitInput = {
 };
 const mokaSubmitRawOptions: MokaSubmitOptionsInput = mokaSubmitInput;
 const mokaSubmitResult: MokaSubmitResult = mokaSubmitOutput;
+const mokaGlobalConfig: MokaGlobalConfig = parseMokaGlobalConfig(
+  ${JSON.stringify("momokaya:\n  kubernetes:\n    kubeconfig: /tmp/cluster.kubeconfig\n    namespace: pipeline-namespace\n  submit:\n    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY\n    eventAuthSecretName: event-auth-secret\n    eventUrl: https://console.example.test/api/pipeline/runner-events\n    githubAuthSecretName: github-auth-secret\n    imagePullSecretName: image-pull-secret\n    opencodeAuthSecretName: opencode-auth-secret\n    queueName: pipeline-queue\n    serviceAccountName: runner-service-account\n")},
+  "/tmp/config.yaml"
+);
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
 const eventType = (event: PipelineRuntimeEvent) => event.type;
 const formattedError = formatConfigError(
@@ -349,7 +358,7 @@ const parsedPayload: RunnerCommandPayload = parseRunnerCommandPayload(
 runnerCommandPayloadSchema.parse(parsedPayload);
 const runnerManifest: ArgoWorkflowManifest = buildRunnerArgoWorkflowManifest({
   generateName: "pipeline-runner-smoke-",
-  namespace: "momokaya-pipeline",
+  namespace: "pipeline-namespace",
   plan,
   payloadConfigMapName: "pipeline-runner-payload",
   payloadConfigMapKey: "payload.json",
@@ -371,6 +380,8 @@ void mokaSubmitOutput;
 void mokaSubmitTypedInput;
 void mokaSubmitRawOptions;
 void mokaSubmitResult;
+void mokaGlobalConfig;
+void mokaGlobalConfigSchema;
 void submitMoka;
 void eventType;
 void formattedError;

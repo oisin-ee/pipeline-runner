@@ -70,6 +70,10 @@
       "types": "./dist/moka-submit.d.ts",
       "import": "./dist/moka-submit.js"
     },
+    "./moka-global-config": {
+      "types": "./dist/moka-global-config.d.ts",
+      "import": "./dist/moka-global-config.js"
+    },
     "./planner": {
       "types": "./dist/workflow-planner.d.ts",
       "import": "./dist/workflow-planner.js"

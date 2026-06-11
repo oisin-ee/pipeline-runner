@@ -9,6 +9,7 @@ export default defineConfig({
     config: "src/config.ts",
     hooks: "src/hooks.ts",
     index: "src/index.ts",
+    "moka-global-config": "src/moka-global-config.ts",
     "moka-submit": "src/moka-submit.ts",
     "pipeline-runtime": "src/pipeline-runtime.ts",
     runner: "src/runner.ts",

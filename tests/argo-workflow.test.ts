@@ -41,7 +41,7 @@ function plan() {
 
 const BASE_OPTIONS = {
   generateName: "pipeline-run-",
-  namespace: "momokaya-pipeline",
+  namespace: "workflow-namespace",
   payloadConfigMapName: "pipeline-payload-run-1",
   scheduleConfigMapName: "pipeline-schedule-run-1",
   taskDescriptorConfigMapName: "pipeline-task-descriptors-run-1",
@@ -60,7 +60,7 @@ describe("runner Argo Workflow manifest", () => {
       kind: "Workflow",
       metadata: {
         generateName: "pipeline-run-",
-        namespace: "momokaya-pipeline",
+        namespace: "workflow-namespace",
       },
       spec: {
         entrypoint: "pipeline",
@@ -93,13 +93,13 @@ describe("runner Argo Workflow manifest", () => {
   it("passes explicit argv to each runner-command task template", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,
-      eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
+      eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
       eventAuthSecretName: "pipeline-runner-event-auth",
-      githubAuthSecretName: "oisin-bot-github-auth",
-      imagePullSecretName: "ghcr-pull-secret",
-      opencodeAuthSecretName: "opencode-auth-1",
+      githubAuthSecretName: "github-auth-secret",
+      imagePullSecretName: "image-pull-secret",
+      opencodeAuthSecretName: "opencode-auth-secret",
       plan: plan(),
-      queueName: "momokaya-pipeline",
+      queueName: "pipeline-queue",
     });
 
     const runner = manifest.spec.templates.find(
@@ -110,10 +110,10 @@ describe("runner Argo Workflow manifest", () => {
     )?.dag;
 
     expect(manifest.spec.podMetadata?.labels).toEqual({
-      "kueue.x-k8s.io/queue-name": "momokaya-pipeline",
+      "kueue.x-k8s.io/queue-name": "pipeline-queue",
     });
     expect(manifest.spec.imagePullSecrets).toEqual([
-      { name: "ghcr-pull-secret" },
+      { name: "image-pull-secret" },
     ]);
     expect(dag?.tasks[0]).toMatchObject({
       name: "node-one",
@@ -154,7 +154,7 @@ describe("runner Argo Workflow manifest", () => {
       runnerArgoWorkflowManifestSchema.parse({
         apiVersion: "argoproj.io/v1alpha1",
         kind: "Workflow",
-        metadata: { namespace: "momokaya-pipeline" },
+        metadata: { namespace: "workflow-namespace" },
         spec: {
           entrypoint: "pipeline",
           serviceAccountName: "pipeline-runner",

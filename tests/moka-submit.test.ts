@@ -26,7 +26,12 @@ const GIT = {
   url: "https://github.com/oisin-ee/rondo.git",
 };
 
-type CapturedSubmitOptions = SubmitRunnerArgoWorkflowOptions;
+type CapturedSubmitOptions = Omit<
+  SubmitRunnerArgoWorkflowOptions,
+  "namespace"
+> & {
+  namespace?: string;
+};
 
 afterAll(() => {
   rmSync(PROJECT_ROOT, { force: true, recursive: true });
@@ -38,7 +43,7 @@ function captureSubmitCall(calls: CapturedSubmitOptions[]) {
   ): Promise<SubmitRunnerArgoWorkflowResult> => {
     calls.push(input);
     return Promise.resolve({
-      namespace: input.namespace ?? "momokaya-pipeline",
+      namespace: input.namespace ?? "test-runners",
       payloadConfigMapName: "payload",
       scheduleConfigMapName: "schedule",
       taskDescriptorConfigMapName: "tasks",
@@ -47,15 +52,20 @@ function captureSubmitCall(calls: CapturedSubmitOptions[]) {
   };
 }
 
-const MOMOKAYA_MANAGED_AUTH = {
-  eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
-  eventAuthSecretName: "pipeline-runner-event-auth",
-  githubAuthSecretName: "oisin-bot-github-auth",
-  opencodeAuthSecretName: "opencode-auth-1",
+const MANAGED_AUTH = {
+  eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
+  eventAuthSecretName: "event-auth-secret",
+  githubAuthSecretName: "github-auth-secret",
+  opencodeAuthSecretName: "opencode-auth-secret",
 };
 
-const MOMOKAYA_EVENT_AUTH_TOKEN_FILE =
-  "/etc/pipeline/event-auth/OISIN_PIPELINE_EVENT_AUTH_TOKEN";
+const MANAGED_EVENT_AUTH_TOKEN_FILE =
+  "/etc/pipeline/event-auth/EVENT_AUTH_TOKEN_KEY";
+const EXPLICIT_NAMESPACE = "test-runners";
+const EXPLICIT_EVENT_SINK = {
+  authTokenFile: "/var/run/pipeline/events/token",
+  url: "https://console.example/api/pipeline/runner-events",
+};
 const EVENT_TRANSPORT_CONFLICT_RE = /Choose either eventSink or events/u;
 
 function runtimeConfig() {
@@ -109,6 +119,8 @@ describe("submitMoka", () => {
         config: CONFIG,
         eventUrl: "https://console.example/api/pipeline/runner-events",
         mode: "full",
+        ...MANAGED_AUTH,
+        namespace: EXPLICIT_NAMESPACE,
         task: "build the feature",
         type: "graph",
         worktreePath: PROJECT_ROOT,
@@ -152,9 +164,9 @@ describe("submitMoka", () => {
       generateName: "moka-full-",
       scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
     });
-    expect(calls[0]).toMatchObject(MOMOKAYA_MANAGED_AUTH);
+    expect(calls[0]).toMatchObject(MANAGED_AUTH);
     expect(payload).toMatchObject({
-      events: { authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE },
+      events: { authTokenFile: MANAGED_EVENT_AUTH_TOKEN_FILE },
       submission: { kind: "graph", mode: "full" },
       workflow: { id: "schedule-run-1-root" },
     });
@@ -178,6 +190,8 @@ describe("submitMoka", () => {
         config: CONFIG,
         eventUrl: "https://console.example/api/pipeline/runner-events",
         mode: "quick",
+        ...MANAGED_AUTH,
+        namespace: EXPLICIT_NAMESPACE,
         schedulePath,
         task: "fix this",
         type: "graph",
@@ -196,9 +210,9 @@ describe("submitMoka", () => {
       generateName: "moka-quick-",
       scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
     });
-    expect(calls[0]).toMatchObject(MOMOKAYA_MANAGED_AUTH);
+    expect(calls[0]).toMatchObject(MANAGED_AUTH);
     expect(payload).toMatchObject({
-      events: { authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE },
+      events: { authTokenFile: MANAGED_EVENT_AUTH_TOKEN_FILE },
       submission: { kind: "graph", mode: "quick" },
       workflow: { id: "schedule-run-quick-root" },
     });
@@ -212,6 +226,8 @@ describe("submitMoka", () => {
         commandArgv: ["opencode", "run", "fix"],
         config: CONFIG,
         eventUrl: "https://console.example/api/pipeline/runner-events",
+        ...MANAGED_AUTH,
+        namespace: EXPLICIT_NAMESPACE,
         type: "command",
         worktreePath: PROJECT_ROOT,
       },
@@ -228,49 +244,24 @@ describe("submitMoka", () => {
       generateName: "moka-command-",
       scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
     });
-    expect(calls[0]).toMatchObject(MOMOKAYA_MANAGED_AUTH);
+    expect(calls[0]).toMatchObject(MANAGED_AUTH);
     expect(payload).toMatchObject({
-      events: { authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE },
+      events: { authTokenFile: MANAGED_EVENT_AUTH_TOKEN_FILE },
       submission: { argv: ["opencode", "run", "fix"], kind: "command" },
       workflow: { id: "schedule-run-command-root" },
     });
   });
 
-  it("uses Momokaya production defaults when submit options omit overrides", async () => {
-    const calls: CapturedSubmitOptions[] = [];
+  it("rejects submit input without an event destination", () => {
+    const parsed = mokaSubmitOptionsSchema.safeParse({
+      commandArgv: ["opencode", "run", "fix"],
+      type: "command",
+    });
 
-    await submitMoka(
-      {
-        commandArgv: ["opencode", "run", "fix"],
-        config: CONFIG,
-        type: "command",
-        worktreePath: PROJECT_ROOT,
-      },
-      {
-        generateRunId: () => "run-defaults",
-        resolveGitContext: () => Promise.resolve(GIT),
-        submitWorkflow: captureSubmitCall(calls),
-      }
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.message).toBe(
+      "eventUrl is required unless eventSink or events is provided"
     );
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      eventAuthSecretKey: "OISIN_PIPELINE_EVENT_AUTH_TOKEN",
-      imagePullSecretName: "ghcr-pull-secret",
-      namespace: "momokaya-pipeline",
-      queueName: "momokaya-pipeline",
-      serviceAccountName: "pipeline-runner",
-    });
-    const payload = JSON.parse(calls[0].payloadJson);
-    expect(payload).toMatchObject({
-      events: {
-        authHeader: "Authorization",
-        authTokenFile: MOMOKAYA_EVENT_AUTH_TOKEN_FILE,
-        url: "https://pipeline-console.momokaya.ee/api/pipeline/runner-events",
-      },
-      submission: { argv: ["opencode", "run", "fix"], kind: "command" },
-      workflow: { id: "schedule-run-defaults-root" },
-    });
   });
 
   it("preserves an explicit custom event URL in the runner payload", async () => {
@@ -281,6 +272,8 @@ describe("submitMoka", () => {
         commandArgv: ["opencode", "run", "fix"],
         config: CONFIG,
         eventUrl: "https://console.example/api/pipeline/runner-events",
+        ...MANAGED_AUTH,
+        namespace: EXPLICIT_NAMESPACE,
         type: "command",
         worktreePath: PROJECT_ROOT,
       },
@@ -300,6 +293,63 @@ describe("submitMoka", () => {
       submission: { argv: ["opencode", "run", "fix"], kind: "command" },
       workflow: { id: "schedule-run-custom-url-root" },
     });
+  });
+
+  it("normalizes GitHub SSH remotes to the runner HTTPS credential path", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await submitMoka(
+      {
+        commandArgv: ["opencode", "run", "fix"],
+        config: CONFIG,
+        eventUrl: "https://console.example/api/pipeline/runner-events",
+        ...MANAGED_AUTH,
+        namespace: EXPLICIT_NAMESPACE,
+        type: "command",
+        worktreePath: PROJECT_ROOT,
+      },
+      {
+        generateRunId: () => "run-github-ssh",
+        resolveGitContext: () =>
+          Promise.resolve({
+            ...GIT,
+            url: "git@github.com:oisin-ee/tova.git",
+          }),
+        submitWorkflow: captureSubmitCall(calls),
+      }
+    );
+
+    expect(calls).toHaveLength(1);
+    const payload = JSON.parse(calls[0].payloadJson);
+    expect(payload.repository.url).toBe("https://github.com/oisin-ee/tova.git");
+  });
+
+  it("rejects SSH remotes that the runner credential store cannot authenticate", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await expect(
+      submitMoka(
+        {
+          commandArgv: ["opencode", "run", "fix"],
+          config: CONFIG,
+          eventUrl: "https://console.example/api/pipeline/runner-events",
+          ...MANAGED_AUTH,
+          namespace: EXPLICIT_NAMESPACE,
+          type: "command",
+          worktreePath: PROJECT_ROOT,
+        },
+        {
+          generateRunId: () => "run-unsupported-ssh",
+          resolveGitContext: () =>
+            Promise.resolve({
+              ...GIT,
+              url: "git@gitlab.example:team/repo.git",
+            }),
+          submitWorkflow: captureSubmitCall(calls),
+        }
+      )
+    ).rejects.toThrow(/cannot use SSH remote/u);
+    expect(calls).toHaveLength(0);
   });
 
   it("submits a Console-provided ticket task without resolving local git", async () => {
@@ -441,6 +491,7 @@ describe("submitMoka", () => {
     await submitMoka(
       {
         config: runtimeConfig(),
+        eventSink: EXPLICIT_EVENT_SINK,
         hooks: {
           "node.finish": {
             command: ["node", "-e", publishScript],
@@ -454,6 +505,7 @@ describe("submitMoka", () => {
           },
         },
         mode: "quick",
+        namespace: EXPLICIT_NAMESPACE,
         repository: {
           baseBranch: "main",
           sha: "fedcba9876543210fedcba9876543210fedcba98",
@@ -527,6 +579,7 @@ describe("submitMoka", () => {
     await submitMoka(
       {
         config: runtimeConfig(),
+        eventSink: EXPLICIT_EVENT_SINK,
         hooks: {
           "workflow.start": {
             command: ["node", "-e", "process.exit(0)"],
@@ -536,6 +589,7 @@ describe("submitMoka", () => {
           },
         },
         mode: "quick",
+        namespace: EXPLICIT_NAMESPACE,
         repository: {
           baseBranch: "main",
           sha: "fedcba9876543210fedcba9876543210fedcba98",
@@ -616,6 +670,7 @@ workflows:
       {
         commandArgv: ["true"],
         config,
+        eventSink: EXPLICIT_EVENT_SINK,
         hooks: {
           "node.finish": {
             command: ["true"],
@@ -631,6 +686,7 @@ workflows:
           id: "run-preserve-hooks",
           project: "pipeline-console",
         },
+        namespace: EXPLICIT_NAMESPACE,
         type: "command",
       },
       { submitWorkflow: captureSubmitCall(calls) }
@@ -685,12 +741,14 @@ workflows:
       submitMoka({
         commandArgv: ["true"],
         config: conflictingConfig,
+        eventSink: EXPLICIT_EVENT_SINK,
         hooks: {
           "node.finish": {
             command: ["true"],
             kind: "command",
           },
         },
+        namespace: EXPLICIT_NAMESPACE,
         type: "command",
       })
     ).toThrow("Moka submit hook id already exists in config");
@@ -700,9 +758,11 @@ workflows:
     const parsed = mokaSubmitOptionsSchema.safeParse({
       commandArgv: ["true"],
       eventSink: {
+        authTokenFile: "/var/run/pipeline/events/token",
         url: "https://console.example/api/pipeline/runner-events",
       },
       events: {
+        authTokenFile: "/var/run/pipeline/events/token",
         url: "https://legacy.example/api/pipeline/runner-events",
       },
       type: "command",
@@ -717,6 +777,7 @@ workflows:
   it("rejects unsupported direct hook events", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
       commandArgv: ["true"],
+      eventSink: EXPLICIT_EVENT_SINK,
       hooks: {
         "node.nope": {
           command: ["true"],
@@ -733,6 +794,7 @@ workflows:
   it("rejects invalid public submit inputs with the exported Zod schema", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
       mode: "full",
+      eventSink: EXPLICIT_EVENT_SINK,
       repository: {
         baseBranch: "main",
         url: "not a git URL",

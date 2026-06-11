@@ -29,16 +29,6 @@ import {
 } from "./schedule-planner";
 import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
-const MOMOKAYA_EVENT_AUTH_SECRET_KEY = "OISIN_PIPELINE_EVENT_AUTH_TOKEN";
-const MOMOKAYA_EVENT_AUTH_SECRET_NAME = "pipeline-runner-event-auth";
-const MOMOKAYA_EVENT_URL =
-  "https://pipeline-console.momokaya.ee/api/pipeline/runner-events";
-const MOMOKAYA_GITHUB_AUTH_SECRET_NAME = "oisin-bot-github-auth";
-const MOMOKAYA_IMAGE_PULL_SECRET_NAME = "ghcr-pull-secret";
-const MOMOKAYA_OPENCODE_AUTH_SECRET_NAME = "opencode-auth-1";
-const MOMOKAYA_QUEUE_NAME = "momokaya-pipeline";
-const MOMOKAYA_RUNNER_SERVICE_ACCOUNT_NAME = "pipeline-runner";
-
 const imagePullPolicySchema = z
   .enum(["Always", "IfNotPresent", "Never"])
   .default("Always");
@@ -121,43 +111,25 @@ const mokaSubmitBaseOptionsSchema = z
   .object({
     delivery: runnerDeliverySchema.default({ pullRequest: false }),
     eventSink: mokaSubmitEventsSchema.optional(),
-    eventAuthSecretKey: z
-      .string()
-      .min(1)
-      .default(MOMOKAYA_EVENT_AUTH_SECRET_KEY),
-    eventAuthSecretName: z
-      .string()
-      .min(1)
-      .default(MOMOKAYA_EVENT_AUTH_SECRET_NAME),
-    eventUrl: z.string().url().default(MOMOKAYA_EVENT_URL),
+    eventAuthSecretKey: z.string().min(1).optional(),
+    eventAuthSecretName: z.string().min(1).optional(),
+    eventUrl: z.string().url().optional(),
     events: mokaSubmitEventsSchema.optional(),
     generateName: z.string().min(1).optional(),
-    githubAuthSecretName: z
-      .string()
-      .min(1)
-      .default(MOMOKAYA_GITHUB_AUTH_SECRET_NAME),
+    githubAuthSecretName: z.string().min(1).optional(),
     hookPolicy: mokaSubmitHookPolicySchema.optional(),
     hooks: mokaSubmitDirectHooksSchema.optional(),
     image: z.string().min(1).optional(),
     imagePullPolicy: imagePullPolicySchema,
-    imagePullSecretName: z
-      .string()
-      .min(1)
-      .default(MOMOKAYA_IMAGE_PULL_SECRET_NAME),
+    imagePullSecretName: z.string().min(1).optional(),
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
-    namespace: z.string().min(1).default("momokaya-pipeline"),
-    opencodeAuthSecretName: z
-      .string()
-      .min(1)
-      .default(MOMOKAYA_OPENCODE_AUTH_SECRET_NAME),
-    queueName: z.string().min(1).default(MOMOKAYA_QUEUE_NAME),
+    namespace: z.string().min(1).optional(),
+    opencodeAuthSecretName: z.string().min(1).optional(),
+    queueName: z.string().min(1).optional(),
     repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema.optional(),
-    serviceAccountName: z
-      .string()
-      .min(1)
-      .default(MOMOKAYA_RUNNER_SERVICE_ACCOUNT_NAME),
+    serviceAccountName: z.string().min(1).optional(),
   })
   .strict();
 
@@ -190,6 +162,17 @@ export const mokaSubmitOptionsSchema = z
         code: "custom",
         message: "Choose either eventSink or events, not both",
         path: ["eventSink"],
+      });
+    }
+    if (
+      data.eventSink === undefined &&
+      data.events === undefined &&
+      data.eventUrl === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "eventUrl is required unless eventSink or events is provided",
+        path: ["eventUrl"],
       });
     }
   });
@@ -250,7 +233,7 @@ interface MokaWorkflowSubmitOptions {
   imagePullSecretName?: string;
   kubeconfigPath?: string;
   name?: string;
-  namespace?: string;
+  namespace: string;
   opencodeAuthSecretName?: string;
   payloadJson: string;
   queueName?: string;
@@ -585,11 +568,18 @@ function workflowSubmitOptions(
     imagePullSecretName: options.imagePullSecretName,
     kubeconfigPath: options.kubeconfigPath,
     name: options.name,
-    namespace: options.namespace,
+    namespace: requireSubmitOption(options.namespace, "namespace"),
     opencodeAuthSecretName: options.opencodeAuthSecretName,
     queueName: options.queueName,
     serviceAccountName: options.serviceAccountName,
   };
+}
+
+function requireSubmitOption(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new Error(`${name} is required for moka submit`);
+  }
+  return value;
 }
 
 interface MokaSubmissionContext {
@@ -638,6 +628,11 @@ function runnerEvents(
       url: eventSink.url,
     };
   }
+  if (!options.eventUrl) {
+    throw new Error(
+      "eventUrl is required unless eventSink or events is provided"
+    );
+  }
   return {
     authHeader: "Authorization",
     authTokenFile: eventAuthTokenFile(options),
@@ -646,6 +641,11 @@ function runnerEvents(
 }
 
 function eventAuthTokenFile(options: ParsedMokaBaseOptions): string {
+  if (!options.eventAuthSecretKey) {
+    throw new Error(
+      "eventAuthSecretKey is required unless eventSink.authTokenFile is provided"
+    );
+  }
   return `/etc/pipeline/event-auth/${options.eventAuthSecretKey}`;
 }
 

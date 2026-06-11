@@ -26,5 +26,5 @@ Generate a schedule for entrypoint `quick` and the user task.
 The schedule policy is `quick-schedule`.
 Run `moka submit --quick <task description>` to submit the graph as an Argo Workflow.
 The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.
-Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster.
+Configure the target in `~/.config/moka/config.yaml`; use `--kubeconfig <path>` and `--namespace <namespace>` only for explicit command overrides.
 Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.

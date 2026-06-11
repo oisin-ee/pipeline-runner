@@ -19,7 +19,7 @@ const STALE_DOC_RUNTIME_SOURCE_RE =
 const STALE_GENERATED_RUNTIME_SOURCE_RE =
   /source of truth[\s\S]{0,160}\.pipeline\/pipeline\.yaml|\.pipeline\/pipeline\.yaml[\s\S]{0,160}(source of truth|blocking|authoritative|declares a gate|declared a gate)/i;
 const MISSING_EVENT_URL_FAILURE_DOC_RE =
-  /without (PIPELINE_EVENT_URL|it)[^\n.]*fails|fails with a validation error/i;
+  /without (the private config|it)[^\n.]*fails|fails with a validation error/i;
 const CLUSTER_SCOPED_CRD_PREFLIGHT_RE =
   /customresourcedefinitions|CustomResourceDefinition|\bcrds?\b|kubectl\s+get\s+crd/i;
 const tempDirs: string[] = [];
@@ -173,17 +173,19 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
 
     expect(guide).toContain("submits Argo Workflows by default");
     expect(guide).toContain("--schedule <path>");
-    expect(guide).toContain("PIPELINE_EVENT_URL");
-    expect(guide).toContain("Momokaya default event sink");
+    expect(guide).toContain("~/.config/moka/config.yaml");
+    expect(guide).toContain("eventUrl: <runner-event-sink-url>");
     expect(guide).not.toMatch(MISSING_EVENT_URL_FAILURE_DOC_RE);
     expect(guide).toContain('moka submit "fix the login bug" --quick');
     expect(guide).toContain('moka submit "Implement PIPE-54"');
     expect(guide).toContain("--kubeconfig <path>");
     expect(guide).toContain("ServiceAccount");
-    expect(guide).toContain("opencode-auth-1");
-    expect(guide).toContain("pipeline-runner-event-auth");
-    expect(guide).toContain("OISIN_PIPELINE_EVENT_AUTH_TOKEN");
-    expect(guide).toContain("oisin-bot-github-auth");
+    expect(guide).toContain(
+      "opencodeAuthSecretName: <opencode-auth-secret-name>"
+    );
+    expect(guide).toContain("eventAuthSecretName: <event-auth-secret-name>");
+    expect(guide).toContain("eventAuthSecretKey: <event-auth-secret-key>");
+    expect(guide).toContain("githubAuthSecretName: <github-auth-secret-name>");
     expect(guide).toContain("infra repository scripts");
     expect(guide).not.toContain("pipeline-runner-github-auth");
     expect(guide).not.toContain("moka submit --local");

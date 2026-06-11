@@ -129,11 +129,26 @@ description and current git context, creates payload/schedule ConfigMaps, and
 submits an Argo Workflow that runs the graph as DAG tasks using the package-owned
 runner image.
 
-`moka submit` uses the Momokaya default event sink unless overridden with
-`PIPELINE_EVENT_URL` or `--event-url`.
+`moka submit` reads the private Momokaya target from
+`~/.config/moka/config.yaml`.
+
+```yaml
+momokaya:
+  kubernetes:
+    kubeconfig: /path/to/cluster.kubeconfig
+    namespace: <workflow-namespace>
+  submit:
+    eventAuthSecretKey: <event-auth-secret-key>
+    eventAuthSecretName: <event-auth-secret-name>
+    eventUrl: <runner-event-sink-url>
+    githubAuthSecretName: <github-auth-secret-name>
+    imagePullSecretName: <image-pull-secret-name>
+    opencodeAuthSecretName: <opencode-auth-secret-name>
+    queueName: <local-queue-name>
+    serviceAccountName: <runner-service-account-name>
+```
 
 ```shell
-export PIPELINE_EVENT_URL="https://console.example.com/api/pipeline/runner-events"
 moka submit "fix the login bug" --quick
 moka submit "Implement PIPE-54"
 ```
@@ -142,7 +157,7 @@ For a local cluster, point the same commands at that cluster with
 `--kubeconfig <path>` and `--namespace <namespace>`:
 
 ```shell
-moka submit "fix the login bug" --quick --kubeconfig ~/.kube/config --namespace momokaya-pipeline
+moka submit "fix the login bug" --quick --kubeconfig ~/.kube/config --namespace <workflow-namespace>
 ```
 
 There is no separate workstation-local `submit` path; local submission means
@@ -169,7 +184,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   generateName: pipeline-run-alpha-
-  namespace: momokaya-pipeline
+  namespace: <workflow-namespace>
 spec:
   entrypoint: pipeline
   onExit: pipeline-finalizer
@@ -211,17 +226,18 @@ Secret volume at the path configured in `events.authTokenFile`.
 
 Expected namespace resources:
 
-- ServiceAccount `pipeline-runner` with the required RBAC
-- Secret `opencode-auth-1` with key `auth.json`
-- Secret `pipeline-runner-event-auth` with key
-  `OISIN_PIPELINE_EVENT_AUTH_TOKEN`
-- Secret `oisin-bot-github-auth` with keys `gitconfig`, `git-credentials`, and
-  `hosts.yml`
+- The ServiceAccount named by `submit.serviceAccountName` with the required RBAC
+- The OpenCode auth Secret named by `submit.opencodeAuthSecretName` with key
+  `auth.json`
+- The event auth Secret named by `submit.eventAuthSecretName` with the key named
+  by `submit.eventAuthSecretKey`
+- The GitHub auth Secret named by `submit.githubAuthSecretName` with keys
+  `gitconfig`, `git-credentials`, and `hosts.yml`
 - A pipeline-console event sink reachable from the pod
 
 Credential rotation is owned by the infra repository scripts. `moka submit`
-references the managed Momokaya Secret names; it does not accept per-run auth
-Secret overrides.
+references the configured Secret names; it does not accept per-run auth Secret
+overrides.
 
 ## Payload Contract
 

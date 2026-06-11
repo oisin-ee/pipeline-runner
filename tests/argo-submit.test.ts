@@ -72,6 +72,9 @@ const PAYLOAD = JSON.stringify({
 });
 
 describe("submitRunnerArgoWorkflow", () => {
+  const namespace = "workflow-namespace";
+  const queueName = "pipeline-queue";
+
   it("creates payload and schedule ConfigMaps before submitting an Argo Workflow", async () => {
     const createdConfigMaps: unknown[] = [];
     const createdWorkflows: unknown[] = [];
@@ -82,9 +85,9 @@ describe("submitRunnerArgoWorkflow", () => {
         eventAuthSecretKey: "token",
         eventAuthSecretName: "pipeline-runner-event-auth",
         generateName: "pipeline-run-",
-        namespace: "momokaya-pipeline",
+        namespace,
         payloadJson: PAYLOAD,
-        queueName: "momokaya-pipeline",
+        queueName,
         scheduleYaml: SCHEDULE,
       },
       {
@@ -142,16 +145,16 @@ describe("submitRunnerArgoWorkflow", () => {
           "pipeline.oisin.dev/run-id": "run-1",
           "pipeline.oisin.dev/source": "argo-workflow",
         },
-        namespace: "momokaya-pipeline",
+        namespace,
       },
       spec: {
         podMetadata: {
-          labels: { "kueue.x-k8s.io/queue-name": "momokaya-pipeline" },
+          labels: { "kueue.x-k8s.io/queue-name": queueName },
         },
       },
     });
     expect(result).toEqual({
-      namespace: "momokaya-pipeline",
+      namespace,
       payloadConfigMapName: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
       scheduleConfigMapName: expect.stringMatching(SCHEDULE_CONFIG_MAP_RE),
       taskDescriptorConfigMapName: expect.stringMatching(
@@ -178,7 +181,7 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         config: DEFAULT_CONFIG,
         generateName: "pipeline-run-",
-        namespace: "momokaya-pipeline",
+        namespace,
         payloadJson: payload,
         scheduleYaml: SCHEDULE,
       },
