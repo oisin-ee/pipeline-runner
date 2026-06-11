@@ -234,6 +234,30 @@ function writeBacklogTask(
   );
 }
 
+function writePc37CoreTasks(root: string): void {
+  writeBacklogTask(
+    root,
+    "PC-37",
+    "Pipeline console rollout",
+    "## Description\n\nParent epic.",
+    { parentTaskId: "" }
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.1",
+    "Define runner contract",
+    "## Description\n\nDefine contract.",
+    { parentTaskId: "PC-37" }
+  );
+  writeBacklogTask(
+    root,
+    "PC-37.2",
+    "Build API endpoint",
+    "## Description\n\nBuild endpoint.",
+    { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
+  );
+}
+
 function buildScheduleYaml(options: {
   generatedAt?: string;
   nodes: string[];
@@ -444,6 +468,64 @@ workflows:
           worktreePath: dir,
         })
       ).rejects.toThrow(PLANNER_TIMEOUT_FAILURE_RE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the policy baseline when invalid planner output cannot be repaired", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "moka-schedule-planner-baseline-fallback-")
+    );
+    const nodeIds: string[] = [];
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "execute",
+        executor: (plan) => {
+          nodeIds.push(plan.nodeId);
+          return plan.nodeId === "schedule-plan-repair"
+            ? {
+                exitCode: 1,
+                stderr: "",
+                stdout: "Repair explored unrelated files instead of YAML.",
+                timedOut: true,
+              }
+            : {
+                exitCode: 0,
+                stdout:
+                  "YAML output above matches `kind: pipeline-schedule` with a linear DAG.",
+              };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-baseline-fallback",
+        task: "Fallback after invalid planner prose",
+        worktreePath: dir,
+      });
+
+      expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
+      expect(result.artifact.schedule_id).toBe("run-baseline-fallback");
+      expect(
+        result.artifact.workflows.root.nodes.map((node) => node.id)
+      ).toEqual([
+        "backlog-intake",
+        "research",
+        "red-tests",
+        "green-implementation",
+        "mechanical-green-tests",
+        "mechanical-green-typecheck",
+        "mechanical-green-lint",
+        "mechanical-green-fallow",
+        "acceptance-review",
+        "verification",
+        "learn",
+      ]);
+      expect(result.path).toBe(
+        ".pipeline/runs/run-baseline-fallback/schedule.yaml"
+      );
+      expect(existsSync(join(dir, result.path))).toBe(true);
+      compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1350,27 +1432,7 @@ task: Bad: compact scalar
 
   it("rejects generated schedules that ignore Backlog child dependency edges", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-pc37-invalid-"));
-    writeBacklogTask(
-      dir,
-      "PC-37",
-      "Pipeline console rollout",
-      "## Description\n\nParent epic.",
-      { parentTaskId: "" }
-    );
-    writeBacklogTask(
-      dir,
-      "PC-37.1",
-      "Define runner contract",
-      "## Description\n\nDefine contract.",
-      { parentTaskId: "PC-37" }
-    );
-    writeBacklogTask(
-      dir,
-      "PC-37.2",
-      "Build API endpoint",
-      "## Description\n\nBuild endpoint.",
-      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
-    );
+    writePc37CoreTasks(dir);
     writeBacklogTask(
       dir,
       "PC-37.3",
@@ -1792,27 +1854,7 @@ workflows:
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-schedule-custom-dependency-")
     );
-    writeBacklogTask(
-      dir,
-      "PC-37",
-      "Pipeline console rollout",
-      "## Description\n\nParent epic.",
-      { parentTaskId: "" }
-    );
-    writeBacklogTask(
-      dir,
-      "PC-37.1",
-      "Define runner contract",
-      "## Description\n\nDefine contract.",
-      { parentTaskId: "PC-37" }
-    );
-    writeBacklogTask(
-      dir,
-      "PC-37.2",
-      "Build API endpoint",
-      "## Description\n\nBuild endpoint.",
-      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
-    );
+    writePc37CoreTasks(dir);
     const roleConfig = configWithSchedulingRoles([
       {
         baseProfileId: "moka-code-writer",

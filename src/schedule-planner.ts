@@ -711,11 +711,10 @@ async function planScheduleArtifact(
   options: GenerateScheduleOptions,
   planningContext: SchedulePlanningContext
 ): Promise<ScheduleArtifact> {
-  if (!plannerProfile) {
-    throw new ScheduleArtifactError(
-      `schedule '${options.entrypointId}' requires planner_profile`
-    );
-  }
+  const requiredPlannerProfile = requireSchedulePlannerProfile(
+    plannerProfile,
+    options.entrypointId
+  );
   const prompt = plannerPrompt(
     options.entrypointId,
     options.task,
@@ -723,10 +722,9 @@ async function planScheduleArtifact(
     options.config,
     planningContext
   );
-  const source = await runSchedulePlanner(plannerProfile, prompt, options);
-  if (!source) {
-    throw new ScheduleArtifactError("schedule planner returned empty output");
-  }
+  const source = requireSchedulePlannerSource(
+    await runSchedulePlanner(requiredPlannerProfile, prompt, options)
+  );
 
   const initial = acceptedGeneratedSchedule(
     parseGeneratedSchedule(source, "planner output")
@@ -735,50 +733,132 @@ async function planScheduleArtifact(
     return initial.artifact;
   }
 
-  let latestFailure = initial.error;
-  let latestSource = source;
+  const repair = await repairInvalidScheduleArtifact({
+    baseline,
+    initialFailure: initial.error,
+    initialSource: source,
+    options,
+    plannerProfile: requiredPlannerProfile,
+  });
+  return scheduleArtifactAfterRepair(repair, baseline, initial.error, source);
+}
+
+function requireSchedulePlannerProfile(
+  plannerProfile: string | undefined,
+  entrypointId: string
+): string {
+  if (plannerProfile) {
+    return plannerProfile;
+  }
+  throw new ScheduleArtifactError(
+    `schedule '${entrypointId}' requires planner_profile`
+  );
+}
+
+function requireSchedulePlannerSource(source: string): string {
+  if (source) {
+    return source;
+  }
+  throw new ScheduleArtifactError("schedule planner returned empty output");
+}
+
+function scheduleArtifactAfterRepair(
+  repair: ScheduleRepairResult,
+  baseline: ScheduleArtifact,
+  initialFailure: ScheduleArtifactError,
+  initialSource: string
+): ScheduleArtifact {
+  if (repair.kind === "accepted") {
+    return repair.artifact;
+  }
+  if (repair.kind === "fallback") {
+    return baseline;
+  }
+  throw new ScheduleArtifactError(
+    [
+      "Schedule planner produced invalid output after repair.",
+      initialFailure.message,
+      "Original planner output:",
+      initialSource,
+      repair.latestFailure.message,
+      "Planner repair output:",
+      repair.latestSource,
+    ].join("\n")
+  );
+}
+
+type ScheduleRepairResult =
+  | { artifact: ScheduleArtifact; kind: "accepted" }
+  | { kind: "fallback" }
+  | {
+      kind: "invalid";
+      latestFailure: ScheduleArtifactError;
+      latestSource: string;
+    };
+
+async function repairInvalidScheduleArtifact(input: {
+  baseline: ScheduleArtifact;
+  initialFailure: ScheduleArtifactError;
+  initialSource: string;
+  options: GenerateScheduleOptions;
+  plannerProfile: string;
+}): Promise<ScheduleRepairResult> {
+  let latestFailure = input.initialFailure;
+  let latestSource = input.initialSource;
   for (
     let attempt = 1;
     attempt <= SCHEDULE_PLANNER_REPAIR_ATTEMPTS;
     attempt += 1
   ) {
-    const repairedSource = await runSchedulePlanner(
-      plannerProfile,
-      plannerRepairPrompt({
-        attempt,
-        baseline,
-        error: latestFailure,
-        source: latestSource,
-      }),
-      options,
-      "schedule-plan-repair"
+    const repairedSource = await runScheduleRepair(
+      input,
+      latestFailure,
+      latestSource,
+      attempt
     );
     if (!repairedSource) {
-      throw new ScheduleArtifactError(
-        `schedule planner repair returned empty output after invalid schedule\n${latestFailure.message}\nPlanner output:\n${latestSource}`
-      );
+      return { kind: "fallback" };
     }
     const repaired = acceptedGeneratedSchedule(
       parseGeneratedSchedule(repairedSource, "planner repair output")
     );
     if (repaired.ok) {
-      return repaired.artifact;
+      return { artifact: repaired.artifact, kind: "accepted" };
     }
     latestFailure = repaired.error;
     latestSource = repairedSource;
   }
+  return { kind: "invalid", latestFailure, latestSource };
+}
 
-  throw new ScheduleArtifactError(
-    [
-      "Schedule planner produced invalid output after repair.",
-      initial.error.message,
-      "Original planner output:",
-      source,
-      latestFailure.message,
-      "Planner repair output:",
-      latestSource,
-    ].join("\n")
-  );
+async function runScheduleRepair(
+  input: {
+    baseline: ScheduleArtifact;
+    options: GenerateScheduleOptions;
+    plannerProfile: string;
+  },
+  latestFailure: ScheduleArtifactError,
+  latestSource: string,
+  attempt: number
+): Promise<string | undefined> {
+  try {
+    return await runSchedulePlanner(
+      input.plannerProfile,
+      plannerRepairPrompt({
+        attempt,
+        baseline: input.baseline,
+        error: latestFailure,
+        source: latestSource,
+      }),
+      input.options,
+      "schedule-plan-repair"
+    );
+  } catch (err) {
+    if (err instanceof ScheduleArtifactError) {
+      return;
+    }
+    throw err;
+  }
 }
 
 function parseGeneratedSchedule(
@@ -981,19 +1061,77 @@ function plannerRepairPrompt(inputs: {
 function allowedProfilePromptLine(config: PipelineConfig, id: string): string {
   const profile = config.profiles[id];
   const runner = config.runners[profile.runner];
-  const roles = effectiveSchedulingRoles(config, id);
-  const model = profile.model ?? runner?.model;
-  const fields = [
-    `runner: ${profile.runner}`,
-    model ? `model: ${model}` : "",
-    roles.length > 0 ? `scheduling_roles: ${roles.join(", ")}` : "",
-    profile.description ? `description: ${profile.description}` : "",
-    profile.tools?.length ? `tools: ${profile.tools.join(", ")}` : "",
-    profile.filesystem?.mode ? `filesystem: ${profile.filesystem.mode}` : "",
-    profile.network?.mode ? `network: ${profile.network.mode}` : "",
-    `output: ${profile.output?.format ?? "text"}`,
-  ].filter(Boolean);
+  const fields = profilePromptFields(config, id, profile, runner);
   return `- ${id} (${fields.join("; ")})`;
+}
+
+function profilePromptFields(
+  config: PipelineConfig,
+  id: string,
+  profile: PipelineConfig["profiles"][string],
+  runner: PipelineConfig["runners"][string] | undefined
+): string[] {
+  return definedProfilePromptFields([
+    requiredProfilePromptField("runner", profile.runner),
+    optionalProfilePromptField("model", profileModel(profile, runner)),
+    optionalProfilePromptField(
+      "scheduling_roles",
+      effectiveSchedulingRoles(config, id).join(", ")
+    ),
+    optionalProfilePromptField("description", profile.description),
+    optionalProfilePromptField("tools", profileTools(profile)),
+    optionalProfilePromptField("filesystem", profileFilesystemMode(profile)),
+    optionalProfilePromptField("network", profileNetworkMode(profile)),
+    requiredProfilePromptField("output", profileOutputFormat(profile)),
+  ]);
+}
+
+function profileModel(
+  profile: PipelineConfig["profiles"][string],
+  runner: PipelineConfig["runners"][string] | undefined
+): string | undefined {
+  return profile.model ?? runner?.model;
+}
+
+function profileTools(
+  profile: PipelineConfig["profiles"][string]
+): string | undefined {
+  return profile.tools?.join(", ");
+}
+
+function profileFilesystemMode(
+  profile: PipelineConfig["profiles"][string]
+): string | undefined {
+  return profile.filesystem?.mode;
+}
+
+function profileNetworkMode(
+  profile: PipelineConfig["profiles"][string]
+): string | undefined {
+  return profile.network?.mode;
+}
+
+function profileOutputFormat(
+  profile: PipelineConfig["profiles"][string]
+): string {
+  return profile.output?.format ?? "text";
+}
+
+function requiredProfilePromptField(label: string, value: string): string {
+  return `${label}: ${value}`;
+}
+
+function optionalProfilePromptField(
+  label: string,
+  value: string | undefined
+): string | undefined {
+  return value ? requiredProfilePromptField(label, value) : undefined;
+}
+
+function definedProfilePromptFields(
+  fields: Array<string | undefined>
+): string[] {
+  return fields.filter((field): field is string => Boolean(field));
 }
 
 function schedulerCatalogPrompt(
@@ -1388,20 +1526,11 @@ function hasPathToNode(
   targetId: string,
   dependentsByNeed: Map<string, WorkflowNode[]>
 ): boolean {
-  const queue = [...(dependentsByNeed.get(sourceId) ?? [])];
-  const seen = new Set<string>();
-  while (queue.length > 0) {
-    const node = queue.shift();
-    if (!node || seen.has(node.id)) {
-      continue;
-    }
-    if (node.id === targetId) {
-      return true;
-    }
-    seen.add(node.id);
-    queue.push(...(dependentsByNeed.get(node.id) ?? []));
-  }
-  return false;
+  return hasReachableDependent(
+    sourceId,
+    dependentsByNeed,
+    (node) => node.id === targetId
+  );
 }
 
 function unsupportedGeneratedBuiltinIssues(
