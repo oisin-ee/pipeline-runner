@@ -89,8 +89,8 @@ describe("runner Git refs", () => {
     });
 
     await prepareRunnerGitWorkspace(payload, { workspacePath: rightPath });
-    configureGit(rightPath);
     await mergeDependencyRefs({
+      committer: COMMITTER,
       dependencyNodeIds: ["left"],
       payload,
       worktreePath: rightPath,
@@ -105,7 +105,6 @@ describe("runner Git refs", () => {
     });
 
     await prepareRunnerGitWorkspace(payload, { workspacePath: finalPath });
-    configureGit(finalPath);
     const finalSha = await promoteFinalRef({
       committer: COMMITTER,
       payload,

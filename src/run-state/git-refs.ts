@@ -54,10 +54,12 @@ export async function prepareRunnerGitWorkspace(
 }
 
 export async function mergeDependencyRefs(input: {
+  committer: PipelineConfig["runner_command"]["git"]["committer"];
   dependencyNodeIds: string[];
   payload: RunnerCommandPayload;
   worktreePath: string;
 }): Promise<void> {
+  await configureGitCommitter(input.worktreePath, input.committer);
   for (const nodeId of input.dependencyNodeIds) {
     const ref = runnerGitRefs(input.payload, nodeId).nodeRef;
     await runGit(input.worktreePath, ["fetch", "origin", ref]);
@@ -97,6 +99,7 @@ export async function promoteFinalRef(input: {
   worktreePath: string;
 }): Promise<string> {
   await mergeDependencyRefs({
+    committer: input.committer,
     dependencyNodeIds: input.sourceNodeIds,
     payload: input.payload,
     worktreePath: input.worktreePath,
@@ -125,6 +128,14 @@ async function commitChangesIfNeeded(
     return;
   }
   await runGit(worktreePath, ["add", "--all"]);
+  await configureGitCommitter(worktreePath, committer);
+  await runGit(worktreePath, ["commit", "-m", `pipeline: ${nodeId}`]);
+}
+
+async function configureGitCommitter(
+  worktreePath: string,
+  committer: PipelineConfig["runner_command"]["git"]["committer"]
+): Promise<void> {
   await runGit(worktreePath, [
     "config",
     "--local",
@@ -137,7 +148,6 @@ async function commitChangesIfNeeded(
     "user.email",
     committer.email,
   ]);
-  await runGit(worktreePath, ["commit", "-m", `pipeline: ${nodeId}`]);
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {

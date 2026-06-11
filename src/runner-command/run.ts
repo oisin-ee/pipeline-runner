@@ -112,6 +112,7 @@ export async function runRunnerCommand(
       );
     }
     await mergeDependencyRefs({
+      committer: compiled.config.runner_command.git.committer,
       dependencyNodeIds: node.needs,
       payload,
       worktreePath,
