@@ -1,11 +1,35 @@
 {
   "version": 1,
   "skills": {
+    "add-dark-mode": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/add-dark-mode/SKILL.md",
+      "computedHash": "a852096bbee8a9f700f7627daf2f11976eb295a6ed3a1dba544bdf22581b9583"
+    },
+    "brand-kit": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/brand-kit/SKILL.md",
+      "computedHash": "a81e40802e7297b4f13f864f27a680b1f6eb2b224a2e74dd8738937f8f30cc91"
+    },
+    "canonicalize-tailwind": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/canonicalize-tailwind/SKILL.md",
+      "computedHash": "354fb8bbd6a84a538e38d7f6a23ab4a93c2ee4350e9fb2267a28bb27fb6d869e"
+    },
     "code-review-and-quality": {
       "source": "addyosmani/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/code-review-and-quality/SKILL.md",
       "computedHash": "83931d7416bcff73c24d976c1e45f09f80259541d33e9fdfe3ee521d39b27428"
+    },
+    "componentize": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/componentize/SKILL.md",
+      "computedHash": "c523cc9f10742f4038c0fb8ce9c40e1ea02e8f0119b19cbbabe1d91657c35be7"
     },
     "context-engineering": {
       "source": "addyosmani/agent-skills",
@@ -14,10 +38,16 @@
       "computedHash": "bb8864454c5a24636cab86c4b3c4b29e7e7431c80485bfd7c9c0a19a01936510"
     },
     "critique": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/critique/SKILL.md",
       "computedHash": "9d551c42268296603abdb04be13651cf315a37d1e5a6f4e8b3fb62b57531e89b"
+    },
+    "dark-mode-image": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/dark-mode-image/SKILL.md",
+      "computedHash": "174b816892915c34e29d428d030f07bfea70c6575f1f90d628d803dfd69998cc"
     },
     "debugging-and-error-recovery": {
       "source": "addyosmani/agent-skills",
@@ -31,8 +61,14 @@
       "skillPath": "skills/deprecation-and-migration/SKILL.md",
       "computedHash": "ad5b7a0b67d5cd952aafd0069865c10c21e2f5fe179bfbc544e11b3c853953c2"
     },
+    "design": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/design/SKILL.md",
+      "computedHash": "beb700f946c4ff75b9320c75f1a01aa70d261cab2ff32c2e3ad62db623b6d951"
+    },
     "diagnose": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/diagnose/SKILL.md",
       "computedHash": "837512fb93ae6058b0e6ddf304073e70194f6a0e9b4dd80adf942376307770d7"
@@ -50,7 +86,7 @@
       "computedHash": "1c1b33b3c8ff1d5f9fdcf9d8a7a67f82384b3224e88af567fd4688f3f2d9e85b"
     },
     "doubt": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/doubt/SKILL.md",
       "computedHash": "628d999f5fae9379ee4ed4b78d6212f8205e9912e99421c9cf86a7bf2b233b7f"
@@ -62,25 +98,37 @@
       "computedHash": "f6094460ebc9512285c85790e49f612081b9dd6a2b77d874fe2d960ef50a9ef1"
     },
     "execute": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/execute/SKILL.md",
-      "computedHash": "17299524f22d3a66747e902e866d98ce47f1825171833153384b3701de36d768"
+      "computedHash": "ff3ef327d598e3463c4ed6c8b5bfb0cc03e578df3cb6d0970a5dab20f48bf52b"
     },
     "fix": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/fix/SKILL.md",
       "computedHash": "b230900a657cdc952523c429aaab007996de928a82e26c229e244e68ad5490c3"
     },
     "grill": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/grill/SKILL.md",
       "computedHash": "c828d5b63f363f2cd1624c0bb6c78f127166882590fe09b3964ba44ffeb89cff"
     },
+    "ideas": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/ideas/SKILL.md",
+      "computedHash": "f3987a1d0258a968c82fabb5cd42f2b08f034013ccbbb00b99b8cb2fbd96fa68"
+    },
+    "imagegen": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/imagegen/SKILL.md",
+      "computedHash": "d67f96a4feeef341e0d914ca681fcde5e1d9cc83076306327f52185fe9875647"
+    },
     "improve": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/improve/SKILL.md",
       "computedHash": "a512a121f008bb7deb60dc2bd2cfc4e421a21124ef7ee475bffe5715f46ac484"
@@ -91,20 +139,38 @@
       "skillPath": "skills/incremental-implementation/SKILL.md",
       "computedHash": "c9c35951841b2fb34cd7b64e1d318643ac6eebf74c419978280acc1bf690dd91"
     },
+    "inspect": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/inspect/SKILL.md",
+      "computedHash": "d5335e10a0a8807c8480932a294fb885702e6dbd4ad2e56fb7ee8ce2b57ea643"
+    },
     "library-first-development": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/library-first-development/SKILL.md",
       "computedHash": "4e7711cbf5952dcdaada9e92889b43a18391353e9a50c91cdbe59e07bb89d7cb"
     },
+    "make-responsive": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/make-responsive/SKILL.md",
+      "computedHash": "2a429e6c62a85083f449ba57ec2f34f8909550fe6d98fb03635f2c2a2cbb75da"
+    },
+    "markup-from-image": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/markup-from-image/SKILL.md",
+      "computedHash": "de85035a2ba7081c7801c6236ae7ca60eaa61b13e030872525a145d1a93c7ef4"
+    },
     "migrate": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/migrate/SKILL.md",
       "computedHash": "3d8f0cca854c94159a3ee34953945fedaab248a8c83420aa1dd6076c52a1c9e6"
     },
     "optimize": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/optimize/SKILL.md",
       "computedHash": "2f8cc4d0af04583836d468cb770476eb3154233ed39dbca0bf129a8e26b6b8e2"
@@ -122,10 +188,16 @@
       "computedHash": "6ee11641fc8d8f299a6acb3a10976e7e50719ad012290123e11ec34a525b4cc0"
     },
     "quality-gate": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/quality-gate/SKILL.md",
-      "computedHash": "de1f85e69fc83b9c057d5215ba52c041de839194e2f7779161dda87aae6868c3"
+      "computedHash": "a132f83deea425753bb2e27fd310cd8fbb86a05fece3a3319a584920400db522"
+    },
+    "quick": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/quick/SKILL.md",
+      "computedHash": "7e99b4589c49df4a1c3289084d9f80b41c706e325c2783163e6cc545995c9f54"
     },
     "receiving-code-review": {
       "source": "obra/superpowers",
@@ -140,19 +212,25 @@
       "computedHash": "874f3786b05007a8b4a60452a4cd89b9917c645d34b6b1e40ea05037d12f0e67"
     },
     "research": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/research/SKILL.md",
       "computedHash": "406c611f6bdcc92005bb1a21008ea8979726c4da9ff60e15b1a963374dd84451"
     },
+    "schedule-graph-shaping": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/schedule-graph-shaping/SKILL.md",
+      "computedHash": "0f2302455eec23c61f3ebebc9eeaa7cd83335765fd89e229f40527f9eebdcf23"
+    },
     "scope": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/scope/SKILL.md",
       "computedHash": "c2005a920749c3e634b54362ba8c1176e1acfb7a995dad53e3507b388bcafffa"
     },
     "secure": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/secure/SKILL.md",
       "computedHash": "5569772ec2f539ee03357cd034960522afd2dc721900871b127aebada015f002"
@@ -176,7 +254,7 @@
       "computedHash": "235fb43569e9b21ec5d209818ff1ad3da9682be33c4e464ffa89ed348e7094a0"
     },
     "spec": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/spec/SKILL.md",
       "computedHash": "f8c39ec71d4932e95881aef3cdfcbbdffc8ce5c1a4587bb5c7860d6aa556d722"
@@ -194,7 +272,7 @@
       "computedHash": "b7f21594db706e42e8e4a03325d3358e650ad5bd115c750c2d0aabeb145cbf75"
     },
     "test": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/test/SKILL.md",
       "computedHash": "37e5e473299fcd7cb150ac35c0e09088475dc759ef4f15bbeed80edecab922b6"
@@ -212,10 +290,10 @@
       "computedHash": "9052b01b46b1d8dbf94c45f9313ec1983443f9a460e83d49cdc7fe0f640ca476"
     },
     "trace": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/trace/SKILL.md",
-      "computedHash": "20b2660a5b1a3c77a7371abd9fe6c511d138afaf8695f2d471279d07414cb07d"
+      "computedHash": "21387c9885e22823198ff67e70c5b10a3e8e5c182bf776ac0059cf66f1eee041"
     },
     "using-superpowers": {
       "source": "obra/superpowers",
@@ -236,7 +314,7 @@
       "computedHash": "9b446f0c7fe1cfb560b1d34439523b1a76d5f177290007b2c053a1c749a4a8ba"
     },
     "verify": {
-      "source": "oisincoveney/skills",
+      "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/verify/SKILL.md",
       "computedHash": "5e282103726ad13ca47d546a2eef7d5e973721f74156614f17808ec28c93bb66"

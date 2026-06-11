@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Help, Option } from "commander";
 import { execa } from "execa";
 import {
+  formatCodexAuthSyncResult,
+  syncLocalCodexAuth,
+} from "./codex-auth-sync";
+import {
   BUILTIN_PIPE_COMMANDS,
   registerConfiguredEntrypointCommands,
 } from "./commands/pipeline-command";
@@ -396,6 +400,12 @@ interface InstallCommandFlags {
   host?: CommandHostSelection;
 }
 
+interface CodexAuthSyncLocalFlags {
+  check?: boolean;
+  dryRun?: boolean;
+  root?: string;
+}
+
 interface GatewayConfigureHostFlags {
   host?: CommandHostSelection;
   scope?: GatewayHostScope;
@@ -688,6 +698,32 @@ export function createCliProgram(): Command {
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
       });
       console.log(formatInstallCommandsResult(result));
+    });
+
+  const codexAuthCommand = program
+    .command("codex-auth")
+    .description("Manage local Codex multi-auth integration");
+
+  codexAuthCommand
+    .command("sync-local")
+    .description(
+      "Use one local oc-codex account pool and declare the plugin in dev repos"
+    )
+    .option("--root <path>", "directory containing repositories to sync")
+    .option("--dry-run", "show planned changes without writing files")
+    .option("--check", "fail if local Codex auth config is not synced")
+    .action((flags: CodexAuthSyncLocalFlags) => {
+      const result = syncLocalCodexAuth({
+        check: flags.check,
+        dryRun: flags.dryRun,
+        root: resolve(
+          flags.root ?? process.env.PIPELINE_TARGET_PATH ?? process.cwd()
+        ),
+      });
+      console.log(formatCodexAuthSyncResult(result));
+      if (!result.ok) {
+        process.exitCode = 1;
+      }
     });
 
   addMokaSubmitOptions(

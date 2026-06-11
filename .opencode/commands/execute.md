@@ -26,5 +26,5 @@ Generate a schedule for entrypoint `execute` and the user task.
 The schedule policy is `execute-schedule`.
 Run `moka submit <task description>` to submit the `execute` graph as an Argo Workflow.
 The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.
-Configure the target in `~/.config/moka/config.yaml`; use `--kubeconfig <path>` and `--namespace <namespace>` only for explicit command overrides.
+Use `--kubeconfig <path>` and `--namespace <namespace>` to target a local or remote Kubernetes cluster.
 Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.

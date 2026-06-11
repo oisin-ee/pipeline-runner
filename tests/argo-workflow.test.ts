@@ -128,6 +128,11 @@ describe("runner Argo Workflow manifest", () => {
       "/etc/pipeline/schedule.yaml",
     ]);
     expect(runner?.command).toEqual(["moka"]);
+    expect(runner?.env).toEqual(
+      expect.arrayContaining([
+        { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
+      ])
+    );
     expect(runner?.env ?? []).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "PIPELINE_WORKFLOW_ID" }),
@@ -172,6 +177,23 @@ describe("runner Argo Workflow manifest", () => {
     );
     expect(runner).not.toHaveProperty("outputs");
     expect(manifest.spec.onExit).toBe("pipeline-finalizer");
+  });
+
+  it("disables per-project Codex account pools in the finalizer too", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      plan: plan(),
+    });
+
+    const finalizer = manifest.spec.templates.find(
+      (template) => template.name === "pipeline-finalizer"
+    )?.container;
+
+    expect(finalizer?.env).toEqual(
+      expect.arrayContaining([
+        { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
+      ])
+    );
   });
 
   it("does not use the GitHub auth Secret for git credentials", () => {

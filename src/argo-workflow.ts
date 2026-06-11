@@ -15,6 +15,9 @@ const RUNNER_WORKFLOW_ENTRYPOINT = "pipeline";
 const RUNNER_WORKFLOW_PAYLOAD_PATH = "/etc/pipeline/payload.json";
 const RUNNER_WORKFLOW_SCHEDULE_PATH = "/etc/pipeline/schedule.yaml";
 const RUNNER_GIT_CREDENTIALS_PATH = "/etc/pipeline/git-credentials";
+const RUNNER_OPENCODE_ENV = [
+  { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
+] as const;
 
 const kubernetesNameSchema = z.string().min(1);
 const labelValueSchema = z.string().min(1);
@@ -492,6 +495,7 @@ function runnerCommandTemplate(
         RUNNER_WORKFLOW_SCHEDULE_PATH,
       ],
       command: ["moka"],
+      env: [...RUNNER_OPENCODE_ENV],
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",
@@ -518,6 +522,7 @@ function runnerFinalizerTemplate(
         "{{workflow.status}}",
       ],
       command: ["moka"],
+      env: [...RUNNER_OPENCODE_ENV],
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",
