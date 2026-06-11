@@ -41,6 +41,8 @@ const GENERATED_ID_INVALID_CHARS_RE = /[^a-z0-9]+/g;
 const GENERATED_ID_TRIM_HYPHENS_RE = /^-+|-+$/g;
 const STARTS_WITH_ALPHA_RE = /^[a-z]/;
 const LINE_RE = /\r?\n/;
+const MARKDOWN_YAML_FENCE_RE =
+  /^\s*```(?:ya?ml)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i;
 const SCHEDULE_PLANNER_REPAIR_ATTEMPTS = 1;
 const SCHEDULE_BUILTINS = [
   "drain-merge",
@@ -785,10 +787,11 @@ function parseGeneratedSchedule(
 ):
   | { artifact: ScheduleArtifact; ok: true }
   | { error: ScheduleArtifactError; ok: false } {
+  const parseableSource = normalizeGeneratedScheduleSource(source);
   try {
     return {
       artifact: canonicalizeGeneratedScheduleIds(
-        parseScheduleArtifact(source, sourcePath)
+        parseScheduleArtifact(parseableSource, sourcePath)
       ),
       ok: true,
     };
@@ -803,6 +806,11 @@ function parseGeneratedSchedule(
       ok: false,
     };
   }
+}
+
+function normalizeGeneratedScheduleSource(source: string): string {
+  const fenced = MARKDOWN_YAML_FENCE_RE.exec(source);
+  return fenced?.[1] ?? source;
 }
 
 function acceptedGeneratedSchedule(

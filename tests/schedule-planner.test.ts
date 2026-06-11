@@ -661,6 +661,48 @@ workflows:
     }
   });
 
+  it("accepts Markdown-fenced planner schedule output", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-fenced-"));
+    const schedule = buildScheduleYaml({
+      scheduleId: "run-fenced",
+      task: "Accept fenced schedule",
+      nodes: [
+        "- id: research",
+        "  kind: agent",
+        "  profile: moka-researcher",
+        "- id: implement",
+        "  kind: agent",
+        "  profile: moka-code-writer",
+        "  needs: [research]",
+      ],
+    });
+    const fencedSchedule = ["```yaml", schedule.trim(), "```"].join("\n");
+    const nodeIds: string[] = [];
+
+    try {
+      const result = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "execute",
+        executor: (plan) => {
+          nodeIds.push(plan.nodeId);
+          return { exitCode: 0, stdout: fencedSchedule };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-fenced",
+        task: "Accept fenced schedule",
+        worktreePath: dir,
+      });
+
+      expect(nodeIds).toEqual(["schedule-plan"]);
+      expect(result.artifact.schedule_id).toBe("run-fenced");
+      expect(
+        result.artifact.workflows.root.nodes.map((node) => node.id)
+      ).toEqual(["research", "implement", "generated-coverage"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("repairs OpenCode-style scalar command and node instructions before execution", async () => {
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-schedule-opencode-repair-")
@@ -731,7 +773,7 @@ workflows:
             exitCode: 0,
             stdout:
               plan.nodeId === "schedule-plan-repair"
-                ? repairedSchedule
+                ? ["```yaml", repairedSchedule.trim(), "```"].join("\n")
                 : invalidSchedule,
           };
         },
