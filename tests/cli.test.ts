@@ -1108,7 +1108,7 @@ describe("execute", () => {
           "--yes",
           "skills",
           "add",
-          "oisincoveney/skills",
+          "oisin-ee/skills",
           "--agent",
           "opencode",
           "--agent",

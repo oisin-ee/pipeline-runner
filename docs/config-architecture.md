@@ -152,7 +152,7 @@ receive explicit grants:
 - `output`: text, JSON, JSONL, or JSON Schema output.
 
 Default skills resolve from project-installed skill files created by
-`moka init` via `npx --yes skills add oisincoveney/skills`:
+`moka init` via `npx --yes skills add oisin-ee/skills`:
 
 ```yaml
 skills:

@@ -3,7 +3,7 @@ import { installCommands } from "./install-commands";
 
 export type PipelineSkillInstaller = (cwd: string) => Promise<void>;
 
-const DEFAULT_SKILL_INSTALL_SOURCE = "oisincoveney/skills";
+const DEFAULT_SKILL_INSTALL_SOURCE = "oisin-ee/skills";
 const DEFAULT_SKILL_INSTALL_ARGS = [
   "--agent",
   "opencode",
