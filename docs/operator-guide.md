@@ -269,7 +269,7 @@ Codex:    $quick, $execute, $inspect
 - `.opencode/commands/<entrypoint>.md` for `/quick`, `/execute`, and `/inspect`
 - `.opencode/agents/*.md` for primary and subagent profiles with explicit
   `permission` maps, `task` grants, and denied ungranted tools
-- `.opencode/skills/*/SKILL.md` for package-granted skills
+- `.opencode/skills/*/SKILL.md` from `npx skills add`, not Moka generation
 - `.opencode/plugins/pipeline-goal-context.ts` for goal-loop compaction context
 - `.opencode/opencode.json` with LSP, the singleton `pipeline-gateway` MCP
   server, and pinned package-selected plugins

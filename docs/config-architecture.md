@@ -151,19 +151,18 @@ receive explicit grants:
 - `network`: inherited or disabled.
 - `output`: text, JSON, JSONL, or JSON Schema output.
 
-Package-owned default skills may resolve from the installed package asset root
-instead of the target repository root:
+Default skills resolve from project-installed skill files created by
+`moka init` via `npx --yes skills add oisincoveney/skills`:
 
 ```yaml
 skills:
   verify:
     path: .agents/skills/verify/SKILL.md
-    source_root: package
 ```
 
-Project-authored skill and rule paths still resolve from the project root and
-must exist. The package default loader does not relax missing-file validation;
-it validates package assets against the package root.
+Project-authored skill and rule paths resolve from the project root and must
+exist for runtime use. If default skill files are missing, run `moka init` to
+install them before executing workflows.
 
 MCP-enabled profiles use one gateway grant:
 
@@ -190,8 +189,8 @@ OpenCode host resources are generated from the same profile registry:
 
 - `.opencode/agents/*.md` declares native agents with `mode`, `description`,
   resolved model, explicit permissions, and task access to generated agents only.
-- `.opencode/skills/*/SKILL.md` projects package-granted skills for native
-  OpenCode discovery.
+- `.opencode/skills/*/SKILL.md` is installed by `skills add`; Moka only
+  generates agents, commands, plugins, and project config.
 - `.opencode/plugins/pipeline-goal-context.ts` projects package-owned
   continuation context into OpenCode compaction.
 - `.opencode/opencode.json` contains the gateway MCP config, enables LSP, and

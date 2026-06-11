@@ -10,7 +10,9 @@ import { loadPipelineConfig } from "../src/config";
 import { parseScheduleArtifact } from "../src/schedule-planner";
 
 const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-submit-"));
-const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT);
+const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {
+  allowMissingLintFileReferences: true,
+});
 const PAYLOAD_CONFIG_MAP_RE = /^pipeline-payload-/;
 const SCHEDULE_CONFIG_MAP_RE = /^pipeline-schedule-/;
 const TASK_DESCRIPTOR_CONFIG_MAP_RE = /^pipeline-task-descriptors-/;

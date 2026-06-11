@@ -13,7 +13,9 @@ import { loadPipelineConfig } from "../src/config";
 import { compileWorkflowPlan } from "../src/workflow-planner";
 
 const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-workflow-"));
-const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT);
+const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {
+  allowMissingLintFileReferences: true,
+});
 
 afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });

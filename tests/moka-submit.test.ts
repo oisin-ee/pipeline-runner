@@ -16,7 +16,9 @@ import {
 import type { RunnerLaunchPlan } from "../src/runner";
 
 const PROJECT_ROOT = mkdtempSync(join(tmpdir(), "moka-submit-"));
-const CONFIG = loadPipelineConfig(PROJECT_ROOT);
+const CONFIG = loadPipelineConfig(PROJECT_ROOT, {
+  allowMissingLintFileReferences: true,
+});
 const GIT = {
   baseBranch: "main",
   project: "rondo",

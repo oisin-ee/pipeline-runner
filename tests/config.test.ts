@@ -224,6 +224,36 @@ function captureConfigError(action: () => unknown): PipelineConfigError {
   throw new Error("Expected PipelineConfigError");
 }
 
+const DEFAULT_PACKAGE_SKILLS = [
+  "critique",
+  "doubt",
+  "execute",
+  "fix",
+  "inspect",
+  "library-first-development",
+  "migrate",
+  "optimize",
+  "quick",
+  "research",
+  "schedule-graph-shaping",
+  "scope",
+  "secure",
+  "spec",
+  "test",
+  "trace",
+  "verify",
+];
+
+function writeDefaultPackageSkills(root: string): void {
+  for (const skill of DEFAULT_PACKAGE_SKILLS) {
+    writeProjectFile(
+      root,
+      `.agents/skills/${skill}/SKILL.md`,
+      `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n`
+    );
+  }
+}
+
 function expectedPackageScheduledEntrypoints(): Record<string, unknown> {
   return {
     execute: { schedule: "execute-schedule" },
@@ -277,6 +307,7 @@ describe("loadPipelineConfig", () => {
   it("loads package-owned defaults when the repo has no pipeline files", () => {
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-defaults-"));
     tempDirs.push(project);
+    writeDefaultPackageSkills(project);
 
     const config = loadPipelineConfig(project);
 
@@ -497,6 +528,7 @@ profiles:`
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-missing-"));
     tempDirs.push(project);
     writeProjectFile(project, ".pipeline/pipeline.yaml", VALID_PIPELINE_YAML);
+    writeDefaultPackageSkills(project);
 
     const config = loadPipelineConfig(project);
 
@@ -508,6 +540,7 @@ profiles:`
     const project = mkdtempSync(join(tmpdir(), "pipeline-config-legacy-"));
     tempDirs.push(project);
     writeProjectFile(project, ".pipeline/config.toml", "[phases]\n");
+    writeDefaultPackageSkills(project);
 
     const config = loadPipelineConfig(project);
 

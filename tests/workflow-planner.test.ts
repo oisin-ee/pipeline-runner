@@ -15,7 +15,9 @@ import {
 const DEFAULT_PROJECT = mkdtempSync(
   join(tmpdir(), "workflow-planner-default-")
 );
-const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT);
+const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {
+  allowMissingLintFileReferences: true,
+});
 
 afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });

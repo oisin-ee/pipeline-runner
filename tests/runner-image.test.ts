@@ -76,11 +76,6 @@ const SHA_IMAGE_TAG = [
   GITHUB_SHA_EXPRESSION,
 ].join("");
 const LATEST_IMAGE_TAG = "ghcr.io/oisin-ee/pipeline-runner:latest";
-const REQUIRED_PUBLISHED_PACKAGE_ASSET_ENTRIES = [
-  ".agents/skills/research/SKILL.md",
-  ".agents/skills/verify/SKILL.md",
-  ".pipeline/skills/schedule-graph-shaping/SKILL.md",
-];
 const PIPELINE_PACKAGE_DEFAULT_RE = /ARG\s+PIPELINE_PACKAGE_VERSION=latest/;
 const PIPELINE_PACKAGE_BUILD_ARG_RE = /PIPELINE_PACKAGE_VERSION=latest/;
 
@@ -210,17 +205,13 @@ describe("runner container image packaging", () => {
     expect(imageSmokeTest).toMatch(RUNNER_COMMAND_RE);
   });
 
-  it("publishes package-owned skill assets required by generated schedules", () => {
+  it("does not publish project-installed skill assets as package assets", () => {
     const pkg = JSON.parse(readProjectFile("package.json")) as {
       files?: string[];
     };
 
-    expect(pkg.files).toEqual(
-      expect.arrayContaining([".agents/skills", ".pipeline/skills"])
-    );
-    for (const path of REQUIRED_PUBLISHED_PACKAGE_ASSET_ENTRIES) {
-      expect(existsSync(join(root, path))).toBe(true);
-    }
+    expect(pkg.files).not.toContain(".agents/skills");
+    expect(pkg.files).not.toContain(".pipeline/skills");
   });
 });
 

@@ -241,7 +241,7 @@ runner.
 
 | Host | Generated files | Invocation |
 | --- | --- | --- |
-| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/skills/*/SKILL.md`, `.opencode/plugins/*.ts`, `.opencode/opencode.json` | `/quick <task>`, `/execute <task>`, `/inspect <task>` |
+| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/plugins/*.ts`, `.opencode/opencode.json` | `/quick <task>`, `/execute <task>`, `/inspect <task>` |
 
 The installer is idempotent, supports `--check` and `--dry-run`, and refuses to
 overwrite manually edited files unless `--force` is supplied.

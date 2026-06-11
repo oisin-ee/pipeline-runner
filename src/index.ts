@@ -953,10 +953,18 @@ function lintMissingFileReferences(
     return [
       {
         ruleId: "missing-file-reference",
-        message: `${ref.path} references missing file '${value}'`,
+        message: missingFileReferenceMessage(ref.path, value),
       },
     ];
   });
+}
+
+function missingFileReferenceMessage(path: string, value: string): string {
+  const base = `${path} references missing file '${value}'`;
+  if (path.startsWith("skills.") && value.startsWith(".agents/skills/")) {
+    return `${base}. Run \`moka init\` to install project-local skills with \`npx --yes skills add oisincoveney/skills\`.`;
+  }
+  return base;
 }
 
 function resolveLintPathReference(

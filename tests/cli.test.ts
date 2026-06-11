@@ -37,18 +37,31 @@ const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const ORIGINAL_PIPELINE_TEST_COMMAND = process.env.PIPELINE_TEST_COMMAND;
 const DEFAULT_TEST_SKILLS = [
+  "add-dark-mode",
+  "brand-kit",
+  "canonicalize-tailwind",
+  "componentize",
   "critique",
+  "dark-mode-image",
+  "design",
   "diagnose",
   "doubt",
   "execute",
   "fix",
   "grill",
+  "ideas",
+  "imagegen",
   "improve",
+  "inspect",
   "library-first-development",
+  "make-responsive",
+  "markup-from-image",
   "migrate",
   "optimize",
   "quality-gate",
+  "quick",
   "research",
+  "schedule-graph-shaping",
   "scope",
   "secure",
   "spec",
@@ -232,6 +245,7 @@ async function withCliTempDir(
 ): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   try {
+    writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
     await withCliTarget(dir, (fixture) => run({ ...fixture, dir }));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -354,18 +368,48 @@ function installMockSkills(args: string[], cwd = process.cwd()): void {
   const skills = requestedSkills.includes("*")
     ? DEFAULT_TEST_SKILLS
     : requestedSkills;
-  writeMockSkills(skills, cwd);
+  const agents = args.flatMap((arg, index) =>
+    arg === "--agent" && args[index + 1] ? [args[index + 1]] : []
+  );
+  writeMockSkills(skills, cwd, agents, args.includes("--copy"));
 }
 
-function writeMockSkills(skills: string[], cwd: string): void {
+function writeMockSkills(
+  skills: string[],
+  cwd: string,
+  agents: string[] = ["opencode", "codex", "claude-code"],
+  copy = true
+): void {
   const lock: Record<string, unknown> = { skills: {}, version: 1 };
   for (const skill of skills) {
-    const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `---\nname: ${skill}\n---\n\n# ${skill}\n`);
+    writeMockSkillFile(
+      cwd,
+      join(".agents", "skills", skill, "SKILL.md"),
+      skill
+    );
+    if (copy && agents.includes("claude-code")) {
+      writeMockSkillFile(
+        cwd,
+        join(".claude", "skills", skill, "SKILL.md"),
+        skill
+      );
+    }
     (lock.skills as Record<string, unknown>)[skill] = { source: "mock" };
   }
   writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
+}
+
+function writeMockSkillFile(
+  cwd: string,
+  relativePath: string,
+  skill: string
+): void {
+  const path = join(cwd, relativePath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
+  );
 }
 
 function writeCliProjectFile(
@@ -1048,10 +1092,36 @@ describe("execute", () => {
       expect(
         generatedHostFilesExist(dir, [
           ".agents/skills/execute/SKILL.md",
+          ".agents/skills/inspect/SKILL.md",
+          ".agents/skills/quick/SKILL.md",
+          ".agents/skills/design/SKILL.md",
+          ".agents/skills/imagegen/SKILL.md",
+          ".claude/skills/execute/SKILL.md",
+          ".claude/skills/imagegen/SKILL.md",
           ".opencode/commands/execute.md",
           ".opencode/opencode.json",
         ])
       ).toBe(true);
+      expect(mockExeca).toHaveBeenCalledWith(
+        "npx",
+        [
+          "--yes",
+          "skills",
+          "add",
+          "oisincoveney/skills",
+          "--agent",
+          "opencode",
+          "--agent",
+          "codex",
+          "--agent",
+          "claude-code",
+          "--skill",
+          "*",
+          "--yes",
+          "--copy",
+        ],
+        expect.objectContaining({ cwd: dir, stdio: "inherit" })
+      );
       expect(
         mockExeca.mock.calls.some(
           ([command, args]) =>
@@ -1746,6 +1816,7 @@ workflows:
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
       expect(existsSync(join(initDir, ".pipeline"))).toBe(false);
 
+      writeMockSkills(DEFAULT_TEST_SKILLS, doctorDir, [], false);
       process.env.PIPELINE_TARGET_PATH = doctorDir;
       await runCli([
         "node",

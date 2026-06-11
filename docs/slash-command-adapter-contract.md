@@ -15,7 +15,7 @@ moka install-commands --host all --check
 
 | Host     | Generated resources                                            | Invocation                        | Mechanical path                                                                                       |
 | -------- | -------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/skills/*/SKILL.md`, `.opencode/opencode.json` | `/quick <task>`, `/execute <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
+| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/opencode.json` | `/quick <task>`, `/execute <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
 
 ## Projection Rules
 
@@ -31,9 +31,9 @@ moka install-commands --host all --check
 - OpenCode agents project package profiles as markdown agents with `mode`,
   `description`, resolved `model`, `permission`, `hidden`, and task permission
   maps. The primary orchestrator may call only generated package profile agents.
-- OpenCode skill projection is generated from package profile grants into
-  `.opencode/skills`. Skill files point back to package-owned source paths and
-  per-agent `permission.skill` maps deny ungranted skills.
+- OpenCode skill files are installed by `npx skills add` during `moka init`;
+  Moka does not generate `.opencode/skills`. Generated agent
+  `permission.skill` maps still deny ungranted skills.
 - `.opencode/opencode.json` includes the singleton `pipeline-gateway` MCP
   server and enables OpenCode LSP. CLI lint, typecheck, tests, and configured
   gates remain the blocking verification path; LSP is editor/runtime assistance.

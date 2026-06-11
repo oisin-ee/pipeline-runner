@@ -7,13 +7,45 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadPipelineConfig } from "../src/config";
 import {
   formatPipelineInitResult,
   initPipelineProject,
 } from "../src/pipeline-init";
+
+const DEFAULT_INIT_SKILLS = [
+  "critique",
+  "doubt",
+  "execute",
+  "fix",
+  "inspect",
+  "library-first-development",
+  "migrate",
+  "optimize",
+  "quick",
+  "research",
+  "schedule-graph-shaping",
+  "scope",
+  "secure",
+  "spec",
+  "test",
+  "trace",
+  "verify",
+];
+
+async function installMockSkills(cwd: string): Promise<void> {
+  await Promise.resolve();
+  for (const skill of DEFAULT_INIT_SKILLS) {
+    const path = join(cwd, ".agents", "skills", skill, "SKILL.md");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
+    );
+  }
+}
 
 function bootstrappedHostFilesExist(root: string): boolean {
   return [
@@ -37,6 +69,7 @@ describe("initPipelineProject", () => {
   const init = (options: Parameters<typeof initPipelineProject>[0] = {}) =>
     initPipelineProject({
       cwd: dir,
+      skillInstaller: installMockSkills,
       ...options,
     });
 
@@ -70,11 +103,11 @@ describe("initPipelineProject", () => {
     ]);
     expect(config.skills.research).toEqual({
       path: ".agents/skills/research/SKILL.md",
-      source_root: "package",
+      source_root: "project",
     });
     expect(config.skills.verify).toEqual({
       path: ".agents/skills/verify/SKILL.md",
-      source_root: "package",
+      source_root: "project",
     });
   });
 
