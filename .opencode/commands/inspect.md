@@ -22,7 +22,7 @@ Orchestrate the configured pipeline through package-defined entrypoints, native 
 
 Run workflow `inspect` for the user task.
 OpenCode native routes:
-- inspect: Task tool subagent_type=MoKa Inspector model=openai/gpt-5.5 runner=opencode needs=none
+- inspect: Task tool subagent_type=MoKa Inspector model=zai-coding-plan/glm-5.1 runner=opencode needs=none
 
 For each native node prompt include:
 - user task

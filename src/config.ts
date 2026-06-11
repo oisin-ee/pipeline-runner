@@ -84,7 +84,7 @@ const PACKAGE_DEFAULT_RUNNERS_YAML = `version: 1
 runners:
   opencode:
     type: opencode
-    model: openai/gpt-5.5
+    model: zai-coding-plan/glm-5.1
     capabilities:
       native_subagents: true
       rules: true
@@ -360,54 +360,54 @@ scheduler:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
         green-implementation:
           category: green
           profile: moka-code-writer
-          models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
+          models: [zai-coding-plan/glm-5.1, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
         verification:
           category: verification
           profile: moka-verifier
-          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5]
     execute:
       required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
       nodes:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
         research:
           category: research
           profile: moka-researcher
-          models: [openai/gpt-5.5-fast, zai-coding-plan/glm-5.1, kimi-for-coding/k2p6]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast, kimi-for-coding/k2p6]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
         green-backend:
           category: green
           profile: moka-code-writer
-          models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
+          models: [zai-coding-plan/glm-5.1, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
         green-frontend:
           category: green
           profile: moka-code-writer
-          models: [opencode-go/qwen3.7-max, kimi-for-coding/k2p6, opencode-go/deepseek-v4-pro]
+          models: [zai-coding-plan/glm-5.1, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
         acceptance-review:
           category: acceptance
           profile: moka-acceptance-reviewer
-          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5]
         verification:
           category: verification
           profile: moka-verifier
-          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5]
         learn:
           category: learn
           profile: moka-learner
-          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
+          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
 schedules:
   quick-schedule:
     baseline: quick
@@ -1572,12 +1572,7 @@ function parseYamlAs<T extends z.ZodTypeAny>(
 
   const parsed = schema.safeParse(document.toJS());
   if (!parsed.success) {
-    throw validationError(
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      }))
-    );
+    throw validationError(configIssuesFromZodError(parsed.error));
   }
   return parsed.data;
 }
@@ -1589,12 +1584,7 @@ export function validatePipelineConfig(
 ): PipelineConfig {
   const parsed = configSchema.safeParse(rawConfig);
   if (!parsed.success) {
-    throw validationError(
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      }))
-    );
+    throw validationError(configIssuesFromZodError(parsed.error));
   }
 
   const config = parsed.data;
@@ -2140,4 +2130,11 @@ function validationError(issues: PipelineConfigIssue[]): PipelineConfigError {
     ].join("\n"),
     issues
   );
+}
+
+function configIssuesFromZodError(error: z.ZodError): PipelineConfigIssue[] {
+  return error.issues.map((issue) => ({
+    path: issue.path.join("."),
+    message: issue.message,
+  }));
 }

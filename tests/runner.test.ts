@@ -19,6 +19,7 @@ const originalPipelineAgentTimeoutMs = process.env.PIPELINE_AGENT_TIMEOUT_MS;
 const originalPipelineMcpGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
 const originalPipelineMcpGatewayAuthorization =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+const originalPipelineOpencodeModel = process.env.PIPELINE_OPENCODE_MODEL;
 function makeSimpleResult(stdout = "output", exitCode = 0) {
   return Promise.resolve({ stdout, exitCode }) as any;
 }
@@ -37,6 +38,7 @@ afterEach(() => {
     "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
     originalPipelineMcpGatewayAuthorization
   );
+  restoreEnv("PIPELINE_OPENCODE_MODEL", originalPipelineOpencodeModel);
 });
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -68,7 +70,7 @@ describe("spawnAgent — opencode harness", () => {
         "--format",
         "json",
         "--model",
-        "openai/gpt-5.5",
+        "zai-coding-plan/glm-5.1",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -99,7 +101,7 @@ describe("spawnAgent — opencode harness", () => {
         "--format",
         "json",
         "--model",
-        "openai/gpt-5.5",
+        "zai-coding-plan/glm-5.1",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -151,7 +153,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: openai/gpt-5.5
+    model: zai-coding-plan/glm-5.1
     capabilities:
       native_subagents: true
       output_formats: [text, json, jsonl, json_schema]
@@ -259,7 +261,7 @@ workflows:
         "--format",
         "json",
         "--model",
-        "openai/gpt-5.5",
+        "zai-coding-plan/glm-5.1",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -350,7 +352,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: openai/gpt-5.5
+    model: zai-coding-plan/glm-5.1
     capabilities:
       native_subagents: true
       skills: true
@@ -493,6 +495,27 @@ workflows:
 
     expect(agent.args).toContain(config.runners.opencode.model);
     expect(orchestrator.args).toContain(config.runners.opencode.model);
+  });
+
+  it("lets PIPELINE_OPENCODE_MODEL override actor and runner models", () => {
+    process.env.PIPELINE_OPENCODE_MODEL = "zai-coding-plan/glm-5.1";
+
+    const agent = createRunnerLaunchPlan(CONFIG, {
+      profileId: "opencode-agent",
+      nodeId: "agent",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const orchestrator = createOrchestratorLaunchPlan(CONFIG, {
+      nodeId: "orchestrator",
+      prompt: "coordinate",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(agent.args).toContain("zai-coding-plan/glm-5.1");
+    expect(agent.args).not.toContain("openai/gpt-5.5");
+    expect(orchestrator.args).toContain("zai-coding-plan/glm-5.1");
+    expect(orchestrator.args).not.toContain("orchestrator-model");
   });
 
   it("uses OpenCode permission bypass mode for read-only profiles", () => {

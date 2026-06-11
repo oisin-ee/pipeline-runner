@@ -290,7 +290,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: ${JSON.stringify(process.env.PIPELINE_OPENCODE_MODEL ?? "openai/gpt-5.5")}
+    model: ${JSON.stringify(process.env.PIPELINE_OPENCODE_MODEL ?? "zai-coding-plan/glm-5.1")}
     capabilities:
       native_subagents: true
       rules: true

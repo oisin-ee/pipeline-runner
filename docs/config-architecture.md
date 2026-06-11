@@ -22,7 +22,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: openai/gpt-5.5
+    model: zai-coding-plan/glm-5.1
     capabilities:
       native_subagents: true
       rules: true

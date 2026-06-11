@@ -81,6 +81,8 @@ const OPENCODE_EXCLUDES = [
   "coverage/",
 ];
 const LINE_RE = /\r?\n/;
+const DEFAULT_OPENCODE_MODEL = "zai-coding-plan/glm-5.1";
+
 function ensureOpencodeGitExcludes(worktreePath: string): void {
   const excludePath = join(worktreePath, ".git", "info", "exclude");
   if (!existsSync(excludePath)) {
@@ -105,13 +107,39 @@ function optionalModelArgs(
   actor?: ActorConfig,
   selectedModel?: string
 ): string[] {
-  const model =
-    selectedModel ??
-    actor?.model ??
-    runner?.model ??
-    process.env.PIPELINE_OPENCODE_MODEL ??
-    "openai/gpt-5.5";
+  const model = resolveOpencodeModel(runner, actor, selectedModel);
   return model ? ["--model", model] : [];
+}
+
+function resolveOpencodeModel(
+  runner?: PipelineConfig["runners"][string],
+  actor?: ActorConfig,
+  selectedModel?: string
+): string | undefined {
+  return (
+    firstDefinedModel([
+      process.env.PIPELINE_OPENCODE_MODEL,
+      selectedModel,
+      actorModel(actor),
+      runnerModel(runner),
+    ]) ?? DEFAULT_OPENCODE_MODEL
+  );
+}
+
+function firstDefinedModel(
+  values: Array<string | undefined>
+): string | undefined {
+  return values.find((value) => value !== undefined);
+}
+
+function actorModel(actor?: ActorConfig): string | undefined {
+  return actor?.model;
+}
+
+function runnerModel(
+  runner?: PipelineConfig["runners"][string]
+): string | undefined {
+  return runner?.model;
 }
 
 type ProfileConfig = PipelineConfig["profiles"][string];
