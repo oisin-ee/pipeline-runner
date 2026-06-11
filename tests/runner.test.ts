@@ -68,7 +68,7 @@ describe("spawnAgent — opencode harness", () => {
         "--format",
         "json",
         "--model",
-        "openai/gpt-5.5",
+        "gpt-5.5",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -99,7 +99,7 @@ describe("spawnAgent — opencode harness", () => {
         "--format",
         "json",
         "--model",
-        "openai/gpt-5.5",
+        "gpt-5.5",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -151,7 +151,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: openai/gpt-5.5
+    model: gpt-5.5
     capabilities:
       native_subagents: true
       output_formats: [text, json, jsonl, json_schema]
@@ -259,7 +259,7 @@ workflows:
         "--format",
         "json",
         "--model",
-        "openai/gpt-5.5",
+        "gpt-5.5",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -350,7 +350,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: openai/gpt-5.5
+    model: gpt-5.5
     capabilities:
       native_subagents: true
       skills: true

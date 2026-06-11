@@ -1477,7 +1477,7 @@ workflows:
 
         expect(mockExeca).toHaveBeenCalledWith(
           "opencode",
-          expect.arrayContaining(["run", "--model", "openai/gpt-5.5"]),
+          expect.arrayContaining(["run", "--model", "gpt-5.5"]),
           expect.objectContaining({ cwd: dir })
         );
         expect(output()).toContain("Workflow: schedule-approved-opencode-root");
@@ -1549,7 +1549,7 @@ workflows:
 
         expect(mockExeca).toHaveBeenCalledWith(
           "opencode",
-          expect.arrayContaining(["run", "--model", "openai/gpt-5.5"]),
+          expect.arrayContaining(["run", "--model", "gpt-5.5"]),
           expect.objectContaining({ cwd: dir })
         );
         expect(execaCommands()).not.toContain("quick-node-bin");
