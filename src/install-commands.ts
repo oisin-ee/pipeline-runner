@@ -340,6 +340,7 @@ function dispatchBlock(
     "Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
     "If a node returns targeted evidence and has no configured blocking gate, advance to the next node.",
     "Do not bypass configured runner subprocesses or package-configured gates when executing nodes.",
+    "Use the listed Task tool routes for native nodes, and run nodes with satisfied dependencies in parallel whenever the host supports concurrent subagent work.",
     hostSpecificDispatchGuard(host, nativeRoutes, cliRoutes),
   ]
     .filter((line): line is string => Boolean(line))
@@ -685,7 +686,7 @@ function opencodeDefinitions(
           name: nativeAgentIdForHost("opencode", id),
           description: profile.description ?? id,
           hidden: false,
-          mode: "subagent",
+          mode: "all",
           ...opencodeModelProjection(config, profile),
           permission: opencodePermission(profile),
         },

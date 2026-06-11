@@ -519,7 +519,57 @@ workflows:
         "mechanical-green-fallow",
         "acceptance-review",
         "verification",
+        "code-quality-review",
         "learn",
+      ]);
+      expect(result.artifact.workflows.root.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "acceptance-review",
+            needs: [
+              "mechanical-green-tests",
+              "mechanical-green-typecheck",
+              "mechanical-green-lint",
+              "mechanical-green-fallow",
+            ],
+            profile: "moka-acceptance-reviewer",
+          }),
+          expect.objectContaining({
+            id: "verification",
+            needs: [
+              "mechanical-green-tests",
+              "mechanical-green-typecheck",
+              "mechanical-green-lint",
+              "mechanical-green-fallow",
+            ],
+            profile: "moka-verifier",
+          }),
+          expect.objectContaining({
+            id: "code-quality-review",
+            needs: [
+              "mechanical-green-tests",
+              "mechanical-green-typecheck",
+              "mechanical-green-lint",
+              "mechanical-green-fallow",
+            ],
+            profile: "moka-thermo-nuclear-reviewer",
+          }),
+          expect.objectContaining({
+            id: "learn",
+            needs: ["acceptance-review", "verification", "code-quality-review"],
+          }),
+        ])
+      );
+      expect(
+        compileScheduleArtifact(
+          config(),
+          result.artifact,
+          dir
+        ).plan.parallelBatches.map((batch) => batch.map((node) => node.id))
+      ).toContainEqual([
+        "acceptance-review",
+        "verification",
+        "code-quality-review",
       ]);
       expect(result.path).toBe(
         ".pipeline/runs/run-baseline-fallback/schedule.yaml"

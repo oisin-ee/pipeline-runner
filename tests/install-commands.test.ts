@@ -95,7 +95,7 @@ describe("installCommands", () => {
       join(dir, ".opencode/agents/MoKa Inspector.md"),
       "utf8"
     );
-    expect(inspector).toContain("mode: subagent");
+    expect(inspector).toContain("mode: all");
     expect(inspector).toContain("hidden: false");
     expect(inspector).toContain("skill:");
     expect(inspector).toContain("research: allow");
@@ -134,6 +134,30 @@ describe("installCommands", () => {
     expect(executeCommand).not.toContain(
       "Run workflow `inspect` for the user task."
     );
+  });
+
+  it("makes Moka specialist agents selectable primary agents and subagents", async () => {
+    await installCommands({ cwd: dir, host: "all" });
+
+    for (const agentName of [
+      "MoKa Acceptance Reviewer",
+      "MoKa Code Writer",
+      "MoKa Inspector",
+      "MoKa Learner",
+      "MoKa Researcher",
+      "MoKa Schedule Planner",
+      "MoKa Test Writer",
+      "MoKa Thermo Nuclear Reviewer",
+      "MoKa Verifier",
+    ]) {
+      const content = readFileSync(
+        join(dir, `.opencode/agents/${agentName}.md`),
+        "utf8"
+      );
+
+      expect(content).toContain("mode: all");
+      expect(content).toContain("hidden: false");
+    }
   });
 
   it("installs the pipeline gateway project config for OpenCode", async () => {
