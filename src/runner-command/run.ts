@@ -131,7 +131,7 @@ export async function runRunnerCommand(
     );
     const result = await runScheduledWorkflowTask({
       config: compiled.config,
-      hookPolicy: { allowCommandHooks: true },
+      hookPolicy: payload.hookPolicy,
       nodeId: descriptor.nodeId,
       reporter: (event) => sink.recordRuntimeEvent(event),
       runId: payload.run.id,

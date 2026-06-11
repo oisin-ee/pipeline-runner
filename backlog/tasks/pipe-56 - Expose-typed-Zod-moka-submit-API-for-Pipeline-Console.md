@@ -1,9 +1,11 @@
 ---
 id: PIPE-56
 title: Expose typed Zod moka submit API for Pipeline Console
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@codex'
 created_date: '2026-06-10 19:15'
+updated_date: '2026-06-10 22:57'
 labels: []
 dependencies: []
 ordinal: 178000
@@ -23,3 +25,11 @@ Add a public Zod-backed submit API so Pipeline Console can spawn runs through pa
 - [ ] #4 Tests cover full graph, quick graph, command mode, prompt task, ticket task, event sink settings, runner secret settings, and validation failures.
 - [ ] #5 Pipeline Console can spawn runs through the public submit API without importing argo-submit, argo-workflow, runner-command-contract, or constructing Kubernetes/Argo resources directly.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation started as prerequisite for Pipeline Console PC-43. Scope: public moka-submit eventSink/direct hooks/hook policy API and external consumer evidence.
+
+Package prerequisite implementation now has green release-gate evidence: bun run test, bun run typecheck, bun run check, and bun run build:cli all pass in /Users/oisin/dev/oisin-pipeline. Published npm @oisincoveney/pipeline@1.26.1 does not yet include eventSink/direct hooks/hookPolicy, so Pipeline Console must wait for a GitHub Actions release before production-real adoption.
+<!-- SECTION:NOTES:END -->

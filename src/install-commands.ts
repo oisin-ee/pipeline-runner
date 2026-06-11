@@ -266,7 +266,10 @@ function dispatchRouteForAgent(
   };
 }
 
-function nativeAgentIdForHost(host: ActiveCommandHost, profileId: string): string {
+function nativeAgentIdForHost(
+  host: ActiveCommandHost,
+  profileId: string
+): string {
   return host === "opencode" ? opencodeAgentName(profileId) : profileId;
 }
 

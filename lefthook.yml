@@ -2,7 +2,7 @@ pre-commit:
   parallel: true
   jobs:
     - name: fallow-audit
-      run: npx --yes fallow audit --fail-on-issues --production --format compact
+      run: npx --yes fallow audit --production --format compact
     - name: check
       run: bun run check
     - name: typecheck

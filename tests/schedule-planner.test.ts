@@ -425,9 +425,7 @@ workflows:
   });
 
   it("includes timeout details when the planner subprocess times out", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "moka-schedule-planner-timeout-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "moka-schedule-planner-timeout-"));
 
     try {
       await expect(

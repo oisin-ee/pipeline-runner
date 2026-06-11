@@ -103,9 +103,9 @@ describe("installCommands", () => {
       "@prevalentware/opencode-goal-plugin",
       "oc-codex-multi-auth",
     ]);
-    expect(
-      existsSync(join(dir, ".opencode/agents/MoKa Orchestrator.md"))
-    ).toBe(true);
+    expect(existsSync(join(dir, ".opencode/agents/MoKa Orchestrator.md"))).toBe(
+      true
+    );
     const inspector = readFileSync(
       join(dir, ".opencode/agents/MoKa Inspector.md"),
       "utf8"

@@ -543,8 +543,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(
       rolePrompts.some(
         (prompt) =>
-          prompt.includes("code verifier") ||
-          prompt.includes("moka-verifier")
+          prompt.includes("code verifier") || prompt.includes("moka-verifier")
       )
     ).toBe(true);
     expect(
@@ -569,8 +568,7 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     expect(
       rolePrompts.some(
         (prompt) =>
-          prompt.includes("code verifier") ||
-          prompt.includes("moka-verifier")
+          prompt.includes("code verifier") || prompt.includes("moka-verifier")
       )
     ).toBe(true);
     expect(rolePrompts.some((prompt) => prompt.includes("LEARN phase"))).toBe(

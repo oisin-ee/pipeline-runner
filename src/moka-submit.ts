@@ -8,7 +8,7 @@ import {
   buildCommandScheduleYaml,
   submitRunnerArgoWorkflow,
 } from "./argo-submit";
-import type { PipelineConfig } from "./config";
+import type { HookEvent, PipelineConfig } from "./config";
 import {
   buildRunnerCommandPayload,
   type MokaSubmission,
@@ -17,6 +17,7 @@ import {
   type RunnerRunIdentity,
   type RunnerTask,
   runnerDeliverySchema,
+  runnerHookPolicySchema,
   runnerRepositoryContextSchema,
   runnerRunIdentitySchema,
   runnerTaskSchema,
@@ -55,11 +56,71 @@ const mokaSubmitEventsSchema = z
   })
   .strict();
 
+const MOKA_SUBMIT_HOOK_EVENTS = [
+  "workflow.start",
+  "workflow.success",
+  "workflow.failure",
+  "workflow.complete",
+  "node.start",
+  "node.success",
+  "node.error",
+  "node.finish",
+  "gate.failure",
+] as const satisfies readonly HookEvent[];
+
+const mokaSubmitHookWhereSchema = z
+  .object({
+    gate: z.string().min(1).optional(),
+    node: z.string().min(1).optional(),
+    workflow: z.string().min(1).optional(),
+  })
+  .strict();
+
+const mokaSubmitHookBaseSchema = z
+  .object({
+    failure: z.enum(["fail", "ignore"]).default("ignore"),
+    input: z.record(z.string(), z.unknown()).optional(),
+    publishResult: z.boolean().optional(),
+    saveResultAs: z.string().min(1).optional(),
+    timeoutMs: z.number().int().positive().optional(),
+    where: mokaSubmitHookWhereSchema.optional(),
+  })
+  .strict();
+
+const mokaSubmitCommandHookSchema = mokaSubmitHookBaseSchema
+  .extend({
+    command: z.array(z.string().min(1)).min(1),
+    kind: z.literal("command"),
+    outputLimitBytes: z.number().int().positive().optional(),
+    trusted: z.boolean().optional(),
+  })
+  .strict();
+
+const mokaSubmitModuleHookSchema = mokaSubmitHookBaseSchema
+  .extend({
+    kind: z.literal("module"),
+    module: z.string().min(1),
+  })
+  .strict();
+
+const mokaSubmitDirectHookSchema = z.discriminatedUnion("kind", [
+  mokaSubmitCommandHookSchema,
+  mokaSubmitModuleHookSchema,
+]);
+
+export const mokaSubmitDirectHooksSchema = z.partialRecord(
+  z.enum(MOKA_SUBMIT_HOOK_EVENTS),
+  mokaSubmitDirectHookSchema
+);
+
+export const mokaSubmitHookPolicySchema = runnerHookPolicySchema;
+
 export const mokaSubmitResultSchema = workflowSubmitResultSchema;
 
 const mokaSubmitBaseOptionsSchema = z
   .object({
     delivery: runnerDeliverySchema.default({ pullRequest: false }),
+    eventSink: mokaSubmitEventsSchema.optional(),
     eventAuthSecretKey: z
       .string()
       .min(1)
@@ -75,6 +136,8 @@ const mokaSubmitBaseOptionsSchema = z
       .string()
       .min(1)
       .default(MOMOKAYA_GITHUB_AUTH_SECRET_NAME),
+    hookPolicy: mokaSubmitHookPolicySchema.optional(),
+    hooks: mokaSubmitDirectHooksSchema.optional(),
     image: z.string().min(1).optional(),
     imagePullPolicy: imagePullPolicySchema,
     imagePullSecretName: z
@@ -116,13 +179,35 @@ const mokaCommandSubmitOptionsSchema = mokaSubmitBaseOptionsSchema
   })
   .strict();
 
-export const mokaSubmitOptionsSchema = z.discriminatedUnion("type", [
-  mokaGraphSubmitOptionsSchema,
-  mokaCommandSubmitOptionsSchema,
-]);
+export const mokaSubmitOptionsSchema = z
+  .discriminatedUnion("type", [
+    mokaGraphSubmitOptionsSchema,
+    mokaCommandSubmitOptionsSchema,
+  ])
+  .superRefine((data, ctx) => {
+    if (data.eventSink !== undefined && data.events !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Choose either eventSink or events, not both",
+        path: ["eventSink"],
+      });
+    }
+  });
 
 export type MokaSubmitOptionsInput = z.input<typeof mokaSubmitOptionsSchema>;
 export type MokaSubmitOptionsOutput = z.output<typeof mokaSubmitOptionsSchema>;
+export type MokaSubmitDirectHooksInput = z.input<
+  typeof mokaSubmitDirectHooksSchema
+>;
+export type MokaSubmitDirectHooksOutput = z.output<
+  typeof mokaSubmitDirectHooksSchema
+>;
+export type MokaSubmitHookPolicyInput = z.input<
+  typeof mokaSubmitHookPolicySchema
+>;
+export type MokaSubmitHookPolicyOutput = z.output<
+  typeof mokaSubmitHookPolicySchema
+>;
 export type MokaSubmitInput = MokaSubmitOptionsInput & {
   config: PipelineConfig;
   worktreePath?: string;
@@ -191,6 +276,131 @@ type ParsedMokaWithRun = ParsedMokaBaseOptions & {
   run?: RunnerRunIdentity;
 };
 
+type MokaSubmitDirectHooks = z.output<typeof mokaSubmitDirectHooksSchema>;
+type MokaSubmitDirectHook = z.output<typeof mokaSubmitDirectHookSchema>;
+
+const submitHookId = (event: HookEvent) =>
+  `moka-submit-${event.replaceAll(".", "-")}`;
+
+function objectWithoutUndefined<T extends Record<string, unknown>>(
+  value: T
+): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  ) as T;
+}
+
+function hookFunctionForSubmitHook(hook: MokaSubmitDirectHook) {
+  if (hook.kind === "module") {
+    return objectWithoutUndefined({
+      kind: "module" as const,
+      module: hook.module,
+      timeout_ms: hook.timeoutMs,
+    });
+  }
+
+  return objectWithoutUndefined({
+    command: hook.command,
+    kind: "command" as const,
+    output_limit_bytes: hook.outputLimitBytes,
+    protocol: { input: "file" as const, result: "file" as const },
+    timeout_ms: hook.timeoutMs,
+    trusted: hook.trusted,
+  });
+}
+
+function hookBindingForSubmitHook(
+  event: HookEvent,
+  hook: MokaSubmitDirectHook
+) {
+  const id = submitHookId(event);
+  const result =
+    hook.publishResult === undefined && hook.saveResultAs === undefined
+      ? undefined
+      : objectWithoutUndefined({
+          publish: hook.publishResult,
+          save_as: hook.saveResultAs,
+        });
+
+  return objectWithoutUndefined({
+    failure: hook.failure,
+    function: id,
+    id,
+    result,
+    where: hook.where,
+    with: hook.input,
+  });
+}
+
+function submitHookEntries(hooks: MokaSubmitDirectHooks | undefined): Array<{
+  event: HookEvent;
+  hook: MokaSubmitDirectHook;
+}> {
+  return (
+    Object.entries(hooks ?? {}) as [
+      HookEvent,
+      MokaSubmitDirectHook | undefined,
+    ][]
+  )
+    .filter(
+      (entry): entry is [HookEvent, MokaSubmitDirectHook] =>
+        entry[1] !== undefined
+    )
+    .map(([event, hook]) => ({ event, hook }));
+}
+
+function cloneHookBindings(
+  on: PipelineConfig["hooks"]["on"]
+): PipelineConfig["hooks"]["on"] {
+  return Object.fromEntries(
+    Object.entries(on).map(([event, bindings]) => [event, [...bindings]])
+  ) as PipelineConfig["hooks"]["on"];
+}
+
+function appendSubmitHook(
+  event: HookEvent,
+  hook: MokaSubmitDirectHook,
+  target: Pick<PipelineConfig["hooks"], "functions" | "on">
+): void {
+  const id = submitHookId(event);
+  if (target.functions[id] !== undefined) {
+    throw new Error(`Moka submit hook id already exists in config: ${id}`);
+  }
+  target.functions[id] = hookFunctionForSubmitHook(hook);
+  target.on[event] = [
+    ...(target.on[event] ?? []),
+    hookBindingForSubmitHook(event, hook),
+  ];
+}
+
+function configWithSubmitHooks(
+  config: PipelineConfig,
+  hooks: MokaSubmitDirectHooks | undefined
+): PipelineConfig {
+  const entries = submitHookEntries(hooks);
+  if (entries.length === 0) {
+    return config;
+  }
+
+  const target = {
+    functions: { ...config.hooks.functions },
+    on: cloneHookBindings(config.hooks.on),
+  };
+
+  for (const { event, hook } of entries) {
+    appendSubmitHook(event, hook, target);
+  }
+
+  return {
+    ...config,
+    hooks: {
+      ...config.hooks,
+      functions: target.functions,
+      on: target.on,
+    },
+  };
+}
+
 export function submitMoka(
   rawOptions: MokaSubmitInput,
   dependencies: SubmitMokaDependencies = {}
@@ -199,7 +409,7 @@ export function submitMoka(
   const options = mokaSubmitOptionsSchema.parse(schemaOptions);
   const parsedOptions: ParsedMokaSubmitOptions = {
     ...options,
-    config,
+    config: configWithSubmitHooks(config, options.hooks),
     worktreePath,
   };
   return parsedOptions.type === "command"
@@ -399,6 +609,7 @@ function runnerPayloadJson(input: {
     buildRunnerCommandPayload({
       delivery: input.options.delivery,
       events: runnerEvents(input.options),
+      hookPolicy: input.options.hookPolicy,
       repository: {
         baseBranch: input.context.repository.baseBranch,
         sha: input.context.repository.sha,
@@ -419,12 +630,12 @@ function runnerPayloadJson(input: {
 function runnerEvents(
   options: ParsedMokaBaseOptions
 ): RunnerCommandPayload["events"] {
-  if (options.events) {
+  const eventSink = options.eventSink ?? options.events;
+  if (eventSink) {
     return {
-      authHeader: options.events.authHeader,
-      authTokenFile:
-        options.events.authTokenFile ?? eventAuthTokenFile(options),
-      url: options.events.url,
+      authHeader: eventSink.authHeader,
+      authTokenFile: eventSink.authTokenFile ?? eventAuthTokenFile(options),
+      url: eventSink.url,
     };
   }
   return {

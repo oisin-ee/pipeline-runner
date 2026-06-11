@@ -148,6 +148,16 @@ moka submit "fix the login bug" --quick --kubeconfig ~/.kube/config --namespace 
 There is no separate workstation-local `submit` path; local submission means
 submitting to a local Kubernetes cluster.
 
+Pipeline Console and other TypeScript control planes should use
+`@oisincoveney/pipeline/moka-submit` instead of shelling out or importing Argo
+internals. The public API accepts `eventSink` for runner event delivery,
+`hooks` for direct lifecycle hook declarations, and `hookPolicy` for per-run
+hook execution policy. `eventSink` is not a hook mechanism; it is the transport
+used by runner pods to POST durable events back to the control plane. Direct
+submit hooks are normalized into deterministic internal function ids like
+`moka-submit-node-finish`; non-conflicting package hooks remain intact, and a
+generated id collision is rejected before submission.
+
 ### Runner Workflow Shape
 
 The runner container entrypoint is `moka runner-command`. Validation errors exit

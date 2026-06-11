@@ -336,16 +336,14 @@ describe("loadPipelineConfig", () => {
         max_attempts: 1,
       },
     });
-    expect(
-      config.profiles["moka-test-writer"].instructions.inline
-    ).toContain("Only edit files matching test paths");
-    expect(config.profiles["moka-researcher"].timeout_ms).toBe(900_000);
-    expect(config.profiles["moka-schedule-planner"].timeout_ms).toBe(
-      300_000
+    expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
+      "Only edit files matching test paths"
     );
-    expect(
-      config.profiles["moka-researcher"].instructions.inline
-    ).toContain("do not perform open-ended repository exploration");
+    expect(config.profiles["moka-researcher"].timeout_ms).toBe(900_000);
+    expect(config.profiles["moka-schedule-planner"].timeout_ms).toBe(300_000);
+    expect(config.profiles["moka-researcher"].instructions.inline).toContain(
+      "do not perform open-ended repository exploration"
+    );
     expect(config.profiles["moka-verifier"].scheduling_roles).toEqual([
       "coverage",
     ]);
@@ -1452,8 +1450,7 @@ describe("final review asset bundle", () => {
       path: ".agents/skills/critique/SKILL.md",
     });
 
-    const profile =
-      profilesConfig.profiles?.["moka-thermo-nuclear-reviewer"];
+    const profile = profilesConfig.profiles?.["moka-thermo-nuclear-reviewer"];
     expect(
       profile,
       "profiles.moka-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml"

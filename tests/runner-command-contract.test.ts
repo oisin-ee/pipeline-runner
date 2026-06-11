@@ -142,6 +142,33 @@ describe("runner-command payload contract", () => {
     });
   });
 
+  it("carries explicit hook policy through the runner payload contract", async () => {
+    const { buildRunnerCommandPayload, parseRunnerCommandPayload } =
+      await loadContractModule();
+
+    const payload = buildRunnerCommandPayload({
+      events: validEvents(),
+      hookPolicy: {
+        allowCommandHooks: false,
+        allowUntrustedCommandHooks: false,
+        outputLimitBytes: 8192,
+        timeoutMs: 5000,
+      },
+      repository: validPayload().repository,
+      run: validPayload().run,
+      task: validPayload().task,
+      workflow: validPayload().workflow,
+    });
+    const parsed = parseRunnerCommandPayload(JSON.stringify(payload));
+
+    expect(parsed.hookPolicy).toEqual({
+      allowCommandHooks: false,
+      allowUntrustedCommandHooks: false,
+      outputLimitBytes: 8192,
+      timeoutMs: 5000,
+    });
+  });
+
   it("rejects invalid graph submission modes", async () => {
     const { parseRunnerCommandPayload } = await loadContractModule();
     const payload = {

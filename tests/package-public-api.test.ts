@@ -186,9 +186,13 @@ import {
   type HookResult,
 } from "@oisincoveney/pipeline/hooks";
 import {
+  mokaSubmitDirectHooksSchema,
+  mokaSubmitHookPolicySchema,
   mokaSubmitOptionsSchema,
   mokaSubmitResultSchema,
   submitMoka,
+  type MokaSubmitDirectHooksInput,
+  type MokaSubmitHookPolicyInput,
   type MokaSubmitInput,
   type MokaSubmitOptionsInput,
   type MokaSubmitOptionsOutput,
@@ -260,8 +264,26 @@ const hookResult: HookResult = parseHookResult({
   status: "pass",
   summary: "parsed hook result",
 });
+const directHooks: MokaSubmitDirectHooksInput = mokaSubmitDirectHooksSchema.parse({
+  "node.finish": {
+    command: ["node", "scripts/report-node-finish.mjs"],
+    failure: "fail",
+    input: { source: "public-api-consumer" },
+    kind: "command",
+    publishResult: true,
+    timeoutMs: 5000,
+    trusted: true,
+  },
+});
+const hookPolicy: MokaSubmitHookPolicyInput = mokaSubmitHookPolicySchema.parse({
+  allowCommandHooks: false,
+});
 const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
-  eventUrl: "https://console.example/api/pipeline/runner-events",
+  eventSink: {
+    url: "https://console.example/api/pipeline/runner-events",
+  },
+  hookPolicy,
+  hooks: directHooks,
   mode: "quick",
   repository: {
     baseBranch: "main",
@@ -342,6 +364,8 @@ void result;
 void taskContext;
 void hook;
 void hookResult;
+void directHooks;
+void hookPolicy;
 void mokaSubmitInput;
 void mokaSubmitOutput;
 void mokaSubmitTypedInput;

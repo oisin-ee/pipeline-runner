@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import parseGitUrl from "git-url-parse";
 import { z } from "zod";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime";
+import type { HookRuntimePolicy } from "./runtime/contracts";
 import { parseJson } from "./safe-json";
 
 const RUNNER_COMMAND_CONTRACT_VERSION = "1";
@@ -90,6 +91,17 @@ export const runnerEventsSchema = z
   })
   .strict();
 
+export const runnerHookPolicySchema = z
+  .object({
+    allowCommandHooks: z.boolean().optional(),
+    allowUntrustedCommandHooks: z.boolean().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    envPassthrough: z.array(z.string().min(1)).optional(),
+    outputLimitBytes: z.number().int().positive().optional(),
+    timeoutMs: z.number().int().positive().optional(),
+  })
+  .strict();
+
 const runnerMomokayaContextSchema = z
   .object({
     automationNamespace: z.string().min(1).optional(),
@@ -107,6 +119,7 @@ export const runnerCommandPayloadSchema = z
       .default(RUNNER_COMMAND_CONTRACT_VERSION),
     delivery: runnerDeliverySchema.default({ pullRequest: false }),
     events: runnerEventsSchema,
+    hookPolicy: runnerHookPolicySchema.optional(),
     momokaya: runnerMomokayaContextSchema.optional(),
     repository: runnerRepositoryContextSchema,
     run: runnerRunIdentitySchema,
@@ -118,6 +131,7 @@ export const runnerCommandPayloadSchema = z
 
 export type RunnerDelivery = z.infer<typeof runnerDeliverySchema>;
 export type RunnerEvents = z.infer<typeof runnerEventsSchema>;
+export type RunnerHookPolicy = z.infer<typeof runnerHookPolicySchema>;
 export type MokaSubmission = z.infer<typeof mokaSubmissionSchema>;
 export type RunnerCommandPayload = z.infer<typeof runnerCommandPayloadSchema>;
 export type RunnerMomokayaContext = z.infer<typeof runnerMomokayaContextSchema>;
@@ -162,6 +176,7 @@ type RunnerCommandPayloadParseResult =
 export interface BuildRunnerCommandPayloadOptions {
   delivery?: RunnerDelivery;
   events: RunnerEvents;
+  hookPolicy?: HookRuntimePolicy;
   momokaya?: RunnerMomokayaContext;
   repository: RunnerRepositoryContext;
   run: RunnerRunIdentity;
@@ -355,6 +370,7 @@ export function buildRunnerCommandPayload(
     contractVersion: RUNNER_COMMAND_CONTRACT_VERSION,
     delivery: options.delivery,
     events: options.events,
+    hookPolicy: options.hookPolicy,
     ...(options.momokaya ? { momokaya: options.momokaya } : {}),
     repository: options.repository,
     run: options.run,

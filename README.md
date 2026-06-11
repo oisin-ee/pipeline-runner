@@ -164,10 +164,17 @@ validation, contract-version checks, and JSON Schema generation.
 
 Pipeline Console submits hosted runs through `@oisincoveney/pipeline/moka-submit`.
 The subpath exports `mokaSubmitOptionsSchema`, `mokaSubmitResultSchema`,
-`MokaSubmitOptionsInput`, `MokaSubmitOptionsOutput`, `MokaSubmitInput`,
+`mokaSubmitDirectHooksSchema`, `mokaSubmitHookPolicySchema`,
+`MokaSubmitOptionsInput`, `MokaSubmitOptionsOutput`,
+`MokaSubmitDirectHooksInput`, `MokaSubmitHookPolicyInput`, `MokaSubmitInput`,
 `MokaSubmitOutput`, and `submitMoka` so callers can validate prompt or ticket
-tasks with explicit repository, run, delivery, event sink, and runner settings
-without importing Argo, Kubernetes, or runner-command internals.
+tasks with explicit repository, run, delivery, event sink, lifecycle hooks, hook
+policy, and runner settings without importing Argo, Kubernetes, or
+runner-command internals. `eventSink` is runner event transport; direct `hooks`
+configure runner-side lifecycle behavior and are normalized into internal
+runtime hook config by the package. Direct hook function ids are generated as
+`moka-submit-<event-name-with-dashes>`; existing package hooks are preserved,
+and a generated id that already exists in the supplied config is rejected.
 
 ## Configuration Model
 
