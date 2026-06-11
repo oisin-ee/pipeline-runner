@@ -86,7 +86,7 @@ This computes execution batches from your declared dependencies. Read it like a 
 
 ### 7. Dispatch
 
-**If the local `oisin-pipeline` (`pipe`) is available** (`~/dev/oisin-pipeline`, or `pipe` / `oisin-pipeline` on PATH), hand the epic to it: `pipe epic <id>` reads the epic and its sub-tickets through the Backlog MCP, routes each into a track, fans them into isolated git worktrees running the implement→verify workflow, then drain-merges and reviews. Confirm the epic and its sub-tickets exist in backlog first — the router reads them, it doesn't invent them.
+**If the package-owned pipeline CLI is available** (`oisin-pipeline` on PATH), run the current execute flow from the reviewed task description: `oisin-pipeline run --entrypoint execute <task description>`. The CLI generates and executes the schedule artifact directly through the package-owned graph. Confirm the epic and its sub-tickets exist in backlog first — the pipeline reads them, it doesn't invent them.
 
 **Otherwise**, spawn the agents yourself, one parallel batch from `backlog sequence` at a time: everything in a batch concurrently, barrier, next batch.
 
@@ -112,8 +112,8 @@ A single-file change with obvious scope doesn't need an epic — just do it (wit
 
 ## The short version
 
-Diagnose (if it's a bug) → understand the *real* code, deciding library-vs-hand-roll and CLI/generator-vs-manual with [[library-first-development]] → [[grill]] → fit the [[improve|architecture]] → run [[quality-gate]] on the planned shape → cut into tickets that are each *one* parallel-spawnable, acceptance-complete, dependency-declared unit → record in backlog and prove parallelism with `backlog sequence list --plain` → dispatch with `pipe epic` → build each with [[test]]. The plan is done when the fleet could drain it without you.
+Diagnose (if it's a bug) → understand the *real* code, deciding library-vs-hand-roll and CLI/generator-vs-manual with [[library-first-development]] → [[grill]] → fit the [[improve|architecture]] → run [[quality-gate]] on the planned shape → cut into tickets that are each *one* parallel-spawnable, acceptance-complete, dependency-declared unit → record in backlog and prove parallelism with `backlog sequence list --plain` → dispatch with `oisin-pipeline run --entrypoint execute <task description>` → build each with [[test]]. The plan is done when the fleet could drain it without you.
 
 ---
 
-*Original work. Orchestrates [[diagnose]], [[grill]], [[improve]], and [[test]] (adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT) with [[research]], [[library-first-development]], [[spec]], [[fix]], [[quality-gate]], and [[verify]], with context, documentation, and parallel-dispatch guidance folded in from local oisin-pipeline material. Wires to [Backlog.md](https://backlog.md) and the local `oisin-pipeline` (`pipe`) when present, and degrades to a plain plan document when not.*
+*Original work. Orchestrates [[diagnose]], [[grill]], [[improve]], and [[test]] (adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT) with [[research]], [[library-first-development]], [[spec]], [[fix]], [[quality-gate]], and [[verify]], with context, documentation, and parallel-dispatch guidance folded in from package-owned oisin-pipeline material. Wires to [Backlog.md](https://backlog.md) and `oisin-pipeline` when present, and degrades to a plain plan document when not.*
