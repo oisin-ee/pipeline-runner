@@ -84,7 +84,7 @@ const PACKAGE_DEFAULT_RUNNERS_YAML = `version: 1
 runners:
   opencode:
     type: opencode
-    model: gpt-5.5
+    model: openai/gpt-5.5
     capabilities:
       native_subagents: true
       rules: true
@@ -360,11 +360,11 @@ scheduler:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [zai-coding-plan/glm-5-turbo, gpt-5.5-fast]
+          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
         green-implementation:
           category: green
           profile: moka-code-writer
@@ -372,22 +372,22 @@ scheduler:
         verification:
           category: verification
           profile: moka-verifier
-          models: [gpt-5.5, zai-coding-plan/glm-5.1]
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
     execute:
       required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
       nodes:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [zai-coding-plan/glm-5-turbo, gpt-5.5-fast]
+          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
         research:
           category: research
           profile: moka-researcher
-          models: [gpt-5.5-fast, zai-coding-plan/glm-5.1, kimi-for-coding/k2p6]
+          models: [openai/gpt-5.5-fast, zai-coding-plan/glm-5.1, kimi-for-coding/k2p6]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1, kimi-for-coding/kimi-k2-thinking]
         green-backend:
           category: green
           profile: moka-code-writer
@@ -399,15 +399,15 @@ scheduler:
         acceptance-review:
           category: acceptance
           profile: moka-acceptance-reviewer
-          models: [gpt-5.5, zai-coding-plan/glm-5.1]
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
         verification:
           category: verification
           profile: moka-verifier
-          models: [gpt-5.5, zai-coding-plan/glm-5.1]
+          models: [openai/gpt-5.5, zai-coding-plan/glm-5.1]
         learn:
           category: learn
           profile: moka-learner
-          models: [zai-coding-plan/glm-5-turbo, gpt-5.5-fast]
+          models: [zai-coding-plan/glm-5-turbo, openai/gpt-5.5-fast]
 schedules:
   quick-schedule:
     baseline: quick

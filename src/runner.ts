@@ -110,7 +110,7 @@ function optionalModelArgs(
     actor?.model ??
     runner?.model ??
     process.env.PIPELINE_OPENCODE_MODEL ??
-    "gpt-5.5";
+    "openai/gpt-5.5";
   return model ? ["--model", model] : [];
 }
 
