@@ -28,6 +28,9 @@ afterEach(() => {
   }
   delete process.env.PIPELINE_GIT_CREDENTIALS_DIR;
   delete process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE;
+  delete process.env.GIT_CONFIG_COUNT;
+  delete process.env.GIT_CONFIG_KEY_0;
+  delete process.env.GIT_CONFIG_VALUE_0;
 });
 
 describe("runner Git refs", () => {
@@ -125,6 +128,10 @@ describe("runner Git refs", () => {
     process.env.PIPELINE_GIT_CREDENTIALS_DIR = credentialsDir;
     process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = writablePath;
     const remoteUrl = seedRemote(fixture, remotePath, seedPath);
+    const authenticatedRemoteUrl = "https://example.test/oisin/pipeline.git";
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = `url.${remoteUrl}.insteadOf`;
+    process.env.GIT_CONFIG_VALUE_0 = authenticatedRemoteUrl;
 
     await prepareRunnerGitWorkspace(
       buildRunnerCommandPayload({
@@ -135,7 +142,7 @@ describe("runner Git refs", () => {
         },
         repository: {
           baseBranch: "main",
-          url: remoteUrl,
+          url: authenticatedRemoteUrl,
         },
         run: {
           id: "run-git-credentials",
@@ -153,7 +160,7 @@ describe("runner Git refs", () => {
     );
 
     expect(readFileSync(writablePath, "utf8")).toBe(
-      `https://x-access-token:token%20value@${new URL(remoteUrl).host}\n`
+      "https://x-access-token:token%20value@example.test\n"
     );
   });
 });

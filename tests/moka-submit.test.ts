@@ -538,6 +538,7 @@ describe("submitMoka", () => {
             where: { node: "a" },
           },
         },
+        gitCredentialsSecretName: "console-git-credentials",
         mode: "quick",
         namespace: EXPLICIT_NAMESPACE,
         repository: {
@@ -622,6 +623,7 @@ describe("submitMoka", () => {
             trusted: true,
           },
         },
+        gitCredentialsSecretName: "console-git-credentials",
         mode: "quick",
         namespace: EXPLICIT_NAMESPACE,
         repository: {
@@ -711,6 +713,7 @@ workflows:
             kind: "command",
           },
         },
+        gitCredentialsSecretName: "console-git-credentials",
         repository: {
           baseBranch: "main",
           sha: "fedcba9876543210fedcba9876543210fedcba98",
