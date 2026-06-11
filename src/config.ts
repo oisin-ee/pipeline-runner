@@ -331,7 +331,7 @@ hooks:
 runner_command:
   environment:
     setup:
-      - command: pnpm
+      - command: bun
         args: [install, --frozen-lockfile]
 scheduler:
   commands:

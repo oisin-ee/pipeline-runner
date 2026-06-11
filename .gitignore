@@ -69,8 +69,6 @@ rulesync.local.jsonc
 .opencode/*
 !.opencode/commands/
 !.opencode/commands/**
-!.opencode/agents/
-!.opencode/agents/MoKa*.md
 !.opencode/opencode.json
 !.opencode/skills/
 !.opencode/skills/**

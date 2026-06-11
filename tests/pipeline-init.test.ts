@@ -50,7 +50,7 @@ async function installMockSkills(cwd: string): Promise<void> {
 function bootstrappedHostFilesExist(root: string): boolean {
   return [
     ".agents/skills/research/SKILL.md",
-    ".opencode/commands/execute.md",
+    ".opencode/commands/moka-execute.md",
     ".opencode/opencode.json",
   ].every((relativePath) => existsSync(join(root, relativePath)));
 }
@@ -76,8 +76,8 @@ describe("initPipelineProject", () => {
   it("bootstraps skills and generated host resources without repo-local pipeline config", async () => {
     const result = await init();
 
-    expect(result.files).toContain(".opencode/commands/execute.md");
-    expect(result.files).toContain(".opencode/commands/quick.md");
+    expect(result.files).toContain(".opencode/commands/moka-execute.md");
+    expect(result.files).toContain(".opencode/commands/moka-quick.md");
     expect(result.files).toContain(".opencode/opencode.json");
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);

@@ -1098,7 +1098,7 @@ describe("execute", () => {
           ".agents/skills/imagegen/SKILL.md",
           ".claude/skills/execute/SKILL.md",
           ".claude/skills/imagegen/SKILL.md",
-          ".opencode/commands/execute.md",
+          ".opencode/commands/moka-execute.md",
           ".opencode/opencode.json",
         ])
       ).toBe(true);
@@ -1197,12 +1197,15 @@ describe("execute", () => {
     await withCliTempDir("pipeline-cli-install-", async ({ dir, runCli }) => {
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
+      expect(
+        existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))
+      ).toBe(true);
       expect(existsSync(join(dir, ".opencode", "commands", "execute.md"))).toBe(
-        true
+        false
       );
-      expect(existsSync(join(dir, ".opencode", "commands", "quick.md"))).toBe(
-        true
-      );
+      expect(
+        existsSync(join(dir, ".opencode", "commands", "moka-quick.md"))
+      ).toBe(true);
       expect(existsSync(join(dir, ".opencode", "opencode.json"))).toBe(true);
       const opencode = JSON.parse(
         readFileSync(join(dir, ".opencode", "opencode.json"), "utf8")

@@ -401,7 +401,7 @@ describe("loadPipelineConfig", () => {
     expect(config.runner_command.environment.setup).toEqual([
       {
         args: ["install", "--frozen-lockfile"],
-        command: "pnpm",
+        command: "bun",
         required: true,
       },
     ]);

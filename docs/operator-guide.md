@@ -287,13 +287,13 @@ Troubleshooting:
 Generated invocations include:
 
 ```text
-OpenCode: /quick, /execute, /inspect
+OpenCode: /moka-quick, /moka-execute, /moka-inspect
 Codex:    $quick, $execute, $inspect
 ```
 
 `moka init` and `moka install-commands --host opencode` generate:
 
-- `.opencode/commands/<entrypoint>.md` for `/quick`, `/execute`, and `/inspect`
+- `.opencode/commands/moka-<entrypoint>.md` for `/moka-quick`, `/moka-execute`, and `/moka-inspect`
 - `.opencode/agents/*.md` for primary and subagent profiles with explicit
   `permission` maps, `task` grants, and denied ungranted tools
 - `.opencode/skills/*/SKILL.md` from `npx skills add`, not Moka generation

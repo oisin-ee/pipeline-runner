@@ -24,8 +24,9 @@ const AGENTS_MD_END = "<!-- @oisincoveney/pipeline:agents:end -->";
 const SINGLE_OPENCODE_PLUGIN_ARRAY_RE =
   /\n {2}"plugin": \[\n {4}("[^"]+")\n {2}\]/;
 const OPENCODE_PROJECT_CONFIG_PATH = ".opencode/opencode.json";
+const OPENCODE_COMMAND_PREFIX = "moka-";
 const ENTRYPOINT_PATH_PATTERNS: Record<ActiveCommandHost, RegExp[]> = {
-  opencode: [/^\.opencode\/commands\/([^/]+)\.md$/],
+  opencode: [/^\.opencode\/commands\/(?:moka-)?([^/]+)\.md$/],
 };
 const COMMAND_HOSTS = ["opencode"] as const;
 
@@ -640,7 +641,7 @@ function opencodeDefinitions(
       ),
       host: "opencode",
       invocation: invocationForHost("opencode", id),
-      path: `.opencode/commands/${id}.md`,
+      path: `.opencode/commands/${commandIdForHost("opencode", id)}.md`,
     })),
     {
       content: renderOpenCodeProjectConfig(config),
@@ -727,7 +728,7 @@ function projectAgentsMdDefinition(
       "",
       "This repository uses package-owned `@oisincoveney/pipeline` config.",
       "",
-      "- Use `/quick`, `/execute`, or `/inspect` for OpenCode slash-command entrypoints when available.",
+      "- Use `/moka-quick`, `/moka-execute`, or `/moka-inspect` for OpenCode slash-command entrypoints when available.",
       "- Load and follow the relevant skill from `.agents/skills` before doing specialized work.",
       "- Prefer the package-defined pipeline profiles and generated command surfaces over ad hoc subagent prompts.",
       "",
@@ -889,7 +890,17 @@ function invocationForHost(
   const prefix: Record<ActiveCommandHost, string> = {
     opencode: "/",
   };
-  return `${prefix[host]}${entrypointId} <task description>`;
+  return `${prefix[host]}${commandIdForHost(host, entrypointId)} <task description>`;
+}
+
+function commandIdForHost(
+  host: ActiveCommandHost,
+  entrypointId: string
+): string {
+  if (host === "opencode") {
+    return `${OPENCODE_COMMAND_PREFIX}${entrypointId}`;
+  }
+  return entrypointId;
 }
 
 interface ResolvedCommandDefinitionContent {

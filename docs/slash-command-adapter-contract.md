@@ -15,7 +15,7 @@ moka install-commands --host all --check
 
 | Host     | Generated resources                                            | Invocation                        | Mechanical path                                                                                       |
 | -------- | -------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| OpenCode | `.opencode/commands/<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/opencode.json` | `/quick <task>`, `/execute <task>`, `/inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
+| OpenCode | `.opencode/commands/moka-<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/opencode.json` | `/moka-quick <task>`, `/moka-execute <task>`, `/moka-inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
 
 ## Projection Rules
 

@@ -887,8 +887,8 @@ function workflowProfileIds(config: PipelineConfig) {
 function entrypointCommandSurfaces(config: PipelineConfig) {
   return Object.entries(config.entrypoints).map(
     ([entrypointId, entrypoint]) => ({
-      invocation: `/${entrypointId} <task description>`,
-      path: `.opencode/commands/${entrypointId}.md`,
+      invocation: `/moka-${entrypointId} <task description>`,
+      path: `.opencode/commands/moka-${entrypointId}.md`,
       targetId:
         "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
     })
