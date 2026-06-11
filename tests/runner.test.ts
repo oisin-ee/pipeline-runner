@@ -70,7 +70,7 @@ describe("spawnAgent — opencode harness", () => {
         "--format",
         "json",
         "--model",
-        "zai-coding-plan/glm-5.1",
+        "opencode/deepseek-v4-flash-free",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -101,7 +101,7 @@ describe("spawnAgent — opencode harness", () => {
         "--format",
         "json",
         "--model",
-        "zai-coding-plan/glm-5.1",
+        "opencode/deepseek-v4-flash-free",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -153,7 +153,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: zai-coding-plan/glm-5.1
+    model: opencode/deepseek-v4-flash-free
     capabilities:
       native_subagents: true
       output_formats: [text, json, jsonl, json_schema]
@@ -261,7 +261,7 @@ workflows:
         "--format",
         "json",
         "--model",
-        "zai-coding-plan/glm-5.1",
+        "opencode/deepseek-v4-flash-free",
         "--dangerously-skip-permissions",
         "--dir",
         "/tmp/wt",
@@ -352,7 +352,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: zai-coding-plan/glm-5.1
+    model: opencode/deepseek-v4-flash-free
     capabilities:
       native_subagents: true
       skills: true
@@ -498,7 +498,7 @@ workflows:
   });
 
   it("lets PIPELINE_OPENCODE_MODEL override actor and runner models", () => {
-    process.env.PIPELINE_OPENCODE_MODEL = "zai-coding-plan/glm-5.1";
+    process.env.PIPELINE_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
 
     const agent = createRunnerLaunchPlan(CONFIG, {
       profileId: "opencode-agent",
@@ -512,9 +512,9 @@ workflows:
       worktreePath: "/tmp/wt",
     });
 
-    expect(agent.args).toContain("zai-coding-plan/glm-5.1");
+    expect(agent.args).toContain("opencode/deepseek-v4-flash-free");
     expect(agent.args).not.toContain("openai/gpt-5.5");
-    expect(orchestrator.args).toContain("zai-coding-plan/glm-5.1");
+    expect(orchestrator.args).toContain("opencode/deepseek-v4-flash-free");
     expect(orchestrator.args).not.toContain("orchestrator-model");
   });
 

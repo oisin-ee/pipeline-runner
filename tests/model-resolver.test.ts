@@ -35,15 +35,15 @@ function node(models: string[]): PlannedWorkflowNode {
 
 describe("selectNodeModel", () => {
   it("uses PIPELINE_OPENCODE_MODEL ahead of explicit node fallbacks", () => {
-    process.env.PIPELINE_OPENCODE_MODEL = "zai-coding-plan/glm-5.1";
-    process.env.PIPELINE_DISABLED_MODELS = "zai-coding-plan/glm-5.1";
+    process.env.PIPELINE_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
+    process.env.PIPELINE_DISABLED_MODELS = "opencode/deepseek-v4-flash-free";
 
     const selected = selectNodeModel(
       node(["openai/gpt-5.5", "kimi-for-coding/k2p6"])
     );
 
     expect(selected).toEqual({
-      model: "zai-coding-plan/glm-5.1",
+      model: "opencode/deepseek-v4-flash-free",
       reason: "forced by PIPELINE_OPENCODE_MODEL",
       skipped: ["openai/gpt-5.5", "kimi-for-coding/k2p6"],
     });
@@ -53,11 +53,11 @@ describe("selectNodeModel", () => {
     process.env.PIPELINE_DISABLED_MODELS = "openai/gpt-5.5";
 
     const selected = selectNodeModel(
-      node(["openai/gpt-5.5", "zai-coding-plan/glm-5.1"])
+      node(["openai/gpt-5.5", "opencode/deepseek-v4-flash-free"])
     );
 
     expect(selected).toMatchObject({
-      model: "zai-coding-plan/glm-5.1",
+      model: "opencode/deepseek-v4-flash-free",
       skipped: ["openai/gpt-5.5"],
     });
   });

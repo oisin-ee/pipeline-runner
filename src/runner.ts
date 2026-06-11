@@ -81,7 +81,7 @@ const OPENCODE_EXCLUDES = [
   "coverage/",
 ];
 const LINE_RE = /\r?\n/;
-const DEFAULT_OPENCODE_MODEL = "zai-coding-plan/glm-5.1";
+const DEFAULT_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free";
 
 function ensureOpencodeGitExcludes(worktreePath: string): void {
   const excludePath = join(worktreePath, ".git", "info", "exclude");

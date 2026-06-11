@@ -22,7 +22,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: zai-coding-plan/glm-5.1
+    model: opencode/deepseek-v4-flash-free
     capabilities:
       native_subagents: true
       rules: true

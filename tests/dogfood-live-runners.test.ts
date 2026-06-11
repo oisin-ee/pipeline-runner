@@ -290,7 +290,7 @@ runners:
   opencode:
     type: opencode
     command: opencode
-    model: ${JSON.stringify(process.env.PIPELINE_OPENCODE_MODEL ?? "zai-coding-plan/glm-5.1")}
+    model: ${JSON.stringify(process.env.PIPELINE_OPENCODE_MODEL ?? "opencode/deepseek-v4-flash-free")}
     capabilities:
       native_subagents: true
       rules: true

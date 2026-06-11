@@ -84,7 +84,7 @@ const PACKAGE_DEFAULT_RUNNERS_YAML = `version: 1
 runners:
   opencode:
     type: opencode
-    model: zai-coding-plan/glm-5.1
+    model: opencode/deepseek-v4-flash-free
     capabilities:
       native_subagents: true
       rules: true
@@ -360,54 +360,54 @@ scheduler:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5-fast]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
         green-implementation:
           category: green
           profile: moka-code-writer
-          models: [zai-coding-plan/glm-5.1, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
+          models: [opencode/deepseek-v4-flash-free, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
         verification:
           category: verification
           profile: moka-verifier
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5]
     execute:
       required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
       nodes:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5-fast]
         research:
           category: research
           profile: moka-researcher
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast, kimi-for-coding/k2p6]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5-fast, kimi-for-coding/k2p6]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
         green-backend:
           category: green
           profile: moka-code-writer
-          models: [zai-coding-plan/glm-5.1, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
+          models: [opencode/deepseek-v4-flash-free, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
         green-frontend:
           category: green
           profile: moka-code-writer
-          models: [zai-coding-plan/glm-5.1, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
+          models: [opencode/deepseek-v4-flash-free, kimi-for-coding/k2p6, opencode-go/qwen3.7-max, opencode-go/deepseek-v4-pro]
         acceptance-review:
           category: acceptance
           profile: moka-acceptance-reviewer
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5]
         verification:
           category: verification
           profile: moka-verifier
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5]
         learn:
           category: learn
           profile: moka-learner
-          models: [zai-coding-plan/glm-5.1, openai/gpt-5.5-fast]
+          models: [opencode/deepseek-v4-flash-free, openai/gpt-5.5-fast]
 schedules:
   quick-schedule:
     baseline: quick
