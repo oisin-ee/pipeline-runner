@@ -10,6 +10,8 @@ import {
 import type { JsonSchemaValidationResult } from "../contracts";
 
 const LINE_RE = /\r?\n/;
+const MARKDOWN_JSON_FENCE_RE =
+  /^\s*```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i;
 const jsonSchemaValidator = addFormats(
   new Ajv({ allErrors: true, strict: false })
 );
@@ -37,7 +39,9 @@ export function parseRuntimeOutput(
           .map((line) => parseSafeJson(line, "runtime JSONL line")),
       };
     }
-    return { output: parseSafeJson(output, "runtime JSON output") };
+    return {
+      output: parseSafeJson(normalizeJsonSource(output), "runtime JSON output"),
+    };
   } catch (err) {
     return {
       error: err instanceof Error ? err.message : "failed to parse output",
@@ -53,7 +57,10 @@ export function validateJsonSchemaSource(
 ): JsonSchemaValidationResult {
   try {
     const schemaSource = readJsonSchemaSource(schemaPath, worktreePath);
-    const value = parseSafeJson(source, "JSON schema gate value");
+    const value = parseSafeJson(
+      normalizeJsonSource(source),
+      "JSON schema gate value"
+    );
     const validate = compiledJsonSchemaValidator(schemaPath, schemaSource);
     const errors = validate(value)
       ? []
@@ -73,6 +80,12 @@ export function validateJsonSchemaSource(
       reason: "JSON schema validation failed",
     };
   }
+}
+
+export function normalizeJsonSource(source: string): string {
+  const trimmed = source.trim();
+  const fenced = MARKDOWN_JSON_FENCE_RE.exec(trimmed);
+  return fenced?.[1].trim() ?? trimmed;
 }
 
 export function readJsonSchemaSource(

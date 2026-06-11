@@ -27,6 +27,9 @@ describe("json validation runtime helpers", () => {
     expect(parseRuntimeOutput("json", '{"ok":true}')).toEqual({
       output: { ok: true },
     });
+    expect(parseRuntimeOutput("json", '```json\n{"ok":true}\n```')).toEqual({
+      output: { ok: true },
+    });
     expect(parseRuntimeOutput("jsonl", '{"a":1}\n{"b":2}\n')).toEqual({
       output: [{ a: 1 }, { b: 2 }],
     });
@@ -55,7 +58,7 @@ describe("json validation runtime helpers", () => {
 
     expect(
       validateJsonSchemaSource(
-        JSON.stringify({ verdict: "PASS" }),
+        ["```json", JSON.stringify({ verdict: "PASS" }), "```"].join("\n"),
         "schemas/result.schema.json",
         project
       )

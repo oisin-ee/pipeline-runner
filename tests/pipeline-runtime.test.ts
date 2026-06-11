@@ -211,6 +211,35 @@ ${extraWorkflow}
   });
 }
 
+function structuredVerdictSchemaProject(
+  options: { repairEnabled?: boolean } = {}
+) {
+  const project = tempProject();
+  writeProjectFile(
+    project,
+    "schema.json",
+    JSON.stringify({
+      additionalProperties: false,
+      properties: { verdict: { enum: ["PASS"], type: "string" } },
+      required: ["verdict"],
+      type: "object",
+    })
+  );
+  const config = baseConfig(`
+  structured-flow:
+    nodes:
+      - id: structured
+        kind: agent
+        profile: structured
+`);
+  config.profiles.structured.output = {
+    format: "json_schema",
+    ...(options.repairEnabled === false ? { repair: { enabled: false } } : {}),
+    schema_path: "schema.json",
+  };
+  return { config, project };
+}
+
 function executor(outputs: Record<string, string | string[]>) {
   const counts = new Map<string, number>();
   return (plan: RunnerLaunchPlan) => {
@@ -956,29 +985,9 @@ workflows:
   });
 
   it("validates JSON schema output gates", async () => {
-    const project = tempProject();
-    writeProjectFile(
-      project,
-      "schema.json",
-      JSON.stringify({
-        additionalProperties: false,
-        properties: { verdict: { enum: ["PASS"], type: "string" } },
-        required: ["verdict"],
-        type: "object",
-      })
-    );
-    const config = baseConfig(`
-  structured-flow:
-    nodes:
-      - id: structured
-        kind: agent
-        profile: structured
-`);
-    config.profiles.structured.output = {
-      format: "json_schema",
-      repair: { enabled: false },
-      schema_path: "schema.json",
-    };
+    const { config, project } = structuredVerdictSchemaProject({
+      repairEnabled: false,
+    });
 
     const result = await runPipelineFromConfig({
       config,
@@ -1135,24 +1144,9 @@ workflows:
   });
 
   it("selects the latest OpenCode text event that validates against the profile schema", async () => {
-    const project = tempProject();
-    writeProjectFile(
-      project,
-      "schema.json",
-      JSON.stringify({
-        additionalProperties: false,
-        properties: { verdict: { enum: ["PASS"], type: "string" } },
-        required: ["verdict"],
-        type: "object",
-      })
-    );
-    const config = baseConfig(`
-  structured-flow:
-    nodes:
-      - id: structured
-        kind: agent
-        profile: structured
-`);
+    const { config, project } = structuredVerdictSchemaProject({
+      repairEnabled: false,
+    });
     config.runners.opencode = {
       capabilities: {
         native_subagents: true,
@@ -1162,11 +1156,6 @@ workflows:
       type: "opencode",
     };
     config.profiles.structured.runner = "opencode";
-    config.profiles.structured.output = {
-      format: "json_schema",
-      repair: { enabled: false },
-      schema_path: "schema.json",
-    };
     const opencodeEvents = [
       JSON.stringify({
         part: {
@@ -1200,25 +1189,27 @@ workflows:
     expect(result.agentInvocations).toHaveLength(1);
   });
 
+  it("selects valid fenced JSON schema output without repair", async () => {
+    const { config, project } = structuredVerdictSchemaProject();
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => ({
+        exitCode: 0,
+        stdout: '```json\n{"verdict":"PASS"}\n```',
+      }),
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
+    expect(result.agentInvocations).toHaveLength(1);
+  });
+
   it("repairs invalid JSON schema output before gates evaluate it", async () => {
-    const project = tempProject();
-    writeProjectFile(
-      project,
-      "schema.json",
-      JSON.stringify({
-        additionalProperties: false,
-        properties: { verdict: { enum: ["PASS"], type: "string" } },
-        required: ["verdict"],
-        type: "object",
-      })
-    );
-    const config = baseConfig(`
-  structured-flow:
-    nodes:
-      - id: structured
-        kind: agent
-        profile: structured
-`);
+    const { config, project } = structuredVerdictSchemaProject();
     const seen: RunnerLaunchPlan[] = [];
 
     const result = await runPipelineFromConfig({
@@ -1229,7 +1220,7 @@ workflows:
           exitCode: 0,
           stdout:
             plan.nodeId === "structured:output-repair"
-              ? '{"verdict":"PASS"}'
+              ? '```json\n{"verdict":"PASS"}\n```'
               : "verdict is pass",
         };
       },
@@ -1260,24 +1251,7 @@ workflows:
   });
 
   it("fails with repair evidence when repaired output still violates the schema", async () => {
-    const project = tempProject();
-    writeProjectFile(
-      project,
-      "schema.json",
-      JSON.stringify({
-        additionalProperties: false,
-        properties: { verdict: { enum: ["PASS"], type: "string" } },
-        required: ["verdict"],
-        type: "object",
-      })
-    );
-    const config = baseConfig(`
-  structured-flow:
-    nodes:
-      - id: structured
-        kind: agent
-        profile: structured
-`);
+    const { config, project } = structuredVerdictSchemaProject();
 
     const result = await runPipelineFromConfig({
       config,

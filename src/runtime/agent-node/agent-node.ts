@@ -23,6 +23,7 @@ import type {
 } from "../contracts";
 import { emit, emitAgentFinish, emitAgentStart } from "../events";
 import {
+  normalizeJsonSource,
   readJsonSchemaSource,
   validateJsonSchemaSource,
 } from "../json-validation";
@@ -93,6 +94,7 @@ async function finalizeAgentOutput(inputs: {
   const validStructuredOutput = selectValidStructuredOutput(
     context,
     node,
+    normalized,
     plan,
     result.stdout
   );
@@ -116,6 +118,7 @@ async function finalizeAgentOutput(inputs: {
 function selectValidStructuredOutput(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
+  normalized: { evidence: string[]; output: string },
   plan: RunnerLaunchPlan,
   stdout: string
 ): { evidence: string[]; output: string } | null {
@@ -126,10 +129,11 @@ function selectValidStructuredOutput(
   if (output?.format !== "json_schema" || !output.schema_path) {
     return null;
   }
-  const candidates = runnerTextCandidates(plan, stdout);
-  for (const candidate of [...candidates].reverse()) {
+  const candidates = structuredOutputCandidates(plan, stdout, normalized);
+  for (const candidate of candidates) {
+    const candidateOutput = normalizeJsonSource(candidate.output);
     const validation = validateJsonSchemaSource(
-      candidate.output,
+      candidateOutput,
       output.schema_path,
       context.worktreePath
     );
@@ -139,11 +143,28 @@ function selectValidStructuredOutput(
           candidate.evidence,
           `selected valid structured output for ${node.id}`,
         ],
-        output: candidate.output,
+        output: candidateOutput,
       };
     }
   }
   return null;
+}
+
+function structuredOutputCandidates(
+  plan: RunnerLaunchPlan,
+  stdout: string,
+  normalized: { evidence: string[]; output: string }
+): Array<{ evidence: string; output: string }> {
+  const candidates = runnerTextCandidates(plan, stdout);
+  if (candidates.length > 0) {
+    return [...candidates].reverse();
+  }
+  return [
+    {
+      evidence: normalized.evidence.join("; ") || "selected runner stdout",
+      output: normalized.output,
+    },
+  ];
 }
 
 function outputRepairContext(
@@ -216,8 +237,9 @@ async function runOutputRepair(
     });
     emitAgentFinish(context, repairPlan, nodeAttempt, repairResult);
     const repaired = normalizeAgentOutput(repairPlan, repairResult.stdout);
+    const repairedOutput = normalizeJsonSource(repaired.output);
     const repairedValidation = validateJsonSchemaSource(
-      repaired.output,
+      repairedOutput,
       repairContext.schemaPath,
       context.worktreePath
     );
@@ -229,7 +251,7 @@ async function runOutputRepair(
           : []),
         ...(repairResult.timedOut ? ["output repair timed out"] : []),
       ],
-      output: repaired.output,
+      output: repairedOutput,
     };
     latestValidation = repairedValidation;
     const passed = repairResult.exitCode === 0 && repairedValidation.passed;
@@ -252,7 +274,7 @@ async function runOutputRepair(
     if (passed) {
       return {
         evidence,
-        output: repaired.output,
+        output: repairedOutput,
       };
     }
   }
