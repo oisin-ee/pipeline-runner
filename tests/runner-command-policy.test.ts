@@ -40,6 +40,10 @@ vi.mock("../src/pipeline-runtime", () => ({
     mockState().runScheduledWorkflowTask(...args),
 }));
 
+vi.mock("execa", () => ({
+  execa: vi.fn(async () => ({ exitCode: 0 })),
+}));
+
 vi.mock("../src/run-state/git-refs", () => ({
   commitAndPushNodeRef: (...args: unknown[]) =>
     mockState().commitAndPushNodeRef(...args),
