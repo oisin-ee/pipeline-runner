@@ -116,6 +116,7 @@ const mokaSubmitBaseOptionsSchema = z
     eventUrl: z.string().url().optional(),
     events: mokaSubmitEventsSchema.optional(),
     generateName: z.string().min(1).optional(),
+    gitCredentialsSecretName: z.string().min(1).optional(),
     githubAuthSecretName: z.string().min(1).optional(),
     hookPolicy: mokaSubmitHookPolicySchema.optional(),
     hooks: mokaSubmitDirectHooksSchema.optional(),
@@ -227,6 +228,7 @@ interface MokaWorkflowSubmitOptions {
   eventAuthSecretKey?: string;
   eventAuthSecretName?: string;
   generateName?: string;
+  gitCredentialsSecretName?: string;
   githubAuthSecretName?: string;
   image?: string;
   imagePullPolicy?: "Always" | "IfNotPresent" | "Never";
@@ -562,6 +564,7 @@ function workflowSubmitOptions(
   return {
     eventAuthSecretKey: options.eventAuthSecretKey,
     eventAuthSecretName: options.eventAuthSecretName,
+    gitCredentialsSecretName: options.gitCredentialsSecretName,
     githubAuthSecretName: options.githubAuthSecretName,
     image: options.image,
     imagePullPolicy: options.imagePullPolicy,
@@ -659,8 +662,10 @@ async function resolveSubmissionContext(
     return explicitContext;
   }
   const git = await resolveRequiredGit(options, dependencies);
+  const repository = repositoryContext(options, git);
+  assertRepositoryCredentialConfiguration(options);
   return {
-    repository: repositoryContext(options, git),
+    repository,
     run: runContext(options, git, runId),
   };
 }
@@ -671,6 +676,7 @@ function explicitSubmissionContext(
   if (!(options.repository && options.run)) {
     return null;
   }
+  assertRepositoryCredentialConfiguration(options);
   return {
     repository: options.repository,
     run: options.run,
@@ -700,6 +706,16 @@ function repositoryContext(
       url: git.url,
     }
   );
+}
+
+function assertRepositoryCredentialConfiguration(
+  options: ParsedMokaBaseOptions
+): void {
+  if (!options.gitCredentialsSecretName) {
+    throw new Error(
+      "gitCredentialsSecretName is required for runner git clone, fetch, and push operations"
+    );
+  }
 }
 
 function runContext(

@@ -798,6 +798,7 @@ function mokaCommonSubmitOptions(input: {
     eventAuthSecretKey: momokaya?.submit.eventAuthSecretKey,
     eventAuthSecretName: momokaya?.submit.eventAuthSecretName,
     generateName: input.flags.generateName,
+    gitCredentialsSecretName: momokaya?.submit.gitCredentialsSecretName,
     githubAuthSecretName: momokaya?.submit.githubAuthSecretName,
     image: input.flags.image,
     imagePullPolicy: parseImagePullPolicy(input.flags.imagePullPolicy),

@@ -14,6 +14,7 @@ const RUNNER_WORKFLOW_SERVICE_ACCOUNT = "pipeline-runner";
 const RUNNER_WORKFLOW_ENTRYPOINT = "pipeline";
 const RUNNER_WORKFLOW_PAYLOAD_PATH = "/etc/pipeline/payload.json";
 const RUNNER_WORKFLOW_SCHEDULE_PATH = "/etc/pipeline/schedule.yaml";
+const RUNNER_GIT_CREDENTIALS_PATH = "/etc/pipeline/git-credentials";
 
 const kubernetesNameSchema = z.string().min(1);
 const labelValueSchema = z.string().min(1);
@@ -36,6 +37,7 @@ const secretVolumeSchema = z
         z.object({ key: z.string().min(1), path: z.string().min(1) }).strict()
       )
       .optional(),
+    optional: z.boolean().optional(),
     secretName: kubernetesNameSchema,
   })
   .strict();
@@ -199,6 +201,7 @@ const buildRunnerArgoWorkflowOptionsSchema = z
     eventAuthSecretKey: z.string().min(1).optional(),
     eventAuthSecretName: kubernetesNameSchema.optional(),
     generateName: z.string().min(1).optional(),
+    gitCredentialsSecretName: kubernetesNameSchema.optional(),
     githubAuthSecretName: kubernetesNameSchema.optional(),
     annotations: z
       .record(z.string().min(1), z.string().min(1).optional())
@@ -424,38 +427,42 @@ function runnerWorkflowStorage(
     });
   }
 
+  if (options.gitCredentialsSecretName) {
+    volumes.push({
+      name: "runner-git-credentials",
+      secret: {
+        defaultMode: 0o400,
+        items: [
+          { key: "username", path: "username" },
+          { key: "password", path: "password" },
+          { key: "identity", path: "identity" },
+          { key: "known_hosts", path: "known_hosts" },
+        ],
+        optional: true,
+        secretName: options.gitCredentialsSecretName,
+      },
+    });
+    volumeMounts.push({
+      mountPath: RUNNER_GIT_CREDENTIALS_PATH,
+      name: "runner-git-credentials",
+      readOnly: true,
+    });
+  }
+
   if (options.githubAuthSecretName) {
     volumes.push({
       name: "github-auth",
       secret: {
-        items: [
-          { key: "gitconfig", path: "gitconfig" },
-          { key: "git-credentials", path: "git-credentials" },
-          { key: "hosts.yml", path: "hosts.yml" },
-        ],
+        items: [{ key: "hosts.yml", path: "hosts.yml" }],
         secretName: options.githubAuthSecretName,
       },
     });
-    volumeMounts.push(
-      {
-        mountPath: "/root/.gitconfig",
-        name: "github-auth",
-        readOnly: true,
-        subPath: "gitconfig",
-      },
-      {
-        mountPath: "/root/.git-credentials",
-        name: "github-auth",
-        readOnly: true,
-        subPath: "git-credentials",
-      },
-      {
-        mountPath: "/root/.config/gh/hosts.yml",
-        name: "github-auth",
-        readOnly: true,
-        subPath: "hosts.yml",
-      }
-    );
+    volumeMounts.push({
+      mountPath: "/root/.config/gh/hosts.yml",
+      name: "github-auth",
+      readOnly: true,
+      subPath: "hosts.yml",
+    });
   }
 
   return {

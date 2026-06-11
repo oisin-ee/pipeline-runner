@@ -16,7 +16,6 @@ import {
   mergeDependencyRefs,
   prepareRunnerGitWorkspace,
   promoteFinalRef,
-  runnerGitRefs,
 } from "./git-refs";
 
 const tempDirs: string[] = [];
@@ -27,7 +26,7 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
   }
-  delete process.env.PIPELINE_GIT_CREDENTIAL_STORE;
+  delete process.env.PIPELINE_GIT_CREDENTIALS_DIR;
   delete process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE;
 });
 
@@ -65,12 +64,8 @@ describe("runner Git refs", () => {
       },
     });
 
-    expect(runnerGitRefs(payload, "left")).toEqual({
-      finalRef: "refs/heads/pipeline/runs/run-git-refs/workflow-git-refs/final",
-      nodeRef:
-        "refs/heads/pipeline/runs/run-git-refs/workflow-git-refs/nodes/left",
-      prefix: "refs/heads/pipeline/runs/run-git-refs/workflow-git-refs",
-    });
+    const finalRef =
+      "refs/heads/pipeline/runs/run-git-refs/workflow-git-refs/final";
 
     await prepareRunnerGitWorkspace(payload, { workspacePath: leftPath });
     configureGit(leftPath);
@@ -107,7 +102,7 @@ describe("runner Git refs", () => {
     });
 
     git(fixture, "clone", remoteUrl, checkPath);
-    git(checkPath, "fetch", "origin", runnerGitRefs(payload, "final").finalRef);
+    git(checkPath, "fetch", "origin", finalRef);
     git(checkPath, "checkout", "FETCH_HEAD");
 
     expect(leftSha).toMatch(SHA_RE);
@@ -117,15 +112,17 @@ describe("runner Git refs", () => {
     expect(readFileSync(join(checkPath, "right.txt"), "utf8")).toBe("right\n");
   });
 
-  it("copies mounted git credentials to a writable store for runner git commands", async () => {
+  it("writes mounted username and password credentials to a writable store for runner git commands", async () => {
     const fixture = tempDir("pipeline-git-credentials-");
     const remotePath = join(fixture, "remote.git");
     const seedPath = join(fixture, "seed");
     const worktreePath = join(fixture, "worktree");
-    const sourcePath = join(fixture, "mounted-git-credentials");
+    const credentialsDir = join(fixture, "mounted-git-credentials");
     const writablePath = join(fixture, "writable-git-credentials");
-    writeFileSync(sourcePath, "https://token@example.com\n");
-    process.env.PIPELINE_GIT_CREDENTIAL_STORE = sourcePath;
+    mkdirSync(credentialsDir, { recursive: true });
+    writeFileSync(join(credentialsDir, "username"), "x-access-token\n");
+    writeFileSync(join(credentialsDir, "password"), "token value\n");
+    process.env.PIPELINE_GIT_CREDENTIALS_DIR = credentialsDir;
     process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = writablePath;
     const remoteUrl = seedRemote(fixture, remotePath, seedPath);
 
@@ -156,7 +153,7 @@ describe("runner Git refs", () => {
     );
 
     expect(readFileSync(writablePath, "utf8")).toBe(
-      "https://token@example.com\n"
+      `https://x-access-token:token%20value@${new URL(remoteUrl).host}\n`
     );
   });
 });

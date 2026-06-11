@@ -12,6 +12,7 @@ const mokaSubmitGlobalConfigSchema = z
     eventAuthSecretKey: z.string().min(1),
     eventAuthSecretName: z.string().min(1),
     eventUrl: z.string().url(),
+    gitCredentialsSecretName: z.string().min(1),
     githubAuthSecretName: z.string().min(1),
     imagePullSecretName: z.string().min(1),
     opencodeAuthSecretName: z.string().min(1),

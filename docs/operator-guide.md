@@ -141,6 +141,7 @@ momokaya:
     eventAuthSecretKey: <event-auth-secret-key>
     eventAuthSecretName: <event-auth-secret-name>
     eventUrl: <runner-event-sink-url>
+    gitCredentialsSecretName: <git-credentials-secret-name>
     githubAuthSecretName: <github-auth-secret-name>
     imagePullSecretName: <image-pull-secret-name>
     opencodeAuthSecretName: <opencode-auth-secret-name>
@@ -231,13 +232,23 @@ Expected namespace resources:
   `auth.json`
 - The event auth Secret named by `submit.eventAuthSecretName` with the key named
   by `submit.eventAuthSecretKey`
-- The GitHub auth Secret named by `submit.githubAuthSecretName` with keys
-  `gitconfig`, `git-credentials`, and `hosts.yml`
+- The git credentials Secret named by `submit.gitCredentialsSecretName` using
+  the same key conventions as Flux `GitRepository` credentials: `username` and
+  `password` for HTTPS remotes, or `identity` and `known_hosts` for SSH remotes
+- The GitHub CLI auth Secret named by `submit.githubAuthSecretName` with key
+  `hosts.yml`; this Secret is for `gh` and pull request delivery, not git
+  clone/fetch/push authentication
 - A pipeline-console event sink reachable from the pod
 
-Credential rotation is owned by the infra repository scripts. `moka submit`
-references the configured Secret names; it does not accept per-run auth Secret
-overrides.
+Credential issuance and rotation are owned by the cluster/infra layer, not by
+runner payloads; existing infra repository scripts can continue to own the
+operator-facing lifecycle. Recommended production setups use External Secrets
+Operator or Secrets Store CSI Driver. For GitHub HTTPS, prefer a GitHub App
+installation token materialized by External Secrets Operator's
+`GithubAccessToken` generator with a refresh interval below the token lifetime,
+then template it as `username`/`password`. For SSH, materialize `identity` and
+`known_hosts` from the external secret manager. `moka submit` references
+configured Secret names; it does not accept per-run secret values.
 
 ## Payload Contract
 

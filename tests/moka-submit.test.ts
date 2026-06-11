@@ -55,6 +55,7 @@ function captureSubmitCall(calls: CapturedSubmitOptions[]) {
 const MANAGED_AUTH = {
   eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
   eventAuthSecretName: "event-auth-secret",
+  gitCredentialsSecretName: "git-credentials-secret",
   githubAuthSecretName: "github-auth-secret",
   opencodeAuthSecretName: "opencode-auth-secret",
 };
@@ -62,6 +63,7 @@ const MANAGED_AUTH = {
 const MANAGED_EVENT_AUTH_TOKEN_FILE =
   "/etc/pipeline/event-auth/EVENT_AUTH_TOKEN_KEY";
 const EXPLICIT_NAMESPACE = "test-runners";
+const MISSING_GIT_CREDENTIALS_RE = /gitCredentialsSecretName is required/u;
 const EXPLICIT_EVENT_SINK = {
   authTokenFile: "/var/run/pipeline/events/token",
   url: "https://console.example/api/pipeline/runner-events",
@@ -295,7 +297,7 @@ describe("submitMoka", () => {
     });
   });
 
-  it("normalizes GitHub SSH remotes to the runner HTTPS credential path", async () => {
+  it("preserves SSH remotes when standard git credentials are configured", async () => {
     const calls: CapturedSubmitOptions[] = [];
 
     await submitMoka(
@@ -321,10 +323,37 @@ describe("submitMoka", () => {
 
     expect(calls).toHaveLength(1);
     const payload = JSON.parse(calls[0].payloadJson);
-    expect(payload.repository.url).toBe("https://github.com/oisin-ee/tova.git");
+    expect(payload.repository.url).toBe("git@github.com:oisin-ee/tova.git");
   });
 
-  it("rejects SSH remotes that the runner credential store cannot authenticate", async () => {
+  it("passes the standard git credentials Secret to workflow submission", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await submitMoka(
+      {
+        commandArgv: ["opencode", "run", "fix"],
+        config: CONFIG,
+        eventUrl: "https://console.example/api/pipeline/runner-events",
+        eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
+        eventAuthSecretName: "event-auth-secret",
+        gitCredentialsSecretName: "flux-style-git-auth",
+        namespace: EXPLICIT_NAMESPACE,
+        opencodeAuthSecretName: "opencode-auth-secret",
+        type: "command",
+        worktreePath: PROJECT_ROOT,
+      },
+      {
+        generateRunId: () => "run-git-credentials-secret",
+        resolveGitContext: () => Promise.resolve(GIT),
+        submitWorkflow: captureSubmitCall(calls),
+      }
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].gitCredentialsSecretName).toBe("flux-style-git-auth");
+  });
+
+  it("rejects runner submissions without a git credentials Secret", async () => {
     const calls: CapturedSubmitOptions[] = [];
 
     await expect(
@@ -333,7 +362,10 @@ describe("submitMoka", () => {
           commandArgv: ["opencode", "run", "fix"],
           config: CONFIG,
           eventUrl: "https://console.example/api/pipeline/runner-events",
-          ...MANAGED_AUTH,
+          eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
+          eventAuthSecretName: "event-auth-secret",
+          githubAuthSecretName: "github-auth-secret",
+          opencodeAuthSecretName: "opencode-auth-secret",
           namespace: EXPLICIT_NAMESPACE,
           type: "command",
           worktreePath: PROJECT_ROOT,
@@ -343,12 +375,12 @@ describe("submitMoka", () => {
           resolveGitContext: () =>
             Promise.resolve({
               ...GIT,
-              url: "git@gitlab.example:team/repo.git",
+              url: "https://github.com/oisin-ee/tova.git",
             }),
           submitWorkflow: captureSubmitCall(calls),
         }
       )
-    ).rejects.toThrow(/cannot use SSH remote/u);
+    ).rejects.toThrow(MISSING_GIT_CREDENTIALS_RE);
     expect(calls).toHaveLength(0);
   });
 
@@ -372,6 +404,7 @@ describe("submitMoka", () => {
           authTokenFile: "/var/run/pipeline/events/token",
           url: "https://console.example/api/pipeline/runner-events",
         },
+        gitCredentialsSecretName: "console-git-credentials",
         githubAuthSecretName: "console-github-auth",
         hookPolicy: {
           allowCommandHooks: false,
@@ -423,6 +456,7 @@ describe("submitMoka", () => {
       eventAuthSecretKey: "CONSOLE_EVENT_TOKEN",
       eventAuthSecretName: "console-event-auth",
       generateName: "moka-quick-",
+      gitCredentialsSecretName: "console-git-credentials",
       githubAuthSecretName: "console-github-auth",
       imagePullSecretName: "console-pull-secret",
       namespace: "console-runners",

@@ -185,6 +185,9 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
     );
     expect(guide).toContain("eventAuthSecretName: <event-auth-secret-name>");
     expect(guide).toContain("eventAuthSecretKey: <event-auth-secret-key>");
+    expect(guide).toContain(
+      "gitCredentialsSecretName: <git-credentials-secret-name>"
+    );
     expect(guide).toContain("githubAuthSecretName: <github-auth-secret-name>");
     expect(guide).toContain("infra repository scripts");
     expect(guide).not.toContain("pipeline-runner-github-auth");

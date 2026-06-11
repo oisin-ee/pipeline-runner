@@ -95,6 +95,7 @@ describe("runner Argo Workflow manifest", () => {
       ...BASE_OPTIONS,
       eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
       eventAuthSecretName: "pipeline-runner-event-auth",
+      gitCredentialsSecretName: "git-credentials-secret",
       githubAuthSecretName: "github-auth-secret",
       imagePullSecretName: "image-pull-secret",
       opencodeAuthSecretName: "opencode-auth-secret",
@@ -139,14 +140,52 @@ describe("runner Argo Workflow manifest", () => {
         expect.objectContaining({ mountPath: "/etc/pipeline/schedule.yaml" }),
         expect.objectContaining({ mountPath: "/etc/pipeline/task.json" }),
         expect.objectContaining({ mountPath: "/etc/pipeline/event-auth" }),
+        expect.objectContaining({ mountPath: "/etc/pipeline/git-credentials" }),
         expect.objectContaining({
           mountPath: "/root/.local/share/opencode/auth.json",
         }),
+        expect.objectContaining({ mountPath: "/root/.config/gh/hosts.yml" }),
+      ])
+    );
+    expect(runner?.volumeMounts).toEqual(
+      expect.not.arrayContaining([
         expect.objectContaining({ mountPath: "/root/.gitconfig" }),
+        expect.objectContaining({ mountPath: "/root/.git-credentials" }),
+      ])
+    );
+    expect(manifest.spec.volumes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "runner-git-credentials",
+          secret: expect.objectContaining({
+            items: expect.arrayContaining([
+              { key: "username", path: "username" },
+              { key: "password", path: "password" },
+              { key: "identity", path: "identity" },
+              { key: "known_hosts", path: "known_hosts" },
+            ]),
+            optional: true,
+            secretName: "git-credentials-secret",
+          }),
+        }),
       ])
     );
     expect(runner).not.toHaveProperty("outputs");
     expect(manifest.spec.onExit).toBe("pipeline-finalizer");
+  });
+
+  it("does not use the GitHub auth Secret for git credentials", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      githubAuthSecretName: "github-auth-secret",
+      plan: plan(),
+    });
+
+    expect(manifest.spec.volumes).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ name: "runner-git-credentials" }),
+      ])
+    );
   });
 
   it("rejects invalid hand-shaped Workflow resources", () => {

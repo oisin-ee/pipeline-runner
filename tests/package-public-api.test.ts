@@ -322,7 +322,7 @@ const mokaSubmitTypedInput: MokaSubmitInput = {
 const mokaSubmitRawOptions: MokaSubmitOptionsInput = mokaSubmitInput;
 const mokaSubmitResult: MokaSubmitResult = mokaSubmitOutput;
 const mokaGlobalConfig: MokaGlobalConfig = parseMokaGlobalConfig(
-  ${JSON.stringify("momokaya:\n  kubernetes:\n    kubeconfig: /tmp/cluster.kubeconfig\n    namespace: pipeline-namespace\n  submit:\n    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY\n    eventAuthSecretName: event-auth-secret\n    eventUrl: https://console.example.test/api/pipeline/runner-events\n    githubAuthSecretName: github-auth-secret\n    imagePullSecretName: image-pull-secret\n    opencodeAuthSecretName: opencode-auth-secret\n    queueName: pipeline-queue\n    serviceAccountName: runner-service-account\n")},
+  ${JSON.stringify("momokaya:\n  kubernetes:\n    kubeconfig: /tmp/cluster.kubeconfig\n    namespace: pipeline-namespace\n  submit:\n    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY\n    eventAuthSecretName: event-auth-secret\n    eventUrl: https://console.example.test/api/pipeline/runner-events\n    gitCredentialsSecretName: git-credentials-secret\n    githubAuthSecretName: github-auth-secret\n    imagePullSecretName: image-pull-secret\n    opencodeAuthSecretName: opencode-auth-secret\n    queueName: pipeline-queue\n    serviceAccountName: runner-service-account\n")},
   "/tmp/config.yaml"
 );
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
