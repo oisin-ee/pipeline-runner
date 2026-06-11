@@ -84,6 +84,7 @@ export function runScheduledWorkflowTask(
 ): Promise<RuntimeNodeResult> {
   const { dependencyOutputs, nodeId, ...runtimeOptions } = options;
   const context = createRuntimeContext(runtimeOptions);
+  hydrateScheduledDependencyStates(context, nodeId);
   hydrateDependencyOutputs(context, dependencyOutputs);
   recordNodeEvent(context, nodeId, { at: now(), type: "READY" });
   return executePlannedNode(nodeId, context);
@@ -370,6 +371,91 @@ function hydrateDependencyOutputs(
       status: "passed",
     });
   }
+}
+
+function hydrateScheduledDependencyStates(
+  context: RuntimeContext,
+  nodeId: string
+): void {
+  const finishedAt = now();
+  for (const dependencyId of scheduledDependencyNodeIds(context, nodeId)) {
+    const existing = context.nodeStates.get(dependencyId);
+    context.nodeStates.set(
+      dependencyId,
+      scheduledDependencyState(dependencyId, finishedAt, existing)
+    );
+  }
+}
+
+function scheduledDependencyState(
+  id: string,
+  finishedAt: string,
+  existing?: NodeExecutionState
+): NodeExecutionState {
+  const base = existing ?? emptyScheduledDependencyState(id);
+  return completedScheduledDependencyState(base, finishedAt);
+}
+
+function emptyScheduledDependencyState(id: string): NodeExecutionState {
+  return {
+    attempts: 0,
+    evidence: [],
+    gates: [],
+    id,
+    status: "pending",
+  };
+}
+
+function completedScheduledDependencyState(
+  base: NodeExecutionState,
+  finishedAt: string
+): NodeExecutionState {
+  return {
+    ...base,
+    attempts: positiveAttempts(base),
+    evidence: dependencyEvidence(base),
+    exitCode: base.exitCode ?? 0,
+    finishedAt: base.finishedAt ?? finishedAt,
+    output: base.output ?? "",
+    status: "passed",
+  };
+}
+
+function positiveAttempts(state: NodeExecutionState): number {
+  return state.attempts > 0 ? state.attempts : 1;
+}
+
+function dependencyEvidence(state: NodeExecutionState): string[] {
+  return state.evidence.length > 0
+    ? state.evidence
+    : ["dependency satisfied by scheduled workflow"];
+}
+
+function scheduledDependencyNodeIds(
+  context: RuntimeContext,
+  nodeId: string
+): string[] {
+  const visited = new Set<string>();
+  const ordered: string[] = [];
+  const visit = (candidateId: string): void => {
+    if (visited.has(candidateId)) {
+      return;
+    }
+    visited.add(candidateId);
+    const candidate = context.plan.graph.node(candidateId);
+    if (!candidate) {
+      return;
+    }
+    for (const need of candidate.needs) {
+      visit(need);
+    }
+    ordered.push(candidateId);
+  };
+  const node = context.plan.graph.node(nodeId);
+  for (const need of node?.needs ?? []) {
+    visit(need);
+  }
+  return ordered;
 }
 
 function cancelledFailure(): RuntimeFailure {

@@ -14,6 +14,7 @@ import { parsePipelineConfigParts } from "../src/config";
 import {
   type PipelineRuntimeEvent,
   runPipelineFromConfig,
+  runScheduledWorkflowTask,
 } from "../src/pipeline-runtime";
 import type { RunnerLaunchPlan } from "../src/runner";
 
@@ -1569,6 +1570,56 @@ workflows:
       attempts: 2,
       status: "passed",
     });
+  });
+
+  it("remediates upstream implementation nodes for isolated scheduled mechanical tasks", async () => {
+    const project = tempProject();
+    process.env.PIPELINE_LINT_COMMAND = "node -e process.exit(1)";
+    mockExeca
+      .mockRejectedValueOnce({
+        exitCode: 1,
+        stderr:
+          "eslint(require-await): Async function has no `await` expression.",
+        stdout: "",
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "ok" });
+    const config = baseConfig(`
+  isolated-remediate-mechanical-flow:
+    nodes:
+      - id: implement
+        kind: agent
+        profile: a
+      - id: mechanical-lint
+        kind: builtin
+        builtin: lint
+        needs: [implement]
+`);
+    config.profiles.a.scheduling_roles = ["implementation"];
+    const seen: RunnerLaunchPlan[] = [];
+
+    const result = await runScheduledWorkflowTask({
+      config,
+      executor: (plan) => {
+        seen.push(plan);
+        return {
+          exitCode: 0,
+          stdout: "removed async keyword",
+        };
+      },
+      nodeId: "mechanical-lint",
+      task: "mechanical remediation",
+      workflowId: "isolated-remediate-mechanical-flow",
+      worktreePath: project,
+    });
+
+    expect(result).toMatchObject({
+      attempts: 2,
+      nodeId: "mechanical-lint",
+      status: "passed",
+    });
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement:remediate:mechanical-lint:1",
+    ]);
   });
 
   it("injects stdout gate JSON contracts into agent prompts", async () => {
