@@ -661,10 +661,11 @@ workflows:
     }
   });
 
-  it("accepts Markdown-fenced planner schedule output", async () => {
+  it("accepts Markdown-fenced planner schedule output with trailing prose", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-fenced-"));
+    const scheduleId = "4d91f075-2d17-499a-9d5a-a07b23648094";
     const schedule = buildScheduleYaml({
-      scheduleId: "run-fenced",
+      scheduleId,
       task: "Accept fenced schedule",
       nodes: [
         "- id: research",
@@ -676,7 +677,17 @@ workflows:
         "  needs: [research]",
       ],
     });
-    const fencedSchedule = ["```yaml", schedule.trim(), "```"].join("\n");
+    const fencedSchedule = [
+      "```yaml",
+      schedule.trim(),
+      "```",
+      "",
+      "**Graph shape rationale:**",
+      "",
+      "| Node | Purpose |",
+      "|---|---|",
+      "| `research` | Understand the ticket |",
+    ].join("\n");
     const nodeIds: string[] = [];
 
     try {
@@ -694,10 +705,11 @@ workflows:
       });
 
       expect(nodeIds).toEqual(["schedule-plan"]);
-      expect(result.artifact.schedule_id).toBe("run-fenced");
+      expect(result.artifact.schedule_id).toBe(scheduleId);
       expect(
         result.artifact.workflows.root.nodes.map((node) => node.id)
       ).toEqual(["research", "implement", "generated-coverage"]);
+      expect(result.path).toBe(`.pipeline/runs/${scheduleId}/schedule.yaml`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -33,6 +33,7 @@ import {
 
 const SCHEDULE_KIND = "pipeline-schedule";
 const ID_RE = /^[a-z][a-z0-9-]*$/;
+const SCHEDULE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const DESCRIPTION_SECTION_RE = /## Description\s+([\s\S]*?)(?=\n## |\s*$)/;
 const ACCEPTANCE_SECTION_RE =
   /## Acceptance Criteria\s+([\s\S]*?)(?=\n## |\s*$)/;
@@ -41,8 +42,7 @@ const GENERATED_ID_INVALID_CHARS_RE = /[^a-z0-9]+/g;
 const GENERATED_ID_TRIM_HYPHENS_RE = /^-+|-+$/g;
 const STARTS_WITH_ALPHA_RE = /^[a-z]/;
 const LINE_RE = /\r?\n/;
-const MARKDOWN_YAML_FENCE_RE =
-  /^\s*```(?:ya?ml)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i;
+const MARKDOWN_YAML_FENCE_RE = /```(?:ya?ml)?\s*\r?\n([\s\S]*?)\r?\n```/i;
 const SCHEDULE_PLANNER_REPAIR_ATTEMPTS = 1;
 const SCHEDULE_BUILTINS = [
   "drain-merge",
@@ -64,7 +64,7 @@ const scheduleArtifactSchema = z
     generated_at: z.string().datetime(),
     kind: z.literal(SCHEDULE_KIND),
     root_workflow: z.string().regex(ID_RE),
-    schedule_id: z.string().regex(ID_RE),
+    schedule_id: z.string().regex(SCHEDULE_ID_RE),
     source_entrypoint: z.string().regex(ID_RE),
     task: z.string().min(1),
     version: z.literal(1),
