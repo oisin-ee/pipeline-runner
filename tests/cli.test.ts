@@ -192,6 +192,16 @@ function spyOutput(spy: ConsoleSpy): string {
   return spy.mock.calls.map(([message]) => String(message)).join("\n");
 }
 
+function readPackageVersion(): string {
+  const packageJson = JSON.parse(
+    readFileSync(join(process.cwd(), "package.json"), "utf8")
+  ) as { version?: unknown };
+  if (typeof packageJson.version !== "string") {
+    throw new Error("Expected package.json to define a string version");
+  }
+  return packageJson.version;
+}
+
 async function withCliTarget(
   targetPath: string,
   run: (fixture: CliTargetFixture) => Promise<void>
@@ -1575,6 +1585,33 @@ workflows:
       expect(help).not.toMatch(PACKAGE_EXECUTE_TOP_LEVEL_COMMAND_RE);
       expect(help).not.toMatch(PACKAGE_QUICK_TOP_LEVEL_COMMAND_RE);
       expect(help).not.toContain("runner-job");
+    });
+  });
+
+  it("prints the package version with --version", async () => {
+    await withCliTempDir("pipeline-cli-version-", async () => {
+      const { createCliProgram } = await import("../src/index");
+      const program = createCliProgram();
+      let stdout = "";
+      program.configureOutput({
+        writeErr: (chunk) => {
+          throw new Error(chunk);
+        },
+        writeOut: (chunk) => {
+          stdout += chunk;
+        },
+      });
+
+      await expect(
+        program.parseAsync(
+          ["node", "/repo/node_modules/.bin/moka", "--version"],
+          {
+            from: "node",
+          }
+        )
+      ).rejects.toMatchObject({ code: "commander.version", exitCode: 0 });
+
+      expect(stdout.trim()).toBe(readPackageVersion());
     });
   });
 

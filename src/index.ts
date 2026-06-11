@@ -443,7 +443,11 @@ export function createCliProgram(): Command {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const configuredPipeline = loadConfiguredEntrypoints(cwd);
   const program = new Command();
-  program.name("moka").description("Submit work to Momokaya").exitOverride();
+  program
+    .name("moka")
+    .description("Submit work to Momokaya")
+    .version(readPackageVersion())
+    .exitOverride();
 
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
     await execute(descriptionParts.join(" "), {
@@ -721,6 +725,16 @@ export function createCliProgram(): Command {
   }
 
   return program;
+}
+
+function readPackageVersion(): string {
+  const packageJson = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8")
+  ) as { version?: unknown };
+  if (typeof packageJson.version !== "string") {
+    throw new Error("Unable to read @oisincoveney/pipeline package version.");
+  }
+  return packageJson.version;
 }
 
 function addMokaSubmitOptions(command: Command): Command {
