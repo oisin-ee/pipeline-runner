@@ -17,6 +17,7 @@ import {
   resolveRunnerEventSinkAuthToken,
 } from "../runner-command-contract";
 import { createRunnerEventSink } from "../runner-event-sink";
+import type { RuntimeNodeResult } from "../runtime/contracts";
 import {
   compileScheduleArtifact,
   parseScheduleArtifact,
@@ -256,6 +257,7 @@ export async function runRunnerCommand(
       },
       "task.run finish"
     );
+    logFailedTaskRun(logger, descriptor.nodeId, result);
     logger.info(
       {
         nodeId: descriptor.nodeId,
@@ -357,6 +359,28 @@ async function runSetupCommands(
       );
     }
   }
+}
+
+function logFailedTaskRun(
+  logger: pino.Logger,
+  nodeId: string,
+  result: RuntimeNodeResult
+): void {
+  if (result.status === "passed" && result.exitCode === 0) {
+    return;
+  }
+  logger.error(
+    {
+      evidence: result.evidence,
+      exitCode: result.exitCode,
+      nodeId,
+      output: result.output,
+      phase: "task.run",
+      resultStatus: result.status,
+      status: "failed",
+    },
+    "task.run failed"
+  );
 }
 
 function runnerTaskText(task: RunnerTask, worktreePath: string): string {

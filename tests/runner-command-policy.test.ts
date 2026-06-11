@@ -146,6 +146,50 @@ describe("runner-command hook policy", () => {
     expect(stdout.text()).not.toContain("test-token");
     expect(stderr.text()).toBe("");
   });
+
+  it("writes failed task output to stderr through the structured logger", async () => {
+    const fixture = writeRunnerCommandFixture({
+      runId: "run-failed-logs",
+      tempPrefix: "runner-command-failed-logs-",
+    });
+    const mocks = installMockState();
+    mocks.runScheduledWorkflowTask.mockResolvedValue({
+      evidence: ["agent stderr: model unavailable"],
+      exitCode: 1,
+      output: "agent failed before producing research",
+      status: "failed",
+    });
+    mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
+    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
+    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
+    const fetch = vi.fn(async () => new Response(null, { status: 202 }));
+    const stdout = captureOutput();
+    const stderr = captureOutput();
+
+    const exitCode = await runRunnerCommand({
+      cwd: fixture.dir,
+      fetch,
+      payloadFile: fixture.payloadPath,
+      scheduleFile: fixture.schedulePath,
+      stderr: stderr.stream,
+      stdout: stdout.stream,
+      taskDescriptorFile: fixture.descriptorPath,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(logPhases(stdout.text())).toContain("task.run:finish");
+    expect(logRecords(stderr.text())).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          evidence: ["agent stderr: model unavailable"],
+          level: 50,
+          output: "agent failed before producing research",
+          phase: "task.run",
+          status: "failed",
+        }),
+      ])
+    );
+  });
 });
 
 function captureOutput(): {
@@ -168,10 +212,17 @@ function captureOutput(): {
 }
 
 function logPhases(content: string): string[] {
+  return logRecords(content)
+    .filter((record): record is { phase: string; status: string } =>
+      Boolean(record.phase && record.status)
+    )
+    .map((record) => `${record.phase}:${record.status}`);
+}
+
+function logRecords(content: string): Record<string, unknown>[] {
   return content
     .trim()
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as { phase: string; status: string })
-    .map((record) => `${record.phase}:${record.status}`);
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
