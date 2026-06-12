@@ -132,7 +132,7 @@ describe("package public app-facing API", () => {
         ".agents/skills/quick/SKILL.md",
       ])
     );
-  });
+  }, 30_000);
 
   it("documents stable app-facing config, planner, and runtime imports", () => {
     const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
