@@ -25,8 +25,6 @@ const EXPECTED_PACKAGE_EXPORTS = [
   "./runner",
   "./runner-command-contract",
   "./runtime",
-  "./runtime/goal-loop",
-  "./runtime/goal-state",
   "./schedule",
 ] as const;
 
@@ -280,6 +278,16 @@ describe("runtime actor/retry contract module boundary", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
       [...EXPECTED_PACKAGE_EXPORTS].sort()
     );
+  });
+
+  it("does not build retired goal runtime entrypoints as standalone package surfaces", () => {
+    const tsdownConfig = readFileSync(
+      join(process.cwd(), "tsdown.config.ts"),
+      "utf8"
+    );
+
+    expect(tsdownConfig).not.toContain('"runtime/goal-loop"');
+    expect(tsdownConfig).not.toContain('"runtime/goal-state"');
   });
 
   it("exposes runtime node execution state through the internal NodeStateStore field only", () => {

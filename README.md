@@ -189,7 +189,7 @@ Package-owned defaults declare:
 - the singleton `pipeline-gateway` MCP connection
 - workflows, schedules, hooks, gates, artifacts, retries, and timeouts
 - generated OpenCode host resources
-- goal-loop contracts and continuation context
+- internal goal-state artifacts and goal-loop continuation context
 
 Current default entrypoints:
 

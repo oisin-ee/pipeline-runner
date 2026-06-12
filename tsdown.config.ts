@@ -14,8 +14,6 @@ export default defineConfig({
     "pipeline-runtime": "src/pipeline-runtime.ts",
     runner: "src/runner.ts",
     "runner-command-contract": "src/runner-command-contract.ts",
-    "runtime/goal-loop": "src/runtime/goal-loop/goal-loop.ts",
-    "runtime/goal-state": "src/runtime/goal-state/goal-state.ts",
     "schedule-planner": "src/schedule-planner.ts",
     "workflow-planner": "src/workflow-planner.ts",
   },

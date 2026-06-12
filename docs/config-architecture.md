@@ -3,7 +3,8 @@
 The v1 runtime pipeline is package-owned config. Package-owned defaults declare
 runner adapters, profiles, MCP gateway backends, the orchestrator profile,
 entrypoints, schedules, hooks, workflows, gates, artifacts, OpenCode host
-resources, and goal-loop contracts. OpenCode is the package runtime.
+resources, and internal goal-loop continuation behavior. OpenCode is the package
+runtime.
 
 Runtime code does not read `.pipeline/config.toml`, phase profiles, or hardcoded
 prompt constants.

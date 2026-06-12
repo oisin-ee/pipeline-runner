@@ -86,14 +86,6 @@
       "types": "./dist/runner-command-contract.d.ts",
       "import": "./dist/runner-command-contract.js"
     },
-    "./runtime/goal-loop": {
-      "types": "./dist/runtime/goal-loop.d.ts",
-      "import": "./dist/runtime/goal-loop.js"
-    },
-    "./runtime/goal-state": {
-      "types": "./dist/runtime/goal-state.d.ts",
-      "import": "./dist/runtime/goal-state.js"
-    },
     "./runtime": {
       "types": "./dist/pipeline-runtime.d.ts",
       "import": "./dist/pipeline-runtime.js"
