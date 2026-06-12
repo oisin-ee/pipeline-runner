@@ -4,12 +4,16 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  ArgoGraphCompilerError,
+  compileArgoExecutionGraph,
+} from "../src/argo-graph";
+import {
   buildRunnerArgoWorkflowManifest,
   runnerArgoWorkflowManifestSchema,
   stringifyRunnerArgoWorkflow,
 } from "../src/argo-workflow";
 import type { PipelineConfig } from "../src/config";
-import { loadPipelineConfig } from "../src/config";
+import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
 import { compileWorkflowPlan } from "../src/workflow-planner";
 
 const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-workflow-"));
@@ -1194,6 +1198,106 @@ describe("runner Argo Workflow manifest", () => {
     );
   });
 
+  it("compiles agent-kind nodes to runner-command tasks identical to command-kind nodes", () => {
+    /*
+     * AC#2: Agent nodes lower to the same runner-command template as command
+     * and builtin nodes. The runner recovers per-node context (profile, models,
+     * instructions) at execution time by compiling the schedule artifact and
+     * looking up the node by id. The task descriptor in the ConfigMap carries
+     * only the nodeId — it is intentionally minimal and uniform across kinds.
+     */
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  impl:
+    runner: opencode
+    instructions: { inline: Implement }
+`,
+      pipeline: `
+version: 1
+default_workflow: agent-graph
+orchestrator:
+  profile: orchestrator
+workflows:
+  agent-graph:
+    nodes:
+      - id: plan
+        kind: agent
+        profile: orchestrator
+      - id: impl
+        kind: agent
+        profile: impl
+        needs: [plan]
+`,
+    });
+    const agentPlan = compileWorkflowPlan(config, "agent-graph");
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      plan: agentPlan,
+    });
+
+    const dag = manifest.spec.templates.find((t) => t.name === "pipeline")?.dag;
+    const planTemplate = manifest.spec.templates.find(
+      (t) => t.name === "task-plan"
+    );
+    const implTemplate = manifest.spec.templates.find(
+      (t) => t.name === "task-impl"
+    );
+
+    // Both agent nodes appear as runner-command tasks in the DAG
+    expect(dag?.tasks.map((t) => t.name)).toEqual([
+      "workflow-start",
+      "node-plan",
+      "node-impl",
+    ]);
+    // impl depends on plan in the Argo DAG
+    expect(
+      dag?.tasks.find((t) => t.name === "node-impl")?.dependencies
+    ).toEqual(["workflow-start", "node-plan"]);
+    // All runner-command templates use the same moka runner-command args
+    expect(planTemplate?.container?.args).toEqual([
+      "runner-command",
+      "--payload-file",
+      "/etc/pipeline/payload.json",
+      "--schedule-file",
+      "/etc/pipeline/schedule.yaml",
+    ]);
+    expect(implTemplate?.container?.args).toEqual(
+      planTemplate?.container?.args
+    );
+    // task-descriptor subPath encodes the nodeId so the runner can load context
+    expect(
+      planTemplate?.container?.volumeMounts?.find(
+        (vm) => vm.mountPath === "/etc/pipeline/task.json"
+      )?.subPath
+    ).toBe("node-plan.json");
+    expect(
+      implTemplate?.container?.volumeMounts?.find(
+        (vm) => vm.mountPath === "/etc/pipeline/task.json"
+      )?.subPath
+    ).toBe("node-impl.json");
+    // schedule payload is mounted — runner loads agent profile from it via nodeId
+    expect(
+      planTemplate?.container?.volumeMounts?.some(
+        (vm) => vm.mountPath === "/etc/pipeline/schedule.yaml"
+      )
+    ).toBe(true);
+  });
+
   it("rejects invalid hand-shaped Workflow resources", () => {
     expect(() =>
       runnerArgoWorkflowManifestSchema.parse({
@@ -1219,5 +1323,240 @@ describe("runner Argo Workflow manifest", () => {
     expect(stringifyRunnerArgoWorkflow(manifest)).toContain(
       "apiVersion: argoproj.io/v1alpha1"
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// compileArgoExecutionGraph — graph lowering semantics
+// ---------------------------------------------------------------------------
+
+function agentConfig() {
+  return parsePipelineConfigParts({
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  impl:
+    runner: opencode
+    instructions: { inline: Implement }
+  review:
+    runner: opencode
+    instructions: { inline: Review }
+`,
+    pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes: []
+`,
+  });
+}
+
+describe("compileArgoExecutionGraph", () => {
+  it("lowers agent-kind nodes to Argo DAG tasks with preserved dependency order", () => {
+    const config = agentConfig();
+    config.workflows["agent-dag"] = {
+      nodes: [
+        { id: "plan", kind: "agent", profile: "orchestrator" },
+        { id: "impl", kind: "agent", profile: "impl", needs: ["plan"] },
+        { id: "review", kind: "agent", profile: "review", needs: ["impl"] },
+      ],
+    };
+    const agentPlan = compileWorkflowPlan(config, "agent-dag");
+    const graph = compileArgoExecutionGraph(agentPlan);
+
+    expect(graph.tasks.map((t) => t.nodeId)).toEqual([
+      "plan",
+      "impl",
+      "review",
+    ]);
+    expect(graph.tasks.find((t) => t.nodeId === "impl")?.dependencies).toEqual([
+      "node-plan",
+    ]);
+    expect(
+      graph.tasks.find((t) => t.nodeId === "review")?.dependencies
+    ).toEqual(["node-impl"]);
+    expect(graph.terminalNodeIds).toEqual(["review"]);
+    expect(graph.terminalTaskNames).toEqual(["node-review"]);
+  });
+
+  it("lowers builtin-kind nodes to Argo DAG tasks", () => {
+    const config = agentConfig();
+    config.workflows["builtin-dag"] = {
+      nodes: [
+        { id: "lint", kind: "builtin", builtin: "lint" },
+        { id: "test", kind: "builtin", builtin: "test", needs: ["lint"] },
+      ],
+    };
+    const builtinPlan = compileWorkflowPlan(config, "builtin-dag");
+    const graph = compileArgoExecutionGraph(builtinPlan);
+
+    expect(graph.tasks.map((t) => t.nodeId)).toEqual(["lint", "test"]);
+    expect(graph.tasks.find((t) => t.nodeId === "test")?.dependencies).toEqual([
+      "node-lint",
+    ]);
+  });
+
+  it("fans out agent nodes from a shared upstream and fans back in to a terminal", () => {
+    /*
+     * fan-out/fan-in shape:
+     *   start → [impl-a, impl-b] → review
+     */
+    const config = agentConfig();
+    config.workflows["fan-graph"] = {
+      nodes: [
+        { id: "start", kind: "agent", profile: "orchestrator" },
+        { id: "impl-a", kind: "agent", profile: "impl", needs: ["start"] },
+        { id: "impl-b", kind: "agent", profile: "impl", needs: ["start"] },
+        {
+          id: "review",
+          kind: "agent",
+          profile: "review",
+          needs: ["impl-a", "impl-b"],
+        },
+      ],
+    };
+    const fanPlan = compileWorkflowPlan(config, "fan-graph");
+    const graph = compileArgoExecutionGraph(fanPlan);
+
+    const taskDeps = Object.fromEntries(
+      graph.tasks.map((t) => [t.nodeId, t.dependencies])
+    );
+    expect(taskDeps.start).toEqual([]);
+    expect(taskDeps["impl-a"]).toEqual(["node-start"]);
+    expect(taskDeps["impl-b"]).toEqual(["node-start"]);
+    expect(taskDeps.review).toEqual(
+      expect.arrayContaining(["node-impl-a", "node-impl-b"])
+    );
+    // fan-in: review is the only terminal
+    expect(graph.terminalNodeIds).toEqual(["review"]);
+  });
+
+  it("lowers a parallel container: children inherit the parallel node's needs", () => {
+    /*
+     * AC#3: parallel containers are transparent — children are emitted as
+     * direct Argo tasks, each inheriting the parallel node's own needs so that
+     * they are blocked by the same upstream gate as the container itself.
+     *
+     * Layout:  gate → [parallel: [child-a, child-b]] → (children are terminal)
+     */
+    const config = agentConfig();
+    config.workflows["parallel-graph"] = {
+      nodes: [
+        { id: "gate", kind: "command", command: ["true"] },
+        {
+          id: "fanout",
+          kind: "parallel",
+          needs: ["gate"],
+          nodes: [
+            {
+              id: "child-a",
+              kind: "agent",
+              profile: "impl",
+            },
+            {
+              id: "child-b",
+              kind: "agent",
+              profile: "review",
+            },
+          ],
+        },
+      ],
+    };
+    const parallelPlan = compileWorkflowPlan(config, "parallel-graph");
+    const graph = compileArgoExecutionGraph(parallelPlan);
+
+    // parallel container itself produces no task — only its children do
+    expect(graph.tasks.map((t) => t.nodeId)).toEqual([
+      "gate",
+      "child-a",
+      "child-b",
+    ]);
+    // children inherit the parallel node's need (gate)
+    expect(
+      graph.tasks.find((t) => t.nodeId === "child-a")?.dependencies
+    ).toEqual(["node-gate"]);
+    expect(
+      graph.tasks.find((t) => t.nodeId === "child-b")?.dependencies
+    ).toEqual(["node-gate"]);
+    // both children are terminal (nothing depends on them)
+    expect(graph.terminalNodeIds).toEqual(
+      expect.arrayContaining(["child-a", "child-b"])
+    );
+  });
+
+  it("rewires dependencies through a group node to its executable members", () => {
+    /*
+     * AC#3: group nodes are transparent dependency anchors. A node that needs
+     * a group should end up depending on the group's member nodes in the Argo
+     * DAG rather than the group itself (which produces no Argo task).
+     *
+     * Layout:  [impl-a, impl-b] → group → review
+     * Expected Argo deps for review: [node-impl-a, node-impl-b]
+     */
+    const config = agentConfig();
+    config.workflows["group-graph"] = {
+      nodes: [
+        { id: "impl-a", kind: "agent", profile: "impl" },
+        { id: "impl-b", kind: "agent", profile: "impl" },
+        {
+          id: "impls",
+          kind: "group",
+          nodes: ["impl-a", "impl-b"],
+        },
+        {
+          id: "review",
+          kind: "agent",
+          profile: "review",
+          needs: ["impls"],
+        },
+      ],
+    };
+    const groupPlan = compileWorkflowPlan(config, "group-graph");
+    const graph = compileArgoExecutionGraph(groupPlan);
+
+    // group produces no Argo task
+    expect(graph.tasks.map((t) => t.nodeId)).toEqual([
+      "impl-a",
+      "impl-b",
+      "review",
+    ]);
+    // review is rewired to the group's members
+    expect(
+      graph.tasks.find((t) => t.nodeId === "review")?.dependencies
+    ).toEqual(expect.arrayContaining(["node-impl-a", "node-impl-b"]));
+    expect(graph.terminalNodeIds).toEqual(["review"]);
+  });
+
+  it("ArgoGraphCompilerError names both kind and nodeId for diagnostics", () => {
+    /*
+     * The exhaustiveness guard in compileNode produces an ArgoGraphCompilerError
+     * that names both the unknown kind and the node id so operators can diagnose
+     * which schedule item caused the failure. Since all current WorkflowNodeKind
+     * values are handled, we construct a synthetic PlannedWorkflowNode with a
+     * fabricated kind to exercise the error path.
+     */
+    const err = new ArgoGraphCompilerError("unknown-kind", "node-xyz");
+    expect(err).toBeInstanceOf(ArgoGraphCompilerError);
+    expect(err.name).toBe("ArgoGraphCompilerError");
+    expect(err.kind).toBe("unknown-kind");
+    expect(err.nodeId).toBe("node-xyz");
+    expect(err.message).toContain("unknown-kind");
+    expect(err.message).toContain("node-xyz");
   });
 });

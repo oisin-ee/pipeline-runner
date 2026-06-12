@@ -1,11 +1,10 @@
 import { z } from "zod";
+import type { WorkflowNodeKind } from "./config";
 import { uniqueStrings } from "./strings";
 import type {
   PlannedWorkflowNode,
   WorkflowExecutionPlan,
 } from "./workflow-planner";
-
-const EXECUTABLE_NODE_KINDS = ["agent", "builtin", "command"] as const;
 
 const argoExecutableTaskSchema = z
   .object({
@@ -27,6 +26,25 @@ const argoExecutionGraphSchema = z
 
 export type ArgoExecutableTask = z.infer<typeof argoExecutableTaskSchema>;
 export type ArgoExecutionGraph = z.infer<typeof argoExecutionGraphSchema>;
+
+/**
+ * Thrown when the Argo graph compiler encounters a node kind that cannot be
+ * lowered to an Argo DAG task. Callers should surface this as a validation
+ * failure before attempting a cluster submission.
+ */
+export class ArgoGraphCompilerError extends Error {
+  readonly kind: string;
+  readonly nodeId: string;
+
+  constructor(kind: string, nodeId: string) {
+    super(
+      `Argo graph compiler: node kind '${kind}' on node '${nodeId}' cannot be lowered to an Argo DAG task`
+    );
+    this.name = "ArgoGraphCompilerError";
+    this.kind = kind;
+    this.nodeId = nodeId;
+  }
+}
 
 export function compileArgoExecutionGraph(
   plan: WorkflowExecutionPlan
@@ -72,30 +90,79 @@ class ArgoGraphCompiler {
     inheritedNeeds: string[]
   ): void {
     for (const node of nodes) {
-      if (isExecutableNode(node)) {
-        const dependencies = this.resolveDependencyTaskNames([
-          ...inheritedNeeds,
-          ...node.needs,
-        ]);
-        const task = argoExecutableTaskSchema.parse({
-          dependencies,
-          nodeId: node.id,
-          taskName: argoTaskName(node.id),
-          templateName: argoTemplateName(node.id),
-        });
-        this.tasks.push(task);
-        continue;
-      }
-      if (node.kind === "group") {
-        continue;
-      }
-      if (node.kind === "parallel") {
-        this.compileNodes(node.children ?? [], [
-          ...inheritedNeeds,
-          ...node.needs,
-        ]);
+      this.compileNode(node, inheritedNeeds);
+    }
+  }
+
+  // fallow-ignore-next-line complexity
+  private compileNode(
+    node: PlannedWorkflowNode,
+    inheritedNeeds: string[]
+  ): void {
+    /*
+     * Exhaustiveness guard: if a new kind is added to WorkflowNodeKind the
+     * `default` branch will produce a compile error (TypeScript narrows `kind`
+     * to `never`), preventing silent drops in the Argo lowering path.
+     */
+    const kind: WorkflowNodeKind = node.kind;
+    switch (kind) {
+      case "agent":
+      case "builtin":
+      case "command":
+        this.compileExecutableNode(node, inheritedNeeds);
+        return;
+      case "group":
+        /*
+         * Group nodes are structural dependency anchors. They produce no Argo
+         * task; their members are resolved by resolveDependencyNodeIds when a
+         * downstream node lists the group in its needs.
+         */
+        return;
+      case "parallel":
+        this.compileParallelNode(node, inheritedNeeds);
+        return;
+      default: {
+        const exhaustive: never = kind;
+        throw new ArgoGraphCompilerError(String(exhaustive), node.id);
       }
     }
+  }
+
+  private compileExecutableNode(
+    node: PlannedWorkflowNode,
+    inheritedNeeds: string[]
+  ): void {
+    /*
+     * Executable nodes (agent, builtin, command) lower directly to Argo DAG
+     * tasks. The runner recovers per-node context (agent profile, models,
+     * instructions) at execution time by loading the schedule artifact and
+     * looking up the node by id. The task descriptor stored in the ConfigMap
+     * therefore needs only the nodeId — it is intentionally minimal.
+     */
+    const dependencies = this.resolveDependencyTaskNames([
+      ...inheritedNeeds,
+      ...node.needs,
+    ]);
+    const task = argoExecutableTaskSchema.parse({
+      dependencies,
+      nodeId: node.id,
+      taskName: argoTaskName(node.id),
+      templateName: argoTemplateName(node.id),
+    });
+    this.tasks.push(task);
+  }
+
+  private compileParallelNode(
+    node: PlannedWorkflowNode,
+    inheritedNeeds: string[]
+  ): void {
+    /*
+     * Parallel nodes are containers: their children run concurrently. Each
+     * child inherits the parallel node's own needs (and any needs already
+     * inherited from an enclosing context) so that the children are blocked by
+     * the same upstream gates as the container itself.
+     */
+    this.compileNodes(node.children ?? [], [...inheritedNeeds, ...node.needs]);
   }
 
   private resolveDependencyTaskNames(nodeIds: string[]): string[] {
@@ -106,41 +173,67 @@ class ArgoGraphCompiler {
     );
   }
 
+  // fallow-ignore-next-line complexity
   private resolveDependencyNodeIds(nodeId: string): string[] {
     const node = this.nodeById.get(nodeId);
     if (!node) {
       return [];
     }
-    if (isExecutableNode(node)) {
-      return [node.id];
+    const kind: WorkflowNodeKind = node.kind;
+    switch (kind) {
+      case "agent":
+      case "builtin":
+      case "command":
+        /*
+         * Executable nodes resolve to themselves: a downstream Argo task that
+         * needs this node will list its Argo task name as a dependency.
+         */
+        return [node.id];
+      case "group":
+        return this.resolveGroupNodeIds(node);
+      case "parallel":
+        return this.resolveParallelNodeIds(node);
+      default: {
+        const exhaustive: never = kind;
+        throw new ArgoGraphCompilerError(String(exhaustive), node.id);
+      }
     }
-    if (node.kind === "group") {
-      return uniqueStrings(
-        [...(node.nodes ?? []), ...node.needs].flatMap((id) =>
-          this.resolveDependencyNodeIds(id)
-        )
-      );
-    }
-    if (node.kind === "parallel") {
-      return uniqueStrings(
-        (node.children ?? []).flatMap((child) =>
-          this.resolveDependencyNodeIds(child.id)
-        )
-      );
-    }
-    return [];
+  }
+
+  private resolveGroupNodeIds(node: PlannedWorkflowNode): string[] {
+    /*
+     * Groups are transparent dependency anchors: rewire through to the
+     * group's member nodes and any nodes the group itself depends on.
+     *
+     * Example: group G contains [A, B]. Node C needs [G].
+     * After lowering: C depends on [A, B] in the Argo DAG.
+     *
+     * This is correct because Argo requires concrete task names in dependency
+     * arrays; virtual group names are not valid there.
+     */
+    return uniqueStrings(
+      [...(node.nodes ?? []), ...node.needs].flatMap((id) =>
+        this.resolveDependencyNodeIds(id)
+      )
+    );
+  }
+
+  private resolveParallelNodeIds(node: PlannedWorkflowNode): string[] {
+    /*
+     * Parallel containers are transparent: a downstream node that needs a
+     * parallel container depends on all of the parallel's children.
+     */
+    return uniqueStrings(
+      (node.children ?? []).flatMap((child) =>
+        this.resolveDependencyNodeIds(child.id)
+      )
+    );
   }
 
   private terminalTasks(): ArgoExecutableTask[] {
     const dependedOn = new Set(this.tasks.flatMap((task) => task.dependencies));
     return this.tasks.filter((task) => !dependedOn.has(task.taskName));
   }
-}
-
-function isExecutableNode(node: PlannedWorkflowNode): boolean {
-  return EXECUTABLE_NODE_KINDS.includes(
-    node.kind as (typeof EXECUTABLE_NODE_KINDS)[number]
-  );
 }
 
 function argoTaskName(nodeId: string): string {

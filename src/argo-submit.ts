@@ -6,7 +6,10 @@ import {
 } from "@kubernetes/client-node";
 import { stringify } from "yaml";
 import { z } from "zod";
-import { compileArgoExecutionGraph } from "./argo-graph";
+import {
+  ArgoGraphCompilerError,
+  compileArgoExecutionGraph,
+} from "./argo-graph";
 import {
   buildRunnerArgoWorkflowManifest,
   runnerArgoWorkflowManifestSchema,
@@ -20,6 +23,7 @@ import {
   runnerCommandPayloadSchema,
 } from "./runner-command-contract";
 import {
+  type CompiledScheduleArtifact,
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "./schedule-planner";
@@ -125,7 +129,7 @@ export async function submitRunnerArgoWorkflow(
       `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`
     );
   }
-  const graph = compileArgoExecutionGraph(compiled.plan);
+  const graph = compileSubmitArgoGraph(compiled);
   const labels = {
     "pipeline.oisin.dev/project": payload.run.project,
     "pipeline.oisin.dev/run-id": payload.run.id,
@@ -277,6 +281,21 @@ function normalizeRunnerPayloadForSubmit(input: {
     repository,
   });
   return { payload, payloadJson: JSON.stringify(payload) };
+}
+
+function compileSubmitArgoGraph(
+  compiled: CompiledScheduleArtifact
+): ReturnType<typeof compileArgoExecutionGraph> {
+  try {
+    return compileArgoExecutionGraph(compiled.plan);
+  } catch (err) {
+    if (err instanceof ArgoGraphCompilerError) {
+      throw new Error(
+        `Schedule '${compiled.workflowId}' cannot be submitted: ${err.message}`
+      );
+    }
+    throw err;
+  }
 }
 
 function apiClients(

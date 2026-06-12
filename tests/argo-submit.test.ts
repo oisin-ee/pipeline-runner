@@ -6,7 +6,7 @@ import {
   buildCommandScheduleYaml,
   submitRunnerArgoWorkflow,
 } from "../src/argo-submit";
-import { loadPipelineConfig } from "../src/config";
+import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
 import { parseScheduleArtifact } from "../src/schedule-planner";
 
 const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-submit-"));
@@ -313,6 +313,132 @@ describe("submitRunnerArgoWorkflow", () => {
           ],
         },
       },
+    });
+  });
+
+  it("submits a generated agent-node schedule: task descriptors carry nodeId per task", async () => {
+    /*
+     * AC#2: The runner recovers per-node agent context (profile, models,
+     * instructions) from the compiled schedule artifact by nodeId at execution
+     * time. The task descriptor ConfigMap therefore only needs to encode nodeId.
+     * This test verifies that the uniform descriptor shape is correct for
+     * agent-kind nodes.
+     */
+    const config = parsePipelineConfigParts({
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  impl:
+    runner: opencode
+    instructions: { inline: Implement }
+`,
+      pipeline: `
+version: 1
+default_workflow: root
+orchestrator:
+  profile: orchestrator
+workflows:
+  root:
+    nodes:
+      - id: plan
+        kind: agent
+        profile: orchestrator
+      - id: impl
+        kind: agent
+        profile: impl
+        needs: [plan]
+`,
+    });
+
+    const agentSchedule = `
+kind: pipeline-schedule
+version: 1
+schedule_id: agent-test
+generated_at: 2026-06-10T00:00:00.000Z
+source_entrypoint: execute
+task: Build the feature
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: plan
+        kind: agent
+        profile: orchestrator
+      - id: impl
+        kind: agent
+        profile: impl
+        needs: [plan]
+`;
+    const payload = JSON.stringify({
+      contractVersion: "1",
+      delivery: { pullRequest: false },
+      events: {
+        authHeader: "Authorization",
+        authTokenFile: "/etc/pipeline/event-auth/token",
+        url: "https://pipeline-console.example/api/pipeline/runner-events",
+      },
+      repository: {
+        baseBranch: "main",
+        sha: "0123456789abcdef0123456789abcdef01234567",
+        url: "https://github.com/oisin-ee/rondo.git",
+      },
+      run: { id: "run-agent", project: "rondo" },
+      submission: { kind: "graph", mode: "full" },
+      task: { kind: "prompt", prompt: "Build the feature" },
+      workflow: { id: "schedule-agent-test-root" },
+    });
+
+    const createdConfigMaps: Array<{ data?: Record<string, string> }> = [];
+    await submitRunnerArgoWorkflow(
+      {
+        config,
+        generateName: "moka-full-",
+        namespace,
+        payloadJson: payload,
+        scheduleYaml: agentSchedule,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            createdConfigMaps.push(input.body);
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            return Promise.resolve({
+              ...(input.body as Record<string, unknown>),
+              metadata: {
+                ...(input.body as { metadata: Record<string, unknown> })
+                  .metadata,
+                name: "moka-full-agent",
+              },
+            });
+          },
+        },
+      }
+    );
+
+    const descriptorConfigMap = createdConfigMaps.find((cm) =>
+      Object.keys(cm.data ?? {}).some((key) => key.startsWith("node-"))
+    );
+    expect(descriptorConfigMap?.data).toMatchObject({
+      // nodeId-only descriptors: runner loads agent profile from schedule
+      "node-plan.json": '{"nodeId":"plan"}\n',
+      "node-impl.json": '{"nodeId":"impl"}\n',
     });
   });
 });

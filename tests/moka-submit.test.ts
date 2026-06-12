@@ -915,4 +915,81 @@ workflows:
     expect(parsed.success).toBe(false);
     expect(parsed.error?.issues[0]?.path).toEqual(["repository", "url"]);
   });
+
+  it("submits a graph schedule containing agent-kind nodes through the Argo compiler", async () => {
+    /*
+     * AC#4: mirror a real moka submit graph path with a schedule that contains
+     * agent-kind nodes. Confirms the whole submit stack (moka-submit →
+     * argo-submit → argo-graph) accepts agent nodes without error and that the
+     * runner payload carries the schedule payload so the runner can recover
+     * agent context by nodeId.
+     */
+    const calls: CapturedSubmitOptions[] = [];
+
+    // runtimeConfig() defines profiles: orchestrator and a
+    const agentScheduleYaml = `
+kind: pipeline-schedule
+version: 1
+schedule_id: run-agent-graph
+generated_at: 2026-06-10T00:00:00.000Z
+source_entrypoint: execute
+task: Implement feature
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: plan
+        kind: agent
+        profile: orchestrator
+      - id: impl
+        kind: agent
+        profile: a
+        needs: [plan]
+      - id: review
+        kind: agent
+        profile: orchestrator
+        needs: [impl]
+`;
+
+    await submitMoka(
+      {
+        config: runtimeConfig(),
+        ...MANAGED_AUTH,
+        eventUrl: "https://console.example/api/pipeline/runner-events",
+        mode: "full",
+        namespace: EXPLICIT_NAMESPACE,
+        repository: {
+          baseBranch: "main",
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          url: "https://github.com/oisin-ee/rondo.git",
+        },
+        run: {
+          id: "run-agent-graph",
+          project: "rondo",
+        },
+        scheduleYaml: agentScheduleYaml,
+        task: "Implement feature",
+        type: "graph",
+      },
+      {
+        resolveGitContext: () => {
+          throw new Error(
+            "local git should not be resolved when context is explicit"
+          );
+        },
+        submitWorkflow: captureSubmitCall(calls),
+      }
+    );
+
+    expect(calls).toHaveLength(1);
+    const payload = JSON.parse(calls[0].payloadJson);
+    // runner payload carries the workflow id so the runner can match schedule
+    expect(payload).toMatchObject({
+      submission: { kind: "graph", mode: "full" },
+      workflow: { id: "schedule-run-agent-graph-root" },
+    });
+    // schedule YAML is passed through — runner loads agent context from it
+    expect(calls[0].scheduleYaml).toBe(agentScheduleYaml);
+    expect(calls[0].generateName).toBe("moka-full-");
+  });
 });
