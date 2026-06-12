@@ -297,7 +297,7 @@ scheduler:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [openai/gpt-5.5-fast]
+          models: [openai/gpt-5.5]
         red-tests:
           category: red
           profile: moka-test-writer
@@ -316,11 +316,11 @@ scheduler:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [openai/gpt-5.5-fast]
+          models: [openai/gpt-5.5]
         research:
           category: research
           profile: moka-researcher
-          models: [openai/gpt-5.5-fast, kimi-for-coding/k2p6]
+          models: [openai/gpt-5.5, kimi-for-coding/k2p6]
         red-tests:
           category: red
           profile: moka-test-writer
@@ -344,7 +344,7 @@ scheduler:
         learn:
           category: learn
           profile: moka-learner
-          models: [openai/gpt-5.5-fast]
+          models: [openai/gpt-5.5]
 schedules:
   quick-schedule:
     baseline: quick
