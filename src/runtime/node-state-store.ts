@@ -20,6 +20,7 @@ export class NodeStateStore {
     this.structuredOutputs = input.structuredOutputs ?? [];
   }
 
+  // fallow-ignore-next-line unused-class-member
   forkForParallelChildren(children: PlannedWorkflowNode[]): NodeStateStore {
     return new NodeStateStore({
       inheritedOutputNodeIds: new Set(this.lastOutputByNode.keys()),
@@ -81,6 +82,14 @@ export class NodeStateStore {
   // fallow-ignore-next-line unused-class-member
   recordOutput(nodeId: string, output: string): void {
     this.lastOutputByNode.set(nodeId, output);
+  }
+
+  // fallow-ignore-next-line unused-class-member
+  recordSessionId(nodeId: string, sessionId: string): void {
+    const existing = this.nodeStates.get(nodeId);
+    if (existing) {
+      this.nodeStates.set(nodeId, { ...existing, sessionId });
+    }
   }
 
   // fallow-ignore-next-line unused-class-member

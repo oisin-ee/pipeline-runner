@@ -12,13 +12,13 @@ export interface RuntimeLaunchCommand {
 
 export interface RuntimeSessionMetadata {
   adapterId: string;
-  continuationApi: "unavailable";
+  continuationApi: "session-reuse" | "unavailable";
   nodeId: string;
   outputFormat: string;
-  pluginEvents: "project-local";
+  pluginEvents: "project-local" | "server-event-stream";
   profileId?: string;
   runnerId: string;
-  sessionInspectionApi: "unavailable";
+  sessionInspectionApi: "sdk" | "unavailable";
   worktreePath: string;
 }
 
@@ -56,16 +56,36 @@ export interface RuntimeCapabilityAdapter {
   ): RuntimeSessionMetadata;
 }
 
-export const opencodeCliRuntimeAdapter: RuntimeCapabilityAdapter = {
-  continuation() {
-    return Promise.reject(
-      new Error(
-        "OpenCode CLI runtime adapter does not expose native continuation yet"
-      )
-    );
+/**
+ * Output-parsing seam for opencode runner output. The SDK executor
+ * (opencode-session-executor.ts) re-serializes assistant text parts into the
+ * same `{ part: { type: "text", text } }` JSONL the legacy CLI emitted, so this
+ * parser is transport-agnostic and the structured-output / repair passes work
+ * unchanged on top of SDK responses.
+ *
+ * The session lifecycle, event-stream forwarding, and per-message agent/model
+ * selection live in opencode-session-executor.ts + opencode-server.ts; this
+ * adapter only normalizes output and reports capabilities.
+ */
+export const opencodeSdkRuntimeAdapter: RuntimeCapabilityAdapter = {
+  continuation(request) {
+    // Continuation reuses the recorded session id at the goal-loop layer; there
+    // is no separate native call to make here.
+    return Promise.resolve({
+      metadata: {
+        adapterId: "opencode-sdk",
+        continuationApi: "session-reuse",
+        nodeId: request.sessionId,
+        outputFormat: "text",
+        pluginEvents: "server-event-stream",
+        runnerId: "opencode",
+        sessionInspectionApi: "sdk",
+        worktreePath: "",
+      },
+    });
   },
 
-  id: "opencode-cli-subprocess",
+  id: "opencode-sdk",
 
   launch(plan) {
     assertOpenCodePlan(plan);
@@ -101,13 +121,13 @@ export const opencodeCliRuntimeAdapter: RuntimeCapabilityAdapter = {
     assertOpenCodePlan(plan);
     return {
       adapterId: this.id,
-      continuationApi: "unavailable",
+      continuationApi: "session-reuse",
       nodeId: plan.nodeId,
       outputFormat: plan.outputFormat,
-      pluginEvents: "project-local",
+      pluginEvents: "server-event-stream",
       profileId: plan.profileId,
       runnerId: plan.runnerId,
-      sessionInspectionApi: "unavailable",
+      sessionInspectionApi: "sdk",
       worktreePath: plan.cwd,
     };
   },

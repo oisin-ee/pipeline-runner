@@ -9,6 +9,8 @@ import {
 import { renderOpenCodeGatewayConfig } from "../mcp/gateway";
 import { mergeOpenCodeProjectConfig } from "../opencode-project-config";
 import { resolvePackageAssetPath } from "../package-assets";
+import { opencodeAgentName } from "../runtime/opencode-agent-name";
+export { opencodeAgentName };
 import { compileWorkflowPlan } from "../workflow-planner";
 import {
   type ActiveCommandHost,
@@ -35,7 +37,6 @@ import {
 } from "./shared";
 
 const OPENCODE_ORCHESTRATOR_AGENT_ID = "MoKa Orchestrator";
-const MOKA_PROFILE_PREFIX = "moka-";
 type ActorConfig = PipelineConfig["profiles"][string];
 type EcosystemCode = OpenCodeEcosystemManifest["ecosystem_code"][number];
 
@@ -200,25 +201,6 @@ function nativeAgentIdForHost(
   profileId: string
 ): string {
   return host === "opencode" ? opencodeAgentName(profileId) : profileId;
-}
-
-export function opencodeAgentName(profileId: string): string {
-  if (!profileId.startsWith(MOKA_PROFILE_PREFIX)) {
-    return profileId;
-  }
-  const displayName = profileId
-    .slice(MOKA_PROFILE_PREFIX.length)
-    .split("-")
-    .map(opencodeAgentNamePart)
-    .join(" ");
-  return `MoKa ${displayName}`;
-}
-
-function opencodeAgentNamePart(part: string): string {
-  if (part === "opencode") {
-    return "OpenCode";
-  }
-  return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
 }
 
 export function grants(actor: ActorConfig): string {

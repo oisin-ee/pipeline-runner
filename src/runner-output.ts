@@ -1,5 +1,5 @@
 import type { RunnerLaunchPlan } from "./runner";
-import { opencodeCliRuntimeAdapter } from "./runtime/opencode-adapter";
+import { opencodeSdkRuntimeAdapter } from "./runtime/opencode-adapter";
 
 export interface NormalizedRunnerOutput {
   evidence: string[];
@@ -32,7 +32,7 @@ export function runnerTextCandidates(
   stdout: string
 ): RunnerTextCandidate[] {
   if (plan.type === "opencode") {
-    return opencodeCliRuntimeAdapter.outputCandidates(stdout);
+    return opencodeSdkRuntimeAdapter.outputCandidates(stdout);
   }
 
   return [];

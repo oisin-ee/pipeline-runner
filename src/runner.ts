@@ -19,6 +19,8 @@ export type AgentRole =
 export interface AgentResult {
   argv?: string[];
   exitCode: number;
+  /** opencode session id when driven through the SDK executor (PIPE-73). */
+  sessionId?: string;
   stderr?: string;
   stdout: string;
   timedOut?: boolean;

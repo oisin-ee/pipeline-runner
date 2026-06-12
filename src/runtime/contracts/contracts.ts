@@ -125,6 +125,8 @@ export interface NodeExecutionState {
     retryReason: string;
     scheduled: boolean;
   };
+  /** opencode session id when the node ran through the SDK executor (PIPE-73). */
+  sessionId?: string;
   startedAt?: string;
   status: NodeStatus;
 }

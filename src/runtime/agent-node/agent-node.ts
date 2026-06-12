@@ -71,6 +71,9 @@ export async function executeAgentNode(
     signal: context.signal,
   });
   emitAgentFinish(context, plan, attempt, result);
+  if (result.sessionId) {
+    context.nodeStateStore.recordSessionId(node.id, result.sessionId);
+  }
   const normalized = normalizeAgentOutput(plan, result.stdout);
   const finalized = await finalizeAgentOutput({
     context,
@@ -484,6 +487,7 @@ function effectiveTaskContext(
   return node.taskContext ?? context.taskContext;
 }
 
+// fallow-ignore-next-line unused-export
 export function inheritedOutputSections(
   node: PlannedWorkflowNode,
   context: Pick<RuntimeContext, "nodeStateStore">
@@ -503,6 +507,7 @@ export function inheritedOutputSections(
   ];
 }
 
+// fallow-ignore-next-line unused-export
 export function renderTaskContext(
   taskContext: PipelineTaskContext | undefined
 ): string {

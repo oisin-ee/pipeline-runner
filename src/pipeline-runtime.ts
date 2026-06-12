@@ -1,4 +1,8 @@
-import type { PipelineConfigError } from "./config";
+import {
+  loadPipelineConfig,
+  type PipelineConfig,
+  type PipelineConfigError,
+} from "./config";
 import { findPlannedNode } from "./planned-node";
 import type { RetryReason } from "./runtime/actor-ids";
 import { executeAgentNode } from "./runtime/agent-node";
@@ -38,6 +42,11 @@ import {
   type NodeExecutionEvent,
   NodeStateTracker,
 } from "./runtime/node-state-tracker";
+import {
+  configUsesOpencode,
+  leaseOpencodeRuntime,
+  type RuntimeExecutor,
+} from "./runtime/opencode-runtime";
 import { executeParallelNode } from "./runtime/parallel-node";
 import { decideNodeRetry, nodeRetryPolicy } from "./runtime/retry";
 import { LocalScheduler, type PipelineScheduler } from "./runtime/scheduler";
@@ -67,19 +76,74 @@ export type {
 export function runPipelineFromConfig(
   options: PipelineRuntimeOptions
 ): Promise<PipelineRuntimeResult> {
-  const context = createRuntimeContext(options);
-  return runPipelineWithContext(context);
+  return withOpencodeRuntime(options, (resolved) =>
+    runPipelineWithContext(createRuntimeContext(resolved))
+  );
 }
 
 export function runScheduledWorkflowTask(
   options: ScheduledWorkflowTaskRuntimeOptions
 ): Promise<RuntimeNodeResult> {
   const { dependencyOutputs, nodeId, ...runtimeOptions } = options;
-  const context = createRuntimeContext(runtimeOptions);
-  hydrateScheduledDependencyStates(context, nodeId);
-  hydrateDependencyOutputs(context, dependencyOutputs);
-  recordNodeEvent(context, nodeId, { at: now(), type: "READY" });
-  return executePlannedNode(nodeId, context);
+  return withOpencodeRuntime(runtimeOptions, (resolved) => {
+    const context = createRuntimeContext(resolved);
+    hydrateScheduledDependencyStates(context, nodeId);
+    hydrateDependencyOutputs(context, dependencyOutputs);
+    recordNodeEvent(context, nodeId, { at: now(), type: "READY" });
+    return executePlannedNode(nodeId, context);
+  });
+}
+
+/**
+ * When the config uses opencode and the caller did not inject an executor,
+ * open one opencode server for the run, drive nodes through the SDK executor,
+ * and tear the server down afterward. Command-only configs and callers that
+ * supply their own executor (tests, embedders) are passed through untouched.
+ */
+async function withOpencodeRuntime<T>(
+  options: PipelineRuntimeOptions,
+  run: (resolved: PipelineRuntimeOptions) => Promise<T>
+): Promise<T> {
+  if (options.executor) {
+    return await run(options);
+  }
+  const { config, worktreePath } = resolveConfigForRun(options);
+  return configUsesOpencode(config)
+    ? await runWithLeasedOpencode(options, config, worktreePath, run)
+    : await run({ ...options, config });
+}
+
+function resolveConfigForRun(options: PipelineRuntimeOptions): {
+  config: PipelineConfig;
+  worktreePath: string;
+} {
+  const worktreePath = options.worktreePath ?? process.cwd();
+  return {
+    config: options.config ?? loadPipelineConfig(worktreePath),
+    worktreePath,
+  };
+}
+
+async function runWithLeasedOpencode<T>(
+  options: PipelineRuntimeOptions,
+  config: PipelineConfig,
+  worktreePath: string,
+  run: (resolved: PipelineRuntimeOptions) => Promise<T>
+): Promise<T> {
+  const lease = await leaseOpencodeRuntime({
+    config,
+    ...(options.signal ? { signal: options.signal } : {}),
+    worktreePath,
+  });
+  try {
+    return await run({
+      ...options,
+      config,
+      executor: lease.executor as RuntimeExecutor,
+    });
+  } finally {
+    await lease.release();
+  }
 }
 
 async function runPipelineWithContext(

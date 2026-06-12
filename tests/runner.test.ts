@@ -14,7 +14,7 @@ import {
   spawnAgent,
 } from "../src/runner.ts";
 import { normalizeRunnerOutput } from "../src/runner-output.ts";
-import { opencodeCliRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
+import { opencodeSdkRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const originalPipelineAgentTimeoutMs = process.env.PIPELINE_AGENT_TIMEOUT_MS;
@@ -239,7 +239,7 @@ workflows:
     expect(plan.timeoutMs).toBeUndefined();
   });
 
-  it("keeps the OpenCode CLI adapter launch plan behavior-compatible", () => {
+  it("keeps the OpenCode SDK adapter launch plan and output parsing behavior-compatible", () => {
     const plan = createRunnerLaunchPlan(CONFIG, {
       contextFile: "/tmp/context.md",
       profileId: "opencode-agent",
@@ -248,8 +248,8 @@ workflows:
       worktreePath: "/tmp/wt",
     });
 
-    const launch = opencodeCliRuntimeAdapter.launch(plan);
-    const metadata = opencodeCliRuntimeAdapter.sessionMetadata(plan);
+    const launch = opencodeSdkRuntimeAdapter.launch(plan);
+    const metadata = opencodeSdkRuntimeAdapter.sessionMetadata(plan);
 
     expect(launch).toEqual({
       args: [
@@ -271,14 +271,14 @@ workflows:
       timeoutMs: undefined,
     });
     expect(metadata).toEqual({
-      adapterId: "opencode-cli-subprocess",
-      continuationApi: "unavailable",
+      adapterId: "opencode-sdk",
+      continuationApi: "session-reuse",
       nodeId: "opencode-node",
       outputFormat: "json",
-      pluginEvents: "project-local",
+      pluginEvents: "server-event-stream",
       profileId: "opencode-agent",
       runnerId: "opencode",
-      sessionInspectionApi: "unavailable",
+      sessionInspectionApi: "sdk",
       worktreePath: "/tmp/wt",
     });
   });
@@ -296,7 +296,7 @@ workflows:
       JSON.stringify({ part: { type: "text", text: "final" } }),
     ].join("\n");
 
-    expect(opencodeCliRuntimeAdapter.outputCandidates(stdout)).toEqual([
+    expect(opencodeSdkRuntimeAdapter.outputCandidates(stdout)).toEqual([
       {
         evidence: "normalized runner output from opencode JSON events",
         output: "first",
