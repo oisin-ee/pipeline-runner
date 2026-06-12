@@ -306,14 +306,19 @@ timeouts, output limits, sanitized env, and explicit trust flags.
 
 ## Host Support Matrix
 
-| Runner   | Native subagents | Rules | Skills | MCP | Outputs                   | Generated resources             |
-| -------- | ---------------- | ----- | ------ | --- | ------------------------- | ------------------------------- |
-| OpenCode | yes              | yes   | yes    | yes | text, JSON, JSONL, schema | commands, agents, skills, plugins, LSP |
-| command  | no               | no    | no     | no  | declared by runner        | subprocess argv                 |
+| Runner      | Native subagents | Rules | Skills | MCP | Outputs                   | Generated resources             |
+| ----------- | ---------------- | ----- | ------ | --- | ------------------------- | ------------------------------- |
+| OpenCode    | yes              | yes   | yes    | yes | text, JSON, JSONL, schema | commands, agents, skills, plugins, LSP |
+| Claude Code | via `opencode run` | yes (skill) | yes | yes | declared by runner | commands, wrapper agents, settings |
+| command     | no               | no    | no     | no  | declared by runner        | subprocess argv                 |
 
 Generated host resources follow a native runner rule. OpenCode runner nodes use
-OpenCode native agents. Unsupported runner or host mappings fail closed instead
-of doing instruction-only translation or generic worker substitution.
+OpenCode native agents. The Claude Code host does not run MoKa profiles natively:
+its generated `.claude/agents/moka-<role>.md` subagents each wrap a single
+`opencode run --agent "MoKa <role>"` subprocess, so the OpenCode runner remains
+the execution surface while Claude Code orchestrates. Unsupported runner or host
+mappings fail closed instead of doing instruction-only translation or generic
+worker substitution.
 
 ## Troubleshooting
 

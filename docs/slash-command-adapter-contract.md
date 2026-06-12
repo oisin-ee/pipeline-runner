@@ -16,6 +16,7 @@ moka install-commands --host all --check
 | Host     | Generated resources                                            | Invocation                        | Mechanical path                                                                                       |
 | -------- | -------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | OpenCode | `.opencode/commands/moka-<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/opencode.json` | `/moka-quick <task>`, `/moka-execute <task>`, `/moka-inspect <task>` | Project commands run a primary orchestrator and OpenCode native subagents with package-owned skill, MCP, permission, and LSP projection. |
+| Claude Code | `.claude/commands/moka-<entrypoint>.md`, `.claude/agents/moka-<role>.md`, `.claude/settings.json` | `/moka-quick <task>`, `/moka-execute <task>`, `/moka-inspect <task>` | Slash commands load the `execute` skill, then dispatch each agent node to a Claude Code `Task` subagent that wraps a single `opencode run --agent "MoKa <role>"` subprocess. `.claude/settings.json` is merged (gateway MCP + `Bash(opencode run *)` permission), never clobbered. |
 
 ## Projection Rules
 

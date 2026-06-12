@@ -9,11 +9,13 @@ export const AGENTS_MD_END = "<!-- @oisincoveney/pipeline:agents:end -->";
 export const SINGLE_OPENCODE_PLUGIN_ARRAY_RE =
   /\n {2}"plugin": \[\n {4}("[^"]+")\n {2}\]/;
 export const OPENCODE_PROJECT_CONFIG_PATH = ".opencode/opencode.json";
+export const CLAUDE_PROJECT_CONFIG_PATH = ".claude/settings.json";
 const OPENCODE_COMMAND_PREFIX = "moka-";
 export const ENTRYPOINT_PATH_PATTERNS: Record<ActiveCommandHost, RegExp[]> = {
   opencode: [/^\.opencode\/commands\/(?:moka-)?([^/]+)\.md$/],
+  "claude-code": [/^\.claude\/commands\/(?:moka-)?([^/]+)\.md$/],
 };
-export const COMMAND_HOSTS = ["opencode"] as const;
+export const COMMAND_HOSTS = ["opencode", "claude-code"] as const;
 
 export type ActiveCommandHost = (typeof COMMAND_HOSTS)[number];
 export type CommandHostSelection = ActiveCommandHost | "all";
@@ -67,6 +69,7 @@ export function invocationForHost(
 ): string {
   const prefix: Record<ActiveCommandHost, string> = {
     opencode: "/",
+    "claude-code": "/",
   };
   return `${prefix[host]}${commandIdForHost(host, entrypointId)} <task description>`;
 }
@@ -75,7 +78,7 @@ export function commandIdForHost(
   host: ActiveCommandHost,
   entrypointId: string
 ): string {
-  if (host === "opencode") {
+  if (host === "opencode" || host === "claude-code") {
     return `${OPENCODE_COMMAND_PREFIX}${entrypointId}`;
   }
   return entrypointId;

@@ -1,10 +1,16 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import {
+  type ClaudeSettingsProjection,
+  mergeClaudeSettings,
+} from "./claude-settings-config";
 import { loadPipelineConfig, type PipelineConfig } from "./config";
+import { claudeCodeDefinitions } from "./install-commands/claude-code";
 import { opencodeDefinitions } from "./install-commands/opencode";
 import {
   type ActiveCommandHost,
+  CLAUDE_PROJECT_CONFIG_PATH,
   COMMAND_HOSTS,
   type CommandDefinition,
   type CommandHostSelection,
@@ -38,6 +44,7 @@ function definitionsFor(
 ): CommandDefinition[] {
   const definitions: Record<ActiveCommandHost, () => CommandDefinition[]> = {
     opencode: () => opencodeDefinitions(config, cwd),
+    "claude-code": () => claudeCodeDefinitions(config, cwd),
   };
   const hosts = host === "all" ? COMMAND_HOSTS : [host];
   const rawDefinitions = hosts.flatMap((name) => definitions[name]());
@@ -67,6 +74,7 @@ const GENERATED_RESOURCE_ROOTS: Record<ActiveCommandHost, string[]> = {
     ".opencode/plugins",
     ".opencode/skills",
   ],
+  "claude-code": [".claude/commands", ".claude/agents"],
 };
 
 async function listFiles(root: string): Promise<string[]> {
@@ -159,15 +167,34 @@ function resolveDefinitionContent(
   definition: CommandDefinition,
   target: string
 ): ResolvedCommandDefinitionContent {
-  if (definition.path !== OPENCODE_PROJECT_CONFIG_PATH || !existsSync(target)) {
+  if (!existsSync(target)) {
     return { conflict: false, content: definition.content };
   }
+  if (definition.path === OPENCODE_PROJECT_CONFIG_PATH) {
+    return resolveMergedProjectConfig(definition, target, (currentText) =>
+      mergeOpenCodeProjectConfig(
+        currentText,
+        JSON.parse(definition.content) as Record<string, unknown>
+      )
+    );
+  }
+  if (definition.path === CLAUDE_PROJECT_CONFIG_PATH) {
+    return resolveMergedProjectConfig(definition, target, (currentText) =>
+      mergeClaudeSettings(
+        currentText,
+        JSON.parse(definition.content) as ClaudeSettingsProjection
+      )
+    );
+  }
+  return { conflict: false, content: definition.content };
+}
 
-  const projection = JSON.parse(definition.content) as Record<string, unknown>;
-  const merged = mergeOpenCodeProjectConfig(
-    readFileSync(target, "utf8"),
-    projection
-  );
+function resolveMergedProjectConfig(
+  definition: CommandDefinition,
+  target: string,
+  merge: (currentText: string) => { content: string; ok: true } | { ok: false }
+): ResolvedCommandDefinitionContent {
+  const merged = merge(readFileSync(target, "utf8"));
   if (!merged.ok) {
     return { conflict: true, content: definition.content };
   }
@@ -235,7 +262,9 @@ function installActionForDefinition(
   return actionFor(
     target,
     resolved.content,
-    force || definition.path === OPENCODE_PROJECT_CONFIG_PATH,
+    force ||
+      definition.path === OPENCODE_PROJECT_CONFIG_PATH ||
+      definition.path === CLAUDE_PROJECT_CONFIG_PATH,
     definition.block
   );
 }

@@ -27,6 +27,7 @@ import {
 import {
   configureGatewayHosts,
   type GatewayHostScope,
+  type GatewayHostSelection,
   localGatewayStatus,
   reconcileGateway,
   renderGatewayConfig,
@@ -243,7 +244,7 @@ interface CodexAuthSyncLocalFlags {
 }
 
 interface GatewayConfigureHostFlags {
-  host?: CommandHostSelection;
+  host?: GatewayHostSelection;
   scope?: GatewayHostScope;
 }
 
@@ -404,7 +405,7 @@ export function createCliProgram(): Command {
       new Option("--host <host>", "host config to update")
         .choices(["all", "opencode"])
         .default("all")
-        .argParser(parseCommandHost)
+        .argParser(parseGatewayHost)
     )
     .addOption(
       new Option("--scope <scope>", "config scope to update")
@@ -497,7 +498,7 @@ export function createCliProgram(): Command {
     )
     .addOption(
       new Option("--host <host>", "host command set to install")
-        .choices(["all", "opencode"])
+        .choices(["all", "opencode", "claude-code"])
         .default("all")
         .argParser(parseCommandHost)
     )
@@ -613,6 +614,13 @@ function parseGatewayHostScope(value: string): GatewayHostScope {
     return value;
   }
   throw new Error("scope must be project or global");
+}
+
+function parseGatewayHost(value: string): GatewayHostSelection {
+  if (value === "all" || value === "opencode") {
+    return value;
+  }
+  throw new Error("host must be all or opencode");
 }
 
 export async function runCli(argv: string[]): Promise<void> {

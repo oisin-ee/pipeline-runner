@@ -164,6 +164,19 @@ export function renderOpenCodeGatewayConfig(config: PipelineConfig): string {
   )}\n`;
 }
 
+export function renderClaudeGatewayMcpServers(
+  config: PipelineConfig
+): Record<string, unknown> {
+  const gateway = configuredGateway(config);
+  return {
+    [PIPELINE_GATEWAY_SERVER_ID]: {
+      headers: gatewayOpenCodeHeaders(gateway),
+      type: "http",
+      url: gatewayUrl(gateway),
+    },
+  };
+}
+
 export function configureGatewayHosts(
   config: PipelineConfig,
   options: GatewayConfigureHostOptions

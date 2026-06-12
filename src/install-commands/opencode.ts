@@ -37,7 +37,7 @@ interface OpencodePermissionOptions {
 
 type DispatchKind = "cli" | "native-model-agent" | "native-named-agent";
 
-interface AgentDispatchRoute {
+export interface AgentDispatchRoute {
   kind: DispatchKind;
   model?: string;
   nativeAgentId?: string;
@@ -48,13 +48,13 @@ interface AgentDispatchRoute {
   runnerId: string;
 }
 
-function header(host: ActiveCommandHost): string {
+export function header(host: ActiveCommandHost): string {
   return [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join(
     "\n"
   );
 }
 
-function markdown(data: Record<string, unknown>, body: string): string {
+export function markdown(data: Record<string, unknown>, body: string): string {
   return `${matter.stringify(body.trimEnd(), data).trimEnd()}\n`;
 }
 
@@ -62,7 +62,7 @@ function profileEntries(config: PipelineConfig): ProfileEntry[] {
   return Object.entries(config.profiles).sort(([a], [b]) => a.localeCompare(b));
 }
 
-function entrypointEntries(config: PipelineConfig): EntrypointEntry[] {
+export function entrypointEntries(config: PipelineConfig): EntrypointEntry[] {
   const entries = Object.entries(config.entrypoints);
   return entries.length > 0
     ? entries
@@ -77,7 +77,7 @@ function entrypointEntries(config: PipelineConfig): EntrypointEntry[] {
       ];
 }
 
-function entrypointDescription(
+export function entrypointDescription(
   id: string,
   entrypoint: PipelineConfig["entrypoints"][string]
 ): string {
@@ -122,7 +122,7 @@ function orchestratorProfile(config: PipelineConfig): ActorConfig | undefined {
   };
 }
 
-function resolvedHostModel(
+export function resolvedHostModel(
   config: PipelineConfig,
   host: ActiveCommandHost,
   profile: PipelineConfig["profiles"][string]
@@ -155,7 +155,7 @@ function isModelRunner(runnerId: string): boolean {
   return COMMAND_HOSTS.some((host) => host === runnerId);
 }
 
-function agentDispatchRoutes(
+export function agentDispatchRoutes(
   host: ActiveCommandHost,
   config: PipelineConfig,
   workflowId = config.default_workflow
@@ -220,7 +220,7 @@ function nativeAgentIdForHost(
   return host === "opencode" ? opencodeAgentName(profileId) : profileId;
 }
 
-function opencodeAgentName(profileId: string): string {
+export function opencodeAgentName(profileId: string): string {
   if (!profileId.startsWith(MOKA_PROFILE_PREFIX)) {
     return profileId;
   }
@@ -239,7 +239,7 @@ function opencodeAgentNamePart(part: string): string {
   return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
 }
 
-function grants(actor: ActorConfig): string {
+export function grants(actor: ActorConfig): string {
   return [
     `model: ${actor.model ?? "default"}`,
     `tools: ${(actor.tools ?? []).join(", ") || "none"}`,
@@ -294,7 +294,7 @@ function dispatchBlock(
     .join("\n");
 }
 
-function entrypointDispatchBlock(
+export function entrypointDispatchBlock(
   host: ActiveCommandHost,
   config: PipelineConfig,
   id: string,
@@ -315,7 +315,7 @@ function entrypointDispatchBlock(
   ].join("\n");
 }
 
-function scheduledEntrypointK8sNote(
+export function scheduledEntrypointK8sNote(
   entrypoint: PipelineConfig["entrypoints"][string]
 ): string | undefined {
   if ("workflow" in entrypoint) {
@@ -427,6 +427,7 @@ function hostSpecificDispatchGuard(
 function hostDisplayName(host: ActiveCommandHost): string {
   const names: Record<ActiveCommandHost, string> = {
     opencode: "OpenCode",
+    "claude-code": "Claude Code",
   };
   return names[host];
 }
@@ -435,7 +436,7 @@ function needsSummary(needs: string[]): string {
   return needs.length > 0 ? needs.join(",") : "none";
 }
 
-function compactLines(lines: Array<string | undefined>): string[] {
+export function compactLines(lines: Array<string | undefined>): string[] {
   return lines.filter((line): line is string => line !== undefined);
 }
 
@@ -669,7 +670,7 @@ export function opencodeDefinitions(
   ];
 }
 
-function projectAgentsMdDefinition(
+export function projectAgentsMdDefinition(
   cwd: string,
   host: ActiveCommandHost
 ): CommandDefinition {
@@ -717,7 +718,7 @@ function opencodeModelProjection(
   return model ? { model } : {};
 }
 
-function instructionsPointer(actor: ActorConfig): string {
+export function instructionsPointer(actor: ActorConfig): string {
   if (actor.instructions.path) {
     return `Instructions: ${actor.instructions.path}`;
   }

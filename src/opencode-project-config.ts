@@ -1,4 +1,11 @@
-import { applyEdits, modify, type ParseError, parse } from "jsonc-parser";
+import type { ParseError } from "jsonc-parser";
+import {
+  applyJsonEdit,
+  ensureTrailingNewline,
+  formatJson,
+  parseJsonRecord,
+  setIfMissing,
+} from "./json-config-merge";
 
 export interface OpenCodeProjectConfigProjection {
   $schema?: string;
@@ -16,11 +23,6 @@ export type OpenCodeProjectConfigMergeResult =
   | { content: string; ok: true }
   | { errors: ParseError[]; ok: false };
 
-const JSON_FORMAT_OPTIONS = {
-  insertSpaces: true,
-  tabSize: 2,
-};
-
 export function mergeOpenCodeProjectConfig(
   currentText: string | undefined,
   projection: OpenCodeProjectConfigProjection
@@ -29,7 +31,7 @@ export function mergeOpenCodeProjectConfig(
     return { content: formatJson(projection), ok: true };
   }
 
-  const parsed = parseOpenCodeProjectConfig(currentText);
+  const parsed = parseJsonRecord(currentText);
   if (!parsed.ok) {
     return parsed;
   }
@@ -40,22 +42,6 @@ export function mergeOpenCodeProjectConfig(
     ),
     ok: true,
   };
-}
-
-function parseOpenCodeProjectConfig(
-  currentText: string
-):
-  | { ok: true; value: Record<string, unknown> }
-  | { errors: ParseError[]; ok: false } {
-  const errors: ParseError[] = [];
-  const value = parse(currentText, errors, {
-    allowTrailingComma: true,
-    disallowComments: false,
-  });
-  if (errors.length > 0 || !isRecord(value)) {
-    return { errors, ok: false };
-  }
-  return { ok: true, value };
 }
 
 function applyOpenCodeProjection(
@@ -127,29 +113,6 @@ function applyPluginProjection(
     : content;
 }
 
-function setIfMissing(
-  content: string,
-  parsed: Record<string, unknown>,
-  path: (number | string)[],
-  value: unknown
-): string {
-  if (value === undefined || hasPath(parsed, path)) {
-    return content;
-  }
-  return applyJsonEdit(content, path, value);
-}
-
-function hasPath(value: unknown, path: (number | string)[]): boolean {
-  let cursor = value;
-  for (const segment of path) {
-    if (!(isRecord(cursor) && segment in cursor)) {
-      return false;
-    }
-    cursor = cursor[segment];
-  }
-  return true;
-}
-
 function mergePluginEntries(
   existing: unknown,
   projected: unknown[]
@@ -189,27 +152,4 @@ function pluginName(specifier: string): string {
   return versionSeparator === -1
     ? specifier
     : specifier.slice(0, versionSeparator);
-}
-
-function applyJsonEdit(
-  content: string,
-  path: (number | string)[],
-  value: unknown
-): string {
-  const edits = modify(content, path, value, {
-    formattingOptions: JSON_FORMAT_OPTIONS,
-  });
-  return applyEdits(content, edits);
-}
-
-function formatJson(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-function ensureTrailingNewline(value: string): string {
-  return value.endsWith("\n") ? value : `${value}\n`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
