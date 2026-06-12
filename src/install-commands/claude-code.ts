@@ -1,6 +1,7 @@
 import { mergeClaudeSettings } from "../claude-settings-config";
 import type { PipelineConfig } from "../config";
 import { renderClaudeGatewayMcpServers } from "../mcp/gateway";
+import { opencodeAgentName } from "../runtime/opencode-agent-name";
 import {
   type AgentDispatchRoute,
   agentDispatchRoutes,
@@ -8,7 +9,6 @@ import {
   grants,
   header,
   markdown,
-  opencodeAgentName,
   projectAgentsMdDefinition,
   resolvedHostModel,
   scheduledEntrypointK8sNote,

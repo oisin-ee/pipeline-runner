@@ -10,7 +10,6 @@ import { renderOpenCodeGatewayConfig } from "../mcp/gateway";
 import { mergeOpenCodeProjectConfig } from "../opencode-project-config";
 import { resolvePackageAssetPath } from "../package-assets";
 import { opencodeAgentName } from "../runtime/opencode-agent-name";
-export { opencodeAgentName };
 import { compileWorkflowPlan } from "../workflow-planner";
 import {
   type ActiveCommandHost,
