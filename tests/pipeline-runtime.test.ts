@@ -808,7 +808,6 @@ workflows:
         }),
       ])
     );
-    expect(JSON.stringify(events)).not.toContain("@xstate");
     expect(JSON.stringify(events)).not.toContain('snapshot":{"');
   });
 

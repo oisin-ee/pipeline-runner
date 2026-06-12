@@ -302,8 +302,8 @@ Troubleshooting:
 Generated invocations include:
 
 ```text
-OpenCode: /moka-quick, /moka-execute, /moka-inspect
-Codex:    $quick, $execute, $inspect
+OpenCode:    /moka-quick, /moka-execute, /moka-inspect
+Claude Code: /moka-quick, /moka-execute, /moka-inspect
 ```
 
 `moka init` and `moka install-commands --host opencode` generate:
@@ -316,9 +316,11 @@ Codex:    $quick, $execute, $inspect
 - `.opencode/opencode.json` with LSP, the singleton `pipeline-gateway` MCP
   server, and pinned package-selected plugins
 
+`moka install-commands --host claude-code` generates `.claude/commands/moka-<entrypoint>.md`
+slash commands for Claude Code.
+
 Package defaults select OpenCode for built-in profiles and runner-command
-orchestration. Codex compatibility stays generated through `$quick`, `$execute`,
-`$inspect`, and Codex agent config, but it is not the default package runtime.
+orchestration. Codex is not a supported runtime host.
 
 ## How The Package Works
 
@@ -373,7 +375,7 @@ profiles, workflows, or node-level skill overrides.
 
 ## Configuring MCP Gateway
 
-MCP access is host-level and gateway-only. Codex, OpenCode, pipeline agents,
+MCP access is host-level and gateway-only. OpenCode, Claude Code, pipeline agents,
 manual sessions, and CI all connect to one ToolHive/vMCP gateway URL. Do not
 start upstream MCP servers from individual sessions.
 

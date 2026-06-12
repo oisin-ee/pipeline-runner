@@ -8,7 +8,8 @@
       "!!**/backlog",
       "!!**/.codex",
       "!!**/.gemini",
-      "!!**/.qwen"
+      "!!**/.qwen",
+      "!!**/.claude/worktrees"
     ]
   }
 }

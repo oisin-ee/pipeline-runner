@@ -1,6 +1,6 @@
 # ADR: OpenCode-First Goal Loop Runtime
 
-Status: Accepted
+Status: Accepted (Codex compatibility subsequently removed; OpenCode and Claude Code are the active command hosts)
 
 Date: 2026-06-08
 

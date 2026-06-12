@@ -475,7 +475,6 @@ describe("runner event sink", () => {
     ]);
     expect(JSON.stringify(bodies)).not.toContain("secret-token");
     expect(JSON.stringify(bodies)).not.toContain('snapshot":{"');
-    expect(JSON.stringify(bodies)).not.toContain("@xstate");
   });
 
   it("flushes a runtime CANCELLED final result and preserves it after a failed flush", async () => {

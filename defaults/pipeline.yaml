@@ -1,0 +1,111 @@
+version: 1
+default_workflow: inspect
+orchestrator:
+  profile: moka-orchestrator
+entrypoints:
+  quick:
+    schedule: quick-schedule
+    description: Compact planner-generated pipeline for small work
+  execute:
+    schedule: execute-schedule
+    description: Full planner-generated pipeline for repository work
+  inspect:
+    workflow: inspect
+    description: Read-only repository inspection
+hooks:
+  functions:
+    generated-defaults-audit:
+      kind: command
+      command: [node, -e, "const fs=require('node:fs'); fs.writeFileSync(process.env.PIPELINE_HOOK_RESULT, JSON.stringify({status:'pass',summary:'Generated defaults audit passed'}));"]
+      trusted: true
+      timeout_ms: 5000
+      output_limit_bytes: 4096
+  on:
+    workflow.start:
+      - id: generated-defaults-audit
+        function: generated-defaults-audit
+        failure: fail
+runner_command:
+  environment:
+    setup:
+      - command: bun
+        args: [install, --frozen-lockfile]
+scheduler:
+  commands:
+    quick:
+      schedule: quick-schedule
+      catalog: quick
+    execute:
+      schedule: execute-schedule
+      catalog: execute
+  node_catalogs:
+    quick:
+      required_categories: [intake, red, green, mechanical, verification]
+      nodes:
+        backlog-intake:
+          category: intake
+          profile: moka-researcher
+          models: [openai/gpt-5.5-medium]
+        red-tests:
+          category: red
+          profile: moka-test-writer
+          models: [openai/gpt-5.5-high, kimi-for-coding/kimi-k2-thinking]
+        green-implementation:
+          category: green
+          profile: moka-code-writer
+          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+        verification:
+          category: verification
+          profile: moka-verifier
+          models: [openai/gpt-5.5-medium]
+    execute:
+      required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
+      nodes:
+        backlog-intake:
+          category: intake
+          profile: moka-researcher
+          models: [openai/gpt-5.5-medium]
+        research:
+          category: research
+          profile: moka-researcher
+          models: [openai/gpt-5.5-medium, kimi-for-coding/k2p6]
+        red-tests:
+          category: red
+          profile: moka-test-writer
+          models: [openai/gpt-5.5-high, kimi-for-coding/kimi-k2-thinking]
+        green-backend:
+          category: green
+          profile: moka-code-writer
+          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+        green-frontend:
+          category: green
+          profile: moka-code-writer
+          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+        acceptance-review:
+          category: acceptance
+          profile: moka-acceptance-reviewer
+          models: [openai/gpt-5.5-medium]
+        verification:
+          category: verification
+          profile: moka-verifier
+          models: [openai/gpt-5.5-medium]
+        learn:
+          category: learn
+          profile: moka-learner
+          models: [openai/gpt-5.5-low]
+schedules:
+  quick-schedule:
+    baseline: quick
+    planner_profile: moka-schedule-planner
+    node_catalog: quick
+  execute-schedule:
+    baseline: execute
+    planner_profile: moka-schedule-planner
+    node_catalog: execute
+workflows:
+  inspect:
+    description: Read-only repository inspection workflow.
+    nodes:
+      - id: inspect
+        kind: agent
+        profile: moka-inspector

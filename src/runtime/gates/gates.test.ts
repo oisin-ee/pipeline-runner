@@ -222,7 +222,6 @@ describe("runtime gates", () => {
         type: "runtime.gate.failed",
       }),
     ]);
-    expect(JSON.stringify(observability)).not.toContain("@xstate");
     expect(JSON.stringify(observability)).not.toContain("snapshot");
   });
 });

@@ -1,0 +1,24 @@
+version: 1
+runners:
+  opencode:
+    type: opencode
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit, disabled]
+      output_formats: [text, json, jsonl, json_schema]
+  command:
+    type: command
+    capabilities:
+      native_subagents: false
+      rules: false
+      skills: false
+      mcp_servers: false
+      tools: [bash]
+      filesystem: [read-only, workspace-write]
+      network: [inherit, disabled]
+      output_formats: [text, json]

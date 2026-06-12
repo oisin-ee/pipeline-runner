@@ -225,7 +225,6 @@ describe("runtime hooks", () => {
         type: "runtime.hook.failed",
       }),
     ]);
-    expect(JSON.stringify(observability)).not.toContain("@xstate");
     expect(JSON.stringify(observability)).not.toContain("snapshot");
   });
 

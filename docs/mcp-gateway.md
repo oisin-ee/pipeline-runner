@@ -9,7 +9,7 @@ Playwright, Qdrant, or Neon.
 ## Target Shape
 
 ```text
-Codex/OpenCode
+OpenCode / Claude Code
         |
         | project-level MCP config
         v
@@ -47,7 +47,7 @@ host-specific MCP config.
 3. Configure `mcp_gateway` in package-owned profile config.
 4. Run `moka mcp gateway reconcile` to render and apply the full ToolHive vMCP
    backend inventory for the current workspace.
-5. Run `moka init` to write project Codex/OpenCode command surfaces and host
+5. Run `moka init` to write project OpenCode and Claude Code command surfaces and host
    MCP config.
 6. Run `moka mcp gateway doctor` to verify gateway health and required tools.
 7. Keep high-risk upstream capabilities controlled by gateway-side policy, not
@@ -88,7 +88,7 @@ orchestrator MCP set * subagent count * host config layers
 ```
 
 With a gateway, the runtime launches zero local upstream MCP processes for
-agents. Codex and OpenCode read the same project-level host config, which
+agents. OpenCode and Claude Code read the same project-level host config, which
 contains only `pipeline-gateway`.
 
 OpenCode receives that gateway through `.opencode/opencode.json` alongside the
@@ -114,7 +114,7 @@ adding one backend must not replace the existing Context7, uidotsh, Qdrant,
 Fallow, Serena, or Backlog declarations. Use `moka mcp gateway doctor` to check
 required environment variables, gateway health, required `tools/list` prefixes,
 local ToolHive availability for local mode, and legacy direct MCP entries. Use
-`moka init` to install generated Codex and OpenCode host surfaces with the
+`moka init` to install generated OpenCode and Claude Code host surfaces with the
 singleton `pipeline-gateway` remote entry. Use `moka install-commands --host all`
 to refresh generated host files after package upgrades, and use
 `moka mcp gateway configure-host` as an explicit migration or repair command
