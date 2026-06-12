@@ -17,22 +17,22 @@ const readPipelineFile = (path: string): string => {
 
 describe("scheduler and install command contracts", () => {
   it("keeps RED test-writing directly upstream of GREEN in the scheduler artifact", () => {
-    const schedulePlanner = readPipelineFile("schedule/planner.js");
+    const scheduleBaseline = readPipelineFile("schedule/baseline.js");
     const schedulePrompts = readPipelineFile("schedule/prompts.js");
 
-    expect(schedulePlanner).toContain('id: "green-implementation"');
-    expect(schedulePlanner).toContain('needs: ["red-tests"]');
+    expect(scheduleBaseline).toContain('id: "green-implementation"');
+    expect(scheduleBaseline).toContain('needs: ["red-tests"]');
     expect(schedulePrompts).toContain(
       "Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes."
     );
-    expect(schedulePlanner).not.toContain('id: "mechanical-red-tests"');
-    expect(schedulePlanner).not.toContain('id: "mechanical-red-typecheck"');
-    expect(schedulePlanner).not.toContain('id: "mechanical-red-lint"');
-    expect(schedulePlanner).not.toContain('id: "mechanical-red-fallow"');
+    expect(scheduleBaseline).not.toContain('id: "mechanical-red-tests"');
+    expect(scheduleBaseline).not.toContain('id: "mechanical-red-typecheck"');
+    expect(scheduleBaseline).not.toContain('id: "mechanical-red-lint"');
+    expect(scheduleBaseline).not.toContain('id: "mechanical-red-fallow"');
   });
 
   it("renders scheduled entrypoint dispatch in the install command artifact", () => {
-    const installCommands = readPipelineFile("install-commands.js");
+    const installCommands = readPipelineFile("install-commands/opencode.js");
 
     expect(installCommands).toContain(
       "function orchestratorEntrypointDispatchBlock"

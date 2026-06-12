@@ -218,7 +218,7 @@ function clusterDoctorExecaResult(command: string, args: string[]) {
   const kubectlArgs = stripKubectlContext(args);
   if (
     kubectlArgs.join(" ") ===
-    "auth can-i create workflows.argoproj.io --as system:serviceaccount:test-ns:pipeline-runner -n test-ns"
+    "auth can-i create workflows.argoproj.io -n test-ns"
   ) {
     return Promise.resolve({ exitCode: 0, stderr: "", stdout: "no" });
   }
@@ -2405,6 +2405,17 @@ profiles:
       expect(kubectlCalls()).toContainEqual([
         "--context",
         "test-context",
+        "auth",
+        "can-i",
+        "create",
+        "workflows.argoproj.io",
+        "-n",
+        "test-ns",
+      ]);
+      expect(kubectlCalls().flat()).not.toContain("--as");
+      expect(kubectlCalls()).toContainEqual([
+        "--context",
+        "test-context",
         "get",
         "secret",
         "pipeline-runner-event-auth",
@@ -2413,6 +2424,154 @@ profiles:
       ]);
     } finally {
       log.mockRestore();
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("doctor reports forbidden cluster resources as inaccessible", async () => {
+    const { runCli } = await import("../src/index");
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-cli-cluster-doctor-forbidden-")
+    );
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
+      process.env.PIPELINE_TARGET_PATH = dir;
+      mockExeca.mockImplementation(((command: string, args: string[]) => {
+        if (command !== "kubectl") {
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "ok" });
+        }
+        const kubectlArgs = stripKubectlContext(args);
+        if (kubectlArgs.includes("pipeline-runner-event-auth")) {
+          return Promise.reject({
+            stderr:
+              'Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden',
+          });
+        }
+        if (
+          kubectlArgs.join(" ") ===
+          "auth can-i create workflows.argoproj.io -n test-ns"
+        ) {
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "yes" });
+        }
+        if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
+          return Promise.resolve({
+            exitCode: 0,
+            stderr: "",
+            stdout: JSON.stringify({
+              status: { conditions: [{ status: "True", type: "Ready" }] },
+            }),
+          });
+        }
+        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "present" });
+      }) as any);
+
+      await expect(
+        runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "doctor",
+          "--cluster",
+          "test-ns",
+        ])
+      ).rejects.toThrow("Doctor checks failed.");
+
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain("FAIL secret/pipeline-runner-event-auth");
+      expect(output).toContain(
+        "secret/pipeline-runner-event-auth inaccessible with the current kube identity"
+      );
+      expect(output).not.toContain(
+        "expected ExternalSecret pipeline-runner-event-auth to sync it"
+      );
+    } finally {
+      log.mockRestore();
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("doctor uses configured kubeconfig and namespace for cluster checks", async () => {
+    const { runCli } = await import("../src/index");
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-cli-cluster-doctor-kubeconfig-")
+    );
+    const originalHome = process.env.HOME;
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const configuredKubeconfig = join(dir, "momokaya-agent-restricted.yaml");
+
+    try {
+      mkdirSync(join(dir, ".config", "moka"), { recursive: true });
+      writeFileSync(
+        join(dir, ".config", "moka", "config.yaml"),
+        [
+          "momokaya:",
+          "  kubernetes:",
+          `    kubeconfig: ${configuredKubeconfig}`,
+          "    namespace: configured-ns",
+          "  submit:",
+          "    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY",
+          "    eventAuthSecretName: event-auth-secret",
+          "    eventUrl: https://console.example.test/api/pipeline/runner-events",
+          "    gitCredentialsSecretName: git-credentials-secret",
+          "    githubAuthSecretName: github-auth-secret",
+          "    imagePullSecretName: image-pull-secret",
+          "    opencodeAuthSecretName: opencode-auth-secret",
+          "    queueName: configured-queue",
+          "    serviceAccountName: configured-runner",
+          "",
+        ].join("\n")
+      );
+      writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
+      process.env.HOME = dir;
+      process.env.PIPELINE_TARGET_PATH = dir;
+      mockExeca.mockImplementation(((command: string, args: string[]) => {
+        if (command !== "kubectl") {
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "ok" });
+        }
+        const kubectlArgs = stripKubectlContext(args);
+        if (
+          kubectlArgs.join(" ") ===
+          "auth can-i create workflows.argoproj.io -n configured-ns"
+        ) {
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "yes" });
+        }
+        if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
+          return Promise.resolve({
+            exitCode: 0,
+            stderr: "",
+            stdout: JSON.stringify({
+              status: { conditions: [{ status: "True", type: "Ready" }] },
+            }),
+          });
+        }
+        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "present" });
+      }) as any);
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "doctor",
+        "--cluster",
+      ]);
+
+      expect(kubectlCalls()).toContainEqual([
+        "get",
+        "namespace",
+        "configured-ns",
+      ]);
+      for (const [command, , options] of mockExeca.mock.calls) {
+        if (command === "kubectl") {
+          expect(options).toMatchObject({
+            env: { KUBECONFIG: configuredKubeconfig },
+          });
+        }
+      }
+    } finally {
+      restoreEnv("HOME", originalHome);
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       rmSync(dir, { recursive: true, force: true });
     }

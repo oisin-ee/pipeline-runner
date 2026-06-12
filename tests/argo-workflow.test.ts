@@ -576,25 +576,6 @@ describe("runner Argo Workflow manifest", () => {
               "name": "runner-git-credentials",
               "secret": {
                 "defaultMode": 256,
-                "items": [
-                  {
-                    "key": "username",
-                    "path": "username",
-                  },
-                  {
-                    "key": "password",
-                    "path": "password",
-                  },
-                  {
-                    "key": "identity",
-                    "path": "identity",
-                  },
-                  {
-                    "key": "known_hosts",
-                    "path": "known_hosts",
-                  },
-                ],
-                "optional": true,
                 "secretName": "git-credentials-secret",
               },
             },
@@ -924,16 +905,6 @@ describe("runner Argo Workflow manifest", () => {
           - name: runner-git-credentials
             secret:
               defaultMode: 256
-              items:
-                - key: username
-                  path: username
-                - key: password
-                  path: password
-                - key: identity
-                  path: identity
-                - key: known_hosts
-                  path: known_hosts
-              optional: true
               secretName: git-credentials-secret
           - name: github-auth
             secret:
@@ -1168,18 +1139,16 @@ describe("runner Argo Workflow manifest", () => {
           name: "runner-git-credentials",
           secret: expect.objectContaining({
             defaultMode: 0o400,
-            items: expect.arrayContaining([
-              { key: "username", path: "username" },
-              { key: "password", path: "password" },
-              { key: "identity", path: "identity" },
-              { key: "known_hosts", path: "known_hosts" },
-            ]),
-            optional: true,
             secretName: "git-credentials-secret",
           }),
         }),
       ])
     );
+    expect(
+      manifest.spec.volumes.find(
+        (volume) => volume.name === "runner-git-credentials"
+      )?.secret
+    ).not.toMatchObject({ items: expect.anything(), optional: true });
     expect(manifest.spec.volumes).toEqual(
       expect.not.arrayContaining([
         expect.objectContaining({ emptyDir: expect.anything() }),

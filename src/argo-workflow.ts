@@ -458,13 +458,6 @@ function runnerWorkflowStorage(
       name: "runner-git-credentials",
       secret: {
         defaultMode: 0o400,
-        items: [
-          { key: "username", path: "username" },
-          { key: "password", path: "password" },
-          { key: "identity", path: "identity" },
-          { key: "known_hosts", path: "known_hosts" },
-        ],
-        optional: true,
         secretName: options.gitCredentialsSecretName,
       },
     });

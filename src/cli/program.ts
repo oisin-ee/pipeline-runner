@@ -33,6 +33,7 @@ import {
   runGatewayDoctor,
   startLocalGateway,
 } from "../mcp/gateway";
+import { loadMokaGlobalConfig } from "../moka-global-config";
 import {
   formatPipelineInitResult,
   initPipelineProject,
@@ -124,6 +125,7 @@ interface DoctorResult {
 interface DoctorFlags {
   cluster?: boolean | string;
   kubeContext?: string;
+  kubeconfig?: string;
 }
 
 interface RunInputs {
@@ -351,6 +353,7 @@ export function createCliProgram(): Command {
       "also check runner-job Kubernetes prerequisites"
     )
     .option("--kube-context <context>", "kubectl context for cluster checks")
+    .option("--kubeconfig <path>", "kubeconfig path for cluster checks")
     .action(async (flags: DoctorFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const result = await runDoctor(cwd, flags);
@@ -627,10 +630,16 @@ export async function runDoctor(
     checkCommand("fallow", ["--version"], cwd),
   ]);
   const configCheck = checkPipelineConfig(cwd);
+  const globalConfig = loadMokaGlobalConfig();
   const clusterResult = options.cluster
     ? await runClusterDoctor({
         kubeContext: options.kubeContext,
-        namespace: clusterNamespace(options.cluster),
+        kubeconfigPath:
+          options.kubeconfig ?? globalConfig?.momokaya.kubernetes.kubeconfig,
+        namespace: clusterNamespace(
+          options.cluster,
+          globalConfig?.momokaya.kubernetes.namespace
+        ),
       })
     : { checks: [] };
   const checks = [...commandChecks, configCheck, ...clusterResult.checks];
@@ -640,10 +649,13 @@ export async function runDoctor(
   };
 }
 
-function clusterNamespace(value: boolean | string): string {
+function clusterNamespace(
+  value: boolean | string,
+  configuredNamespace?: string
+): string {
   return typeof value === "string" && value.length > 0
     ? value
-    : defaultClusterDoctorNamespace();
+    : (configuredNamespace ?? defaultClusterDoctorNamespace());
 }
 
 function checkCommand(
