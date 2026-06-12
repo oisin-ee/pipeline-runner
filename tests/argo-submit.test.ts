@@ -165,6 +165,67 @@ describe("submitRunnerArgoWorkflow", () => {
     });
   });
 
+  it("normalizes GitHub SSH repository URLs in persisted runner payloads", async () => {
+    const createdConfigMaps: Array<{
+      data?: Record<string, string>;
+      metadata?: { name?: string };
+    }> = [];
+    const payload = JSON.stringify({
+      ...JSON.parse(PAYLOAD),
+      repository: {
+        baseBranch: "main",
+        sha: "0123456789abcdef0123456789abcdef01234567",
+        url: "git@github.com:oisin-ee/rondo.git",
+      },
+    });
+
+    await submitRunnerArgoWorkflow(
+      {
+        config: DEFAULT_CONFIG,
+        eventAuthSecretKey: "token",
+        eventAuthSecretName: "pipeline-runner-event-auth",
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: payload,
+        queueName,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            createdConfigMaps.push(input.body);
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            return Promise.resolve({
+              ...(input.body as Record<string, unknown>),
+              metadata: {
+                ...(input.body as { metadata: Record<string, unknown> })
+                  .metadata,
+                name: "pipeline-run-normalized",
+              },
+            });
+          },
+        },
+      }
+    );
+
+    const payloadConfigMap = createdConfigMaps.find((configMap) =>
+      configMap.metadata?.name?.startsWith("pipeline-payload-")
+    );
+    const payloadJson = payloadConfigMap?.data?.["payload.json"];
+    expect(payloadJson).toBeDefined();
+    if (!payloadJson) {
+      throw new Error("Expected payload ConfigMap to include payload.json");
+    }
+    const persistedPayload = JSON.parse(payloadJson);
+    expect(persistedPayload.repository.url).toBe(
+      "https://github.com/oisin-ee/rondo.git"
+    );
+  });
+
   it("stores ticket metadata on submitted Argo Workflow annotations", async () => {
     const createdWorkflows: unknown[] = [];
     const payload = JSON.stringify({

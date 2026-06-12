@@ -8,7 +8,11 @@ import type {
 } from "../src/argo-submit";
 import { buildCommandScheduleYaml } from "../src/argo-submit";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
-import { mokaSubmitOptionsSchema, submitMoka } from "../src/moka-submit";
+import {
+  type MokaSubmitInput,
+  mokaSubmitOptionsSchema,
+  submitMoka,
+} from "../src/moka-submit";
 import {
   type PipelineRuntimeEvent,
   runPipelineFromConfig,
@@ -32,6 +36,7 @@ type CapturedSubmitOptions = Omit<
 > & {
   namespace?: string;
 };
+type SubmitMokaDependencies = NonNullable<Parameters<typeof submitMoka>[1]>;
 
 afterAll(() => {
   rmSync(PROJECT_ROOT, { force: true, recursive: true });
@@ -50,6 +55,49 @@ function captureSubmitCall(calls: CapturedSubmitOptions[]) {
       workflowName: "wf",
     });
   };
+}
+
+function mokaCommandInput(
+  overrides: Partial<
+    Omit<
+      MokaSubmitInput,
+      "commandArgv" | "config" | "eventUrl" | "namespace" | "type"
+    >
+  > = {}
+): MokaSubmitInput {
+  return {
+    commandArgv: ["opencode", "run", "fix"],
+    config: CONFIG,
+    eventUrl: "https://console.example/api/pipeline/runner-events",
+    ...MANAGED_AUTH,
+    namespace: EXPLICIT_NAMESPACE,
+    type: "command",
+    worktreePath: PROJECT_ROOT,
+    ...overrides,
+  };
+}
+
+function mokaCommandDependencies(
+  calls: CapturedSubmitOptions[],
+  runId: string,
+  resolveGitContext: SubmitMokaDependencies["resolveGitContext"] = () =>
+    Promise.resolve(GIT)
+): SubmitMokaDependencies {
+  return {
+    generateRunId: () => runId,
+    resolveGitContext,
+    submitWorkflow: captureSubmitCall(calls),
+  };
+}
+
+function submittedRepositoryUrl(calls: CapturedSubmitOptions[]): string {
+  if (calls.length !== 1) {
+    throw new Error(
+      `Expected one workflow submission, received ${calls.length}`
+    );
+  }
+  const payload = JSON.parse(calls[0].payloadJson);
+  return payload.repository.url;
 }
 
 const MANAGED_AUTH = {
@@ -224,20 +272,8 @@ describe("submitMoka", () => {
     const calls: CapturedSubmitOptions[] = [];
 
     await submitMoka(
-      {
-        commandArgv: ["opencode", "run", "fix"],
-        config: CONFIG,
-        eventUrl: "https://console.example/api/pipeline/runner-events",
-        ...MANAGED_AUTH,
-        namespace: EXPLICIT_NAMESPACE,
-        type: "command",
-        worktreePath: PROJECT_ROOT,
-      },
-      {
-        generateRunId: () => "run-command",
-        resolveGitContext: () => Promise.resolve(GIT),
-        submitWorkflow: captureSubmitCall(calls),
-      }
+      mokaCommandInput(),
+      mokaCommandDependencies(calls, "run-command")
     );
 
     expect(calls).toHaveLength(1);
@@ -270,20 +306,8 @@ describe("submitMoka", () => {
     const calls: CapturedSubmitOptions[] = [];
 
     await submitMoka(
-      {
-        commandArgv: ["opencode", "run", "fix"],
-        config: CONFIG,
-        eventUrl: "https://console.example/api/pipeline/runner-events",
-        ...MANAGED_AUTH,
-        namespace: EXPLICIT_NAMESPACE,
-        type: "command",
-        worktreePath: PROJECT_ROOT,
-      },
-      {
-        generateRunId: () => "run-custom-url",
-        resolveGitContext: () => Promise.resolve(GIT),
-        submitWorkflow: captureSubmitCall(calls),
-      }
+      mokaCommandInput(),
+      mokaCommandDependencies(calls, "run-custom-url")
     );
 
     expect(calls).toHaveLength(1);
@@ -297,33 +321,77 @@ describe("submitMoka", () => {
     });
   });
 
-  it("preserves SSH remotes when standard git credentials are configured", async () => {
+  it("normalizes resolved GitHub SSH remotes to HTTPS for runner payloads", async () => {
     const calls: CapturedSubmitOptions[] = [];
 
     await submitMoka(
-      {
-        commandArgv: ["opencode", "run", "fix"],
-        config: CONFIG,
-        eventUrl: "https://console.example/api/pipeline/runner-events",
-        ...MANAGED_AUTH,
-        namespace: EXPLICIT_NAMESPACE,
-        type: "command",
-        worktreePath: PROJECT_ROOT,
-      },
-      {
-        generateRunId: () => "run-github-ssh",
-        resolveGitContext: () =>
-          Promise.resolve({
-            ...GIT,
-            url: "git@github.com:oisin-ee/tova.git",
-          }),
-        submitWorkflow: captureSubmitCall(calls),
-      }
+      mokaCommandInput(),
+      mokaCommandDependencies(calls, "run-github-ssh", () =>
+        Promise.resolve({
+          ...GIT,
+          url: "git@github.com:oisin-ee/tova.git",
+        })
+      )
     );
 
-    expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0].payloadJson);
-    expect(payload.repository.url).toBe("git@github.com:oisin-ee/tova.git");
+    expect(submittedRepositoryUrl(calls)).toBe(
+      "https://github.com/oisin-ee/tova.git"
+    );
+  });
+
+  it("normalizes explicit GitHub SSH repository URLs to HTTPS for runner payloads", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await submitMoka(
+      mokaCommandInput({
+        repository: {
+          baseBranch: "main",
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          url: "ssh://git@github.com/oisin-ee/tova.git",
+        },
+        run: {
+          id: "run-explicit-ssh",
+          project: "tova",
+        },
+      }),
+      mokaCommandDependencies(calls, "run-explicit-ssh", () => {
+        throw new Error(
+          "local git should not be resolved for explicit context"
+        );
+      })
+    );
+
+    expect(submittedRepositoryUrl(calls)).toBe(
+      "https://github.com/oisin-ee/tova.git"
+    );
+  });
+
+  it("rejects non-GitHub SSH repository URLs before workflow submission", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await expect(
+      submitMoka(
+        mokaCommandInput({
+          repository: {
+            baseBranch: "main",
+            sha: "0123456789abcdef0123456789abcdef01234567",
+            url: "git@gitlab.com:oisin-ee/tova.git",
+          },
+          run: {
+            id: "run-unsupported-ssh",
+            project: "tova",
+          },
+        }),
+        mokaCommandDependencies(calls, "run-unsupported-ssh", () => {
+          throw new Error(
+            "local git should not be resolved for explicit context"
+          );
+        })
+      )
+    ).rejects.toThrow(
+      "SSH git remote git@gitlab.com:oisin-ee/tova.git is not supported for moka submit; use an HTTPS GitHub remote"
+    );
+    expect(calls).toHaveLength(0);
   });
 
   it("passes the standard git credentials Secret to workflow submission", async () => {

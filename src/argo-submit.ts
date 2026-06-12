@@ -12,9 +12,11 @@ import {
   runnerArgoWorkflowManifestSchema,
 } from "./argo-workflow";
 import type { PipelineConfig } from "./config";
+import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import { buildRunnerTaskDescriptor } from "./runner-command/task-descriptor";
 import {
   parseRunnerCommandPayload,
+  type RunnerCommandPayload,
   runnerCommandPayloadSchema,
 } from "./runner-command-contract";
 import {
@@ -104,9 +106,13 @@ export async function submitRunnerArgoWorkflow(
 ): Promise<SubmitRunnerArgoWorkflowResult> {
   const { config, ...schemaOptions } = rawOptions;
   const options = submitRunnerArgoWorkflowOptionsSchema.parse(schemaOptions);
-  const payload = runnerCommandPayloadSchema.parse(
+  const parsedPayload = runnerCommandPayloadSchema.parse(
     parseRunnerCommandPayload(options.payloadJson)
   );
+  const { payload, payloadJson } = normalizeRunnerPayloadForSubmit({
+    payload: parsedPayload,
+    payloadJson: options.payloadJson,
+  });
   const compiled = compileScheduleArtifact(
     config,
     parseScheduleArtifact(options.scheduleYaml, "schedule.yaml")
@@ -159,7 +165,7 @@ export async function submitRunnerArgoWorkflow(
   await coreApi.createNamespacedConfigMap({
     body: configMapSchema.parse({
       apiVersion: "v1",
-      data: { "payload.json": options.payloadJson },
+      data: { "payload.json": payloadJson },
       kind: "ConfigMap",
       metadata: {
         labels,
@@ -254,6 +260,23 @@ export function buildCommandScheduleYaml(
       },
     },
   });
+}
+
+function normalizeRunnerPayloadForSubmit(input: {
+  payload: RunnerCommandPayload;
+  payloadJson: string;
+}): { payload: RunnerCommandPayload; payloadJson: string } {
+  const repository = normalizeRunnerRepositoryForSubmit(
+    input.payload.repository
+  );
+  if (repository === input.payload.repository) {
+    return input;
+  }
+  const payload = runnerCommandPayloadSchema.parse({
+    ...input.payload,
+    repository,
+  });
+  return { payload, payloadJson: JSON.stringify(payload) };
 }
 
 function apiClients(

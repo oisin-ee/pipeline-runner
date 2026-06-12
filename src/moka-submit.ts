@@ -9,6 +9,7 @@ import {
   submitRunnerArgoWorkflow,
 } from "./argo-submit";
 import type { HookEvent, PipelineConfig } from "./config";
+import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import {
   buildRunnerCommandPayload,
   type MokaSubmission,
@@ -678,7 +679,7 @@ function explicitSubmissionContext(
   }
   assertRepositoryCredentialConfiguration(options);
   return {
-    repository: options.repository,
+    repository: normalizeRunnerRepositoryForSubmit(options.repository),
     run: options.run,
   };
 }
@@ -699,7 +700,7 @@ function repositoryContext(
   options: ParsedMokaBaseOptions,
   git: MokaGitContext
 ): RunnerRepositoryContext {
-  return (
+  return normalizeRunnerRepositoryForSubmit(
     options.repository ?? {
       baseBranch: git.baseBranch,
       sha: git.sha,
