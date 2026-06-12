@@ -1,10 +1,10 @@
 ---
 id: PIPE-59.2
 title: Replace node-machine with plain NodeStateTracker and retry module
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:38'
-updated_date: '2026-06-11 21:15'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - runtime
@@ -23,11 +23,11 @@ Step 2 of de-xstate. src/runtime-machines/node-machine.ts (344 lines) is a passi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 node-machine.ts is deleted; node status transitions live in a plain NodeStateTracker using the existing NodeExecutionState type.
-- [ ] #2 Retry policy, decision, and delay live in src/runtime/retry.ts as directly-called pure functions; the send/getSnapshot round-trips in pipeline-runtime.ts are gone.
-- [ ] #3 Retry behavior (attempt counts, backoff multiplier, gate-failure retries) is unchanged per existing tests.
-- [ ] #4 `waitForRetryDelay` remains AbortSignal-aware and is not replaced with p-retry or a generic retry helper.
-- [ ] #5 Node observability emits keep the same actor IDs and payload fields through the contracts extracted by PIPE-59.5.
+- [x] #1 node-machine.ts is deleted; node status transitions live in a plain NodeStateTracker using the existing NodeExecutionState type.
+- [x] #2 Retry policy, decision, and delay live in src/runtime/retry.ts as directly-called pure functions; the send/getSnapshot round-trips in pipeline-runtime.ts are gone.
+- [x] #3 Retry behavior (attempt counts, backoff multiplier, gate-failure retries) is unchanged per existing tests.
+- [x] #4 `waitForRetryDelay` remains AbortSignal-aware and is not replaced with p-retry or a generic retry helper.
+- [x] #5 Node observability emits keep the same actor IDs and payload fields through the contracts extracted by PIPE-59.5.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -43,3 +43,9 @@ Step 2 of de-xstate: eliminate the send/getSnapshot anti-pattern. node-machine.t
 
 The tracker is a state recorder, not a second execution engine. Do not add workflow scheduling, Argo behavior, or compatibility snapshots in this ticket.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

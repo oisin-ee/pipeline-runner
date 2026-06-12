@@ -3,10 +3,10 @@ id: PIPE-59.3
 title: >-
   Replace workflow-machine with plain ready-queue scheduler and shared lifecycle
   module
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:38'
-updated_date: '2026-06-11 21:15'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - runtime
@@ -25,12 +25,12 @@ Step 3 of de-xstate. src/runtime-machines/workflow-machine.ts (657 lines) inject
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 workflow-machine.ts is deleted; src/runtime/scheduler.ts implements DAG execution as plain async code with no xstate.
-- [ ] #2 Lifecycle hook sequencing (start/success/failure/complete, incl. success-hook-failure handling) lives in src/runtime/workflow-lifecycle.ts.
-- [ ] #3 failFast serial execution, fail-fast skip reasons, descendant blocking, and cancellation semantics are unchanged (PIPE-57 tests pass).
-- [ ] #4 Concurrency cap honors maxParallelNodes exactly as before.
-- [ ] #5 readyNodeIds, workflowNodeCapacity, and unstartedBlockingDescendants are preserved as directly testable pure functions or equivalent exports.
-- [ ] #6 The lifecycle module has no Argo-specific imports; PIPE-60.2 owns adapting Argo to this shared module.
+- [x] #1 workflow-machine.ts is deleted; src/runtime/scheduler.ts implements DAG execution as plain async code with no xstate.
+- [x] #2 Lifecycle hook sequencing (start/success/failure/complete, incl. success-hook-failure handling) lives in src/runtime/workflow-lifecycle.ts.
+- [x] #3 failFast serial execution, fail-fast skip reasons, descendant blocking, and cancellation semantics are unchanged (PIPE-57 tests pass).
+- [x] #4 Concurrency cap honors maxParallelNodes exactly as before.
+- [x] #5 readyNodeIds, workflowNodeCapacity, and unstartedBlockingDescendants are preserved as directly testable pure functions or equivalent exports.
+- [x] #6 The lifecycle module has no Argo-specific imports; PIPE-60.2 owns adapting Argo to this shared module.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -46,3 +46,9 @@ Step 3 of de-xstate: the scheduler loop. workflow-machine.ts (657 lines) is stru
 
 Do not introduce a queue/concurrency library. The existing behavior is small enough that plain async plus the extracted pure helper functions is the clearest implementation and easiest contract to test.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

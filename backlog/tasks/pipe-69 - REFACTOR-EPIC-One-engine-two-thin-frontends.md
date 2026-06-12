@@ -1,10 +1,11 @@
 ---
 id: PIPE-69
 title: 'REFACTOR EPIC: One engine, two thin frontends'
-status: To Do
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-06-11 20:41'
+updated_date: '2026-06-12 10:29'
 labels: []
 milestone: Refactor
 dependencies: []
@@ -22,11 +23,11 @@ Corrected child structure: PIPE-57 pins behavior before refactors; PIPE-59.5 ext
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Phase 0-2 complete: PIPE-57 event/behavior goldens pass, PIPE-59.5 preserves runtime actor contracts, xstate is deleted, and the plain async scheduler covers all seven former xstate import sites.
-- [ ] #2 Phase 3: PIPE-60.1 through PIPE-60.5 define PipelineScheduler, prove lifecycle hook parity, add startup-only Argo retryStrategy for exit 70, prove LocalScheduler-versus-Argo parity, and trim RuntimeContext.
-- [ ] #3 Phase 4: live terminal rendering + devspace recipe for hands-on work.
-- [ ] #4 Phase 5: monoliths split (config, schedule, cli), architecture decisions documented.
-- [ ] #5 Phase 6: moka doctor tool added, minimal real-usage e2e runs, and infra unblocking remains separate (INFRA-050/OpenBao/ESO owner responsibility).
+- [x] #1 Phase 0-2 complete: PIPE-57 event/behavior goldens pass, PIPE-59.5 preserves runtime actor contracts, xstate is deleted, and the plain async scheduler covers all seven former xstate import sites.
+- [x] #2 Phase 3: PIPE-60.1 through PIPE-60.5 define PipelineScheduler, prove lifecycle hook parity, add startup-only Argo retryStrategy for exit 70, prove LocalScheduler-versus-Argo parity, and trim RuntimeContext.
+- [x] #3 Phase 4: live terminal rendering + devspace recipe for hands-on work.
+- [x] #4 Phase 5: monoliths split (config, schedule, cli), architecture decisions documented.
+- [x] #5 Phase 6: moka doctor tool added, minimal real-usage e2e runs, and infra unblocking remains separate (INFRA-050/OpenBao/ESO owner responsibility).
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -42,3 +43,9 @@ Comprehensive research completed (ARGO-3.7 capabilities, dual-scheduler anti-pat
 
 Preserve the original rationale while draining children: this is not a wholesale runtime rewrite. It is a contract-preserving removal of redundant xstate orchestration, followed by a named scheduler boundary and Argo-specific hardening where Argo is the right tool.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+PIPE-69 accepted and closed. The runtime is now one plain async node engine with two thin frontends. PIPE-57 goldens and focused contract tests pass; xstate and src/runtime-machines are gone from source, package metadata, and lockfile; PipelineScheduler/LocalScheduler, shared workflow lifecycle, startup-only Argo retryStrategy for exit 70, Argo/local parity, and NodeStateStore are in place. Hands-on mode has default live terminal reporting plus a DevSpace runner pod recipe. config, schedule planner, and CLI monoliths are split behind stable public barrels, and keep-decisions for graphlib, git refs, runner payload/event/schedule/label contracts, AbortSignal retry delay, and event sink are documented. PIPE-67 added value-free moka doctor checks and recorded real cluster smoke evidence while leaving OpenBao/ESO repair to infra. PIPE-68 completed the no-consumer package export decision: goal-loop/goal-state subpath exports and tsdown entrypoints were removed for the next major release with semantic-release/GitHub Actions as the publishing path. MoKa Acceptance Reviewer passed all five PIPE-69 ACs; focused verification passed refactor acceptance tests, golden/package/Argo/schedule contract tests, and CLI/doctor tests.
+<!-- SECTION:FINAL_SUMMARY:END -->

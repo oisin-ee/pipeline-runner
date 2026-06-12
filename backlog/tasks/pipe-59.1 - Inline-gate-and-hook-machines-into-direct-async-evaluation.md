@@ -1,10 +1,10 @@
 ---
 id: PIPE-59.1
 title: Inline gate and hook machines into direct async evaluation
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:38'
-updated_date: '2026-06-11 21:15'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - runtime
@@ -23,11 +23,11 @@ Step 1 of de-xstate. src/runtime-machines/gate-machine.ts (182 lines) and hook-m
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 gate-machine.ts and hook-machine.ts are deleted; gates.ts and hooks.ts no longer import xstate.
-- [ ] #2 Emitted observability event names and payloads are unchanged (PIPE-57 golden sequence passes).
-- [ ] #3 Existing gate and hook behavioral test assertions are preserved against the new code.
-- [ ] #4 Cancellation/abort paths still emit the documented cancelled events and return the same runtime result shape.
-- [ ] #5 This ticket uses the runtime actor/observability contracts extracted by PIPE-59.5 and does not rename actor IDs or event payload fields.
+- [x] #1 gate-machine.ts and hook-machine.ts are deleted; gates.ts and hooks.ts no longer import xstate.
+- [x] #2 Emitted observability event names and payloads are unchanged (PIPE-57 golden sequence passes).
+- [x] #3 Existing gate and hook behavioral test assertions are preserved against the new code.
+- [x] #4 Cancellation/abort paths still emit the documented cancelled events and return the same runtime result shape.
+- [x] #5 This ticket uses the runtime actor/observability contracts extracted by PIPE-59.5 and does not rename actor IDs or event payload fields.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -43,3 +43,9 @@ First executable change in the de-xstate sequence. Gate and hook evaluation is s
 
 Do not edit retry policy or workflow scheduling in this ticket. If a helper is needed, keep it local to gates/hooks unless the same helper is already provided by the contract module from PIPE-59.5.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

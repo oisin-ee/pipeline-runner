@@ -1,9 +1,10 @@
 ---
 id: PIPE-62
 title: Create devspace runner pod recipe for remote hands-on work
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:40'
+updated_date: '2026-06-12 10:28'
 labels:
   - feature
   - devspace
@@ -22,8 +23,14 @@ Phase 4 variant: the owner can spawn a long-lived devspace runner pod in the clu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A devspace.yaml or Helm overrides file exists that spins up the pipeline-runner image as a dev pod with the same mounts/secrets as production.
-- [ ] #2 Documentation explains: `devspace dev` in the moka repo -> exec shell -> `moka run quick`.
-- [ ] #3 The pod includes dev-mode tools (git, opencode, claude CLI, bun) and synced repo access.
-- [ ] #4 The same event stream rendering (PIPE-61) works inside the pod terminal.
+- [x] #1 A devspace.yaml or Helm overrides file exists that spins up the pipeline-runner image as a dev pod with the same mounts/secrets as production.
+- [x] #2 Documentation explains: `devspace dev` in the moka repo -> exec shell -> `moka run quick`.
+- [x] #3 The pod includes dev-mode tools (git, opencode, claude CLI, bun) and synced repo access.
+- [x] #4 The same event stream rendering (PIPE-61) works inside the pod terminal.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

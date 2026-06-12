@@ -1,9 +1,10 @@
 ---
 id: PIPE-64
 title: Split schedule-planner.ts into passes and modules
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:40'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - schedule
@@ -21,7 +22,13 @@ Phase 5: decompose the 1,869-line src/schedule-planner.ts monolith into: src/sch
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/schedule/{artifact,planner,prompts}.ts and src/schedule/passes/*.ts exist.
-- [ ] #2 Pass order is documented (coverage -> models -> IDs -> references).
-- [ ] #3 No public API changes; build succeeds.
+- [x] #1 src/schedule/{artifact,planner,prompts}.ts and src/schedule/passes/*.ts exist.
+- [x] #2 Pass order is documented (coverage -> models -> IDs -> references).
+- [x] #3 No public API changes; build succeeds.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

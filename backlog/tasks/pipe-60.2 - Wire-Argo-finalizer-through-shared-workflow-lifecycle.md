@@ -1,10 +1,10 @@
 ---
 id: PIPE-60.2
 title: Wire Argo workflow lifecycle through shared lifecycle module
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 21:15'
-updated_date: '2026-06-11 21:20'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - argo
@@ -23,13 +23,12 @@ Close the workflow-hook parity gap between local and Argo execution. PIPE-59.3 e
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
-
 <!-- AC:BEGIN -->
-- [ ] #1 Argo workflow.start handling calls the shared workflow-lifecycle module before DAG node tasks are scheduled or executed.
-- [ ] #2 Argo finalization calls the shared workflow-lifecycle module for workflow.success, workflow.failure, and workflow.complete.
-- [ ] #3 Success-hook failure behavior matches the local lifecycle rule from PIPE-59.3: success-hook failure turns the workflow outcome into failure before complete runs.
-- [ ] #4 Event records, hook payloads, and completion status are unchanged versus the pinned PIPE-57 golden contracts.
-- [ ] #5 Focused Argo finalizer and runtime lifecycle tests cover success, node failure, success-hook failure, and cancellation/abort where the existing finalizer supports it.
+- [x] #1 Argo workflow.start handling calls the shared workflow-lifecycle module before DAG node tasks are scheduled or executed.
+- [x] #2 Argo finalization calls the shared workflow-lifecycle module for workflow.success, workflow.failure, and workflow.complete.
+- [x] #3 Success-hook failure behavior matches the local lifecycle rule from PIPE-59.3: success-hook failure turns the workflow outcome into failure before complete runs.
+- [x] #4 Event records, hook payloads, and completion status are unchanged versus the pinned PIPE-57 golden contracts.
+- [x] #5 Focused Argo finalizer and runtime lifecycle tests cover success, node failure, success-hook failure, and cancellation/abort where the existing finalizer supports it.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -43,3 +42,9 @@ Update the Argo workflow generation/finalizer path and its tests. Reuse the shar
 <!-- SECTION:NOTES:BEGIN -->
 The previous wording said "wire Argo finalizer" but full parity needs both start-time and finalizer-time integration. Keep that distinction explicit in the implementation and tests so future agents do not move workflow.start into a late finalizer phase.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

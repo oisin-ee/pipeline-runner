@@ -1,10 +1,10 @@
 ---
 id: PIPE-59
 title: 'De-xstate the runtime: one plain-async engine'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:38'
-updated_date: '2026-06-11 20:39'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - runtime
@@ -25,12 +25,12 @@ Planning correction from the refactor review: the implementation scope is seven 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/runtime-machines/ is deleted entirely and xstate is removed from package.json dependencies.
-- [ ] #2 tests/pipeline-runtime.test.ts passes without modification; PIPE-57 golden event-record sequences are byte-identical.
-- [ ] #3 failFast still forces serial execution (PIPE-57 test passes against the new scheduler).
-- [ ] #4 The five subtasks (runtime contract extraction, gates/hooks inlining, node state tracker, scheduler replacement, observability emit rewiring) are complete in dependency order.
-- [ ] #5 All seven xstate import sites are gone: `src/pipeline-runtime.ts`, `src/runtime/gates/gates.ts`, `src/runtime/hooks/hooks.ts`, `src/runtime-machines/workflow-machine.ts`, `src/runtime-machines/node-machine.ts`, `src/runtime-machines/gate-machine.ts`, and `src/runtime-machines/hook-machine.ts`.
-- [ ] #6 No replacement introduces unsafe casts/assertions, broad fallback defaults, hidden retries, or duplicated scheduler condition clusters.
+- [x] #1 src/runtime-machines/ is deleted entirely and xstate is removed from package.json dependencies.
+- [x] #2 tests/pipeline-runtime.test.ts passes without modification; PIPE-57 golden event-record sequences are byte-identical.
+- [x] #3 failFast still forces serial execution (PIPE-57 test passes against the new scheduler).
+- [x] #4 The five subtasks (runtime contract extraction, gates/hooks inlining, node state tracker, scheduler replacement, observability emit rewiring) are complete in dependency order.
+- [x] #5 All seven xstate import sites are gone: `src/pipeline-runtime.ts`, `src/runtime/gates/gates.ts`, `src/runtime/hooks/hooks.ts`, `src/runtime-machines/workflow-machine.ts`, `src/runtime-machines/node-machine.ts`, `src/runtime-machines/gate-machine.ts`, and `src/runtime-machines/hook-machine.ts`.
+- [x] #6 No replacement introduces unsafe casts/assertions, broad fallback defaults, hidden retries, or duplicated scheduler condition clusters.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -40,3 +40,9 @@ Keystone refactor: eliminates the dual-semantic-engine problem. Verified by read
 
 Preserve public contract names and import surfaces. `runtimeActorId`, `RuntimeActorDescriptor`, `RuntimeActorKind`, `RuntimeObservabilityEvent`, and retry-policy contract types are not xstate concepts; they currently live beside machine declarations and must survive in a non-machine module. Do not rename actor IDs or event names while removing xstate.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

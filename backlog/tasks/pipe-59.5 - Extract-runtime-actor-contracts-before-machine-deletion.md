@@ -1,9 +1,10 @@
 ---
 id: PIPE-59.5
 title: Extract runtime actor contracts before machine deletion
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 21:15'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - runtime
@@ -24,11 +25,11 @@ First dependency of the de-xstate phase. `src/runtime-machines/contracts.ts` cur
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new non-machine module owns `runtimeActorId`, `RuntimeActorIdParts`, `RuntimeActorKind`, `RuntimeActorDescriptor`, `RuntimeObservabilityEmitter`, `RuntimeObservabilityEvent`, `RetryReason`, and `NodeRetryPolicyContract`.
-- [ ] #2 All non-machine importers use the new module path: `src/pipeline-runtime.ts`, `src/runtime/events/events.ts`, `src/runtime-observability.ts`, `src/runtime-observability-inspection.ts`, `src/runtime/gates/gates.ts`, `src/runtime/hooks/hooks.ts`, and `src/runtime/contracts/contracts.ts`.
-- [ ] #3 `runtimeActorId` output is byte-identical for workflow, node, gate, and hook actors; PIPE-57 actor-id goldens pass unchanged.
-- [ ] #4 `src/runtime-machines/contracts.ts` contains only machine-specific declarations after the move, or is left as a temporary re-export shim that is explicitly deleted by PIPE-59.4.
-- [ ] #5 No public export path from `package.json` changes in this ticket.
+- [x] #1 A new non-machine module owns `runtimeActorId`, `RuntimeActorIdParts`, `RuntimeActorKind`, `RuntimeActorDescriptor`, `RuntimeObservabilityEmitter`, `RuntimeObservabilityEvent`, `RetryReason`, and `NodeRetryPolicyContract`.
+- [x] #2 All non-machine importers use the new module path: `src/pipeline-runtime.ts`, `src/runtime/events/events.ts`, `src/runtime-observability.ts`, `src/runtime-observability-inspection.ts`, `src/runtime/gates/gates.ts`, `src/runtime/hooks/hooks.ts`, and `src/runtime/contracts/contracts.ts`.
+- [x] #3 `runtimeActorId` output is byte-identical for workflow, node, gate, and hook actors; PIPE-57 actor-id goldens pass unchanged.
+- [x] #4 `src/runtime-machines/contracts.ts` contains only machine-specific declarations after the move, or is left as a temporary re-export shim that is explicitly deleted by PIPE-59.4.
+- [x] #5 No public export path from `package.json` changes in this ticket.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -42,3 +43,9 @@ Create a small deep module, for example `src/runtime/actor-ids.ts` or `src/runti
 <!-- SECTION:NOTES:BEGIN -->
 This is a shared-contract ticket. It exists to prevent PIPE-59.1 through PIPE-59.4 from deleting public event-contract utilities while removing machines. Do not rename `pipeline.workflow`, `pipeline.node`, `pipeline.gate`, `pipeline.hook`, or the dot-separated part order. Do not introduce a compatibility shim unless it is explicitly temporary and deleted by PIPE-59.4.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

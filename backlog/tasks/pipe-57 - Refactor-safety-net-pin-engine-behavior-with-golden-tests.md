@@ -1,10 +1,10 @@
 ---
 id: PIPE-57
 title: 'Refactor safety net: pin engine behavior with golden tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:37'
-updated_date: '2026-06-11 20:39'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - tests
@@ -22,14 +22,14 @@ Phase 0 of the one-engine refactor (see `/Users/oisin/.claude/projects/-Users-oi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A workflow scheduler behavior test proves `failFast: true` forces serial execution even when multiple root nodes are ready, preserving current `workflowNodeCapacity` behavior from `src/runtime-machines/workflow-machine.ts`.
-- [ ] #2 A workflow scheduler behavior test proves fail-fast skips every unstarted node with the exact current reason string: `skipped because workflow fail_fast stopped after node '<nodeId>' failed`.
-- [ ] #3 A workflow lifecycle test locks hook order for success (`workflow.start`, `workflow.success`, `workflow.complete`) and failure (`workflow.start`, `workflow.failure`, `workflow.complete`), including the current success-hook-failure behavior where failure wins before final PASS.
-- [ ] #4 A golden ordered `RunnerEventRecord` sequence covers a small end-to-end run and snapshots event type names, sequence numbers, `runtime.observability` records, `actor.id`, and `actor.systemId`.
-- [ ] #5 The golden explicitly locks `runtimeActorId` formats for workflow, node, gate, and hook actors: `pipeline.workflow.<runId>.<workflowId>`, `pipeline.node.<runId>.<workflowId>.<nodeId>`, `pipeline.gate.<runId>.<workflowId>.<nodeId>.<gateId>`, and `pipeline.hook.<runId>.<workflowId>[.<nodeId>].<hookId>`.
-- [ ] #6 A golden full-manifest snapshot covers a representative multi-node Argo Workflow CRD, including `spec.onExit: pipeline-finalizer`, DAG task names/templates, dependency ordering, labels, mounts, finalizer args, and any retryStrategy fields once PIPE-60.3 adds them.
-- [ ] #7 Schedule artifact round-trip golden tests cover generate -> parse -> compile for quick and execute baselines without relying on live model output.
-- [ ] #8 Vitest coverage reporting (`@vitest/coverage-v8`) is wired into the test script or documented as a deliberate non-adoption with the exact blocker; coverage must be measured rather than guessed.
+- [x] #1 A workflow scheduler behavior test proves `failFast: true` forces serial execution even when multiple root nodes are ready, preserving current `workflowNodeCapacity` behavior from `src/runtime-machines/workflow-machine.ts`.
+- [x] #2 A workflow scheduler behavior test proves fail-fast skips every unstarted node with the exact current reason string: `skipped because workflow fail_fast stopped after node '<nodeId>' failed`.
+- [x] #3 A workflow lifecycle test locks hook order for success (`workflow.start`, `workflow.success`, `workflow.complete`) and failure (`workflow.start`, `workflow.failure`, `workflow.complete`), including the current success-hook-failure behavior where failure wins before final PASS.
+- [x] #4 A golden ordered `RunnerEventRecord` sequence covers a small end-to-end run and snapshots event type names, sequence numbers, `runtime.observability` records, `actor.id`, and `actor.systemId`.
+- [x] #5 The golden explicitly locks `runtimeActorId` formats for workflow, node, gate, and hook actors: `pipeline.workflow.<runId>.<workflowId>`, `pipeline.node.<runId>.<workflowId>.<nodeId>`, `pipeline.gate.<runId>.<workflowId>.<nodeId>.<gateId>`, and `pipeline.hook.<runId>.<workflowId>[.<nodeId>].<hookId>`.
+- [x] #6 A golden full-manifest snapshot covers a representative multi-node Argo Workflow CRD, including `spec.onExit: pipeline-finalizer`, DAG task names/templates, dependency ordering, labels, mounts, finalizer args, and any retryStrategy fields once PIPE-60.3 adds them.
+- [x] #7 Schedule artifact round-trip golden tests cover generate -> parse -> compile for quick and execute baselines without relying on live model output.
+- [x] #8 Vitest coverage reporting (`@vitest/coverage-v8`) is wired into the test script or documented as a deliberate non-adoption with the exact blocker; coverage must be measured rather than guessed.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -45,3 +45,9 @@ The original verified context remains load-bearing: the refactor replaces four x
 
 Additional inspection found seven xstate import sites, not just four machine files: `src/pipeline-runtime.ts`, `src/runtime/gates/gates.ts`, `src/runtime/hooks/hooks.ts`, and the four files under `src/runtime-machines/`. The machines do encode behavior that must not drift: ready-node scheduling, fail-fast serialization, skipped descendants, hook ordering, cancellation checks, and observability shape. These tests are the contract that lets later tickets replace xstate with plain async code without hand-waving. Do not bless accidental timestamps; either freeze time or assert stable fields only.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

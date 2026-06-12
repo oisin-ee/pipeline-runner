@@ -1,10 +1,10 @@
 ---
 id: PIPE-58
 title: Delete dead code and consolidate duplicated helpers
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:37'
-updated_date: '2026-06-11 20:39'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - cleanup
@@ -22,11 +22,11 @@ Phase 1 of the one-engine refactor: quick wins that shrink surface before the st
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/toml.ts is deleted and nothing references it.
-- [ ] #2 A single uniqueStrings helper (e.g. in a small src/collections.ts) replaces all four copies; all call sites updated.
-- [ ] #3 findPlannedNode exists once and is imported by both src/pipeline-runtime.ts and src/runner-command/run.ts.
-- [ ] #4 JSON parse helpers are consolidated into src/safe-json.ts and the duplicate implementations are removed.
-- [ ] #5 bun run check and the full vitest suite pass; no public package export paths change.
+- [x] #1 src/toml.ts is deleted and nothing references it.
+- [x] #2 A single uniqueStrings helper (e.g. in a small src/collections.ts) replaces all four copies; all call sites updated.
+- [x] #3 findPlannedNode exists once and is imported by both src/pipeline-runtime.ts and src/runner-command/run.ts.
+- [x] #4 JSON parse helpers are consolidated into src/safe-json.ts and the duplicate implementations are removed.
+- [x] #5 bun run check and the full vitest suite pass; no public package export paths change.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -34,3 +34,9 @@ Phase 1 of the one-engine refactor: quick wins that shrink surface before the st
 <!-- SECTION:NOTES:BEGIN -->
 Fast-moving cleanup pass before structural refactor (Phase 2). Deleting toml.ts and consolidating four uniqueStrings copies, two findPlannedNode duplicates, and three JSON-parse helpers removes ~150 lines without touching the machines. These are confirmed dead/duped via grep and import analysis. Goal: visible progress, reduced surface area, and a clean base for Phase 2 machine deletion. Rule: do NOT touch runtime/goal-loop or runtime/goal-state even though they have zero production importers - they are published exports (./runtime/goal-loop, ./runtime/goal-state in package.json) and may be consumed by Pipeline Console; their removal requires explicit owner decision via a separate ticket (see PIPE-65 TODO).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -1,9 +1,10 @@
 ---
 id: PIPE-66
 title: 'Explicitly NOT changing: keep graphlib, git-refs, runner payload contracts'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 20:40'
+updated_date: '2026-06-12 10:28'
 labels:
   - refactor
   - decisions
@@ -22,8 +23,14 @@ Phase 5 is the last substantive refactor phase; Phases 6+ are infrastructure (un
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A note in src/workflow-planner.ts explains the iterative toposort + graphlib choice.
-- [ ] #2 A note in src/run-state/git-refs.ts explains why git refs, not Argo artifacts.
-- [ ] #3 A note in src/runner-command-contract.ts documents the external consumer dependencies.
-- [ ] #4 README or architecture doc references these decisions.
+- [x] #1 A note in src/workflow-planner.ts explains the iterative toposort + graphlib choice.
+- [x] #2 A note in src/run-state/git-refs.ts explains why git refs, not Argo artifacts.
+- [x] #3 A note in src/runner-command-contract.ts documents the external consumer dependencies.
+- [x] #4 README or architecture doc references these decisions.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed during PIPE-69 parent reconciliation on 2026-06-12. MoKa Acceptance Reviewer verified the implemented source state and focused tests for the one-engine refactor: xstate/runtime-machines removed, plain async scheduler and shared lifecycle in place, Argo exit-70 retryStrategy and parity covered, hands-on terminal/devspace flow present, config/schedule/CLI splits present, and decision notes retained. See PIPE-69 final summary for cross-phase evidence.
+<!-- SECTION:FINAL_SUMMARY:END -->
