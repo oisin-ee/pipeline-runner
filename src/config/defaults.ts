@@ -73,38 +73,55 @@ mcp_gateway:
 skills:
   execute:
     path: .agents/skills/execute/SKILL.md
+    source_root: package
   inspect:
     path: .agents/skills/inspect/SKILL.md
+    source_root: package
   quick:
     path: .agents/skills/quick/SKILL.md
+    source_root: package
   critique:
     path: .agents/skills/critique/SKILL.md
+    source_root: package
   doubt:
     path: .agents/skills/doubt/SKILL.md
+    source_root: package
   fix:
     path: .agents/skills/fix/SKILL.md
+    source_root: package
   library-first-development:
     path: .agents/skills/library-first-development/SKILL.md
+    source_root: package
   migrate:
     path: .agents/skills/migrate/SKILL.md
+    source_root: package
   optimize:
     path: .agents/skills/optimize/SKILL.md
+    source_root: package
   research:
     path: .agents/skills/research/SKILL.md
+    source_root: package
   schedule-graph-shaping:
     path: .agents/skills/schedule-graph-shaping/SKILL.md
+    source_root: package
   scope:
     path: .agents/skills/scope/SKILL.md
+    source_root: package
   secure:
     path: .agents/skills/secure/SKILL.md
+    source_root: package
   spec:
     path: .agents/skills/spec/SKILL.md
+    source_root: package
   test:
     path: .agents/skills/test/SKILL.md
+    source_root: package
   trace:
     path: .agents/skills/trace/SKILL.md
+    source_root: package
   verify:
     path: .agents/skills/verify/SKILL.md
+    source_root: package
 profiles:
   moka-orchestrator:
     runner: opencode

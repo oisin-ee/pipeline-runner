@@ -151,6 +151,32 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
     expect(output).toMatch(PUBLIC_MISSING_CONFIG_API_RE);
   }, 30_000);
 
+  it("loads package-owned skills from the installed package root", () => {
+    runChecked("bun", ["run", "build:cli"], { cwd: process.cwd() });
+
+    const consumer = tempConsumerApp();
+    writeFileSync(
+      join(consumer, "usage.mjs"),
+      `
+import { loadPackagePipelineConfig } from "@oisincoveney/pipeline/config";
+
+const config = loadPackagePipelineConfig(process.cwd());
+if (config.skills.execute.source_root !== "package") {
+  throw new Error("execute skill is not package-scoped");
+}
+if (config.skills.quick.source_root !== "package") {
+  throw new Error("quick skill is not package-scoped");
+}
+if (config.skills.inspect.source_root !== "package") {
+  throw new Error("inspect skill is not package-scoped");
+}
+`,
+      "utf8"
+    );
+
+    runChecked("node", ["usage.mjs"], { cwd: consumer });
+  }, 30_000);
+
   it("keeps docs from describing repo-local YAML as the runtime config source", () => {
     const docs = [
       "README.md",

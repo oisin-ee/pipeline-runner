@@ -103,11 +103,11 @@ describe("initPipelineProject", () => {
     ]);
     expect(config.skills.research).toEqual({
       path: ".agents/skills/research/SKILL.md",
-      source_root: "project",
+      source_root: "package",
     });
     expect(config.skills.verify).toEqual({
       path: ".agents/skills/verify/SKILL.md",
-      source_root: "project",
+      source_root: "package",
     });
   });
 
