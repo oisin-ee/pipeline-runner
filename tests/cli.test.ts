@@ -6,6 +6,12 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import {
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+  createServer,
+} from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -151,6 +157,122 @@ function mockAgentStdout(command: string, args?: string[]): string {
     MOCK_AGENT_RESPONSES.find(({ matches }) => matches(prompt))?.response ??
       DEFAULT_MOCK_AGENT_RESPONSE
   );
+}
+
+/**
+ * Minimal opencode serve stub used by CLI tests that exercise the SDK transport
+ * (PIPE-73). Implements the three endpoints the SDK executor calls:
+ *   POST /session                → creates a session
+ *   GET  /event                  → empty SSE stream (no events)
+ *   POST /session/{id}/message   → returns a mock agent response
+ *
+ * Set OPENCODE_SERVER_URL to the returned url before running the CLI, then call
+ * stop() in afterEach to close the server.
+ */
+interface OpencodeStub {
+  promptBodies: Array<{
+    agent?: string;
+    model?: { modelID: string; providerID: string };
+    parts: Array<{ text: string; type: string }>;
+  }>;
+  stop(): Promise<void>;
+  url: string;
+}
+
+function startOpencodeStub(): Promise<OpencodeStub> {
+  const promptBodies: OpencodeStub["promptBodies"] = [];
+
+  function respond(
+    res: ServerResponse,
+    status: number,
+    body: unknown,
+    contentType = "application/json"
+  ): void {
+    const payload = JSON.stringify(body);
+    res.writeHead(status, {
+      "Content-Type": contentType,
+      "Content-Length": Buffer.byteLength(payload),
+    });
+    res.end(payload);
+  }
+
+  function readBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      req.on("end", () => {
+        resolve(Buffer.concat(chunks).toString());
+      });
+      req.on("error", reject);
+    });
+  }
+
+  const server: Server = createServer(
+    async (req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url ?? "";
+      const method = req.method ?? "GET";
+
+      // POST /session — create a new session
+      if (method === "POST" && url.startsWith("/session") && !url.includes("/message")) {
+        respond(res, 200, { id: "stub-session-1" });
+        return;
+      }
+
+      // GET /event — empty SSE stream (no events; closes immediately)
+      if (method === "GET" && url.startsWith("/event")) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+        res.end();
+        return;
+      }
+
+      // POST /session/{id}/message — agent prompt
+      if (method === "POST" && url.includes("/message")) {
+        const raw = await readBody(req);
+        let body: OpencodeStub["promptBodies"][number] = { parts: [] };
+        try {
+          body = JSON.parse(raw) as typeof body;
+        } catch {
+          // ignore parse error, use empty body
+        }
+        promptBodies.push(body);
+
+        const promptText = body.parts.map((p) => p.text).join("\n");
+        const text = mockAgentStdout("opencode", [promptText]);
+        respond(res, 200, {
+          parts: [{ type: "text", text, sessionID: "stub-session-1" }],
+        });
+        return;
+      }
+
+      respond(res, 404, { error: `stub: unhandled ${method} ${url}` });
+    }
+  );
+
+  return new Promise((resolve, reject) => {
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") {
+        reject(new Error("Failed to get stub server address"));
+        return;
+      }
+      const url = `http://127.0.0.1:${addr.port}`;
+      resolve({
+        promptBodies,
+        stop: () =>
+          new Promise<void>((res, rej) =>
+            server.close((err) => (err ? rej(err) : res()))
+          ),
+        url,
+      });
+    });
+    server.on("error", reject);
+  });
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -1586,38 +1708,17 @@ workflows:
   });
 
   it("executes package-backed schedule agents through CLI subprocesses", async () => {
-    await withCliTempDir(
-      "pipeline-cli-schedule-opencode-",
-      async ({ dir, output, runCli }) => {
-        writeScheduledCliConfig(dir);
-        mockExeca.mockImplementation(((
-          command: string,
-          args?: string[],
-          options?: { env?: Record<string, string> }
-        ) => {
-          if (options?.env?.PIPELINE_HOOK_RESULT) {
-            writeFileSync(
-              options.env.PIPELINE_HOOK_RESULT,
-              JSON.stringify({ status: "pass", summary: command })
-            );
-          }
-          if (command === "opencode") {
-            return Promise.resolve({
-              exitCode: 0,
-              stderr: "",
-              stdout: mockAgentStdout(command, args),
-            }) as any;
-          }
-          return Promise.resolve({
-            exitCode: 0,
-            stderr: "",
-            stdout: "",
-          }) as any;
-        }) as any);
-        const schedulePath = join(dir, "approved-opencode-schedule.yaml");
-        writeFileSync(
-          schedulePath,
-          `
+    const stub = await startOpencodeStub();
+    const originalServerUrl = process.env.OPENCODE_SERVER_URL;
+    process.env.OPENCODE_SERVER_URL = stub.url;
+    try {
+      await withCliTempDir(
+        "pipeline-cli-schedule-opencode-",
+        async ({ dir, output, runCli }) => {
+          const schedulePath = join(dir, "approved-opencode-schedule.yaml");
+          writeFileSync(
+            schedulePath,
+            `
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-opencode
@@ -1632,26 +1733,32 @@ workflows:
         kind: agent
         profile: moka-code-writer
 `
-        );
+          );
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "run",
-          "--schedule",
-          schedulePath,
-          "Ship",
-          "it",
-        ]);
+          await runCli([
+            "node",
+            "/repo/node_modules/.bin/oisin-pipeline",
+            "run",
+            "--schedule",
+            schedulePath,
+            "Ship",
+            "it",
+          ]);
 
-        expect(mockExeca).toHaveBeenCalledWith(
-          "opencode",
-          expect.not.arrayContaining(["--model"]),
-          expect.objectContaining({ cwd: dir })
-        );
-        expect(output()).toContain("Workflow: schedule-approved-opencode-root");
-      }
-    );
+          // With the PIPE-73 SDK transport the executor uses the opencode serve
+          // API rather than execa. Verify the stub was invoked (at least one
+          // session.prompt call reached it) and the workflow ran to completion.
+          expect(stub.promptBodies.length).toBeGreaterThan(0);
+          // The moka-code-writer profile does not declare a host_model, so no
+          // model field is forwarded in the prompt body.
+          expect(stub.promptBodies[0]).not.toHaveProperty("model");
+          expect(output()).toContain("Workflow: schedule-approved-opencode-root");
+        }
+      );
+    } finally {
+      restoreEnv("OPENCODE_SERVER_URL", originalServerUrl);
+      await stub.stop();
+    }
   });
 
   it("validates and explains a schedule artifact", async () => {
@@ -1705,25 +1812,36 @@ workflows:
   });
 
   it("dispatches package entrypoint subcommands from package config", async () => {
-    await withCliTempDir(
-      "pipeline-cli-entrypoint-",
-      async ({ dir, runCli }) => {
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "inspect",
-          "ship",
-          "it",
-        ]);
+    const stub = await startOpencodeStub();
+    const originalServerUrl = process.env.OPENCODE_SERVER_URL;
+    process.env.OPENCODE_SERVER_URL = stub.url;
+    try {
+      await withCliTempDir(
+        "pipeline-cli-entrypoint-",
+        async ({ runCli }) => {
+          await runCli([
+            "node",
+            "/repo/node_modules/.bin/oisin-pipeline",
+            "inspect",
+            "ship",
+            "it",
+          ]);
 
-        expect(mockExeca).toHaveBeenCalledWith(
-          "opencode",
-          expect.arrayContaining(["--model", "openai/gpt-5.5-low"]),
-          expect.objectContaining({ cwd: dir })
-        );
-        expect(execaCommands()).not.toContain("quick-node-bin");
-      }
-    );
+          // With the PIPE-73 SDK transport the executor calls session.prompt
+          // instead of execa("opencode"). Verify the stub received a prompt
+          // carrying the model declared on moka-inspector (openai/gpt-5.5-low).
+          expect(stub.promptBodies.length).toBeGreaterThan(0);
+          expect(stub.promptBodies[0]).toMatchObject({
+            model: { modelID: "gpt-5.5-low", providerID: "openai" },
+          });
+          // quick-node-bin must not be called regardless of transport.
+          expect(execaCommands()).not.toContain("quick-node-bin");
+        }
+      );
+    } finally {
+      restoreEnv("OPENCODE_SERVER_URL", originalServerUrl);
+      await stub.stop();
+    }
   });
 
   it("lists package entrypoint subcommands with descriptions in CLI help", async () => {

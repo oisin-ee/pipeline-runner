@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parsePipelineConfigParts } from "../src/config";
 import { execute } from "../src/index";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
+import type { AgentResult, RunnerLaunchPlan } from "../src/runner";
 
 interface LoggedCommand {
   args?: string[];
@@ -402,6 +403,34 @@ function readCommandLog(logPath: string): LoggedCommand[] {
     .map((line) => JSON.parse(line) as LoggedCommand);
 }
 
+/**
+ * Fake executor for tracer-bullet tests: bypasses the opencode serve + SDK
+ * transport and runs the fake opencode binary on PATH directly via spawnSync.
+ * This preserves the test's original intent (end-to-end runtime wiring through
+ * real child-process commands) while staying compatible with the PIPE-73 SDK
+ * transport refactor. The parent-process environment is inherited so that
+ * PIPELINE_TRACER_LOG, PIPELINE_TRACER_STATE, and other test env vars reach
+ * the fake binary.
+ */
+function makeTracerExecutor(
+  binPath: string
+): (plan: RunnerLaunchPlan) => AgentResult {
+  return (plan: RunnerLaunchPlan): AgentResult => {
+    const result = spawnSync(plan.command, plan.args, {
+      cwd: plan.cwd,
+      env: { ...process.env, PATH: `${binPath}${delimiter}${process.env.PATH ?? ""}` },
+    });
+    const stdout = result.stdout ? result.stdout.toString() : "";
+    const stderr = result.stderr ? result.stderr.toString() : "";
+    return {
+      argv: plan.args,
+      exitCode: result.status ?? 1,
+      stderr,
+      stdout,
+    };
+  };
+}
+
 function runTracerPipeline(
   env: TracerEnvironment,
   task: string
@@ -423,8 +452,10 @@ function runTracerPipeline(
     },
     env.worktreePath
   );
+  const executor = makeTracerExecutor(env.binPath);
   return execute(task, {
-    pipelineRunner: (input) => runPipelineFromConfig({ ...input, config }),
+    pipelineRunner: (input) =>
+      runPipelineFromConfig({ ...input, config, executor }),
     workflow: "default",
   });
 }
