@@ -426,7 +426,6 @@ function hostSpecificDispatchGuard(
 
 function hostDisplayName(host: ActiveCommandHost): string {
   const names: Record<ActiveCommandHost, string> = {
-    "claude-code": "Claude Code",
     opencode: "OpenCode",
   };
   return names[host];

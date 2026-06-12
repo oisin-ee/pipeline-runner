@@ -80,9 +80,6 @@ skills:
   quick:
     path: .agents/skills/quick/SKILL.md
     source_root: package
-  claude-code-opencode-execute:
-    path: .agents/skills/claude-code-opencode-execute/SKILL.md
-    source_root: package
   critique:
     path: .agents/skills/critique/SKILL.md
     source_root: package

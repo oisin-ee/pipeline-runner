@@ -19,8 +19,6 @@ const ENTRYPOINT_COMMAND_SURFACES = [
   ".opencode/commands/moka-execute.md",
   ".opencode/commands/moka-inspect.md",
 ];
-const CLAUDE_CODE_OPENCODE_EXECUTE_SKILL =
-  ".claude/skills/claude-code-opencode-execute/SKILL.md";
 
 describe("installCommands", () => {
   let dir: string;
@@ -42,9 +40,6 @@ describe("installCommands", () => {
     );
     expect(result.items.map((item) => item.path)).toContain(
       ".opencode/commands/moka-quick.md"
-    );
-    expect(result.items.map((item) => item.path)).toContain(
-      CLAUDE_CODE_OPENCODE_EXECUTE_SKILL
     );
     expect(existsSync(join(dir, ".agents/skills/execute/SKILL.md"))).toBe(
       false
@@ -77,7 +72,6 @@ describe("installCommands", () => {
       ".opencode/agents/MoKa Verifier.md",
       ".opencode/plugins/pipeline-goal-context.ts",
       "AGENTS.md",
-      CLAUDE_CODE_OPENCODE_EXECUTE_SKILL,
     ]);
     for (const item of result.items) {
       expect(existsSync(join(dir, item.path))).toBe(true);
@@ -121,17 +115,6 @@ describe("installCommands", () => {
     expect(inspector).toContain("research: allow");
     expect(inspector).toContain("task: deny");
     expect(existsSync(join(dir, ".opencode/skills"))).toBe(false);
-    const claudeSkill = readFileSync(
-      join(dir, CLAUDE_CODE_OPENCODE_EXECUTE_SKILL),
-      "utf8"
-    );
-    expect(claudeSkill).toContain("name: claude-code-opencode-execute");
-    expect(claudeSkill).toContain("allowed-tools: Bash(opencode run *)");
-    expect(claudeSkill).toContain("host=claude-code");
-    expect(claudeSkill).toContain("Load and follow [[execute]] first");
-    expect(claudeSkill).toContain(
-      'opencode run --agent "<MoKa Agent Name>" --format json --dir "$PWD"'
-    );
     const localPlugin = readFileSync(
       join(dir, ".opencode/plugins/pipeline-goal-context.ts"),
       "utf8"
@@ -425,26 +408,6 @@ describe("installCommands", () => {
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
   });
 
-  it("installs Claude Code local OpenCode execution skill by host", async () => {
-    const result = await installCommands({ cwd: dir, host: "claude-code" });
-
-    expect(result.items).toEqual([
-      expect.objectContaining({
-        action: "create",
-        host: "claude-code",
-        invocation: "/claude-code-opencode-execute <task description>",
-        path: CLAUDE_CODE_OPENCODE_EXECUTE_SKILL,
-      }),
-    ]);
-    const content = readFileSync(
-      join(dir, CLAUDE_CODE_OPENCODE_EXECUTE_SKILL),
-      "utf8"
-    );
-    expect(content).toContain("Claude Code OpenCode Execute");
-    expect(content).toContain("Claude Code `Task` subagents");
-    expect(content).toContain("MoKa Code Writer");
-  });
-
   it("check fails when commands are missing", async () => {
     await expect(
       installCommands({ check: true, cwd: dir, host: "opencode" })
@@ -498,7 +461,6 @@ describe("installCommands", () => {
   it("validates host names through Commander parser hook", () => {
     expect(parseCommandHost("all")).toBe("all");
     expect(parseCommandHost("opencode")).toBe("opencode");
-    expect(parseCommandHost("claude-code")).toBe("claude-code");
     expect(() => parseCommandHost("bad")).toThrow('Unsupported host "bad"');
   });
 });

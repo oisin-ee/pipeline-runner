@@ -143,7 +143,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/inspect/SKILL.md",
-      "computedHash": "d5335e10a0a8807c8480932a294fb885702e6dbd4ad2e56fb7ee8ce2b57ea643"
+      "computedHash": "beee0414e82736cc1850bc8d0333e77dfc5aaa07eb54176bac95c447b77ec836"
     },
     "library-first-development": {
       "source": "oisin-ee/skills",
@@ -197,7 +197,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/quick/SKILL.md",
-      "computedHash": "7e99b4589c49df4a1c3289084d9f80b41c706e325c2783163e6cc545995c9f54"
+      "computedHash": "f644e487579cd81617898bd3639a86cea34fa373cee2c79bf86111714ba639c5"
     },
     "receiving-code-review": {
       "source": "obra/superpowers",

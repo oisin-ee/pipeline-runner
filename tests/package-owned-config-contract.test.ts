@@ -170,9 +170,6 @@ if (config.skills.quick.source_root !== "package") {
 if (config.skills.inspect.source_root !== "package") {
   throw new Error("inspect skill is not package-scoped");
 }
-if (config.skills["claude-code-opencode-execute"].source_root !== "package") {
-  throw new Error("claude-code-opencode-execute skill is not package-scoped");
-}
 `,
       "utf8"
     );

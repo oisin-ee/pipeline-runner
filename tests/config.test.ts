@@ -242,7 +242,6 @@ const DEFAULT_PACKAGE_SKILLS = [
   "migrate",
   "optimize",
   "quick",
-  "claude-code-opencode-execute",
   "research",
   "schedule-graph-shaping",
   "scope",
