@@ -80,6 +80,9 @@ skills:
   quick:
     path: .agents/skills/quick/SKILL.md
     source_root: package
+  claude-code-opencode-execute:
+    path: .agents/skills/claude-code-opencode-execute/SKILL.md
+    source_root: package
   critique:
     path: .agents/skills/critique/SKILL.md
     source_root: package
@@ -148,6 +151,7 @@ profiles:
       repair: { enabled: true, max_attempts: 1 }
   moka-inspector:
     runner: opencode
+    model: openai/gpt-5.5-low
     description: Inspect the repository without modifying files.
     instructions: { inline: "Inspect the repository without modifying files." }
     skills: [research]
@@ -157,6 +161,7 @@ profiles:
     network: { mode: inherit }
   moka-schedule-planner:
     runner: opencode
+    model: openai/gpt-5.5-xhigh
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions: { inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only." }
     timeout_ms: 300000
@@ -237,6 +242,7 @@ profiles:
       repair: { enabled: true, max_attempts: 1 }
   moka-learner:
     runner: opencode
+    model: openai/gpt-5.5-low
     description: Store durable lessons from the completed run.
     instructions: { inline: "Store durable lessons from the completed run when useful." }
     skills: [migrate]
@@ -297,54 +303,54 @@ scheduler:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [openai/gpt-5.5]
+          models: [openai/gpt-5.5-medium]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
+          models: [openai/gpt-5.5-high, kimi-for-coding/kimi-k2-thinking]
         green-implementation:
           category: green
           profile: moka-code-writer
-          models: [openai/gpt-5.5, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
         verification:
           category: verification
           profile: moka-verifier
-          models: [openai/gpt-5.5]
+          models: [openai/gpt-5.5-medium]
     execute:
       required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
       nodes:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [openai/gpt-5.5]
+          models: [openai/gpt-5.5-medium]
         research:
           category: research
           profile: moka-researcher
-          models: [openai/gpt-5.5, kimi-for-coding/k2p6]
+          models: [openai/gpt-5.5-medium, kimi-for-coding/k2p6]
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
+          models: [openai/gpt-5.5-high, kimi-for-coding/kimi-k2-thinking]
         green-backend:
           category: green
           profile: moka-code-writer
-          models: [openai/gpt-5.5, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
         green-frontend:
           category: green
           profile: moka-code-writer
-          models: [openai/gpt-5.5, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
         acceptance-review:
           category: acceptance
           profile: moka-acceptance-reviewer
-          models: [openai/gpt-5.5]
+          models: [openai/gpt-5.5-medium]
         verification:
           category: verification
           profile: moka-verifier
-          models: [openai/gpt-5.5]
+          models: [openai/gpt-5.5-medium]
         learn:
           category: learn
           profile: moka-learner
-          models: [openai/gpt-5.5]
+          models: [openai/gpt-5.5-low]
 schedules:
   quick-schedule:
     baseline: quick
@@ -417,6 +423,25 @@ const ecosystemCodeSchema = z
   })
   .strict();
 
+const ecosystemProviderModelOptionsSchema = z
+  .object({
+    include: ecosystemStringArraySchema,
+    reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh"]),
+    reasoningSummary: z.enum(["auto", "detailed"]),
+    store: z.literal(false),
+    textVerbosity: z.enum(["low", "medium", "high"]),
+  })
+  .strict();
+
+const ecosystemProviderModelSchema = z
+  .object({
+    id: z.string().min(1),
+    options: ecosystemProviderModelOptionsSchema,
+    provider: z.string().min(1),
+    role: z.string().min(1),
+  })
+  .strict();
+
 const ecosystemMcpBackendSchema = z
   .object({
     credentials: ecosystemStringArraySchema,
@@ -466,6 +491,7 @@ const openCodeEcosystemManifestSchema = z
     mcp_backends: z.array(ecosystemMcpBackendSchema).min(1),
     official_dependencies: z.array(ecosystemDependencySchema).min(1),
     prompts: z.array(ecosystemProfileResourceSchema).min(1),
+    provider_models: z.array(ecosystemProviderModelSchema).min(1),
     runtime: ecosystemRuntimeSchema,
     skills: z.array(ecosystemProfileResourceSchema).min(1),
     sources: z.array(ecosystemSourceSchema).min(1),

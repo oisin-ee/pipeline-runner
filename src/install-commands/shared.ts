@@ -11,9 +11,10 @@ export const SINGLE_OPENCODE_PLUGIN_ARRAY_RE =
 export const OPENCODE_PROJECT_CONFIG_PATH = ".opencode/opencode.json";
 const OPENCODE_COMMAND_PREFIX = "moka-";
 export const ENTRYPOINT_PATH_PATTERNS: Record<ActiveCommandHost, RegExp[]> = {
+  "claude-code": [],
   opencode: [/^\.opencode\/commands\/(?:moka-)?([^/]+)\.md$/],
 };
-export const COMMAND_HOSTS = ["opencode"] as const;
+export const COMMAND_HOSTS = ["opencode", "claude-code"] as const;
 
 export type ActiveCommandHost = (typeof COMMAND_HOSTS)[number];
 export type CommandHostSelection = ActiveCommandHost | "all";
@@ -66,6 +67,7 @@ export function invocationForHost(
   entrypointId = "execute"
 ): string {
   const prefix: Record<ActiveCommandHost, string> = {
+    "claude-code": "/",
     opencode: "/",
   };
   return `${prefix[host]}${commandIdForHost(host, entrypointId)} <task description>`;

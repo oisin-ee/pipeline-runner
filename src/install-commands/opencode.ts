@@ -426,6 +426,7 @@ function hostSpecificDispatchGuard(
 
 function hostDisplayName(host: ActiveCommandHost): string {
   const names: Record<ActiveCommandHost, string> = {
+    "claude-code": "Claude Code",
     opencode: "OpenCode",
   };
   return names[host];
@@ -515,7 +516,19 @@ function renderOpenCodeProjectConfig(config: PipelineConfig): string {
     ...base,
     lsp: true,
     ...opencodePluginConfig(),
+    ...opencodeProviderConfig(),
   });
+}
+
+function opencodeProviderConfig(): {
+  provider?: Record<string, { models: Record<string, unknown> }>;
+} {
+  const provider: Record<string, { models: Record<string, unknown> }> = {};
+  for (const model of DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST.provider_models) {
+    provider[model.provider] ??= { models: {} };
+    provider[model.provider].models[model.id] = { options: model.options };
+  }
+  return Object.keys(provider).length > 0 ? { provider } : {};
 }
 
 function opencodePluginConfig(): { plugin?: string[] } {

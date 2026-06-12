@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { loadPipelineConfig, type PipelineConfig } from "./config";
+import { claudeCodeDefinitions } from "./install-commands/claude-code";
 import { opencodeDefinitions } from "./install-commands/opencode";
 import {
   type ActiveCommandHost,
@@ -37,6 +38,7 @@ function definitionsFor(
   cwd: string
 ): CommandDefinition[] {
   const definitions: Record<ActiveCommandHost, () => CommandDefinition[]> = {
+    "claude-code": () => claudeCodeDefinitions(),
     opencode: () => opencodeDefinitions(config, cwd),
   };
   const hosts = host === "all" ? COMMAND_HOSTS : [host];
@@ -61,6 +63,7 @@ function selectedHosts(host: CommandHostSelection): ActiveCommandHost[] {
 }
 
 const GENERATED_RESOURCE_ROOTS: Record<ActiveCommandHost, string[]> = {
+  "claude-code": [".claude/skills"],
   opencode: [
     ".opencode/commands",
     ".opencode/agents",

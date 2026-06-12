@@ -65,7 +65,7 @@ describe("syncLocalCodexAuth", () => {
     });
     expect(projectConfig.plugin).toEqual([
       "local-plugin",
-      "oc-codex-multi-auth",
+      "oc-codex-multi-auth@6.3.2",
     ]);
   });
 
@@ -94,11 +94,14 @@ describe("syncLocalCodexAuth", () => {
     expect(
       parse(readFileSync(join(missing, ".opencode/opencode.json"), "utf8"))
         .plugin
-    ).toEqual(["oc-codex-multi-auth"]);
+    ).toEqual(["oc-codex-multi-auth@6.3.2"]);
     expect(
       JSON.parse(readFileSync(join(jsonc, ".opencode/opencode.json"), "utf8"))
         .plugin
-    ).toEqual(["@prevalentware/opencode-goal-plugin", "oc-codex-multi-auth"]);
+    ).toEqual([
+      "@prevalentware/opencode-goal-plugin",
+      "oc-codex-multi-auth@6.3.2",
+    ]);
   });
 
   it("reports required changes in check mode without writing", () => {

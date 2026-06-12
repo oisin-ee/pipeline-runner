@@ -1718,7 +1718,7 @@ workflows:
 
         expect(mockExeca).toHaveBeenCalledWith(
           "opencode",
-          expect.not.arrayContaining(["--model"]),
+          expect.arrayContaining(["--model", "openai/gpt-5.5-low"]),
           expect.objectContaining({ cwd: dir })
         );
         expect(execaCommands()).not.toContain("quick-node-bin");

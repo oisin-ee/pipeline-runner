@@ -5,6 +5,11 @@ export interface OpenCodeProjectConfigProjection {
   lsp?: unknown;
   mcp?: Record<string, unknown>;
   plugin?: unknown[];
+  provider?: Record<string, OpenCodeProviderProjection>;
+}
+
+export interface OpenCodeProviderProjection {
+  models?: Record<string, unknown>;
 }
 
 export type OpenCodeProjectConfigMergeResult =
@@ -58,19 +63,44 @@ function applyOpenCodeProjection(
   parsed: Record<string, unknown>,
   projection: OpenCodeProjectConfigProjection
 ): string {
-  return applyPluginProjection(
-    applyMcpProjection(
-      setIfMissing(
-        setIfMissing(currentText, parsed, ["$schema"], projection.$schema),
+  return applyProviderProjection(
+    applyPluginProjection(
+      applyMcpProjection(
+        setIfMissing(
+          setIfMissing(currentText, parsed, ["$schema"], projection.$schema),
+          parsed,
+          ["lsp"],
+          projection.lsp
+        ),
         parsed,
-        ["lsp"],
-        projection.lsp
+        projection
       ),
       parsed,
       projection
     ),
     parsed,
     projection
+  );
+}
+
+function applyProviderProjection(
+  content: string,
+  parsed: Record<string, unknown>,
+  projection: OpenCodeProjectConfigProjection
+): string {
+  return Object.entries(projection.provider ?? {}).reduce(
+    (providerContent, [providerId, provider]) =>
+      Object.entries(provider.models ?? {}).reduce(
+        (modelContent, [modelId, model]) =>
+          setIfMissing(
+            modelContent,
+            parsed,
+            ["provider", providerId, "models", modelId],
+            model
+          ),
+        providerContent
+      ),
+    content
   );
 }
 
@@ -124,8 +154,16 @@ function mergePluginEntries(
   existing: unknown,
   projected: unknown[]
 ): unknown[] {
-  const merged = Array.isArray(existing) ? [...existing] : [];
-  const seen = new Set(merged.map(pluginKey));
+  const projectedByKey = new Map(
+    projected.map((plugin) => [pluginKey(plugin), plugin])
+  );
+  const merged: unknown[] = [];
+  const seen = new Set<string>();
+  for (const plugin of Array.isArray(existing) ? existing : []) {
+    const key = pluginKey(plugin);
+    merged.push(projectedByKey.get(key) ?? plugin);
+    seen.add(key);
+  }
   for (const plugin of projected) {
     const key = pluginKey(plugin);
     if (seen.has(key)) {
@@ -139,9 +177,18 @@ function mergePluginEntries(
 
 function pluginKey(value: unknown): string {
   if (Array.isArray(value)) {
-    return typeof value[0] === "string" ? value[0] : JSON.stringify(value);
+    return typeof value[0] === "string"
+      ? pluginName(value[0])
+      : JSON.stringify(value);
   }
-  return typeof value === "string" ? value : JSON.stringify(value);
+  return typeof value === "string" ? pluginName(value) : JSON.stringify(value);
+}
+
+function pluginName(specifier: string): string {
+  const versionSeparator = specifier.indexOf("@", 1);
+  return versionSeparator === -1
+    ? specifier
+    : specifier.slice(0, versionSeparator);
 }
 
 function applyJsonEdit(

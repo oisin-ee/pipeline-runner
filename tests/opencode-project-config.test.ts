@@ -93,6 +93,54 @@ describe("mergeOpenCodeProjectConfig", () => {
     ).toHaveLength(1);
   });
 
+  it("replaces a same-name plugin entry when the projected entry is pinned", () => {
+    const result = mergeOpenCodeProjectConfig(
+      JSON.stringify({ plugin: ["oc-codex-multi-auth"] }, null, 2),
+      { plugin: ["oc-codex-multi-auth@6.3.2"] }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(JSON.parse(result.content).plugin).toEqual([
+      "oc-codex-multi-auth@6.3.2",
+    ]);
+  });
+
+  it("adds missing provider models and preserves user overrides", () => {
+    const userXhigh = {
+      options: { reasoningEffort: "xhigh", textVerbosity: "high" },
+    };
+    const result = mergeOpenCodeProjectConfig(
+      JSON.stringify(
+        { provider: { openai: { models: { "gpt-5.5-xhigh": userXhigh } } } },
+        null,
+        2
+      ),
+      {
+        provider: {
+          openai: {
+            models: {
+              "gpt-5.5-low": { options: { reasoningEffort: "low" } },
+              "gpt-5.5-xhigh": { options: { reasoningEffort: "xhigh" } },
+            },
+          },
+        },
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const merged = JSON.parse(result.content);
+    expect(merged.provider.openai.models["gpt-5.5-xhigh"]).toEqual(userXhigh);
+    expect(merged.provider.openai.models["gpt-5.5-low"]).toEqual({
+      options: { reasoningEffort: "low" },
+    });
+  });
+
   it("returns a conflict for invalid JSONC", () => {
     const result = mergeOpenCodeProjectConfig('{ "plugin": [', projection);
 

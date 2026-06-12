@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { type ParseError, parse } from "jsonc-parser";
 import { mergeOpenCodeProjectConfig } from "./opencode-project-config";
 
-const CODEX_MULTI_AUTH_PLUGIN = "oc-codex-multi-auth";
+const CODEX_MULTI_AUTH_PLUGIN = "oc-codex-multi-auth@6.3.2";
 const GLOBAL_CODEX_AUTH_CONFIG_PATH = join(
   homedir(),
   ".opencode/openai-codex-auth-config.json"

@@ -64,7 +64,7 @@ ecosystem_code:
     package: oc-codex-multi-auth
     plugin:
       kind: npm
-      package: oc-codex-multi-auth
+      package: oc-codex-multi-auth@6.3.2
     role: ChatGPT Plus/Pro OAuth with multi-account rotation, health checks, and Codex/GPT-5 routing for OpenCode
     default_stack: true
     source: https://github.com/ndycode/oc-codex-multi-auth
@@ -83,6 +83,56 @@ ecosystem_code:
     role: OpenCode policy enforcement through tool execution hooks
     default_stack: true
     source: https://cupcake.eqtylab.io/getting-started/usage/opencode/
+provider_models:
+  # Reasoning-effort variant selectors for ChatGPT OAuth Codex routing.
+  # Each id must match the oc-codex-multi-auth MODEL_MAP exactly; the plugin
+  # normalizes the selector back to the base API model (gpt-5.5) and the
+  # reasoning effort is carried by the generated options.reasoningEffort.
+  - id: gpt-5.5-none
+    provider: openai
+    role: zero-reasoning GPT-5.5 selector for mechanical low-stakes work
+    options:
+      reasoningEffort: none
+      reasoningSummary: auto
+      textVerbosity: medium
+      include: [reasoning.encrypted_content]
+      store: false
+  - id: gpt-5.5-low
+    provider: openai
+    role: low-reasoning GPT-5.5 selector for cheap inspection and bookkeeping roles
+    options:
+      reasoningEffort: low
+      reasoningSummary: auto
+      textVerbosity: medium
+      include: [reasoning.encrypted_content]
+      store: false
+  - id: gpt-5.5-medium
+    provider: openai
+    role: default-reasoning GPT-5.5 selector for research and coverage roles
+    options:
+      reasoningEffort: medium
+      reasoningSummary: auto
+      textVerbosity: medium
+      include: [reasoning.encrypted_content]
+      store: false
+  - id: gpt-5.5-high
+    provider: openai
+    role: high-reasoning GPT-5.5 selector for implementation roles
+    options:
+      reasoningEffort: high
+      reasoningSummary: detailed
+      textVerbosity: medium
+      include: [reasoning.encrypted_content]
+      store: false
+  - id: gpt-5.5-xhigh
+    provider: openai
+    role: maximum-reasoning GPT-5.5 selector for schedule planning
+    options:
+      reasoningEffort: xhigh
+      reasoningSummary: detailed
+      textVerbosity: medium
+      include: [reasoning.encrypted_content]
+      store: false
 mcp_backends:
   - id: pipeline-gateway
     locality: project-remote
