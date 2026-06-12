@@ -1,15 +1,12 @@
+import { mergeClaudeSettings } from "../claude-settings-config";
 import type { PipelineConfig } from "../config";
 import { renderClaudeGatewayMcpServers } from "../mcp/gateway";
 import {
   type AgentDispatchRoute,
   agentDispatchRoutes,
-  compactLines,
-  entrypointDescription,
   entrypointDispatchBlock,
-  entrypointEntries,
   grants,
   header,
-  instructionsPointer,
   markdown,
   opencodeAgentName,
   projectAgentsMdDefinition,
@@ -21,7 +18,13 @@ import {
   CLAUDE_PROJECT_CONFIG_PATH,
   type CommandDefinition,
   commandIdForHost,
+  compactLines,
+  entrypointDescription,
+  entrypointEntries,
+  type HostAdapter,
+  instructionsPointer,
   invocationForHost,
+  type MergeDefinitionResult,
 } from "./shared";
 
 const CLAUDE_CODE_HOST: ActiveCommandHost = "claude-code";
@@ -191,7 +194,7 @@ function settingsDefinition(config: PipelineConfig): CommandDefinition[] {
   ];
 }
 
-export function claudeCodeDefinitions(
+function claudeCodeDefinitions(
   config: PipelineConfig,
   cwd: string
 ): CommandDefinition[] {
@@ -202,3 +205,38 @@ export function claudeCodeDefinitions(
     projectAgentsMdDefinition(cwd, CLAUDE_CODE_HOST),
   ];
 }
+
+/**
+ * The claude-code HostAdapter. Encapsulates all Claude Code-specific command
+ * generation, resource roots, and settings-merge behaviour.
+ */
+export const claudeCodeAdapter: HostAdapter = {
+  host: "claude-code",
+  resourceRoots: [".claude/commands", ".claude/agents"],
+  definitions(config: PipelineConfig, cwd: string): CommandDefinition[] {
+    return claudeCodeDefinitions(config, cwd);
+  },
+  mergeDefinition(
+    definition: CommandDefinition,
+    existingContent: string
+  ): MergeDefinitionResult | undefined {
+    if (definition.path !== CLAUDE_PROJECT_CONFIG_PATH) {
+      return;
+    }
+    const projection = JSON.parse(definition.content) as Record<
+      string,
+      unknown
+    >;
+    const merged = mergeClaudeSettings(
+      existingContent,
+      projection as Parameters<typeof mergeClaudeSettings>[1]
+    );
+    if (!merged.ok) {
+      return { ok: false, content: definition.content };
+    }
+    return { ok: true, content: merged.content };
+  },
+  isAlwaysForced(definition: CommandDefinition): boolean {
+    return definition.path === CLAUDE_PROJECT_CONFIG_PATH;
+  },
+};

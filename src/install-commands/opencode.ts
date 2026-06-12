@@ -7,6 +7,7 @@ import {
   type PipelineConfig,
 } from "../config";
 import { renderOpenCodeGatewayConfig } from "../mcp/gateway";
+import { mergeOpenCodeProjectConfig } from "../opencode-project-config";
 import { resolvePackageAssetPath } from "../package-assets";
 import { compileWorkflowPlan } from "../workflow-planner";
 import {
@@ -16,18 +17,25 @@ import {
   COMMAND_HOSTS,
   type CommandDefinition,
   commandIdForHost,
+  compactLines,
+  entrypointDescription,
+  entrypointEntries,
   GENERATED_MARKER,
   GENERATED_TS_MARKER,
+  type HostAdapter,
+  instructionsPointer,
   invocationForHost,
+  type MergeDefinitionResult,
+  OPENCODE_PROJECT_CONFIG_PATH,
   OWNER_MARKER_PREFIX,
   OWNER_TS_MARKER_PREFIX,
+  type ProfileEntry,
+  profileEntries,
   SINGLE_OPENCODE_PLUGIN_ARRAY_RE,
 } from "./shared";
 
 const OPENCODE_ORCHESTRATOR_AGENT_ID = "MoKa Orchestrator";
 const MOKA_PROFILE_PREFIX = "moka-";
-type EntrypointEntry = [string, PipelineConfig["entrypoints"][string]];
-type ProfileEntry = [string, PipelineConfig["profiles"][string]];
 type ActorConfig = PipelineConfig["profiles"][string];
 type EcosystemCode = OpenCodeEcosystemManifest["ecosystem_code"][number];
 
@@ -56,32 +64,6 @@ export function header(host: ActiveCommandHost): string {
 
 export function markdown(data: Record<string, unknown>, body: string): string {
   return `${matter.stringify(body.trimEnd(), data).trimEnd()}\n`;
-}
-
-function profileEntries(config: PipelineConfig): ProfileEntry[] {
-  return Object.entries(config.profiles).sort(([a], [b]) => a.localeCompare(b));
-}
-
-export function entrypointEntries(config: PipelineConfig): EntrypointEntry[] {
-  const entries = Object.entries(config.entrypoints);
-  return entries.length > 0
-    ? entries
-    : [
-        [
-          "execute",
-          {
-            description: "Run the configured pipeline workflow",
-            workflow: config.default_workflow,
-          },
-        ],
-      ];
-}
-
-export function entrypointDescription(
-  id: string,
-  entrypoint: PipelineConfig["entrypoints"][string]
-): string {
-  return entrypoint.description ?? `Run the ${id} workflow`;
 }
 
 function entrypointCommandDefinitions(
@@ -436,10 +418,6 @@ function needsSummary(needs: string[]): string {
   return needs.length > 0 ? needs.join(",") : "none";
 }
 
-export function compactLines(lines: Array<string | undefined>): string[] {
-  return lines.filter((line): line is string => line !== undefined);
-}
-
 const OPENCODE_PERMISSION_TOOLS = [
   "bash",
   "edit",
@@ -576,7 +554,7 @@ function localPluginDefinitions(): CommandDefinition[] {
   });
 }
 
-export function opencodeDefinitions(
+function opencodeDefinitions(
   config: PipelineConfig,
   cwd: string
 ): CommandDefinition[] {
@@ -718,9 +696,39 @@ function opencodeModelProjection(
   return model ? { model } : {};
 }
 
-export function instructionsPointer(actor: ActorConfig): string {
-  if (actor.instructions.path) {
-    return `Instructions: ${actor.instructions.path}`;
-  }
-  return `Instructions:\n${actor.instructions.inline ?? ""}`;
-}
+/**
+ * The opencode HostAdapter. Encapsulates all opencode-specific command
+ * generation, resource roots, and config-merge behaviour.
+ */
+export const opencodeAdapter: HostAdapter = {
+  host: "opencode",
+  resourceRoots: [
+    ".opencode/commands",
+    ".opencode/agents",
+    ".opencode/plugins",
+    ".opencode/skills",
+  ],
+  definitions(config: PipelineConfig, cwd: string): CommandDefinition[] {
+    return opencodeDefinitions(config, cwd);
+  },
+  mergeDefinition(
+    definition: CommandDefinition,
+    existingContent: string
+  ): MergeDefinitionResult | undefined {
+    if (definition.path !== OPENCODE_PROJECT_CONFIG_PATH) {
+      return;
+    }
+    const projection = JSON.parse(definition.content) as Record<
+      string,
+      unknown
+    >;
+    const merged = mergeOpenCodeProjectConfig(existingContent, projection);
+    if (!merged.ok) {
+      return { ok: false, content: definition.content };
+    }
+    return { ok: true, content: merged.content };
+  },
+  isAlwaysForced(definition: CommandDefinition): boolean {
+    return definition.path === OPENCODE_PROJECT_CONFIG_PATH;
+  },
+};

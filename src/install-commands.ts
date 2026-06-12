@@ -1,16 +1,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
-import {
-  type ClaudeSettingsProjection,
-  mergeClaudeSettings,
-} from "./claude-settings-config";
 import { loadPipelineConfig, type PipelineConfig } from "./config";
-import { claudeCodeDefinitions } from "./install-commands/claude-code";
-import { opencodeDefinitions } from "./install-commands/opencode";
+import { claudeCodeAdapter } from "./install-commands/claude-code";
+import { opencodeAdapter } from "./install-commands/opencode";
 import {
   type ActiveCommandHost,
-  CLAUDE_PROJECT_CONFIG_PATH,
   COMMAND_HOSTS,
   type CommandDefinition,
   type CommandHostSelection,
@@ -19,17 +14,16 @@ import {
   GENERATED_MARKER,
   GENERATED_TS_MARKER,
   GENERATED_YAML_MARKER,
+  type HostAdapter,
   type InstallAction,
   type InstallCommandsContext,
   type InstallCommandsOptions,
   type InstallCommandsResult,
   invocationForHost,
-  OPENCODE_PROJECT_CONFIG_PATH,
   OWNER_MARKER_PREFIX,
   OWNER_TS_MARKER_PREFIX,
   OWNER_YAML_MARKER_PREFIX,
 } from "./install-commands/shared";
-import { mergeOpenCodeProjectConfig } from "./opencode-project-config";
 
 export type {
   CommandHostSelection,
@@ -37,17 +31,20 @@ export type {
   InstallCommandsResult,
 } from "./install-commands/shared";
 
+const ADAPTERS: Record<ActiveCommandHost, HostAdapter> = {
+  opencode: opencodeAdapter,
+  "claude-code": claudeCodeAdapter,
+};
+
 function definitionsFor(
   host: CommandHostSelection,
   config: PipelineConfig,
   cwd: string
 ): CommandDefinition[] {
-  const definitions: Record<ActiveCommandHost, () => CommandDefinition[]> = {
-    opencode: () => opencodeDefinitions(config, cwd),
-    "claude-code": () => claudeCodeDefinitions(config, cwd),
-  };
   const hosts = host === "all" ? COMMAND_HOSTS : [host];
-  const rawDefinitions = hosts.flatMap((name) => definitions[name]());
+  const rawDefinitions = hosts.flatMap((name) =>
+    ADAPTERS[name].definitions(config, cwd)
+  );
   return dedupeDefinitionsByPath(rawDefinitions);
 }
 
@@ -67,15 +64,9 @@ function selectedHosts(host: CommandHostSelection): ActiveCommandHost[] {
   return host === "all" ? [...COMMAND_HOSTS] : [host];
 }
 
-const GENERATED_RESOURCE_ROOTS: Record<ActiveCommandHost, string[]> = {
-  opencode: [
-    ".opencode/commands",
-    ".opencode/agents",
-    ".opencode/plugins",
-    ".opencode/skills",
-  ],
-  "claude-code": [".claude/commands", ".claude/agents"],
-};
+function resourceRootsFor(host: ActiveCommandHost): string[] {
+  return ADAPTERS[host].resourceRoots;
+}
 
 async function listFiles(root: string): Promise<string[]> {
   if (!existsSync(root)) {
@@ -112,8 +103,8 @@ async function obsoleteGeneratedItems(
   wantedPaths: Set<string>
 ): Promise<CommandInstallPlanItem[]> {
   const hosts = new Set<ActiveCommandHost>(selectedHosts(host));
-  const roots = selectedHosts(host).flatMap(
-    (selectedHost) => GENERATED_RESOURCE_ROOTS[selectedHost]
+  const roots = selectedHosts(host).flatMap((selectedHost) =>
+    resourceRootsFor(selectedHost)
   );
   const files = await Promise.all(
     roots.map((root) => listFiles(join(cwd, root)))
@@ -167,34 +158,26 @@ function resolveDefinitionContent(
   definition: CommandDefinition,
   target: string
 ): ResolvedCommandDefinitionContent {
-  if (!existsSync(target)) {
+  const adapter = ADAPTERS[definition.host];
+  if (!(adapter.mergeDefinition && existsSync(target))) {
     return { conflict: false, content: definition.content };
   }
-  if (definition.path === OPENCODE_PROJECT_CONFIG_PATH) {
-    return resolveMergedProjectConfig(definition, target, (currentText) =>
-      mergeOpenCodeProjectConfig(
-        currentText,
-        JSON.parse(definition.content) as Record<string, unknown>
-      )
-    );
-  }
-  if (definition.path === CLAUDE_PROJECT_CONFIG_PATH) {
-    return resolveMergedProjectConfig(definition, target, (currentText) =>
-      mergeClaudeSettings(
-        currentText,
-        JSON.parse(definition.content) as ClaudeSettingsProjection
-      )
-    );
-  }
-  return { conflict: false, content: definition.content };
+  return applyMergeDefinition(
+    adapter.mergeDefinition.bind(adapter),
+    definition,
+    target
+  );
 }
 
-function resolveMergedProjectConfig(
+function applyMergeDefinition(
+  merge: NonNullable<HostAdapter["mergeDefinition"]>,
   definition: CommandDefinition,
-  target: string,
-  merge: (currentText: string) => { content: string; ok: true } | { ok: false }
+  target: string
 ): ResolvedCommandDefinitionContent {
-  const merged = merge(readFileSync(target, "utf8"));
+  const merged = merge(definition, readFileSync(target, "utf8"));
+  if (!merged) {
+    return { conflict: false, content: definition.content };
+  }
   if (!merged.ok) {
     return { conflict: true, content: definition.content };
   }
@@ -250,6 +233,11 @@ function upsertGeneratedBlock(
   return `${current.trimEnd()}${separator}${content}`;
 }
 
+function adapterForcesDefinition(definition: CommandDefinition): boolean {
+  const fn = ADAPTERS[definition.host].isAlwaysForced;
+  return fn ? fn(definition) : false;
+}
+
 function installActionForDefinition(
   definition: CommandDefinition,
   target: string,
@@ -262,9 +250,7 @@ function installActionForDefinition(
   return actionFor(
     target,
     resolved.content,
-    force ||
-      definition.path === OPENCODE_PROJECT_CONFIG_PATH ||
-      definition.path === CLAUDE_PROJECT_CONFIG_PATH,
+    force || adapterForcesDefinition(definition),
     definition.block
   );
 }
