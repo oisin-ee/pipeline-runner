@@ -63,7 +63,9 @@ const PACKAGES_WRITE_RE = /packages:\s*write/i;
 const DOCKER_LOGIN_ACTION_RE = /docker\/login-action/i;
 const DOCKER_BUILD_PUSH_ACTION_RE = /docker\/build-push-action/i;
 const LOCAL_IMAGE_PACKAGE_RE = /npm pack|pipeline-package\.tgz/;
-const IMPERATIVE_PACKAGE_RESOLUTION_RE = /npm view|gitHead|node <<|for attempt/;
+const IMPERATIVE_PACKAGE_RESOLUTION_RE = /gitHead|node <<|for attempt/;
+const NPM_PACKAGE_VERSION_RESOLUTION_RE =
+  /npm view @oisincoveney\/pipeline version/;
 const NPM_AUTH_TOKEN_RE = /NPM_TOKEN|NODE_AUTH_TOKEN/;
 const CONTRACT_VERSION_ARG_RE = /ARG\s+RUNNER_COMMAND_CONTRACT_VERSION=1/;
 const CONTRACT_VERSION_LABEL_RE =
@@ -77,7 +79,8 @@ const SHA_IMAGE_TAG = [
 ].join("");
 const LATEST_IMAGE_TAG = "ghcr.io/oisin-ee/pipeline-runner:latest";
 const PIPELINE_PACKAGE_DEFAULT_RE = /ARG\s+PIPELINE_PACKAGE_VERSION=latest/;
-const PIPELINE_PACKAGE_BUILD_ARG_RE = /PIPELINE_PACKAGE_VERSION=latest/;
+const PIPELINE_PACKAGE_BUILD_ARG_RE =
+  /PIPELINE_PACKAGE_VERSION=\$\{\{ steps\.pipeline-package\.outputs\.version \}\}/;
 
 function readProjectFile(path: string): string {
   return readFileSync(join(root, path), "utf8");
@@ -216,14 +219,16 @@ describe("runner container image packaging", () => {
 });
 
 describe("runner image npm release dependency", () => {
-  it("builds the runner image after the npm release and installs the published latest package", () => {
+  it("builds the runner image after the npm release and installs the released package version", () => {
     const jobs = workflowJobs();
     const imageJobs = imagePublishingJobs();
+    const imagePublishing = serialize(imageJobs);
 
     expect(jobs["runner-image"]?.needs).toBe("release");
-    expect(serialize(imageJobs)).toMatch(PIPELINE_PACKAGE_BUILD_ARG_RE);
-    expect(serialize(imageJobs)).not.toMatch(LOCAL_IMAGE_PACKAGE_RE);
-    expect(serialize(imageJobs)).not.toMatch(IMPERATIVE_PACKAGE_RESOLUTION_RE);
+    expect(imagePublishing).toMatch(NPM_PACKAGE_VERSION_RESOLUTION_RE);
+    expect(imagePublishing).toMatch(PIPELINE_PACKAGE_BUILD_ARG_RE);
+    expect(imagePublishing).not.toMatch(LOCAL_IMAGE_PACKAGE_RE);
+    expect(imagePublishing).not.toMatch(IMPERATIVE_PACKAGE_RESOLUTION_RE);
   });
 
   it("does not expose npm publish credentials to the image job", () => {
