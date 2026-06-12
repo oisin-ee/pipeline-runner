@@ -107,7 +107,33 @@ function expectCommandToFail(
   throw new Error(`Expected ${command} ${args.join(" ")} to fail`);
 }
 
+function packJson(output: string): string {
+  const start = output.lastIndexOf("[\n  {");
+  if (start === -1) {
+    throw new Error(`Expected npm pack JSON output, got:\n${output}`);
+  }
+  return output.slice(start);
+}
+
 describe("package public app-facing API", () => {
+  it("packs package-owned skills referenced by default config", () => {
+    const output = runChecked("npm", ["pack", "--dry-run", "--json"], {
+      cwd: process.cwd(),
+    });
+    const [{ files }] = JSON.parse(packJson(output)) as [
+      { files: Array<{ path: string }> },
+    ];
+    const packedPaths = files.map((file) => file.path);
+
+    expect(packedPaths).toEqual(
+      expect.arrayContaining([
+        ".agents/skills/execute/SKILL.md",
+        ".agents/skills/inspect/SKILL.md",
+        ".agents/skills/quick/SKILL.md",
+      ])
+    );
+  });
+
   it("documents stable app-facing config, planner, and runtime imports", () => {
     const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 
@@ -269,6 +295,7 @@ const hookResult: HookResult = parseHookResult({
   status: "pass",
   summary: "parsed hook result",
 });
+
 const directHooks: MokaSubmitDirectHooksInput = mokaSubmitDirectHooksSchema.parse({
   "node.finish": {
     command: ["node", "scripts/report-node-finish.mjs"],

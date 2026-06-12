@@ -205,12 +205,12 @@ describe("runner container image packaging", () => {
     expect(imageSmokeTest).toMatch(RUNNER_COMMAND_RE);
   });
 
-  it("does not publish project-installed skill assets as package assets", () => {
+  it("publishes package-owned skills without publishing project-installed skill assets", () => {
     const pkg = JSON.parse(readProjectFile("package.json")) as {
       files?: string[];
     };
 
-    expect(pkg.files).not.toContain(".agents/skills");
+    expect(pkg.files).toContain(".agents/skills");
     expect(pkg.files).not.toContain(".pipeline/skills");
   });
 });
