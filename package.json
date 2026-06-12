@@ -115,7 +115,7 @@
     "prepack": "bun run build:cli"
   },
   "type": "module",
-  "version": "1.5.6",
+  "version": "0.0.0-development",
   "description": "Config-driven multi-agent pipeline runner for repository work",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

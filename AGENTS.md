@@ -28,6 +28,15 @@ pushes, or other direct registry commands from a workstation. To release, commit
 and push the intended changes to the configured release branch and let the
 repository workflows publish artifacts.
 
+### Package Version
+
+`package.json` carries the sentinel `"version": "0.0.0-development"`. The npm
+registry is the authoritative version source — `@semantic-release/npm` rewrites
+the version field inside the published tarball at CI release time without
+committing the bump back to the repo. Running `moka --version` in a local
+checkout therefore reports `0.0.0-development`; users installing from the
+registry get the real semver (currently 2.1.1).
+
 ## Verification Standard
 
 When the user asks to test, verify, or make sure something works, that means
