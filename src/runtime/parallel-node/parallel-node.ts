@@ -66,23 +66,8 @@ function createParallelChildContext(
 ): RuntimeContext {
   return {
     ...context,
-    inheritedOutputNodeIds: new Set(context.lastOutputByNode.keys()),
     hookResults: new Map(context.hookResults),
-    lastOutputByNode: new Map(context.lastOutputByNode),
-    nodeSnapshots: new Map(),
-    nodeActors: new Map(),
-    nodeStates: new Map(
-      children.map((child) => [
-        child.id,
-        {
-          attempts: 0,
-          evidence: [],
-          gates: [],
-          id: child.id,
-          status: "pending",
-        },
-      ])
-    ),
+    nodeStateStore: context.nodeStateStore.forkForParallelChildren(children),
     plan: {
       ...context.plan,
       parallelBatches: [children],

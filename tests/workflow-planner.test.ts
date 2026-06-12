@@ -301,6 +301,28 @@ describe("compileWorkflowPlan", () => {
     ).toEqual([["left", "right"], ["quality"]]);
   });
 
+  it("deduplicates and sorts merged explicit and implicit group dependencies", () => {
+    const config = genericWorkflowConfig();
+    config.workflows.grouped = {
+      nodes: [
+        commandNode("zeta"),
+        commandNode("alpha"),
+        {
+          id: "quality",
+          kind: "group",
+          needs: ["zeta", "alpha", "zeta"],
+          nodes: ["alpha", "zeta", "alpha"],
+        },
+      ],
+    };
+
+    const plan = compileWorkflowPlan(config, "grouped");
+
+    expect(
+      plan.topologicalOrder.find((node) => node.id === "quality")?.needs
+    ).toEqual(["alpha", "zeta"]);
+  });
+
   it("matches graphlib-derived batches and dependents for representative DAG shapes", () => {
     const cases: Array<{
       name: string;

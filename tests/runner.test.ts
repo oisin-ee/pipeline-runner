@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("execa", () => ({
@@ -9,6 +10,7 @@ import { parsePipelineConfigParts } from "../src/config.ts";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
+  runLaunchPlan,
   spawnAgent,
 } from "../src/runner.ts";
 import { normalizeRunnerOutput } from "../src/runner-output.ts";
@@ -522,5 +524,51 @@ workflows:
     expect(plan.args).toContain("--dangerously-skip-permissions");
     expect(plan.args).not.toContain("--sandbox");
     expect(plan.args).not.toContain("read-only");
+  });
+
+  it("streams subprocess stdout chunks before returning the final buffered result", async () => {
+    const stdout = new EventEmitter();
+    let resolveSubprocess: (result: unknown) => void = () => undefined;
+    const subprocess = new Promise((resolve) => {
+      resolveSubprocess = resolve;
+    }) as Promise<unknown> & { stdout: EventEmitter };
+    subprocess.stdout = stdout;
+    mockExeca.mockReturnValue(subprocess);
+
+    const plan = createRunnerLaunchPlan(CONFIG, {
+      profileId: "opencode-agent",
+      nodeId: "agent",
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+    const observed: string[] = [];
+    const running = runLaunchPlan(plan, {
+      onOutput: (event) => {
+        observed.push(`${event.nodeId}:${event.stream}:${event.chunk}`);
+      },
+    }).then((result) => {
+      observed.push(`result:${result.stdout}`);
+      return result;
+    });
+
+    stdout.emit("data", Buffer.from("first live line\n"));
+    await Promise.resolve();
+
+    expect(observed).toEqual(["agent:stdout:first live line\n"]);
+
+    stdout.emit("data", "second live line\n");
+    resolveSubprocess({
+      exitCode: 0,
+      stderr: "",
+      stdout: "first live line\nsecond live line\n",
+    });
+    const result = await running;
+
+    expect(result.stdout).toBe("first live line\nsecond live line\n");
+    expect(observed).toEqual([
+      "agent:stdout:first live line\n",
+      "agent:stdout:second live line\n",
+      "result:first live line\nsecond live line\n",
+    ]);
   });
 });

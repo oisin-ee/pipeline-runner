@@ -12,11 +12,19 @@ import Ajv from "ajv";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
+  DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST,
   loadPipelineConfig,
   PipelineConfigError,
   type PipelineConfigParts,
   parsePipelineConfigParts,
+  validatePipelineConfig,
+  workflowSchema,
 } from "../src/config";
+import { PACKAGE_DEFAULT_PIPELINE_YAML } from "../src/config/defaults";
+import { lintPipelineConfig } from "../src/config/lint";
+import { loadPackagePipelineConfig } from "../src/config/load";
+import { configSchema } from "../src/config/schemas";
+import { validatePipelineConfig as validatePipelineConfigModule } from "../src/config/validate";
 
 const MIN_ITEMS_MESSAGE_RE = /at least|>=1|too small/i;
 const LINE_RE = /\r?\n/;
@@ -302,6 +310,39 @@ function expectedExecuteRequiredCategories(): string[] {
     "learn",
   ];
 }
+
+const EXPECTED_CONFIG_MODULES = [
+  { exportValue: PACKAGE_DEFAULT_PIPELINE_YAML, name: "defaults" },
+  { exportValue: configSchema, name: "schemas" },
+  { exportValue: loadPackagePipelineConfig, name: "load" },
+  { exportValue: validatePipelineConfigModule, name: "validate" },
+  { exportValue: lintPipelineConfig, name: "lint" },
+] as const;
+
+describe("config module boundaries", () => {
+  it("keeps the split config implementation in focused source modules", () => {
+    for (const { name } of EXPECTED_CONFIG_MODULES) {
+      expect(
+        existsSync(join(process.cwd(), "src", "config", `${name}.ts`))
+      ).toBe(true);
+    }
+  });
+
+  it("makes each focused config module importable for cohesive reuse", () => {
+    for (const { exportValue } of EXPECTED_CONFIG_MODULES) {
+      expect(exportValue).toBeDefined();
+    }
+  });
+
+  it("preserves the existing public config barrel exports", () => {
+    expect(loadPipelineConfig).toBeTypeOf("function");
+    expect(parsePipelineConfigParts).toBeTypeOf("function");
+    expect(validatePipelineConfig).toBeTypeOf("function");
+    expect(workflowSchema).toBeTypeOf("object");
+    expect(PipelineConfigError).toBeTypeOf("function");
+    expect(DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST).toBeTypeOf("object");
+  });
+});
 
 describe("loadPipelineConfig", () => {
   it("loads package-owned defaults when the repo has no pipeline files", () => {

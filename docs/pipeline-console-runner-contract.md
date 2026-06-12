@@ -196,3 +196,29 @@ The runner executes one explicit command, translates runtime events, flushes
 final events, and exits with a deterministic code. It does not create
 Kubernetes resources, query Kubernetes, write console database records, run
 migrations, or import `pipeline-console` source.
+
+## Intentionally Stable Decisions
+
+`@dagrejs/graphlib` remains the workflow graph representation, while the planner
+keeps an iterative topological sort instead of graphlib's recursive topsort. The
+recursive algorithm can hit call stack overflow on a deep chain, and the local
+toposort preserves the graphlib ordering contract without re-opening that risk.
+
+Runner semantic state stays in git refs under
+`refs/heads/pipeline/runs/<run>/<workflow>/nodes/<node>`, not in Argo artifacts.
+Argo artifacts pass files, but they do not carry merged git history or dependency
+state passing; runners pre-fetch dependency refs before dependent nodes run.
+
+The runner payload v1, event record schema, schedule artifact format, and k8s
+label conventions under `pipeline.oisin.dev/*` are stable contracts for Pipeline
+Console and other external consumers. Breaking changes require a contract version
+bump and a compatibility plan rather than an in-place schema change.
+
+The retry delay remains AbortSignal-aware and local to the runtime because gate
+failure remediation reprompt behavior depends on abortable node retry evidence.
+`p-retry` is not a drop-in replacement for that scheduler contract.
+
+The runner event sink remains custom HTTP batching with retry semantics, not
+Kubernetes events. Kubernetes events are not the automation channel; the console
+needs ordered semantic event sink records, authenticated HTTP batches, and
+deterministic retry failure handling.

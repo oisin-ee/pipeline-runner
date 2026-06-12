@@ -41,6 +41,13 @@ function runnerGitRefs(
   payload: RunnerCommandPayload,
   nodeId: string
 ): RunnerGitRefs {
+  /*
+   * Runner semantic state is carried by git refs under
+   * refs/heads/pipeline/runs/<run>/<workflow>/nodes/<node>, not by Argo
+   * artifacts. Argo artifacts pass files between tasks, but they do not provide
+   * merged git history; dependency pre-fetch merges these git refs before a
+   * dependent node runs so state passing follows the workflow graph.
+   */
   const prefix = `refs/heads/pipeline/runs/${payload.run.id}/${payload.workflow.id}`;
   return {
     finalRef: `${prefix}/final`,

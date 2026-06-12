@@ -5,6 +5,7 @@ import pino from "pino";
 import { z } from "zod";
 import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { runScheduledWorkflowTask } from "../pipeline-runtime";
+import { findPlannedNode } from "../planned-node";
 import {
   commitAndPushNodeRef,
   mergeDependencyRefs,
@@ -22,7 +23,6 @@ import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "../schedule-planner";
-import type { PlannedWorkflowNode } from "../workflow-planner";
 import {
   DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH,
   readRunnerTaskDescriptor,
@@ -303,22 +303,6 @@ export async function runRunnerCommand(
   }
 }
 
-function findPlannedNode(
-  nodes: PlannedWorkflowNode[],
-  nodeId: string
-): PlannedWorkflowNode | undefined {
-  for (const node of nodes) {
-    if (node.id === nodeId) {
-      return node;
-    }
-    const child = findPlannedNode(node.children ?? [], nodeId);
-    if (child) {
-      return child;
-    }
-  }
-  return;
-}
-
 async function runSetupCommands(
   commands: PipelineConfig["runner_command"]["environment"]["setup"],
   options: {
@@ -383,7 +367,7 @@ function logFailedTaskRun(
   );
 }
 
-function runnerTaskText(task: RunnerTask, worktreePath: string): string {
+export function runnerTaskText(task: RunnerTask, worktreePath: string): string {
   if (task.kind === "prompt") {
     return task.prompt;
   }

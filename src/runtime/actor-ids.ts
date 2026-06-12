@@ -1,16 +1,4 @@
-import type {
-  PipelineRuntimeResult,
-  RuntimeFailure,
-  RuntimeGateResult,
-  RuntimeNodeResult,
-} from "../runtime/contracts";
-
-export type {
-  PipelineRuntimeResult,
-  RuntimeFailure,
-  RuntimeGateResult,
-  RuntimeNodeResult,
-} from "../runtime/contracts";
+import type { RuntimeNodeResult } from "./contracts";
 
 const runtimeActorKinds = [
   "pipeline",
@@ -21,77 +9,6 @@ const runtimeActorKinds = [
 ] as const;
 
 export type RuntimeActorKind = (typeof runtimeActorKinds)[number];
-
-export const runtimeMachineTags = [
-  "running",
-  "waiting",
-  "hook",
-  "runner",
-  "gate",
-  "retrying",
-  "terminal",
-  "failure",
-  "cancelled",
-] as const;
-
-export type RuntimeMachineTag = (typeof runtimeMachineTags)[number];
-
-export const workflowStateNames = [
-  "planning",
-  "startingHooks",
-  "checkingStartHooks",
-  "scheduling",
-  "runningBatch",
-  "evaluatingBatch",
-  "failureHooks",
-  "failureCompleteHooks",
-  "successHooks",
-  "completeHooks",
-  "checkingCompleteHooks",
-  "cancelling",
-  "passed",
-  "failed",
-  "cancelled",
-] as const;
-
-export const nodeStateNames = [
-  "pending",
-  "ready",
-  "startingHooks",
-  "snapshotBefore",
-  "runnerStarting",
-  "runnerRunning",
-  "runnerFinished",
-  "outputRecording",
-  "snapshotAfter",
-  "gatesStarting",
-  "gatesRunning",
-  "gatesFinished",
-  "successHooks",
-  "retrying",
-  "passed",
-  "failed",
-  "cancelled",
-  "skipped",
-] as const;
-
-export const hookStateNames = [
-  "queued",
-  "running",
-  "passed",
-  "failed",
-  "timedOut",
-  "skipped",
-] as const;
-
-export const gateStateNames = [
-  "pending",
-  "running",
-  "passed",
-  "failed",
-  "timedOut",
-  "cancelled",
-] as const;
 
 export type RetryReason = "exit_nonzero" | "gate_failure" | "timeout";
 
@@ -126,59 +43,6 @@ export function runtimeActorId(
   return scoped ? `pipeline.${kind}.${scoped}` : `pipeline.${kind}`;
 }
 
-export type HookInvocationEvent =
-  | { type: "START" }
-  | { reason?: string; type: "CANCEL" };
-
-export type GateEvaluationEvent =
-  | { type: "START" }
-  | { reason?: string; type: "CANCEL" };
-
-export type NodeExecutionEvent =
-  | { at: string; type: "READY" }
-  | { at: string; attempt: number; type: "STARTED" }
-  | { at: string; type: "START_HOOKS_FINISHED" }
-  | { at: string; type: "SNAPSHOT_BEFORE_FINISHED" }
-  | { at: string; type: "RUNNER_STARTED" }
-  | {
-      at: string;
-      evidence: string[];
-      exitCode: number;
-      output: string;
-      timedOut?: boolean;
-      type: "RUNNER_FINISHED";
-    }
-  | { at: string; type: "OUTPUT_RECORDED" }
-  | { at: string; type: "SNAPSHOT_AFTER_FINISHED" }
-  | { at: string; type: "GATES_STARTED" }
-  | { at: string; gates: RuntimeGateResult[]; type: "GATES_FINISHED" }
-  | { at: string; type: "SUCCESS_HOOKS_STARTED" }
-  | {
-      at: string;
-      attempt: number;
-      evidence: string[];
-      gate: string;
-      policy: NodeRetryPolicyContract;
-      reason: string;
-      retryReason: RetryReason;
-      type: "RETRYING";
-    }
-  | { at: string; result: RuntimeNodeResult; type: "PASSED" }
-  | {
-      at: string;
-      failure: RuntimeFailure;
-      result: RuntimeNodeResult;
-      type: "FAILED";
-    }
-  | { at: string; failure: RuntimeFailure; type: "CANCELLED" }
-  | { at: string; reason: string; type: "SKIPPED" };
-
-export type WorkflowSchedulerEvent =
-  | { type: "START" }
-  | { reason?: string; type: "CANCEL" };
-
-export type WorkflowSchedulerResult = PipelineRuntimeResult;
-
 export interface RuntimeActorDescriptor {
   id: string;
   kind: RuntimeActorKind;
@@ -190,7 +54,7 @@ export type RuntimeObservabilityEvent =
   | {
       actor: RuntimeActorDescriptor;
       state: string;
-      tags: RuntimeMachineTag[];
+      tags: string[];
       timestamp: string;
       type: "runtime.state.enter";
     }

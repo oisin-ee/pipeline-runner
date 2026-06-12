@@ -12,9 +12,15 @@ const ARGO_WORKFLOW_KIND = "Workflow";
 const RUNNER_WORKFLOW_IMAGE = "ghcr.io/oisin-ee/pipeline-runner:latest";
 const RUNNER_WORKFLOW_SERVICE_ACCOUNT = "pipeline-runner";
 const RUNNER_WORKFLOW_ENTRYPOINT = "pipeline";
+const RUNNER_WORKFLOW_START_TASK = "workflow-start";
 const RUNNER_WORKFLOW_PAYLOAD_PATH = "/etc/pipeline/payload.json";
 const RUNNER_WORKFLOW_SCHEDULE_PATH = "/etc/pipeline/schedule.yaml";
 const RUNNER_GIT_CREDENTIALS_PATH = "/etc/pipeline/git-credentials";
+const RUNNER_STARTUP_RETRY_STRATEGY = {
+  expression: "asInt(lastRetry.exitCode) == 70",
+  limit: "3",
+  retryPolicy: "OnFailure",
+} as const;
 const RUNNER_OPENCODE_ENV = [
   { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
 ] as const;
@@ -83,6 +89,14 @@ const argoWorkflowArtifactSchema = z
   })
   .strict();
 
+const argoWorkflowRetryStrategySchema = z
+  .object({
+    expression: z.string().min(1).optional(),
+    limit: z.string().min(1).optional(),
+    retryPolicy: z.enum(["Always", "OnError", "OnFailure", "OnTransientError"]),
+  })
+  .strict();
+
 const argoWorkflowTemplateSchema = z
   .object({
     container: z
@@ -140,6 +154,7 @@ const argoWorkflowTemplateSchema = z
       .strict()
       .optional(),
     name: z.string().min(1),
+    retryStrategy: argoWorkflowRetryStrategySchema.optional(),
   })
   .strict()
   .refine(
@@ -314,16 +329,24 @@ export function buildRunnerArgoWorkflowManifest(
       templates: [
         {
           dag: {
-            tasks: graph.tasks.map((task) => ({
-              ...(task.dependencies.length > 0
-                ? { dependencies: task.dependencies }
-                : {}),
-              name: task.taskName,
-              template: task.templateName,
-            })),
+            tasks: [
+              {
+                name: RUNNER_WORKFLOW_START_TASK,
+                template: RUNNER_WORKFLOW_START_TASK,
+              },
+              ...graph.tasks.map((task) => ({
+                dependencies: [
+                  RUNNER_WORKFLOW_START_TASK,
+                  ...task.dependencies,
+                ],
+                name: task.taskName,
+                template: task.templateName,
+              })),
+            ],
           },
           name: RUNNER_WORKFLOW_ENTRYPOINT,
         },
+        runnerLifecycleTemplate(options, volumeMounts),
         ...graph.tasks.map((task) =>
           runnerCommandTemplate(task, options, volumeMounts)
         ),
@@ -474,6 +497,34 @@ function runnerWorkflowStorage(
   };
 }
 
+function runnerLifecycleTemplate(
+  options: ParsedBuildRunnerArgoWorkflowOptions,
+  volumeMounts: z.infer<typeof argoWorkflowVolumeMountSchema>[]
+): z.infer<typeof argoWorkflowTemplateSchema> {
+  return {
+    container: {
+      args: [
+        "runner-lifecycle",
+        "--phase",
+        "workflow.start",
+        "--payload-file",
+        RUNNER_WORKFLOW_PAYLOAD_PATH,
+        "--schedule-file",
+        RUNNER_WORKFLOW_SCHEDULE_PATH,
+      ],
+      command: ["moka"],
+      env: [...RUNNER_OPENCODE_ENV],
+      image: options.image,
+      imagePullPolicy: options.imagePullPolicy,
+      name: "runner",
+      ...(options.resources ? { resources: options.resources } : {}),
+      volumeMounts,
+    },
+    name: RUNNER_WORKFLOW_START_TASK,
+    retryStrategy: { ...RUNNER_STARTUP_RETRY_STRATEGY },
+  };
+}
+
 function runnerCommandTemplate(
   task: ArgoExecutableTask,
   options: ParsedBuildRunnerArgoWorkflowOptions,
@@ -503,6 +554,7 @@ function runnerCommandTemplate(
       volumeMounts: [...volumeMounts, taskVolumeMount],
     },
     name: task.templateName,
+    retryStrategy: { ...RUNNER_STARTUP_RETRY_STRATEGY },
   };
 }
 

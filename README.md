@@ -223,7 +223,7 @@ single dependency target. Agents may route work to tracks, but the branch
 topology stays auditable in YAML or in the generated schedule artifact.
 
 See [`docs/config-architecture.md`](docs/config-architecture.md) for the config
-shape and [`docs/xstate-runtime-actor-model.md`](docs/xstate-runtime-actor-model.md)
+shape and [`docs/runtime-actor-model.md`](docs/runtime-actor-model.md)
 for the runtime actor model.
 
 ## Generated Host Resources

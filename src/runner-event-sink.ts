@@ -50,6 +50,13 @@ const RETRYABLE_STATUS_CODES = [
   408, 429, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511,
 ];
 
+/*
+ * Keep the custom event sink HTTP batching and retry path. Kubernetes events are
+ * useful for humans, but they are not the automation contract; the console needs
+ * ordered semantic runner records, authenticated batches, and deterministic retry
+ * failure handling.
+ */
+
 class EventSinkHttpError extends Error {
   readonly status: number;
 

@@ -1,11 +1,9 @@
 import { join } from "node:path";
 import micromatch from "micromatch";
-import { createActor, waitFor } from "xstate";
 import { artifactExists } from "../../gates";
-import { runtimeActorId } from "../../runtime-machines/contracts";
-import { gateEvaluationMachine } from "../../runtime-machines/gate-machine";
-import { isRecord, parseJson as parseSafeJson } from "../../safe-json";
+import { isRecord, parseJsonResult } from "../../safe-json";
 import type { PlannedWorkflowNode } from "../../workflow-planner";
+import { runtimeActorId } from "../actor-ids";
 import { executeBuiltin } from "../builtins";
 import { executeCommand } from "../command-executor";
 import type {
@@ -23,12 +21,7 @@ import type {
   RuntimeGateResult,
   VerdictGateSpec,
 } from "../contracts";
-import {
-  emitGateFinish,
-  emitGateStart,
-  runtimeInspection,
-  runtimeSystemId,
-} from "../events";
+import { emitGateFinish, emitGateStart, runtimeSystemId } from "../events";
 import { readOptionalFile, validateJsonSchemaSource } from "../json-validation";
 
 export type GateFailureHook = (
@@ -46,10 +39,17 @@ export async function evaluateNodeGates(
   for (const gate of nodeGateSpecs(node, context)) {
     const gateId = gate.id ?? `${gate.kind}:${node.id}`;
     if (isCancelled(context)) {
+      emitRuntimeGateCancelled(
+        context,
+        gate,
+        gateId,
+        node.id,
+        "gate cancelled"
+      );
       break;
     }
     emitGateStart(context, node.id, gate, gateId);
-    const result = await runGateEvaluationActor(
+    const result = await runGateEvaluation(
       gate,
       gateId,
       node.id,
@@ -69,50 +69,127 @@ export async function evaluateNodeGates(
   return results;
 }
 
-async function runGateEvaluationActor(
+async function runGateEvaluation(
   gate: GateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext,
   attempt: NodeAttemptResult
 ): Promise<RuntimeGateResult> {
-  const actor = createActor(gateEvaluationMachine, {
+  emitRuntimeGateStarted(context, gate, gateId, nodeId);
+  const result = await resolveGateResult(
+    gate,
+    gateId,
+    nodeId,
+    context,
+    attempt
+  );
+  emitRuntimeGateResult(context, result);
+  return result;
+}
+
+async function resolveGateResult(
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  context: RuntimeContext,
+  attempt: NodeAttemptResult
+): Promise<RuntimeGateResult> {
+  try {
+    return await evaluateGate(gate, nodeId, context, attempt);
+  } catch (err) {
+    return {
+      evidence: [err instanceof Error ? err.message : String(err)],
+      gateId,
+      kind: gate.kind,
+      nodeId,
+      passed: false,
+      reason: err instanceof Error ? err.message : "gate evaluation failed",
+    };
+  }
+}
+
+function runtimeGateActor(
+  context: RuntimeContext,
+  gateId: string,
+  nodeId: string
+) {
+  return {
     id: runtimeActorId("gate", {
       gateId,
       nodeId,
       runId: context.runId,
       workflowId: context.workflowId,
     }),
-    input: {
-      actor: {
-        id: runtimeActorId("gate", {
-          gateId,
-          nodeId,
-          runId: context.runId,
-          workflowId: context.workflowId,
-        }),
-        kind: "gate",
-        systemId: runtimeSystemId(context),
-      },
-      emit: context.observability,
-      evaluate: () => evaluateGate(gate, nodeId, context, attempt),
-      gateId,
-      kind: gate.kind,
-      nodeId,
-    },
-    ...(runtimeInspection(context)
-      ? { inspect: runtimeInspection(context) }
-      : {}),
+    kind: "gate" as const,
+    systemId: runtimeSystemId(context),
+  };
+}
+
+function runtimeTimestamp(): string {
+  return new Date().toISOString();
+}
+
+function emitRuntimeGateStarted(
+  context: RuntimeContext,
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string
+): void {
+  context.observability?.({
+    actor: runtimeGateActor(context, gateId, nodeId),
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    timestamp: runtimeTimestamp(),
+    type: "runtime.gate.started",
   });
-  actor.start();
-  actor.send({ type: "START" });
-  const snapshot = await waitFor(actor, (state) => state.status === "done");
-  actor.stop();
-  const result = snapshot.context.result;
-  if (!result) {
-    throw new Error(`gate '${gateId}' finished without a result`);
+}
+
+function emitRuntimeGateResult(
+  context: RuntimeContext,
+  result: RuntimeGateResult
+): void {
+  const actor = runtimeGateActor(context, result.gateId, result.nodeId);
+  context.observability?.({
+    actor,
+    gateId: result.gateId,
+    kind: result.kind,
+    nodeId: result.nodeId,
+    passed: result.passed,
+    reason: result.reason,
+    timestamp: runtimeTimestamp(),
+    type: "runtime.gate.finished",
+  });
+  if (!result.passed) {
+    context.observability?.({
+      actor,
+      gateId: result.gateId,
+      kind: result.kind,
+      nodeId: result.nodeId,
+      reason: result.reason ?? "gate failed",
+      timestamp: runtimeTimestamp(),
+      type: "runtime.gate.failed",
+    });
   }
-  return result;
+}
+
+function emitRuntimeGateCancelled(
+  context: RuntimeContext,
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string,
+  reason: string
+): void {
+  context.observability?.({
+    actor: runtimeGateActor(context, gateId, nodeId),
+    gateId,
+    kind: gate.kind,
+    nodeId,
+    reason,
+    timestamp: runtimeTimestamp(),
+    type: "runtime.gate.cancelled",
+  });
 }
 
 function nodeGateSpecs(
@@ -288,13 +365,8 @@ function parseGateJson(
   if (source.evidence) {
     return { evidence: source.evidence };
   }
-  try {
-    return { value: parseSafeJson(source.source ?? "", "gate JSON") };
-  } catch (err) {
-    return {
-      evidence: err instanceof Error ? err.message : String(err),
-    };
-  }
+  const parsed = parseJsonResult(source.source ?? "", "gate JSON");
+  return parsed.error ? { evidence: parsed.error } : { value: parsed.value };
 }
 
 function evaluateVerdictGate(
@@ -448,9 +520,9 @@ export function evaluateChangedFilesGate(
   gate: ChangedFilesGateSpec,
   gateId: string,
   nodeId: string,
-  context: Pick<RuntimeContext, "nodeSnapshots">
+  context: Pick<RuntimeContext, "nodeStateStore">
 ): RuntimeGateResult {
-  const changed = [...(context.nodeSnapshots.get(nodeId)?.files ?? new Set())];
+  const changed = context.nodeStateStore.changedFiles(nodeId);
   const policy = gate.changed_files ?? {};
   const evidence: string[] = [];
   const included =

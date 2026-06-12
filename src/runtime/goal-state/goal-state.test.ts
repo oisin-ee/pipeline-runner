@@ -369,6 +369,33 @@ describe("pipeline goal state", () => {
     expect(blocked.blockedReasons).toEqual(["same failure repeated"]);
   });
 
+  it("preserves sorted non-empty unique changed files across goal and node state", () => {
+    const state = recordGoalStateChangedFiles(baseState(), "green", [
+      "tests/z.test.ts",
+      "",
+      "src/b.ts",
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+    const updated = recordGoalStateChangedFiles(state, "green", [
+      "tests/a.test.ts",
+      "src/a.ts",
+    ]);
+
+    expect(updated.changedFiles).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+      "tests/a.test.ts",
+      "tests/z.test.ts",
+    ]);
+    expect(updated.nodes.green.changedFiles).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+      "tests/a.test.ts",
+      "tests/z.test.ts",
+    ]);
+  });
+
   it("reconstructs state from events and loads the run artifact goal-state.json", () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-goal-state-"));
     tempDirs.push(dir);

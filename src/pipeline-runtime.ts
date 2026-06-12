@@ -1,5 +1,6 @@
-import { createActor, waitFor } from "xstate";
 import type { PipelineConfigError } from "./config";
+import { findPlannedNode } from "./planned-node";
+import type { RetryReason } from "./runtime/actor-ids";
 import { executeAgentNode } from "./runtime/agent-node";
 import { executeBuiltin } from "./runtime/builtins";
 import {
@@ -22,33 +23,24 @@ import type {
   RuntimeStructuredOutput,
 } from "./runtime/contracts";
 import {
-  emit,
   emitNodeFinish,
   emitNodeOutputRecorded,
   emitNodeStart,
   emitWorkflowFinish,
   emitWorkflowPlanned,
-  runtimeInspection,
+  emitWorkflowStarted,
   runtimeNodeActorDescriptor,
-  runtimeSystemId,
 } from "./runtime/events";
 import { evaluateNodeGates } from "./runtime/gates";
 import { dispatchHooks } from "./runtime/hooks";
 import { parseJsonObject } from "./runtime/json-validation";
+import {
+  type NodeExecutionEvent,
+  NodeStateTracker,
+} from "./runtime/node-state-tracker";
 import { executeParallelNode } from "./runtime/parallel-node";
-import {
-  type NodeRetryPolicyContract,
-  type RetryReason,
-  runtimeActorId,
-} from "./runtime-machines/contracts";
-import {
-  type NodeExecutionActor,
-  nodeExecutionMachine,
-} from "./runtime-machines/node-machine";
-import {
-  type WorkflowSchedulerActor,
-  workflowSchedulerMachine,
-} from "./runtime-machines/workflow-machine";
+import { decideNodeRetry, nodeRetryPolicy } from "./runtime/retry";
+import { LocalScheduler, type PipelineScheduler } from "./runtime/scheduler";
 import type { PlannedWorkflowNode } from "./workflow-planner";
 
 export interface ScheduledWorkflowTaskRuntimeOptions
@@ -93,74 +85,27 @@ export function runScheduledWorkflowTask(
 async function runPipelineWithContext(
   context: RuntimeContext
 ): Promise<PipelineRuntimeResult> {
-  const workflowActor = startWorkflowSchedulerActor(context);
-  const snapshot = await waitFor(
-    workflowActor,
-    (state) => state.status === "done"
-  );
-  const result = snapshot.context.result;
-  if (!result) {
-    throw new Error("workflow scheduler finished without a runtime result");
-  }
-  workflowActor.stop();
-  return finishRuntime(context, result);
-}
-
-function startWorkflowSchedulerActor(
-  context: RuntimeContext
-): WorkflowSchedulerActor {
-  const systemId = runtimeSystemId(context);
-  const actor = createActor(workflowSchedulerMachine, {
-    id: runtimeActorId("workflow", {
-      runId: context.runId,
-      workflowId: context.workflowId,
-    }),
-    systemId,
-    input: {
-      actor: {
-        id: runtimeActorId("workflow", {
-          runId: context.runId,
-          workflowId: context.workflowId,
-        }),
-        kind: "workflow",
-        systemId,
-      },
-      buildResult: (outcome, nodes, failure) =>
-        workflowRuntimeResult(context, outcome, nodes, failure),
-      emitWorkflowPlanned: () => emitWorkflowPlanned(context),
-      emitWorkflowStarted: () =>
-        emit(context, {
-          nodeIds: context.plan.topologicalOrder.map((node) => node.id),
-          type: "workflow.start",
-          workflowId: context.workflowId,
-        }),
-      failFast: context.plan.execution.failFast,
-      isCancelled: () => isCancelled(context),
-      markNodeReady: (nodeId) =>
-        recordNodeEvent(context, nodeId, { at: now(), type: "READY" }),
-      maxParallelNodes: context.maxParallelNodes,
-      nodes: context.plan.topologicalOrder.map((node) => ({
-        dependents: node.dependents,
-        id: node.id,
-        index: node.index,
-        needs: node.needs,
-      })),
-      runNode: (nodeId) => executePlannedNode(nodeId, context),
-      runWorkflowHook: (event, failure) =>
-        dispatchHooks(context, event, failure),
-      shouldContinueAfterNodeResult: (result) =>
-        shouldContinueAfterNodeResult(result, context),
-      skipNode: (nodeId, reason) =>
-        recordSkippedNodeState(context, nodeId, reason, now()),
-    },
-    ...(runtimeInspection(context)
-      ? { inspect: runtimeInspection(context) }
-      : {}),
+  const scheduler: PipelineScheduler = new LocalScheduler({
+    buildResult: (outcome, nodes, failure) =>
+      workflowRuntimeResult(context, outcome, nodes, failure),
+    emitWorkflowPlanned: (nextContext) => emitWorkflowPlanned(nextContext),
+    emitWorkflowStarted: (nextContext) => emitWorkflowStarted(nextContext),
+    executeNode: (nodeId, nextContext) =>
+      executePlannedNode(nodeId, nextContext),
+    isCancelled: (nextContext) => isCancelled(nextContext),
+    markNodeReady: (nodeId, nextContext) =>
+      recordNodeEvent(nextContext, nodeId, { at: now(), type: "READY" }),
+    runWorkflowHook: (event, failure, nextContext) =>
+      dispatchHooks(nextContext, event, failure),
+    shouldContinueAfterNodeResult: (result, nextContext) =>
+      shouldContinueAfterNodeResult(result, nextContext),
+    skipNode: (nodeId, reason, nextContext) =>
+      recordSkippedNodeState(nextContext, nodeId, reason, now()),
   });
-  context.workflowActor = actor;
-  actor.start();
-  actor.send({ type: "START" });
-  return actor;
+  return finishRuntime(
+    context,
+    await scheduler.runWorkflow(context.plan, context)
+  );
 }
 
 function shouldContinueAfterNodeResult(
@@ -218,22 +163,6 @@ function plannedNodeById(
     context.plan.graph.node(nodeId) ??
     findPlannedNode(context.plan.topologicalOrder, nodeId)
   );
-}
-
-function findPlannedNode(
-  nodes: PlannedWorkflowNode[],
-  nodeId: string
-): PlannedWorkflowNode | undefined {
-  for (const node of nodes) {
-    if (node.id === nodeId) {
-      return node;
-    }
-    const child = findPlannedNode(node.children ?? [], nodeId);
-    if (child) {
-      return child;
-    }
-  }
-  return;
 }
 
 function workflowRuntimeResult(
@@ -335,13 +264,13 @@ function cancelledRuntimeResult(
 function runtimeNodeStates(
   context: RuntimeContext
 ): Record<string, NodeExecutionState> {
-  return Object.fromEntries(context.nodeStates);
+  return context.nodeStateStore.toNodeStateRecord();
 }
 
 function runtimeStructuredOutputs(
   context: RuntimeContext
 ): RuntimeStructuredOutput[] {
-  return [...context.structuredOutputs];
+  return context.nodeStateStore.structuredOutputList();
 }
 
 function hydrateDependencyOutputs(
@@ -354,10 +283,10 @@ function hydrateDependencyOutputs(
       : new Map(Object.entries(dependencyOutputs ?? {}));
   const finishedAt = now();
   for (const [nodeId, output] of outputs) {
-    const existing = context.nodeStates.get(nodeId);
-    context.lastOutputByNode.set(nodeId, output);
-    context.inheritedOutputNodeIds.add(nodeId);
-    context.nodeStates.set(nodeId, {
+    const existing = context.nodeStateStore.getNodeState(nodeId);
+    context.nodeStateStore.recordOutput(nodeId, output);
+    context.nodeStateStore.markInheritedOutput(nodeId);
+    context.nodeStateStore.setNodeState(nodeId, {
       attempts: existing?.attempts ?? 1,
       evidence: [
         ...(existing?.evidence ?? []),
@@ -379,8 +308,8 @@ function hydrateScheduledDependencyStates(
 ): void {
   const finishedAt = now();
   for (const dependencyId of scheduledDependencyNodeIds(context, nodeId)) {
-    const existing = context.nodeStates.get(dependencyId);
-    context.nodeStates.set(
+    const existing = context.nodeStateStore.getNodeState(dependencyId);
+    context.nodeStateStore.setNodeState(
       dependencyId,
       scheduledDependencyState(dependencyId, finishedAt, existing)
     );
@@ -472,88 +401,20 @@ function recordSkippedNodeState(
   reason: string,
   at: string
 ): void {
-  const state =
-    context.nodeStates.get(nodeId) ??
-    ({
-      attempts: 0,
-      evidence: [],
-      gates: [],
-      id: nodeId,
-      status: "pending",
-    } satisfies NodeExecutionState);
-  context.nodeStates.set(nodeId, {
-    ...state,
-    failure: {
-      evidence: [reason],
-      gate: nodeId,
-      nodeId,
-      reason,
-    },
-    finishedAt: at,
-    status: "skipped",
-  });
-}
-
-function nodeActor(
-  context: RuntimeContext,
-  nodeId: string
-): NodeExecutionActor {
-  const existing = context.nodeActors.get(nodeId);
-  if (existing) {
-    return existing;
-  }
-  const actor = createActor(nodeExecutionMachine, {
-    id: runtimeActorId("node", {
-      nodeId,
-      runId: context.runId,
-      workflowId: context.workflowId,
-    }),
-    input: {
-      actor: {
-        id: runtimeActorId("node", {
-          nodeId,
-          runId: context.runId,
-          workflowId: context.workflowId,
-        }),
-        kind: "node",
-        systemId: runtimeSystemId(context),
-      },
-      nodeId,
-    },
-    ...(runtimeInspection(context)
-      ? { inspect: runtimeInspection(context) }
-      : {}),
-  });
-  actor.start();
-  context.nodeActors.set(nodeId, actor);
-  context.nodeStates.set(nodeId, actor.getSnapshot().context.state);
-  return actor;
+  recordNodeEvent(context, nodeId, { at, reason, type: "SKIPPED" });
 }
 
 function recordNodeEvent(
   context: RuntimeContext,
   nodeId: string,
-  event: Parameters<NodeExecutionActor["send"]>[0]
+  event: NodeExecutionEvent
 ): void {
-  const actor = nodeActor(context, nodeId);
-  actor.send(event);
-  context.nodeStates.set(nodeId, actor.getSnapshot().context.state);
-  if (event.type === "RETRYING") {
-    const retry = actor.getSnapshot().context.state.retry;
-    if (!retry || event.policy.maxAttempts <= 1) {
-      return;
-    }
-    context.observability?.({
-      actor: runtimeNodeActorDescriptor(context, nodeId),
-      attempt: retry.scheduled ? event.attempt + 1 : event.attempt,
-      nodeId,
-      reason: event.retryReason,
-      timestamp: event.at,
-      type: retry.scheduled
-        ? "runtime.retry.scheduled"
-        : "runtime.retry.exhausted",
-    });
-  }
+  const tracker = new NodeStateTracker(
+    nodeId,
+    context.nodeStateStore.getNodeState(nodeId)
+  );
+  const state = tracker.record(event);
+  context.nodeStateStore.setNodeState(nodeId, state);
 }
 
 function now(): string {
@@ -603,17 +464,25 @@ async function executeNode(
       if (remediation?.retryNode) {
         continue;
       }
-      recordNodeEvent(context, node.id, {
-        at: now(),
+      const retryDecision = decideNodeRetry({
         attempt,
         evidence: retry.evidence,
         gate: retry.gate,
         policy: retryPolicy,
         reason: retry.reason,
         retryReason: retry.retryReason,
+      });
+      recordNodeEvent(context, node.id, {
+        at: now(),
+        attempt,
+        evidence: retry.evidence,
+        gate: retry.gate,
+        reason: retry.reason,
+        retry: retryDecision,
+        retryReason: retry.retryReason,
         type: "RETRYING",
       });
-      const retryDecision = context.nodeStates.get(node.id)?.retry;
+      emitRuntimeRetry(context, node.id, retryDecision, retry.retryReason);
       if (!retryDecision?.scheduled) {
         break;
       }
@@ -677,6 +546,24 @@ async function executeNode(
   return result;
 }
 
+function emitRuntimeRetry(
+  context: RuntimeContext,
+  nodeId: string,
+  retry: ReturnType<typeof decideNodeRetry>,
+  reason: RetryReason
+): void {
+  context.observability?.({
+    actor: runtimeNodeActorDescriptor(context, nodeId),
+    attempt: retry.scheduled ? retry.attempt + 1 : retry.attempt,
+    nodeId,
+    reason,
+    timestamp: now(),
+    type: retry.scheduled
+      ? "runtime.retry.scheduled"
+      : "runtime.retry.exhausted",
+  });
+}
+
 interface NodeRemediationResult {
   result?: RuntimeNodeResult;
   retryNode?: boolean;
@@ -716,7 +603,7 @@ async function remediateWritableNodeFailure(input: {
   }
 
   const beforeSnapshot = await snapshotChangedFiles(input.context.worktreePath);
-  const beforeOutput = input.context.lastOutputByNode.get(input.node.id);
+  const beforeOutput = input.context.nodeStateStore.getOutput(input.node.id);
   const result = await executeSelfRemediation(input);
   if (result.status !== "passed") {
     return null;
@@ -731,8 +618,8 @@ async function remediateWritableNodeFailure(input: {
     return null;
   }
 
-  input.context.nodeSnapshots.set(input.node.id, changed);
-  input.context.lastOutputByNode.set(input.node.id, result.output);
+  input.context.nodeStateStore.setSnapshot(input.node.id, changed);
+  input.context.nodeStateStore.recordOutput(input.node.id, result.output);
   return {
     attempts: input.attempt + 1,
     evidence: result.evidence,
@@ -812,7 +699,8 @@ async function remediatePassedImplementationAncestors(input: {
     input.node
   ).filter(
     (candidate) =>
-      input.context.nodeStates.get(candidate.id)?.status === "passed"
+      input.context.nodeStateStore.getNodeState(candidate.id)?.status ===
+      "passed"
   );
   if (implementationNodes.length === 0) {
     return false;
@@ -839,7 +727,7 @@ async function remediateImplementationAncestor(
     return false;
   }
   const beforeSnapshot = await snapshotChangedFiles(input.context.worktreePath);
-  const beforeOutput = input.context.lastOutputByNode.get(
+  const beforeOutput = input.context.nodeStateStore.getOutput(
     implementationNode.id
   );
   const result = await executeImplementationRemediation({
@@ -876,7 +764,7 @@ async function recordImplementationRemediationEffect(input: {
   if (changed.files.size === 0 && input.result.output === input.beforeOutput) {
     return false;
   }
-  input.context.lastOutputByNode.set(
+  input.context.nodeStateStore.recordOutput(
     input.implementationNode.id,
     input.result.output
   );
@@ -1024,21 +912,6 @@ function hasSchedulingRole(
     : false;
 }
 
-type NodeRetryPolicy = NodeRetryPolicyContract;
-
-function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
-  let retryOn: RetryReason[] = ["exit_nonzero", "gate_failure", "timeout"];
-  if (node.retries?.retry_on) {
-    retryOn = [...node.retries.retry_on];
-  }
-  return {
-    backoffMs: node.retries?.backoff_ms ? node.retries.backoff_ms : 0,
-    maxAttempts: node.retries?.max_attempts ? node.retries.max_attempts : 1,
-    multiplier: node.retries?.multiplier ? node.retries.multiplier : 1,
-    retryOn,
-  };
-}
-
 async function waitForRetryDelay(
   delayMs: number,
   signal?: AbortSignal
@@ -1119,7 +992,7 @@ async function executeNodeAttemptCycle(
     at: now(),
     type: "START_HOOKS_FINISHED",
   });
-  context.nodeSnapshots.set(
+  context.nodeStateStore.setSnapshot(
     node.id,
     await snapshotChangedFiles(context.worktreePath)
   );
@@ -1141,14 +1014,14 @@ async function executeNodeAttemptCycle(
     type: "RUNNER_FINISHED",
   });
   const afterSnapshot = await snapshotChangedFiles(context.worktreePath);
-  const beforeSnapshot = context.nodeSnapshots.get(node.id);
+  const beforeSnapshot = context.nodeStateStore.getSnapshot(node.id);
   if (beforeSnapshot) {
-    context.nodeSnapshots.set(
+    context.nodeStateStore.setSnapshot(
       node.id,
       diffChangedFiles(beforeSnapshot, afterSnapshot, context.worktreePath)
     );
   }
-  context.lastOutputByNode.set(node.id, last.output);
+  context.nodeStateStore.recordOutput(node.id, last.output);
   emitNodeOutputRecorded(context, node, attempt, last.output);
   recordNodeEvent(context, node.id, {
     at: now(),

@@ -6,17 +6,16 @@ import type {
   RunnerLaunchPlan,
 } from "../../runner";
 import type {
+  PlannedWorkflowNode,
+  WorkflowExecutionPlan,
+} from "../../workflow-planner";
+import type {
   RetryReason,
   RuntimeActorDescriptor,
   RuntimeObservabilityEmitter,
   RuntimeObservabilityEvent,
-} from "../../runtime-machines/contracts";
-import type { NodeExecutionActor } from "../../runtime-machines/node-machine";
-import type { WorkflowSchedulerActor } from "../../runtime-machines/workflow-machine";
-import type {
-  PlannedWorkflowNode,
-  WorkflowExecutionPlan,
-} from "../../workflow-planner";
+} from "../actor-ids";
+import type { NodeStateStore } from "../node-state-store";
 
 export type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
 export type GateSpec = NonNullable<WorkflowNode["gates"]>[number];
@@ -348,22 +347,16 @@ export interface RuntimeContext {
   hookFailures: RuntimeFailure[];
   hookPolicy: Required<HookRuntimePolicy>;
   hookResults: Map<string, HookResult>;
-  inheritedOutputNodeIds: Set<string>;
-  lastOutputByNode: Map<string, string>;
   maxParallelNodes?: number;
-  nodeActors: Map<string, NodeExecutionActor>;
-  nodeSnapshots: Map<string, ChangedFilesSnapshot>;
-  nodeStates: Map<string, NodeExecutionState>;
+  nodeStateStore: NodeStateStore;
   observability?: RuntimeObservabilityEmitter;
   parentParallelNodeId?: string;
   plan: WorkflowExecutionPlan;
   reporter?: (event: PipelineRuntimeEvent) => void;
   runId?: string;
   signal?: AbortSignal;
-  structuredOutputs: RuntimeStructuredOutput[];
   task: string;
   taskContext?: PipelineTaskContext;
-  workflowActor?: WorkflowSchedulerActor;
   workflowId: string;
   worktreePath: string;
 }

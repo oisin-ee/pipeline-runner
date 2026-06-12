@@ -6,12 +6,9 @@ import {
   type PlannedWorkflowNode,
   type WorkflowExecutionPlan,
 } from "../../workflow-planner";
-import type {
-  NodeExecutionState,
-  PipelineRuntimeOptions,
-  RuntimeContext,
-} from "../contracts";
+import type { PipelineRuntimeOptions, RuntimeContext } from "../contracts";
 import { createPublicRuntimeObservabilityEmitter } from "../events";
+import { initialNodeStateStore } from "../node-state-store";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
@@ -42,7 +39,6 @@ export function createRuntimeContext(
     gates: [],
     hookFailures: [],
     hookResults: new Map(),
-    inheritedOutputNodeIds: new Set(),
     hookPolicy: {
       allowCommandHooks: options.hookPolicy?.allowCommandHooks ?? true,
       allowUntrustedCommandHooks:
@@ -53,16 +49,12 @@ export function createRuntimeContext(
         options.hookPolicy?.outputLimitBytes ?? DEFAULT_HOOK_OUTPUT_LIMIT_BYTES,
       timeoutMs: options.hookPolicy?.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
     },
-    lastOutputByNode: new Map(),
     maxParallelNodes: runtimeMaxParallelNodes(options, plan),
-    nodeSnapshots: new Map(),
-    nodeStates: initialNodeStates(plan),
-    nodeActors: new Map(),
+    nodeStateStore: initialNodeStateStore(plan),
     ...(observability ? { observability } : {}),
     plan,
     ...(options.reporter ? { reporter: options.reporter } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
-    structuredOutputs: [],
     task: options.task,
     ...(options.taskContext ? { taskContext: options.taskContext } : {}),
     workflowId,
@@ -123,21 +115,4 @@ function nodesReferenceRunIdTemplate(nodes: PlannedWorkflowNode[]): boolean {
 
 export function generateRuntimeRunId(): string {
   return `run-${randomUUID()}`;
-}
-
-function initialNodeStates(
-  plan: WorkflowExecutionPlan
-): Map<string, NodeExecutionState> {
-  return new Map(
-    plan.topologicalOrder.map((node) => [
-      node.id,
-      {
-        attempts: 0,
-        evidence: [],
-        gates: [],
-        id: node.id,
-        status: "pending",
-      },
-    ])
-  );
 }

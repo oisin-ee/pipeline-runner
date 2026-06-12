@@ -97,7 +97,13 @@ describe("runtime context", () => {
       outputLimitBytes: 65_536,
       timeoutMs: 30_000,
     });
-    expect(withRunId.nodeStates.get("a")).toMatchObject({
+    expect(withRunId).toHaveProperty("nodeStateStore");
+    expect(withRunId).not.toHaveProperty("nodeStates");
+    expect(withRunId).not.toHaveProperty("nodeSnapshots");
+    expect(withRunId).not.toHaveProperty("lastOutputByNode");
+    expect(withRunId).not.toHaveProperty("inheritedOutputNodeIds");
+    expect(withRunId).not.toHaveProperty("structuredOutputs");
+    expect(withRunId.nodeStateStore.nodeStates.get("a")).toMatchObject({
       attempts: 0,
       evidence: [],
       gates: [],

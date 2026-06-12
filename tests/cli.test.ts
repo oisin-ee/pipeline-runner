@@ -205,6 +205,59 @@ function spyOutput(spy: ConsoleSpy): string {
   return spy.mock.calls.map(([message]) => String(message)).join("\n");
 }
 
+function kubectlCalls(): string[][] {
+  return mockExeca.mock.calls
+    .filter(([command]) => command === "kubectl")
+    .map(([, args]) => args as string[]);
+}
+
+function clusterDoctorExecaResult(command: string, args: string[]) {
+  if (command !== "kubectl") {
+    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "ok" });
+  }
+  const kubectlArgs = stripKubectlContext(args);
+  if (
+    kubectlArgs.join(" ") ===
+    "auth can-i create workflows.argoproj.io --as system:serviceaccount:test-ns:pipeline-runner -n test-ns"
+  ) {
+    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "no" });
+  }
+  if (kubectlArgs.includes("pipeline-runner-event-auth")) {
+    return Promise.reject({ stderr: "not found" });
+  }
+  if (kubectlArgs.join(" ") === "get clustersecretstore openbao -o json") {
+    return Promise.resolve({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        status: {
+          conditions: [
+            {
+              message: "OpenBao auth drift blocks ESO sync",
+              status: "False",
+              type: "Ready",
+            },
+          ],
+        },
+      }),
+    });
+  }
+  if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
+    return Promise.resolve({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        status: { conditions: [{ status: "True", type: "Ready" }] },
+      }),
+    });
+  }
+  return Promise.resolve({ exitCode: 0, stderr: "", stdout: "present" });
+}
+
+function stripKubectlContext(args: string[]): string[] {
+  return args[0] === "--context" ? args.slice(2) : args;
+}
+
 function readPackageVersion(): string {
   const packageJson = JSON.parse(
     readFileSync(join(process.cwd(), "package.json"), "utf8")
@@ -1281,7 +1334,7 @@ describe("execute", () => {
     await expect(execute("")).rejects.toThrow(DESCRIPTION_RE);
   });
 
-  it("runs the YAML runtime through the execute function", async () => {
+  it("renders local run progress and agent output live to stdout", async () => {
     const { execute } = await import("../src/index");
     const error = vi
       .spyOn(console, "error")
@@ -1314,6 +1367,29 @@ describe("execute", () => {
           "node actor pipeline.node.run-123.custom.inspect entered running",
         type: "runtime.observability",
         workflowId: "custom",
+      });
+      reporter?.({
+        attempt: 1,
+        format: "text",
+        nodeId: "inspect",
+        output: "live agent line",
+        profile: "moka-inspector",
+        type: "node.output.recorded",
+      });
+      reporter?.({
+        gateId: "acceptance",
+        kind: "verdict",
+        nodeId: "inspect",
+        type: "gate.start",
+      });
+      reporter?.({
+        evidence: ["acceptance evidence line"],
+        gateId: "acceptance",
+        kind: "verdict",
+        nodeId: "inspect",
+        passed: true,
+        reason: "approved",
+        type: "gate.finish",
       });
       reporter?.({
         attempt: 1,
@@ -1351,19 +1427,21 @@ describe("execute", () => {
       });
     });
 
-    let progress: string[] = [];
     let finalOutput = "";
+    let stderrOutput = "";
     try {
       await execute("PIPE-42 trivial NOOP", {
         pipelineRunner,
         workflow: "custom",
       });
-      progress = error.mock.calls.map(([message]) => String(message));
     } finally {
-      error.mockRestore();
       finalOutput = log.mock.calls
         .map(([message]) => String(message))
         .join("\n");
+      stderrOutput = error.mock.calls
+        .map(([message]) => String(message))
+        .join("\n");
+      error.mockRestore();
       log.mockRestore();
     }
 
@@ -1376,15 +1454,23 @@ describe("execute", () => {
         worktreePath: process.cwd(),
       })
     );
-    expect(progress).toContain("Pipeline starting: custom (inspect)");
-    expect(progress).toContain(
+    expect(stderrOutput).toBe("");
+    expect(finalOutput).toContain("Pipeline starting: custom (inspect)");
+    expect(finalOutput).toContain(
       "Node starting: inspect runner=opencode profile=moka-inspector attempt=1"
     );
-    expect(progress).toContain(
+    expect(finalOutput).toContain(
       "Runtime observed: runtime.state.enter - node actor pipeline.node.run-123.custom.inspect entered running"
     );
-    expect(progress).toContain("Node finished: inspect passed exit=0");
-    expect(progress).toContain("Pipeline finished: custom PASS");
+    expect(finalOutput).toContain("live agent line");
+    expect(finalOutput).toContain("Gate passed: inspect/acceptance");
+    expect(finalOutput).toContain("attempt=1");
+    expect(finalOutput).toContain("acceptance evidence line");
+    expect(finalOutput).toContain("Node finished: inspect passed exit=0");
+    expect(finalOutput).toContain("Pipeline finished: custom PASS");
+    expect(finalOutput.indexOf("live agent line")).toBeLessThan(
+      finalOutput.indexOf("Pipeline complete: PASS")
+    );
     expect(finalOutput).toContain("Node outputs:");
     expect(finalOutput).toContain("repo report");
   });
@@ -2282,6 +2368,54 @@ profiles:
         passed: false,
       });
     });
+  });
+
+  it("doctor reports value-free cluster runner prerequisites", async () => {
+    const { runCli } = await import("../src/index");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-cluster-doctor-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
+      process.env.PIPELINE_TARGET_PATH = dir;
+      mockExeca.mockImplementation(clusterDoctorExecaResult);
+
+      await expect(
+        runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "doctor",
+          "--cluster",
+          "test-ns",
+          "--kube-context",
+          "test-context",
+        ])
+      ).rejects.toThrow("Doctor checks failed.");
+
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain("FAIL secret/pipeline-runner-event-auth");
+      expect(output).toContain(
+        "Secret pipeline-runner-event-auth missing in test-ns; expected ExternalSecret pipeline-runner-event-auth to sync it from agent-runtime/pipeline-runner/event-auth"
+      );
+      expect(output).toContain("FAIL clustersecretstore/openbao");
+      expect(output).toContain("OpenBao auth drift");
+      expect(output).toContain("FAIL rbac/workflow-create");
+      expect(output).not.toContain("super-secret-token");
+      expect(kubectlCalls()).toContainEqual([
+        "--context",
+        "test-context",
+        "get",
+        "secret",
+        "pipeline-runner-event-auth",
+        "-n",
+        "test-ns",
+      ]);
+    } finally {
+      log.mockRestore();
+      restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("configures project host MCP config as gateway-only with backups", async () => {

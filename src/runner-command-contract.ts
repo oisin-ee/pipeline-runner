@@ -7,6 +7,13 @@ import { parseJson } from "./safe-json";
 
 const RUNNER_COMMAND_CONTRACT_VERSION = "1";
 
+/*
+ * Runner payload v1, event record schema shapes, schedule artifact references,
+ * and pipeline.oisin.dev/* Kubernetes label conventions are stable external
+ * contracts for Pipeline Console and other external consumers. Breaking changes
+ * require a contract version bump and an explicit compatibility plan.
+ */
+
 export const gitRemoteUrlSchema = z
   .string()
   .min(1)

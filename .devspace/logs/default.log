@@ -1,0 +1,23 @@
+{"level":"info","msg":"Using namespace 'default'","time":"2026-06-12T04:55:25+03:00"}
+{"level":"info","msg":"Using kube context 'orbstack'","time":"2026-06-12T04:55:25+03:00"}
+{"level":"error","msg":"please make sure you have an existing valid kube config. You might want to check one of the following things:\n\n* Make sure you can use 'kubectl get namespaces' locally\n* If you are using Loft, you might want to run 'devspace create space' or 'loft create space'","time":"2026-06-12T04:55:25+03:00"}
+{"level":"info","msg":"Using namespace 'default'","time":"2026-06-12T04:56:56+03:00"}
+{"level":"info","msg":"Using kube context 'orbstack'","time":"2026-06-12T04:56:56+03:00"}
+start_dev: replace pod: couldn't find a matching deployment, statefulset or replica set{"level":"error","msg":"exit status 1","time":"2026-06-12T04:56:56+03:00"}
+{"level":"info","msg":"Using namespace 'default'","time":"2026-06-12T04:57:36+03:00"}
+{"level":"info","msg":"Using kube context 'orbstack'","time":"2026-06-12T04:57:36+03:00"}
+start_dev: replace pod: couldn't find a matching deployment, statefulset or replica set{"level":"error","msg":"exit status 1","time":"2026-06-12T04:57:36+03:00"}
+{"level":"info","msg":"Using namespace 'default'","time":"2026-06-12T04:57:44+03:00"}
+{"level":"info","msg":"Using kube context 'orbstack'","time":"2026-06-12T04:57:44+03:00"}
+{"level":"info","msg":"Using namespace 'pipe62-verify'","time":"2026-06-12T04:58:59+03:00"}
+{"level":"info","msg":"Using kube context 'orbstack'","time":"2026-06-12T04:58:59+03:00"}
+deploy:pipeline-runner Applying manifests with kubectl...deploy:pipeline-runner deployment.apps/pipeline-runner createddeploy:pipeline-runner Successfully deployed pipeline-runner with kubectl{"level":"warning","msg":"Are you using the correct kube context?","time":"2026-06-12T09:08:14+03:00"}
+{"level":"warning","msg":"Current kube context: 'momokaya'","time":"2026-06-12T09:08:14+03:00"}
+{"level":"warning","msg":"Last    kube context: 'orbstack'","time":"2026-06-12T09:08:14+03:00"}
+{"level":"warning","msg":"Are you using the correct kube context?","time":"2026-06-12T09:08:23+03:00"}
+{"level":"warning","msg":"Current kube context: 'momokaya'","time":"2026-06-12T09:08:23+03:00"}
+{"level":"warning","msg":"Last    kube context: 'orbstack'","time":"2026-06-12T09:08:23+03:00"}
+{"level":"warning","msg":"Are you using the correct kube context?","time":"2026-06-12T09:08:33+03:00"}
+{"level":"warning","msg":"Current kube context: 'momokaya'","time":"2026-06-12T09:08:33+03:00"}
+{"level":"warning","msg":"Last    kube context: 'orbstack'","time":"2026-06-12T09:08:33+03:00"}
+deploy:pipeline-runner Applying manifests with kubectl...deploy:pipeline-runner deployment.apps/pipeline-runner createddeploy:pipeline-runner Successfully deployed pipeline-runner with kubectl

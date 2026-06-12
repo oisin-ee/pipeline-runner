@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uniqueStrings } from "./strings";
 import type {
   PlannedWorkflowNode,
   WorkflowExecutionPlan,
@@ -98,7 +99,7 @@ class ArgoGraphCompiler {
   }
 
   private resolveDependencyTaskNames(nodeIds: string[]): string[] {
-    return unique(
+    return uniqueStrings(
       nodeIds.flatMap((nodeId) =>
         this.resolveDependencyNodeIds(nodeId).map((id) => argoTaskName(id))
       )
@@ -114,14 +115,14 @@ class ArgoGraphCompiler {
       return [node.id];
     }
     if (node.kind === "group") {
-      return unique(
+      return uniqueStrings(
         [...(node.nodes ?? []), ...node.needs].flatMap((id) =>
           this.resolveDependencyNodeIds(id)
         )
       );
     }
     if (node.kind === "parallel") {
-      return unique(
+      return uniqueStrings(
         (node.children ?? []).flatMap((child) =>
           this.resolveDependencyNodeIds(child.id)
         )
@@ -148,8 +149,4 @@ function argoTaskName(nodeId: string): string {
 
 function argoTemplateName(nodeId: string): string {
   return `task-${nodeId}`;
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
 }

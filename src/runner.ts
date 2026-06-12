@@ -24,7 +24,14 @@ export interface AgentResult {
   timedOut?: boolean;
 }
 
+export interface RunnerOutputEvent {
+  chunk: string;
+  nodeId: string;
+  stream: "stderr" | "stdout";
+}
+
 export interface RunnerExecutionOptions {
+  onOutput?: (event: RunnerOutputEvent) => void;
   signal?: AbortSignal;
 }
 
@@ -359,18 +366,20 @@ export async function runLaunchPlan(
 ): Promise<AgentResult> {
   let result: AgentResult;
   try {
-    const subprocess = await execa(plan.command, plan.args, {
+    const subprocess = execa(plan.command, plan.args, {
       cancelSignal: options.signal,
       cwd: plan.cwd,
       env: plan.env,
       stdin: "ignore",
       ...timeoutOption(plan.timeoutMs),
     });
+    streamSubprocessOutput(plan, subprocess, options);
+    const completed = await subprocess;
     result = {
       argv: plan.args,
-      exitCode: subprocess.exitCode ?? 0,
-      stderr: subprocess.stderr ?? "",
-      stdout: subprocess.stdout ?? "",
+      exitCode: completed.exitCode ?? 0,
+      stderr: completed.stderr ?? "",
+      stdout: completed.stdout ?? "",
     };
   } catch (err) {
     const e = err as {
@@ -395,6 +404,41 @@ export async function runLaunchPlan(
     ...result,
     stderr: [result.stderr, cleanupError].filter(Boolean).join("\n"),
   };
+}
+
+function streamSubprocessOutput(
+  plan: RunnerLaunchPlan,
+  subprocess: {
+    stderr?: {
+      on?: (event: "data", listener: (chunk: unknown) => void) => void;
+    };
+    stdout?: {
+      on?: (event: "data", listener: (chunk: unknown) => void) => void;
+    };
+  },
+  options: RunnerExecutionOptions
+): void {
+  if (!options.onOutput) {
+    return;
+  }
+  subprocess.stdout?.on?.("data", (chunk) => {
+    options.onOutput?.({
+      chunk: chunkToString(chunk),
+      nodeId: plan.nodeId,
+      stream: "stdout",
+    });
+  });
+  subprocess.stderr?.on?.("data", (chunk) => {
+    options.onOutput?.({
+      chunk: chunkToString(chunk),
+      nodeId: plan.nodeId,
+      stream: "stderr",
+    });
+  });
+}
+
+function chunkToString(chunk: unknown): string {
+  return Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
 }
 
 function agentTimeoutMsFromEnv(): number | undefined {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../workflow-planner";
 import type { RuntimeContext } from "../contracts";
+import { NodeStateStore } from "../node-state-store";
 import { executeBuiltin } from "./builtins";
 
 function contextForBuiltins(): RuntimeContext {
@@ -51,14 +52,9 @@ workflows:
       timeoutMs: 1000,
     },
     hookResults: new Map(),
-    inheritedOutputNodeIds: new Set(),
-    lastOutputByNode: new Map(),
-    nodeActors: new Map(),
-    nodeSnapshots: new Map(),
-    nodeStates: new Map(),
+    nodeStateStore: new NodeStateStore(),
     plan: compileWorkflowPlan(config),
     runId: "run-builtins",
-    structuredOutputs: [],
     task: "task",
     workflowId: "default",
     worktreePath: process.cwd(),

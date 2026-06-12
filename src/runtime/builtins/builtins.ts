@@ -89,13 +89,7 @@ export async function executeBuiltin(
 }
 
 function runtimeChangedFiles(context: RuntimeContext): string[] {
-  return [
-    ...new Set(
-      [...context.nodeSnapshots.values()].flatMap((snapshot) => [
-        ...snapshot.files,
-      ])
-    ),
-  ].sort();
+  return [...new Set(context.nodeStateStore.changedFilesForAllNodes())].sort();
 }
 
 function builtinCommandEvidence(

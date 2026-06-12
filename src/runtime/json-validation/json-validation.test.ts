@@ -111,5 +111,6 @@ describe("json validation runtime helpers", () => {
     expect(parseJsonObject('{"children":{}}')).toEqual({ children: {} });
     expect(parseJsonObject("[]")).toEqual({});
     expect(parseJsonObject(undefined)).toEqual({});
+    expect(parseJsonObject("not json")).toEqual({});
   });
 });

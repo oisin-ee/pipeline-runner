@@ -1,29 +1,15 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { RuntimeObservabilityEvent } from "../src/runtime-observability";
-import { createRuntimeInspectionBridge } from "../src/runtime-observability-inspection";
 
-describe("createRuntimeInspectionBridge", () => {
-  it("classifies inspected runtime actors by stable actor id prefix", () => {
-    const events: RuntimeObservabilityEvent[] = [];
-    const bridge = createRuntimeInspectionBridge({
-      emit: (event) => events.push(event),
-    });
+describe("runtime observability adapter removal", () => {
+  it("deletes the legacy inspection bridge in favour of direct runtime/gate/hook/pipeline emits", () => {
+    const legacyBridgePath = join(
+      process.cwd(),
+      "src",
+      "runtime-observability-inspection.ts"
+    );
 
-    bridge({
-      actorRef: { id: "pipeline.gate.run-1.default.verify.review" },
-      rootId: "pipeline.run-1.default",
-      type: "@xstate.actor",
-    });
-
-    expect(events).toEqual([
-      expect.objectContaining({
-        actor: {
-          id: "pipeline.gate.run-1.default.verify.review",
-          kind: "gate",
-          systemId: "pipeline.run-1.default",
-        },
-        type: "runtime.state.enter",
-      }),
-    ]);
+    expect(existsSync(legacyBridgePath)).toBe(false);
   });
 });

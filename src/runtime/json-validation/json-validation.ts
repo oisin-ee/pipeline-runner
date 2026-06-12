@@ -2,7 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv, { type AnySchema, type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
-import { isRecord, parseJson as parseSafeJson } from "../../safe-json";
+import {
+  isRecord,
+  parseJsonRecord,
+  parseJson as parseSafeJson,
+} from "../../safe-json";
 import {
   standardOutputSchemaJson,
   standardOutputSchemaNameFromPath,
@@ -135,16 +139,5 @@ function formatJsonSchemaErrors(errors: ErrorObject[]): string[] {
 }
 
 export function parseJsonObject(value: unknown): Record<string, unknown> {
-  if (isRecord(value)) {
-    return value;
-  }
-  if (typeof value !== "string") {
-    return {};
-  }
-  try {
-    const parsed = parseSafeJson(value, "runtime JSON object");
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
+  return parseJsonRecord(value, "runtime JSON object");
 }

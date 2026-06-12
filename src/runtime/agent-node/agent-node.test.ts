@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeContext } from "../contracts";
+import { NodeStateStore } from "../node-state-store";
 import { inheritedOutputSections, renderTaskContext } from "./agent-node";
 
 describe("runtime agent node", () => {
@@ -25,12 +26,14 @@ describe("runtime agent node", () => {
 
   it("renders inherited outputs that are not direct dependencies", () => {
     const context = {
-      inheritedOutputNodeIds: new Set(["setup", "direct"]),
-      lastOutputByNode: new Map([
-        ["setup", "setup output"],
-        ["direct", "direct output"],
-      ]),
-    } as Pick<RuntimeContext, "inheritedOutputNodeIds" | "lastOutputByNode">;
+      nodeStateStore: new NodeStateStore({
+        inheritedOutputNodeIds: new Set(["setup", "direct"]),
+        lastOutputByNode: new Map([
+          ["setup", "setup output"],
+          ["direct", "direct output"],
+        ]),
+      }),
+    } satisfies Pick<RuntimeContext, "nodeStateStore">;
 
     expect(
       inheritedOutputSections(

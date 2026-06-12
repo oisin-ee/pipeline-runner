@@ -8,7 +8,6 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createActor, waitFor } from "xstate";
 import type { HookEvent } from "../../config";
 import {
   type HookContext,
@@ -16,10 +15,9 @@ import {
   type HookResult,
   parseHookResult,
 } from "../../hooks";
-import { runtimeActorId } from "../../runtime-machines/contracts";
-import { hookInvocationMachine } from "../../runtime-machines/hook-machine";
 import { parseJson as parseSafeJson } from "../../safe-json";
 import type { PlannedWorkflowNode } from "../../workflow-planner";
+import { runtimeActorId } from "../actor-ids";
 import { executeCommand } from "../command-executor";
 import type {
   HookBinding,
@@ -28,7 +26,7 @@ import type {
   RuntimeContext,
   RuntimeFailure,
 } from "../contracts";
-import { emit, runtimeInspection, runtimeSystemId } from "../events";
+import { emit, runtimeSystemId } from "../events";
 import { validateJsonSchemaSource } from "../json-validation";
 
 export async function dispatchHooks(
@@ -40,11 +38,12 @@ export async function dispatchHooks(
 ): Promise<RuntimeFailure | null> {
   for (const binding of hookBindingsForContext(context, event, node, gateId)) {
     if (isCancelled(context)) {
+      emitRuntimeHookSkipped(context, binding, node, "hook cancelled");
       return null;
     }
     const hookFunction = context.config.hooks.functions[binding.function];
     emitHookStart(context, event, binding, node, gateId);
-    const result = await runHookInvocationActor(
+    const result = await runHookInvocation(
       context,
       binding,
       hookFunction,
@@ -226,7 +225,13 @@ function parseAndValidateHookResult(
   }
 }
 
-async function runHookInvocationActor(
+interface HookInvocationResultEvent {
+  failure?: RuntimeFailure;
+  reason?: string;
+  status: "passed" | "failed" | "timedOut" | "skipped";
+}
+
+async function runHookInvocation(
   context: RuntimeContext,
   binding: HookBinding,
   hookFunction: HookFunctionSpec,
@@ -236,58 +241,188 @@ async function runHookInvocationActor(
   gateId?: string
 ): Promise<RuntimeHookInvocationResult> {
   let invocationResult: RuntimeHookInvocationResult = {};
-  const actor = createActor(hookInvocationMachine, {
+  emitRuntimeHookStarted(context, binding, node);
+  const resultEvent = await resolveHookInvocationResult(
+    () =>
+      executeHookFunction(
+        hookFunction,
+        binding,
+        event,
+        context,
+        failure,
+        node,
+        gateId
+      ),
+    binding,
+    node,
+    (result) => {
+      invocationResult = result;
+    }
+  );
+  emitRuntimeHookResult(context, binding, resultEvent, node);
+  return resultEvent.failure
+    ? { ...invocationResult, failure: resultEvent.failure }
+    : invocationResult;
+}
+
+async function resolveHookInvocationResult(
+  execute: () =>
+    | Promise<RuntimeHookInvocationResult>
+    | RuntimeHookInvocationResult,
+  binding: HookBinding,
+  node: PlannedWorkflowNode | undefined,
+  setInvocationResult: (result: RuntimeHookInvocationResult) => void
+): Promise<HookInvocationResultEvent> {
+  try {
+    const invocationResult = await execute();
+    setInvocationResult(invocationResult);
+    return invocationResult.failure
+      ? {
+          failure: invocationResult.failure,
+          reason: invocationResult.failure.reason,
+          status: "failed",
+        }
+      : { status: "passed" };
+  } catch (err) {
+    return {
+      failure: {
+        evidence: [err instanceof Error ? err.message : String(err)],
+        gate: binding.id,
+        nodeId: node?.id,
+        reason: `hook '${binding.id}' failed`,
+      },
+      reason: err instanceof Error ? err.message : String(err),
+      status: "failed",
+    };
+  }
+}
+
+function runtimeHookActor(
+  context: RuntimeContext,
+  hookId: string,
+  nodeId?: string
+) {
+  return {
     id: runtimeActorId("hook", {
-      hookId: binding.id,
-      nodeId: node?.id,
+      hookId,
+      nodeId,
       runId: context.runId,
       workflowId: context.workflowId,
     }),
-    input: {
-      actor: {
-        id: runtimeActorId("hook", {
-          hookId: binding.id,
-          nodeId: node?.id,
-          runId: context.runId,
-          workflowId: context.workflowId,
-        }),
-        kind: "hook",
-        systemId: runtimeSystemId(context),
-      },
-      emit: context.observability,
-      execute: async () => {
-        invocationResult = await executeHookFunction(
-          hookFunction,
-          binding,
-          event,
-          context,
-          failure,
-          node,
-          gateId
-        );
-        return invocationResult.failure
-          ? {
-              failure: invocationResult.failure,
-              reason: invocationResult.failure.reason,
-              status: "failed" as const,
-            }
-          : { status: "passed" as const };
-      },
-      hookId: binding.id,
-      nodeId: node?.id,
-      required: binding.failure === "fail",
-    },
-    ...(runtimeInspection(context)
-      ? { inspect: runtimeInspection(context) }
-      : {}),
+    kind: "hook" as const,
+    systemId: runtimeSystemId(context),
+  };
+}
+
+function runtimeTimestamp(): string {
+  return new Date().toISOString();
+}
+
+function emitRuntimeHookStarted(
+  context: RuntimeContext,
+  binding: HookBinding,
+  node?: PlannedWorkflowNode
+): void {
+  context.observability?.({
+    actor: runtimeHookActor(context, binding.id, node?.id),
+    hookId: binding.id,
+    nodeId: node?.id,
+    timestamp: runtimeTimestamp(),
+    type: "runtime.hook.started",
   });
-  actor.start();
-  actor.send({ type: "START" });
-  const snapshot = await waitFor(actor, (state) => state.status === "done");
-  actor.stop();
-  return snapshot.context.result?.failure
-    ? { ...invocationResult, failure: snapshot.context.result.failure }
-    : invocationResult;
+}
+
+function emitRuntimeHookResult(
+  context: RuntimeContext,
+  binding: HookBinding,
+  result: HookInvocationResultEvent,
+  node?: PlannedWorkflowNode
+): void {
+  if (result.status === "skipped") {
+    emitRuntimeHookSkipped(
+      context,
+      binding,
+      node,
+      result.reason ?? "hook skipped"
+    );
+    return;
+  }
+  emitRuntimeHookFinished(context, binding, result, node);
+  switch (result.status) {
+    case "failed":
+      emitRuntimeHookFailed(context, binding, result, node);
+      return;
+    case "timedOut":
+      emitRuntimeHookTimedOut(context, binding, result, node);
+      return;
+    default:
+      return;
+  }
+}
+
+function emitRuntimeHookFinished(
+  context: RuntimeContext,
+  binding: HookBinding,
+  result: HookInvocationResultEvent,
+  node?: PlannedWorkflowNode
+): void {
+  context.observability?.({
+    actor: runtimeHookActor(context, binding.id, node?.id),
+    hookId: binding.id,
+    nodeId: node?.id,
+    passed: result.status === "passed",
+    reason: result.reason ?? result.failure?.reason,
+    timestamp: runtimeTimestamp(),
+    type: "runtime.hook.finished",
+  });
+}
+
+function emitRuntimeHookFailed(
+  context: RuntimeContext,
+  binding: HookBinding,
+  result: HookInvocationResultEvent,
+  node?: PlannedWorkflowNode
+): void {
+  context.observability?.({
+    actor: runtimeHookActor(context, binding.id, node?.id),
+    hookId: binding.id,
+    nodeId: node?.id,
+    reason: result.reason ?? result.failure?.reason ?? "hook failed",
+    timestamp: runtimeTimestamp(),
+    type: "runtime.hook.failed",
+  });
+}
+
+function emitRuntimeHookTimedOut(
+  context: RuntimeContext,
+  binding: HookBinding,
+  result: HookInvocationResultEvent,
+  node?: PlannedWorkflowNode
+): void {
+  context.observability?.({
+    actor: runtimeHookActor(context, binding.id, node?.id),
+    hookId: binding.id,
+    nodeId: node?.id,
+    reason: result.reason ?? "hook timed out",
+    timestamp: runtimeTimestamp(),
+    type: "runtime.hook.timedOut",
+  });
+}
+
+function emitRuntimeHookSkipped(
+  context: RuntimeContext,
+  binding: HookBinding,
+  node: PlannedWorkflowNode | undefined,
+  reason: string
+): void {
+  context.observability?.({
+    actor: runtimeHookActor(context, binding.id, node?.id),
+    hookId: binding.id,
+    nodeId: node?.id,
+    reason,
+    timestamp: runtimeTimestamp(),
+    type: "runtime.hook.skipped",
+  });
 }
 
 function executeHookFunction(

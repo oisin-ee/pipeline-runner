@@ -1,21 +1,14 @@
-import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { compileArgoExecutionGraph } from "../argo-graph";
-import { loadPipelineConfig } from "../config";
-import {
-  prepareRunnerGitWorkspace,
-  promoteFinalRef,
-} from "../run-state/git-refs";
-import {
-  parseRunnerCommandPayload,
-  RunnerCommandPayloadValidationError,
-  resolveRunnerEventSinkAuthToken,
-} from "../runner-command-contract";
-import { createRunnerEventSink } from "../runner-event-sink";
-import {
-  compileScheduleArtifact,
-  parseScheduleArtifact,
-} from "../schedule-planner";
+import { promoteFinalRef } from "../run-state/git-refs";
+import { RunnerCommandPayloadValidationError } from "../runner-command-contract";
+import type {
+  PipelineRuntimeResult,
+  RuntimeFailure,
+} from "../runtime/contracts";
+import { dispatchHooks } from "../runtime/hooks";
+import { finalizeWorkflowLifecycle } from "../runtime/workflow-lifecycle";
+import { createRunnerLifecycleContext } from "./lifecycle-context";
 
 interface OutputStream {
   write(chunk: string | Uint8Array): boolean;
@@ -58,39 +51,21 @@ export async function runRunnerFinalize(
   }
   const options = parsedOptions.data;
   try {
-    const payload = parseRunnerCommandPayload(
-      readFileSync(options.payloadFile, "utf8")
+    const { compiled, context, payload, sink, worktreePath } =
+      await createRunnerLifecycleContext(options);
+    const lifecycle = await finalizeWorkflowLifecycle(
+      {
+        buildResult: (outcome, nodes, failure) =>
+          runnerFinalizeRuntimeResult(context, outcome, nodes, failure),
+        runWorkflowHook: (event, failure) =>
+          dispatchHooks(context, event, failure),
+      },
+      {
+        completed: [],
+        outcome: options.argoStatus === "Succeeded" ? "PASS" : "FAIL",
+      }
     );
-    const authToken = resolveRunnerEventSinkAuthToken({
-      authTokenFile: payload.events.authTokenFile,
-    });
-    const sink = createRunnerEventSink({
-      authHeader: payload.events.authHeader,
-      authToken,
-      fetch: options.fetch,
-      runId: payload.run.id,
-      url: payload.events.url,
-    });
-    const worktreePath = await prepareRunnerGitWorkspace(payload, {
-      cwd: options.cwd,
-    });
-    const config = loadPipelineConfig(worktreePath, {
-      allowMissingLintFileReferences: true,
-    });
-    const compiled = compileScheduleArtifact(
-      config,
-      parseScheduleArtifact(
-        readFileSync(options.scheduleFile, "utf8"),
-        options.scheduleFile
-      ),
-      worktreePath
-    );
-    if (payload.workflow.id !== compiled.workflowId) {
-      throw new Error(
-        `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`
-      );
-    }
-    if (options.argoStatus === "Succeeded") {
+    if (lifecycle.result.outcome === "PASS") {
       const graph = compileArgoExecutionGraph(compiled.plan);
       await promoteFinalRef({
         committer: compiled.config.runner_command.git.committer,
@@ -98,12 +73,10 @@ export async function runRunnerFinalize(
         sourceNodeIds: graph.terminalNodeIds,
         worktreePath,
       });
-      sink.recordFinalResult("PASS", payload.workflow.id);
-    } else {
-      sink.recordFinalResult("FAIL", payload.workflow.id);
     }
+    sink.recordFinalResult(lifecycle.result.outcome, payload.workflow.id);
     await flushAndReport(sink, stderr);
-    return options.argoStatus === "Succeeded" ? EXIT_PASS : EXIT_FAIL;
+    return lifecycle.result.outcome === "PASS" ? EXIT_PASS : EXIT_FAIL;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     stderr.write(`${message}\n`);
@@ -112,6 +85,25 @@ export async function runRunnerFinalize(
       ? EXIT_VALIDATION
       : EXIT_STARTUP;
   }
+}
+
+function runnerFinalizeRuntimeResult(
+  context: Awaited<ReturnType<typeof createRunnerLifecycleContext>>["context"],
+  outcome: PipelineRuntimeResult["outcome"],
+  nodes: PipelineRuntimeResult["nodes"],
+  failure?: RuntimeFailure
+): PipelineRuntimeResult {
+  return {
+    agentInvocations: [],
+    failureDetails: failure ? [failure] : [],
+    gates: context.gates,
+    hookFailures: context.hookFailures,
+    nodeStates: context.nodeStateStore.toNodeStateRecord(),
+    nodes,
+    outcome,
+    plan: context.plan,
+    structuredOutputs: context.nodeStateStore.structuredOutputList(),
+  };
 }
 
 function isOutputStream(value: unknown): value is OutputStream {
@@ -124,7 +116,7 @@ function isOutputStream(value: unknown): value is OutputStream {
 }
 
 async function flushAndReport(
-  sink: ReturnType<typeof createRunnerEventSink>,
+  sink: Awaited<ReturnType<typeof createRunnerLifecycleContext>>["sink"],
   stderr: OutputStream
 ): Promise<void> {
   try {

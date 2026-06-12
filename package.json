@@ -16,7 +16,6 @@
     "pino": "^10.3.1",
     "secure-json-parse": "^4.1.0",
     "simple-git": "^3.36.0",
-    "xstate": "^5.31.1",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },

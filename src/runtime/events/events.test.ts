@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../workflow-planner";
 import type { PipelineRuntimeEvent, RuntimeContext } from "../contracts";
+import { NodeStateStore } from "../node-state-store";
 import {
   createPublicRuntimeObservabilityEmitter,
   emitNodeOutputRecorded,
@@ -67,14 +68,9 @@ workflows:
       timeoutMs: 1000,
     },
     hookResults: new Map(),
-    inheritedOutputNodeIds: new Set(),
-    lastOutputByNode: new Map(),
-    nodeActors: new Map(),
-    nodeSnapshots: new Map(),
-    nodeStates: new Map(),
+    nodeStateStore: new NodeStateStore(),
     plan,
     reporter,
-    structuredOutputs: [],
     task: "test",
     workflowId: "default",
     worktreePath: process.cwd(),

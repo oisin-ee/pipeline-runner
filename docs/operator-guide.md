@@ -93,7 +93,22 @@ Checks local prerequisites and config health.
 
 ```shell
 moka doctor
+moka doctor --cluster
+moka doctor --cluster momokaya-pipeline --kube-context momokaya
 ```
+
+`moka doctor --cluster` adds value-free runner-job preflight checks for the
+selected namespace, defaulting to `momokaya-pipeline`. It checks that expected
+Secret objects exist by name, ExternalSecrets and `ClusterSecretStore/openbao`
+report Ready status, the runner ServiceAccount has workflow RBAC, the Kueue
+LocalQueue is present, and Argo Workflow prerequisites are reachable. It does
+not read, print, decode, diff, or validate Secret values.
+
+OpenBao and External Secrets Operator remain infrastructure-owned
+prerequisites. If the doctor reports `ClusterSecretStore/openbao` or an
+ExternalSecret as not Ready, fix that in the infra repo and its OpenBao ESO
+runbook (`~/dev/infra/docs/runbooks/openbao-external-secrets.md`); do not repair
+OpenBao, publish Secret values, or mutate ESO resources from this package.
 
 `moka init`
 

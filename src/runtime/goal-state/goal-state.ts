@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { uniqueStrings } from "../../strings";
 import type { PipelineRuntimeEvent, PipelineTaskContext } from "../contracts";
 import { goalStateNextRequirement } from "./goal-requirement";
 
@@ -205,9 +206,12 @@ export function recordGoalStateChangedFiles(
   files: string[]
 ): PipelineGoalState {
   const next = cloneGoalState(state);
-  const uniqueFiles = uniqueStrings(files);
+  const uniqueFiles = uniqueChangedFiles(files);
   upsertNode(next, nodeId, { changedFiles: uniqueFiles });
-  next.changedFiles = uniqueStrings([...next.changedFiles, ...uniqueFiles]);
+  next.changedFiles = uniqueChangedFiles([
+    ...next.changedFiles,
+    ...uniqueFiles,
+  ]);
   return parseGoalState(next);
 }
 
@@ -416,7 +420,7 @@ function upsertNode(
     ...current,
     ...patch,
     attempts: Math.max(current.attempts, patch.attempts ?? 0),
-    changedFiles: uniqueStrings([
+    changedFiles: uniqueChangedFiles([
       ...current.changedFiles,
       ...(patch.changedFiles ?? []),
     ]),
@@ -497,8 +501,8 @@ function currentFailedNodeId(state: PipelineGoalState): string | undefined {
     .at(-1)?.nodeId;
 }
 
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))].sort();
+function uniqueChangedFiles(values: string[]): string[] {
+  return uniqueStrings(values, { filterEmpty: true, sort: true });
 }
 
 function cloneGoalState(state: PipelineGoalState): PipelineGoalState {

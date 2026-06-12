@@ -1798,6 +1798,43 @@ workflows:
     });
   });
 
+  it("runs a scheduled task addressed to a child of a planned parallel node", async () => {
+    const project = tempProject();
+    const seen: string[] = [];
+    const config = baseConfig(`
+  scheduled-child:
+    nodes:
+      - id: fanout
+        kind: parallel
+        nodes:
+          - id: child-a
+            kind: agent
+            profile: a
+          - id: child-b
+            kind: agent
+            profile: b
+`);
+
+    const result = await runScheduledWorkflowTask({
+      config,
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        return { exitCode: 0, stdout: `${plan.nodeId} output` };
+      },
+      nodeId: "child-b",
+      task: "run scheduled child",
+      workflowId: "scheduled-child",
+      worktreePath: project,
+    });
+
+    expect(result).toMatchObject({
+      nodeId: "child-b",
+      output: "child-b output",
+      status: "passed",
+    });
+    expect(seen).toEqual(["child-b"]);
+  });
+
   it("runs all parallel siblings without failFast and reports aggregate failure", async () => {
     const project = tempProject();
     const config = baseConfig(`

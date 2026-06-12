@@ -541,6 +541,237 @@ describe("runner-command payload contract", () => {
     expect(contract).not.toHaveProperty("RUNNER_PAYLOAD_ENV");
   });
 
+  // AC #4: Golden ordered RunnerEventRecord sequence covering a small end-to-end run
+  it("produces a golden ordered RunnerEventRecord sequence for a small end-to-end run", async () => {
+    const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
+    const observabilityEvent = {
+      actor: {
+        id: "pipeline.node.golden-run.default.impl",
+        kind: "node",
+        systemId: "pipeline.golden-run.default",
+      },
+      level: "info",
+      name: "runtime.node.finished",
+      nodeId: "impl",
+      summary: "node impl finished with passed status",
+      type: "runtime.observability",
+      workflowId: "default",
+    } as const;
+
+    const runtimeEvents = [
+      {
+        edges: [{ source: "test", target: "impl" }],
+        nodes: [
+          {
+            id: "test",
+            kind: "agent",
+            needs: [],
+            profile: "tester",
+            runnerId: "opencode",
+          },
+          {
+            id: "impl",
+            kind: "agent",
+            needs: ["test"],
+            profile: "coder",
+            runnerId: "opencode",
+          },
+        ],
+        type: "workflow.planned",
+        workflowId: "default",
+      },
+      {
+        nodeIds: ["test", "impl"],
+        type: "workflow.start",
+        workflowId: "default",
+      },
+      {
+        attempt: 1,
+        nodeId: "test",
+        profile: "tester",
+        runnerId: "opencode",
+        type: "node.start",
+      },
+      {
+        attempt: 1,
+        exitCode: 0,
+        nodeId: "test",
+        profile: "tester",
+        runnerId: "opencode",
+        status: "passed",
+        type: "node.finish",
+      },
+      {
+        attempt: 1,
+        nodeId: "impl",
+        profile: "coder",
+        runnerId: "opencode",
+        type: "agent.start",
+      },
+      {
+        attempt: 1,
+        exitCode: 0,
+        nodeId: "impl",
+        output: "implemented",
+        profile: "coder",
+        runnerId: "opencode",
+        status: "passed",
+        type: "agent.finish",
+      },
+      {
+        attempt: 1,
+        format: "text",
+        nodeId: "impl",
+        output: "done",
+        type: "node.output.recorded",
+      },
+      observabilityEvent,
+      {
+        outcome: "PASS",
+        type: "workflow.finish",
+        workflowId: "default",
+      },
+    ] as const;
+
+    const sequenceBases = [1, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+    const sequence = runtimeEvents.flatMap((event, index) =>
+      mapRuntimeEventToRunnerEventRecords(event, {
+        runId: "golden-run",
+        sequence: sequenceBases[index],
+        timestamp: TIMESTAMP,
+      })
+    );
+
+    expect(observabilityEvent.actor).toEqual({
+      id: "pipeline.node.golden-run.default.impl",
+      kind: "node",
+      systemId: "pipeline.golden-run.default",
+    });
+    expect(
+      runtimeEvents.filter((event) => event.type === "runtime.observability")
+    ).toEqual([observabilityEvent]);
+
+    expect(sequence).toEqual([
+      {
+        at: TIMESTAMP,
+        sequence: 1,
+        type: "workflow.planned",
+        workflowPlan: {
+          edges: [{ source: "test", target: "impl" }],
+          nodes: [
+            {
+              id: "test",
+              kind: "agent",
+              needs: [],
+              profile: "tester",
+              runnerId: "opencode",
+            },
+            {
+              id: "impl",
+              kind: "agent",
+              needs: ["test"],
+              profile: "coder",
+              runnerId: "opencode",
+            },
+          ],
+          workflowId: "default",
+        },
+      },
+      {
+        at: TIMESTAMP,
+        edge: { id: "test:impl", source: "test", target: "impl" },
+        sequence: 2,
+        type: "workflow.edge",
+      },
+      {
+        at: TIMESTAMP,
+        sequence: 3,
+        type: "workflow.start",
+        workflowPlan: { nodeIds: ["test", "impl"], workflowId: "default" },
+      },
+      {
+        at: TIMESTAMP,
+        node: {
+          attempt: 1,
+          nodeId: "test",
+          profile: "tester",
+          runnerId: "opencode",
+          status: "running",
+        },
+        sequence: 4,
+        type: "node.start",
+      },
+      {
+        at: TIMESTAMP,
+        node: {
+          attempt: 1,
+          exitCode: 0,
+          nodeId: "test",
+          profile: "tester",
+          runnerId: "opencode",
+          status: "passed",
+        },
+        sequence: 5,
+        type: "node.finish",
+      },
+      {
+        at: TIMESTAMP,
+        node: {
+          attempt: 1,
+          nodeId: "impl",
+          profile: "coder",
+          runnerId: "opencode",
+          status: "agent-running",
+        },
+        sequence: 6,
+        type: "agent.start",
+      },
+      {
+        at: TIMESTAMP,
+        node: {
+          attempt: 1,
+          exitCode: 0,
+          nodeId: "impl",
+          profile: "coder",
+          runnerId: "opencode",
+          status: "agent-finished",
+        },
+        sequence: 7,
+        type: "agent.finish",
+      },
+      {
+        at: TIMESTAMP,
+        log: {
+          format: "text",
+          level: "info",
+          message: "done",
+          nodeId: "impl",
+          output: "done",
+        },
+        sequence: 8,
+        type: "node.output.recorded",
+      },
+      {
+        at: TIMESTAMP,
+        log: {
+          level: "info",
+          message:
+            "Runtime observed: runtime.node.finished - node impl finished with passed status",
+          nodeId: "impl",
+          workflowId: "default",
+        },
+        sequence: 9,
+        type: "runtime.observability",
+      },
+      {
+        at: TIMESTAMP,
+        finalResult: { outcome: "PASS", workflowId: "default" },
+        sequence: 10,
+        type: "workflow.finish",
+      },
+    ]);
+  });
+
   it("maps hook result events into console hook result records", async () => {
     const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
 

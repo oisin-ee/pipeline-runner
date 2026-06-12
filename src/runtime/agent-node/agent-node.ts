@@ -54,7 +54,22 @@ export async function executeAgentNode(
   }
   context.agentInvocations.push(plan);
   emitAgentStart(context, plan, attempt);
-  const result = await context.executor(plan, { signal: context.signal });
+  const result = await context.executor(plan, {
+    onOutput: (event) => {
+      if (event.stream !== "stdout") {
+        return;
+      }
+      emit(context, {
+        attempt,
+        format: "text",
+        nodeId: node.id,
+        output: event.chunk,
+        ...(node.profile ? { profile: node.profile } : {}),
+        type: "node.output.recorded",
+      });
+    },
+    signal: context.signal,
+  });
   emitAgentFinish(context, plan, attempt, result);
   const normalized = normalizeAgentOutput(plan, result.stdout);
   const finalized = await finalizeAgentOutput({
@@ -401,7 +416,7 @@ function renderAgentPrompt(
     ...inheritedOutputSections(node, context),
     "Dependency outputs:",
     ...node.needs.map(
-      (need) => `## ${need}\n${context.lastOutputByNode.get(need) ?? ""}`
+      (need) => `## ${need}\n${context.nodeStateStore.outputText(need)}`
     ),
   ]
     .filter(Boolean)
@@ -471,11 +486,10 @@ function effectiveTaskContext(
 
 export function inheritedOutputSections(
   node: PlannedWorkflowNode,
-  context: Pick<RuntimeContext, "inheritedOutputNodeIds" | "lastOutputByNode">
+  context: Pick<RuntimeContext, "nodeStateStore">
 ): string[] {
-  const ownNeeds = new Set(node.needs);
-  const inherited = [...context.inheritedOutputNodeIds].filter(
-    (id) => !ownNeeds.has(id) && context.lastOutputByNode.has(id)
+  const inherited = context.nodeStateStore.inheritedOutputIdsExcluding(
+    node.needs
   );
   if (inherited.length === 0) {
     return [];
@@ -483,7 +497,7 @@ export function inheritedOutputSections(
   return [
     "Inherited dependency outputs:",
     ...inherited.map(
-      (id) => `## ${id}\n${context.lastOutputByNode.get(id) ?? ""}`
+      (id) => `## ${id}\n${context.nodeStateStore.outputText(id)}`
     ),
     "",
   ];

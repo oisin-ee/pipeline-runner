@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../workflow-planner";
 import type { RuntimeContext } from "../contracts";
+import { NodeStateStore } from "../node-state-store";
 import { executeDrainMergeBuiltin } from "./drain-merge";
 
 function contextForDrainMerge(): RuntimeContext {
@@ -61,14 +62,9 @@ workflows:
       timeoutMs: 1000,
     },
     hookResults: new Map(),
-    inheritedOutputNodeIds: new Set(),
-    lastOutputByNode: new Map(),
-    nodeActors: new Map(),
-    nodeSnapshots: new Map(),
-    nodeStates: new Map(),
+    nodeStateStore: new NodeStateStore(),
     plan: compileWorkflowPlan(config),
     runId: "run-merge",
-    structuredOutputs: [],
     task: "task",
     workflowId: "default",
     worktreePath: process.cwd(),
@@ -93,7 +89,7 @@ describe("drain-merge builtin", () => {
   it("skips failed children and passed children without worktrees", async () => {
     const context = contextForDrainMerge();
     const node = context.plan.graph.node("merge");
-    context.lastOutputByNode.set(
+    context.nodeStateStore.recordOutput(
       "fanout",
       JSON.stringify({
         children: {

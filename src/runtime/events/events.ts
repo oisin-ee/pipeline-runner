@@ -1,15 +1,11 @@
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
+import { isRecord } from "../../safe-json";
 import {
   type RuntimeActorDescriptor,
   type RuntimeObservabilityEmitter,
   type RuntimeObservabilityEvent,
   runtimeActorId,
-} from "../../runtime-machines/contracts";
-import {
-  createRuntimeInspectionBridge,
-  type XStateInspectionEvent,
-} from "../../runtime-observability-inspection";
-import { isRecord } from "../../safe-json";
+} from "../actor-ids";
 import type {
   GateSpec,
   PipelineRuntimeEvent,
@@ -133,16 +129,6 @@ function assertNeverRuntimeObservabilityEvent(event: never): never {
   throw new Error(`Unhandled runtime observability event: ${String(event)}`);
 }
 
-export function runtimeInspection(
-  context: RuntimeContext
-): ((event: XStateInspectionEvent) => void) | undefined {
-  return context.observability
-    ? createRuntimeInspectionBridge({
-        emit: context.observability,
-      })
-    : undefined;
-}
-
 export function runtimeSystemId(context: RuntimeContext): string {
   return runtimeActorId("pipeline", {
     runId: context.runId,
@@ -219,6 +205,14 @@ export function emitWorkflowPlanned(context: RuntimeContext): void {
       return planned;
     }),
     type: "workflow.planned",
+    workflowId: context.workflowId,
+  });
+}
+
+export function emitWorkflowStarted(context: RuntimeContext): void {
+  emit(context, {
+    nodeIds: context.plan.topologicalOrder.map((node) => node.id),
+    type: "workflow.start",
     workflowId: context.workflowId,
   });
 }
@@ -385,7 +379,7 @@ function recordStructuredOutput(
   const nodeId = context.parentParallelNodeId
     ? `${context.parentParallelNodeId}.${output.nodeId}`
     : output.nodeId;
-  context.structuredOutputs.push({
+  context.nodeStateStore.recordStructuredOutput({
     attempt: output.attempt,
     format: output.format,
     nodeId,

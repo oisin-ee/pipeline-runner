@@ -17,11 +17,12 @@ const readPipelineFile = (path: string): string => {
 
 describe("scheduler and install command contracts", () => {
   it("keeps RED test-writing directly upstream of GREEN in the scheduler artifact", () => {
-    const schedulePlanner = readPipelineFile("schedule-planner.js");
+    const schedulePlanner = readPipelineFile("schedule/planner.js");
+    const schedulePrompts = readPipelineFile("schedule/prompts.js");
 
     expect(schedulePlanner).toContain('id: "green-implementation"');
     expect(schedulePlanner).toContain('needs: ["red-tests"]');
-    expect(schedulePlanner).toContain(
+    expect(schedulePrompts).toContain(
       "Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes."
     );
     expect(schedulePlanner).not.toContain('id: "mechanical-red-tests"');

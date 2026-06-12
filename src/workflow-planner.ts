@@ -1,5 +1,6 @@
 import { Graph } from "@dagrejs/graphlib";
 import type { PipelineConfig, WorkflowNodeKind } from "./config";
+import { uniqueStrings } from "./strings";
 
 export type WorkflowPlannerErrorCode =
   | "WORKFLOW_CYCLE"
@@ -372,8 +373,12 @@ function dependentsByNeedMap(
 function topologicalOrderForPlan(
   graph: Graph<undefined, PlannedWorkflowNode>
 ): string[] {
-  // Keep graphlib's DFS/sink ordering while avoiding its recursive topsort
-  // stack overflow on long generated workflow chains.
+  /*
+   * Keep @dagrejs/graphlib as the graph model, but do the topological sort
+   * with this iterative traversal. graphlib's recursive topsort can hit call
+   * stack overflow on deep generated workflow chains, while this preserves the
+   * graphlib sink/predecessor ordering the planner tests cover.
+   */
   const visited = new Set<string>();
   const inStack = new Set<string>();
   const results: string[] = [];
@@ -568,10 +573,6 @@ function plannedTaskContext(
     planned.title = taskContext.title;
   }
   return planned;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values)];
 }
 
 function issuesToError(issues: WorkflowPlannerIssue[]): WorkflowPlannerError {
