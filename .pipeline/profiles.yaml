@@ -7,6 +7,12 @@ rules:
     path: .pipeline/rules/verification.md
 
 skills:
+  execute:
+    path: .agents/skills/execute/SKILL.md
+  inspect:
+    path: .agents/skills/inspect/SKILL.md
+  quick:
+    path: .agents/skills/quick/SKILL.md
   schedule-graph-shaping:
     path: .agents/skills/schedule-graph-shaping/SKILL.md
   critique:
