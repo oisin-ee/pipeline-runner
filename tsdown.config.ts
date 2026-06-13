@@ -7,6 +7,7 @@ export default defineConfig({
     "argo-workflow": "src/argo-workflow.ts",
     "argo-submit": "src/argo-submit.ts",
     config: "src/config.ts",
+    "runner-event-schema": "src/runner-event-schema.ts",
     hooks: "src/hooks.ts",
     index: "src/index.ts",
     "moka-global-config": "src/moka-global-config.ts",

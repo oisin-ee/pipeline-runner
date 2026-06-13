@@ -7,10 +7,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import {
+  createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
-  createServer,
 } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -215,7 +215,11 @@ function startOpencodeStub(): Promise<OpencodeStub> {
       const method = req.method ?? "GET";
 
       // POST /session — create a new session
-      if (method === "POST" && url.startsWith("/session") && !url.includes("/message")) {
+      if (
+        method === "POST" &&
+        url.startsWith("/session") &&
+        !url.includes("/message")
+      ) {
         respond(res, 200, { id: "stub-session-1" });
         return;
       }
@@ -1752,7 +1756,9 @@ workflows:
           // The moka-code-writer profile does not declare a host_model, so no
           // model field is forwarded in the prompt body.
           expect(stub.promptBodies[0]).not.toHaveProperty("model");
-          expect(output()).toContain("Workflow: schedule-approved-opencode-root");
+          expect(output()).toContain(
+            "Workflow: schedule-approved-opencode-root"
+          );
         }
       );
     } finally {
@@ -1816,28 +1822,25 @@ workflows:
     const originalServerUrl = process.env.OPENCODE_SERVER_URL;
     process.env.OPENCODE_SERVER_URL = stub.url;
     try {
-      await withCliTempDir(
-        "pipeline-cli-entrypoint-",
-        async ({ runCli }) => {
-          await runCli([
-            "node",
-            "/repo/node_modules/.bin/oisin-pipeline",
-            "inspect",
-            "ship",
-            "it",
-          ]);
+      await withCliTempDir("pipeline-cli-entrypoint-", async ({ runCli }) => {
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "inspect",
+          "ship",
+          "it",
+        ]);
 
-          // With the PIPE-73 SDK transport the executor calls session.prompt
-          // instead of execa("opencode"). Verify the stub received a prompt
-          // carrying the model declared on moka-inspector (openai/gpt-5.5-low).
-          expect(stub.promptBodies.length).toBeGreaterThan(0);
-          expect(stub.promptBodies[0]).toMatchObject({
-            model: { modelID: "gpt-5.5-low", providerID: "openai" },
-          });
-          // quick-node-bin must not be called regardless of transport.
-          expect(execaCommands()).not.toContain("quick-node-bin");
-        }
-      );
+        // With the PIPE-73 SDK transport the executor calls session.prompt
+        // instead of execa("opencode"). Verify the stub received a prompt
+        // carrying the model declared on moka-inspector (openai/gpt-5.5-low).
+        expect(stub.promptBodies.length).toBeGreaterThan(0);
+        expect(stub.promptBodies[0]).toMatchObject({
+          model: { modelID: "gpt-5.5-low", providerID: "openai" },
+        });
+        // quick-node-bin must not be called regardless of transport.
+        expect(execaCommands()).not.toContain("quick-node-bin");
+      });
     } finally {
       restoreEnv("OPENCODE_SERVER_URL", originalServerUrl);
       await stub.stop();

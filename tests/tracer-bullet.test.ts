@@ -418,7 +418,10 @@ function makeTracerExecutor(
   return (plan: RunnerLaunchPlan): AgentResult => {
     const result = spawnSync(plan.command, plan.args, {
       cwd: plan.cwd,
-      env: { ...process.env, PATH: `${binPath}${delimiter}${process.env.PATH ?? ""}` },
+      env: {
+        ...process.env,
+        PATH: `${binPath}${delimiter}${process.env.PATH ?? ""}`,
+      },
     });
     const stdout = result.stdout ? result.stdout.toString() : "";
     const stderr = result.stderr ? result.stderr.toString() : "";

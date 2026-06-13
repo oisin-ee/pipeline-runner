@@ -63,6 +63,10 @@
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
     },
+    "./events": {
+      "types": "./dist/runner-event-schema.d.ts",
+      "import": "./dist/runner-event-schema.js"
+    },
     "./hooks": {
       "types": "./dist/hooks.d.ts",
       "import": "./dist/hooks.js"
