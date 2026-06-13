@@ -1,5 +1,5 @@
+import type { PlannedWorkflowNode } from "./planning/compile";
 import { findNode } from "./planning/graph";
-import type { PlannedWorkflowNode } from "./workflow-planner";
 
 export function findPlannedNode(
   nodes: PlannedWorkflowNode[],

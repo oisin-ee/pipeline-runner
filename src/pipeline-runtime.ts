@@ -4,6 +4,7 @@ import {
   type PipelineConfigError,
 } from "./config";
 import { findPlannedNode } from "./planned-node";
+import type { PlannedWorkflowNode } from "./planning/compile";
 import type { RetryReason } from "./runtime/actor-ids";
 import { executeAgentNode } from "./runtime/agent-node";
 import { executeBuiltin } from "./runtime/builtins";
@@ -50,8 +51,16 @@ import {
 import { executeParallelNode } from "./runtime/parallel-node";
 import { decideNodeRetry, nodeRetryPolicy } from "./runtime/retry";
 import { LocalScheduler, type PipelineScheduler } from "./runtime/scheduler";
-import type { PlannedWorkflowNode } from "./workflow-planner";
 
+/**
+ * Top layer of the runtime-options stack (PIPE-74 B3). Extends
+ * {@link PipelineRuntimeOptions} for the schedule-driven path that runs a
+ * SINGLE workflow node (`nodeId`) in isolation, supplying that node's upstream
+ * `dependencyOutputs`. Full stack:
+ *   RunnerExecutionOptions (src/runner.ts)
+ *     < PipelineRuntimeOptions (src/runtime/contracts/contracts.ts)
+ *     < ScheduledWorkflowTaskRuntimeOptions (this type)
+ */
 export interface ScheduledWorkflowTaskRuntimeOptions
   extends PipelineRuntimeOptions {
   dependencyOutputs?: Map<string, string> | Record<string, string>;

@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { loadPipelineConfig, type PipelineConfig } from "../../config";
-import { runLaunchPlan } from "../../runner";
 import {
   compileWorkflowPlan,
   type PlannedWorkflowNode,
   type WorkflowExecutionPlan,
-} from "../../workflow-planner";
+} from "../../planning/compile";
+import { runLaunchPlan } from "../../runner";
 import type { PipelineRuntimeOptions, RuntimeContext } from "../contracts";
 import { createPublicRuntimeObservabilityEmitter } from "../events";
 import { initialNodeStateStore } from "../node-state-store";

@@ -1,14 +1,14 @@
 import type { HookEvent, PipelineConfig } from "../../config";
 import type { HookResult } from "../../hooks";
 import type {
+  PlannedWorkflowNode,
+  WorkflowExecutionPlan,
+} from "../../planning/compile";
+import type {
   AgentResult,
   RunnerExecutionOptions,
   RunnerLaunchPlan,
 } from "../../runner";
-import type {
-  PlannedWorkflowNode,
-  WorkflowExecutionPlan,
-} from "../../workflow-planner";
 import type {
   RetryReason,
   RuntimeActorDescriptor,
@@ -80,6 +80,13 @@ export interface RuntimeNodeResult {
   status: "failed" | "passed";
 }
 
+/**
+ * Agent-output boundary, layer 4 of 4 (PIPE-74 B3). The terminal, structured
+ * form of agent output: the layer-3 RuntimeNormalizedOutput text
+ * (src/runtime/opencode-adapter.ts) parsed into a typed `output` value and
+ * validated against the node's declared schema. This is what downstream nodes
+ * and gates consume.
+ */
 export interface RuntimeStructuredOutput {
   attempt: number;
   format: "json" | "json_schema" | "jsonl";
@@ -291,6 +298,14 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
     }
 );
 
+/**
+ * Middle layer of the runtime-options stack (PIPE-74 B3): everything needed to
+ * run one pipeline workflow from config — the config/entrypoint to run, the
+ * task, reporting, and the executor (whose per-call controls come from the
+ * layer below, {@link RunnerExecutionOptions} in src/runner.ts). Extended by
+ * ScheduledWorkflowTaskRuntimeOptions (src/pipeline-runtime.ts) for the
+ * single-node, schedule-driven execution path.
+ */
 export interface PipelineRuntimeOptions {
   config?: PipelineConfig;
   entrypoint?: string;

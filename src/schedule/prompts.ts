@@ -4,7 +4,7 @@ import type {
   ScheduleArtifact,
   ScheduleArtifactError,
   SchedulePlanningContext,
-} from "./planner";
+} from "../planning/generate";
 
 const SCHEDULE_BUILTINS = [
   "drain-merge",

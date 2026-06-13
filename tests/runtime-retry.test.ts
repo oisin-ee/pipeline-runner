@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { PlannedWorkflowNode } from "../src/planning/compile";
 import type { RetryReason } from "../src/runtime/actor-ids";
 import {
   decideNodeRetry,
   nodeRetryPolicy,
   retryDelayMs,
 } from "../src/runtime/retry";
-import type { PlannedWorkflowNode } from "../src/workflow-planner";
 
 function nodeWithRetries(
   retries?: PlannedWorkflowNode["retries"]

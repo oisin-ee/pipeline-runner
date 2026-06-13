@@ -4,6 +4,7 @@ import { gatewayServerForProfile } from "../../mcp/gateway";
 import { selectNodeModel } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
 import { resolveFileReference } from "../../path-refs";
+import type { PlannedWorkflowNode } from "../../planning/compile";
 import {
   type AgentResult,
   createRunnerLaunchPlan,
@@ -13,7 +14,6 @@ import {
   normalizeRunnerOutput,
   runnerTextCandidates,
 } from "../../runner-output";
-import type { PlannedWorkflowNode } from "../../workflow-planner";
 import type {
   JsonSchemaValidationResult,
   NodeAttemptResult,

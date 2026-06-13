@@ -27,6 +27,14 @@ export interface RuntimeOutputCandidate {
   output: string;
 }
 
+/**
+ * Agent-output boundary, layer 3 of 4 (PIPE-74 B3). The result of an adapter
+ * normalizing a runner's raw {@link AgentResult} stdout into the agent's text
+ * `output` plus the `evidence` lines the harness surfaced. It is still
+ * unstructured text — layer 4 (RuntimeStructuredOutput in
+ * src/runtime/contracts/contracts.ts) is where this is parsed and
+ * schema-validated.
+ */
 export interface RuntimeNormalizedOutput {
   evidence: string[];
   output: string;

@@ -14,7 +14,7 @@ import {
 } from "../src/argo-workflow";
 import type { PipelineConfig } from "../src/config";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
-import { compileWorkflowPlan } from "../src/workflow-planner";
+import { compileWorkflowPlan } from "../src/planning/compile";
 
 const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-workflow-"));
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {

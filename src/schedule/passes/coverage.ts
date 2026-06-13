@@ -1,7 +1,7 @@
 import type { PipelineConfig } from "../../config";
+import type { ScheduleArtifact } from "../../planning/generate";
 import { dependentsByNeed, hasReachableDependent } from "../../planning/graph";
 import { uniqueGeneratedId } from "../../strings";
-import type { ScheduleArtifact } from "../planner";
 import { isCoverageNode, isImplementationNode } from "../scheduling-roles";
 
 type Workflow = PipelineConfig["workflows"][string];

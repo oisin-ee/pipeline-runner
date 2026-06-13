@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PlannedWorkflowNode } from "../workflow-planner";
+import type { PlannedWorkflowNode } from "../planning/compile";
 import type {
   ChangedFilesSnapshot,
   NodeExecutionState,

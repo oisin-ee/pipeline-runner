@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { selectNodeModel } from "../src/model-resolver";
-import type { PlannedWorkflowNode } from "../src/workflow-planner";
+import type { PlannedWorkflowNode } from "../src/planning/compile";
 
 const originalPipelineDisabledModels = process.env.PIPELINE_DISABLED_MODELS;
 

@@ -8,11 +8,6 @@ import {
   workflowSchema,
 } from "../config";
 import {
-  dependentsByNeed,
-  flattenNodes,
-  hasReachableDependent,
-} from "../planning/graph";
-import {
   type AgentResult,
   createRunnerLaunchPlan,
   type RunnerExecutionOptions,
@@ -20,19 +15,20 @@ import {
   runLaunchPlan,
 } from "../runner";
 import { normalizeRunnerOutput } from "../runner-output";
+import { loadBacklogPlanningContext } from "../schedule/backlog-context";
+import { baselineScheduleArtifact } from "../schedule/baseline";
+import { addGeneratedImplementationCoverage } from "../schedule/passes/coverage";
+import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
+import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
+import { applyNodeCatalogModelFallbacks } from "../schedule/passes/models";
+import { namespaceScheduleWorkflows } from "../schedule/passes/references";
+import { plannerPrompt, plannerRepairPrompt } from "../schedule/prompts";
 import {
-  compileWorkflowPlan,
-  type WorkflowExecutionPlan,
-} from "../workflow-planner";
-import { loadBacklogPlanningContext } from "./backlog-context";
-import { baselineScheduleArtifact } from "./baseline";
-import { addGeneratedImplementationCoverage } from "./passes/coverage";
-import { canonicalizeGeneratedScheduleIds } from "./passes/ids";
-import { SCHEDULE_PASS_ORDER } from "./passes/index";
-import { applyNodeCatalogModelFallbacks } from "./passes/models";
-import { namespaceScheduleWorkflows } from "./passes/references";
-import { plannerPrompt, plannerRepairPrompt } from "./prompts";
-import { isCoverageNode, isImplementationNode } from "./scheduling-roles";
+  isCoverageNode,
+  isImplementationNode,
+} from "../schedule/scheduling-roles";
+import { compileWorkflowPlan, type WorkflowExecutionPlan } from "./compile";
+import { dependentsByNeed, flattenNodes, hasReachableDependent } from "./graph";
 
 const SCHEDULE_KIND = "pipeline-schedule";
 const ID_RE = /^[a-z][a-z0-9-]*$/;

@@ -1,4 +1,4 @@
-import type { PlannedWorkflowNode } from "../workflow-planner";
+import type { PlannedWorkflowNode } from "../planning/compile";
 import type { NodeRetryPolicyContract, RetryReason } from "./actor-ids";
 
 export type NodeRetryPolicy = NodeRetryPolicyContract;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { AgentResult } from "../../runner";
-import type { PlannedWorkflowNode } from "../../workflow-planner";
 import type { RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import {

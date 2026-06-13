@@ -1,7 +1,7 @@
 import type { PipelineConfig } from "../../config";
+import type { ScheduleArtifact } from "../../planning/generate";
 import { flattenNodes } from "../../planning/graph";
 import { uniqueGeneratedId } from "../../strings";
-import type { ScheduleArtifact } from "../planner";
 
 type Workflow = PipelineConfig["workflows"][string];
 type WorkflowNode = Workflow["nodes"][number];

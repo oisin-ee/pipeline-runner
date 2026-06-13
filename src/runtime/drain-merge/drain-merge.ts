@@ -1,5 +1,5 @@
 import simpleGit from "simple-git";
-import type { PlannedWorkflowNode } from "../../workflow-planner";
+import type { PlannedWorkflowNode } from "../../planning/compile";
 import { generateRuntimeRunId } from "../context";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { parseJsonObject } from "../json-validation";

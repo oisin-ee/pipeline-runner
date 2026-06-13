@@ -17,8 +17,8 @@ const scheduleModuleBoundaries = [
   },
   {
     exports: ["generateScheduleArtifact"],
-    importPath: "../src/schedule/planner.ts",
-    sourcePath: "src/schedule/planner.ts",
+    importPath: "../src/planning/generate.ts",
+    sourcePath: "src/planning/generate.ts",
   },
   {
     exports: [],
@@ -60,8 +60,10 @@ function importFromTestFile(
 }
 
 describe("schedule planner module boundaries", () => {
-  it("keeps src/schedule-planner as the stable public barrel", async () => {
-    const publicBarrel = await importFromTestFile("../src/schedule-planner.ts");
+  it("keeps src/planning/generate as the stable public schedule barrel", async () => {
+    const publicBarrel = await importFromTestFile(
+      "../src/planning/generate.ts"
+    );
 
     expect(publicBarrel).toEqual(
       expect.objectContaining({

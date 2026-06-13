@@ -1,5 +1,8 @@
 import type { PipelineConfig } from "../../config";
-import type { ScheduleArtifact, ScheduleArtifactError } from "../planner";
+import type {
+  ScheduleArtifact,
+  ScheduleArtifactError,
+} from "../../planning/generate";
 
 type Workflow = PipelineConfig["workflows"][string];
 type WorkflowNode = Workflow["nodes"][number];

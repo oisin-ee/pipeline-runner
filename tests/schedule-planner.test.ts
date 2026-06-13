@@ -15,7 +15,7 @@ import {
   generateScheduleArtifact,
   parseScheduleArtifact,
   type ScheduleArtifact,
-} from "../src/schedule-planner";
+} from "../src/planning/generate";
 
 const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;

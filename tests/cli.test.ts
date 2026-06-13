@@ -1442,8 +1442,8 @@ describe("execute", () => {
       types: "./dist/hooks.d.ts",
     });
     expect(pkg.exports?.["./planner"]).toEqual({
-      import: "./dist/workflow-planner.js",
-      types: "./dist/workflow-planner.d.ts",
+      import: "./dist/planning/compile.js",
+      types: "./dist/planning/compile.d.ts",
     });
     expect(pkg.exports?.["./runtime"]).toEqual({
       import: "./dist/pipeline-runtime.js",

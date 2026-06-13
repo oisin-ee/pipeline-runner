@@ -17,6 +17,11 @@ import {
 } from "../src/config";
 import { installCommands } from "../src/install-commands";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
+import { compileWorkflowPlan } from "../src/planning/compile";
+import {
+  compileScheduleArtifact,
+  generateScheduleArtifact,
+} from "../src/planning/generate";
 import { createRunnerLaunchPlan } from "../src/runner";
 import {
   createGoalContinuationLaunchPlan,
@@ -29,11 +34,6 @@ import {
   recordGoalStateChangedFiles,
   saveGoalState,
 } from "../src/runtime/goal-state/goal-state";
-import {
-  compileScheduleArtifact,
-  generateScheduleArtifact,
-} from "../src/schedule-planner";
-import { compileWorkflowPlan } from "../src/workflow-planner";
 
 const tempDirs: string[] = [];
 const RUNNER_ORCHESTRATOR_METADATA_RE = /runner orchestrator metadata/i;

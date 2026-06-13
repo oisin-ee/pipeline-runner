@@ -9,8 +9,8 @@ import {
 import { renderOpenCodeGatewayConfig } from "../mcp/gateway";
 import { mergeOpenCodeProjectConfig } from "../opencode-project-config";
 import { resolvePackageAssetPath } from "../package-assets";
+import { compileWorkflowPlan } from "../planning/compile";
 import { opencodeAgentName } from "../runtime/opencode-agent-name";
-import { compileWorkflowPlan } from "../workflow-planner";
 import {
   type ActiveCommandHost,
   AGENTS_MD_END,

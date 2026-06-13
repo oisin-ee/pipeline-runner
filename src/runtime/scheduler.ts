@@ -1,5 +1,5 @@
+import type { WorkflowExecutionPlan } from "../planning/compile";
 import { uniqueStrings } from "../strings";
-import type { WorkflowExecutionPlan } from "../workflow-planner";
 import type {
   PipelineRuntimeResult,
   RuntimeContext,

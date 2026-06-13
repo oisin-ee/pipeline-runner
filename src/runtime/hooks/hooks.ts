@@ -15,8 +15,8 @@ import {
   type HookResult,
   parseHookResult,
 } from "../../hooks";
+import type { PlannedWorkflowNode } from "../../planning/compile";
 import { parseJson as parseSafeJson } from "../../safe-json";
-import type { PlannedWorkflowNode } from "../../workflow-planner";
 import { runtimeActorId } from "../actor-ids";
 import { executeCommand } from "../command-executor";
 import type {

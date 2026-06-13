@@ -16,17 +16,17 @@ import {
 } from "./argo-workflow";
 import type { PipelineConfig } from "./config";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
+import {
+  type CompiledScheduleArtifact,
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+} from "./planning/generate";
 import { buildRunnerTaskDescriptor } from "./runner-command/task-descriptor";
 import {
   parseRunnerCommandPayload,
   type RunnerCommandPayload,
   runnerCommandPayloadSchema,
 } from "./runner-command-contract";
-import {
-  type CompiledScheduleArtifact,
-  compileScheduleArtifact,
-  parseScheduleArtifact,
-} from "./schedule-planner";
 import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
 const scheduleIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/);

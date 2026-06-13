@@ -1,7 +1,7 @@
 import { Graph } from "@dagrejs/graphlib";
-import type { PipelineConfig, WorkflowNodeKind } from "./config";
-import { findDependencyCycles } from "./planning/graph";
-import { uniqueStrings } from "./strings";
+import type { PipelineConfig, WorkflowNodeKind } from "../config";
+import { uniqueStrings } from "../strings";
+import { findDependencyCycles } from "./graph";
 
 export type WorkflowPlannerErrorCode =
   | "WORKFLOW_CYCLE"

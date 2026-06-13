@@ -11,6 +11,11 @@ import {
 import type { HookEvent, PipelineConfig } from "./config";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import {
+  compileScheduleArtifact,
+  generateScheduleArtifact,
+  parseScheduleArtifact,
+} from "./planning/generate";
+import {
   buildRunnerCommandPayload,
   type MokaSubmission,
   type RunnerCommandPayload,
@@ -23,11 +28,6 @@ import {
   runnerRunIdentitySchema,
   runnerTaskSchema,
 } from "./runner-command-contract";
-import {
-  compileScheduleArtifact,
-  generateScheduleArtifact,
-  parseScheduleArtifact,
-} from "./schedule-planner";
 import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
 const imagePullPolicySchema = z

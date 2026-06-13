@@ -7,6 +7,10 @@ import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { runScheduledWorkflowTask } from "../pipeline-runtime";
 import { findPlannedNode } from "../planned-node";
 import {
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+} from "../planning/generate";
+import {
   commitAndPushNodeRef,
   mergeDependencyRefs,
   prepareRunnerGitWorkspace,
@@ -19,10 +23,6 @@ import {
 } from "../runner-command-contract";
 import { createRunnerEventSink } from "../runner-event-sink";
 import type { RuntimeNodeResult } from "../runtime/contracts";
-import {
-  compileScheduleArtifact,
-  parseScheduleArtifact,
-} from "../schedule-planner";
 import {
   DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH,
   readRunnerTaskDescriptor,

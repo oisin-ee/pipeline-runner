@@ -1,5 +1,5 @@
 import pLimit from "p-limit";
-import type { PlannedWorkflowNode } from "../../workflow-planner";
+import type { PlannedWorkflowNode } from "../../planning/compile";
 import type {
   NodeAttemptResult,
   RuntimeContext,

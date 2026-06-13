@@ -9,6 +9,10 @@ import type {
   RuntimeFailure,
   RuntimeNodeResult,
 } from "../src/pipeline-runtime";
+import {
+  compileWorkflowPlan,
+  type WorkflowExecutionPlan,
+} from "../src/planning/compile";
 import { runRunnerFinalize } from "../src/runner-command/finalize";
 import { runRunnerLifecycle } from "../src/runner-command/lifecycle";
 import type { RuntimeContext } from "../src/runtime/contracts";
@@ -26,10 +30,6 @@ import {
   runWorkflowLifecycle,
   type WorkflowHookEvent,
 } from "../src/runtime/workflow-lifecycle";
-import {
-  compileWorkflowPlan,
-  type WorkflowExecutionPlan,
-} from "../src/workflow-planner";
 import {
   captureEventBatches,
   cleanupRunnerCommandFixtures,

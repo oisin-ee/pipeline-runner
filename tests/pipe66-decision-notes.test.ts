@@ -50,7 +50,7 @@ const BLOCK_COMMENT_RE = /\/\*([\s\S]*?)\*\//g;
 
 describe("PIPE-66 explicit not-changing decision notes", () => {
   it("records the workflow-planner graphlib and iterative toposort tradeoff in source comments", () => {
-    const comments = sourceComments("src/workflow-planner.ts");
+    const comments = sourceComments("src/planning/compile.ts");
 
     expect(comments).toContainDecisionNote(
       "workflow planner toposort",

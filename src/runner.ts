@@ -16,6 +16,18 @@ export type AgentRole =
   | "code-writer"
   | "verifier";
 
+/**
+ * Agent-output boundary, layer 1 of 4 (PIPE-74 B3). `AgentResult` is the RAW
+ * terminal result of one runner subprocess/session: exit code, accumulated
+ * stdout/stderr, and execution metadata. It carries no parsing or semantic
+ * interpretation — downstream layers refine it:
+ *   1. {@link AgentResult}            — raw subprocess result (this type)
+ *   2. {@link RunnerOutputEvent}      — a live stream chunk during execution
+ *   3. RuntimeNormalizedOutput        — adapter-extracted text + evidence
+ *      (src/runtime/opencode-adapter.ts)
+ *   4. RuntimeStructuredOutput        — parsed + schema-validated output
+ *      (src/runtime/contracts/contracts.ts)
+ */
 export interface AgentResult {
   argv?: string[];
   exitCode: number;
@@ -26,12 +38,27 @@ export interface AgentResult {
   timedOut?: boolean;
 }
 
+/**
+ * Agent-output boundary, layer 2 of 4 (PIPE-74 B3). A single incremental chunk
+ * of a runner's live output stream, surfaced via
+ * {@link RunnerExecutionOptions.onOutput} while the subprocess is still
+ * running — distinct from {@link AgentResult}, which is the final accumulated
+ * result.
+ */
 export interface RunnerOutputEvent {
   chunk: string;
   nodeId: string;
   stream: "stderr" | "stdout";
 }
 
+/**
+ * Lowest layer of the runtime-options stack (PIPE-74 B3): the per-invocation
+ * controls a runner executor needs — cancellation and live-output streaming.
+ * Widened by the runtime layers above it:
+ *   RunnerExecutionOptions (this type)
+ *     < PipelineRuntimeOptions (src/runtime/contracts/contracts.ts)
+ *     < ScheduledWorkflowTaskRuntimeOptions (src/pipeline-runtime.ts)
+ */
 export interface RunnerExecutionOptions {
   onOutput?: (event: RunnerOutputEvent) => void;
   signal?: AbortSignal;

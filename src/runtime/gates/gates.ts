@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import micromatch from "micromatch";
 import { artifactExists } from "../../gates";
+import type { PlannedWorkflowNode } from "../../planning/compile";
 import { isRecord, parseJsonResult } from "../../safe-json";
-import type { PlannedWorkflowNode } from "../../workflow-planner";
 import { runtimeActorId } from "../actor-ids";
 import { executeBuiltin } from "../builtins";
 import { executeCommand } from "../command-executor";

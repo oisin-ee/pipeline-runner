@@ -7,7 +7,7 @@ import {
   submitRunnerArgoWorkflow,
 } from "../src/argo-submit";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
-import { parseScheduleArtifact } from "../src/schedule-planner";
+import { parseScheduleArtifact } from "../src/planning/generate";
 
 const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-submit-"));
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {

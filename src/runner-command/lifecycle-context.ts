@@ -7,6 +7,10 @@ import {
   parsePipelineConfigParts,
   RUNNERS_CONFIG_PATH,
 } from "../config";
+import {
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+} from "../planning/generate";
 import { prepareRunnerGitWorkspace } from "../run-state/git-refs";
 import {
   parseRunnerCommandPayload,
@@ -15,10 +19,6 @@ import {
 import { createRunnerEventSink } from "../runner-event-sink";
 import type { RuntimeContext } from "../runtime/contracts";
 import { initialNodeStateStore } from "../runtime/node-state-store";
-import {
-  compileScheduleArtifact,
-  parseScheduleArtifact,
-} from "../schedule-planner";
 import { runnerTaskText } from "./run";
 
 interface RunnerLifecycleContextOptions {

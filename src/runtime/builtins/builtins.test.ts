@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../../config";
-import { compileWorkflowPlan } from "../../workflow-planner";
+import { compileWorkflowPlan } from "../../planning/compile";
 import type { RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { executeBuiltin } from "./builtins";

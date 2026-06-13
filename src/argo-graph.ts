@@ -1,10 +1,10 @@
 import { z } from "zod";
 import type { WorkflowNodeKind } from "./config";
-import { uniqueStrings } from "./strings";
 import type {
   PlannedWorkflowNode,
   WorkflowExecutionPlan,
-} from "./workflow-planner";
+} from "./planning/compile";
+import { uniqueStrings } from "./strings";
 
 const argoExecutableTaskSchema = z
   .object({

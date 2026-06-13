@@ -80,8 +80,8 @@
       "import": "./dist/moka-global-config.js"
     },
     "./planner": {
-      "types": "./dist/workflow-planner.d.ts",
-      "import": "./dist/workflow-planner.js"
+      "types": "./dist/planning/compile.d.ts",
+      "import": "./dist/planning/compile.js"
     },
     "./runner": {
       "types": "./dist/runner.d.ts",
@@ -96,8 +96,8 @@
       "import": "./dist/pipeline-runtime.js"
     },
     "./schedule": {
-      "types": "./dist/schedule-planner.d.ts",
-      "import": "./dist/schedule-planner.js"
+      "types": "./dist/planning/generate.d.ts",
+      "import": "./dist/planning/generate.js"
     }
   },
   "files": [

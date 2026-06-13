@@ -1,4 +1,4 @@
-import type { PlannedWorkflowNode } from "./workflow-planner";
+import type { PlannedWorkflowNode } from "./planning/compile";
 
 export interface ModelSelection {
   model?: string;

@@ -41,18 +41,18 @@ import {
 } from "../pipeline-init";
 import { runPipelineFromConfig } from "../pipeline-runtime";
 import {
-  createOrchestratorLaunchPlan,
-  createRunnerLaunchPlan,
-} from "../runner";
+  compileWorkflowPlan,
+  type PlannedWorkflowNode,
+} from "../planning/compile";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
   parseScheduleArtifact,
-} from "../schedule-planner";
+} from "../planning/generate";
 import {
-  compileWorkflowPlan,
-  type PlannedWorkflowNode,
-} from "../workflow-planner";
+  createOrchestratorLaunchPlan,
+  createRunnerLaunchPlan,
+} from "../runner";
 import {
   createTerminalRuntimeReporter,
   formatDoctorResult,

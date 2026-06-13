@@ -2,8 +2,11 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { alg, Graph } from "@dagrejs/graphlib";
 import matter from "gray-matter";
+import type {
+  BacklogWorkUnit,
+  SchedulePlanningContext,
+} from "../planning/generate";
 import { extractTicketIds } from "../task-ref";
-import type { BacklogWorkUnit, SchedulePlanningContext } from "./planner";
 
 const DESCRIPTION_SECTION_RE = /## Description\s+([\s\S]*?)(?=\n## |\s*$)/;
 const ACCEPTANCE_SECTION_RE =

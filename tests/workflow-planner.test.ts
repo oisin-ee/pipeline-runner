@@ -8,7 +8,7 @@ import { loadPipelineConfig } from "../src/config";
 import {
   compileWorkflowPlan,
   WorkflowPlannerError,
-} from "../src/workflow-planner";
+} from "../src/planning/compile";
 
 // Literal pipeline template tokens; interpolating the inner literal keeps the
 // "${" sequence out of the source so noTemplateCurlyInString stays satisfied.

@@ -4,8 +4,8 @@ import {
   type ArgoExecutableTask,
   compileArgoExecutionGraph,
 } from "./argo-graph";
+import type { WorkflowExecutionPlan } from "./planning/compile";
 import { DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH } from "./runner-command/task-descriptor";
-import type { WorkflowExecutionPlan } from "./workflow-planner";
 
 const ARGO_WORKFLOW_API_VERSION = "argoproj.io/v1alpha1";
 const ARGO_WORKFLOW_KIND = "Workflow";

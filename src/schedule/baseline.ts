@@ -1,5 +1,5 @@
 import type { PipelineConfig, ScheduleBaseline } from "../config";
-import type { ScheduleArtifact } from "./planner";
+import type { ScheduleArtifact } from "../planning/generate";
 
 const SCHEDULE_KIND = "pipeline-schedule";
 
