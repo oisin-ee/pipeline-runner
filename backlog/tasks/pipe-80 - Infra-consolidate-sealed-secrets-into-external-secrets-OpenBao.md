@@ -1,10 +1,10 @@
 ---
 id: PIPE-80
 title: 'Infra: consolidate sealed-secrets into external-secrets + OpenBao'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 20:11'
-updated_date: '2026-06-12 20:21'
+updated_date: '2026-06-13 15:27'
 labels:
   - 'repo:infra'
   - phase-3
@@ -30,10 +30,10 @@ Lowest urgency in the plan — pure simplification, do last.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Inventory of all remaining SealedSecret resources with a migration target for each
-- [ ] #2 All migrated to ExternalSecrets backed by OpenBao; workloads reload correctly (reloader annotations verified)
-- [ ] #3 sealed-secrets controller, bin/rotate-* kubeseal scripts, and secrets-backups keypair process removed or archived
-- [ ] #4 Documented recovery story for OpenBao (unseal keys / Raft snapshot backup) replacing the keypair backups
+- [x] #1 Inventory of all remaining SealedSecret resources with a migration target for each
+- [x] #2 All migrated to ExternalSecrets backed by OpenBao; workloads reload correctly (reloader annotations verified)
+- [x] #3 sealed-secrets controller, bin/rotate-* kubeseal scripts, and secrets-backups keypair process removed or archived
+- [x] #4 Documented recovery story for OpenBao (unseal keys / Raft snapshot backup) replacing the keypair backups
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -51,3 +51,13 @@ Execution: procedural ops work — no top models.
 <!-- SECTION:NOTES:BEGIN -->
 Decision 2026-06-12 (Oisin): direct-to-main commits on infra authorized. Secrets migrations are still sequential per secret with immediate workload-reload verification — revert on failure.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ALREADY COMPLETE — done by INFRA-058 (decommissioned 2026-06-13), discovered during execution. The review's premise was stale.
+
+Verified state: zero SealedSecret resources in git, no bin/rotate-* kubeseal scripts, the sealedsecrets CRD does not exist in the cluster, no sealed-secrets controller pod or ArgoCD app. All secrets now live in OpenBao + External Secrets Operator (extensive ExternalSecret manifests across rondo/jalgpall/language-learner/memory/autofix/roborev/observability/platform-auth/openbao). AC#1/2/3 satisfied. AC#4 (recovery story): documented in docs/runbooks/openbao-bootstrap.md, docs/adr/openbao-auto-unseal.md, and daily GCS raft snapshots (k8s/manifests/openbao/snapshots/cronjob.yaml); migration runbook at docs/runbooks/sealed-secrets-to-openbao-migration.md.
+
+Only remnant: secrets-backups/*.age keypair snapshots, which secrets-backups/README.md explicitly marks DEPRECATED and "Scheduled for deletion on or after 2026-07-13" (30-day rollback grace). Deliberately NOT deleted now — removing them before that date would violate the documented grace window. They become safely deletable on/after 2026-07-13.
+<!-- SECTION:FINAL_SUMMARY:END -->

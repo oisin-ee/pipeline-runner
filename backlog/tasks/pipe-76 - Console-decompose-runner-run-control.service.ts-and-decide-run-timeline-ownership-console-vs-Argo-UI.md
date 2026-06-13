@@ -3,10 +3,10 @@ id: PIPE-76
 title: >-
   Console: decompose runner-run-control.service.ts and decide run-timeline
   ownership (console vs Argo UI)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 20:10'
-updated_date: '2026-06-12 20:16'
+updated_date: '2026-06-13 15:52'
 labels:
   - 'repo:console'
   - phase-3
@@ -36,11 +36,13 @@ Note: if the Hatchet spike (see spike task) results in a go, the timeline recons
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Written decision on timeline ownership (console-rendered vs Argo UI deep-link) recorded in the task
-- [ ] #2 runner-run-control.service.ts reduced to lifecycle orchestration; detail/timeline building extracted or deleted per the decision
-- [ ] #3 No regression in the run detail page for a live run (manual verification against a real run)
-- [ ] #4 pnpm check and pnpm test pass in pipeline-console
+- [x] #1 Written decision on timeline ownership (console-rendered vs Argo UI deep-link) recorded in the task
+- [x] #2 runner-run-control.service.ts reduced to lifecycle orchestration; detail/timeline building extracted or deleted per the decision
+- [x] #3 No regression in the run detail page for a live run (manual verification against a real run)
+- [x] #4 pnpm check and pnpm test pass in pipeline-console
 <!-- AC:END -->
+
+
 
 ## Implementation Plan
 
@@ -50,3 +52,9 @@ Execution: decision-then-mechanics.
 2. Decomposition/deletion per the decision — model=sonnet, parallelizable per extracted builder once boundaries are drawn.
 Don't gold-plate: if PIPE-81 was a go, this is mostly deletion — haiku can handle the dead-code removal lanes.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+DECISION FINALIZED 2026-06-13 (Oisin): the console is the day-to-day working surface, so the spike's 'deep-link to Argo UI for timelines' recommendation is REJECTED. The console KEEPS rendering its own DAG (nodes/edges → XYFlow canvas) + per-node timeline + phases from the runner event stream. The PIPE-76 decompose already done (extracting run-detail-builder.ts without removing any rendering) is therefore the complete and correct outcome — there is NO follow-up deletion to do. The earlier 'deferred: delete reconstruction → argoDeepLinkUrl' note is superseded: do NOT delete collectTimeline/collectNodes/collectEdges; they power the console's own run-detail view which is the primary UX.
+<!-- SECTION:NOTES:END -->
