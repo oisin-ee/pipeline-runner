@@ -30,6 +30,9 @@ mcp_gateway:
       workspace_path_source: PIPELINE_TARGET_PATH
       tool_prefixes: [backlog]
 skills:
+  orchestrate:
+    path: .agents/skills/orchestrate/SKILL.md
+    source_root: package
   execute:
     path: .agents/skills/execute/SKILL.md
     source_root: package
@@ -85,8 +88,8 @@ profiles:
   moka-orchestrator:
     runner: opencode
     description: Orchestrate the configured pipeline and enforce gates.
-    instructions: { inline: "Orchestrate the configured pipeline through package-defined entrypoints, native agents, and gates. Do not bypass configured runner subprocesses or package-configured gates." }
-    skills: [execute, quick, inspect]
+    instructions: { inline: "Orchestrate the configured pipeline locally. Load the `orchestrate` skill and spawn the roster as native Task subagents on this machine. Do not submit to Argo or run `moka submit`. Enforce only package-configured gates." }
+    skills: [orchestrate, execute, quick, inspect]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }

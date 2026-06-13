@@ -7,6 +7,8 @@ rules:
     path: .pipeline/rules/verification.md
 
 skills:
+  orchestrate:
+    path: .agents/skills/orchestrate/SKILL.md
   execute:
     path: .agents/skills/execute/SKILL.md
   inspect:
@@ -81,8 +83,8 @@ profiles:
     runner: opencode
     description: Orchestrate the configured pipeline and enforce gates.
     instructions:
-      inline: Orchestrate the configured pipeline through package-defined entrypoints, native agents, and gates. Do not bypass configured runner subprocesses or package-configured gates.
-    skills: [execute, quick, inspect]
+      inline: Orchestrate the configured pipeline locally. Load the `orchestrate` skill and spawn the roster as native Task subagents on this machine. Do not submit to Argo or run `moka submit`. Enforce only package-configured gates.
+    skills: [orchestrate, execute, quick, inspect]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
     filesystem:

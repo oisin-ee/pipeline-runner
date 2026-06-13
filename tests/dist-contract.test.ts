@@ -31,14 +31,12 @@ describe("scheduler and install command contracts", () => {
     expect(scheduleBaseline).not.toContain('id: "mechanical-red-fallow"');
   });
 
-  it("renders scheduled entrypoint dispatch in the install command artifact", () => {
+  it("renders local orchestrator dispatch in the install command artifact", () => {
     const installCommands = readPipelineFile("install-commands/opencode.js");
 
     expect(installCommands).toContain(
-      "function orchestratorEntrypointDispatchBlock"
+      "function localOrchestratorDispatchBlock"
     );
-    expect(installCommands).toContain(
-      'orchestratorEntrypointDispatchBlock("opencode", config)'
-    );
+    expect(installCommands).toContain("localOrchestratorDispatchBlock(config)");
   });
 });

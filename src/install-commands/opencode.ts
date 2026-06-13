@@ -287,22 +287,23 @@ export function scheduledEntrypointK8sNote(
   return "Submit Momokaya work as Argo Workflows through `moka submit` and `moka submit --quick`.";
 }
 
-function orchestratorEntrypointDispatchBlock(
-  host: ActiveCommandHost,
-  config: PipelineConfig
-): string | undefined {
-  const scheduledEntrypoints = entrypointEntries(config).filter(
-    ([, entrypoint]) => !("workflow" in entrypoint)
+function localRosterAgentIds(config: PipelineConfig): string[] {
+  return nativeProfileEntries("opencode", config).map(([id]) =>
+    nativeAgentIdForHost("opencode", id)
   );
-  if (scheduledEntrypoints.length === 0) {
-    return dispatchBlock(host, config);
-  }
-  return scheduledEntrypoints
-    .map(([id, entrypoint]) =>
-      entrypointDispatchBlock(host, config, id, entrypoint)
-    )
-    .filter((block): block is string => Boolean(block))
-    .join("\n\n");
+}
+
+function localOrchestratorDispatchBlock(config: PipelineConfig): string {
+  const roster = localRosterAgentIds(config);
+  return [
+    "Orchestrate locally. Load and follow the `orchestrate` skill.",
+    "Do not submit to Argo or run `moka submit`. Spawn the roster as native Task subagents on this machine and run nodes with satisfied dependencies in parallel.",
+    "",
+    "Roster (Task tool subagent_type):",
+    ...roster.map((id) => `- ${id}`),
+    "",
+    "Gather each subagent's structured output, enforce only package-configured gates, and report only the evidence the subagents returned.",
+  ].join("\n");
 }
 
 function nativeDispatchBlock(
@@ -579,10 +580,7 @@ function opencodeDefinitions(
                 mode: "primary",
                 name: OPENCODE_ORCHESTRATOR_AGENT_ID,
                 permission: opencodePermission(orchestrator, {
-                  allowedTaskAgents: agentDispatchRoutes("opencode", config)
-                    .filter((route) => route.kind !== "cli")
-                    .map((route) => route.nativeAgentId)
-                    .filter((id): id is string => Boolean(id)),
+                  allowedTaskAgents: localRosterAgentIds(config),
                 }),
               },
               compactLines([
@@ -590,7 +588,7 @@ function opencodeDefinitions(
                 "",
                 orchestratorBlock(config),
                 "",
-                orchestratorEntrypointDispatchBlock("opencode", config),
+                localOrchestratorDispatchBlock(config),
               ]).join("\n")
             ),
             host: "opencode" as const,
