@@ -73,7 +73,6 @@ const PAYLOAD = JSON.stringify({
 
 describe("submitRunnerArgoWorkflow", () => {
   const namespace = "workflow-namespace";
-  const queueName = "pipeline-queue";
 
   it("creates payload and schedule ConfigMaps before submitting an Argo Workflow", async () => {
     const createdConfigMaps: unknown[] = [];
@@ -87,7 +86,6 @@ describe("submitRunnerArgoWorkflow", () => {
         generateName: "pipeline-run-",
         namespace,
         payloadJson: PAYLOAD,
-        queueName,
         scheduleYaml: SCHEDULE,
       },
       {
@@ -147,11 +145,6 @@ describe("submitRunnerArgoWorkflow", () => {
         },
         namespace,
       },
-      spec: {
-        podMetadata: {
-          labels: { "kueue.x-k8s.io/queue-name": queueName },
-        },
-      },
     });
     expect(result).toEqual({
       namespace,
@@ -187,7 +180,6 @@ describe("submitRunnerArgoWorkflow", () => {
         generateName: "pipeline-run-",
         namespace,
         payloadJson: payload,
-        queueName,
         scheduleYaml: SCHEDULE,
       },
       {

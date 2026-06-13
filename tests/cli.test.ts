@@ -2641,7 +2641,6 @@ profiles:
           "    githubAuthSecretName: github-auth-secret",
           "    imagePullSecretName: image-pull-secret",
           "    opencodeAuthSecretName: opencode-auth-secret",
-          "    queueName: configured-queue",
           "    serviceAccountName: configured-runner",
           "",
         ].join("\n")

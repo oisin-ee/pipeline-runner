@@ -85,7 +85,6 @@ describe("runner Argo Workflow manifest", () => {
       imagePullSecretName: "image-pull-secret",
       opencodeAuthSecretName: "opencode-auth-secret",
       plan: plan(),
-      queueName: "pipeline-queue",
       ttlStrategy: {
         secondsAfterCompletion: 3600,
         secondsAfterFailure: 7200,
@@ -117,11 +116,6 @@ describe("runner Argo Workflow manifest", () => {
             },
           ],
           "onExit": "pipeline-finalizer",
-          "podMetadata": {
-            "labels": {
-              "kueue.x-k8s.io/queue-name": "pipeline-queue",
-            },
-          },
           "serviceAccountName": "pipeline-runner",
           "templates": [
             {
@@ -614,9 +608,6 @@ describe("runner Argo Workflow manifest", () => {
         entrypoint: pipeline
         imagePullSecrets:
           - name: image-pull-secret
-        podMetadata:
-          labels:
-            kueue.x-k8s.io/queue-name: pipeline-queue
         serviceAccountName: pipeline-runner
         onExit: pipeline-finalizer
         templates:
@@ -1079,7 +1070,6 @@ describe("runner Argo Workflow manifest", () => {
       imagePullSecretName: "image-pull-secret",
       opencodeAuthSecretName: "opencode-auth-secret",
       plan: plan(),
-      queueName: "pipeline-queue",
     });
 
     const runner = manifest.spec.templates.find(
@@ -1089,9 +1079,6 @@ describe("runner Argo Workflow manifest", () => {
       (template) => template.name === "pipeline"
     )?.dag;
 
-    expect(manifest.spec.podMetadata?.labels).toEqual({
-      "kueue.x-k8s.io/queue-name": "pipeline-queue",
-    });
     expect(manifest.spec.imagePullSecrets).toEqual([
       { name: "image-pull-secret" },
     ]);

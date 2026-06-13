@@ -18,7 +18,6 @@ momokaya:
     githubAuthSecretName: github-auth-secret
     imagePullSecretName: image-pull-secret
     opencodeAuthSecretName: opencode-auth-secret
-    queueName: pipeline-queue
     serviceAccountName: runner-service-account
 `;
 
@@ -42,7 +41,6 @@ describe("moka global config", () => {
     });
     expect(config.momokaya.submit).toMatchObject({
       eventUrl: "https://console.example.test/api/pipeline/runner-events",
-      queueName: "pipeline-queue",
       serviceAccountName: "runner-service-account",
     });
   });

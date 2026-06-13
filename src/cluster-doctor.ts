@@ -10,7 +10,6 @@ const DEFAULT_RESOURCES = {
   githubAuthSecretName: "oisin-bot-github-auth",
   imagePullSecretName: "ghcr-pull-secret",
   opencodeAuthSecretName: "opencode-auth-1",
-  queueName: "pipeline-runner",
   serviceAccountName: "pipeline-runner",
 };
 const FORBIDDEN_RE = /forbidden/i;
@@ -72,7 +71,6 @@ export async function runClusterDoctor(
       verb: "create",
       ...kubectlOptions,
     }),
-    checkLocalQueue(namespace, resources.queueName, kubectlOptions),
     checkClusterResource(
       "argo-workflow-crd",
       ["get", "crd", "workflows.argoproj.io"],
@@ -105,7 +103,6 @@ function clusterResources(): typeof DEFAULT_RESOURCES {
         githubAuthSecretName: configured.githubAuthSecretName,
         imagePullSecretName: configured.imagePullSecretName,
         opencodeAuthSecretName: configured.opencodeAuthSecretName,
-        queueName: configured.queueName,
         serviceAccountName: configured.serviceAccountName,
       }
     : DEFAULT_RESOURCES;
@@ -261,19 +258,6 @@ async function checkWorkflowSubmitPermission(
         name: "rbac/workflow-create",
         passed: false,
       };
-}
-
-function checkLocalQueue(
-  namespace: string,
-  queueName: string,
-  kubectlOptions: KubectlOptions
-): Promise<DoctorCheck> {
-  return checkNamespacedResource(
-    `localqueue/${queueName}`,
-    ["get", "localqueue", queueName, "-n", namespace],
-    `Kueue LocalQueue ${queueName} missing in ${namespace}; runner Workflow pods cannot be admitted to the expected queue.`,
-    kubectlOptions
-  );
 }
 
 async function checkClusterResource(

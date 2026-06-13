@@ -128,7 +128,6 @@ const mokaSubmitBaseOptionsSchema = z
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
     opencodeAuthSecretName: z.string().min(1).optional(),
-    queueName: z.string().min(1).optional(),
     repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema.optional(),
     serviceAccountName: z.string().min(1).optional(),
@@ -239,7 +238,6 @@ interface MokaWorkflowSubmitOptions {
   namespace: string;
   opencodeAuthSecretName?: string;
   payloadJson: string;
-  queueName?: string;
   scheduleYaml: string;
   serviceAccountName?: string;
 }
@@ -574,7 +572,6 @@ function workflowSubmitOptions(
     name: options.name,
     namespace: requireSubmitOption(options.namespace, "namespace"),
     opencodeAuthSecretName: options.opencodeAuthSecretName,
-    queueName: options.queueName,
     serviceAccountName: options.serviceAccountName,
   };
 }

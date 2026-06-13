@@ -82,10 +82,9 @@ keep the console package dependency, console expected version, and runner image
 label version aligned. A future breaking payload change must increment the
 contract version and ship a compatibility plan.
 
-Console-created Jobs are labeled with `kueue.x-k8s.io/queue-name` and
-`pipeline.oisin.dev/project`, `pipeline.oisin.dev/run-id`,
-`pipeline.oisin.dev/source`, `pipeline.oisin.dev/task`, plus optional
-`pipeline.oisin.dev/requested-by`.
+Console-created Jobs are labeled with `pipeline.oisin.dev/project`,
+`pipeline.oisin.dev/run-id`, `pipeline.oisin.dev/source`,
+`pipeline.oisin.dev/task`, plus optional `pipeline.oisin.dev/requested-by`.
 
 ## Event Batches
 

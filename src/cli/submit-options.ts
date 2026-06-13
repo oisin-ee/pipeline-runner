@@ -21,7 +21,6 @@ export interface MokaSubmitFlags {
   kubeconfig?: string;
   name?: string;
   namespace?: string;
-  queueName?: string;
   quick?: boolean;
   schedule?: string;
   serviceAccount?: string;
@@ -113,7 +112,6 @@ function mokaCommonSubmitOptions(input: {
     name: input.flags.name,
     namespace: input.flags.namespace ?? momokaya?.kubernetes.namespace,
     opencodeAuthSecretName: momokaya?.submit.opencodeAuthSecretName,
-    queueName: input.flags.queueName ?? momokaya?.submit.queueName,
     serviceAccountName:
       input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
     worktreePath: input.cwd,
@@ -169,7 +167,6 @@ function addRunnerArgoOptions(
     command.option("--kubeconfig <path>", "kubeconfig path");
   }
   return command
-    .option("--queue-name <name>", "Kueue LocalQueue label for Workflow pods")
     .option("--service-account <name>", "Workflow service account")
     .option("--image <image>", "runner image")
     .addOption(

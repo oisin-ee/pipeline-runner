@@ -16,7 +16,6 @@ const mokaSubmitGlobalConfigSchema = z
     githubAuthSecretName: z.string().min(1),
     imagePullSecretName: z.string().min(1),
     opencodeAuthSecretName: z.string().min(1),
-    queueName: z.string().min(1),
     serviceAccountName: z.string().min(1),
   })
   .strict();

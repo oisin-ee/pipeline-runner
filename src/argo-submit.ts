@@ -61,7 +61,6 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     namespace: z.string().min(1),
     opencodeAuthSecretName: z.string().min(1).optional(),
     payloadJson: z.string().min(1),
-    queueName: z.string().min(1).optional(),
     scheduleYaml: z.string().min(1),
     serviceAccountName: z.string().min(1).optional(),
   })
@@ -160,7 +159,6 @@ export async function submitRunnerArgoWorkflow(
     opencodeAuthSecretName: options.opencodeAuthSecretName,
     payloadConfigMapName,
     plan: compiled.plan,
-    queueName: options.queueName,
     scheduleConfigMapName: scheduleArtifactConfigMapName,
     serviceAccountName: options.serviceAccountName,
     taskDescriptorConfigMapName,

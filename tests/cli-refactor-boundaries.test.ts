@@ -70,7 +70,6 @@ describe("PIPE-65 moka submit option normalization", () => {
         "--generate-name",
         "--namespace",
         "--kubeconfig",
-        "--queue-name",
         "--service-account",
         "--image",
         "--image-pull-policy",

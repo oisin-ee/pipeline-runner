@@ -21,7 +21,6 @@ export interface EntrypointCommandFlags {
   imagePullSecret?: string;
   kubeconfig?: string;
   namespace?: string;
-  queueName?: string;
   schedule?: string;
   serviceAccount?: string;
 }
@@ -53,10 +52,6 @@ export function registerConfiguredEntrypointCommands(
         .option("--namespace <namespace>", "Workflow namespace")
         .option("--schedule <path>", "approved schedule YAML to submit")
         .option("--kubeconfig <path>", "kubeconfig path")
-        .option(
-          "--queue-name <name>",
-          "Kueue LocalQueue label for Workflow pods"
-        )
         .option("--service-account <name>", "Workflow service account")
         .option("--image <image>", "runner image")
         .option("--image-pull-policy <policy>", "runner image pull policy")

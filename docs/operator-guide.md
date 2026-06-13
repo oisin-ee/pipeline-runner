@@ -100,8 +100,8 @@ moka doctor --cluster momokaya-pipeline --kube-context momokaya
 `moka doctor --cluster` adds value-free runner-job preflight checks for the
 selected namespace, defaulting to `momokaya-pipeline`. It checks that expected
 Secret objects exist by name, ExternalSecrets and `ClusterSecretStore/openbao`
-report Ready status, the runner ServiceAccount has workflow RBAC, the Kueue
-LocalQueue is present, and Argo Workflow prerequisites are reachable. It does
+report Ready status, the runner ServiceAccount has workflow RBAC, and Argo
+Workflow prerequisites are reachable. It does
 not read, print, decode, diff, or validate Secret values.
 
 OpenBao and External Secrets Operator remain infrastructure-owned
@@ -160,7 +160,6 @@ momokaya:
     githubAuthSecretName: <github-auth-secret-name>
     imagePullSecretName: <image-pull-secret-name>
     opencodeAuthSecretName: <opencode-auth-secret-name>
-    queueName: <local-queue-name>
     serviceAccountName: <runner-service-account-name>
 ```
 

@@ -244,7 +244,6 @@ const buildRunnerArgoWorkflowOptionsSchema = z
       .optional(),
     payloadConfigMapKey: z.string().min(1).default("payload.json"),
     payloadConfigMapName: kubernetesNameSchema,
-    queueName: kubernetesNameSchema.optional(),
     resources: argoWorkflowResourceRequirementsSchema.optional(),
     scheduleConfigMapKey: z.string().min(1).default("schedule.yaml"),
     scheduleConfigMapName: kubernetesNameSchema,
@@ -316,13 +315,6 @@ export function buildRunnerArgoWorkflowManifest(
       entrypoint: RUNNER_WORKFLOW_ENTRYPOINT,
       ...(options.imagePullSecretName
         ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
-        : {}),
-      ...(options.queueName
-        ? {
-            podMetadata: {
-              labels: { "kueue.x-k8s.io/queue-name": options.queueName },
-            },
-          }
         : {}),
       onExit: "pipeline-finalizer",
       serviceAccountName: options.serviceAccountName,
