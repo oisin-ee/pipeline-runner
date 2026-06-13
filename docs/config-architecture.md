@@ -320,6 +320,38 @@ the execution surface while Claude Code orchestrates. Unsupported runner or host
 mappings fail closed instead of doing instruction-only translation or generic
 worker substitution.
 
+## Planning: Compile And Generate
+
+Two distinct planning strategies turn config into an executable plan, and the
+module layout names the distinction (`src/planning/`):
+
+- `planning/compile.ts` — **deterministic DAG compilation**. `compileWorkflowPlan`
+  validates a workflow's nodes (duplicate ids, missing dependencies, group
+  references, cycles), normalizes group dependencies, and produces the
+  `WorkflowExecutionPlan` (graph, topological order, parallel batches). This is
+  the engine's mandatory front door: every execution path runs through it,
+  including AI-generated schedules. Exposed as the `./planner` package subpath.
+- `planning/generate.ts` — **optional AI decomposition**. `generateScheduleArtifact`
+  drives a planner profile to decompose a task into a schedule artifact, then
+  normalizes it through auditable passes (coverage → models → ids → references)
+  and finally feeds it back into `compileScheduleArtifact`, which merges the
+  generated workflows into config and calls `compileWorkflowPlan`. So generate
+  output is always an input to compile — never a substitute for it. Exposed as
+  the `./schedule` package subpath.
+
+Both layers share one policy-free traversal model, `planning/graph.ts`
+(`flattenNodes`, `dependentsByNeed`, `hasReachableDependent`, `findNode`,
+`findDependencyCycles`). Each caller supplies its own predicates and owns its
+error vocabulary, so config validation, deterministic compile, and AI-schedule
+validation reason over the same graph structure without sharing layer-specific
+policy. Schedule-specific support (artifact re-export barrel, baseline, prompts,
+the normalization passes, backlog context, scheduling-role policy) stays under
+`src/schedule/` and imports the artifact + generate API from `planning/generate`.
+
+The toposort uses `@dagrejs/graphlib` for the graph model but an iterative
+traversal for the topological sort, because graphlib's recursive topsort can
+overflow the call stack on deep generated workflow chains.
+
 ## Troubleshooting
 
 - Missing host resources: run `moka install-commands`; `moka run` loads the
