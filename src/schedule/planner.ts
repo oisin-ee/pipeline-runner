@@ -4,10 +4,14 @@ import { parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import {
   type PipelineConfig,
-  type SchedulingRole,
   validatePipelineConfig,
   workflowSchema,
 } from "../config";
+import {
+  dependentsByNeed,
+  flattenNodes,
+  hasReachableDependent,
+} from "../planning/graph";
 import {
   type AgentResult,
   createRunnerLaunchPlan,
@@ -28,6 +32,7 @@ import { SCHEDULE_PASS_ORDER } from "./passes/index";
 import { applyNodeCatalogModelFallbacks } from "./passes/models";
 import { namespaceScheduleWorkflows } from "./passes/references";
 import { plannerPrompt, plannerRepairPrompt } from "./prompts";
+import { isCoverageNode, isImplementationNode } from "./scheduling-roles";
 
 const SCHEDULE_KIND = "pipeline-schedule";
 const ID_RE = /^[a-z][a-z0-9-]*$/;
@@ -574,9 +579,9 @@ function workflowNodeIssues(
 ): string[] {
   return Object.entries(artifact.workflows).flatMap(
     ([workflowId, workflow]) => {
-      const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
+      const nodes = flattenWorkflowNodes(workflow.nodes);
       return collectIssues({
-        dependentsByNeed: workflowDependentsByNeed(nodes),
+        dependentsByNeed: dependentsByNeed(nodes),
         nodes,
         workflowId,
       });
@@ -606,34 +611,13 @@ function isWriteCapableParallelChild(
 
 function hasDownstreamDrainMerge(
   nodeId: string,
-  dependentsByNeed: Map<string, WorkflowNode[]>
+  index: Map<string, WorkflowNode[]>
 ): boolean {
   return hasReachableDependent(
     nodeId,
-    dependentsByNeed,
+    index,
     (node) => node.kind === "builtin" && node.builtin === "drain-merge"
   );
-}
-
-function hasReachableDependent(
-  nodeId: string,
-  dependentsByNeed: Map<string, WorkflowNode[]>,
-  matches: (node: WorkflowNode) => boolean
-): boolean {
-  const queue = [...(dependentsByNeed.get(nodeId) ?? [])];
-  const seen = new Set<string>();
-  while (queue.length > 0) {
-    const node = queue.shift();
-    if (!node || seen.has(node.id)) {
-      continue;
-    }
-    seen.add(node.id);
-    if (matches(node)) {
-      return true;
-    }
-    queue.push(...(dependentsByNeed.get(node.id) ?? []));
-  }
-  return false;
 }
 
 function generatedRootWorkflowIssues(artifact: ScheduleArtifact): string[] {
@@ -747,8 +731,8 @@ function workUnitDependencyIssues(
   );
   return Object.entries(artifact.workflows).flatMap(
     ([workflowId, workflow]) => {
-      const nodes = workflow.nodes.flatMap(flattenWorkflowNode);
-      const dependentsByNeed = workflowDependentsByNeed(nodes);
+      const nodes = flattenWorkflowNodes(workflow.nodes);
+      const index = dependentsByNeed(nodes);
       const nodesByWorkUnit = nodesByAssignedWorkUnit(nodes);
       return nodes
         .filter((node) => isImplementationNode(config, node))
@@ -762,7 +746,11 @@ function workUnitDependencyIssues(
               const prerequisiteNodes =
                 nodesByWorkUnit.get(prerequisiteId) ?? [];
               const hasDependencyPath = prerequisiteNodes.some((source) =>
-                hasPathToNode(source.id, node.id, dependentsByNeed)
+                hasReachableDependent(
+                  source.id,
+                  index,
+                  (candidate) => candidate.id === node.id
+                )
               );
               return hasDependencyPath
                 ? []
@@ -790,18 +778,6 @@ function nodesByAssignedWorkUnit(
     grouped.set(id, current);
   }
   return grouped;
-}
-
-function hasPathToNode(
-  sourceId: string,
-  targetId: string,
-  dependentsByNeed: Map<string, WorkflowNode[]>
-): boolean {
-  return hasReachableDependent(
-    sourceId,
-    dependentsByNeed,
-    (node) => node.id === targetId
-  );
 }
 
 function unsupportedGeneratedBuiltinIssues(
@@ -845,63 +821,26 @@ function implementationCoverageIssues(
   );
 }
 
-function isImplementationNode(
-  config: PipelineConfig,
-  node: WorkflowNode
-): boolean {
-  return hasSchedulingRole(config, node, "implementation");
-}
-
-function workflowDependentsByNeed(
-  nodes: WorkflowNode[]
-): Map<string, WorkflowNode[]> {
-  const dependentsByNeed = new Map<string, WorkflowNode[]>();
-  for (const node of nodes) {
-    for (const need of node.needs ?? []) {
-      const dependents = dependentsByNeed.get(need) ?? [];
-      dependents.push(node);
-      dependentsByNeed.set(need, dependents);
-    }
-  }
-  return dependentsByNeed;
-}
-
 function hasDownstreamCoverage(
   config: PipelineConfig,
   nodeId: string,
-  dependentsByNeed: Map<string, WorkflowNode[]>
+  index: Map<string, WorkflowNode[]>
 ): boolean {
-  return hasReachableDependent(nodeId, dependentsByNeed, (node) =>
+  return hasReachableDependent(nodeId, index, (node) =>
     isCoverageNode(config, node)
   );
-}
-
-function isCoverageNode(config: PipelineConfig, node: WorkflowNode): boolean {
-  return hasSchedulingRole(config, node, "coverage");
-}
-
-function hasSchedulingRole(
-  config: PipelineConfig,
-  node: WorkflowNode,
-  role: SchedulingRole
-): boolean {
-  if (node.kind !== "agent") {
-    return false;
-  }
-  const profile = config.profiles[node.profile];
-  return profile?.scheduling_roles?.includes(role) ?? false;
 }
 
 function allWorkflowNodes(
   workflows: ScheduleArtifact["workflows"]
 ): WorkflowNode[] {
   return Object.values(workflows).flatMap((workflow) =>
-    workflow.nodes.flatMap(flattenWorkflowNode)
+    flattenWorkflowNodes(workflow.nodes)
   );
 }
 
-function flattenWorkflowNode(node: WorkflowNode): WorkflowNode[] {
-  return node.kind === "parallel"
-    ? [node, ...node.nodes.flatMap(flattenWorkflowNode)]
-    : [node];
+function flattenWorkflowNodes(nodes: WorkflowNode[]): WorkflowNode[] {
+  return flattenNodes(nodes, (node) =>
+    node.kind === "parallel" ? node.nodes : undefined
+  );
 }

@@ -1,5 +1,8 @@
-import type { PipelineConfig, SchedulingRole } from "../../config";
+import type { PipelineConfig } from "../../config";
+import { dependentsByNeed, hasReachableDependent } from "../../planning/graph";
+import { uniqueGeneratedId } from "../../strings";
 import type { ScheduleArtifact } from "../planner";
+import { isCoverageNode, isImplementationNode } from "../scheduling-roles";
 
 type Workflow = PipelineConfig["workflows"][string];
 type WorkflowNode = Workflow["nodes"][number];
@@ -9,9 +12,6 @@ const DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE = [
   "moka-acceptance-reviewer",
   "moka-thermo-nuclear-reviewer",
 ];
-const GENERATED_ID_INVALID_CHARS_RE = /[^a-z0-9]+/g;
-const GENERATED_ID_TRIM_HYPHENS_RE = /^-+|-+$/g;
-const STARTS_WITH_ALPHA_RE = /^[a-z]/;
 
 export function addGeneratedImplementationCoverage(
   config: PipelineConfig,
@@ -64,12 +64,10 @@ function addNodeScopeImplementationCoverage(
         }
       : node
   );
-  const dependentsByNeed = workflowDependentsByNeed(scopedNodes);
+  const index = dependentsByNeed(scopedNodes);
   const uncovered = scopedNodes
     .filter((node) => isImplementationNode(config, node))
-    .filter(
-      (node) => !hasDownstreamCoverage(config, node.id, dependentsByNeed)
-    );
+    .filter((node) => !hasDownstreamCoverage(config, node.id, index));
   if (uncovered.length === 0) {
     return scopedNodes;
   }
@@ -125,94 +123,12 @@ function generatedCoverageGates(
   ];
 }
 
-function workflowDependentsByNeed(
-  nodes: WorkflowNode[]
-): Map<string, WorkflowNode[]> {
-  const dependentsByNeed = new Map<string, WorkflowNode[]>();
-  for (const node of nodes) {
-    for (const need of node.needs ?? []) {
-      const dependents = dependentsByNeed.get(need) ?? [];
-      dependents.push(node);
-      dependentsByNeed.set(need, dependents);
-    }
-  }
-  return dependentsByNeed;
-}
-
-function isImplementationNode(
-  config: PipelineConfig,
-  node: WorkflowNode
-): boolean {
-  return hasSchedulingRole(config, node, "implementation");
-}
-
 function hasDownstreamCoverage(
   config: PipelineConfig,
   nodeId: string,
-  dependentsByNeed: Map<string, WorkflowNode[]>
+  index: Map<string, WorkflowNode[]>
 ): boolean {
-  return hasReachableDependent(nodeId, dependentsByNeed, (node) =>
-    hasSchedulingRole(config, node, "coverage")
+  return hasReachableDependent(nodeId, index, (node) =>
+    isCoverageNode(config, node)
   );
-}
-
-function hasSchedulingRole(
-  config: PipelineConfig,
-  node: WorkflowNode,
-  role: SchedulingRole
-): boolean {
-  if (node.kind !== "agent") {
-    return false;
-  }
-  const profile = config.profiles[node.profile];
-  return profile?.scheduling_roles?.includes(role) ?? false;
-}
-
-function hasReachableDependent(
-  nodeId: string,
-  dependentsByNeed: Map<string, WorkflowNode[]>,
-  matches: (node: WorkflowNode) => boolean
-): boolean {
-  const visited = new Set<string>();
-  const queue = [...(dependentsByNeed.get(nodeId) ?? [])];
-  while (queue.length > 0) {
-    const node = queue.shift();
-    if (!node || visited.has(node.id)) {
-      continue;
-    }
-    visited.add(node.id);
-    if (matches(node)) {
-      return true;
-    }
-    queue.push(...(dependentsByNeed.get(node.id) ?? []));
-  }
-  return false;
-}
-
-function uniqueGeneratedId(
-  value: string,
-  usedIds: Set<string>,
-  fallbackPrefix: string
-): string {
-  const base = generatedId(value, fallbackPrefix);
-  let candidate = base;
-  let suffix = 2;
-  while (usedIds.has(candidate)) {
-    candidate = `${base}-${suffix}`;
-    suffix += 1;
-  }
-  usedIds.add(candidate);
-  return candidate;
-}
-
-function generatedId(value: string, fallbackPrefix: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replaceAll(GENERATED_ID_INVALID_CHARS_RE, "-")
-    .replaceAll(GENERATED_ID_TRIM_HYPHENS_RE, "");
-  if (STARTS_WITH_ALPHA_RE.test(slug)) {
-    return slug;
-  }
-  return slug ? `${fallbackPrefix}-${slug}` : fallbackPrefix;
 }

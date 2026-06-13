@@ -1,5 +1,6 @@
 import { Graph } from "@dagrejs/graphlib";
 import type { PipelineConfig, WorkflowNodeKind } from "./config";
+import { findDependencyCycles } from "./planning/graph";
 import { uniqueStrings } from "./strings";
 
 export type WorkflowPlannerErrorCode =
@@ -146,7 +147,7 @@ function validateNodeGraph(
     ...dependencyIssues(workflowId, nodes, nodeIds),
   ];
   if (duplicateIssues.length === 0) {
-    return [...issues, ...cycleIssues(workflowId, nodes, nodeIds)];
+    return [...issues, ...cycleIssues(workflowId, nodes)];
   }
   return issues;
 }
@@ -245,129 +246,15 @@ function isGroupNode(node: WorkflowNode): node is GroupWorkflowNode {
 
 function cycleIssues(
   workflowId: string,
-  nodes: WorkflowNode[],
-  nodeIds: Set<string>
+  nodes: WorkflowNode[]
 ): WorkflowPlannerIssue[] {
-  return dependencyCycles(nodes, nodeIds).map((cycle) => {
+  return findDependencyCycles(nodes).map((cycle) => {
     const id = cycle[0] ?? "nodes";
     return {
       path: `workflows.${workflowId}.nodes.${id}.needs`,
       message: `workflow '${workflowId}' contains dependency cycle: ${cycle.join(" -> ")}`,
     };
   });
-}
-
-function dependencyCycles(
-  nodes: WorkflowNode[],
-  nodeIds: Set<string>
-): string[][] {
-  const dependentsByNeed = dependentsByNeedMap(nodes, nodeIds);
-  const state = new Map<string, "done" | "visiting">();
-  const path: string[] = [];
-  const pathIndex = new Map<string, number>();
-  const cycles: string[][] = [];
-  const cycleKeys = new Set<string>();
-
-  for (const node of nodes) {
-    if (state.has(node.id)) {
-      continue;
-    }
-    visitForCycles(node.id, {
-      cycleKeys,
-      cycles,
-      dependentsByNeed,
-      path,
-      pathIndex,
-      state,
-    });
-  }
-
-  return cycles;
-}
-
-interface CycleVisitState {
-  cycleKeys: Set<string>;
-  cycles: string[][];
-  dependentsByNeed: Map<string, string[]>;
-  path: string[];
-  pathIndex: Map<string, number>;
-  state: Map<string, "done" | "visiting">;
-}
-
-function visitForCycles(startId: string, visitState: CycleVisitState): void {
-  const frames: Array<{ index: number; nodeId: string }> = [
-    { index: 0, nodeId: startId },
-  ];
-  markVisiting(startId, visitState);
-
-  while (frames.length > 0) {
-    const frame = frames.at(-1);
-    if (!frame) {
-      return;
-    }
-    const dependents = visitState.dependentsByNeed.get(frame.nodeId) ?? [];
-    const dependentId = dependents[frame.index];
-    if (!dependentId) {
-      markDone(frame.nodeId, visitState);
-      frames.pop();
-      continue;
-    }
-    frame.index += 1;
-    const dependentState = visitState.state.get(dependentId);
-    if (dependentState === "visiting") {
-      recordCycle(dependentId, visitState);
-      continue;
-    }
-    if (dependentState === "done") {
-      continue;
-    }
-    markVisiting(dependentId, visitState);
-    frames.push({ index: 0, nodeId: dependentId });
-  }
-}
-
-function markVisiting(nodeId: string, visitState: CycleVisitState): void {
-  visitState.state.set(nodeId, "visiting");
-  visitState.pathIndex.set(nodeId, visitState.path.length);
-  visitState.path.push(nodeId);
-}
-
-function markDone(nodeId: string, visitState: CycleVisitState): void {
-  visitState.state.set(nodeId, "done");
-  visitState.pathIndex.delete(nodeId);
-  visitState.path.pop();
-}
-
-function recordCycle(nodeId: string, visitState: CycleVisitState): void {
-  const startIndex = visitState.pathIndex.get(nodeId);
-  if (startIndex === undefined) {
-    return;
-  }
-  const cycle = visitState.path.slice(startIndex);
-  const key = [...cycle].sort().join("\0");
-  if (visitState.cycleKeys.has(key)) {
-    return;
-  }
-  visitState.cycleKeys.add(key);
-  visitState.cycles.push(cycle);
-}
-
-function dependentsByNeedMap(
-  nodes: WorkflowNode[],
-  nodeIds: Set<string>
-): Map<string, string[]> {
-  const dependentsByNeed = new Map<string, string[]>();
-  for (const node of nodes) {
-    for (const need of uniqueStrings(node.needs ?? [])) {
-      if (!nodeIds.has(need)) {
-        continue;
-      }
-      const dependents = dependentsByNeed.get(need) ?? [];
-      dependents.push(node.id);
-      dependentsByNeed.set(need, dependents);
-    }
-  }
-  return dependentsByNeed;
 }
 
 function topologicalOrderForPlan(
