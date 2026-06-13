@@ -35,33 +35,55 @@ export function configUsesOpencode(config: PipelineConfig): boolean {
 }
 
 /**
- * Open one opencode server for the run and return an SDK-backed executor plus a
- * release() that tears the server down. Caller owns the lifecycle:
+ * Return an SDK-backed executor plus a release() that tears the server down.
+ * The opencode server is started LAZILY on the first executor call, not at
+ * lease time: a run whose ready nodes are all command/builtin (or that fails
+ * before any agent node executes) never spawns opencode, so the binary is only
+ * required when an agent node actually runs. release() is a no-op if the server
+ * was never started. Caller owns the lifecycle:
  *
  *   const lease = await leaseOpencodeRuntime({ config, worktreePath });
  *   try { ...run with lease.executor... } finally { await lease.release(); }
  */
-export async function leaseOpencodeRuntime(input: {
+export function leaseOpencodeRuntime(input: {
   config: PipelineConfig;
   signal?: AbortSignal;
   worktreePath: string;
+  /** Test seam: override how the server is opened. Defaults to startServer. */
+  openServer?: (opts: {
+    signal?: AbortSignal;
+    worktreePath: string;
+  }) => Promise<OpencodeServerHandle>;
 }): Promise<OpencodeRuntimeLease> {
-  let handle: OpencodeServerHandle | undefined = await startServer(input);
   const registry = createOpencodeSessionRegistry();
-  const executor = createOpencodeExecutor({
-    client: handle.client,
-    directory: input.worktreePath,
-    registry,
-  });
-  return {
-    executor,
+  const openHandle = input.openServer ?? startServer;
+  let handle: OpencodeServerHandle | undefined;
+  let pending: Promise<RuntimeExecutor> | undefined;
+
+  const ensureExecutor = (): Promise<RuntimeExecutor> => {
+    pending ??= openHandle(input).then((started) => {
+      handle = started;
+      return createOpencodeExecutor({
+        client: started.client,
+        directory: input.worktreePath,
+        registry,
+      });
+    });
+    return pending;
+  };
+
+  return Promise.resolve({
+    executor: async (plan, options) => {
+      const delegate = await ensureExecutor();
+      return await delegate(plan, options);
+    },
     release: async () => {
       if (handle) {
         await handle.close();
         handle = undefined;
       }
     },
-  };
+  });
 }
 
 async function startServer(input: {
