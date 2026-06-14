@@ -70,6 +70,16 @@ Whichever host you are on, run the same six steps:
 5. **Learn** — Once the gates pass, run `MoKa Learner` to store durable lessons from the run (qdrant memory) when there is something worth reusing. This mirrors the canonical pipeline's LEARN phase; skip it only when the run produced nothing reusable.
 6. **Synthesize** — Report only the evidence the agents actually returned: what passed, what the diff is, what the reviewers proved. Never fabricate or assume an outcome an agent did not report.
 
+## Task sizing & token budget
+
+Token usage is the dominant cost and quality lever — it explains the bulk of agent performance variance, and context degrades well before a model's window fills. Size the work accordingly:
+
+- **Scale fan-out to complexity, not ambition.** A trivial change is one agent (or just do it inline); a bounded change is 1–3 lanes; only go wide for genuinely independent breadth. Code parallelizes poorly — keep writer lanes narrow (the pipeline caps `green`/code fan-out at 2 for exactly this reason).
+- **Keep each agent's context small and high-signal.** Pass context by path and hand over the distilled `research.json`, never raw repo dumps. A lane that needs half the repo in its context is mis-scoped — split it.
+- **Distilled returns.** Expect each sub-agent to return a ~1–2k-token summary of its result, not its full transcript. Gather the summary; don't re-read the work.
+- **Re-dispatch once, with evidence.** On a gate `FAIL`, re-dispatch the failing lane a *single* time with concentrated failure evidence — do not thrash. Each fresh `opencode run` re-pays the full cold-start context tax (~35k tokens of standup before any work), so a retry loop is expensive; fix the input, not the dice.
+- **Smallest roster that covers the work.** Every extra lane is another cold standup. Default to the fewest specialists that close the task; add a lane only when it genuinely runs independently.
+
 ## Rules
 
 - **Doctrine is host-neutral; only the Dispatch section is host-specific.** Do not leak `opencode run` syntax into an OpenCode run or Task-tool talk into a Claude run.
