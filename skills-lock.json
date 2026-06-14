@@ -179,7 +179,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/orchestrate/SKILL.md",
-      "computedHash": "4dc0178ba9dd11b1007958a6f36ba63fe6ad1894e5a6208f044b199cba926ea6"
+      "computedHash": "8c0079225941b2d61ba264b4ce93034bf3460d743ab2787baa6548826e70d4e6"
     },
     "performance-optimization": {
       "source": "addyosmani/agent-skills",
