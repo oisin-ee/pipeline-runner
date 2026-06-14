@@ -1,9 +1,6 @@
 {
   "permissions": {
-    "allow": [
-      "Task",
-      "Bash(opencode run *)"
-    ]
+    "allow": ["Task", "Bash(opencode run *)"]
   },
   "mcpServers": {
     "pipeline-gateway": {
