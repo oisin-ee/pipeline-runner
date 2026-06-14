@@ -113,6 +113,10 @@ If the root cause is architectural — no good seam, tangled callers, hidden cou
 
 ## Phase 4 — Hand off to the fix
 
+Phase 3 is a gate, not a self-assessment. You do not leave it by *feeling* confident — you leave it by having all six confirmation checks actually pass. "It's obviously X" is exactly the thought that precedes the six checks failing.
+
+**The artifact you emit is the confirmed root cause** — the three-level explanation (what / why / why-not-prevented), the reverse-test result, and the class-not-instance statement. This is what [[fix]] consumes: a fix that arrives without a confirmed root cause behind it is a guess, and [[fix]] is entitled to send it back here. The handoff is not "go fix it" — it is "here is the cause, confirmed, with the evidence."
+
 Once the cause is confirmed, the fix itself is governed by [[fix]]: a minimal fix at the source, a test that reproduces the bug, and proof the symptom is actually gone. One change — no "while I am here" refactoring bundled in.
 
 ## Stop if you catch yourself thinking…

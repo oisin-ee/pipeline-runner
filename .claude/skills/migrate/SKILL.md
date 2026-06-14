@@ -110,6 +110,8 @@ Migrate consumers one at a time, not all at once. For each consumer:
 
 ### Step 4: Remove the Old System
 
+Removal is the one irreversible step here, so it carries the highest evidence bar — and "I assume nothing uses it anymore" is exactly the failure that deletes something still in production. You remove on **measured** zero usage (metrics, logs, dependency analysis you ran this session), never on the belief that migration "should be" complete. Before deleting anything, [[verify]] applies: the claim "zero active consumers" is a claim that needs fresh evidence, not a hope. If you cannot measure usage, you cannot safely remove — say so and stop.
+
 Only after all consumers have migrated:
 
 ```

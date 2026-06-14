@@ -7,6 +7,17 @@ description: Use BEFORE starting any non-trivial feature, change, or fix — whe
 
 A plan is finished when an agent fleet could drain it without you in the room: every ticket is a single unit of work, spawnable in parallel, with acceptance criteria that say exactly when it's done, and a dependency graph that makes the fan-out order computable rather than guessed. Planning *is* the work — the tickets are just its output. Coast on the planning and you pay for it N times over, once per agent that picks up an under-specified ticket.
 
+## The contract
+
+The output of this skill is not "tickets." It is a set of **binding contracts** that travel to the draining agents. A ticket binds only if **every** line is true:
+
+- **It carries a Definition of Done the implementer executes and may not renegotiate** — every acceptance criterion, plus the concrete evidence that proves each one (the command, the assertion, the observed output). The agent's job is to satisfy the contract you wrote, not to decide mid-worktree that something else is "good enough."
+- **"Partial" is not a state the ticket permits.** A ticket is met or it is an explicit, structured escalation back to you ("criteria 1–3 met with this evidence; criterion 4 blocked by X") — never a silent stop, never a quiet hand-back of half the work. Build this expectation *into the ticket* so the draining agent inherits it.
+- **It is satisfiable only by producing per-criterion evidence.** If an agent could plausibly mark the ticket done without showing evidence for each criterion, the ticket is under-specified — that gap is *yours* to close now, not the implementer's to improvise later.
+- **It names the libraries/CLIs and the smell constraints for its slice** (below), so deviation requires a recorded reason the reviewer reads — not a silent choice the agent makes alone.
+
+This is the lever on the symptom you're trying to kill: an agent "does whatever it wants" or "stops without finishing" exactly when the ticket left it room to. A binding DoD with per-criterion evidence and no "partial" exit removes the room. Tickets you emit are read by [[execute]] (which drains them) and [[verify]] (which gates them) — they enforce this contract; you author it.
+
 ## The discipline
 
 Don't decompose first. Decomposition is step 5. Walk the work down to bedrock, *then* cut it into pieces.
@@ -42,7 +53,7 @@ This is the constraint everything else serves. **Every ticket must be all seven:
 
 - **One unit of work** — implementable, testable, and verifiable in a single focused agent session. An "and" in the title is two tickets. Two independent subsystems is two tickets.
 - **Independently spawnable** — an agent can take it with nothing but the ticket and the repo. No "ask Sarah", no "coordinate with the other branch". A shared contract (types, an API shape, a schema) is its *own earlier ticket* that the others depend on — define it once, then the dependents fan out without colliding.
-- **Acceptance-criteria-complete** — explicit, testable done-conditions. "Implement the feature" is not acceptance criteria; "`POST /tasks` returns 201 with the created task; empty title returns 422" is.
+- **Acceptance-criteria-complete** — explicit, testable done-conditions, *each paired with the evidence that proves it*. "Implement the feature" is not acceptance criteria; "`POST /tasks` returns 201 with the created task (asserted in `tasks.test.ts`); empty title returns 422 (asserted)" is. A criterion with no nameable evidence is a wish, not a done-condition.
 - **Dependency-declared** — it names what it depends on, so the batch order is *computed*, not eyeballed.
 - **Implementation-complete** — it carries the slice of the design it owns: the interface it implements, the files it will touch, the test seam. The implementing agent should *execute* the plan, not re-derive it.
 - **Library/CLI-declared** — it names the library, framework feature, package script, or generator command to use; if manual code is required, it says why the maintained path does not fit.
@@ -96,7 +107,7 @@ Each ticket is built with [[test]] unless it's genuinely trivial (config, copy, 
 
 ## When NOT to do all this
 
-A single-file change with obvious scope doesn't need an epic — just do it (with [[test]] if it's behavior). The machinery earns its keep when work is large, parallelizable, or unclear. Don't ceremony-wrap a one-liner.
+This is a narrow exit, not a blanket one. Skip the epic machinery *only* when the work is a single-file change whose scope is genuinely obvious and whose done-condition you can state in one line — then just do it (with [[test]] if it's behavior). "This feels small" is not the test; "one file, one obvious change, one statable done-condition" is. The moment the work is multi-file, parallelizable, touches an unfamiliar API, or has a done-condition you can't write in a sentence, it is back in scope — do not use this exit to skip planning on work that needed it. Don't ceremony-wrap a one-liner; don't under-plan a feature because you'd rather start coding.
 
 ## Red flags
 

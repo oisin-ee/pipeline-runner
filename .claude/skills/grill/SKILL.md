@@ -30,7 +30,9 @@ Record a decision as an **ADR only when all three hold**: it's hard to reverse, 
 
 ## When it's done
 
-The plan is grilled when you can't find a term that two people would read differently, a boundary that a scenario can break, or an assumption the code contradicts. Hand the hardened plan back to [[scope]] for decomposition — every ambiguity you killed here is a ticket that won't stall mid-implementation.
+"It looks fine" is not grilled — grilled means you *ran the interview* and came up empty: you went looking for a term two people would read differently, a boundary a scenario can break, an assumption the code contradicts, and against the actual repo and glossary you could no longer find one. Declaring a plan grilled without having hunted is the failure this skill exists to prevent; the absence of questions is only meaningful after the search.
+
+**The artifact you emit is the hardened plan plus the resolutions** — the sharpened terms (written into the glossary), the boundary decisions, the code-contradictions found and closed. [[scope]] consumes it: a plan handed to decomposition without evidence it was actually grilled is a guess wearing a checklist, and every ambiguity you *didn't* kill here becomes a ticket that stalls mid-implementation. Hand the hardened plan back to [[scope]].
 
 ## The short version
 

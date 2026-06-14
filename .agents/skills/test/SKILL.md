@@ -48,6 +48,8 @@ A bug fix *starts* with a failing test, not a fix. Write a test that reproduces 
 - [ ] The code is the minimum for *this* test — no speculative features.
 - [ ] The test would survive an internal refactor.
 
+**The artifact you emit is the red-then-green evidence** — you *watched* each test fail for the right reason, then pass. "I watched it fail" is a claim about output you saw this session, not a courtesy phrase; [[verify]] and [[execute]] consume this evidence and a test you never saw fail counts for nothing. A behaviour with no test, or a test with no observed RED, is not done — it is untested code wearing a green check.
+
 ## Red flags
 
 - A test that passed the first time you ran it (you never saw RED).

@@ -9,6 +9,15 @@ Claiming work is complete without fresh evidence is not efficiency. It is guessi
 
 **Core rule:** evidence before claims, always.
 
+## The hard stop
+
+This skill is the gate the whole chain terminates in. Two claims are forbidden here, no exceptions:
+
+- **"Done" while any acceptance criterion is unmet or unevidenced.** Done is all-criteria-met-with-fresh-evidence or it is not done. You may not round up from "the important parts pass." If a criterion lacks evidence you ran *this session*, it is unverified, and unverified blocks the "done" claim — full stop.
+- **"Done" that is actually "partial."** If some criteria pass and others don't, the honest output is a partial report that names every unmet criterion (see *If You Cannot Verify*), never a success claim with the gaps omitted. Omitting a known gap to make the claim land is the failure this skill exists to catch.
+
+A claim that survives this gate carries its evidence with it. A claim that can't produce the evidence does not get made.
+
 ## The Gate
 
 Before saying anything is done, fixed, passing, ready, safe, or complete:
@@ -50,14 +59,21 @@ These phrases are not banned; unsupported claims are. Run the check first, then 
 
 ## If You Cannot Verify
 
-Say exactly what is missing:
+Say exactly what is missing, criterion by criterion — the same structured shape [[execute]] escalates in, so a partial result is legible rather than a shrug:
+
+```text
+Verified:   - <criterion> — <command/output that proves it>
+Unverified: - <criterion> — <why: missing access/data/blocker, what you tried>
+```
+
+Concrete, not vague:
 
 - "I could not run `npm test` because dependencies are not installed."
 - "I verified the unit tests, but not the browser flow."
 - "The original bug requires production data I do not have."
 - "The check failed: 3 tests still fail in `billing.test.ts`."
 
-Then either fix the blocker, ask for the missing access/input, or report the remaining risk. Do not convert uncertainty into a success claim.
+Then either fix the blocker, ask for the missing access/input, or report the remaining risk. Do not convert uncertainty into a success claim. Every criterion lands in Verified or Unverified — one you can't place is itself a gap to report.
 
 ## Common Patterns
 

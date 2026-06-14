@@ -22,7 +22,9 @@ Also forbidden: making the compiler, linter, or test suite shut up without fixin
 
 ## Before you write the fix: walk the ladder
 
-You should already know the root cause (via [[trace]]). Confirm where the fix belongs:
+**Precondition:** you have [[trace]]'s confirmed root cause in hand — the three-level explanation, the reverse-test result, the class-not-instance statement. If you don't, you are not fixing yet, you are guessing; go back to [[trace]]. "I'm pretty sure it's X" is not a confirmed root cause. A fix without one is the bandaid this skill exists to forbid, just wearing a confident face.
+
+With the cause confirmed, walk the ladder to place the fix:
 
 1. **Symptom.** State the user-visible fault precisely — the symptom, not your guess at the cause.
 2. **Proximate cause.** Which exact code is wrong — and is the defect at the line you'd patch, or upstream of it? The line that *fires* the error is rarely the line that *contains* it.
@@ -46,6 +48,8 @@ A fix is not "fixed" until you have *watched* it work:
 - Run the full suite — no new failures.
 
 No "should work", "probably fixed", "that ought to do it". If you haven't run it and read the output this session, you haven't verified it — say what you actually know.
+
+**The artifact you emit is the red→green evidence** — the test failing before, passing after, the original repro gone, the suite still green. [[verify]] consumes it and will not pass a "fixed" claim that can't produce it. "Fixed" is a claim about evidence you can show, not a feeling about code you wrote.
 
 ## The short version
 

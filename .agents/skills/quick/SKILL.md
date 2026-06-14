@@ -16,3 +16,5 @@ moka submit --quick <task description>
 ```
 
 The quick path should stay compact: generate or submit the quick schedule, preserve package-owned gates, and report only the evidence returned by the pipeline runtime.
+
+**Compact is not undisciplined.** "Quick" describes the *size* of the task, not a licence to skip the gates — the same completion contract applies: the work is finished and evidenced, or it is an explicit escalation, never a silent partial. Preserve every package-owned gate; reporting "done" still means reporting the runtime's actual evidence, not your assumption that it passed. If a task turns out to need real planning, a failing-test loop, or a root-cause investigation, it was never a quick task — route it to [[scope]], [[test]], or [[trace]] instead of forcing it through this path to save steps.

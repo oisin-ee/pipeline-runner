@@ -9,6 +9,8 @@ description: Conducts multi-axis code review. Use before merging any change. Use
 
 Multi-dimensional code review with quality gates. Every change gets reviewed before merge — no exceptions. Review covers correctness, readability, architecture, security, performance, and the [[quality-gate]] smell check.
 
+**A review is the act of checking, not the act of approving.** "LGTM" with no findings and no evidence you walked the axes is not a review — it is a rubber stamp wearing one. The checkable signal (borrowed from [[doubt]]'s anti-theater rule): if the diff is non-trivial and you produced *zero* findings across all six axes, you almost certainly didn't review it — look again before you approve. You are also entitled to the upstream artifacts: the ticket's acceptance criteria, the test evidence ([[test]]), and the quality-gate evidence ([[quality-gate]]). A change that arrives without them isn't ready for review — send it back rather than reviewing a claim you can't check.
+
 **The approval standard:** Approve a change when it definitely improves overall code health, even if it isn't perfect. Perfect code doesn't exist — the goal is continuous improvement. Don't block a change because it isn't exactly how you would have written it. If it improves the codebase and follows the project's conventions, approve it.
 
 ## When to Use
@@ -226,6 +228,12 @@ After any refactoring or implementation change, check for orphaned code:
 Don't leave dead code lying around — it confuses future readers and agents. But don't silently delete things you're not sure about. When in doubt, ask.
 
 ```
+DEAD CODE IDENTIFIED:
+- formatLegacyDate() in src/utils/date.ts — replaced by formatDate()
+- OldTaskCard component in src/components/ — replaced by TaskCard
+- LEGACY_API_URL constant in src/config.ts — no remaining references
+→ Safe to remove these?
+```
 
 ## Specialized review lenses
 
@@ -236,12 +244,6 @@ Use these lenses inside the same review, not as separate top-level skills:
 - **Quality gate:** load [[quality-gate]] and block workarounds, unsafe casts/assertions, type-system escapes, massive branching, duplicated condition clusters, shallow wrappers, dead code, and disabled checks.
 - **Requesting review:** package the diff with a short description, requirements/plan, base/head SHAs, verification run, and known risks. Do not hand the reviewer your whole session history.
 - **Receiving review:** verify each finding against the code before implementing it. Fix valid Critical and Important issues; push back with evidence when a comment is technically wrong.
-DEAD CODE IDENTIFIED:
-- formatLegacyDate() in src/utils/date.ts — replaced by formatDate()
-- OldTaskCard component in src/components/ — replaced by TaskCard
-- LEGACY_API_URL constant in src/config.ts — no remaining references
-→ Safe to remove these?
-```
 
 ## Review Speed
 

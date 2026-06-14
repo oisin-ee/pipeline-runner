@@ -7,12 +7,24 @@ description: Use whenever researching a technical question — a library, tool, 
 
 The failure mode this kills: one search, then everything else confabulated from training data, padded with SEO articles written to rank for agents rather than to be correct. That produces confident, outdated, wrong answers. Research means *reading current primary sources*, not pattern-matching memory.
 
-## Two hard rules
+## The contract
 
-1. **No coasting.** One search is never the research. Run several varied queries, open multiple sources, and read them. Any claim about current or version-specific behaviour must trace to a source you actually opened *this session* — not to training data. If you're stating something from memory, say so, then go verify it.
-2. **Source quality is gated.** Prefer primary, high-signal sources. Actively distrust and avoid agent-bait. A wrong source is worse than no source.
+You have not researched until **every** line below is true *and you can show it*. This is the floor, not the aspiration:
 
-## Source tiers
+- **≥3 sources opened this session, ≥1 of them Tier-A primary** (official docs, source code, changelog/release notes). One search is not research. One blog is not research. If you ran one query and stopped, you have not started.
+- **≥2 varied queries** from different angles — not the same query reworded. A single search that happened to return a good link is luck, not method.
+- **Every load-bearing claim traces to a source you opened this session** — a pasteable URL, not "I think the docs say." If you didn't open it this session, it does not count as researched.
+- **Memory is labelled at the claim, inline.** Anything you state from training data rather than a source you opened this session reads `[unverified — from memory]` *on that sentence* — not in a footnote, not a blanket "some of this may be dated" at the end. The specific claim wears the label.
+
+**The artifact you emit is the source list** — what you opened, its tier, and its date. The next skill in the chain ([[library-first-development]], or the implementer acting on your answer) reads it and is entitled to reject a handoff without one. A research result with no source list is a memory dump wearing a lab coat.
+
+### The "unverified" exit is honest only when shown
+
+"I couldn't confirm this" is a valid, valued answer — *when you show the trail*: the queries you ran and the sources you opened that failed to settle it. An "unverified" label with no visible search behind it is not honesty, it is coasting with a disclaimer attached. Earn the label by searching first; a confident guess and a lazy shrug are the same failure in different clothes.
+
+## Source quality is gated
+
+Prefer primary, high-signal sources. Actively distrust and avoid agent-bait. A wrong source is worse than no source.
 
 **Tier A — primary, trust first:**
 - Official docs, specs, standards, RFCs for the actual thing.
@@ -44,7 +56,7 @@ If a page fails the smell test, drop it and find a Tier A/B source instead. Don'
 - Cross-check every load-bearing claim against a primary source.
 - When sources disagree, say so and explain which you trust and why — don't silently pick one.
 - **Cite what you actually read** (the URL/source), not where you *think* the information lives.
-- If you couldn't verify something, label it **unverified** rather than stating it as fact. "I couldn't confirm this" is a valid, valued answer; a confident guess is not.
+- A claim you couldn't verify is labelled **unverified** per the contract above — shown, not shrugged.
 
 ## Source-driven implementation
 
@@ -52,7 +64,7 @@ When research feeds framework-specific code, the implementation decision must tr
 
 ## When this feeds a build decision
 
-Choosing a library/tool from this research? Hand the candidates to [[library-first-development]] for the vetting step — adoption, maintenance, bus factor, license, security.
+Choosing a library/tool from this research? Hand the candidates *and the source list* to [[library-first-development]] for the vetting step — adoption, maintenance, bus factor, license, security.
 
 ---
 

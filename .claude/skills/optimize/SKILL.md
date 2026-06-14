@@ -37,6 +37,8 @@ Measure before optimizing. Performance work without measurement is guessing — 
 5. GUARD    → Add monitoring or tests to prevent regression
 ```
 
+**The artifact you emit is the before/after measurement pair — specific numbers, same conditions.** "It's faster now" with no baseline is not an optimization, it is a hope; [[verify]] and [[critique]] consume the numbers and an optimization that can't show a measured delta did not happen. This cuts both ways: a "fix" that didn't move the number you measured is either aimed at the wrong bottleneck or wasn't needed — revert it rather than keeping complexity that bought nothing. No baseline → no claim. No re-measure → not done.
+
 ### Step 1: Measure
 
 Two complementary approaches — use both:

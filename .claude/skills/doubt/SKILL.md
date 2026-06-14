@@ -161,7 +161,7 @@ Acknowledge the skip in the output (*"Proceeding with single-model findings only
 **Non-interactive contexts** (CI, `/loop`, autonomous-loop, scheduled runs):
 
 - Cross-model is **skipped**, and the skip must be **announced** in the output: *"Cross-model skipped: non-interactive context."*
-- **Never invoke an external CLI without explicit user authorization** — this is a load-bearing safety property.
+- **Never invoke a separate external reviewer/model CLI without explicit user authorization** — this is a load-bearing safety property for cross-model review tools. This does not apply to normal repository commands, package scripts, Git/GitHub delivery, CI, deployment, or verification commands required by the assigned task.
 
 Cross-model adds cost, latency, and tool fragility. The agent surfaces the choice every cycle; the user decides whether this artifact warrants it.
 
@@ -202,7 +202,7 @@ If 3 cycles is "obviously insufficient" because the artifact is large: the artif
 | "Two opinions are always better than one" | Not when the second has less context and produces noise. Reconcile, don't defer. |
 | "The reviewer disagreed so I was wrong" | The reviewer lacks your context — disagreement is information, not verdict. Re-read the artifact, classify, then decide. |
 | "Cross-model is always better" | Cross-model catches blind spots a single model shares with itself, but it adds cost and tool fragility. Offer it every interactive doubt cycle — the user decides whether the artifact warrants it. The agent's job is to surface the choice, not to gate it. |
-| "User said yes once, so I can keep invoking the CLI" | Each invocation is its own authorization. The artifact, the prompt, and the flags change between calls — re-confirm the exact command with the user before every run. |
+| "User said yes once, so I can keep invoking an external reviewer CLI" | Each reviewer invocation is its own authorization. The artifact, the prompt, and the flags change between calls — re-confirm the exact reviewer command with the user before every run. |
 
 ## Red Flags
 
@@ -240,4 +240,4 @@ After applying doubt-driven development:
 - [ ] A stop condition was met (trivial findings, 3 cycles, or user override)
 - [ ] In interactive mode, cross-model was **explicitly offered** to the user (regardless of artifact stakes) and the response was acknowledged in the output
 - [ ] In non-interactive mode, cross-model was skipped and the skip was announced
-- [ ] Any external CLI invocation was preceded by a PATH check, a working-binary test, syntax confirmation with the user, and explicit authorization to run
+- [ ] Any separate external reviewer/model CLI invocation was preceded by a PATH check, a working-binary test, syntax confirmation with the user, and explicit authorization to run

@@ -41,7 +41,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/critique/SKILL.md",
-      "computedHash": "9d551c42268296603abdb04be13651cf315a37d1e5a6f4e8b3fb62b57531e89b"
+      "computedHash": "c4e8ed1c5b7f2fed257838151f572b9e0e22cf77055d6d6d2d4e7624f0e56885"
     },
     "dark-mode-image": {
       "source": "oisin-ee/skills",
@@ -71,7 +71,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/diagnose/SKILL.md",
-      "computedHash": "837512fb93ae6058b0e6ddf304073e70194f6a0e9b4dd80adf942376307770d7"
+      "computedHash": "3f89c8fc85101939b2fb5aae88cc0c18a950a69a581a65497c06a9290dc8a97b"
     },
     "dispatching-parallel-agents": {
       "source": "obra/superpowers",
@@ -89,7 +89,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/doubt/SKILL.md",
-      "computedHash": "628d999f5fae9379ee4ed4b78d6212f8205e9912e99421c9cf86a7bf2b233b7f"
+      "computedHash": "f5ef2295a9d20eb7fe5cf68bc1742cd935bb4fa3058ed896f4c344b80861120f"
     },
     "doubt-driven-development": {
       "source": "addyosmani/agent-skills",
@@ -101,19 +101,19 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/execute/SKILL.md",
-      "computedHash": "ff3ef327d598e3463c4ed6c8b5bfb0cc03e578df3cb6d0970a5dab20f48bf52b"
+      "computedHash": "5ce7a9e54b0141e5c9de24ae0cb5ef11802ea8c83803f55934203fb8486c376a"
     },
     "fix": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/fix/SKILL.md",
-      "computedHash": "b230900a657cdc952523c429aaab007996de928a82e26c229e244e68ad5490c3"
+      "computedHash": "747b492326da3454cdd192d55576ce97ab3f04bc9b8e53918cac94c5cf45bc72"
     },
     "grill": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/grill/SKILL.md",
-      "computedHash": "c828d5b63f363f2cd1624c0bb6c78f127166882590fe09b3964ba44ffeb89cff"
+      "computedHash": "451a8b6d225049b213e299fa86d1ae24d401a37cdb818b36e780a455caba1558"
     },
     "ideas": {
       "source": "oisin-ee/skills",
@@ -131,7 +131,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/improve/SKILL.md",
-      "computedHash": "a512a121f008bb7deb60dc2bd2cfc4e421a21124ef7ee475bffe5715f46ac484"
+      "computedHash": "fde69f1b9d93b6ad15665246c405daeeae3e3ea174a9d1f2727dad59464a68c7"
     },
     "incremental-implementation": {
       "source": "addyosmani/agent-skills",
@@ -143,13 +143,13 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/inspect/SKILL.md",
-      "computedHash": "beee0414e82736cc1850bc8d0333e77dfc5aaa07eb54176bac95c447b77ec836"
+      "computedHash": "bb910dbaa080573b759fa95983e29cf7adee873921e69ce58eac9f8879973e0c"
     },
     "library-first-development": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/library-first-development/SKILL.md",
-      "computedHash": "4e7711cbf5952dcdaada9e92889b43a18391353e9a50c91cdbe59e07bb89d7cb"
+      "computedHash": "a37c36c3772e77d562040f3b91e3ce0ab2514b67ca37e73dec079ed4f58904ab"
     },
     "make-responsive": {
       "source": "oisin-ee/skills",
@@ -167,13 +167,19 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/migrate/SKILL.md",
-      "computedHash": "3d8f0cca854c94159a3ee34953945fedaab248a8c83420aa1dd6076c52a1c9e6"
+      "computedHash": "fabad782099f83a58420b007e0579966be2934ae3dbc0c2536fcfc1ee1e32bd5"
     },
     "optimize": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/optimize/SKILL.md",
-      "computedHash": "2f8cc4d0af04583836d468cb770476eb3154233ed39dbca0bf129a8e26b6b8e2"
+      "computedHash": "90696619ffaab568487042c2b94c62a2b975e885b52e28cc1808a177541e53aa"
+    },
+    "orchestrate": {
+      "source": "oisin-ee/skills",
+      "sourceType": "github",
+      "skillPath": "skills/orchestrate/SKILL.md",
+      "computedHash": "4dc0178ba9dd11b1007958a6f36ba63fe6ad1894e5a6208f044b199cba926ea6"
     },
     "performance-optimization": {
       "source": "addyosmani/agent-skills",
@@ -191,13 +197,13 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/quality-gate/SKILL.md",
-      "computedHash": "a132f83deea425753bb2e27fd310cd8fbb86a05fece3a3319a584920400db522"
+      "computedHash": "2da3039859aba7a56812fccc0e8bf068bd650c39c0a68bdf4bcd5e586fc3f348"
     },
     "quick": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/quick/SKILL.md",
-      "computedHash": "f644e487579cd81617898bd3639a86cea34fa373cee2c79bf86111714ba639c5"
+      "computedHash": "a102dfe1f6598382c95839139cad2838e533072805c1a687ec14d3fe6c66c5c6"
     },
     "receiving-code-review": {
       "source": "obra/superpowers",
@@ -215,25 +221,25 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/research/SKILL.md",
-      "computedHash": "406c611f6bdcc92005bb1a21008ea8979726c4da9ff60e15b1a963374dd84451"
+      "computedHash": "8e57fb6e4cb598ecea1467712bd5edf35382150554a66c3f940a195ea3fca264"
     },
     "schedule-graph-shaping": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/schedule-graph-shaping/SKILL.md",
-      "computedHash": "0f2302455eec23c61f3ebebc9eeaa7cd83335765fd89e229f40527f9eebdcf23"
+      "computedHash": "2b9c21fe98d3a6d39ea6222901af8b78400203797d92d9ed3f675ae35b09b6a4"
     },
     "scope": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/scope/SKILL.md",
-      "computedHash": "c2005a920749c3e634b54362ba8c1176e1acfb7a995dad53e3507b388bcafffa"
+      "computedHash": "0466265bdeaca1bee238d7218cea5ea75499a1ef41518300d0deba6893ce1406"
     },
     "secure": {
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/secure/SKILL.md",
-      "computedHash": "5569772ec2f539ee03357cd034960522afd2dc721900871b127aebada015f002"
+      "computedHash": "73147ea56a0e8e8f2fa64b6f3d0f2cf81a9981102b34c0ffb65c4b6ffb8d925d"
     },
     "security-and-hardening": {
       "source": "addyosmani/agent-skills",
@@ -257,7 +263,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/spec/SKILL.md",
-      "computedHash": "f8c39ec71d4932e95881aef3cdfcbbdffc8ce5c1a4587bb5c7860d6aa556d722"
+      "computedHash": "75b6b192307e54ae9abb9fba6c53343bf56c328c8172ef519a99a7246324d617"
     },
     "spec-driven-development": {
       "source": "addyosmani/agent-skills",
@@ -275,7 +281,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/test/SKILL.md",
-      "computedHash": "37e5e473299fcd7cb150ac35c0e09088475dc759ef4f15bbeed80edecab922b6"
+      "computedHash": "9af817c091afb27d26a4adf2218a4a96e4de2ea251c1cf33f241915ce9d7045a"
     },
     "test-driven-development": {
       "source": "addyosmani/agent-skills",
@@ -293,7 +299,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/trace/SKILL.md",
-      "computedHash": "21387c9885e22823198ff67e70c5b10a3e8e5c182bf776ac0059cf66f1eee041"
+      "computedHash": "af4b3aca1007e92c95c73f24469642c41f363f439a80803fc7940d2bb33abc13"
     },
     "using-superpowers": {
       "source": "obra/superpowers",
@@ -317,7 +323,7 @@
       "source": "oisin-ee/skills",
       "sourceType": "github",
       "skillPath": "skills/verify/SKILL.md",
-      "computedHash": "5e282103726ad13ca47d546a2eef7d5e973721f74156614f17808ec28c93bb66"
+      "computedHash": "3db4849c01c6df85828781b4b56b450b34a893574a7421d7adeef1af7946efce"
     },
     "web-design-guidelines": {
       "source": "vercel-labs/agent-skills",

@@ -32,6 +32,8 @@ Surface the **deepening opportunities** as candidates — for each: the problem 
 
 Use a strict maintainability lens when looking for candidates: giant files, repeated condition clusters, pass-through wrappers, hidden shared state, confusing compatibility shims, and branches that grow by accretion usually indicate a missing deeper module or misplaced seam.
 
+**Every candidate carries its deletion-test verdict as evidence, not a vibe.** "This feels shallow" is not a finding; "delete this and the complexity redistributes across its three callers — the boundary is misplaced" is. A candidate without a stated deletion-test result is an opinion, and the user can't act on opinions. **The artifact you emit is this candidate report** — [[scope]] consumes it to decide where depth and seams live *before* cutting tickets, so a candidate that can't survive the deletion test never becomes an architecture ticket built on a guess.
+
 ## Phase 3 — Grill the chosen design
 
 Once the user picks a candidate, design the interface *with* them — and grill it (this is [[grill]] pointed at a design): what are the real constraints? What will the seam need to support a year from now? Update the glossary inline as new terms settle. If a candidate is *rejected* for a reason worth preserving — a trade-off the next person would otherwise re-open — record it as an ADR (and only then: hard to reverse, surprising, genuine trade-off).

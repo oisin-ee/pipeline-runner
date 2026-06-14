@@ -81,6 +81,8 @@ Acceptable evidence depends on the repo, but use what exists:
 
 If the repo lacks tool enforcement, do a manual gate and report that it was manual.
 
+**This evidence is the artifact you emit** — the clean typecheck/lint/test output plus the diff review. [[verify]] and [[critique]] consume it; "quality-gate clean" asserted without it is exactly the "tests pass while casts and workarounds remain" failure the gate exists to catch. A manual gate is valid only if you say it was manual and list what you actually inspected.
+
 ## The short version
 
 If a change needs a cast, assertion, workaround, huge branch, duplicate condition cluster, shallow wrapper, or disabled tool to pass, the design is not done. Fix the data flow, interface, module boundary, or tool-supported setup. If the proper fix is bigger than the task, stop and say that.

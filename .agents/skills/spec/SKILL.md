@@ -21,6 +21,8 @@ Write a structured specification before writing any code. The spec is the shared
 
 ## The Gated Workflow
 
+**The artifact you emit is the spec — and its Success Criteria are binding downstream.** [[scope]] turns them into per-ticket Definitions of Done and [[execute]]/[[verify]] gate on them, so a success criterion that isn't specific and testable (names the check that proves it) isn't a criterion — it's a wish that will let the implementing agent decide "done" for itself. "Make it faster" is not a criterion; "Dashboard LCP < 2.5s on 4G, asserted by the Lighthouse CI check" is. Every criterion names its evidence, or it doesn't belong in the spec.
+
 Spec-driven development has four phases. Do not advance to the next phase until the current one is validated.
 
 ```

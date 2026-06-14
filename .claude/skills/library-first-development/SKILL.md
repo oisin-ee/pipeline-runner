@@ -9,6 +9,21 @@ Default position: **someone has probably already built this, better, and maintai
 
 This is not "add dependencies carelessly." It's "don't reinvent the wheel, *and* don't bolt on a junk wheel." Library-driven development means: use the ecosystem's maintained code path first, prefer mechanical generation for mechanical files, then vet hard.
 
+## The contract
+
+You may not hand-roll, scaffold by hand, or call something "trivial" until **every** line below is true *and recorded*:
+
+- **You named the capability in one sentence** and checked the project first — dependency files, framework features, local scripts, `bin/`, package scripts, Makefiles, existing generated-file conventions.
+- **You evaluated ≥2 real maintained candidates** via [[research]] — actual options from primary sources, not a half-remembered name — and vetted the front-runner against the criteria below.
+- **For mechanical files, you checked the official CLI/generator** before hand-creating anything.
+- **If you still hand-roll or hand-create, the reason is written down** — in a code comment or the PR, not in your head: the specific candidates/CLI you checked and the specific disqualifier for each.
+
+**"Trivial" is not a feeling — it is a test you can fail.** Trivial means: you can *enumerate every edge case out loud* and there is only a handful, with no ongoing maintenance burden. If you cannot list the edge cases, it is **not** trivial — that uncertainty is exactly the class of problem libraries exist to own. "It's just a few lines" about parsing, dates, money, time, auth, retries, or encoding is the tell that you're about to hand-roll a bug.
+
+**Burden of proof is on hand-rolling, not on the library.** "I'd rather just write it" is not a disqualifier. "It was faster to write by hand" is not a disqualifier. The exit costs a written, specific reason precisely so that using the maintained path is the path of least resistance.
+
+**The artifact you emit is the evaluated-candidates note** — what you checked, what you chose, why. [[execute]] and [[critique]] read it and are entitled to reject a hand-rolled implementation of a standard hard problem that arrives without one. This skill consumes the source list from [[research]]: you find candidates there, you decide here.
+
 ## The workflow
 
 1. **Name the capability** in one sentence ("parse and diff ISO-8601 durations", "rate-limit outbound calls with backoff", "create a database migration for a new table"). If a mature library or framework tool category exists for it, you're in scope.
@@ -72,11 +87,11 @@ curl -s "https://api.scorecard.dev/projects/github.com/<owner>/<repo>" | jq '{sc
 
 ## When hand-rolling IS the right call
 
-Build it yourself only when one of these is true — and write the reason in a comment or the PR:
+Build it yourself only when one of these is true — and the reason is written in a comment or the PR, per the contract:
 
 - No maintained library actually fits (you evaluated real ones; document which and why they fell short).
 - No official/local CLI can safely generate the mechanical files (you checked it; document the command or docs).
-- The capability is genuinely trivial (a few lines, no edge cases, no ongoing maintenance burden).
+- The capability is genuinely trivial *by the test above* — you enumerated every edge case and there are only a handful, with no ongoing maintenance burden.
 - A dependency would be reckless here (unmaintained, unacceptable license, security-critical surface you must control).
 
 "I'd rather just write it" is not a reason. "I evaluated `x`, `y`, `z`; `x` is abandoned, `y` pulls 40 transitive deps for a 10-line need, `z`'s license is GPL and we ship proprietary — so a 12-line inline implementation is the right trade-off" *is* a reason.

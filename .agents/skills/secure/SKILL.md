@@ -340,7 +340,7 @@ Dependency risk is part of security. Slow down on dependencies that are stale, s
 
 ## Verification
 
-After implementing security-relevant code:
+Security claims are the *last* place to accept a ticked box on faith — a checked item here means you ran the check and read the output this session, per [[verify]], not that you believe it's probably fine. "Auth is checked on every endpoint" is a claim that needs the grep/test that proves it; "no secrets in history" needs the actual scan. An unrun security checklist is more dangerous than none, because it reads as assurance. After implementing security-relevant code:
 
 - [ ] `npm audit` shows no critical or high vulnerabilities
 - [ ] No secrets in source code or git history

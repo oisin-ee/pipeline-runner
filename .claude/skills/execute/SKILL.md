@@ -15,6 +15,15 @@ Use this skill when the user hands you a ticket, issue, plan item, or direct imp
 
 Do not batch the work horizontally: no "models first, then API, then UI, then tests." A completed increment should be small, coherent, and runnable: one observable behaviour, through the real public interface, with the tests and verification that prove it.
 
+## The completion contract
+
+You took the work. You finish the work. This skill exists to stop the two failures that look like progress but aren't:
+
+- **You do not silently abandon a unit.** Stopping mid-ticket and handing back half the work with a cheerful summary is the failure, not the fallback. If you genuinely cannot finish, that is a **loud, structured escalation** (see below) — every acceptance criterion marked met-with-evidence or unmet-with-blocker — never a quiet stop and never a reframing of "I gave up" as "here's where I got to."
+- **"Partial" is never reported as "done."** Done means *every* acceptance criterion is satisfied and evidenced. One unmet criterion means the work is not done — it is in-progress or escalated. There is no rounding up. "Mostly works", "the happy path passes", "should be fine" are partial; say so in those words.
+
+You also inherit the chain of custody from the skills upstream of you. Before you build, the artifacts they emit must exist and you must read them: the **source list** from [[research]] for any unfamiliar API, the **evaluated-candidates note** from [[library-first-development]] for anything you might hand-roll, and the **binding Definition of Done** from the ticket ([[scope]]). Missing artifact = the upstream work wasn't done = you generate it now or escalate, you do not paper over it.
+
 ## Phase 0 — Route to the right skills
 
 Execute is an orchestrator. Decide what kind of work this is, then load only the skills that apply:
@@ -145,6 +154,18 @@ Stop and surface the problem when:
 - Verification cannot honestly support the intended claim.
 
 Do not keep looping. Do not guess. Stop, say what is happening, and ask.
+
+**Escalation has a shape — use it; a vague "I got stuck" is not an escalation.** When you stop short of done, hand back exactly this:
+
+```text
+Status: BLOCKED (not done)
+Met:    - <criterion> — <evidence: command/output/assertion>
+        - <criterion> — <evidence>
+Unmet:  - <criterion> — <the specific blocker, what you tried, what you need>
+Need:   <the decision, access, or input that unblocks it>
+```
+
+Every acceptance criterion appears in exactly one of Met or Unmet. A criterion you can't account for is itself a finding. This is the *only* acceptable way to end a unit without finishing it — and it is a genuine, valued outcome, far better than a silent partial dressed up as success.
 
 ## Phase 5 — Complete the work
 

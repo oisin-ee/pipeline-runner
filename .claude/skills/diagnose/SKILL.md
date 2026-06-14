@@ -57,6 +57,8 @@ Write the regression test **before** the fix — *if there is a correct seam* fo
 
 Then ask: **what would have prevented this?** If the answer is architectural — no good seam, tangled callers, hidden coupling — hand off to [[improve]] with specifics, *after* the fix is in, when you know the most.
 
+**The artifacts you emit are the deterministic feedback loop and the winning hypothesis.** The loop is what proves the fix ([[fix]] and [[verify]] re-run it against the original scenario); the winning hypothesis is the confirmed root cause [[fix]] builds on. A "diagnosed" claim with no reusable loop and no written hypothesis is a story, not a diagnosis — you have not finished this skill until both exist.
+
 ## The short version
 
 Build a fast deterministic feedback loop — that's 90% of it. Reproduce the *real* bug. 3–5 falsifiable hypotheses before testing. Instrument one variable at a time, tagged. Regression-test at a correct seam (or flag its absence). Clean up, and write down the hypothesis that won.
