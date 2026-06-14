@@ -203,12 +203,15 @@ function nativeAgentIdForHost(
 }
 
 export function grants(actor: ActorConfig): string {
+  const listGrant = (values: string[] | undefined): string =>
+    (values ?? []).join(", ") || "none";
+
   return [
     `model: ${actor.model ?? "default"}`,
-    `tools: ${(actor.tools ?? []).join(", ") || "none"}`,
-    `rules: ${(actor.rules ?? []).join(", ") || "none"}`,
-    `skills: ${(actor.skills ?? []).join(", ") || "none"}`,
-    `mcp_servers: ${(actor.mcp_servers ?? []).join(", ") || "none"}`,
+    `tools: ${listGrant(actor.tools)}`,
+    `rules: ${listGrant(actor.rules)}`,
+    `skills: ${listGrant(actor.skills)}`,
+    `mcp_servers: ${listGrant(actor.mcp_servers)}`,
     `filesystem: ${actor.filesystem?.mode ?? "default"}`,
     `network: ${actor.network?.mode ?? "default"}`,
     ...("output" in actor ? [`output: ${actor.output?.format ?? "text"}`] : []),
