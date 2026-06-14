@@ -15,6 +15,67 @@
   "plugin": [
     "@devtheops/opencode-plugin-otel@1.1.0",
     "@prevalentware/opencode-goal-plugin",
-    "oc-codex-multi-auth"
-  ]
+    "oc-codex-multi-auth@6.3.2"
+  ],
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-5.5-none": {
+          "options": {
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "reasoningEffort": "none",
+            "reasoningSummary": "auto",
+            "store": false,
+            "textVerbosity": "medium"
+          }
+        },
+        "gpt-5.5-low": {
+          "options": {
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "reasoningEffort": "low",
+            "reasoningSummary": "auto",
+            "store": false,
+            "textVerbosity": "medium"
+          }
+        },
+        "gpt-5.5-medium": {
+          "options": {
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "reasoningEffort": "medium",
+            "reasoningSummary": "auto",
+            "store": false,
+            "textVerbosity": "medium"
+          }
+        },
+        "gpt-5.5-high": {
+          "options": {
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "reasoningEffort": "high",
+            "reasoningSummary": "detailed",
+            "store": false,
+            "textVerbosity": "medium"
+          }
+        },
+        "gpt-5.5-xhigh": {
+          "options": {
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "reasoningEffort": "xhigh",
+            "reasoningSummary": "detailed",
+            "store": false,
+            "textVerbosity": "medium"
+          }
+        }
+      }
+    }
+  }
 }

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Task",
+      "Bash(opencode run *)"
+    ]
+  },
+  "mcpServers": {
+    "pipeline-gateway": {
+      "headers": {
+        "Authorization": "{env:PIPELINE_MCP_GATEWAY_AUTHORIZATION}"
+      },
+      "type": "http",
+      "url": "https://pipeline-mcp.momokaya.ee/mcp/"
+    }
+  }
+}
