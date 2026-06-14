@@ -13,7 +13,7 @@ Use this skill when the user wants real work driven through **parallel specialis
 
 - **Durable, reproducible, or cluster-scale runs** → use [[quick]] or [[execute]] (these submit through `moka submit`). Orchestrate is ephemeral and local; it leaves no schedule artifact.
 - **Trivial single-threaded work** → just do it inline. Spawning agents for a one-line change is pure overhead.
-- **You need package gates enforced as part of a pipeline run** → that is the remote path's job. Orchestrate still *uses* the gate agents (Verifier, Acceptance Reviewer) but does not replace pipeline-level gating.
+- **You need package gates enforced as part of a pipeline run** → that is the remote path's job. Orchestrate still *uses* the gate agents (Verifier, Acceptance Reviewer, Thermo Nuclear Reviewer) but does not replace pipeline-level gating.
 
 ## The roster
 
@@ -24,11 +24,13 @@ The same specialist agents the MoKa pipeline uses, mirrored locally. Each is `mo
 | Research    | `MoKa Researcher`       | `research.json` only | Read-only; map the codebase, gather context, extract acceptance criteria. |
 | Test        | `MoKa Test Writer`      | `*.test.ts` only | Write failing tests that describe the desired behaviour. |
 | Implement   | `MoKa Code Writer`      | `src/**` only | Smallest production change that makes the failing tests pass. |
-| Verify      | `MoKa Verifier`         | nothing       | Run checks, judge diff against AC, emit `PASS`/`FAIL` with evidence. |
-| Review      | `MoKa Acceptance Reviewer` | nothing    | Acceptance/quality gate before declaring done. |
+| Verify      | `MoKa Verifier`         | nothing       | Run checks, judge the diff against AC, emit `PASS`/`FAIL` with evidence. |
+| Acceptance  | `MoKa Acceptance Reviewer` | nothing    | Audit the change against each acceptance criterion; `PASS`/`FAIL` with evidence. |
+| Code review | `MoKa Thermo Nuclear Reviewer` | nothing | Final code-quality review of the integrated change — the heavyweight reviewer, distinct from the AC audit. |
+| Learn       | `MoKa Learner`          | memory only   | Store durable lessons from the completed run (qdrant memory). The pipeline's LEARN phase. |
 | Inspect     | `MoKa Inspector`        | nothing       | Read-only repository inspection / explanation. |
 
-Keep each agent inside its lane — never ask the Code Writer to touch tests, or the Verifier to write files. The lane boundaries are what make fan-out safe.
+Keep each agent inside its lane — never ask the Code Writer to touch tests, or a reviewer to write files. The lane boundaries are what make fan-out safe. (`MoKa Schedule Planner` is intentionally **not** in this roster: it plans the DAG for remote `moka submit`; locally *you* do that in the Plan step.)
 
 ## Dispatch by host
 
@@ -53,28 +55,29 @@ opencode run --agent "MoKa Code Writer" --format json \
 
 You are already inside OpenCode — do not shell out to `opencode run`. Spawn the roster directly with the native **Task** tool, selecting the agent by the same name:
 
-- `task` → `MoKa Researcher`, `MoKa Test Writer`, `MoKa Code Writer`, `MoKa Verifier`, `MoKa Acceptance Reviewer`.
+- `task` → `MoKa Researcher`, `MoKa Test Writer`, `MoKa Code Writer`, `MoKa Verifier`, `MoKa Acceptance Reviewer`, `MoKa Thermo Nuclear Reviewer`, `MoKa Learner`.
 - Issue independent Task calls together so they run concurrently; sequence dependent ones.
 - Each subagent's structured output returns to you as the controller — gather, do not re-do their work.
 
 ## The loop
 
-Whichever host you are on, run the same five steps:
+Whichever host you are on, run the same six steps:
 
 1. **Plan** — Decompose the task into a DAG of agent lanes. Model parallelism *structurally*: independent lanes fan out together, dependents wait on their inputs (research → tests → implementation → verify). Do not invent JSON-pointer fanout; nest the work as real lanes.
 2. **Dispatch** — Fan out per the host branch above. Scope each agent tightly: one job, its lane's write boundary, explicit acceptance criteria.
 3. **Gather** — Collect each agent's structured output (`research.json`, the Verifier's verdict JSON, etc.). Treat the returned artifact as the source of truth.
-4. **Gate** — Run `MoKa Verifier`, then `MoKa Acceptance Reviewer`. Do **not** accept work on a `FAIL`. Loop the relevant lane (re-dispatch Code Writer with the failure evidence) rather than papering over it.
-5. **Synthesize** — Report only the evidence the agents actually returned: what passed, what the diff is, what the verifier proved. Never fabricate or assume an outcome an agent did not report.
+4. **Gate** — Run `MoKa Verifier` (checks vs AC), `MoKa Acceptance Reviewer` (audits each acceptance criterion), and `MoKa Thermo Nuclear Reviewer` (final code-quality review). Do **not** accept work on a `FAIL` from any gate. Loop the relevant lane (re-dispatch Code Writer with the failure evidence) rather than papering over it.
+5. **Learn** — Once the gates pass, run `MoKa Learner` to store durable lessons from the run (qdrant memory) when there is something worth reusing. This mirrors the canonical pipeline's LEARN phase; skip it only when the run produced nothing reusable.
+6. **Synthesize** — Report only the evidence the agents actually returned: what passed, what the diff is, what the reviewers proved. Never fabricate or assume an outcome an agent did not report.
 
 ## Rules
 
 - **Doctrine is host-neutral; only the Dispatch section is host-specific.** Do not leak `opencode run` syntax into an OpenCode run or Task-tool talk into a Claude run.
 - **You are the controller, not a worker.** Decompose, dispatch, gate, synthesize. Let the specialists do the labor inside their lanes.
 - **Evidence only.** Report what agents returned. A green claim needs a Verifier `PASS` with evidence behind it — see [[verify]].
-- **Respect lane write boundaries.** Researcher/Verifier/Reviewer write nothing; Test Writer touches only tests; Code Writer touches only `src/`. Mixed lanes corrupt parallel fan-out.
+- **Respect lane write boundaries.** Researcher/Verifier/both Reviewers write no repo files (Researcher emits only `research.json`; Learner writes only to memory); Test Writer touches only tests; Code Writer touches only `src/`. Mixed lanes corrupt parallel fan-out.
 - **Local, not durable.** If the user needs a reproducible cluster run or a schedule artifact, route to [[quick]] / [[execute]] instead.
 
 ## The short version
 
-Orchestrate is `moka submit` brought home: same roster, same decompose → dispatch → gather → gate → synthesize loop, run on this machine. On Claude Code each agent is an `opencode run --agent` subprocess; on OpenCode each is a native Task subagent. You stay the orchestrator — fan out the lanes, gate on real verifier evidence, and report only what the agents proved.
+Orchestrate is `moka submit` brought home: same roster, same decompose → dispatch → gather → gate → learn → synthesize loop, run on this machine. On Claude Code each agent is an `opencode run --agent` subprocess; on OpenCode each is a native Task subagent. You stay the orchestrator — fan out the lanes, gate on real verifier *and* reviewer evidence, capture lessons via the Learner, and report only what the agents proved.
