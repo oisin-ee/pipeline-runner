@@ -68,6 +68,7 @@ export function validatePipelineConfig(
   }
 
   validateHookConfig(config, issues, projectRoot, options);
+  validateTokenBudget(config, issues);
 
   for (const [ruleId, rule] of Object.entries(config.rules)) {
     validatePath(`rules.${ruleId}.path`, rule, projectRoot, issues, options);
@@ -92,6 +93,36 @@ export function validatePipelineConfig(
     throw validationError(issues);
   }
   return config;
+}
+
+function knownNodeCategories(config: PipelineConfig): Set<string> {
+  const categories = new Set<string>();
+  for (const catalog of Object.values(config.scheduler.node_catalogs)) {
+    for (const category of catalog.required_categories) {
+      categories.add(category);
+    }
+    for (const node of Object.values(catalog.nodes)) {
+      categories.add(node.category);
+    }
+  }
+  return categories;
+}
+
+function validateTokenBudget(
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[]
+): void {
+  const known = knownNodeCategories(config);
+  for (const category of Object.keys(
+    config.token_budget.fan_out_width.by_category
+  )) {
+    if (!known.has(category)) {
+      issues.push({
+        path: `token_budget.fan_out_width.by_category.${category}`,
+        message: `fan-out width cap references unknown node category '${category}'`,
+      });
+    }
+  }
 }
 
 function validateRegistryIds(

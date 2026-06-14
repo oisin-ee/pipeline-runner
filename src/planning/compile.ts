@@ -34,6 +34,7 @@ export class WorkflowPlannerError extends Error {
 export interface PlannedWorkflowNode {
   artifacts?: WorkflowNode["artifacts"];
   builtin?: string;
+  category?: string;
   children?: PlannedWorkflowNode[];
   command?: string[];
   dependents: string[];
@@ -406,10 +407,15 @@ function uniqueExistingNeeds(
   return uniqueStrings(node.needs.filter((need) => nodeIds.has(need)));
 }
 
+function agentNodeCategory(node: WorkflowNode): string | undefined {
+  return node.kind === "agent" ? node.category : undefined;
+}
+
 function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
   const planned: PlannedWorkflowNode = {
     artifacts: node.artifacts,
     builtin: "builtin" in node ? node.builtin : undefined,
+    category: agentNodeCategory(node),
     command: "command" in node ? node.command : undefined,
     children:
       node.kind === "parallel"

@@ -869,3 +869,66 @@ function startupOnlyRetryStrategy() {
     retryPolicy: "OnFailure",
   };
 }
+
+function categorizedNodes(
+  ids: string[],
+  category: string
+): WorkflowScheduleNode[] {
+  return ids.map((id, index) => ({
+    category,
+    dependents: [],
+    id,
+    index,
+    needs: [],
+  }));
+}
+
+describe("runWorkflowScheduler per-category fan-out", () => {
+  it("never runs more than a category's fan-out width concurrently", async () => {
+    let active = 0;
+    let maxActive = 0;
+
+    await runWorkflowScheduler(
+      schedulerInput({
+        fanOutWidth: { by_category: { green: 2 }, default: 4 },
+        maxParallelNodes: 10,
+        nodes: categorizedNodes(["g1", "g2", "g3", "g4"], "green"),
+        runNode: async (nodeId: string) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          active -= 1;
+          return nodeResult(nodeId, "passed");
+        },
+      })
+    );
+
+    expect(maxActive).toBe(2);
+  });
+
+  it("lets uncategorized nodes run up to the global capacity", async () => {
+    let active = 0;
+    let maxActive = 0;
+
+    await runWorkflowScheduler(
+      schedulerInput({
+        fanOutWidth: { by_category: { green: 2 }, default: 4 },
+        maxParallelNodes: 3,
+        nodes: [
+          scheduleNode("a", 0),
+          scheduleNode("b", 1),
+          scheduleNode("c", 2),
+        ],
+        runNode: async (nodeId: string) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          active -= 1;
+          return nodeResult(nodeId, "passed");
+        },
+      })
+    );
+
+    expect(maxActive).toBe(3);
+  });
+});

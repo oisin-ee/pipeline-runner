@@ -611,6 +611,7 @@ const workflowNodeBaseSchema = z.object({
 
 type WorkflowNodeBase = z.infer<typeof workflowNodeBaseSchema>;
 type AgentWorkflowNode = WorkflowNodeBase & {
+  category?: string;
   kind: "agent";
   profile: string;
 };
@@ -641,6 +642,7 @@ const workflowNodeSchema: z.ZodType<WorkflowNode> = z.lazy(() =>
   z.discriminatedUnion("kind", [
     workflowNodeBaseSchema
       .extend({
+        category: z.string().min(1).optional(),
         kind: z.literal("agent"),
         profile: z.string(),
       })
@@ -743,6 +745,31 @@ export const profilesFileSchema = z
   })
   .strict();
 
+const fanOutWidthSchema = z
+  .object({
+    default: z.number().int().positive().default(4),
+    by_category: strictRecord(z.number().int().positive()).default({}),
+  })
+  .strict();
+
+const tokenBudgetSchema = z
+  .object({
+    default_context_window: z.number().int().positive().default(200_000),
+    max_context_pct: z.number().positive().max(100).default(50),
+    model_context_windows: strictRecord(z.number().int().positive()).default(
+      {}
+    ),
+    fan_out_width: fanOutWidthSchema.default({ default: 4, by_category: {} }),
+  })
+  .strict();
+
+const DEFAULT_TOKEN_BUDGET = {
+  default_context_window: 200_000,
+  max_context_pct: 50,
+  model_context_windows: {},
+  fan_out_width: { default: 4, by_category: {} },
+} as const;
+
 export const pipelineFileSchema = z
   .object({
     default_workflow: z.string(),
@@ -759,6 +786,7 @@ export const pipelineFileSchema = z
     }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
+    token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     workflows: strictRecord(workflowSchema).default({}),
     version: z.literal(1),
   })
@@ -786,6 +814,7 @@ const configSchemaBase = z
     schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
+    token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     version: z.literal(1),
     workflows: strictRecord(workflowSchema).default({}),
   })

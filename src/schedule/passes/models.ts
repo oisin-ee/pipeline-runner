@@ -62,11 +62,22 @@ function applyNodeCatalogModelsToAgentNode(
   node: WorkflowNode & { kind: "agent" },
   templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
 ): WorkflowNode {
-  if (node.models?.length) {
+  const template = nodeCatalogTemplateFor(node, templates);
+  if (!template) {
     return node;
   }
-  const template = nodeCatalogTemplateFor(node, templates);
-  return template ? { ...node, models: template.models } : node;
+  return {
+    ...node,
+    category: node.category ?? template.category,
+    models: nodeModelsOrCatalog(node, template),
+  };
+}
+
+function nodeModelsOrCatalog(
+  node: WorkflowNode & { kind: "agent" },
+  template: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"][string]
+): string[] | undefined {
+  return node.models?.length ? node.models : template.models;
 }
 
 function nodeCatalogTemplateFor(

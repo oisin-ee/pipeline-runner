@@ -69,10 +69,12 @@ export class LocalScheduler implements PipelineScheduler {
       executeWorkflow: () =>
         runWorkflowScheduler({
           failFast: plan.execution.failFast,
+          fanOutWidth: context.config.token_budget?.fan_out_width,
           isCancelled: () => options.isCancelled(context),
           markNodeReady: (nodeId) => options.markNodeReady(nodeId, context),
           maxParallelNodes: context.maxParallelNodes,
           nodes: plan.topologicalOrder.map((node) => ({
+            category: node.category,
             dependents: node.dependents,
             id: node.id,
             index: node.index,
@@ -94,14 +96,21 @@ export class LocalScheduler implements PipelineScheduler {
 }
 
 export interface WorkflowScheduleNode {
+  category?: string;
   dependents: string[];
   id: string;
   index: number;
   needs: string[];
 }
 
+export interface FanOutWidth {
+  by_category: Record<string, number>;
+  default: number;
+}
+
 export interface WorkflowSchedulerInput {
   failFast: boolean;
+  fanOutWidth?: FanOutWidth;
   isCancelled: () => boolean;
   markNodeReady: (nodeId: string) => void;
   maxParallelNodes?: number;
@@ -115,6 +124,7 @@ export interface WorkflowSchedulerState {
   blocked?: string[];
   completed?: RuntimeNodeResult[];
   failFast?: boolean;
+  fanOutWidth?: FanOutWidth;
   maxParallelNodes?: number;
   nodes: WorkflowScheduleNode[];
   running: string[];
@@ -140,6 +150,7 @@ export async function runWorkflowScheduler(
     blocked: [],
     completed: [],
     failFast: input.failFast,
+    fanOutWidth: input.fanOutWidth,
     maxParallelNodes: input.maxParallelNodes,
     nodes: orderedNodes(input.nodes),
     running: [],
@@ -253,11 +264,89 @@ function launchReadyNodes(
   if (capacity <= 0) {
     return;
   }
-  for (const nodeId of readyNodeIds(state).slice(0, capacity)) {
+  for (const nodeId of selectLaunchableNodes(state, capacity)) {
     input.markNodeReady(nodeId);
     state.running = [...state.running, nodeId];
     running.set(nodeId, { nodeId, promise: input.runNode(nodeId) });
   }
+}
+
+/**
+ * Choose which ready nodes to launch this tick within the global capacity and
+ * the per-category fan-out caps. A category at its cap defers its remaining
+ * ready nodes to a later tick (it does not drop them). Nodes without a category
+ * are bounded only by the global capacity. Without a fanOutWidth (e.g. in tests
+ * or configs with no token_budget), this is the prior `slice(0, capacity)`.
+ */
+function selectLaunchableNodes(
+  state: WorkflowSchedulerState,
+  capacity: number
+): string[] {
+  const ready = readyNodeIds(state);
+  return state.fanOutWidth
+    ? cappedSelection(ready, capacity, state, state.fanOutWidth)
+    : ready.slice(0, capacity);
+}
+
+function cappedSelection(
+  ready: string[],
+  capacity: number,
+  state: WorkflowSchedulerState,
+  fanOut: FanOutWidth
+): string[] {
+  const categoryOf = new Map(
+    state.nodes.map((node) => [node.id, node.category])
+  );
+  const counts = categoryRunCounts(state.running, categoryOf);
+  const selected: string[] = [];
+  for (const nodeId of ready) {
+    if (selected.length >= capacity) {
+      break;
+    }
+    if (claimCategorySlot(categoryOf.get(nodeId), fanOut, counts)) {
+      selected.push(nodeId);
+    }
+  }
+  return selected;
+}
+
+function categoryCap(category: string, fanOut: FanOutWidth): number {
+  return fanOut.by_category[category] ?? fanOut.default;
+}
+
+/**
+ * Whether a node of the given category may launch now, consuming a slot from
+ * `counts` when it can. Uncategorized nodes always may; a category at its cap
+ * may not.
+ */
+function claimCategorySlot(
+  category: string | undefined,
+  fanOut: FanOutWidth,
+  counts: Map<string, number>
+): boolean {
+  if (!category) {
+    return true;
+  }
+  const current = counts.get(category) ?? 0;
+  if (current >= categoryCap(category, fanOut)) {
+    return false;
+  }
+  counts.set(category, current + 1);
+  return true;
+}
+
+function categoryRunCounts(
+  running: string[],
+  categoryOf: Map<string, string | undefined>
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const nodeId of running) {
+    const category = categoryOf.get(nodeId);
+    if (category) {
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+  }
+  return counts;
 }
 
 function dependencyPassed(

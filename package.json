@@ -9,6 +9,7 @@
     "execa": "^9.5.2",
     "git-url-parse": "^16.1.0",
     "gray-matter": "^4.0.3",
+    "js-tiktoken": "^1.0.21",
     "jsonc-parser": "^3.3.1",
     "ky": "^2.0.2",
     "micromatch": "^4.0.8",

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { PipelineConfig } from "../../config";
 import { gatewayServerForProfile } from "../../mcp/gateway";
-import { selectNodeModel } from "../../model-resolver";
+import { type ModelSelection, selectNodeModel } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
 import { resolveFileReference } from "../../path-refs";
 import type { PlannedWorkflowNode } from "../../planning/compile";
@@ -14,6 +14,7 @@ import {
   normalizeRunnerOutput,
   runnerTextCandidates,
 } from "../../runner-output";
+import { estimateTokens } from "../../token-estimator";
 import type {
   JsonSchemaValidationResult,
   NodeAttemptResult,
@@ -41,7 +42,23 @@ export async function executeAgentNode(
     };
   }
   const prompt = renderAgentPrompt(node, context);
-  const modelSelection = selectNodeModel(node);
+  const decision = decideNodeModel(prompt, node, context.config.token_budget);
+  if (decision.overBudget) {
+    return {
+      evidence: [
+        `agent boundary node=${node.id} profile=${node.profile}`,
+        `over token budget: ${decision.selection.reason}`,
+        ...(decision.selection.skipped.length
+          ? [
+              `model fallbacks skipped: ${decision.selection.skipped.join(", ")}`,
+            ]
+          : []),
+      ],
+      exitCode: 1,
+      output: "",
+    };
+  }
+  const modelSelection = decision.selection;
   const plan = createRunnerLaunchPlan(context.config, {
     model: modelSelection.model,
     nodeId: node.id,
@@ -86,6 +103,7 @@ export async function executeAgentNode(
   return {
     evidence: [
       `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId}`,
+      `estimated context tokens: ${decision.estimatedTokens}`,
       `model selection: ${modelSelection.model ?? "profile/default"} (${modelSelection.reason})`,
       ...(modelSelection.skipped.length
         ? [`model fallbacks skipped: ${modelSelection.skipped.join(", ")}`]
@@ -98,6 +116,36 @@ export async function executeAgentNode(
     output: finalized.output,
     timedOut: result.timedOut,
   };
+}
+
+interface NodeModelDecision {
+  estimatedTokens: number;
+  overBudget: boolean;
+  selection: ModelSelection;
+}
+
+/**
+ * Pure model-routing decision for a node: estimate the assembled prompt size and
+ * pick the smallest fallback model whose window holds it within the context cap.
+ * A node with no fallback array keeps the legacy (size-unaware) selection. A node
+ * with a fallback array but no fitting model is `overBudget` — the caller fails
+ * it fast rather than truncating.
+ */
+function decideNodeModel(
+  prompt: string,
+  node: PlannedWorkflowNode,
+  budget: PipelineConfig["token_budget"] | undefined
+): NodeModelDecision {
+  const estimatedTokens = estimateTokens(prompt);
+  if (!(budget && node.models?.length)) {
+    return {
+      estimatedTokens,
+      overBudget: false,
+      selection: selectNodeModel(node),
+    };
+  }
+  const selection = selectNodeModel(node, { budget, estimatedTokens });
+  return { estimatedTokens, overBudget: !selection.model, selection };
 }
 
 async function finalizeAgentOutput(inputs: {

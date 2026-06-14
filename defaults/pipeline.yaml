@@ -2,6 +2,13 @@ version: 1
 default_workflow: inspect
 orchestrator:
   profile: moka-orchestrator
+token_budget:
+  default_context_window: 200000
+  max_context_pct: 50
+  fan_out_width:
+    default: 4
+    by_category:
+      green: 2
 entrypoints:
   quick:
     schedule: quick-schedule

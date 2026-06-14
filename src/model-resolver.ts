@@ -1,3 +1,4 @@
+import type { PipelineConfig } from "./config";
 import type { PlannedWorkflowNode } from "./planning/compile";
 
 export interface ModelSelection {
@@ -6,14 +7,27 @@ export interface ModelSelection {
   skipped: string[];
 }
 
-const DISABLED_MODELS_ENV = "PIPELINE_DISABLED_MODELS";
+type TokenBudget = PipelineConfig["token_budget"];
 
-export function selectNodeModel(node: PlannedWorkflowNode): ModelSelection {
-  const models = node.models ?? [];
-  return fallbackModelSelection(models);
+export interface ModelSizingOptions {
+  budget: TokenBudget;
+  estimatedTokens: number;
 }
 
-function fallbackModelSelection(models: string[]): ModelSelection {
+const DISABLED_MODELS_ENV = "PIPELINE_DISABLED_MODELS";
+
+export function selectNodeModel(
+  node: PlannedWorkflowNode,
+  options?: ModelSizingOptions
+): ModelSelection {
+  const models = node.models ?? [];
+  return fallbackModelSelection(models, options);
+}
+
+function fallbackModelSelection(
+  models: string[],
+  options?: ModelSizingOptions
+): ModelSelection {
   if (models.length === 0) {
     return {
       reason: "node declares no model fallback array",
@@ -21,18 +35,42 @@ function fallbackModelSelection(models: string[]): ModelSelection {
     };
   }
   const disabled = disabledModels();
-  return enabledModelSelection(models, disabled);
+  const enabled = models.filter((candidate) => !disabled.has(candidate));
+  const disabledSkipped = models.filter((candidate) => disabled.has(candidate));
+  if (!options) {
+    const model = enabled[0];
+    return {
+      model,
+      reason: selectionReason(model),
+      skipped: disabledSkipped,
+    };
+  }
+  return sizedSelection(enabled, disabledSkipped, options);
 }
 
-function enabledModelSelection(
-  models: string[],
-  disabled: Set<string>
+function sizedSelection(
+  enabled: string[],
+  disabledSkipped: string[],
+  options: ModelSizingOptions
 ): ModelSelection {
-  const model = models.find((candidate) => !disabled.has(candidate));
+  const { estimatedTokens, budget } = options;
+  const required = estimatedTokens / (budget.max_context_pct / 100);
+  const tooSmall: string[] = [];
+  for (const candidate of enabled) {
+    const window =
+      budget.model_context_windows[candidate] ?? budget.default_context_window;
+    if (window >= required) {
+      return {
+        model: candidate,
+        reason: `selected '${candidate}' (window ${window}) — holds estimated ${estimatedTokens} tokens within the ${budget.max_context_pct}% context cap`,
+        skipped: [...disabledSkipped, ...tooSmall],
+      };
+    }
+    tooSmall.push(candidate);
+  }
   return {
-    model,
-    reason: selectionReason(model),
-    skipped: models.filter((candidate) => disabled.has(candidate)),
+    reason: `estimated context ${estimatedTokens} tokens exceeds ${budget.max_context_pct}% of every available model window`,
+    skipped: [...disabledSkipped, ...tooSmall],
   };
 }
 

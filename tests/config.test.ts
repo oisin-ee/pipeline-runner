@@ -1617,3 +1617,65 @@ describe("final review asset bundle", () => {
     expect(skill).toContain("Code Review");
   });
 });
+
+const MAX_CONTEXT_PCT_RE = /max_context_pct/i;
+const UNKNOWN_CATEGORY_RE = /unknown node category 'green'/i;
+
+describe("token_budget", () => {
+  it("applies documented defaults when the block is omitted", () => {
+    const config = parseParts({});
+    expect(config.token_budget).toEqual({
+      default_context_window: 200_000,
+      fan_out_width: { by_category: {}, default: 4 },
+      max_context_pct: 50,
+      model_context_windows: {},
+    });
+  });
+
+  it("parses an explicit token_budget block", () => {
+    const config = parseParts({
+      pipeline: `${VALID_PIPELINE_YAML}
+token_budget:
+  default_context_window: 400000
+  max_context_pct: 40
+  model_context_windows:
+    openai/gpt-5.5: 400000
+  fan_out_width:
+    default: 3
+`,
+    });
+    expect(config.token_budget.default_context_window).toBe(400_000);
+    expect(config.token_budget.max_context_pct).toBe(40);
+    expect(config.token_budget.model_context_windows).toEqual({
+      "openai/gpt-5.5": 400_000,
+    });
+    expect(config.token_budget.fan_out_width.default).toBe(3);
+  });
+
+  it("rejects max_context_pct above 100", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `${VALID_PIPELINE_YAML}\ntoken_budget:\n  max_context_pct: 150\n`,
+      })
+    );
+    expect(error.message).toMatch(MAX_CONTEXT_PCT_RE);
+  });
+
+  it("rejects a non-positive context window", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `${VALID_PIPELINE_YAML}\ntoken_budget:\n  default_context_window: -1\n`,
+      })
+    );
+    expect(error).toBeInstanceOf(PipelineConfigError);
+  });
+
+  it("rejects a fan-out cap for an unknown node category", () => {
+    const error = captureConfigError(() =>
+      parseParts({
+        pipeline: `${VALID_PIPELINE_YAML}\ntoken_budget:\n  fan_out_width:\n    by_category:\n      green: 2\n`,
+      })
+    );
+    expect(error.message).toMatch(UNKNOWN_CATEGORY_RE);
+  });
+});

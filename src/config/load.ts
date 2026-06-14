@@ -109,6 +109,7 @@ export function parsePipelineConfigParts(
       schedules: pipeline.schedules,
       skills: profiles.skills,
       ...(pipeline.task_context ? { task_context: pipeline.task_context } : {}),
+      token_budget: pipeline.token_budget,
       version: 1,
       workflows: pipeline.workflows,
     },

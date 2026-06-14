@@ -59,6 +59,9 @@ export function plannerPrompt(
     "Scheduler node catalog:",
     schedulerCatalogPrompt(config, entrypointId),
     "",
+    "Token budget:",
+    tokenBudgetPrompt(config),
+    "",
     "Gate recipes:",
     "- Prefer preserving valid gates from the baseline workflows instead of recreating them.",
     "- RED/test coverage may use changed_files gates on test-writing nodes. A changed_files gate must include a changed_files object with allow and/or require_any glob arrays.",
@@ -108,6 +111,25 @@ export function plannerRepairPrompt(inputs: {
     "Baseline schedule for required metadata:",
     stringify(inputs.baseline),
   ].join("\n");
+}
+
+function tokenBudgetPrompt(config: PipelineConfig): string {
+  const budget = config.token_budget;
+  const windows = Object.entries(budget.model_context_windows);
+  const fanOut = Object.entries(budget.fan_out_width.by_category);
+  return [
+    `- Keep each node's assembled context under ${budget.max_context_pct}% of its model's context window; prefer the smallest-tier model whose window comfortably holds the node within that cap.`,
+    `- Assume ${budget.default_context_window} tokens of context window for a model with no declared window.`,
+    windows.length > 0
+      ? `- Known model context windows: ${windows.map(([id, size]) => `${id}=${size}`).join(", ")}.`
+      : undefined,
+    `- Do not exceed the per-category fan-out width (max concurrent same-category nodes). Default width: ${budget.fan_out_width.default}.`,
+    fanOut.length > 0
+      ? `- Category fan-out caps: ${fanOut.map(([category, width]) => `${category}=${width}`).join(", ")}.`
+      : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
 function allowedProfilePromptLine(config: PipelineConfig, id: string): string {

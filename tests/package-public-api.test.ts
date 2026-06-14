@@ -252,6 +252,12 @@ const configWithoutOrchestrator: PipelineConfig = {
   scheduler: { commands: {}, node_catalogs: {} },
   schedules: {},
   skills: {},
+  token_budget: {
+    default_context_window: 200_000,
+    fan_out_width: { by_category: {}, default: 4 },
+    max_context_pct: 50,
+    model_context_windows: {},
+  },
   version: 1,
   workflows: {
     smoke: {

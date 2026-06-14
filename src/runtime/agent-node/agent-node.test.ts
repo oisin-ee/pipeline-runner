@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { AgentResult } from "../../runner";
 import type { RuntimeContext } from "../contracts";
@@ -8,6 +9,8 @@ import {
   inheritedOutputSections,
   renderTaskContext,
 } from "./agent-node";
+
+const EXCEEDS_BUDGET_RE = /exceeds 50% of every available/i;
 
 function agentExecutionContext(
   node: PlannedWorkflowNode,
@@ -165,5 +168,63 @@ describe("runtime agent node", () => {
         context
       )
     ).toEqual(["Inherited dependency outputs:", "## setup\nsetup output", ""]);
+  });
+});
+
+function budgetNode(models: string[]): PlannedWorkflowNode {
+  return {
+    dependents: [],
+    id: "green-impl",
+    index: 0,
+    kind: "agent",
+    models,
+    needs: [],
+    profile: "moka-code-writer",
+  } as unknown as PlannedWorkflowNode;
+}
+
+function tokenBudget(
+  windows: Record<string, number>,
+  defaultWindow = 200_000
+): PipelineConfig["token_budget"] {
+  return {
+    default_context_window: defaultWindow,
+    fan_out_width: { by_category: {}, default: 4 },
+    max_context_pct: 50,
+    model_context_windows: windows,
+  };
+}
+
+describe("executeAgentNode token budget enforcement", () => {
+  it("fails an over-budget node with evidence and does not dispatch", async () => {
+    const node = budgetNode(["small"]);
+    let executed = false;
+    const executor = (): AgentResult => {
+      executed = true;
+      return { exitCode: 0, stdout: "" };
+    };
+    const context = agentExecutionContext(node, executor);
+    context.config.token_budget = tokenBudget({}, 50); // tiny window
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.evidence.join("\n")).toMatch(EXCEEDS_BUDGET_RE);
+    expect(executed).toBe(false);
+  });
+
+  it("dispatches normally when the node fits within the cap", async () => {
+    const node = budgetNode(["big"]);
+    const executor = (): AgentResult => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ part: { text: "done", type: "text" } }),
+    });
+    const context = agentExecutionContext(node, executor);
+    context.config.token_budget = tokenBudget({ big: 400_000 });
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe("done");
   });
 });
