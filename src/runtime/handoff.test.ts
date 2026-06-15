@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   handoffFinalizerPrompt,
   parseHandoff,
+  renderHandoff,
   synthesizeMinimalHandoff,
 } from "./handoff";
 
@@ -38,6 +39,24 @@ describe("synthesizeMinimalHandoff", () => {
 
   it("truncates a long output", () => {
     expect(synthesizeMinimalHandoff("a".repeat(1000)).summary.length).toBe(600);
+  });
+});
+
+describe("renderHandoff", () => {
+  it("renders the node id, summary, and only non-empty sections", () => {
+    const text = renderHandoff("green", {
+      artifacts: [{ lineRange: [1, 9], path: "src/a.ts" }],
+      decisions: ["use zod"],
+      openQuestions: [],
+      summary: "impl done",
+      testNames: ["a.test.ts"],
+    });
+    expect(text).toContain("## green");
+    expect(text).toContain("impl done");
+    expect(text).toContain("- use zod");
+    expect(text).toContain("- src/a.ts:1-9");
+    expect(text).toContain("- a.test.ts");
+    expect(text).not.toContain("Open questions");
   });
 });
 

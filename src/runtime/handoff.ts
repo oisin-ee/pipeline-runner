@@ -64,6 +64,31 @@ export function synthesizeMinimalHandoff(outputText: string): NodeHandoff {
   };
 }
 
+/**
+ * Render a handoff into the compact text a dependent node receives (PIPE-83.5):
+ * the curated summary + non-empty sections, in place of the full raw transcript.
+ */
+export function renderHandoff(nodeId: string, handoff: NodeHandoff): string {
+  const sections: [string, string[]][] = [
+    ["Decisions:", handoff.decisions],
+    [
+      "Artifacts:",
+      handoff.artifacts.map((a) =>
+        a.lineRange ? `${a.path}:${a.lineRange[0]}-${a.lineRange[1]}` : a.path
+      ),
+    ],
+    ["Tests:", handoff.testNames],
+    ["Open questions:", handoff.openQuestions],
+  ];
+  const lines = [`## ${nodeId}`, handoff.summary];
+  for (const [heading, items] of sections) {
+    if (items.length > 0) {
+      lines.push(heading, ...items.map((item) => `- ${item}`));
+    }
+  }
+  return lines.join("\n");
+}
+
 /** Prompt for the cheap finalizer that derives a handoff from raw node output. */
 export function handoffFinalizerPrompt(rawOutput: string): string {
   return [

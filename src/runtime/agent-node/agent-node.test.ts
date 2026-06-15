@@ -169,6 +169,39 @@ describe("runtime agent node", () => {
       )
     ).toEqual(["Inherited dependency outputs:", "## setup\nsetup output", ""]);
   });
+
+  it("renders a dependency's handoff summary in place of its raw transcript (PIPE-83.5)", () => {
+    const store = new NodeStateStore({
+      inheritedOutputNodeIds: new Set(["setup"]),
+      lastOutputByNode: new Map([["setup", "RAW SETUP TRANSCRIPT"]]),
+    });
+    store.recordHandoff("setup", {
+      artifacts: [{ path: "src/x.ts" }],
+      decisions: ["used zod"],
+      openQuestions: [],
+      summary: "set up the thing",
+      testNames: [],
+    });
+
+    const text = inheritedOutputSections(
+      {
+        children: [],
+        dependents: [],
+        id: "agent",
+        index: 0,
+        kind: "agent",
+        needs: [],
+        profile: "a",
+      } as unknown as PlannedWorkflowNode,
+      { nodeStateStore: store }
+    ).join("\n");
+
+    expect(text).toContain("## setup");
+    expect(text).toContain("set up the thing");
+    expect(text).toContain("- used zod");
+    expect(text).toContain("- src/x.ts");
+    expect(text).not.toContain("RAW SETUP TRANSCRIPT");
+  });
 });
 
 function opencodeText(text: string): string {

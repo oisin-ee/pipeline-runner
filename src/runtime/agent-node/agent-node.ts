@@ -27,6 +27,7 @@ import {
   handoffFinalizerPrompt,
   type NodeHandoff,
   parseHandoff,
+  renderHandoff,
   synthesizeMinimalHandoff,
 } from "../handoff";
 import {
@@ -570,12 +571,25 @@ function renderAgentPrompt(
     "",
     ...inheritedOutputSections(node, context),
     "Dependency outputs:",
-    ...node.needs.map(
-      (need) => `## ${need}\n${context.nodeStateStore.outputText(need)}`
-    ),
+    ...node.needs.map((need) => renderDependencySection(need, context)),
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * PIPE-83.5: render a dependency's curated NodeHandoff when one was derived
+ * (PIPE-83.1), otherwise fall back to its raw output text. The fallback keeps
+ * behaviour identical when context_handoff is disabled (no handoffs recorded).
+ */
+function renderDependencySection(
+  nodeId: string,
+  context: Pick<RuntimeContext, "nodeStateStore">
+): string {
+  const handoff = context.nodeStateStore.handoff(nodeId);
+  return handoff
+    ? renderHandoff(nodeId, handoff)
+    : `## ${nodeId}\n${context.nodeStateStore.outputText(nodeId)}`;
 }
 
 function renderGateOutputContract(node: PlannedWorkflowNode): string {
@@ -652,9 +666,7 @@ export function inheritedOutputSections(
   }
   return [
     "Inherited dependency outputs:",
-    ...inherited.map(
-      (id) => `## ${id}\n${context.nodeStateStore.outputText(id)}`
-    ),
+    ...inherited.map((id) => renderDependencySection(id, context)),
     "",
   ];
 }
