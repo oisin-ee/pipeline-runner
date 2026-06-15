@@ -24,6 +24,12 @@ import type {
 } from "../contracts";
 import { emit, emitAgentFinish, emitAgentStart } from "../events";
 import {
+  handoffFinalizerPrompt,
+  type NodeHandoff,
+  parseHandoff,
+  synthesizeMinimalHandoff,
+} from "../handoff";
+import {
   normalizeJsonSource,
   readJsonSchemaSource,
   validateJsonSchemaSource,
@@ -100,7 +106,13 @@ export async function executeAgentNode(
     result,
     attempt,
   });
-  return {
+  const handoff = await maybeDeriveHandoff(
+    context,
+    node,
+    finalized.output,
+    attempt
+  );
+  const attemptResult: NodeAttemptResult = {
     evidence: [
       `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId}`,
       `estimated context tokens: ${decision.estimatedTokens}`,
@@ -116,6 +128,98 @@ export async function executeAgentNode(
     output: finalized.output,
     timedOut: result.timedOut,
   };
+  return withOptionalHandoff(attemptResult, handoff);
+}
+
+function withOptionalHandoff(
+  result: NodeAttemptResult,
+  handoff: NodeHandoff | undefined
+): NodeAttemptResult {
+  return handoff ? { ...result, handoff } : result;
+}
+
+function profileRunner(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): string | undefined {
+  return node.profile
+    ? context.config.profiles[node.profile]?.runner
+    : undefined;
+}
+
+/**
+ * PIPE-83.1: derive a structured NodeHandoff for this node when context_handoff
+ * is enabled. Fast-path reuses an already-handoff-shaped output; otherwise a
+ * cheap read-only finalizer (mirroring createOutputRepairPlan) summarizes the
+ * raw output, falling back to a synthesized minimal handoff. Returns undefined
+ * when disabled so behaviour is unchanged.
+ */
+async function maybeDeriveHandoff(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  rawOutput: string,
+  attempt: number
+): Promise<NodeHandoff | undefined> {
+  if (!context.config.context_handoff?.enabled) {
+    return;
+  }
+  // Fast-path an already-handoff-shaped output; otherwise run the finalizer.
+  return (
+    parseHandoff(rawOutput) ??
+    (await runHandoffFinalizer(context, node, rawOutput, attempt))
+  );
+}
+
+async function runHandoffFinalizer(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  rawOutput: string,
+  attempt: number
+): Promise<NodeHandoff> {
+  const runner = profileRunner(context, node);
+  if (!(runner && rawOutput.trim())) {
+    return synthesizeMinimalHandoff(rawOutput);
+  }
+  const plan = createHandoffFinalizerPlan(context, node, runner, rawOutput);
+  context.agentInvocations.push(plan);
+  emitAgentStart(context, plan, attempt);
+  const result = await context.executor(plan, { signal: context.signal });
+  emitAgentFinish(context, plan, attempt, result);
+  const normalized = normalizeAgentOutput(plan, result.stdout);
+  return parseHandoff(normalized.output) ?? synthesizeMinimalHandoff(rawOutput);
+}
+
+function createHandoffFinalizerPlan(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  runner: string,
+  rawOutput: string
+): RunnerLaunchPlan {
+  const finalizerProfileId = `${node.id}:handoff`;
+  const finalizerConfig: PipelineConfig = {
+    ...context.config,
+    profiles: {
+      ...context.config.profiles,
+      [finalizerProfileId]: {
+        filesystem: { mode: "read-only" },
+        instructions: {
+          inline: "Summarize the agent output into a NodeHandoff JSON.",
+        },
+        network: { mode: "disabled" },
+        output: { format: "text" },
+        runner,
+        tools: [],
+      },
+    },
+  };
+  const model = context.config.context_handoff?.model;
+  return createRunnerLaunchPlan(finalizerConfig, {
+    nodeId: finalizerProfileId,
+    profileId: finalizerProfileId,
+    prompt: handoffFinalizerPrompt(rawOutput),
+    worktreePath: context.worktreePath,
+    ...(model ? { model } : {}),
+  });
 }
 
 interface NodeModelDecision {

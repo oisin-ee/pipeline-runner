@@ -770,6 +770,16 @@ const DEFAULT_TOKEN_BUDGET = {
   fan_out_width: { default: 4, by_category: {} },
 } as const;
 
+// PIPE-83.1: opt-in derivation of structured NodeHandoffs between nodes. Default
+// OFF so behaviour (and the PIPE-57 goldens) is unchanged until PIPE-83.5
+// consumes handoffs in renderAgentPrompt. `model` routes the cheap finalizer.
+const contextHandoffSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    model: z.string().optional(),
+  })
+  .strict();
+
 export const pipelineFileSchema = z
   .object({
     default_workflow: z.string(),
@@ -786,6 +796,7 @@ export const pipelineFileSchema = z
     }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
+    context_handoff: contextHandoffSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     workflows: strictRecord(workflowSchema).default({}),
     version: z.literal(1),
@@ -814,6 +825,7 @@ const configSchemaBase = z
     schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
+    context_handoff: contextHandoffSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     version: z.literal(1),
     workflows: strictRecord(workflowSchema).default({}),

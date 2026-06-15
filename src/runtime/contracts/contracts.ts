@@ -15,6 +15,7 @@ import type {
   RuntimeObservabilityEmitter,
   RuntimeObservabilityEvent,
 } from "../actor-ids";
+import type { NodeHandoff } from "../handoff";
 import type { NodeStateStore } from "../node-state-store";
 
 export type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
@@ -327,6 +328,7 @@ export interface PipelineRuntimeOptions {
 export interface NodeAttemptResult {
   evidence: string[];
   exitCode: number;
+  handoff?: NodeHandoff;
   output: string;
   timedOut?: boolean;
 }

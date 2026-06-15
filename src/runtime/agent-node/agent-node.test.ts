@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
-import type { AgentResult } from "../../runner";
+import type { AgentResult, RunnerLaunchPlan } from "../../runner";
 import type { RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import {
@@ -168,6 +168,82 @@ describe("runtime agent node", () => {
         context
       )
     ).toEqual(["Inherited dependency outputs:", "## setup\nsetup output", ""]);
+  });
+});
+
+function opencodeText(text: string): string {
+  return JSON.stringify({ part: { text, type: "text" } });
+}
+
+describe("executeAgentNode handoff derivation (PIPE-83.1)", () => {
+  it("derives no handoff when context_handoff is disabled (default)", async () => {
+    const node = agentNode();
+    let calls = 0;
+    const executor = (): AgentResult => {
+      calls += 1;
+      return { exitCode: 0, stdout: opencodeText("plain output") };
+    };
+    const context = agentExecutionContext(node, executor);
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(result.handoff).toBeUndefined();
+    expect(calls).toBe(1);
+  });
+
+  it("derives a handoff via the cheap finalizer when enabled", async () => {
+    const node = agentNode();
+    let calls = 0;
+    const executor = (plan: RunnerLaunchPlan): AgentResult => {
+      calls += 1;
+      if (plan.profileId?.endsWith(":handoff")) {
+        return {
+          exitCode: 0,
+          stdout: opencodeText('{"summary":"did work","decisions":["x"]}'),
+        };
+      }
+      return { exitCode: 0, stdout: opencodeText("plain output") };
+    };
+    const context = agentExecutionContext(node, executor);
+    context.config.context_handoff = { enabled: true };
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(result.handoff?.summary).toBe("did work");
+    expect(result.handoff?.decisions).toEqual(["x"]);
+    expect(calls).toBe(2);
+  });
+
+  it("fast-paths an already-handoff-shaped output without a finalizer call", async () => {
+    const node = agentNode();
+    let calls = 0;
+    const executor = (): AgentResult => {
+      calls += 1;
+      return { exitCode: 0, stdout: opencodeText('{"summary":"direct"}') };
+    };
+    const context = agentExecutionContext(node, executor);
+    context.config.context_handoff = { enabled: true };
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(result.handoff?.summary).toBe("direct");
+    expect(calls).toBe(1);
+  });
+
+  it("falls back to a synthesized handoff when the finalizer output is unparseable", async () => {
+    const node = agentNode();
+    const executor = (plan: RunnerLaunchPlan): AgentResult => ({
+      exitCode: 0,
+      stdout: opencodeText(
+        plan.profileId?.endsWith(":handoff") ? "not json" : "real work happened"
+      ),
+    });
+    const context = agentExecutionContext(node, executor);
+    context.config.context_handoff = { enabled: true };
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(result.handoff?.summary).toBe("real work happened");
   });
 });
 

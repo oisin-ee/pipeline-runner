@@ -104,4 +104,47 @@ describe("NodeStateStore", () => {
     expect(parent.nodeStates.has("child-c")).toBe(false);
     expect(parent.nodeSnapshots.has("parent")).toBe(true);
   });
+
+  it("records and reads node handoffs keyed by node id", () => {
+    const store = new NodeStateStore();
+    store.recordHandoff("a", {
+      artifacts: [],
+      decisions: ["use zod"],
+      openQuestions: [],
+      summary: "did a thing",
+      testNames: [],
+    });
+
+    expect(store.handoff("a")?.summary).toBe("did a thing");
+    expect(store.handoff("missing")).toBeUndefined();
+  });
+
+  it("copies handoffByNode into parallel forks so children do not cross-contaminate", () => {
+    const parent = new NodeStateStore();
+    parent.recordHandoff("setup", {
+      artifacts: [],
+      decisions: [],
+      openQuestions: [],
+      summary: "setup",
+      testNames: [],
+    });
+
+    const fork = parent.forkForParallelChildren([
+      { id: "child-a" } as PlannedWorkflowNode,
+    ]);
+
+    // Unlike structuredOutputs (shared by reference), handoffs are copied.
+    expect(fork.handoffByNode).not.toBe(parent.handoffByNode);
+    expect(fork.handoff("setup")?.summary).toBe("setup");
+
+    fork.recordHandoff("child-a", {
+      artifacts: [],
+      decisions: [],
+      openQuestions: [],
+      summary: "child",
+      testNames: [],
+    });
+
+    expect(parent.handoff("child-a")).toBeUndefined();
+  });
 });

@@ -1095,6 +1095,7 @@ async function executeNodeAttemptCycle(
     );
   }
   context.nodeStateStore.recordOutput(node.id, last.output);
+  context.nodeStateStore.recordHandoff(node.id, last.handoff);
   emitNodeOutputRecorded(context, node, attempt, last.output);
   recordNodeEvent(context, node.id, {
     at: now(),

@@ -4,15 +4,19 @@ import type {
   NodeExecutionState,
   RuntimeStructuredOutput,
 } from "./contracts";
+import type { NodeHandoff } from "./handoff";
 
 export class NodeStateStore {
+  readonly handoffByNode: Map<string, NodeHandoff>;
   readonly inheritedOutputNodeIds: Set<string>;
   readonly lastOutputByNode: Map<string, string>;
   readonly nodeSnapshots: Map<string, ChangedFilesSnapshot>;
   readonly nodeStates: Map<string, NodeExecutionState>;
   readonly structuredOutputs: RuntimeStructuredOutput[];
 
+  // fallow-ignore-next-line complexity
   constructor(input: NodeStateStoreInput = {}) {
+    this.handoffByNode = input.handoffByNode ?? new Map();
     this.inheritedOutputNodeIds = input.inheritedOutputNodeIds ?? new Set();
     this.lastOutputByNode = input.lastOutputByNode ?? new Map();
     this.nodeSnapshots = input.nodeSnapshots ?? new Map();
@@ -23,6 +27,7 @@ export class NodeStateStore {
   // fallow-ignore-next-line unused-class-member
   forkForParallelChildren(children: PlannedWorkflowNode[]): NodeStateStore {
     return new NodeStateStore({
+      handoffByNode: new Map(this.handoffByNode),
       inheritedOutputNodeIds: new Set(this.lastOutputByNode.keys()),
       lastOutputByNode: new Map(this.lastOutputByNode),
       nodeSnapshots: new Map(),
@@ -57,6 +62,11 @@ export class NodeStateStore {
   }
 
   // fallow-ignore-next-line unused-class-member
+  handoff(nodeId: string): NodeHandoff | undefined {
+    return this.handoffByNode.get(nodeId);
+  }
+
+  // fallow-ignore-next-line unused-class-member
   outputText(nodeId: string): string {
     return this.lastOutputByNode.get(nodeId) ?? "";
   }
@@ -77,6 +87,13 @@ export class NodeStateStore {
   // fallow-ignore-next-line unused-class-member
   markInheritedOutput(nodeId: string): void {
     this.inheritedOutputNodeIds.add(nodeId);
+  }
+
+  // fallow-ignore-next-line unused-class-member
+  recordHandoff(nodeId: string, handoff: NodeHandoff | undefined): void {
+    if (handoff) {
+      this.handoffByNode.set(nodeId, handoff);
+    }
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -119,6 +136,7 @@ export class NodeStateStore {
 }
 
 interface NodeStateStoreInput {
+  handoffByNode?: Map<string, NodeHandoff>;
   inheritedOutputNodeIds?: Set<string>;
   lastOutputByNode?: Map<string, string>;
   nodeSnapshots?: Map<string, ChangedFilesSnapshot>;
