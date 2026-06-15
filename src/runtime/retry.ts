@@ -30,15 +30,32 @@ export interface NodeRetryDecision {
  * contract or the abortable delay boundary used by the scheduler.
  */
 
+// Agent nodes dispatch to an external runner (opencode) whose sessions can fail
+// transiently (e.g. "Unexpected server error" under concurrency). Without a retry
+// cushion a single blip fails the whole lane, so agent nodes default to a few
+// attempts with backoff. Command/builtin nodes are deterministic and keep a single
+// attempt. Explicit per-node `retries` always win.
+const AGENT_RETRY_DEFAULTS = {
+  backoffMs: 2000,
+  maxAttempts: 3,
+  multiplier: 2,
+} as const;
+const SINGLE_RETRY_DEFAULTS = {
+  backoffMs: 0,
+  maxAttempts: 1,
+  multiplier: 1,
+} as const;
+
 export function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
-  let retryOn: RetryReason[] = ["exit_nonzero", "gate_failure", "timeout"];
-  if (node.retries?.retry_on) {
-    retryOn = [...node.retries.retry_on];
-  }
+  const defaults =
+    node.kind === "agent" ? AGENT_RETRY_DEFAULTS : SINGLE_RETRY_DEFAULTS;
+  const retryOn: RetryReason[] = node.retries?.retry_on
+    ? [...node.retries.retry_on]
+    : ["exit_nonzero", "gate_failure", "timeout"];
   return {
-    backoffMs: node.retries?.backoff_ms ? node.retries.backoff_ms : 0,
-    maxAttempts: node.retries?.max_attempts ? node.retries.max_attempts : 1,
-    multiplier: node.retries?.multiplier ? node.retries.multiplier : 1,
+    backoffMs: node.retries?.backoff_ms ?? defaults.backoffMs,
+    maxAttempts: node.retries?.max_attempts ?? defaults.maxAttempts,
+    multiplier: node.retries?.multiplier ?? defaults.multiplier,
     retryOn,
   };
 }

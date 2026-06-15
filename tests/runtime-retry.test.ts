@@ -47,6 +47,29 @@ describe("runtime retry policy", () => {
     });
   });
 
+  it("defaults agent nodes to a resilient retry policy", () => {
+    const agentNode: PlannedWorkflowNode = {
+      dependents: [],
+      id: "writer",
+      index: 0,
+      kind: "agent",
+      needs: [],
+      profile: "moka-code-writer",
+    };
+    // No explicit retries -> agent nodes get 3 attempts with backoff so a
+    // transient opencode session error self-heals instead of failing the lane.
+    expect(nodeRetryPolicy(agentNode)).toEqual({
+      backoffMs: 2000,
+      maxAttempts: 3,
+      multiplier: 2,
+      retryOn: ["exit_nonzero", "gate_failure", "timeout"],
+    });
+    // Explicit per-node retries still win.
+    expect(
+      nodeRetryPolicy({ ...agentNode, retries: { max_attempts: 1 } })
+    ).toMatchObject({ maxAttempts: 1 });
+  });
+
   it("uses the existing backoff multiplier formula for every retry reason", () => {
     const policy = {
       backoffMs: 100,
