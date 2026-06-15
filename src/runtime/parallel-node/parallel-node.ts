@@ -6,6 +6,11 @@ import type {
   RuntimeNodeResult,
 } from "../contracts";
 import { childReporter } from "../events";
+import {
+  createChildWorktree,
+  gcParallelWorktrees,
+  type WorktreeLease,
+} from "../parallel-worktrees/parallel-worktrees";
 
 export interface ParallelNodeRuntime {
   executeNode: (
@@ -29,6 +34,7 @@ export async function executeParallelNode(
     };
   }
 
+  gcStaleWorktrees(context);
   const linkedAbort = createLinkedAbortController(context.signal);
   const childContext = createParallelChildContext(
     context,
@@ -55,6 +61,57 @@ export async function executeParallelNode(
     };
   } finally {
     linkedAbort.cleanup();
+  }
+}
+
+function gcStaleWorktrees(context: RuntimeContext): void {
+  if (context.config.parallel_worktrees?.enabled) {
+    gcParallelWorktrees(context.worktreePath);
+  }
+}
+
+/**
+ * PIPE-83.4: run a parallel child in its own git worktree when enabled, so
+ * concurrent candidate edits can't collide. The lease is created inside the
+ * per-child callback (not before scheduling) so failFast-cleared children never
+ * allocate a worktree; release retains dirty/unpushed work for downstream
+ * selection. Default-off path is byte-identical to the prior behaviour.
+ */
+function runChildInWorktree(
+  child: PlannedWorkflowNode,
+  context: RuntimeContext,
+  runtime: ParallelNodeRuntime
+): Promise<RuntimeNodeResult> {
+  return context.config.parallel_worktrees?.enabled
+    ? runInLease(child, context, runtime, createChildLease(child, context))
+    : runtime.executeNode(child, context);
+}
+
+function createChildLease(
+  child: PlannedWorkflowNode,
+  context: RuntimeContext
+): WorktreeLease {
+  return createChildWorktree({
+    childNodeId: child.id,
+    parentNodeId: context.parentParallelNodeId ?? "parallel",
+    repoRoot: context.worktreePath,
+    ...(context.runId ? { runId: context.runId } : {}),
+  });
+}
+
+async function runInLease(
+  child: PlannedWorkflowNode,
+  context: RuntimeContext,
+  runtime: ParallelNodeRuntime,
+  lease: WorktreeLease
+): Promise<RuntimeNodeResult> {
+  try {
+    return await runtime.executeNode(child, {
+      ...context,
+      worktreePath: lease.path,
+    });
+  } finally {
+    lease.release();
   }
 }
 
@@ -109,12 +166,14 @@ function executeParallelChildren(
   }
   if (!context.maxParallelNodes) {
     return Promise.all(
-      children.map((child) => runtime.executeNode(child, context))
+      children.map((child) => runChildInWorktree(child, context, runtime))
     );
   }
   const limit = pLimit(context.maxParallelNodes);
   return Promise.all(
-    children.map((child) => limit(() => runtime.executeNode(child, context)))
+    children.map((child) =>
+      limit(() => runChildInWorktree(child, context, runtime))
+    )
   );
 }
 
@@ -134,7 +193,7 @@ async function executeFailFastParallelChildren(
   const settled = await Promise.allSettled(
     children.map((child) =>
       limit(async () => {
-        const result = await runtime.executeNode(child, context);
+        const result = await runChildInWorktree(child, context, runtime);
         if (result.status === "failed") {
           abortController.abort();
           limit.clearQueue();
@@ -148,6 +207,7 @@ async function executeFailFastParallelChildren(
   );
 }
 
+// fallow-ignore-next-line unused-export
 export function parallelEvidence(
   nodeId: string,
   results: RuntimeNodeResult[],
@@ -164,6 +224,7 @@ export function parallelEvidence(
   ];
 }
 
+// fallow-ignore-next-line unused-export
 export function parallelOutput(
   children: PlannedWorkflowNode[],
   results: RuntimeNodeResult[]

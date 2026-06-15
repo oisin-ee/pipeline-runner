@@ -780,6 +780,13 @@ const contextHandoffSchema = z
   })
   .strict();
 
+// PIPE-83.4: opt-in git-worktree isolation for parallel child nodes. Default OFF
+// so parallel nodes keep running children in the shared worktree (and existing
+// tests/goldens are unchanged) until best-of-N (PIPE-83.7) needs isolation.
+const parallelWorktreesSchema = z
+  .object({ enabled: z.boolean().default(false) })
+  .strict();
+
 export const pipelineFileSchema = z
   .object({
     default_workflow: z.string(),
@@ -797,6 +804,7 @@ export const pipelineFileSchema = z
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
+    parallel_worktrees: parallelWorktreesSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     workflows: strictRecord(workflowSchema).default({}),
     version: z.literal(1),
@@ -826,6 +834,7 @@ const configSchemaBase = z
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
+    parallel_worktrees: parallelWorktreesSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     version: z.literal(1),
     workflows: strictRecord(workflowSchema).default({}),
