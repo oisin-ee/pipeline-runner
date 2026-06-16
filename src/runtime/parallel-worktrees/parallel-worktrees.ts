@@ -111,7 +111,7 @@ export function promoteWorktreeChanges(
   return files;
 }
 
-type WorktreeState =
+export type WorktreeState =
   | "active"
   | "removed"
   | "retained-dirty"
@@ -125,7 +125,7 @@ export interface WorktreeLease {
   release: () => WorktreeState;
 }
 
-interface CreateWorktreeOptions {
+export interface CreateWorktreeOptions {
   childNodeId: string;
   parentNodeId: string;
   repoRoot: string;

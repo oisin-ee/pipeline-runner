@@ -7,11 +7,11 @@ import type {
   RuntimeNodeResult,
 } from "../contracts";
 import { childReporter } from "../events";
+import type { CreateWorktreeOptions } from "../parallel-worktrees/parallel-worktrees";
 import {
-  createChildWorktree,
-  gcParallelWorktrees,
-  type WorktreeLease,
-} from "../parallel-worktrees/parallel-worktrees";
+  WorktreeService,
+  WorktreeServiceLive,
+} from "../services/worktree-service";
 
 export interface ParallelNodeRuntime {
   executeNode: (
@@ -35,14 +35,19 @@ export function executeParallelNode(
   context: RuntimeContext,
   runtime: ParallelNodeRuntime
 ): Promise<NodeAttemptResult> {
-  return Effect.runPromise(parallelNodeProgram(node, context, runtime));
+  return Effect.runPromise(
+    Effect.provide(
+      parallelNodeProgram(node, context, runtime),
+      WorktreeServiceLive
+    )
+  );
 }
 
 function parallelNodeProgram(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   runtime: ParallelNodeRuntime
-): Effect.Effect<NodeAttemptResult> {
+): Effect.Effect<NodeAttemptResult, never, WorktreeService> {
   const children = node.children ?? [];
   if (children.length === 0) {
     return Effect.succeed({
@@ -52,7 +57,7 @@ function parallelNodeProgram(
     });
   }
   return Effect.gen(function* () {
-    gcStaleWorktrees(context);
+    yield* gcStaleWorktrees(context);
     const failFast = context.plan.execution.failFast;
     const linkedAbort = createLinkedAbortController(context.signal);
     const childContext = createParallelChildContext(
@@ -108,7 +113,7 @@ function runAllChildren(
   runtime: ParallelNodeRuntime,
   caps: CategorySemaphores,
   gate: FailFastGate | undefined
-): Effect.Effect<Array<RuntimeNodeResult | undefined>> {
+): Effect.Effect<Array<RuntimeNodeResult | undefined>, never, WorktreeService> {
   return Effect.forEach(
     children,
     (child) => runChildCapped(child, context, runtime, caps, gate),
@@ -125,7 +130,7 @@ function runChildCapped(
   runtime: ParallelNodeRuntime,
   caps: CategorySemaphores,
   gate: FailFastGate | undefined
-): Effect.Effect<RuntimeNodeResult | undefined> {
+): Effect.Effect<RuntimeNodeResult | undefined, never, WorktreeService> {
   return Effect.gen(function* () {
     if (gate?.aborted()) {
       return;
@@ -147,8 +152,8 @@ function withCategoryCap(
   caps: CategorySemaphores,
   childId: string,
   context: RuntimeContext,
-  effect: Effect.Effect<RuntimeNodeResult>
-): Effect.Effect<RuntimeNodeResult> {
+  effect: Effect.Effect<RuntimeNodeResult, never, WorktreeService>
+): Effect.Effect<RuntimeNodeResult, never, WorktreeService> {
   const category = childCategory(
     childId,
     context.config.token_budget?.fan_out_width
@@ -176,10 +181,15 @@ function makeCategorySemaphores(
   });
 }
 
-function gcStaleWorktrees(context: RuntimeContext): void {
-  if (context.config.parallel_worktrees?.enabled) {
-    gcParallelWorktrees(context.worktreePath);
-  }
+function gcStaleWorktrees(
+  context: RuntimeContext
+): Effect.Effect<void, never, WorktreeService> {
+  return Effect.gen(function* () {
+    if (context.config.parallel_worktrees?.enabled) {
+      const worktree = yield* WorktreeService;
+      yield* worktree.gc(context.worktreePath);
+    }
+  });
 }
 
 /**
@@ -192,30 +202,33 @@ function runChildInWorktree(
   child: PlannedWorkflowNode,
   context: RuntimeContext,
   runtime: ParallelNodeRuntime
-): Effect.Effect<RuntimeNodeResult> {
+): Effect.Effect<RuntimeNodeResult, never, WorktreeService> {
   if (!context.config.parallel_worktrees?.enabled) {
     return Effect.promise(() => runtime.executeNode(child, context));
   }
-  return Effect.acquireUseRelease(
-    Effect.sync(() => createChildLease(child, context)),
-    (lease) =>
-      Effect.promise(() =>
-        runtime.executeNode(child, { ...context, worktreePath: lease.path })
-      ),
-    (lease) => Effect.sync(() => lease.release())
-  );
+  return Effect.gen(function* () {
+    const worktree = yield* WorktreeService;
+    return yield* Effect.acquireUseRelease(
+      worktree.createChild(childLeaseOptions(child, context)),
+      (lease) =>
+        Effect.promise(() =>
+          runtime.executeNode(child, { ...context, worktreePath: lease.path })
+        ),
+      (lease) => Effect.sync(() => lease.release())
+    );
+  });
 }
 
-function createChildLease(
+function childLeaseOptions(
   child: PlannedWorkflowNode,
   context: RuntimeContext
-): WorktreeLease {
-  return createChildWorktree({
+): CreateWorktreeOptions {
+  return {
     childNodeId: child.id,
     parentNodeId: context.parentParallelNodeId ?? "parallel",
     repoRoot: context.worktreePath,
     ...(context.runId ? { runId: context.runId } : {}),
-  });
+  };
 }
 
 function createParallelChildContext(
