@@ -359,10 +359,15 @@ The toposort uses `@dagrejs/graphlib` for the graph model but an iterative
 traversal for the topological sort, because graphlib's recursive topsort can
 overflow the call stack on deep generated workflow chains.
 
-## Opt-in context & best-of-N features (PIPE-83)
+## Context, durability & best-of-N features (PIPE-83)
 
-These top-level config blocks are all **off by default** — generated schedules,
-runtime behaviour, and the PIPE-57 goldens are unchanged until you enable them.
+The shipped `defaults/pipeline.yaml` turns **`context_handoff`, `repo_map`, and
+`durability` ON** — these are the low-cost quality/resilience wins, so moka uses
+its architecture by default. `best_of_n` + `parallel_worktrees` are threaded and
+usable but **off by default** (the cost/quality dial; on-by-default also needs
+the schedule-validator integration in PIPE-83.14). Each block can be overridden
+in `pipeline.yaml`; the per-block `# default …` notes below mark the *schema*
+default that applies when a block is omitted entirely.
 
 ### `context_handoff` — curated node-to-node handoffs
 

@@ -15,6 +15,11 @@ repo_map:
 # last passed node without re-running (or re-spending tokens on) finished work.
 durability:
   enabled: true
+# best_of_n / parallel_worktrees: the verifier-pattern dial. Threaded + usable
+# (set enabled:true, n:2, categories:[green]) but NOT on by default yet — the
+# candidates pass produces candidate nodes the schedule validator rejects
+# (graph-island children, missing task_context on select-candidate). See
+# PIPE-83.14 for the integration that makes it a safe + cost-justified default.
 token_budget:
   default_context_window: 200000
   max_context_pct: 50
