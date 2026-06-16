@@ -1,7 +1,12 @@
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { Effect } from "effect";
 import { BUILTIN_PIPE_COMMANDS } from "../commands/pipeline-command";
 import { resolvePackageAssetPath } from "../package-assets";
+import {
+  FileSystemService,
+  FileSystemServiceLive,
+  runFileSystemSync,
+} from "../runtime/services/file-system-service";
 import { standardOutputSchemaNameFromPath } from "../standard-output-schemas";
 import type { PipelineConfig } from "./schemas";
 
@@ -16,11 +21,27 @@ export function lintPipelineConfig(
   config: PipelineConfig,
   projectRoot: string
 ): ConfigLintWarning[] {
-  return [
-    ...lintShadowedEntrypoints(config),
-    ...lintMissingFileReferences(config, projectRoot),
-    ...lintWorkflowNodes(config),
-  ];
+  return runFileSystemSync(
+    lintPipelineConfigEffect(config, projectRoot),
+    FileSystemServiceLive
+  );
+}
+
+function lintPipelineConfigEffect(
+  config: PipelineConfig,
+  projectRoot: string
+): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> {
+  return Effect.gen(function* () {
+    const missingFiles = yield* lintMissingFileReferencesEffect(
+      config,
+      projectRoot
+    );
+    return [
+      ...lintShadowedEntrypoints(config),
+      ...missingFiles,
+      ...lintWorkflowNodes(config),
+    ];
+  });
 }
 
 function lintShadowedEntrypoints(config: PipelineConfig): ConfigLintWarning[] {
@@ -32,43 +53,75 @@ function lintShadowedEntrypoints(config: PipelineConfig): ConfigLintWarning[] {
     }));
 }
 
-function lintMissingFileReferences(
+function lintMissingFileReferencesEffect(
   config: PipelineConfig,
   projectRoot: string
-): ConfigLintWarning[] {
-  const refs: Array<{
-    path: string;
-    ref?: { path?: string; source_root?: "package" | "project" };
-  }> = [];
+): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystemService;
+    const warnings: ConfigLintWarning[] = [];
+    for (const ref of lintFileReferences(config)) {
+      const exists = yield* lintFileReferenceExists(
+        projectRoot,
+        ref,
+        fileSystem.exists
+      );
+      if (!exists) {
+        warnings.push(missingFileReferenceWarning(ref.path, ref.ref.path));
+      }
+    }
+    return warnings;
+  });
+}
+
+function lintFileReferences(config: PipelineConfig): Array<{
+  path: string;
+  ref: { path: string; source_root?: "package" | "project" };
+}> {
+  const refs: ReturnType<typeof lintFileReferences> = [];
   for (const [skillId, skill] of Object.entries(config.skills)) {
-    refs.push({ path: `skills.${skillId}.path`, ref: skill });
+    pushLintPathRef(refs, `skills.${skillId}.path`, skill);
   }
   for (const [profileId, profile] of Object.entries(config.profiles)) {
-    refs.push({
-      path: `profiles.${profileId}.instructions.path`,
-      ref: { path: profile.instructions.path },
+    pushLintPathRef(refs, `profiles.${profileId}.instructions.path`, {
+      path: profile.instructions.path,
     });
-    refs.push({
-      path: `profiles.${profileId}.output.schema_path`,
-      ref: { path: profile.output?.schema_path },
+    pushLintPathRef(refs, `profiles.${profileId}.output.schema_path`, {
+      path: profile.output?.schema_path,
     });
   }
-  return refs.flatMap((ref) => {
-    const value = ref.ref?.path;
-    if (
-      !value ||
-      standardOutputSchemaNameFromPath(value) ||
-      existsSync(resolveLintPathReference(projectRoot, ref.ref))
-    ) {
-      return [];
-    }
-    return [
-      {
-        ruleId: "missing-file-reference",
-        message: missingFileReferenceMessage(ref.path, value),
-      },
-    ];
-  });
+  return refs;
+}
+
+function pushLintPathRef(
+  refs: ReturnType<typeof lintFileReferences>,
+  path: string,
+  ref: { path?: string; source_root?: "package" | "project" }
+): void {
+  if (ref.path) {
+    refs.push({ path, ref: { ...ref, path: ref.path } });
+  }
+}
+
+function lintFileReferenceExists(
+  projectRoot: string,
+  ref: ReturnType<typeof lintFileReferences>[number],
+  exists: (path: string) => Effect.Effect<boolean>
+): Effect.Effect<boolean> {
+  if (standardOutputSchemaNameFromPath(ref.ref.path)) {
+    return Effect.succeed(true);
+  }
+  return exists(resolveLintPathReference(projectRoot, ref.ref));
+}
+
+function missingFileReferenceWarning(
+  path: string,
+  value: string
+): ConfigLintWarning {
+  return {
+    ruleId: "missing-file-reference",
+    message: missingFileReferenceMessage(path, value),
+  };
 }
 
 function missingFileReferenceMessage(path: string, value: string): string {
