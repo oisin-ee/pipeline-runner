@@ -1,4 +1,5 @@
 import pLimit from "p-limit";
+import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type {
   NodeAttemptResult,
@@ -156,6 +157,43 @@ function createLinkedAbortController(signal?: AbortSignal): {
   };
 }
 
+// PIPE-83.7 AC3: a parallel node's children (e.g. best-of-N candidates) are
+// throttled by their category's token_budget.fan_out_width cap, not just the
+// global maxParallelNodes — so N green candidates respect green=2.
+// fallow-ignore-next-line unused-export
+export function childCategory(
+  childId: string,
+  fanOut: PipelineConfig["token_budget"]["fan_out_width"] | undefined
+): string | undefined {
+  return fanOut
+    ? Object.keys(fanOut.by_category).find((category) =>
+        childId.includes(category)
+      )
+    : undefined;
+}
+
+function makeCategoryGate(
+  context: RuntimeContext
+): (
+  childId: string,
+  run: () => Promise<RuntimeNodeResult>
+) => Promise<RuntimeNodeResult> {
+  const fanOut = context.config.token_budget?.fan_out_width;
+  const limits = new Map<string, ReturnType<typeof pLimit>>();
+  return (childId, run) => {
+    const category = childCategory(childId, fanOut);
+    if (!(category && fanOut)) {
+      return run();
+    }
+    let limit = limits.get(category);
+    if (!limit) {
+      limit = pLimit(fanOut.by_category[category]);
+      limits.set(category, limit);
+    }
+    return limit(run);
+  };
+}
+
 function executeParallelChildren(
   children: PlannedWorkflowNode[],
   context: RuntimeContext,
@@ -164,17 +202,14 @@ function executeParallelChildren(
   for (const child of children) {
     runtime.markNodeReady(context, child.id);
   }
+  const gate = makeCategoryGate(context);
+  const runChild = (child: PlannedWorkflowNode) =>
+    gate(child.id, () => runChildInWorktree(child, context, runtime));
   if (!context.maxParallelNodes) {
-    return Promise.all(
-      children.map((child) => runChildInWorktree(child, context, runtime))
-    );
+    return Promise.all(children.map((child) => runChild(child)));
   }
   const limit = pLimit(context.maxParallelNodes);
-  return Promise.all(
-    children.map((child) =>
-      limit(() => runChildInWorktree(child, context, runtime))
-    )
-  );
+  return Promise.all(children.map((child) => limit(() => runChild(child))));
 }
 
 async function executeFailFastParallelChildren(
@@ -186,6 +221,7 @@ async function executeFailFastParallelChildren(
   for (const child of children) {
     runtime.markNodeReady(context, child.id);
   }
+  const gate = makeCategoryGate(context);
   const limit = pLimit({
     concurrency: context.maxParallelNodes ?? children.length,
     rejectOnClear: true,
@@ -193,7 +229,9 @@ async function executeFailFastParallelChildren(
   const settled = await Promise.allSettled(
     children.map((child) =>
       limit(async () => {
-        const result = await runChildInWorktree(child, context, runtime);
+        const result = await gate(child.id, () =>
+          runChildInWorktree(child, context, runtime)
+        );
         if (result.status === "failed") {
           abortController.abort();
           limit.clearQueue();

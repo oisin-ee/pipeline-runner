@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeNodeResult } from "../contracts";
-import { parallelEvidence, parallelOutput } from "./parallel-node";
+import {
+  childCategory,
+  parallelEvidence,
+  parallelOutput,
+} from "./parallel-node";
+
+describe("childCategory", () => {
+  const fanOut = { by_category: { green: 2, verification: 1 }, default: 4 };
+
+  it("returns the matching category whose name the child id includes", () => {
+    expect(childCategory("green-implementation--c1", fanOut)).toBe("green");
+    expect(childCategory("verification", fanOut)).toBe("verification");
+  });
+
+  it("returns undefined when no category matches or fan-out is absent", () => {
+    expect(childCategory("intake", fanOut)).toBeUndefined();
+    expect(childCategory("green-x", undefined)).toBeUndefined();
+  });
+});
 
 describe("runtime parallel node", () => {
   it("reports successful child completion", () => {
