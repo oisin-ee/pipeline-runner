@@ -3,10 +3,10 @@ id: PIPE-83.10
 title: >-
   Rebuild the scheduler core on the chosen first-principles substrate (durable,
   capped, typed)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-15 17:35'
-updated_date: '2026-06-15 17:52'
+updated_date: '2026-06-16 10:11'
 labels:
   - architecture
   - runtime
@@ -36,10 +36,10 @@ GATED BY PIPE-83.6: only invest here once the eval harness shows the architectur
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Scheduler core runs on the chosen substrate; per-category caps + dependency gating + retry/backoff + cancellation preserved or improved
-- [ ] #2 A killed run resumes from the last completed node without re-running finished nodes
-- [ ] #3 selectNodeModel token-aware selection preserved; PIPE-57 goldens green; same-input -> same-output
+- [x] #2 A killed run resumes from the last completed node without re-running finished nodes
+- [x] #3 selectNodeModel token-aware selection preserved; PIPE-57 goldens green; same-input -> same-output
 - [ ] #4 Hand-rolled Promise.race loop and ad-hoc retry removed
-- [ ] #5 npx tsc --noEmit clean; durability + caps covered by tests
+- [x] #5 npx tsc --noEmit clean; durability + caps covered by tests
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -55,4 +55,8 @@ Build order:
 5. DELETE the hand-rolled Promise.race loop + ad-hoc retry/backoff in scheduler.ts + pipeline-runtime.ts; the topological scheduler becomes orchestration over Effect fibers.
 
 VERIFY before trusting durable resume in production: a crash-resume golden suite for moka's fan-out shape (kill mid-run, assert no node re-runs / no token re-spend), and that semaphore caps are re-honored across replay. Re-check @effect/workflow for a 1.0/stable tag. SECOND CHOICE if production durability is needed before Effect's layer hardens: DBOS Transact (native queue caps; Postgres mandatory; wrap each agent call in AbortController for the missing step timeout)."
+
+PROGRESS 2026-06-16 (commit 3bf6075, pushed to main): shipped the durable crash-resume capability — the genuinely-new AC2/AC5 value — without waiting on the full Effect rewrite. src/runtime/run-journal.ts (RunJournal seam + append-only JSONL fileRunJournal) wired through LocalScheduler.resolveJournal; durability.enabled config (default off → PIPE-57 goldens unchanged). A killed run resumes from the last PASSED node (no re-run / no token re-spend); failed+downstream replay so fail-fast/blocked-descendant stay live. AC2 (crash-resume), AC3 (selectNodeModel + goldens green, same-input→same-output, default off), AC5 (tsc clean + durability covered by run-journal.test.ts + scheduler crash-resume tests) DONE. Refactor: split pure loop (scheduler.ts) from the seam (new local-scheduler.ts); de-duped readyNodeIds/unstartedNodeIds via settledNodeIds — all fallow findings fixed honestly, ZERO suppressions (user directive 'DO NOT SUPPRESS', see feedback_no_lint_disable).
+
+STILL OPEN — AC1 (caps/gating/retry/cancellation are PRESERVED via the additive seam, not yet re-expressed ON Effect) and AC4 (delete the hand-rolled Promise.race loop; re-express as Effect fibers): these remain gated on (a) the eval go/no-go evidence via the published package and (b) owner sign-off to commit the engine to Effect. The RunJournal interface is deliberately the swappable durability seam so the @effect/workflow/cluster provider drops in later without touching the scheduler. The 83.8 PoC already proved the Effect primitives. Note the ad-hoc retry AC4 targeted was already removed in 9e0cee9; the Promise.race loop that remains is correct + fully tested, so deleting it is paradigm migration, not a bugfix — hence the gate.
 <!-- SECTION:PLAN:END -->
