@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { Effect } from "effect";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -90,8 +91,10 @@ export type {
 export function runPipelineFromConfig(
   options: PipelineRuntimeOptions
 ): Promise<PipelineRuntimeResult> {
-  return withOpencodeRuntime(options, (resolved) =>
-    runPipelineWithContext(createRuntimeContext(resolved))
+  return Effect.runPromise(
+    withOpencodeRuntime(options, (resolved) =>
+      runPipelineWithContext(createRuntimeContext(resolved))
+    )
   );
 }
 
@@ -99,13 +102,17 @@ export function runScheduledWorkflowTask(
   options: ScheduledWorkflowTaskRuntimeOptions
 ): Promise<RuntimeNodeResult> {
   const { dependencyOutputs, nodeId, ...runtimeOptions } = options;
-  return withOpencodeRuntime(runtimeOptions, (resolved) => {
-    const context = createRuntimeContext(resolved);
-    hydrateScheduledDependencyStates(context, nodeId);
-    hydrateDependencyOutputs(context, dependencyOutputs);
-    recordNodeEvent(context, nodeId, { at: now(), type: "READY" });
-    return executePlannedNode(nodeId, context);
-  });
+  return Effect.runPromise(
+    withOpencodeRuntime(runtimeOptions, (resolved) =>
+      Effect.gen(function* () {
+        const context = createRuntimeContext(resolved);
+        hydrateScheduledDependencyStates(context, nodeId);
+        hydrateDependencyOutputs(context, dependencyOutputs);
+        recordNodeEvent(context, nodeId, { at: now(), type: "READY" });
+        return yield* executePlannedNode(nodeId, context);
+      })
+    )
+  );
 }
 
 /**
@@ -114,17 +121,20 @@ export function runScheduledWorkflowTask(
  * and tear the server down afterward. Command-only configs and callers that
  * supply their own executor (tests, embedders) are passed through untouched.
  */
-async function withOpencodeRuntime<T>(
+function withOpencodeRuntime<T>(
   options: PipelineRuntimeOptions,
-  run: (resolved: PipelineRuntimeOptions) => Promise<T>
-): Promise<T> {
-  if (options.executor) {
-    return await run(options);
-  }
-  const { config, worktreePath } = resolveConfigForRun(options);
-  return configUsesOpencode(config)
-    ? await runWithLeasedOpencode(options, config, worktreePath, run)
-    : await run({ ...options, config });
+  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>
+): Effect.Effect<T, unknown> {
+  return Effect.gen(function* () {
+    if (options.executor) {
+      return yield* run(options);
+    }
+    const { config, worktreePath } = resolveConfigForRun(options);
+    if (configUsesOpencode(config)) {
+      return yield* runWithLeasedOpencode(options, config, worktreePath, run);
+    }
+    return yield* run({ ...options, config });
+  });
 }
 
 function resolveConfigForRun(options: PipelineRuntimeOptions): {
@@ -138,26 +148,31 @@ function resolveConfigForRun(options: PipelineRuntimeOptions): {
   };
 }
 
-async function runWithLeasedOpencode<T>(
+function runWithLeasedOpencode<T>(
   options: PipelineRuntimeOptions,
   config: PipelineConfig,
   worktreePath: string,
-  run: (resolved: PipelineRuntimeOptions) => Promise<T>
-): Promise<T> {
-  const lease = await leaseOpencodeRuntime({
-    config,
-    ...(options.signal ? { signal: options.signal } : {}),
-    worktreePath,
-  });
-  try {
-    return await run({
-      ...options,
-      config,
-      executor: lease.executor as RuntimeExecutor,
-    });
-  } finally {
-    await lease.release();
-  }
+  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>
+): Effect.Effect<T, unknown> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const lease = yield* Effect.acquireRelease(
+        Effect.tryPromise(() =>
+          leaseOpencodeRuntime({
+            config,
+            ...(options.signal ? { signal: options.signal } : {}),
+            worktreePath,
+          })
+        ),
+        (lease) => Effect.promise(() => lease.release())
+      );
+      return yield* run({
+        ...options,
+        config,
+        executor: lease.executor as RuntimeExecutor,
+      });
+    })
+  );
 }
 
 function runJournalPath(context: RuntimeContext, dir: string): string {
@@ -175,31 +190,33 @@ function resolveRunJournal(context: RuntimeContext): RunJournal | undefined {
   return fileRunJournal(runJournalPath(context, durability.dir));
 }
 
-async function runPipelineWithContext(
+function runPipelineWithContext(
   context: RuntimeContext
-): Promise<PipelineRuntimeResult> {
+): Effect.Effect<PipelineRuntimeResult, unknown> {
   const scheduler: PipelineScheduler = new LocalScheduler({
     buildResult: (outcome, nodes, failure) =>
       workflowRuntimeResult(context, outcome, nodes, failure),
     emitWorkflowPlanned: (nextContext) => emitWorkflowPlanned(nextContext),
     emitWorkflowStarted: (nextContext) => emitWorkflowStarted(nextContext),
     executeNode: (nodeId, nextContext) =>
-      executePlannedNode(nodeId, nextContext),
+      Effect.runPromise(executePlannedNode(nodeId, nextContext)),
     isCancelled: (nextContext) => isCancelled(nextContext),
     markNodeReady: (nodeId, nextContext) =>
       recordNodeEvent(nextContext, nodeId, { at: now(), type: "READY" }),
     resolveJournal: (nextContext) => resolveRunJournal(nextContext),
     runWorkflowHook: (event, failure, nextContext) =>
-      dispatchHooks(nextContext, event, failure),
+      Effect.runPromise(dispatchHooksEffect(nextContext, event, failure)),
     shouldContinueAfterNodeResult: (result, nextContext) =>
       shouldContinueAfterNodeResult(result, nextContext),
     skipNode: (nodeId, reason, nextContext) =>
       recordSkippedNodeState(nextContext, nodeId, reason, now()),
   });
-  return finishRuntime(
-    context,
-    await scheduler.runWorkflow(context.plan, context)
-  );
+  return Effect.gen(function* () {
+    const result = yield* Effect.tryPromise(() =>
+      scheduler.runWorkflow(context.plan, context)
+    );
+    return finishRuntime(context, result);
+  });
 }
 
 function shouldContinueAfterNodeResult(
@@ -210,14 +227,39 @@ function shouldContinueAfterNodeResult(
     return true;
   }
   const node = context.plan.graph.node(result.nodeId);
-  if (node?.kind !== "parallel" || !parallelOutputHasChildren(result.output)) {
+  return isRecoverableParallelFailure(node, result.output, context);
+}
+
+function isRecoverableParallelFailure(
+  node: PlannedWorkflowNode | undefined,
+  output: string,
+  context: RuntimeContext
+): boolean {
+  if (!isParallelWithChildren(node, output)) {
     return false;
   }
-  return (
-    node.dependents.length > 0 &&
-    node.dependents.every((dependentId) =>
-      isDrainMergeNode(context.plan.graph.node(dependentId))
-    )
+  return hasOnlyDrainMergeDependents(node, context);
+}
+
+function isParallelWithChildren(
+  node: PlannedWorkflowNode | undefined,
+  output: string
+): node is PlannedWorkflowNode {
+  if (!node) {
+    return false;
+  }
+  return node.kind === "parallel" ? parallelOutputHasChildren(output) : false;
+}
+
+function hasOnlyDrainMergeDependents(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): boolean {
+  if (node.dependents.length === 0) {
+    return false;
+  }
+  return node.dependents.every((dependentId) =>
+    isDrainMergeNode(context.plan.graph.node(dependentId))
   );
 }
 
@@ -228,25 +270,38 @@ function parallelOutputHasChildren(output: string): boolean {
 }
 
 function isDrainMergeNode(node: PlannedWorkflowNode | undefined): boolean {
-  return node?.kind === "builtin" && node.builtin === "drain-merge";
+  if (!node) {
+    return false;
+  }
+  return node.kind === "builtin" ? node.builtin === "drain-merge" : false;
 }
 
-async function executePlannedNode(
+function executePlannedNode(
   nodeId: string,
   context: RuntimeContext
-): Promise<RuntimeNodeResult> {
-  const node = plannedNodeById(context, nodeId);
-  if (!node) {
-    throw new Error(`workflow scheduler referenced unknown node '${nodeId}'`);
-  }
-  const result = await executeNode(node, context);
-  await dispatchHooks(
-    context,
-    "node.finish",
-    result.status === "failed" ? nodeRuntimeFailure(result) : undefined,
-    node
-  );
-  return result;
+): Effect.Effect<RuntimeNodeResult, unknown> {
+  return Effect.gen(function* () {
+    const node = plannedNodeById(context, nodeId);
+    if (!node) {
+      return yield* Effect.fail(
+        new Error(`workflow scheduler referenced unknown node '${nodeId}'`)
+      );
+    }
+    const result = yield* executeNode(node, context);
+    yield* dispatchHooksEffect(
+      context,
+      "node.finish",
+      result.status === "failed" ? nodeRuntimeFailure(result) : undefined,
+      node
+    );
+    return result;
+  });
+}
+
+function dispatchHooksEffect(
+  ...args: Parameters<typeof dispatchHooks>
+): Effect.Effect<Awaited<ReturnType<typeof dispatchHooks>>, unknown> {
+  return Effect.tryPromise(() => dispatchHooks(...args));
 }
 
 function plannedNodeById(
@@ -371,29 +426,72 @@ function hydrateDependencyOutputs(
   context: RuntimeContext,
   dependencyOutputs: ScheduledWorkflowTaskRuntimeOptions["dependencyOutputs"]
 ): void {
-  const outputs =
-    dependencyOutputs instanceof Map
-      ? dependencyOutputs
-      : new Map(Object.entries(dependencyOutputs ?? {}));
+  const outputs = dependencyOutputMap(dependencyOutputs);
   const finishedAt = now();
   for (const [nodeId, output] of outputs) {
-    const existing = context.nodeStateStore.getNodeState(nodeId);
     context.nodeStateStore.recordOutput(nodeId, output);
     context.nodeStateStore.markInheritedOutput(nodeId);
-    context.nodeStateStore.setNodeState(nodeId, {
-      attempts: existing?.attempts ?? 1,
-      evidence: [
-        ...(existing?.evidence ?? []),
-        "dependency output inherited from Argo artifact",
-      ],
-      exitCode: existing?.exitCode ?? 0,
-      finishedAt: existing?.finishedAt ?? finishedAt,
-      gates: existing?.gates ?? [],
-      id: nodeId,
-      output,
-      status: "passed",
-    });
+    context.nodeStateStore.setNodeState(
+      nodeId,
+      inheritedDependencyOutputState(context, nodeId, output, finishedAt)
+    );
   }
+}
+
+function dependencyOutputMap(
+  dependencyOutputs: ScheduledWorkflowTaskRuntimeOptions["dependencyOutputs"]
+): Map<string, string> {
+  if (dependencyOutputs instanceof Map) {
+    return dependencyOutputs;
+  }
+  return new Map(Object.entries(dependencyOutputs ?? {}));
+}
+
+function inheritedDependencyOutputState(
+  context: RuntimeContext,
+  nodeId: string,
+  output: string,
+  finishedAt: string
+): NodeExecutionState {
+  const existing = context.nodeStateStore.getNodeState(nodeId);
+  return {
+    attempts: existingAttempts(existing),
+    evidence: inheritedOutputEvidence(existing),
+    exitCode: existingExitCode(existing),
+    finishedAt: existingFinishedAt(existing, finishedAt),
+    gates: existingGates(existing),
+    id: nodeId,
+    output,
+    status: "passed",
+  };
+}
+
+function existingAttempts(existing: NodeExecutionState | undefined): number {
+  return existing ? existing.attempts : 1;
+}
+
+function inheritedOutputEvidence(
+  existing: NodeExecutionState | undefined
+): string[] {
+  const evidence = existing ? existing.evidence : [];
+  return [...evidence, "dependency output inherited from Argo artifact"];
+}
+
+function existingExitCode(existing: NodeExecutionState | undefined): number {
+  return existing ? (existing.exitCode ?? 0) : 0;
+}
+
+function existingFinishedAt(
+  existing: NodeExecutionState | undefined,
+  fallback: string
+): string {
+  return existing ? (existing.finishedAt ?? fallback) : fallback;
+}
+
+function existingGates(
+  existing: NodeExecutionState | undefined
+): RuntimeGateResult[] {
+  return existing ? existing.gates : [];
 }
 
 function hydrateScheduledDependencyStates(
@@ -519,125 +617,321 @@ function isCancelled(context: RuntimeContext): boolean {
   return context.signal?.aborted === true;
 }
 
-async function executeNode(
+function executeNode(
   node: PlannedWorkflowNode,
   context: RuntimeContext
-): Promise<RuntimeNodeResult> {
-  const retryPolicy = nodeRetryPolicy(node);
-  let last: NodeAttemptResult = {
-    evidence: [],
-    exitCode: 1,
-    output: "",
-  };
-  let retry: NodeAttemptRetry | undefined;
+): Effect.Effect<RuntimeNodeResult, unknown> {
+  return Effect.gen(function* () {
+    const retryPolicy = nodeRetryPolicy(node);
+    const state = initialAttemptLoopState();
+    const result = yield* runNodeAttempts(node, context, retryPolicy, state);
+    if (result) {
+      return result;
+    }
+    const finalRetry =
+      state.retry ?? exhaustedRetry(node, retryPolicy.maxAttempts, state.last);
+    return yield* finishFailedNode(node, context, state.last, finalRetry);
+  });
+}
 
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      const cycle = await executeNodeAttemptCycle(node, context, attempt, last);
-      last = cycle.last;
-      if (cycle.result) {
-        emitNodeFinish(context, cycle.result);
-        return cycle.result;
-      }
-      retry = retryCandidateForCycle(node, cycle, last, attempt);
-      const remediation = await remediateFailedNode({
-        attempt,
-        context,
+interface NodeAttemptLoopState {
+  last: NodeAttemptResult;
+  retry?: NodeAttemptRetry;
+}
+
+type NodeAttemptLoopStep = "failed" | "retry" | RuntimeNodeResult;
+
+function initialAttemptLoopState(): NodeAttemptLoopState {
+  return { last: { evidence: [], exitCode: 1, output: "" } };
+}
+
+function runNodeAttempts(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  retryPolicy: ReturnType<typeof nodeRetryPolicy>,
+  state: NodeAttemptLoopState
+): Effect.Effect<RuntimeNodeResult | null, unknown> {
+  return Effect.gen(function* () {
+    for (let attempt = 1; ; attempt += 1) {
+      const step = yield* runSingleNodeAttempt(
         node,
-        retry,
-      });
-      if (remediation?.result) {
-        recordNodeEvent(context, node.id, {
-          at: now(),
-          result: remediation.result,
-          type: "PASSED",
-        });
-        emitNodeFinish(context, remediation.result);
-        return remediation.result;
-      }
-      if (remediation?.retryNode) {
+        context,
+        retryPolicy,
+        state,
+        attempt
+      );
+      if (step === "retry") {
         continue;
       }
-      const retryDecision = decideNodeRetry({
-        attempt,
-        evidence: retry.evidence,
-        gate: retry.gate,
-        policy: retryPolicy,
-        reason: retry.reason,
-        retryReason: retry.retryReason,
-      });
-      recordNodeEvent(context, node.id, {
-        at: now(),
-        attempt,
-        evidence: retry.evidence,
-        gate: retry.gate,
-        reason: retry.reason,
-        retry: retryDecision,
-        retryReason: retry.retryReason,
-        type: "RETRYING",
-      });
-      emitRuntimeRetry(context, node.id, retryDecision, retry.retryReason);
-      if (!retryDecision?.scheduled) {
-        break;
-      }
-      await waitForRetryDelay(retryDecision.delayMs, context.signal);
-    } catch (err) {
-      if (isCancelled(context)) {
-        retry = {
-          attempt,
-          evidence: [...last.evidence, ...cancelledFailure().evidence],
-          gate: node.id,
-          reason: "pipeline cancelled",
-          retryReason: "timeout",
-        };
-        break;
-      }
-      retry = {
-        attempt,
-        evidence: [
-          ...last.evidence,
-          err instanceof Error ? err.message : String(err),
-        ],
-        gate: node.id,
-        reason: err instanceof Error ? err.message : "node retry failed",
-        retryReason: nodeRetryReason(last),
-      };
-      break;
+      return step === "failed" ? null : step;
     }
-  }
+  });
+}
 
-  retry ??= {
-    attempt: Math.max(1, retryPolicy.maxAttempts),
+function runSingleNodeAttempt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  retryPolicy: ReturnType<typeof nodeRetryPolicy>,
+  state: NodeAttemptLoopState,
+  attempt: number
+): Effect.Effect<NodeAttemptLoopStep, unknown> {
+  return Effect.gen(function* () {
+    const outcome = yield* nodeAttemptCycleOrError(
+      node,
+      context,
+      attempt,
+      state.last
+    );
+    if ("error" in outcome) {
+      state.retry = retryFromAttemptError(
+        node,
+        context,
+        attempt,
+        state.last,
+        outcome.error
+      );
+      return "failed";
+    }
+    state.last = outcome.last;
+    return yield* continueAfterAttemptCycle(
+      node,
+      context,
+      retryPolicy,
+      state,
+      attempt,
+      outcome
+    );
+  });
+}
+
+function nodeAttemptCycleOrError(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  last: NodeAttemptResult
+): Effect.Effect<NodeAttemptCycleResult | { error: unknown }> {
+  return Effect.catchAll(
+    executeNodeAttemptCycle(node, context, attempt, last),
+    (error) => Effect.succeed({ error })
+  );
+}
+
+function continueAfterAttemptCycle(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  retryPolicy: ReturnType<typeof nodeRetryPolicy>,
+  state: NodeAttemptLoopState,
+  attempt: number,
+  cycle: NodeAttemptCycleResult
+): Effect.Effect<NodeAttemptLoopStep, unknown> {
+  if (cycle.result) {
+    emitNodeFinish(context, cycle.result);
+    return Effect.succeed(cycle.result);
+  }
+  state.retry = retryCandidateForCycle(node, cycle, state.last, attempt);
+  return continueAfterRetryCandidate(
+    node,
+    context,
+    retryPolicy,
+    state.retry,
+    attempt
+  );
+}
+
+function continueAfterRetryCandidate(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  retryPolicy: ReturnType<typeof nodeRetryPolicy>,
+  retry: NodeAttemptRetry,
+  attempt: number
+): Effect.Effect<NodeAttemptLoopStep, unknown> {
+  return Effect.gen(function* () {
+    const remediation = yield* remediateFailedNode({
+      attempt,
+      context,
+      node,
+      retry,
+    });
+    const passed = remediationPassedResult(remediation);
+    if (passed) {
+      emitRemediationPass(context, node.id, passed);
+      return passed;
+    }
+    if (remediationRequestsRetry(remediation)) {
+      return "retry";
+    }
+    return yield* scheduleNodeRetry(node, context, retryPolicy, retry, attempt);
+  });
+}
+
+function remediationPassedResult(
+  remediation: NodeRemediationResult | null
+): RuntimeNodeResult | null {
+  if (!remediation) {
+    return null;
+  }
+  return remediation.result ?? null;
+}
+
+function remediationRequestsRetry(
+  remediation: NodeRemediationResult | null
+): boolean {
+  if (!remediation) {
+    return false;
+  }
+  return remediation.retryNode === true;
+}
+
+function emitRemediationPass(
+  context: RuntimeContext,
+  nodeId: string,
+  result: RuntimeNodeResult
+): void {
+  recordNodeEvent(context, nodeId, { at: now(), result, type: "PASSED" });
+  emitNodeFinish(context, result);
+}
+
+function scheduleNodeRetry(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  retryPolicy: ReturnType<typeof nodeRetryPolicy>,
+  retry: NodeAttemptRetry,
+  attempt: number
+): Effect.Effect<NodeAttemptLoopStep> {
+  return Effect.gen(function* () {
+    const retryDecision = decideNodeRetry({
+      attempt,
+      evidence: retry.evidence,
+      gate: retry.gate,
+      policy: retryPolicy,
+      reason: retry.reason,
+      retryReason: retry.retryReason,
+    });
+    recordRetryingNodeEvent(context, node.id, attempt, retry, retryDecision);
+    emitRuntimeRetry(context, node.id, retryDecision, retry.retryReason);
+    if (!retryDecision?.scheduled) {
+      return "failed";
+    }
+    yield* waitForRetryDelay(retryDecision.delayMs, context.signal);
+    return "retry";
+  });
+}
+
+function recordRetryingNodeEvent(
+  context: RuntimeContext,
+  nodeId: string,
+  attempt: number,
+  retry: NodeAttemptRetry,
+  retryDecision: ReturnType<typeof decideNodeRetry>
+): void {
+  recordNodeEvent(context, nodeId, {
+    at: now(),
+    attempt,
+    evidence: retry.evidence,
+    gate: retry.gate,
+    reason: retry.reason,
+    retry: retryDecision,
+    retryReason: retry.retryReason,
+    type: "RETRYING",
+  });
+}
+
+function retryFromAttemptError(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  last: NodeAttemptResult,
+  err: unknown
+): NodeAttemptRetry {
+  return isCancelled(context)
+    ? cancelledRetry(node.id, attempt, last)
+    : failedAttemptRetry(node.id, attempt, last, err);
+}
+
+function cancelledRetry(
+  nodeId: string,
+  attempt: number,
+  last: NodeAttemptResult
+): NodeAttemptRetry {
+  return {
+    attempt,
+    evidence: [...last.evidence, ...cancelledFailure().evidence],
+    gate: nodeId,
+    reason: "pipeline cancelled",
+    retryReason: "timeout",
+  };
+}
+
+function failedAttemptRetry(
+  nodeId: string,
+  attempt: number,
+  last: NodeAttemptResult,
+  err: unknown
+): NodeAttemptRetry {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    attempt,
+    evidence: [...last.evidence, message],
+    gate: nodeId,
+    reason: err instanceof Error ? err.message : "node retry failed",
+    retryReason: nodeRetryReason(last),
+  };
+}
+
+function exhaustedRetry(
+  node: PlannedWorkflowNode,
+  maxAttempts: number,
+  last: NodeAttemptResult
+): NodeAttemptRetry {
+  return {
+    attempt: Math.max(1, maxAttempts),
     evidence: last.evidence,
     gate: node.id,
     reason: `node exited with code ${last.exitCode}`,
     retryReason: nodeRetryReason(last),
   };
-  await dispatchHooks(
-    context,
-    "node.error",
-    {
-      evidence: retry.evidence,
-      gate: retry.gate,
-      nodeId: node.id,
-      reason: retry.reason,
-    },
-    node
-  );
-  const result = nodeFailure(
-    node.id,
-    retry.attempt,
-    retry.evidence,
-    last.output
-  );
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    failure: nodeRuntimeFailure(result),
-    result,
-    type: "FAILED",
+}
+
+function finishFailedNode(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  last: NodeAttemptResult,
+  retry: NodeAttemptRetry
+): Effect.Effect<RuntimeNodeResult, unknown> {
+  return Effect.gen(function* () {
+    yield* dispatchHooksEffect(
+      context,
+      "node.error",
+      nodeRetryFailure(node, retry),
+      node
+    );
+    const result = nodeFailure(
+      node.id,
+      retry.attempt,
+      retry.evidence,
+      last.output
+    );
+    recordNodeEvent(context, node.id, {
+      at: now(),
+      failure: nodeRuntimeFailure(result),
+      result,
+      type: "FAILED",
+    });
+    emitNodeFinish(context, result);
+    return result;
   });
-  emitNodeFinish(context, result);
-  return result;
+}
+
+function nodeRetryFailure(
+  node: PlannedWorkflowNode,
+  retry: NodeAttemptRetry
+): RuntimeFailure {
+  return {
+    evidence: retry.evidence,
+    gate: retry.gate,
+    nodeId: node.id,
+    reason: retry.reason,
+  };
 }
 
 function emitRuntimeRetry(
@@ -663,235 +957,261 @@ interface NodeRemediationResult {
   retryNode?: boolean;
 }
 
-async function remediateFailedNode(input: {
+interface NodeRemediationInput {
   attempt: number;
   context: RuntimeContext;
   node: PlannedWorkflowNode;
   retry: NodeAttemptRetry;
-}): Promise<NodeRemediationResult | null> {
-  const selfRemediation = await remediateWritableNodeFailure(input);
-  if (selfRemediation) {
-    return { result: selfRemediation };
-  }
-  if (await remediateCoverageFailure(input)) {
-    return { retryNode: true };
-  }
-  if (await remediateUpstreamImplementationFailure(input)) {
-    return { retryNode: true };
-  }
-  return null;
 }
 
-async function remediateWritableNodeFailure(input: {
-  attempt: number;
-  context: RuntimeContext;
-  node: PlannedWorkflowNode;
-  retry: NodeAttemptRetry;
-}): Promise<RuntimeNodeResult | null> {
-  if (
-    input.retry.retryReason !== "gate_failure" ||
-    isRemediationNode(input.node) ||
-    !nodeCanWrite(input.context, input.node)
-  ) {
+function remediateFailedNode(
+  input: NodeRemediationInput
+): Effect.Effect<NodeRemediationResult | null, unknown> {
+  return Effect.gen(function* () {
+    const selfRemediation = yield* remediateWritableNodeFailure(input);
+    if (selfRemediation) {
+      return { result: selfRemediation };
+    }
+    if (yield* remediateCoverageFailure(input)) {
+      return { retryNode: true };
+    }
+    if (yield* remediateUpstreamImplementationFailure(input)) {
+      return { retryNode: true };
+    }
     return null;
-  }
-
-  const beforeSnapshot = await snapshotChangedFiles(input.context.worktreePath);
-  const beforeOutput = input.context.nodeStateStore.getOutput(input.node.id);
-  const result = await executeSelfRemediation(input);
-  if (result.status !== "passed") {
-    return null;
-  }
-
-  const changed = diffChangedFiles(
-    beforeSnapshot,
-    await snapshotChangedFiles(input.context.worktreePath),
-    input.context.worktreePath
-  );
-  if (changed.files.size === 0 && result.output === beforeOutput) {
-    return null;
-  }
-
-  input.context.nodeStateStore.setSnapshot(input.node.id, changed);
-  input.context.nodeStateStore.recordOutput(input.node.id, result.output);
-  return {
-    attempts: input.attempt + 1,
-    evidence: result.evidence,
-    exitCode: result.exitCode,
-    nodeId: input.node.id,
-    output: result.output,
-    status: "passed",
-  };
-}
-
-async function executeSelfRemediation(input: {
-  attempt: number;
-  context: RuntimeContext;
-  node: PlannedWorkflowNode;
-  retry: NodeAttemptRetry;
-}): Promise<RuntimeNodeResult> {
-  const node: PlannedWorkflowNode = {
-    ...input.node,
-    artifacts: undefined,
-    dependents: [],
-    id: `${input.node.id}:remediate:${input.retry.gate}:${input.attempt}`,
-    needs: [],
-    retries: undefined,
-  };
-  const originalTask = input.context.task;
-  input.context.task = nodeRemediationTask({
-    node: input.node,
-    originalTask,
-    retry: input.retry,
   });
-  try {
-    return await executeNode(node, input.context);
-  } finally {
-    input.context.task = originalTask;
-  }
 }
 
-async function remediateCoverageFailure(input: {
-  attempt: number;
-  context: RuntimeContext;
-  node: PlannedWorkflowNode;
-  retry: NodeAttemptRetry;
-}): Promise<boolean> {
+function remediateWritableNodeFailure(
+  input: NodeRemediationInput
+): Effect.Effect<RuntimeNodeResult | null, unknown> {
+  return Effect.gen(function* () {
+    if (!canSelfRemediateWritableNode(input)) {
+      return null;
+    }
+
+    const beforeSnapshot = yield* snapshotChangedFilesEffect(
+      input.context.worktreePath
+    );
+    const beforeOutput = input.context.nodeStateStore.getOutput(input.node.id);
+    const result = yield* executeSelfRemediation(input);
+    if (result.status !== "passed") {
+      return null;
+    }
+
+    const changed = diffChangedFiles(
+      beforeSnapshot,
+      yield* snapshotChangedFilesEffect(input.context.worktreePath),
+      input.context.worktreePath
+    );
+    if (remediationChangedNothing(changed.files.size, result, beforeOutput)) {
+      return null;
+    }
+
+    input.context.nodeStateStore.setSnapshot(input.node.id, changed);
+    input.context.nodeStateStore.recordOutput(input.node.id, result.output);
+    return {
+      attempts: input.attempt + 1,
+      evidence: result.evidence,
+      exitCode: result.exitCode,
+      nodeId: input.node.id,
+      output: result.output,
+      status: "passed",
+    };
+  });
+}
+
+function canSelfRemediateWritableNode(input: NodeRemediationInput): boolean {
+  if (input.retry.retryReason !== "gate_failure") {
+    return false;
+  }
+  if (isRemediationNode(input.node)) {
+    return false;
+  }
+  return nodeCanWrite(input.context, input.node);
+}
+
+function remediationChangedNothing(
+  changedFileCount: number,
+  result: RuntimeNodeResult,
+  beforeOutput: string | undefined
+): boolean {
+  if (changedFileCount !== 0) {
+    return false;
+  }
+  return result.output === beforeOutput;
+}
+
+function executeSelfRemediation(
+  input: NodeRemediationInput
+): Effect.Effect<RuntimeNodeResult, unknown> {
+  return Effect.gen(function* () {
+    const node: PlannedWorkflowNode = {
+      ...input.node,
+      artifacts: undefined,
+      dependents: [],
+      id: `${input.node.id}:remediate:${input.retry.gate}:${input.attempt}`,
+      needs: [],
+      retries: undefined,
+    };
+    const originalTask = input.context.task;
+    input.context.task = nodeRemediationTask({
+      node: input.node,
+      originalTask,
+      retry: input.retry,
+    });
+    return yield* Effect.ensuring(
+      executeNode(node, input.context),
+      Effect.sync(() => {
+        input.context.task = originalTask;
+      })
+    );
+  });
+}
+
+function remediateCoverageFailure(
+  input: NodeRemediationInput
+): Effect.Effect<boolean, unknown> {
   if (
     input.retry.retryReason !== "gate_failure" ||
     !hasSchedulingRole(input.context, input.node, "coverage")
   ) {
-    return false;
+    return Effect.succeed(false);
   }
-  return await remediatePassedImplementationAncestors(input);
+  return remediatePassedImplementationAncestors(input);
 }
 
-async function remediateUpstreamImplementationFailure(input: {
-  attempt: number;
-  context: RuntimeContext;
-  node: PlannedWorkflowNode;
-  retry: NodeAttemptRetry;
-}): Promise<boolean> {
+function remediateUpstreamImplementationFailure(
+  input: NodeRemediationInput
+): Effect.Effect<boolean, unknown> {
   if (
     isRemediationNode(input.node) ||
     nodeCanWrite(input.context, input.node) ||
     hasSchedulingRole(input.context, input.node, "coverage")
   ) {
-    return false;
+    return Effect.succeed(false);
   }
-  return await remediatePassedImplementationAncestors(input);
+  return remediatePassedImplementationAncestors(input);
 }
 
-async function remediatePassedImplementationAncestors(input: {
-  attempt: number;
-  context: RuntimeContext;
-  node: PlannedWorkflowNode;
-  retry: NodeAttemptRetry;
-}): Promise<boolean> {
-  const implementationNodes = upstreamImplementationNodes(
-    input.context,
-    input.node
-  ).filter(
-    (candidate) =>
-      input.context.nodeStateStore.getNodeState(candidate.id)?.status ===
-      "passed"
-  );
-  if (implementationNodes.length === 0) {
-    return false;
-  }
-
-  for (const implementationNode of implementationNodes) {
-    if (!(await remediateImplementationAncestor(input, implementationNode))) {
+function remediatePassedImplementationAncestors(
+  input: NodeRemediationInput
+): Effect.Effect<boolean, unknown> {
+  return Effect.gen(function* () {
+    const implementationNodes = upstreamImplementationNodes(
+      input.context,
+      input.node
+    ).filter(
+      (candidate) =>
+        input.context.nodeStateStore.getNodeState(candidate.id)?.status ===
+        "passed"
+    );
+    if (implementationNodes.length === 0) {
       return false;
     }
-  }
-  return true;
+
+    for (const implementationNode of implementationNodes) {
+      if (
+        !(yield* remediateImplementationAncestor(input, implementationNode))
+      ) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
-async function remediateImplementationAncestor(
-  input: {
-    attempt: number;
-    context: RuntimeContext;
-    node: PlannedWorkflowNode;
-    retry: NodeAttemptRetry;
-  },
+function remediateImplementationAncestor(
+  input: NodeRemediationInput,
   implementationNode: PlannedWorkflowNode
-): Promise<boolean> {
-  if (isCancelled(input.context)) {
-    return false;
-  }
-  const beforeSnapshot = await snapshotChangedFiles(input.context.worktreePath);
-  const beforeOutput = input.context.nodeStateStore.getOutput(
-    implementationNode.id
-  );
-  const result = await executeImplementationRemediation({
-    attempt: input.attempt,
-    context: input.context,
-    coverageNode: input.node,
-    implementationNode,
-    retry: input.retry,
-  });
-  if (result.status !== "passed") {
-    return false;
-  }
-  return await recordImplementationRemediationEffect({
-    beforeOutput,
-    beforeSnapshot,
-    context: input.context,
-    implementationNode,
-    result,
+): Effect.Effect<boolean, unknown> {
+  return Effect.gen(function* () {
+    if (isCancelled(input.context)) {
+      return false;
+    }
+    const beforeSnapshot = yield* snapshotChangedFilesEffect(
+      input.context.worktreePath
+    );
+    const beforeOutput = input.context.nodeStateStore.getOutput(
+      implementationNode.id
+    );
+    const result = yield* executeImplementationRemediation({
+      attempt: input.attempt,
+      context: input.context,
+      coverageNode: input.node,
+      implementationNode,
+      retry: input.retry,
+    });
+    if (result.status !== "passed") {
+      return false;
+    }
+    return yield* recordImplementationRemediationEffect({
+      beforeOutput,
+      beforeSnapshot,
+      context: input.context,
+      implementationNode,
+      result,
+    });
   });
 }
 
-async function recordImplementationRemediationEffect(input: {
+function recordImplementationRemediationEffect(input: {
   beforeOutput: string | undefined;
   beforeSnapshot: Awaited<ReturnType<typeof snapshotChangedFiles>>;
   context: RuntimeContext;
   implementationNode: PlannedWorkflowNode;
   result: RuntimeNodeResult;
-}): Promise<boolean> {
-  const changed = diffChangedFiles(
-    input.beforeSnapshot,
-    await snapshotChangedFiles(input.context.worktreePath),
-    input.context.worktreePath
-  );
-  if (changed.files.size === 0 && input.result.output === input.beforeOutput) {
-    return false;
-  }
-  input.context.nodeStateStore.recordOutput(
-    input.implementationNode.id,
-    input.result.output
-  );
-  return true;
+}): Effect.Effect<boolean> {
+  return Effect.gen(function* () {
+    const changed = diffChangedFiles(
+      input.beforeSnapshot,
+      yield* snapshotChangedFilesEffect(input.context.worktreePath),
+      input.context.worktreePath
+    );
+    if (
+      changed.files.size === 0 &&
+      input.result.output === input.beforeOutput
+    ) {
+      return false;
+    }
+    input.context.nodeStateStore.recordOutput(
+      input.implementationNode.id,
+      input.result.output
+    );
+    return true;
+  });
 }
 
-async function executeImplementationRemediation(input: {
+function executeImplementationRemediation(input: {
   attempt: number;
   context: RuntimeContext;
   coverageNode: PlannedWorkflowNode;
   implementationNode: PlannedWorkflowNode;
   retry: NodeAttemptRetry;
-}): Promise<RuntimeNodeResult> {
-  const node: PlannedWorkflowNode = {
-    ...input.implementationNode,
-    artifacts: undefined,
-    dependents: [],
-    gates: undefined,
-    id: `${input.implementationNode.id}:remediate:${input.coverageNode.id}:${input.attempt}`,
-    needs: [],
-    retries: undefined,
-  };
-  const originalTask = input.context.task;
-  input.context.task = remediationTask({
-    coverageNode: input.coverageNode,
-    originalTask,
-    retry: input.retry,
+}): Effect.Effect<RuntimeNodeResult, unknown> {
+  return Effect.gen(function* () {
+    const node: PlannedWorkflowNode = {
+      ...input.implementationNode,
+      artifacts: undefined,
+      dependents: [],
+      gates: undefined,
+      id: `${input.implementationNode.id}:remediate:${input.coverageNode.id}:${input.attempt}`,
+      needs: [],
+      retries: undefined,
+    };
+    const originalTask = input.context.task;
+    input.context.task = remediationTask({
+      coverageNode: input.coverageNode,
+      originalTask,
+      retry: input.retry,
+    });
+    return yield* Effect.ensuring(
+      executeNode(node, input.context),
+      Effect.sync(() => {
+        input.context.task = originalTask;
+      })
+    );
   });
-  try {
-    return await executeNode(node, input.context);
-  } finally {
-    input.context.task = originalTask;
-  }
 }
 
 function remediationTask(input: {
@@ -925,14 +1245,36 @@ function nodeCanWrite(
   context: RuntimeContext,
   node: PlannedWorkflowNode
 ): boolean {
-  if (!node.profile) {
+  const profileId = node.profile;
+  if (!profileId) {
     return false;
   }
-  const profile = context.config.profiles[node.profile];
-  return (
-    profile?.filesystem?.mode === "workspace-write" ||
-    (profile?.tools ?? []).some((tool) => tool === "edit" || tool === "write")
-  );
+  return profileCanWrite(context.config.profiles[profileId]);
+}
+
+function profileCanWrite(
+  profile: PipelineConfig["profiles"][string] | undefined
+): boolean {
+  if (!profile) {
+    return false;
+  }
+  return hasWorkspaceWriteMode(profile)
+    ? true
+    : hasWriteTool(profile.tools ?? []);
+}
+
+function hasWorkspaceWriteMode(
+  profile: PipelineConfig["profiles"][string]
+): boolean {
+  return profile.filesystem?.mode === "workspace-write";
+}
+
+function hasWriteTool(tools: string[]): boolean {
+  return tools.some(isWriteTool);
+}
+
+function isWriteTool(tool: string): boolean {
+  return tool === "edit" ? true : tool === "write";
 }
 
 function isRemediationNode(node: PlannedWorkflowNode): boolean {
@@ -972,26 +1314,50 @@ function upstreamImplementationNodes(
 ): PlannedWorkflowNode[] {
   const visited = new Set<string>();
   const ordered: PlannedWorkflowNode[] = [];
-  const visit = (nodeId: string): void => {
-    if (visited.has(nodeId)) {
-      return;
-    }
-    visited.add(nodeId);
-    const candidate = context.plan.graph.node(nodeId);
-    if (!candidate) {
-      return;
-    }
-    for (const need of candidate.needs) {
-      visit(need);
-    }
-    if (hasSchedulingRole(context, candidate, "implementation")) {
-      ordered.push(candidate);
-    }
-  };
+  const visit = (candidateId: string): void =>
+    visitImplementationNode(context, visited, ordered, candidateId, visit);
   for (const need of node.needs) {
     visit(need);
   }
   return ordered;
+}
+
+function visitImplementationNode(
+  context: RuntimeContext,
+  visited: Set<string>,
+  ordered: PlannedWorkflowNode[],
+  nodeId: string,
+  visit: (nodeId: string) => void
+): void {
+  if (visited.has(nodeId)) {
+    return;
+  }
+  visited.add(nodeId);
+  const candidate = context.plan.graph.node(nodeId);
+  if (!candidate) {
+    return;
+  }
+  visitImplementationDependencies(candidate, visit);
+  appendImplementationNode(context, ordered, candidate);
+}
+
+function visitImplementationDependencies(
+  candidate: PlannedWorkflowNode,
+  visit: (nodeId: string) => void
+): void {
+  for (const need of candidate.needs) {
+    visit(need);
+  }
+}
+
+function appendImplementationNode(
+  context: RuntimeContext,
+  ordered: PlannedWorkflowNode[],
+  candidate: PlannedWorkflowNode
+): void {
+  if (hasSchedulingRole(context, candidate, "implementation")) {
+    ordered.push(candidate);
+  }
 }
 
 function hasSchedulingRole(
@@ -1006,180 +1372,271 @@ function hasSchedulingRole(
     : false;
 }
 
-async function waitForRetryDelay(
+function waitForRetryDelay(
   delayMs: number,
   signal?: AbortSignal
-): Promise<void> {
+): Effect.Effect<void> {
   if (delayMs <= 0 || signal?.aborted) {
-    return;
+    return Effect.void;
   }
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, delayMs);
-    timeout.unref?.();
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        resolve();
-      },
-      { once: true }
-    );
+  return Effect.race(Effect.sleep(delayMs), waitForAbort(signal));
+}
+
+function waitForAbort(signal?: AbortSignal): Effect.Effect<void> {
+  if (!signal) {
+    return Effect.never;
+  }
+  return Effect.async<void>((resume) => {
+    const onAbort = (): void => resume(Effect.void);
+    signal.addEventListener("abort", onAbort, { once: true });
+    return Effect.sync(() => signal.removeEventListener("abort", onAbort));
   });
 }
 
-async function executeNodeAttemptCycle(
+function executeNodeAttemptCycle(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
   previous: NodeAttemptResult
-): Promise<NodeAttemptCycleResult> {
-  if (isCancelled(context)) {
-    return {
-      last: previous,
-      result: nodeFailure(
-        node.id,
-        attempt,
-        cancelledFailure().evidence,
-        previous.output
-      ),
-    };
-  }
-
-  emitNodeStart(context, node, attempt);
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    attempt,
-    type: "STARTED",
-  });
-  const startHook = await dispatchHooks(context, "node.start", undefined, node);
-  if (startHook) {
-    const result = nodeFailure(
+): Effect.Effect<NodeAttemptCycleResult, unknown> {
+  return Effect.gen(function* () {
+    const startResult = yield* beginNodeAttempt(
+      node,
+      context,
+      attempt,
+      previous
+    );
+    if (startResult) {
+      return startResult;
+    }
+    const last = yield* runNodeAttemptBody(node, context, attempt);
+    const cancelledAfterAttempt = cancelledNodeResult(
+      context,
       node.id,
       attempt,
-      startHook.evidence,
+      last
+    );
+    if (cancelledAfterAttempt) {
+      return { last, result: cancelledAfterAttempt };
+    }
+    return yield* finishNodeAttemptAfterGates(node, context, attempt, last);
+  });
+}
+
+function beginNodeAttempt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  previous: NodeAttemptResult
+): Effect.Effect<NodeAttemptCycleResult | null, unknown> {
+  return Effect.gen(function* () {
+    if (isCancelled(context)) {
+      return cancelledCycle(node.id, attempt, previous);
+    }
+    emitNodeStart(context, node, attempt);
+    recordNodeEvent(context, node.id, { at: now(), attempt, type: "STARTED" });
+    const startHook = yield* dispatchHooksEffect(
+      context,
+      "node.start",
+      undefined,
+      node
+    );
+    if (startHook) {
+      return failedHookCycle(
+        node.id,
+        attempt,
+        previous,
+        startHook.evidence,
+        context
+      );
+    }
+    return isCancelled(context)
+      ? cancelledCycle(node.id, attempt, previous)
+      : null;
+  });
+}
+
+function cancelledCycle(
+  nodeId: string,
+  attempt: number,
+  previous: NodeAttemptResult
+): NodeAttemptCycleResult {
+  return {
+    last: previous,
+    result: nodeFailure(
+      nodeId,
+      attempt,
+      cancelledFailure().evidence,
       previous.output
+    ),
+  };
+}
+
+function failedHookCycle(
+  nodeId: string,
+  attempt: number,
+  previous: NodeAttemptResult,
+  evidence: string[],
+  context: RuntimeContext
+): NodeAttemptCycleResult {
+  const result = nodeFailure(nodeId, attempt, evidence, previous.output);
+  recordNodeEvent(context, nodeId, {
+    at: now(),
+    failure: nodeRuntimeFailure(result),
+    result,
+    type: "FAILED",
+  });
+  return { last: previous, result };
+}
+
+function runNodeAttemptBody(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number
+): Effect.Effect<NodeAttemptResult, unknown> {
+  return Effect.gen(function* () {
+    recordNodeEvent(context, node.id, {
+      at: now(),
+      type: "START_HOOKS_FINISHED",
+    });
+    context.nodeStateStore.setSnapshot(
+      node.id,
+      yield* snapshotChangedFilesEffect(context.worktreePath)
     );
     recordNodeEvent(context, node.id, {
       at: now(),
-      failure: nodeRuntimeFailure(result),
-      result,
-      type: "FAILED",
+      type: "SNAPSHOT_BEFORE_FINISHED",
     });
-    return {
-      last: previous,
-      result,
-    };
-  }
-  if (isCancelled(context)) {
-    return {
-      last: previous,
-      result: nodeFailure(
-        node.id,
-        attempt,
-        cancelledFailure().evidence,
-        previous.output
-      ),
-    };
-  }
+    recordNodeEvent(context, node.id, { at: now(), type: "RUNNER_STARTED" });
+    const last = yield* executeNodeAttempt(node, context, attempt);
+    recordNodeEvent(context, node.id, runnerFinishedEvent(last));
+    yield* recordAttemptOutput(node, context, attempt, last);
+    return last;
+  });
+}
 
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    type: "START_HOOKS_FINISHED",
-  });
-  context.nodeStateStore.setSnapshot(
-    node.id,
-    await snapshotChangedFiles(context.worktreePath)
-  );
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    type: "SNAPSHOT_BEFORE_FINISHED",
-  });
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    type: "RUNNER_STARTED",
-  });
-  const last = await executeNodeAttempt(node, context, attempt);
-  recordNodeEvent(context, node.id, {
+function runnerFinishedEvent(last: NodeAttemptResult): NodeExecutionEvent {
+  return {
     at: now(),
     evidence: last.evidence,
     exitCode: last.exitCode,
     output: last.output,
     timedOut: last.timedOut,
     type: "RUNNER_FINISHED",
-  });
-  const afterSnapshot = await snapshotChangedFiles(context.worktreePath);
-  const beforeSnapshot = context.nodeStateStore.getSnapshot(node.id);
-  if (beforeSnapshot) {
-    context.nodeStateStore.setSnapshot(
-      node.id,
-      diffChangedFiles(beforeSnapshot, afterSnapshot, context.worktreePath)
+  };
+}
+
+function recordAttemptOutput(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  last: NodeAttemptResult
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const afterSnapshot = yield* snapshotChangedFilesEffect(
+      context.worktreePath
     );
-  }
-  context.nodeStateStore.recordOutput(node.id, last.output);
-  context.nodeStateStore.recordHandoff(node.id, last.handoff);
-  emitNodeOutputRecorded(context, node, attempt, last.output);
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    type: "OUTPUT_RECORDED",
+    const beforeSnapshot = context.nodeStateStore.getSnapshot(node.id);
+    if (beforeSnapshot) {
+      context.nodeStateStore.setSnapshot(
+        node.id,
+        diffChangedFiles(beforeSnapshot, afterSnapshot, context.worktreePath)
+      );
+    }
+    context.nodeStateStore.recordOutput(node.id, last.output);
+    context.nodeStateStore.recordHandoff(node.id, last.handoff);
+    emitNodeOutputRecorded(context, node, attempt, last.output);
+    recordNodeEvent(context, node.id, { at: now(), type: "OUTPUT_RECORDED" });
+    recordNodeEvent(context, node.id, {
+      at: now(),
+      type: "SNAPSHOT_AFTER_FINISHED",
+    });
   });
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    type: "SNAPSHOT_AFTER_FINISHED",
-  });
-  const cancelledAfterAttempt = cancelledNodeResult(
-    context,
-    node.id,
-    attempt,
-    last
-  );
-  if (cancelledAfterAttempt) {
-    return { last, result: cancelledAfterAttempt };
-  }
+}
 
-  recordNodeEvent(context, node.id, { at: now(), type: "GATES_STARTED" });
-  const gateResults = await evaluateNodeGates(
-    node,
-    context,
-    last,
-    (failedNode, result) => dispatchGateFailureHook(context, failedNode, result)
-  );
-  recordNodeEvent(context, node.id, {
-    at: now(),
-    gates: gateResults,
-    type: "GATES_FINISHED",
+function finishNodeAttemptAfterGates(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  last: NodeAttemptResult
+): Effect.Effect<NodeAttemptCycleResult, unknown> {
+  return Effect.gen(function* () {
+    const gateResults = yield* evaluateGatesForAttempt(node, context, last);
+    const cancelledAfterGates = cancelledNodeResult(
+      context,
+      node.id,
+      attempt,
+      last
+    );
+    if (cancelledAfterGates) {
+      return { last, result: cancelledAfterGates };
+    }
+    const failedGate = gateResults.find((gate) => !gate.passed);
+    return yield* finishNodeAttemptWithGate(
+      node,
+      context,
+      attempt,
+      last,
+      failedGate
+    );
   });
-  const cancelledAfterGates = cancelledNodeResult(
-    context,
-    node.id,
-    attempt,
-    last
-  );
-  if (cancelledAfterGates) {
-    return { last, result: cancelledAfterGates };
-  }
+}
 
-  const failedGate = gateResults.find((gate) => !gate.passed);
-  if (!failedGate && last.exitCode === 0) {
-    const successHook = await dispatchHooks(
+function evaluateGatesForAttempt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  last: NodeAttemptResult
+): Effect.Effect<RuntimeGateResult[], unknown> {
+  return Effect.gen(function* () {
+    recordNodeEvent(context, node.id, { at: now(), type: "GATES_STARTED" });
+    const gateResults = yield* Effect.tryPromise(() =>
+      evaluateNodeGates(node, context, last, (failedNode, result) =>
+        Effect.runPromise(dispatchGateFailureHook(context, failedNode, result))
+      )
+    );
+    recordNodeEvent(context, node.id, {
+      at: now(),
+      gates: gateResults,
+      type: "GATES_FINISHED",
+    });
+    return gateResults;
+  });
+}
+
+function finishNodeAttemptWithGate(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  last: NodeAttemptResult,
+  failedGate: RuntimeGateResult | undefined
+): Effect.Effect<NodeAttemptCycleResult, unknown> {
+  if (failedGate || last.exitCode !== 0) {
+    return Effect.succeed(retryCycle(node, attempt, last, failedGate));
+  }
+  return successfulAttemptCycle(node, context, attempt, last);
+}
+
+function successfulAttemptCycle(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number,
+  last: NodeAttemptResult
+): Effect.Effect<NodeAttemptCycleResult, unknown> {
+  return Effect.gen(function* () {
+    const successHook = yield* dispatchHooksEffect(
       context,
       "node.success",
       undefined,
       node
     );
     if (successHook) {
-      const result = nodeFailure(
+      return failedHookCycle(
         node.id,
         attempt,
+        last,
         successHook.evidence,
-        last.output
+        context
       );
-      recordNodeEvent(context, node.id, {
-        at: now(),
-        failure: nodeRuntimeFailure(result),
-        result,
-        type: "FAILED",
-      });
-      return { last, result };
     }
     const cancelledAfterHook = cancelledNodeResult(
       context,
@@ -1187,39 +1644,86 @@ async function executeNodeAttemptCycle(
       attempt,
       last
     );
-    if (cancelledAfterHook) {
-      return { last, result: cancelledAfterHook };
-    }
-    const result: RuntimeNodeResult = {
-      attempts: attempt,
-      evidence: last.evidence,
-      exitCode: 0,
-      nodeId: node.id,
-      output: last.output,
-      status: "passed",
-    };
-    recordNodeEvent(context, node.id, {
-      at: now(),
-      result,
-      type: "PASSED",
-    });
-    return { last, result };
-  }
+    return cancelledAfterHook
+      ? { last, result: cancelledAfterHook }
+      : passedCycle(node.id, attempt, last, context);
+  });
+}
 
-  const evidence = failedGate
-    ? [...last.evidence, ...failedGate.evidence]
-    : last.evidence.concat(`node exited with code ${last.exitCode}`);
-  const retryReason = nodeRetryReason(last, failedGate);
+function passedCycle(
+  nodeId: string,
+  attempt: number,
+  last: NodeAttemptResult,
+  context: RuntimeContext
+): NodeAttemptCycleResult {
+  const result = passedNodeResult(nodeId, attempt, last);
+  recordNodeEvent(context, nodeId, { at: now(), result, type: "PASSED" });
+  return { last, result };
+}
+
+function passedNodeResult(
+  nodeId: string,
+  attempt: number,
+  last: NodeAttemptResult
+): RuntimeNodeResult {
+  return {
+    attempts: attempt,
+    evidence: last.evidence,
+    exitCode: 0,
+    nodeId,
+    output: last.output,
+    status: "passed",
+  };
+}
+
+function retryCycle(
+  node: PlannedWorkflowNode,
+  attempt: number,
+  last: NodeAttemptResult,
+  failedGate: RuntimeGateResult | undefined
+): NodeAttemptCycleResult {
   return {
     last,
     retry: {
       attempt,
-      evidence,
-      gate: failedGate?.gateId ?? node.id,
-      reason: failedGate?.reason ?? `node exited with code ${last.exitCode}`,
-      retryReason,
+      evidence: retryEvidence(last, failedGate),
+      gate: retryGateId(node.id, failedGate),
+      reason: retryReasonText(last.exitCode, failedGate),
+      retryReason: nodeRetryReason(last, failedGate),
     },
   };
+}
+
+function retryGateId(
+  nodeId: string,
+  failedGate: RuntimeGateResult | undefined
+): string {
+  return failedGate ? failedGate.gateId : nodeId;
+}
+
+function retryReasonText(
+  exitCode: number,
+  failedGate: RuntimeGateResult | undefined
+): string {
+  if (!failedGate) {
+    return `node exited with code ${exitCode}`;
+  }
+  return failedGate.reason ?? `node exited with code ${exitCode}`;
+}
+
+function retryEvidence(
+  last: NodeAttemptResult,
+  failedGate: RuntimeGateResult | undefined
+): string[] {
+  return failedGate
+    ? [...last.evidence, ...failedGate.evidence]
+    : last.evidence.concat(`node exited with code ${last.exitCode}`);
+}
+
+function snapshotChangedFilesEffect(
+  worktreePath: string
+): Effect.Effect<ReturnType<typeof snapshotChangedFiles>> {
+  return Effect.sync(() => snapshotChangedFiles(worktreePath));
 }
 
 function nodeRetryReason(
@@ -1297,54 +1801,95 @@ function executeNodeAttempt(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number
-): NodeAttemptResult | Promise<NodeAttemptResult> {
-  switch (node.kind) {
-    case "agent":
-      return executeAgentNode(node, context, attempt);
-    case "command":
-      return executeCommand(node.command ?? [], context, {
-        timeout: node.timeoutMs,
-      });
-    case "builtin":
-      return executeBuiltin(node.builtin ?? "", context, node);
-    case "group":
-      return {
-        evidence: [`group '${node.id}' completed`],
-        exitCode: 0,
-        output: "",
-      };
-    case "parallel":
-      return executeParallelNode(node, context, {
-        executeNode,
-        markNodeReady: (childContext, childId) =>
-          recordNodeEvent(childContext, childId, {
-            at: now(),
-            type: "READY",
-          }),
-      });
-    default: {
-      const _exhaustive: never = node.kind;
-      throw new Error(`Unsupported node kind: ${String(_exhaustive)}`);
-    }
-  }
+): Effect.Effect<NodeAttemptResult, unknown> {
+  return nodeAttemptExecutors[node.kind](node, context, attempt);
 }
 
-async function dispatchGateFailureHook(
+type NodeAttemptExecutor = (
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number
+) => Effect.Effect<NodeAttemptResult, unknown>;
+
+const nodeAttemptExecutors: Record<
+  PlannedWorkflowNode["kind"],
+  NodeAttemptExecutor
+> = {
+  agent: executeAgentAttempt,
+  builtin: executeBuiltinAttempt,
+  command: executeCommandAttempt,
+  group: executeGroupAttempt,
+  parallel: executeParallelAttempt,
+};
+
+function executeAgentAttempt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number
+): Effect.Effect<NodeAttemptResult, unknown> {
+  return Effect.tryPromise(() => executeAgentNode(node, context, attempt));
+}
+
+function executeCommandAttempt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Effect.Effect<NodeAttemptResult, unknown> {
+  return Effect.tryPromise(() =>
+    executeCommand(node.command ?? [], context, { timeout: node.timeoutMs })
+  );
+}
+
+function executeBuiltinAttempt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Effect.Effect<NodeAttemptResult, unknown> {
+  return Effect.tryPromise(() =>
+    executeBuiltin(node.builtin ?? "", context, node)
+  );
+}
+
+function executeGroupAttempt(
+  node: PlannedWorkflowNode
+): Effect.Effect<NodeAttemptResult> {
+  return Effect.succeed({
+    evidence: [`group '${node.id}' completed`],
+    exitCode: 0,
+    output: "",
+  });
+}
+
+function executeParallelAttempt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Effect.Effect<NodeAttemptResult, unknown> {
+  return Effect.tryPromise(() =>
+    executeParallelNode(node, context, {
+      executeNode: (child, childContext) =>
+        Effect.runPromise(executeNode(child, childContext)),
+      markNodeReady: (childContext, childId) =>
+        recordNodeEvent(childContext, childId, { at: now(), type: "READY" }),
+    })
+  );
+}
+
+function dispatchGateFailureHook(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   result: RuntimeGateResult
-): Promise<void> {
-  await dispatchHooks(
-    context,
-    "gate.failure",
-    {
-      evidence: result.evidence,
-      gate: result.gateId,
-      nodeId: node.id,
-      reason: result.reason ?? "gate failed",
-    },
-    node,
-    result.gateId
+): Effect.Effect<void, unknown> {
+  return Effect.asVoid(
+    dispatchHooksEffect(
+      context,
+      "gate.failure",
+      {
+        evidence: result.evidence,
+        gate: result.gateId,
+        nodeId: node.id,
+        reason: result.reason ?? "gate failed",
+      },
+      node,
+      result.gateId
+    )
   );
 }
 
