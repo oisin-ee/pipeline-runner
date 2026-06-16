@@ -1,10 +1,36 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
+import { Context, Effect, Layer } from "effect";
 import {
   buildEvalReport,
   type EvalRunResult,
   renderEvalReport,
 } from "../bench/eval-report";
+
+class BenchCommandService extends Context.Tag("BenchCommandService")<
+  BenchCommandService,
+  {
+    readonly readResults: (
+      path: string
+    ) => Effect.Effect<EvalRunResult[], unknown>;
+    readonly writeReport: (report: string) => Effect.Effect<void, unknown>;
+  }
+>() {}
+
+const BenchCommandServiceLive = Layer.succeed(BenchCommandService, {
+  readResults: (path) =>
+    Effect.try(() => JSON.parse(readFileSync(path, "utf8")) as EvalRunResult[]),
+  writeReport: (report) =>
+    Effect.try(() => process.stdout.write(`${report}\n`)),
+});
+
+const runBenchCommand = (options: { results: string }) =>
+  Effect.gen(function* () {
+    const service = yield* BenchCommandService;
+    const records = yield* service.readResults(options.results);
+    const report = renderEvalReport(buildEvalReport(records));
+    yield* service.writeReport(report);
+  });
 
 /**
  * PIPE-83.6: `moka bench` — score a flat single-agent baseline vs the pipeline
@@ -23,10 +49,9 @@ export function registerBenchCommand(program: Command): void {
       "--results <path>",
       "JSON file: array of { task, variant, resolved, costTokens, wallMs }"
     )
-    .action((options: { results: string }) => {
-      const records = JSON.parse(
-        readFileSync(options.results, "utf8")
-      ) as EvalRunResult[];
-      process.stdout.write(`${renderEvalReport(buildEvalReport(records))}\n`);
-    });
+    .action((options: { results: string }) =>
+      Effect.runPromise(
+        Effect.provide(runBenchCommand(options), BenchCommandServiceLive)
+      )
+    );
 }
