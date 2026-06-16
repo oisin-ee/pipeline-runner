@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type {
   PipelineRuntimeResult,
   RuntimeFailure,
@@ -49,40 +50,81 @@ export type WorkflowFinalizationInput = Pick<
   "buildResult" | "isCancelled" | "runWorkflowHook"
 >;
 
-export async function runWorkflowLifecycle(
+export function runWorkflowLifecycle(
   input: WorkflowLifecycleInput
 ): Promise<WorkflowLifecycleResult> {
-  const startFailure = await runWorkflowStartLifecycle(input);
-  if (startFailure) {
-    return finalize(input, "FAIL", [], startFailure);
-  }
-  if (input.isCancelled?.()) {
-    return finalize(input, "CANCELLED", []);
-  }
-
-  const execution = await input.executeWorkflow();
-  return finalizeWorkflowLifecycle(input, execution);
+  return Effect.runPromise(runWorkflowLifecycleEffect(input));
 }
 
 export function runWorkflowStartLifecycle(
   input: WorkflowStartLifecycleInput
 ): Promise<RuntimeFailure | undefined> {
-  input.emitWorkflowPlanned();
-  input.emitWorkflowStarted();
-  return runHook(input, "workflow.start");
+  return Effect.runPromise(runWorkflowStartLifecycleEffect(input));
 }
 
-export async function finalizeWorkflowLifecycle(
+export function finalizeWorkflowLifecycle(
   input: WorkflowFinalizationInput,
   execution: WorkflowExecutionResult
 ): Promise<WorkflowLifecycleResult> {
+  return Effect.runPromise(finalizeWorkflowLifecycleEffect(input, execution));
+}
+
+function runWorkflowLifecycleEffect(
+  input: WorkflowLifecycleInput
+): Effect.Effect<WorkflowLifecycleResult, unknown> {
+  return Effect.gen(function* () {
+    const startFailure = yield* runWorkflowStartLifecycleEffect(input);
+    if (startFailure) {
+      return finalize(input, "FAIL", [], startFailure);
+    }
+    if (isWorkflowCancelled(input)) {
+      return finalize(input, "CANCELLED", []);
+    }
+    const execution = yield* executeWorkflowEffect(input);
+    return yield* finalizeWorkflowLifecycleEffect(input, execution);
+  });
+}
+
+function runWorkflowStartLifecycleEffect(
+  input: WorkflowStartLifecycleInput
+): Effect.Effect<RuntimeFailure | undefined, unknown> {
+  return Effect.gen(function* () {
+    yield* Effect.try({
+      catch: (error) => error,
+      try: input.emitWorkflowPlanned,
+    });
+    yield* Effect.try({
+      catch: (error) => error,
+      try: input.emitWorkflowStarted,
+    });
+    return yield* runHook(input, "workflow.start");
+  });
+}
+
+function finalizeWorkflowLifecycleEffect(
+  input: WorkflowFinalizationInput,
+  execution: WorkflowExecutionResult
+): Effect.Effect<WorkflowLifecycleResult> {
   if (execution.outcome === "CANCELLED") {
-    return finalize(input, "CANCELLED", execution.completed, execution.failure);
+    return Effect.succeed(
+      finalize(input, "CANCELLED", execution.completed, execution.failure)
+    );
   }
 
   if (execution.outcome === "FAIL") {
+    return finalizeFailedWorkflow(input, execution);
+  }
+
+  return finalizePassedWorkflow(input, execution);
+}
+
+function finalizeFailedWorkflow(
+  input: WorkflowFinalizationInput,
+  execution: WorkflowExecutionResult
+): Effect.Effect<WorkflowLifecycleResult> {
+  return Effect.gen(function* () {
     const failure = execution.failure ?? workflowFailure();
-    const failureHookError = await runHookError(
+    const failureHookError = yield* runHookError(
       input,
       "workflow.failure",
       failure
@@ -90,7 +132,7 @@ export async function finalizeWorkflowLifecycle(
     if (failureHookError) {
       return finalize(input, "FAIL", execution.completed, failureHookError);
     }
-    const completeHookError = await runHookError(
+    const completeHookError = yield* runHookError(
       input,
       "workflow.complete",
       failure
@@ -101,53 +143,76 @@ export async function finalizeWorkflowLifecycle(
       execution.completed,
       completeHookError ?? failure
     );
-  }
-
-  const successHookFailure = await runHook(input, "workflow.success");
-  const completeFailure = await runHook(
-    input,
-    "workflow.complete",
-    successHookFailure ?? undefined
-  );
-  const hookFailure = completeFailure ?? successHookFailure ?? undefined;
-  if (hookFailure) {
-    return {
-      ...(successHookFailure ? { successHookFailure } : {}),
-      ...(hookFailure ? { failure: hookFailure } : {}),
-      result: input.buildResult("FAIL", execution.completed, hookFailure),
-      status: "failed",
-    };
-  }
-  if (input.isCancelled?.()) {
-    return finalize(input, "CANCELLED", execution.completed);
-  }
-
-  return finalize(input, "PASS", execution.completed);
+  });
 }
 
-async function runHook(
+function finalizePassedWorkflow(
+  input: WorkflowFinalizationInput,
+  execution: WorkflowExecutionResult
+): Effect.Effect<WorkflowLifecycleResult> {
+  return Effect.gen(function* () {
+    const successHookFailure = yield* runHook(input, "workflow.success");
+    const completeFailure = yield* runHook(
+      input,
+      "workflow.complete",
+      successHookFailure
+    );
+    const hookFailure = completeFailure ?? successHookFailure;
+    if (hookFailure) {
+      return hookFailureResult(
+        input,
+        execution.completed,
+        hookFailure,
+        successHookFailure
+      );
+    }
+    if (isWorkflowCancelled(input)) {
+      return finalize(input, "CANCELLED", execution.completed);
+    }
+    return finalize(input, "PASS", execution.completed);
+  });
+}
+
+function runHook(
   input: Pick<WorkflowLifecycleInput, "runWorkflowHook">,
   event: WorkflowHookEvent,
   failure?: RuntimeFailure
-): Promise<RuntimeFailure | undefined> {
-  try {
-    return (await input.runWorkflowHook(event, failure)) ?? undefined;
-  } catch (error: unknown) {
-    return hookRuntimeFailure(error);
-  }
+): Effect.Effect<RuntimeFailure | undefined> {
+  return runHookEffect(input, event, failure).pipe(
+    Effect.map((result) => result ?? undefined),
+    Effect.catchAll((error) => Effect.succeed(hookRuntimeFailure(error)))
+  );
 }
 
-async function runHookError(
+function runHookError(
   input: WorkflowFinalizationInput,
   event: WorkflowHookEvent,
   failure?: RuntimeFailure
-): Promise<RuntimeFailure | undefined> {
-  try {
-    await input.runWorkflowHook(event, failure);
-    return;
-  } catch (error: unknown) {
-    return hookRuntimeFailure(error);
-  }
+): Effect.Effect<RuntimeFailure | undefined> {
+  return runHookEffect(input, event, failure).pipe(
+    Effect.as(undefined),
+    Effect.catchAll((error) => Effect.succeed(hookRuntimeFailure(error)))
+  );
+}
+
+function runHookEffect(
+  input: Pick<WorkflowLifecycleInput, "runWorkflowHook">,
+  event: WorkflowHookEvent,
+  failure?: RuntimeFailure
+): Effect.Effect<RuntimeFailure | null, unknown> {
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: async () => await input.runWorkflowHook(event, failure),
+  });
+}
+
+function executeWorkflowEffect(
+  input: Pick<WorkflowLifecycleInput, "executeWorkflow">
+): Effect.Effect<WorkflowExecutionResult, unknown> {
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => input.executeWorkflow(),
+  });
 }
 
 function finalize(
@@ -174,6 +239,24 @@ function workflowLifecycleStatus(
     return "failed";
   }
   return "passed";
+}
+
+function hookFailureResult(
+  input: WorkflowFinalizationInput,
+  nodes: RuntimeNodeResult[],
+  hookFailure: RuntimeFailure,
+  successHookFailure: RuntimeFailure | undefined
+): WorkflowLifecycleResult {
+  return {
+    ...(successHookFailure ? { successHookFailure } : {}),
+    failure: hookFailure,
+    result: input.buildResult("FAIL", nodes, hookFailure),
+    status: "failed",
+  };
+}
+
+function isWorkflowCancelled(input: WorkflowFinalizationInput): boolean {
+  return input.isCancelled?.() ?? false;
 }
 
 function hookRuntimeFailure(error: unknown): RuntimeFailure {

@@ -1,18 +1,20 @@
+import { Effect } from "effect";
 import type { PipelineConfig } from "../config";
 import type {
   AgentResult,
   RunnerExecutionOptions,
   RunnerLaunchPlan,
 } from "../runner";
-import {
-  type OpencodeServerHandle,
-  OpencodeServerStartupError,
-  openOpencodeServer,
-} from "./opencode-server";
+import type { OpencodeServerHandle } from "./opencode-server";
 import {
   createOpencodeExecutor,
   createOpencodeSessionRegistry,
 } from "./opencode-session-executor";
+import {
+  OpencodeRuntimeServerService,
+  OpencodeRuntimeServerServiceLive,
+  type OpenOpencodeRuntimeServer,
+} from "./services/opencode-runtime-server-service";
 
 export type RuntimeExecutor = (
   plan: RunnerLaunchPlan,
@@ -50,29 +52,40 @@ export function leaseOpencodeRuntime(input: {
   signal?: AbortSignal;
   worktreePath: string;
   /** Test seam: override how the server is opened. Defaults to startServer. */
-  openServer?: (opts: {
-    signal?: AbortSignal;
-    worktreePath: string;
-  }) => Promise<OpencodeServerHandle>;
+  openServer?: OpenOpencodeRuntimeServer;
 }): Promise<OpencodeRuntimeLease> {
+  return Effect.runPromise(
+    Effect.provide(
+      leaseOpencodeRuntimeEffect(input),
+      OpencodeRuntimeServerServiceLive
+    )
+  );
+}
+
+function leaseOpencodeRuntimeEffect(input: {
+  config: PipelineConfig;
+  signal?: AbortSignal;
+  worktreePath: string;
+  openServer?: OpenOpencodeRuntimeServer;
+}): Effect.Effect<OpencodeRuntimeLease, never, OpencodeRuntimeServerService> {
   const registry = createOpencodeSessionRegistry();
-  const openHandle = input.openServer ?? startServer;
   let handle: OpencodeServerHandle | undefined;
   let pending: Promise<RuntimeExecutor> | undefined;
 
   const ensureExecutor = (): Promise<RuntimeExecutor> => {
-    pending ??= openHandle(input).then((started) => {
-      handle = started;
-      return createOpencodeExecutor({
-        client: started.client,
-        directory: input.worktreePath,
-        registry,
-      });
+    pending ??= Effect.runPromise(
+      Effect.provide(
+        ensureExecutorEffect(input, registry),
+        OpencodeRuntimeServerServiceLive
+      )
+    ).then((executor) => {
+      handle = executor.handle;
+      return executor.delegate;
     });
     return pending;
   };
 
-  return Promise.resolve({
+  return Effect.succeed({
     executor: async (plan, options) => {
       const delegate = await ensureExecutor();
       return await delegate(plan, options);
@@ -86,22 +99,26 @@ export function leaseOpencodeRuntime(input: {
   });
 }
 
-async function startServer(input: {
-  signal?: AbortSignal;
-  worktreePath: string;
-}): Promise<OpencodeServerHandle> {
-  try {
-    return await openOpencodeServer({
+function ensureExecutorEffect(
+  input: {
+    openServer?: OpenOpencodeRuntimeServer;
+    signal?: AbortSignal;
+    worktreePath: string;
+  },
+  registry: ReturnType<typeof createOpencodeSessionRegistry>
+): Effect.Effect<
+  { delegate: RuntimeExecutor; handle: OpencodeServerHandle },
+  unknown,
+  OpencodeRuntimeServerService
+> {
+  return Effect.gen(function* () {
+    const server = yield* OpencodeRuntimeServerService;
+    const handle = yield* server.open(input);
+    const delegate = createOpencodeExecutor({
+      client: handle.client,
       directory: input.worktreePath,
-      ...(input.signal ? { signal: input.signal } : {}),
+      registry,
     });
-  } catch (error) {
-    if (error instanceof OpencodeServerStartupError) {
-      throw new OpencodeServerStartupError(
-        `${error.message}. Confirm the opencode binary is installed and recent enough to expose 'opencode serve', or set OPENCODE_SERVER_URL to an already-running server.`,
-        { cause: error }
-      );
-    }
-    throw error;
-  }
+    return { delegate, handle };
+  });
 }

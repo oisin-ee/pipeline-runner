@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { jsonLineValues } from "../json-line-values";
 import type { AgentResult, RunnerLaunchPlan } from "../runner";
 import { isRecord } from "../safe-json";
@@ -79,18 +80,7 @@ export const opencodeSdkRuntimeAdapter: RuntimeCapabilityAdapter = {
   continuation(request) {
     // Continuation reuses the recorded session id at the goal-loop layer; there
     // is no separate native call to make here.
-    return Promise.resolve({
-      metadata: {
-        adapterId: "opencode-sdk",
-        continuationApi: "session-reuse",
-        nodeId: request.sessionId,
-        outputFormat: "text",
-        pluginEvents: "server-event-stream",
-        runnerId: "opencode",
-        sessionInspectionApi: "sdk",
-        worktreePath: "",
-      },
-    });
+    return Effect.runPromise(continuationEffect(request));
   },
 
   id: "opencode-sdk",
@@ -140,6 +130,23 @@ export const opencodeSdkRuntimeAdapter: RuntimeCapabilityAdapter = {
     };
   },
 };
+
+function continuationEffect(
+  request: RuntimeContinuationRequest
+): Effect.Effect<RuntimeSessionSnapshot> {
+  return Effect.succeed({
+    metadata: {
+      adapterId: "opencode-sdk",
+      continuationApi: "session-reuse",
+      nodeId: request.sessionId,
+      outputFormat: "text",
+      pluginEvents: "server-event-stream",
+      runnerId: "opencode",
+      sessionInspectionApi: "sdk",
+      worktreePath: "",
+    },
+  });
+}
 
 function assertOpenCodePlan(plan: RunnerLaunchPlan): void {
   if (plan.type !== "opencode") {

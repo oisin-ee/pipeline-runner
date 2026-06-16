@@ -1,6 +1,9 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { Effect } from "effect";
 import type { RuntimeNodeResult } from "./contracts";
+import {
+  RunJournalFileService,
+  RunJournalFileServiceLive,
+} from "./services/run-journal-file-service";
 
 /**
  * PIPE-83.10: a durable record of terminal node results for a run, so a killed
@@ -27,22 +30,48 @@ function passedOnly(results: RuntimeNodeResult[]): RuntimeNodeResult[] {
   return results.filter((result) => result.status === "passed");
 }
 
-function readJournalFile(path: string): RuntimeNodeResult[] {
-  if (!existsSync(path)) {
+function parseJournalText(text: string | undefined): RuntimeNodeResult[] {
+  if (!text) {
     return [];
   }
-  return readFileSync(path, "utf8")
+  return text
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line) as RuntimeNodeResult);
 }
 
+function recordJournalEffect(
+  path: string,
+  result: RuntimeNodeResult
+): Effect.Effect<void, unknown, RunJournalFileService> {
+  return Effect.gen(function* () {
+    const files = yield* RunJournalFileService;
+    yield* files.appendLine(path, `${JSON.stringify(result)}\n`);
+  });
+}
+
+function resumeCompletedEffect(
+  path: string
+): Effect.Effect<RuntimeNodeResult[], unknown, RunJournalFileService> {
+  return Effect.gen(function* () {
+    const files = yield* RunJournalFileService;
+    const text = yield* files.readTextIfExists(path);
+    return passedOnly(parseJournalText(text));
+  });
+}
+
 export function fileRunJournal(path: string): RunJournal {
   return {
-    record: (result) => {
-      mkdirSync(dirname(path), { recursive: true });
-      appendFileSync(path, `${JSON.stringify(result)}\n`);
-    },
-    resumeCompleted: () => passedOnly(readJournalFile(path)),
+    record: (result) =>
+      Effect.runSync(
+        Effect.provide(
+          recordJournalEffect(path, result),
+          RunJournalFileServiceLive
+        )
+      ),
+    resumeCompleted: () =>
+      Effect.runSync(
+        Effect.provide(resumeCompletedEffect(path), RunJournalFileServiceLive)
+      ),
   };
 }
