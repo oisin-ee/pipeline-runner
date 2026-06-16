@@ -445,6 +445,16 @@ describe("loadPipelineConfig", () => {
         command: "bun",
         required: true,
       },
+      {
+        args: ["init"],
+        command: "moka",
+        required: true,
+      },
+      {
+        args: ["install-commands"],
+        command: "moka",
+        required: true,
+      },
     ]);
   });
 

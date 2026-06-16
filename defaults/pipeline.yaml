@@ -54,6 +54,15 @@ runner_command:
     setup:
       - command: bun
         args: [install, --frozen-lockfile]
+      # Set up package-owned pipeline support + the opencode model registration
+      # (.opencode/opencode.json, which declares the gpt-5.5-* reasoning selectors)
+      # on every run, so opencode-backed agents in the pod resolve their models
+      # instead of failing with "Model not found". Both commands are idempotent
+      # and write no repo-local pipeline config.
+      - command: moka
+        args: [init]
+      - command: moka
+        args: [install-commands]
 scheduler:
   commands:
     quick:
