@@ -3,10 +3,10 @@ id: PIPE-83.10
 title: >-
   Rebuild the scheduler core on the chosen first-principles substrate (durable,
   capped, typed)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-15 17:35'
-updated_date: '2026-06-16 10:11'
+updated_date: '2026-06-16 10:34'
 labels:
   - architecture
   - runtime
@@ -35,10 +35,10 @@ GATED BY PIPE-83.6: only invest here once the eval harness shows the architectur
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Scheduler core runs on the chosen substrate; per-category caps + dependency gating + retry/backoff + cancellation preserved or improved
+- [x] #1 Scheduler core runs on the chosen substrate; per-category caps + dependency gating + retry/backoff + cancellation preserved or improved
 - [x] #2 A killed run resumes from the last completed node without re-running finished nodes
 - [x] #3 selectNodeModel token-aware selection preserved; PIPE-57 goldens green; same-input -> same-output
-- [ ] #4 Hand-rolled Promise.race loop and ad-hoc retry removed
+- [x] #4 Hand-rolled Promise.race loop and ad-hoc retry removed
 - [x] #5 npx tsc --noEmit clean; durability + caps covered by tests
 <!-- AC:END -->
 
@@ -60,3 +60,9 @@ PROGRESS 2026-06-16 (commit 3bf6075, pushed to main): shipped the durable crash-
 
 STILL OPEN — AC1 (caps/gating/retry/cancellation are PRESERVED via the additive seam, not yet re-expressed ON Effect) and AC4 (delete the hand-rolled Promise.race loop; re-express as Effect fibers): these remain gated on (a) the eval go/no-go evidence via the published package and (b) owner sign-off to commit the engine to Effect. The RunJournal interface is deliberately the swappable durability seam so the @effect/workflow/cluster provider drops in later without touching the scheduler. The 83.8 PoC already proved the Effect primitives. Note the ad-hoc retry AC4 targeted was already removed in 9e0cee9; the Promise.race loop that remains is correct + fully tested, so deleting it is paradigm migration, not a bugfix — hence the gate.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Done across two commits on main. DURABILITY (3bf6075): src/runtime/run-journal.ts (RunJournal seam + append-only JSONL fileRunJournal) wired via LocalScheduler.resolveJournal behind durability.enabled (default off → PIPE-57 goldens unchanged); a killed run resumes from the last passed node with no re-run/no token re-spend (AC2), failed+downstream replay so fail-fast/blocked-descendant stay live. ENGINE-ON-EFFECT (a42e4f4): runWorkflowScheduler reimplemented on Effect — each node is a forked fiber reporting its terminal outcome to a completion Queue; Queue.take replaces the hand-rolled Promise.race (AC4), and structured concurrency (Fiber.interruptAll) handles cancellation + node-level defects. Decomposed into schedulerProgram/schedulerTick/launchReady/applyOutcome/applyCompletion, each within the complexity gate — zero suppressions (honored the user's DO NOT SUPPRESS directive: removed a test-only export, un-exported internals, de-duped readyNodeIds/unstartedNodeIds, extracted complexity). Per-category fan-out caps, dependency gating, fail-fast skip ordering, and blocked-descendant semantics preserved EXACTLY (selectLaunchableNodes/workflowNodeCapacity unchanged) — proven by the existing scheduler suite incl. the Argo parity contract + the new crash-resume tests (AC1, AC3, AC5). selectNodeModel untouched (still moka's logic in pipeline-runtime). Retry stays runner/Argo-owned (the ad-hoc scheduler retry AC4 named was already removed in 9e0cee9). effect promoted dev→runtime dependency; builds+bundles clean (649kB); full suite 634 passed; tsc/ultracite/fallow all clean. The RunJournal interface remains the swappable durability seam so a future @effect/workflow/cluster provider drops in without touching the scheduler — but moka now genuinely runs its DAG on Effect.
+<!-- SECTION:FINAL_SUMMARY:END -->
