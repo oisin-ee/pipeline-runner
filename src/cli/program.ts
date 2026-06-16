@@ -14,11 +14,7 @@ import {
 import { registerBenchCommand } from "../commands/bench-command";
 import { registerConfiguredEntrypointCommands } from "../commands/pipeline-command";
 import { registerRunnerCommandCommand } from "../commands/runner-command-command";
-import {
-  loadPipelineConfig,
-  type PipelineConfig,
-  PipelineConfigError,
-} from "../config";
+import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { formatConfigLintWarning, lintPipelineConfig } from "../config/lint";
 import {
   type CommandHostSelection,
@@ -36,7 +32,6 @@ import {
   runGatewayDoctor,
   startLocalGateway,
 } from "../mcp/gateway";
-import { loadMokaGlobalConfig } from "../moka-global-config";
 import {
   formatPipelineInitResult,
   initPipelineProject,
@@ -51,11 +46,15 @@ import {
   generateScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
+import type { RunEffort, RunMode, RunTarget } from "../run-control/contracts";
+import { createRunStoreRuntimeReporter } from "../run-control/runtime-reporter";
+import { createRun } from "../run-control/store";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
 } from "../runner";
 import { generateRuntimeRunId } from "../runtime/context";
+import { type DoctorFlags, runDoctor as runDoctorChecks } from "./doctor";
 import {
   createTerminalRuntimeReporter,
   formatDoctorResult,
@@ -63,16 +62,39 @@ import {
   formatRuntimeResult,
 } from "./format";
 import {
+  type LocalRuntimeExecution,
+  MOKA_RUN_EFFORTS,
+  MOKA_RUN_TARGETS,
+  type RemoteSubmitExecution,
+  type RunResolverFlags,
+  resolveMokaRun,
+} from "./run-resolver";
+import {
   addMokaSubmitOptions,
   type MokaSubmitFlags,
   runMokaSubmitFromCli,
 } from "./submit-options";
 
+export const runDoctor = runDoctorChecks;
+
 interface ExecuteOptions {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
+  runControl?: RunControlOptions;
   schedule?: string;
   workflow?: string;
+}
+
+interface RunControlOptions {
+  effort?: RunEffort;
+  mode?: RunMode;
+  target?: RunTarget;
+}
+
+interface RequiredRunControlOptions {
+  effort: RunEffort;
+  mode: RunMode;
+  target: RunTarget;
 }
 
 /**
@@ -92,6 +114,7 @@ export function execute(
     return runConfiguredPipeline({
       pipelineRunner: options.pipelineRunner,
       entrypoint: options.entrypoint,
+      runControl: options.runControl,
       schedule: options.schedule,
       task: description,
       workflow: options.workflow,
@@ -106,35 +129,19 @@ export function quick(
   description: string,
   options: Omit<ExecuteOptions, "entrypoint"> = {}
 ): Promise<void> {
-  return execute(description, { ...options, entrypoint: "quick" });
+  return execute(description, {
+    ...options,
+    entrypoint: "quick",
+    runControl: { ...options.runControl, effort: "quick" },
+  });
 }
 
-interface RunFlags {
-  entrypoint?: string;
-  schedule?: string;
-  workflow?: string;
-}
-
-interface DoctorCheck {
-  detail: string;
-  name: string;
-  passed: boolean;
-}
-
-interface DoctorResult {
-  checks: DoctorCheck[];
-  passed: boolean;
-}
-
-interface DoctorFlags {
-  cluster?: boolean | string;
-  kubeContext?: string;
-  kubeconfig?: string;
-}
+type RunFlags = RunResolverFlags;
 
 interface RunInputs {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
+  runControl?: RunControlOptions;
   runId?: string;
   schedule?: string;
   task: string;
@@ -215,20 +222,90 @@ async function runAndPrintPipeline(
   inputs: RunInputs & { config: PipelineConfig }
 ): Promise<void> {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
-  const reporter = createTerminalRuntimeReporter();
-  const result = await runner({
-    config: inputs.config,
-    reporter,
-    entrypoint: inputs.entrypoint,
-    runId: inputs.runId,
-    task: inputs.task,
-    workflowId: inputs.workflow,
-    worktreePath: inputs.worktreePath,
-  });
+  const terminalReporter = createTerminalRuntimeReporter();
+  const runStoreReporter = await createLocalRunStoreRuntimeReporter(
+    inputs,
+    terminalReporter
+  );
+  const result = await runWithFlushedReporter(runStoreReporter.flush, () =>
+    runner({
+      config: inputs.config,
+      reporter: runStoreReporter.reporter,
+      entrypoint: inputs.entrypoint,
+      runId: inputs.runId,
+      task: inputs.task,
+      workflowId: inputs.workflow,
+      worktreePath: inputs.worktreePath,
+    })
+  );
   console.log(formatRuntimeResult(result));
   if (result.outcome !== "PASS") {
     throw new Error(formatRuntimeFailure(result));
   }
+}
+
+async function runWithFlushedReporter<T>(
+  flush: () => Promise<void>,
+  run: () => Promise<T>
+): Promise<T> {
+  try {
+    return await run();
+  } finally {
+    await flush();
+  }
+}
+
+async function createLocalRunStoreRuntimeReporter(
+  inputs: RunInputs & { config: PipelineConfig },
+  reporter: NonNullable<
+    Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]
+  >
+) {
+  const runId = requireRunId(inputs.runId);
+  await createRun({
+    ...resolvedRunControlOptions(inputs.runControl),
+    nodeIds: plannedRunStoreNodeIds(inputs),
+    runId,
+    workspaceRoot: inputs.worktreePath,
+  });
+
+  return createRunStoreRuntimeReporter({
+    reporter,
+    runId,
+    workspaceRoot: inputs.worktreePath,
+  });
+}
+
+function requireRunId(runId: string | undefined): string {
+  if (!runId) {
+    throw new Error("Run id is required for local run-control persistence.");
+  }
+  return runId;
+}
+
+function resolvedRunControlOptions(
+  input: RunControlOptions | undefined
+): RequiredRunControlOptions {
+  return {
+    effort: input?.effort ?? "normal",
+    mode: input?.mode ?? "write",
+    target: input?.target ?? "local",
+  };
+}
+
+function plannedRunStoreNodeIds(
+  inputs: RunInputs & { config: PipelineConfig }
+): string[] {
+  if (inputs.pipelineRunner) {
+    return [];
+  }
+  const workflowId = resolveWorkflowSelection(
+    inputs.config,
+    inputs.workflow,
+    inputs.entrypoint
+  );
+  const plan = compileWorkflowPlan(inputs.config, workflowId);
+  return plan.topologicalOrder.map((node) => node.id);
 }
 
 function scheduledEntrypointId(
@@ -285,10 +362,20 @@ export function createCliProgram(): Command {
     .exitOverride();
 
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
-    await execute(descriptionParts.join(" "), {
-      entrypoint: flags.entrypoint,
-      schedule: flags.schedule,
-      workflow: flags.workflow,
+    const task = descriptionParts.join(" ");
+    const resolution = resolveMokaRun({ flags, task });
+    if (resolution.execution.kind === "remote-submit") {
+      const result = await runMokaSubmitFromCli(
+        descriptionParts,
+        remoteSubmitFlags(resolution.execution)
+      );
+      printMokaSubmitResult(result);
+      return;
+    }
+    await runLocalResolvedTask(task, resolution.execution, {
+      effort: resolution.effort,
+      mode: resolution.mode === "read" ? "read-only" : "write",
+      target: resolution.target,
     });
   };
 
@@ -298,8 +385,23 @@ export function createCliProgram(): Command {
       "Run a workflow from package-owned @oisincoveney/pipeline config"
     )
     .argument("<description...>", "task description")
+    .option(
+      "--command",
+      "treat input after -- as explicit argv for remote submission"
+    )
     .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
+    .addOption(
+      new Option("--effort <effort>", "run effort")
+        .choices([...MOKA_RUN_EFFORTS])
+        .default("normal")
+    )
+    .option("--read-only", "run the read-only inspect workflow")
     .option("--schedule <schedule>", "approved schedule YAML to execute")
+    .addOption(
+      new Option("--target <target>", "execution target")
+        .choices([...MOKA_RUN_TARGETS])
+        .default("local")
+    )
     .option("--workflow <workflow>", "workflow id from package config")
     .action(runAction);
 
@@ -367,12 +469,15 @@ export function createCliProgram(): Command {
       "--cluster [namespace]",
       "also check runner-job Kubernetes prerequisites"
     )
+    .option("--json", "print machine-readable readiness results")
     .option("--kube-context <context>", "kubectl context for cluster checks")
     .option("--kubeconfig <path>", "kubeconfig path for cluster checks")
     .action(async (flags: DoctorFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const result = await runDoctor(cwd, flags);
-      console.log(formatDoctorResult(result));
+      console.log(
+        flags.json ? JSON.stringify(result) : formatDoctorResult(result)
+      );
       if (!result.passed) {
         throw new Error("Doctor checks failed.");
       }
@@ -565,19 +670,21 @@ export function createCliProgram(): Command {
   addMokaSubmitOptions(
     program
       .command("submit")
-      .description("Submit work to Momokaya as an Argo Workflow")
+      .description(
+        [
+          "Submit work to Momokaya as an Argo Workflow.",
+          'Compatibility alias for `moka run "<task>" --target remote --effort thorough`.',
+          'Quick equivalent: `moka run "<task>" --target remote --effort quick`.',
+          "Command equivalent: `moka run --target remote --command -- <argv...>`.",
+        ].join("\n")
+      )
       .argument(
         "[input...]",
         "task description, or command argv with --command"
       )
   ).action(async (input: string[], flags: MokaSubmitFlags) => {
     const result = await runMokaSubmitFromCli(input, flags);
-    console.log(
-      `Workflow submitted: ${result.workflowName} in ${result.namespace}`
-    );
-    if (result.workflowUid) {
-      console.log(`Workflow UID: ${result.workflowUid}`);
-    }
+    printMokaSubmitResult(result);
   });
 
   registerRunnerCommandCommand(program);
@@ -602,6 +709,38 @@ export function createCliProgram(): Command {
   }
 
   return program;
+}
+
+function runLocalResolvedTask(
+  task: string,
+  execution: LocalRuntimeExecution,
+  runControl: RunControlOptions
+): Promise<void> {
+  return execute(task, {
+    entrypoint: execution.entrypoint,
+    runControl,
+    schedule: execution.schedule,
+    workflow: execution.workflow,
+  });
+}
+
+function remoteSubmitFlags(execution: RemoteSubmitExecution): MokaSubmitFlags {
+  return {
+    command: execution.command,
+    quick: execution.mode === "quick",
+    schedule: execution.schedule,
+  };
+}
+
+function printMokaSubmitResult(
+  result: Awaited<ReturnType<typeof runMokaSubmitFromCli>>
+): void {
+  console.log(
+    `Workflow submitted: ${result.workflowName} in ${result.namespace}`
+  );
+  if (result.workflowUid) {
+    console.log(`Workflow UID: ${result.workflowUid}`);
+  }
 }
 
 function readPackageVersion(): string {
@@ -662,101 +801,6 @@ export function runCliEffect(argv: string[]): Effect.Effect<void, unknown> {
 export async function runCli(argv: string[]): Promise<void> {
   const program = createCliProgram();
   await program.parseAsync(argv, { from: "node" });
-}
-
-export async function runDoctor(
-  cwd: string,
-  options: DoctorFlags = {}
-): Promise<DoctorResult> {
-  const commandChecks = await Promise.all([
-    checkCommand("npx", ["--version"], cwd),
-    checkCommand("opencode", ["--version"], cwd),
-    checkCommand("fallow", ["--version"], cwd),
-  ]);
-  const configCheck = checkPipelineConfig(cwd);
-  const globalConfig = loadMokaGlobalConfig();
-  const clusterResult = options.cluster
-    ? await runClusterDoctor({
-        kubeContext: options.kubeContext,
-        kubeconfigPath:
-          options.kubeconfig ?? globalConfig?.momokaya.kubernetes.kubeconfig,
-        namespace: clusterNamespace(
-          options.cluster,
-          globalConfig?.momokaya.kubernetes.namespace
-        ),
-      })
-    : { checks: [] };
-  const checks = [...commandChecks, configCheck, ...clusterResult.checks];
-  return {
-    checks,
-    passed: checks.every((check) => check.passed),
-  };
-}
-
-function clusterNamespace(
-  value: boolean | string,
-  configuredNamespace?: string
-): string {
-  return typeof value === "string" && value.length > 0
-    ? value
-    : (configuredNamespace ?? defaultClusterDoctorNamespace());
-}
-
-function checkCommand(
-  name: string,
-  args: string[],
-  cwd: string
-): Promise<DoctorCheck> {
-  return checkCommandWithRunner(name, name, args, cwd);
-}
-
-async function checkCommandWithRunner(
-  name: string,
-  command: string,
-  args: string[],
-  cwd: string
-): Promise<DoctorCheck> {
-  try {
-    await execa(command, args, {
-      cwd,
-      stdin: "ignore",
-    });
-    return {
-      detail: "available",
-      name,
-      passed: true,
-    };
-  } catch (err) {
-    const error = err as { shortMessage?: string; stderr?: string };
-    return {
-      detail: (error.shortMessage || error.stderr || "not available").trim(),
-      name,
-      passed: false,
-    };
-  }
-}
-
-function checkPipelineConfig(cwd: string): DoctorCheck {
-  try {
-    loadPipelineConfig(cwd);
-    return {
-      detail: "valid",
-      name: "pipeline-config",
-      passed: true,
-    };
-  } catch (err) {
-    let message = "invalid";
-    if (err instanceof PipelineConfigError) {
-      message = err.issues.map((issue) => issue.message).join("; ");
-    } else if (err instanceof Error) {
-      message = err.message;
-    }
-    return {
-      detail: message || "missing or invalid",
-      name: "pipeline-config",
-      passed: false,
-    };
-  }
 }
 
 function formatWorkflowPlan(

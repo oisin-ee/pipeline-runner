@@ -16,8 +16,10 @@ interface DoctorCheck {
 }
 
 interface DoctorResult {
+  blockers?: DoctorCheck[];
   checks: DoctorCheck[];
   passed: boolean;
+  warnings?: DoctorCheck[];
 }
 
 export function createTerminalRuntimeReporter(
@@ -212,13 +214,19 @@ export function formatRuntimeFailure(result: PipelineRuntimeResult): string {
 }
 
 export function formatDoctorResult(result: DoctorResult): string {
-  return [
+  const lines = [
     `Doctor: ${result.passed ? "PASS" : "FAIL"}`,
     ...result.checks.map(
       (check) =>
         `- ${check.passed ? "PASS" : "FAIL"} ${check.name}: ${check.detail}`
     ),
-  ].join("\n");
+  ];
+  if (result.warnings?.length) {
+    lines.push(
+      ...result.warnings.map((check) => `- WARN ${check.name}: ${check.detail}`)
+    );
+  }
+  return lines.join("\n");
 }
 
 function appendIndentedSection(
