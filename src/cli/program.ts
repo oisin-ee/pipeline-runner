@@ -54,6 +54,7 @@ import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
 } from "../runner";
+import { generateRuntimeRunId } from "../runtime/context";
 import {
   createTerminalRuntimeReporter,
   formatDoctorResult,
@@ -133,13 +134,22 @@ interface DoctorFlags {
 interface RunInputs {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
+  runId?: string;
   schedule?: string;
   task: string;
   workflow?: string;
   worktreePath: string;
 }
 
-async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
+// One stable run id per invocation, shared by the schedule and the run so the
+// durability journal (PIPE-83.10) is keyed consistently and crash-resume can
+// target it by re-running with the same id.
+function withRunId(inputs: RunInputs): RunInputs {
+  return { ...inputs, runId: inputs.runId ?? generateRuntimeRunId() };
+}
+
+async function runConfiguredPipeline(rawInputs: RunInputs): Promise<void> {
+  const inputs = withRunId(rawInputs);
   const config = loadPipelineConfig(inputs.worktreePath, {
     allowMissingLintFileReferences: true,
   });
@@ -176,6 +186,7 @@ async function runConfiguredPipeline(inputs: RunInputs): Promise<void> {
     const result = await generateScheduleArtifact({
       config,
       entrypointId: scheduledEntrypoint,
+      runId: inputs.runId,
       task: inputs.task,
       worktreePath: inputs.worktreePath,
     });
@@ -208,6 +219,7 @@ async function runAndPrintPipeline(
     config: inputs.config,
     reporter,
     entrypoint: inputs.entrypoint,
+    runId: inputs.runId,
     task: inputs.task,
     workflowId: inputs.workflow,
     worktreePath: inputs.worktreePath,
