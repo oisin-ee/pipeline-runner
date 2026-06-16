@@ -1,15 +1,19 @@
+import { Effect } from "effect";
 import { z } from "zod";
 import {
   emitWorkflowPlanned,
   emitWorkflowStarted,
 } from "../runtime/events/events";
 import { dispatchHooks } from "../runtime/hooks";
+import {
+  flushAndReport,
+  isOutputStream,
+  type OutputStream,
+  type RunnerCommandIoService,
+  runValidatedRunnerCommand,
+} from "../runtime/services/runner-command-io-service";
 import { runWorkflowStartLifecycle } from "../runtime/workflow-lifecycle";
-import { createRunnerLifecycleContext } from "./lifecycle-context";
-
-interface OutputStream {
-  write(chunk: string | Uint8Array): boolean;
-}
+import { createRunnerLifecycleContextEffect } from "./lifecycle-context";
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -38,49 +42,43 @@ const EXIT_FAIL = 1;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
 
-export async function runRunnerLifecycle(
+export function runRunnerLifecycle(
   rawOptions: Partial<RunnerLifecycleOptions> = {}
 ): Promise<number> {
-  const parsedOptions = runnerLifecycleOptionsSchema.safeParse(rawOptions);
-  const stderr = rawOptions.stderr ?? process.stderr;
-  if (!parsedOptions.success) {
-    stderr.write(`${parsedOptions.error.message}\n`);
-    return EXIT_VALIDATION;
-  }
-  const options = parsedOptions.data;
-  try {
-    const { context, sink } = await createRunnerLifecycleContext(options);
-    const failure = await runWorkflowStartLifecycle({
-      emitWorkflowPlanned: () => emitWorkflowPlanned(context),
-      emitWorkflowStarted: () => emitWorkflowStarted(context),
-      runWorkflowHook: (event) => dispatchHooks(context, event),
-    });
-    await flushAndReport(sink, stderr);
-    return failure ? EXIT_FAIL : EXIT_PASS;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    stderr.write(`${message}\n`);
-    return error instanceof z.ZodError ? EXIT_VALIDATION : EXIT_STARTUP;
-  }
-}
-
-function isOutputStream(value: unknown): value is OutputStream {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "write" in value &&
-    typeof value.write === "function"
+  return runValidatedRunnerCommand(
+    runnerLifecycleOptionsSchema,
+    rawOptions,
+    runRunnerLifecycleEffect
   );
 }
 
-async function flushAndReport(
-  sink: Awaited<ReturnType<typeof createRunnerLifecycleContext>>["sink"],
+function runRunnerLifecycleEffect(
+  options: RunnerLifecycleOptions,
   stderr: OutputStream
-): Promise<void> {
-  try {
-    await sink.flush();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    stderr.write(`runner event flush failed: ${message}\n`);
-  }
+): Effect.Effect<number, never, RunnerCommandIoService> {
+  return Effect.gen(function* () {
+    const { context, sink } =
+      yield* createRunnerLifecycleContextEffect(options);
+    const failure = yield* Effect.tryPromise({
+      try: () =>
+        runWorkflowStartLifecycle({
+          emitWorkflowPlanned: () => emitWorkflowPlanned(context),
+          emitWorkflowStarted: () => emitWorkflowStarted(context),
+          runWorkflowHook: (event) => dispatchHooks(context, event),
+        }),
+      catch: (error) => error,
+    });
+    yield* flushAndReport(sink, stderr);
+    return failure ? EXIT_FAIL : EXIT_PASS;
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => lifecycleErrorExitCode(error, stderr))
+    )
+  );
+}
+
+function lifecycleErrorExitCode(error: unknown, stderr: OutputStream) {
+  const message = error instanceof Error ? error.message : String(error);
+  stderr.write(`${message}\n`);
+  return error instanceof z.ZodError ? EXIT_VALIDATION : EXIT_STARTUP;
 }

@@ -1,20 +1,13 @@
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { execa } from "execa";
+import { Effect } from "effect";
 import pino from "pino";
 import { z } from "zod";
 import { loadPipelineConfig, type PipelineConfig } from "../config";
-import { runScheduledWorkflowTask } from "../pipeline-runtime";
 import { findPlannedNode } from "../planned-node";
 import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
-import {
-  commitAndPushNodeRef,
-  mergeDependencyRefs,
-  prepareRunnerGitWorkspace,
-} from "../run-state/git-refs";
 import {
   parseRunnerCommandPayload,
   RunnerCommandPayloadValidationError,
@@ -24,8 +17,12 @@ import {
 import { createRunnerEventSink } from "../runner-event-sink";
 import type { RuntimeNodeResult } from "../runtime/contracts";
 import {
+  RunnerCommandIoService,
+  RunnerCommandIoServiceLive,
+} from "../runtime/services/runner-command-io-service";
+import {
   DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH,
-  readRunnerTaskDescriptor,
+  readRunnerTaskDescriptorEffect,
 } from "./task-descriptor";
 
 interface OutputStream {
@@ -59,7 +56,7 @@ const EXIT_FAIL = 1;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
 
-export async function runRunnerCommand(
+export function runRunnerCommand(
   rawOptions: Partial<RunnerCommandOptions> = {}
 ): Promise<number> {
   const parsedOptions = runnerCommandOptionsSchema.safeParse(rawOptions);
@@ -75,18 +72,65 @@ export async function runRunnerCommand(
       { error: parsedOptions.error.message, phase: "options.validate" },
       "runner options validation failed"
     );
-    return EXIT_VALIDATION;
+    return Promise.resolve(EXIT_VALIDATION);
   }
   const options = parsedOptions.data;
-  try {
+  return Effect.runPromise(
+    Effect.provide(
+      runRunnerCommandEffect(options, { logger, stderr, stdout }),
+      RunnerCommandIoServiceLive
+    )
+  );
+}
+
+// Resolve the planned node this Argo task targets, failing with the runner's
+// validation messages when the payload workflow disagrees with the schedule or
+// the task isn't in the plan. Extracted so runRunnerCommandEffect stays within
+// the complexity budget.
+function resolveRunnerTargetNode(
+  payload: ReturnType<typeof parseRunnerCommandPayload>,
+  compiled: ReturnType<typeof compileScheduleArtifact>,
+  descriptor: { nodeId: string }
+): Effect.Effect<NonNullable<ReturnType<typeof findPlannedNode>>, unknown> {
+  return Effect.gen(function* () {
+    if (payload.workflow.id !== compiled.workflowId) {
+      return yield* Effect.fail(
+        new Error(
+          `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`
+        )
+      );
+    }
+    const node = findPlannedNode(
+      compiled.plan.topologicalOrder,
+      descriptor.nodeId
+    );
+    if (!node) {
+      return yield* Effect.fail(
+        new Error(
+          `Argo task '${descriptor.nodeId}' is not declared in workflow '${compiled.workflowId}'`
+        )
+      );
+    }
+    return node;
+  });
+}
+
+function runRunnerCommandEffect(
+  options: RunnerCommandOptions,
+  runtime: { logger: pino.Logger; stderr: OutputStream; stdout: OutputStream }
+): Effect.Effect<number, never, RunnerCommandIoService> {
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
+    const logger = runtime.logger;
     logger.info(
       { phase: "payload.load", status: "start" },
       "payload.load start"
     );
-    const payload = parseRunnerCommandPayload(
-      readFileSync(options.payloadFile, "utf8")
+    const payloadRaw = yield* io.readText(options.payloadFile);
+    const payload = yield* attemptSync(() =>
+      parseRunnerCommandPayload(payloadRaw)
     );
-    const descriptor = readRunnerTaskDescriptor(
+    const descriptor = yield* readRunnerTaskDescriptorEffect(
       options.taskDescriptorFile ?? DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH
     );
     logger.info(
@@ -125,7 +169,7 @@ export async function runRunnerCommand(
       },
       "git.workspace.prepare start"
     );
-    const worktreePath = await prepareRunnerGitWorkspace(payload, {
+    const worktreePath = yield* io.prepareRunnerGitWorkspace(payload, {
       cwd: options.cwd,
     });
     logger.info(
@@ -133,9 +177,11 @@ export async function runRunnerCommand(
       "git.workspace.prepare finish"
     );
     logger.info({ phase: "config.load", status: "start" }, "config.load start");
-    const baseConfig = loadPipelineConfig(worktreePath, {
-      allowMissingLintFileReferences: true,
-    });
+    const baseConfig = yield* attemptSync(() =>
+      loadPipelineConfig(worktreePath, {
+        allowMissingLintFileReferences: true,
+      })
+    );
     logger.info(
       { phase: "config.load", status: "finish" },
       "config.load finish"
@@ -144,13 +190,13 @@ export async function runRunnerCommand(
       { phase: "schedule.compile", status: "start" },
       "schedule.compile start"
     );
-    const compiled = compileScheduleArtifact(
-      baseConfig,
-      parseScheduleArtifact(
-        readFileSync(options.scheduleFile, "utf8"),
-        options.scheduleFile
-      ),
-      worktreePath
+    const scheduleRaw = yield* io.readText(options.scheduleFile);
+    const compiled = yield* attemptSync(() =>
+      compileScheduleArtifact(
+        baseConfig,
+        parseScheduleArtifact(scheduleRaw, options.scheduleFile),
+        worktreePath
+      )
     );
     logger.info(
       {
@@ -160,20 +206,7 @@ export async function runRunnerCommand(
       },
       "schedule.compile finish"
     );
-    if (payload.workflow.id !== compiled.workflowId) {
-      throw new Error(
-        `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`
-      );
-    }
-    const node = findPlannedNode(
-      compiled.plan.topologicalOrder,
-      descriptor.nodeId
-    );
-    if (!node) {
-      throw new Error(
-        `Argo task '${descriptor.nodeId}' is not declared in workflow '${compiled.workflowId}'`
-      );
-    }
+    const node = yield* resolveRunnerTargetNode(payload, compiled, descriptor);
     logger.info(
       {
         dependencyCount: node.needs.length,
@@ -183,7 +216,7 @@ export async function runRunnerCommand(
       },
       "dependency.merge start"
     );
-    await mergeDependencyRefs({
+    yield* io.mergeDependencyRefs({
       committer: compiled.config.runner_command.git.committer,
       dependencyNodeIds: node.needs,
       payload,
@@ -206,7 +239,7 @@ export async function runRunnerCommand(
       },
       "setup.commands start"
     );
-    await runSetupCommands(baseConfig.runner_command.environment.setup, {
+    yield* runSetupCommands(baseConfig.runner_command.environment.setup, {
       env: options.env ?? process.env,
       logger,
       worktreePath,
@@ -237,13 +270,14 @@ export async function runRunnerCommand(
       },
       "task.run start"
     );
-    const result = await runScheduledWorkflowTask({
+    const taskText = yield* runnerTaskTextEffect(payload.task, worktreePath);
+    const result = yield* io.runScheduledWorkflowTask({
       config: compiled.config,
       hookPolicy: payload.hookPolicy,
       nodeId: descriptor.nodeId,
       reporter: (event) => sink.recordRuntimeEvent(event),
       runId: payload.run.id,
-      task: runnerTaskText(payload.task, worktreePath),
+      task: taskText,
       workflowId: compiled.workflowId,
       worktreePath,
     });
@@ -266,7 +300,7 @@ export async function runRunnerCommand(
       },
       "git.node-ref.push start"
     );
-    await commitAndPushNodeRef({
+    yield* io.commitAndPushNodeRef({
       committer: compiled.config.runner_command.git.committer,
       nodeId: descriptor.nodeId,
       payload,
@@ -291,58 +325,100 @@ export async function runRunnerCommand(
         workflowId: payload.workflow.id,
       }
     );
-    await flushAndReport(sink, logger);
+    yield* flushAndReport(sink, logger);
     return result.status === "passed" ? EXIT_PASS : EXIT_FAIL;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error({ error: message, phase: "runner-command" }, message);
-    return error instanceof RunnerCommandPayloadValidationError ||
-      error instanceof z.ZodError
-      ? EXIT_VALIDATION
-      : EXIT_STARTUP;
-  }
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => runnerCommandErrorExitCode(error, runtime.logger))
+    )
+  );
 }
 
-async function runSetupCommands(
+function attemptSync<T>(try_: () => T): Effect.Effect<T, unknown> {
+  return Effect.try({ try: try_, catch: (error) => error });
+}
+
+function runnerCommandErrorExitCode(error: unknown, logger: pino.Logger) {
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error({ error: message, phase: "runner-command" }, message);
+  return error instanceof RunnerCommandPayloadValidationError ||
+    error instanceof z.ZodError
+    ? EXIT_VALIDATION
+    : EXIT_STARTUP;
+}
+
+function runSetupCommands(
   commands: PipelineConfig["runner_command"]["environment"]["setup"],
   options: {
     env: Record<string, string | undefined>;
     logger: pino.Logger;
     worktreePath: string;
   }
-): Promise<void> {
-  for (const [index, command] of commands.entries()) {
+): Effect.Effect<void, unknown, RunnerCommandIoService> {
+  return Effect.forEach(commands.entries(), ([index, command]) =>
+    runSetupCommand(command, index, options)
+  ).pipe(Effect.asVoid);
+}
+
+function runSetupCommand(
+  command: PipelineConfig["runner_command"]["environment"]["setup"][number],
+  index: number,
+  options: {
+    env: Record<string, string | undefined>;
+    logger: pino.Logger;
+    worktreePath: string;
+  }
+): Effect.Effect<void, unknown, RunnerCommandIoService> {
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
+    const commandIndex = index + 1;
     options.logger.info(
-      {
-        command: command.command,
-        index: index + 1,
-        phase: "setup.command",
-        status: "start",
-      },
+      setupCommandLog(command.command, commandIndex, "start"),
       "setup.command start"
     );
-    const result = await execa(command.command, command.args, {
+    const result = yield* io.runSetupCommand(command.command, command.args, {
       cwd: options.worktreePath,
       env: options.env,
-      reject: false,
     });
+    const exitCode = setupExitCode(result.exitCode);
     options.logger.info(
-      {
-        command: command.command,
-        exitCode: result.exitCode,
-        index: index + 1,
-        phase: "setup.command",
-        required: command.required,
-        status: "finish",
-      },
+      setupCommandFinishLog(command, commandIndex, exitCode),
       "setup.command finish"
     );
-    if (result.exitCode !== 0 && command.required) {
-      throw new Error(
-        `runner setup command '${command.command}' failed with exit ${result.exitCode}`
+    if (exitCode !== 0 && command.required) {
+      return yield* Effect.fail(
+        new Error(
+          `runner setup command '${command.command}' failed with exit ${exitCode}`
+        )
       );
     }
+  });
+}
+
+function setupExitCode(exitCode: number | undefined): number {
+  if (typeof exitCode === "number") {
+    return exitCode;
   }
+  return 1;
+}
+
+function setupCommandLog(command: string, index: number, status: "start") {
+  return { command, index, phase: "setup.command", status };
+}
+
+function setupCommandFinishLog(
+  command: PipelineConfig["runner_command"]["environment"]["setup"][number],
+  index: number,
+  exitCode: number
+) {
+  return {
+    command: command.command,
+    exitCode,
+    index,
+    phase: "setup.command",
+    required: command.required,
+    status: "finish",
+  };
 }
 
 function logFailedTaskRun(
@@ -367,14 +443,21 @@ function logFailedTaskRun(
   );
 }
 
-export function runnerTaskText(task: RunnerTask, worktreePath: string): string {
+export function runnerTaskTextEffect(
+  task: RunnerTask,
+  worktreePath: string
+): Effect.Effect<string, unknown, RunnerCommandIoService> {
   if (task.kind === "prompt") {
-    return task.prompt;
+    return Effect.succeed(task.prompt);
   }
   if (task.path) {
-    return readFileSync(resolve(worktreePath, task.path), "utf8");
+    const taskPath = task.path;
+    return Effect.gen(function* () {
+      const io = yield* RunnerCommandIoService;
+      return yield* io.readText(resolve(worktreePath, taskPath));
+    });
   }
-  return [task.id, task.title].filter(Boolean).join(" ");
+  return Effect.succeed([task.id, task.title].filter(Boolean).join(" "));
 }
 
 function isOutputStream(value: unknown): value is OutputStream {
@@ -386,24 +469,28 @@ function isOutputStream(value: unknown): value is OutputStream {
   );
 }
 
-async function flushAndReport(
+function flushAndReport(
   sink: ReturnType<typeof createRunnerEventSink>,
   logger: pino.Logger
-): Promise<void> {
-  logger.info({ phase: "event.flush", status: "start" }, "event.flush start");
-  try {
-    await sink.flush();
-    logger.info(
-      { phase: "event.flush", status: "finish" },
-      "event.flush finish"
-    );
-  } catch (error) {
+): Effect.Effect<void, never, RunnerCommandIoService> {
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
+    logger.info({ phase: "event.flush", status: "start" }, "event.flush start");
+    const result = yield* Effect.either(io.flushSink(sink));
+    if (result._tag === "Right") {
+      logger.info(
+        { phase: "event.flush", status: "finish" },
+        "event.flush finish"
+      );
+      return;
+    }
+    const error = result.left;
     const message = error instanceof Error ? error.message : String(error);
     logger.error(
       { error: message, phase: "event.flush" },
       `runner event flush failed: ${message}`
     );
-  }
+  });
 }
 
 function createRunnerLogger(options: {

@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { Effect } from "effect";
 import { z } from "zod";
+import { RunnerCommandIoService } from "../runtime/services/runner-command-io-service";
 import { parseJson } from "../safe-json";
 
 export const DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH = "/etc/pipeline/task.json";
@@ -24,8 +25,15 @@ function parseRunnerTaskDescriptor(raw: string): RunnerTaskDescriptor {
   );
 }
 
-export function readRunnerTaskDescriptor(
+export function readRunnerTaskDescriptorEffect(
   path = DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH
-): RunnerTaskDescriptor {
-  return parseRunnerTaskDescriptor(readFileSync(path, "utf8"));
+): Effect.Effect<RunnerTaskDescriptor, unknown, RunnerCommandIoService> {
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
+    const raw = yield* io.readText(path);
+    return yield* Effect.try({
+      try: () => parseRunnerTaskDescriptor(raw),
+      catch: (error) => error,
+    });
+  });
 }

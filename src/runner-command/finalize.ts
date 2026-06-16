@@ -1,18 +1,24 @@
+import { Effect } from "effect";
 import { z } from "zod";
 import { compileArgoExecutionGraph } from "../argo-graph";
-import { promoteFinalRef } from "../run-state/git-refs";
 import { RunnerCommandPayloadValidationError } from "../runner-command-contract";
 import type {
   PipelineRuntimeResult,
   RuntimeFailure,
 } from "../runtime/contracts";
 import { dispatchHooks } from "../runtime/hooks";
+import {
+  flushAndReport,
+  isOutputStream,
+  type OutputStream,
+  RunnerCommandIoService,
+  runValidatedRunnerCommand,
+} from "../runtime/services/runner-command-io-service";
 import { finalizeWorkflowLifecycle } from "../runtime/workflow-lifecycle";
-import { createRunnerLifecycleContext } from "./lifecycle-context";
-
-interface OutputStream {
-  write(chunk: string | Uint8Array): boolean;
-}
+import {
+  createRunnerLifecycleContextEffect,
+  type RunnerLifecycleContext,
+} from "./lifecycle-context";
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -40,34 +46,43 @@ const EXIT_FAIL = 1;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
 
-export async function runRunnerFinalize(
+export function runRunnerFinalize(
   rawOptions: Partial<RunnerFinalizeOptions> = {}
 ): Promise<number> {
-  const parsedOptions = runnerFinalizeOptionsSchema.safeParse(rawOptions);
-  const stderr = rawOptions.stderr ?? process.stderr;
-  if (!parsedOptions.success) {
-    stderr.write(`${parsedOptions.error.message}\n`);
-    return EXIT_VALIDATION;
-  }
-  const options = parsedOptions.data;
-  try {
+  return runValidatedRunnerCommand(
+    runnerFinalizeOptionsSchema,
+    rawOptions,
+    runRunnerFinalizeEffect
+  );
+}
+
+function runRunnerFinalizeEffect(
+  options: RunnerFinalizeOptions,
+  stderr: OutputStream
+): Effect.Effect<number, never, RunnerCommandIoService> {
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
     const { compiled, context, payload, sink, worktreePath } =
-      await createRunnerLifecycleContext(options);
-    const lifecycle = await finalizeWorkflowLifecycle(
-      {
-        buildResult: (outcome, nodes, failure) =>
-          runnerFinalizeRuntimeResult(context, outcome, nodes, failure),
-        runWorkflowHook: (event, failure) =>
-          dispatchHooks(context, event, failure),
-      },
-      {
-        completed: [],
-        outcome: options.argoStatus === "Succeeded" ? "PASS" : "FAIL",
-      }
-    );
+      yield* createRunnerLifecycleContextEffect(options);
+    const lifecycle = yield* Effect.tryPromise({
+      try: () =>
+        finalizeWorkflowLifecycle(
+          {
+            buildResult: (outcome, nodes, failure) =>
+              runnerFinalizeRuntimeResult(context, outcome, nodes, failure),
+            runWorkflowHook: (event, failure) =>
+              dispatchHooks(context, event, failure),
+          },
+          {
+            completed: [],
+            outcome: options.argoStatus === "Succeeded" ? "PASS" : "FAIL",
+          }
+        ),
+      catch: (error) => error,
+    });
     if (lifecycle.result.outcome === "PASS") {
       const graph = compileArgoExecutionGraph(compiled.plan);
-      await promoteFinalRef({
+      yield* io.promoteFinalRef({
         committer: compiled.config.runner_command.git.committer,
         payload,
         sourceNodeIds: graph.terminalNodeIds,
@@ -75,20 +90,26 @@ export async function runRunnerFinalize(
       });
     }
     sink.recordFinalResult(lifecycle.result.outcome, payload.workflow.id);
-    await flushAndReport(sink, stderr);
+    yield* flushAndReport(sink, stderr);
     return lifecycle.result.outcome === "PASS" ? EXIT_PASS : EXIT_FAIL;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    stderr.write(`${message}\n`);
-    return error instanceof RunnerCommandPayloadValidationError ||
-      error instanceof z.ZodError
-      ? EXIT_VALIDATION
-      : EXIT_STARTUP;
-  }
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => finalizeErrorExitCode(error, stderr))
+    )
+  );
+}
+
+function finalizeErrorExitCode(error: unknown, stderr: OutputStream) {
+  const message = error instanceof Error ? error.message : String(error);
+  stderr.write(`${message}\n`);
+  return error instanceof RunnerCommandPayloadValidationError ||
+    error instanceof z.ZodError
+    ? EXIT_VALIDATION
+    : EXIT_STARTUP;
 }
 
 function runnerFinalizeRuntimeResult(
-  context: Awaited<ReturnType<typeof createRunnerLifecycleContext>>["context"],
+  context: RunnerLifecycleContext["context"],
   outcome: PipelineRuntimeResult["outcome"],
   nodes: PipelineRuntimeResult["nodes"],
   failure?: RuntimeFailure
@@ -104,25 +125,4 @@ function runnerFinalizeRuntimeResult(
     plan: context.plan,
     structuredOutputs: context.nodeStateStore.structuredOutputList(),
   };
-}
-
-function isOutputStream(value: unknown): value is OutputStream {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "write" in value &&
-    typeof value.write === "function"
-  );
-}
-
-async function flushAndReport(
-  sink: Awaited<ReturnType<typeof createRunnerLifecycleContext>>["sink"],
-  stderr: OutputStream
-): Promise<void> {
-  try {
-    await sink.flush();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    stderr.write(`runner event flush failed: ${message}\n`);
-  }
 }
