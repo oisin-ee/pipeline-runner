@@ -4,6 +4,7 @@
   "files": {
     "includes": [
       "!!**/.agents",
+      "!!**/.opencode",
       "!!**/report",
       "!!**/backlog",
       "!!**/.codex",
