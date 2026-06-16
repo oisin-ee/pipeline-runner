@@ -487,48 +487,39 @@ workflows:
     );
 
     expect(compiled.workflowId).toBe("schedule-run-pc37-dogfood-root");
-    // best_of_n is on by default, so each green work-unit node is expanded into
-    // a `<id>-candidates` parallel feeding a `<id>` select-candidate builtin.
+    // best_of_n stays opt-in for installed defaults, so generated schedules keep
+    // their ticket-accurate work-unit nodes instead of introducing candidate
+    // fan-out unless the user explicitly enables that verifier-pattern dial.
     expect(
       new Set(compiled.plan.topologicalOrder.map((node) => node.id))
     ).toEqual(
       new Set([
         "research",
         "pc-37-1-green",
-        "pc-37-1-green-candidates",
         "pc-37-2-green",
-        "pc-37-2-green-candidates",
         "pc-37-3-green",
-        "pc-37-3-green-candidates",
         "pc-37-4-green",
-        "pc-37-4-green-candidates",
         "pc-37-5-green",
-        "pc-37-5-green-candidates",
         "pc-37-6-green",
-        "pc-37-6-green-candidates",
         "verify",
       ])
     );
-    // The selected winner keeps the original id + work-unit task_context...
+    expect(generatedNodeIds.some((id) => id.includes("candidates"))).toBe(
+      false
+    );
+    // Each green work-unit keeps the original agent node id + task_context...
     expect(
       generatedNodes.find((node) => node.id === "pc-37-2-green")
     ).toMatchObject({
-      builtin: "select-candidate",
-      kind: "builtin",
-      needs: ["pc-37-2-green-candidates"],
+      kind: "agent",
+      needs: ["pc-37-1-green"],
       task_context: { id: "PC-37.2" },
     });
-    // ...and the cross-work-unit dependency rides on its candidates parallel.
+    // ...and cross-work-unit dependencies remain directly on the work-unit node.
     expect(
-      generatedNodes.find((node) => node.id === "pc-37-2-green-candidates")
+      generatedNodes.find((node) => node.id === "pc-37-6-green")
     ).toMatchObject({
-      kind: "parallel",
-      needs: ["pc-37-1-green"],
-    });
-    expect(
-      generatedNodes.find((node) => node.id === "pc-37-6-green-candidates")
-    ).toMatchObject({
-      kind: "parallel",
+      kind: "agent",
       needs: [
         "pc-37-2-green",
         "pc-37-3-green",

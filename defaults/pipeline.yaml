@@ -15,18 +15,18 @@ repo_map:
 # last passed node without re-running (or re-spending tokens on) finished work.
 durability:
   enabled: true
-# best_of_n: the measured-quality-gain verifier pattern — fan each code (green)
-# node into N independent candidates and select the winner by execution signal
-# (plus an optional LLM judge). n is the cost/quality dial: n=2 ~doubles green-
-# node spend; raise it for more quality, set enabled:false to spend the minimum.
-best_of_n:
-  enabled: true
-  n: 2
-  categories: [green]
-# parallel_worktrees: run those candidates in isolated git worktrees so their
-# concurrent edits can't collide.
-parallel_worktrees:
-  enabled: true
+# best_of_n / parallel_worktrees: the verifier-pattern dial. Schedule generation
+# + selection are validated/tested, BUT a live end-to-end run (2026-06-16) proved
+# the EXECUTION is not yet production-ready, so it stays OFF by default (on-by-
+# default made real runs hang). Two runtime gaps remain — see PIPE-83.14:
+#   1. The leased opencode server is rooted at the main worktree and throws
+#      "Unexpected server error" when a candidate session runs with directory set
+#      to its isolated worktree → candidates exit 70, retries exhaust, green loops.
+#      Fix: lease a per-worktree opencode server for each candidate.
+#   2. The winning candidate's file changes live in its worktree and are never
+#      merged back to the main tree, so downstream nodes wouldn't see them.
+# Enable explicitly (best_of_n.enabled + n:2 + categories:[green] + parallel_
+# worktrees.enabled) once those land; n=2 also ~doubles green-node spend.
 token_budget:
   default_context_window: 200000
   max_context_pct: 50

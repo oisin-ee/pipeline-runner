@@ -1,10 +1,10 @@
 ---
 id: PIPE-83.14
 title: Make best_of_n schedules validator-valid so it can be a safe default
-status: Done
+status: In Progress
 assignee: []
 created_date: '2026-06-16 10:53'
-updated_date: '2026-06-16 11:16'
+updated_date: '2026-06-16 12:44'
 labels:
   - architecture
   - runtime
@@ -43,12 +43,9 @@ GATE: tests/dogfood-installed.test.ts epic-schedule validation must pass with be
 - [x] #1 select-candidate is an allowed generated builtin and recognized as a merge sink (worktree isolation) and coverage sink
 - [x] #2 Candidate children are connected in the dependency graph so coverage + work-unit prerequisite edges validate (no graph-island children)
 - [x] #3 select-candidate carries the original node task_context so work-unit assignment/edges resolve
-- [x] #4 best_of_n + parallel_worktrees enabled in defaults/pipeline.yaml (n:2, green); dogfood epic-schedule validation passes; full suite green; schedule goldens regenerated + explained
+- [ ] #4 best_of_n + parallel_worktrees enabled in defaults/pipeline.yaml (n:2, green); dogfood epic-schedule validation passes; full suite green; schedule goldens regenerated + explained
 - [x] #5 Cost tradeoff (n>1 multiplies green-node spend) documented in defaults/pipeline.yaml + docs/config-architecture.md
+- [ ] #6 RUNTIME GAP 1 (blocker, found via live run): candidate agents exit 70 (EXIT_INFRA) — the leased opencode server (rooted at main worktree) throws 'Unexpected server error' for a session with directory=<child worktree>. Fix: lease a per-worktree opencode server per candidate (runInLease in parallel-node.ts).
+- [ ] #7 RUNTIME GAP 2 (blocker): the winning candidate's file changes stay in its worktree and are never merged back to main, so downstream nodes can't see them. Fix: promote the selected candidate's worktree diff on selection.
+- [ ] #8 best_of_n + parallel_worktrees reverted to OFF in defaults until gaps 1+2 land (on-by-default hung every real run in a candidate retry loop). Re-enable + verify a full moka run completes PASS with candidates run + winner selected + merged.
 <!-- AC:END -->
-
-## Final Summary
-
-<!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Committed 282d785 (pushed to main). best_of_n now produces schedules the generate.ts validator accepts end-to-end, and is ON by default. Changes: (1) select-candidate added to SCHEDULE_BUILTINS + recognized as a parallel merge sink via PARALLEL_MERGE_BUILTINS (hasDownstreamDrainMerge) so the candidates parallel satisfies worktree isolation. (2) addParallelContainmentEdges/dependentsByNeedWithContainment register child→parent containment edges so a candidate child's reachability flows out through its parallel to select-candidate → downstream verification (fixes the graph-island coverage gap). (3) candidates pass (src/schedule/passes/candidates.ts): candidate children are stripped of task_context (candidateChild) and the select-candidate node carries the original task_context (selectCandidateNode); workUnitDependencyIssues now treats select-candidate (isSelectCandidateNode) as the work unit's representative, so cross-work-unit prerequisite edges resolve through its candidates parallel. (4) Enabled best_of_n {enabled:true,n:2,categories:[green]} + parallel_worktrees in defaults/pipeline.yaml. (5) Cost dial documented in defaults/pipeline.yaml + docs/config-architecture.md (n=2 ~doubles green-node spend). The dogfood epic-schedule test (tests/dogfood-installed.test.ts) was updated to the candidate shape and passes; full suite 634 green; fallow/ultracite/tsc clean; ZERO suppressions (complexity kept ≤4 by extracting selectCandidateNode + registerContainmentEdge). Verified the loaded package config reports best_of_n + parallel_worktrees enabled and the build bundles.
-<!-- SECTION:FINAL_SUMMARY:END -->
