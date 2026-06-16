@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { PipelineConfig } from "../../config";
+import { buildRepoMapContext } from "../../context/repo-map";
 import { gatewayServerForProfile } from "../../mcp/gateway";
 import { type ModelSelection, selectNodeModel } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
@@ -48,7 +49,7 @@ export async function executeAgentNode(
       output: "",
     };
   }
-  const prompt = renderAgentPrompt(node, context);
+  const prompt = await renderAgentPrompt(node, context);
   const decision = decideNodeModel(prompt, node, context.config.token_budget);
   if (decision.overBudget) {
     return {
@@ -529,19 +530,42 @@ function normalizeAgentOutput(
   return normalizeRunnerOutput(plan, stdout);
 }
 
-function renderAgentPrompt(
+// PIPE-83.5: ranked code-context map (PIPE-83.2), seeded by the node's task and
+// its dependencies' handoff artifacts. Empty (and skipped) unless repo_map is on.
+async function repoMapSection(
   node: PlannedWorkflowNode,
   context: RuntimeContext
-): string {
+): Promise<string> {
+  const repoMap = context.config.repo_map;
+  if (!repoMap?.enabled) {
+    return "";
+  }
+  const result = await buildRepoMapContext({
+    artifacts: node.needs.flatMap(
+      (need) => context.nodeStateStore.handoff(need)?.artifacts ?? []
+    ),
+    taskText: context.task,
+    tokenBudget: repoMap.token_budget,
+    worktreePath: context.worktreePath,
+  });
+  return result.context;
+}
+
+async function renderAgentPrompt(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Promise<string> {
   const profile = node.profile
     ? context.config.profiles[node.profile]
     : undefined;
   const instructions = profile
     ? readInstructions(context.worktreePath, profile.instructions)
     : "";
+  const repoMap = await repoMapSection(node, context);
   return [
     instructions.trim(),
     "",
+    repoMap,
     `Task: ${context.task}`,
     `Workflow: ${context.workflowId}`,
     `Node: ${node.id}`,

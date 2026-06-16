@@ -1,0 +1,4 @@
+{
+  "$schema": "https://fallow.dev/schema.json",
+  "ignoreDependencies": ["tree-sitter-javascript", "tree-sitter-typescript"]
+}

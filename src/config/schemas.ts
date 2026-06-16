@@ -803,6 +803,16 @@ const bestOfNSchema = z
   })
   .strict();
 
+// PIPE-83.2/83.5: opt-in repo-map code-context selection. When enabled,
+// renderAgentPrompt prepends a tree-sitter + PageRank ranked code map (seeded by
+// the node's task + handoff artifacts) within token_budget. Default OFF.
+const repoMapSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    token_budget: z.number().int().positive().default(2000),
+  })
+  .strict();
+
 export const pipelineFileSchema = z
   .object({
     default_workflow: z.string(),
@@ -822,6 +832,7 @@ export const pipelineFileSchema = z
     best_of_n: bestOfNSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
+    repo_map: repoMapSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     workflows: strictRecord(workflowSchema).default({}),
     version: z.literal(1),
@@ -853,6 +864,7 @@ const configSchemaBase = z
     best_of_n: bestOfNSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
+    repo_map: repoMapSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     version: z.literal(1),
     workflows: strictRecord(workflowSchema).default({}),
