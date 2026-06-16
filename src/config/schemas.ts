@@ -787,6 +787,18 @@ const parallelWorktreesSchema = z
   .object({ enabled: z.boolean().default(false) })
   .strict();
 
+// PIPE-83.7: opt-in best-of-N candidate generation. When enabled, a deterministic
+// schedule pass expands each matching agent node (by category-in-id) into a
+// kind:parallel of N candidate children. Default OFF / n=1 so schedules are
+// unchanged until PIPE-83.9's selector picks among candidates.
+const bestOfNSchema = z
+  .object({
+    categories: z.array(z.string()).default(["green"]),
+    enabled: z.boolean().default(false),
+    n: z.number().int().positive().default(1),
+  })
+  .strict();
+
 export const pipelineFileSchema = z
   .object({
     default_workflow: z.string(),
@@ -803,6 +815,7 @@ export const pipelineFileSchema = z
     }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
+    best_of_n: bestOfNSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
@@ -833,6 +846,7 @@ const configSchemaBase = z
     schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
+    best_of_n: bestOfNSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),

@@ -17,6 +17,7 @@ import {
 import { normalizeRunnerOutput } from "../runner-output";
 import { loadBacklogPlanningContext } from "../schedule/backlog-context";
 import { baselineScheduleArtifact } from "../schedule/baseline";
+import { expandBestOfNCandidates } from "../schedule/passes/candidates";
 import { addGeneratedImplementationCoverage } from "../schedule/passes/coverage";
 import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
 import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
@@ -212,7 +213,10 @@ export async function generateScheduleArtifact(
       applyNodeCatalogModelFallbacks(
         options.config,
         policy.node_catalog,
-        addGeneratedImplementationCoverage(options.config, generatedArtifact)
+        expandBestOfNCandidates(
+          options.config,
+          addGeneratedImplementationCoverage(options.config, generatedArtifact)
+        )
       )
     ),
     planningContext
@@ -226,7 +230,13 @@ export async function generateScheduleArtifact(
 }
 
 function assertSchedulePassOrder(): void {
-  const expected = ["coverage", "models", "ids", "references"] as const;
+  const expected = [
+    "coverage",
+    "candidates",
+    "models",
+    "ids",
+    "references",
+  ] as const;
   if (SCHEDULE_PASS_ORDER.join("\0") !== expected.join("\0")) {
     throw new ScheduleArtifactError("Schedule pass order is misconfigured");
   }
