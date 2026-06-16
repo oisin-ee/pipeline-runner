@@ -41,10 +41,15 @@ const SCHEDULE_BUILTINS = [
   "duplication",
   "fallow",
   "lint",
+  "select-candidate",
   "semgrep",
   "test",
   "typecheck",
 ] as const;
+// Builtins that consume a parallel's write-capable children and resolve them to
+// a single result, satisfying the worktree-isolation requirement: drain-merge
+// integrates the children, select-candidate (PIPE-83.7) picks one winner.
+const PARALLEL_MERGE_BUILTINS = new Set(["drain-merge", "select-candidate"]);
 const scheduleArtifactSchema = z
   .object({
     generated_at: z.string().datetime(),
@@ -579,6 +584,45 @@ interface WorkflowNodeIssueContext {
   workflowId: string;
 }
 
+// A parallel node completes only when its children do, so downstream consumers
+// of the parallel transitively depend on each child. Register that containment
+// edge (child -> parent parallel) so reachability flows from a nested child out
+// to the parallel's own dependents (e.g. a best-of-N candidate -> select-
+// candidate -> verification).
+function registerContainmentEdge(
+  parent: WorkflowNode,
+  child: WorkflowNode,
+  index: Map<string, WorkflowNode[]>
+): void {
+  const dependents = index.get(child.id) ?? [];
+  dependents.push(parent);
+  index.set(child.id, dependents);
+}
+
+function addParallelContainmentEdges(
+  nodes: WorkflowNode[],
+  index: Map<string, WorkflowNode[]>
+): void {
+  for (const node of nodes) {
+    if (node.kind !== "parallel") {
+      continue;
+    }
+    for (const child of node.nodes) {
+      registerContainmentEdge(node, child, index);
+    }
+    addParallelContainmentEdges(node.nodes, index);
+  }
+}
+
+function dependentsByNeedWithContainment(
+  nested: WorkflowNode[],
+  flat: WorkflowNode[]
+): Map<string, WorkflowNode[]> {
+  const index = dependentsByNeed(flat);
+  addParallelContainmentEdges(nested, index);
+  return index;
+}
+
 function workflowNodeIssues(
   artifact: ScheduleArtifact,
   collectIssues: (context: WorkflowNodeIssueContext) => string[]
@@ -587,7 +631,10 @@ function workflowNodeIssues(
     ([workflowId, workflow]) => {
       const nodes = flattenWorkflowNodes(workflow.nodes);
       return collectIssues({
-        dependentsByNeed: dependentsByNeed(nodes),
+        dependentsByNeed: dependentsByNeedWithContainment(
+          workflow.nodes,
+          nodes
+        ),
         nodes,
         workflowId,
       });
@@ -622,7 +669,8 @@ function hasDownstreamDrainMerge(
   return hasReachableDependent(
     nodeId,
     index,
-    (node) => node.kind === "builtin" && node.builtin === "drain-merge"
+    (node) =>
+      node.kind === "builtin" && PARALLEL_MERGE_BUILTINS.has(node.builtin)
   );
 }
 
@@ -738,10 +786,13 @@ function workUnitDependencyIssues(
   return Object.entries(artifact.workflows).flatMap(
     ([workflowId, workflow]) => {
       const nodes = flattenWorkflowNodes(workflow.nodes);
-      const index = dependentsByNeed(nodes);
+      const index = dependentsByNeedWithContainment(workflow.nodes, nodes);
       const nodesByWorkUnit = nodesByAssignedWorkUnit(nodes);
       return nodes
-        .filter((node) => isImplementationNode(config, node))
+        .filter(
+          (node) =>
+            isImplementationNode(config, node) || isSelectCandidateNode(node)
+        )
         .flatMap((node) => {
           const dependentId = node.task_context?.id;
           if (!dependentId) {
@@ -768,6 +819,13 @@ function workUnitDependencyIssues(
         });
     }
   );
+}
+
+// PIPE-83.7: the select-candidate node carries the work unit's task_context and
+// stands in for its expanded green node, so it is the unit's representative for
+// dependency validation even though it is not itself an implementation agent.
+function isSelectCandidateNode(node: WorkflowNode): boolean {
+  return node.kind === "builtin" && node.builtin === "select-candidate";
 }
 
 function nodesByAssignedWorkUnit(

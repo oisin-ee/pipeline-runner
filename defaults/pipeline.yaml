@@ -15,11 +15,18 @@ repo_map:
 # last passed node without re-running (or re-spending tokens on) finished work.
 durability:
   enabled: true
-# best_of_n / parallel_worktrees: the verifier-pattern dial. Threaded + usable
-# (set enabled:true, n:2, categories:[green]) but NOT on by default yet — the
-# candidates pass produces candidate nodes the schedule validator rejects
-# (graph-island children, missing task_context on select-candidate). See
-# PIPE-83.14 for the integration that makes it a safe + cost-justified default.
+# best_of_n: the measured-quality-gain verifier pattern — fan each code (green)
+# node into N independent candidates and select the winner by execution signal
+# (plus an optional LLM judge). n is the cost/quality dial: n=2 ~doubles green-
+# node spend; raise it for more quality, set enabled:false to spend the minimum.
+best_of_n:
+  enabled: true
+  n: 2
+  categories: [green]
+# parallel_worktrees: run those candidates in isolated git worktrees so their
+# concurrent edits can't collide.
+parallel_worktrees:
+  enabled: true
 token_budget:
   default_context_window: 200000
   max_context_pct: 50

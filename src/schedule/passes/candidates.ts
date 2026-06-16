@@ -37,6 +37,20 @@ export function expandBestOfNCandidates(
   };
 }
 
+// A candidate inherits the node's config but NOT its work-unit assignment: the
+// select-candidate node is the unit's representative, so candidates stay
+// unassigned (and the work-unit dependency validator treats select-candidate,
+// not the candidates, as the unit's node).
+function candidateChild(node: WorkflowNode, index: number): WorkflowNode {
+  const child: WorkflowNode = {
+    ...node,
+    id: `${node.id}--c${index + 1}`,
+    needs: [],
+  };
+  child.task_context = undefined;
+  return child;
+}
+
 function expandNode(
   node: WorkflowNode,
   categories: string[],
@@ -49,13 +63,12 @@ function expandNode(
     return [node];
   }
   const candidatesId = `${node.id}--candidates`;
-  const children: WorkflowNode[] = Array.from({ length: n }, (_, index) => ({
-    ...node,
-    id: `${node.id}--c${index + 1}`,
-    needs: [],
-  }));
+  const children: WorkflowNode[] = Array.from({ length: n }, (_, index) =>
+    candidateChild(node, index)
+  );
   // Parallel candidates feed a select-candidate builtin that keeps the original
-  // node id, so the consumer's `needs` resolves to the selected winner.
+  // node id (so the consumer's `needs` resolves to the selected winner) and
+  // carries the original task_context so the work unit stays assigned + ordered.
   return [
     {
       id: candidatesId,
@@ -63,11 +76,19 @@ function expandNode(
       nodes: children,
       ...(node.needs ? { needs: node.needs } : {}),
     },
-    {
-      builtin: "select-candidate",
-      id: node.id,
-      kind: "builtin",
-      needs: [candidatesId],
-    },
+    selectCandidateNode(node, candidatesId),
   ];
+}
+
+function selectCandidateNode(
+  node: WorkflowNode,
+  candidatesId: string
+): WorkflowNode {
+  return {
+    builtin: "select-candidate",
+    id: node.id,
+    kind: "builtin",
+    needs: [candidatesId],
+    ...(node.task_context ? { task_context: node.task_context } : {}),
+  };
 }

@@ -487,30 +487,48 @@ workflows:
     );
 
     expect(compiled.workflowId).toBe("schedule-run-pc37-dogfood-root");
+    // best_of_n is on by default, so each green work-unit node is expanded into
+    // a `<id>-candidates` parallel feeding a `<id>` select-candidate builtin.
     expect(
       new Set(compiled.plan.topologicalOrder.map((node) => node.id))
     ).toEqual(
       new Set([
         "research",
         "pc-37-1-green",
+        "pc-37-1-green-candidates",
         "pc-37-2-green",
+        "pc-37-2-green-candidates",
         "pc-37-3-green",
+        "pc-37-3-green-candidates",
         "pc-37-4-green",
+        "pc-37-4-green-candidates",
         "pc-37-5-green",
+        "pc-37-5-green-candidates",
         "pc-37-6-green",
+        "pc-37-6-green-candidates",
         "verify",
       ])
     );
+    // The selected winner keeps the original id + work-unit task_context...
     expect(
       generatedNodes.find((node) => node.id === "pc-37-2-green")
     ).toMatchObject({
-      kind: "agent",
+      builtin: "select-candidate",
+      kind: "builtin",
+      needs: ["pc-37-2-green-candidates"],
+      task_context: { id: "PC-37.2" },
+    });
+    // ...and the cross-work-unit dependency rides on its candidates parallel.
+    expect(
+      generatedNodes.find((node) => node.id === "pc-37-2-green-candidates")
+    ).toMatchObject({
+      kind: "parallel",
       needs: ["pc-37-1-green"],
     });
     expect(
-      generatedNodes.find((node) => node.id === "pc-37-6-green")
+      generatedNodes.find((node) => node.id === "pc-37-6-green-candidates")
     ).toMatchObject({
-      kind: "agent",
+      kind: "parallel",
       needs: [
         "pc-37-2-green",
         "pc-37-3-green",
