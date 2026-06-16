@@ -7,6 +7,7 @@ import type {
   RuntimeNodeResult,
 } from "../contracts";
 import { childReporter } from "../events";
+import { configUsesOpencode, leaseOpencodeRuntime } from "../opencode-runtime";
 import type { CreateWorktreeOptions } from "../parallel-worktrees/parallel-worktrees";
 import {
   WorktreeService,
@@ -204,19 +205,62 @@ function runChildInWorktree(
   runtime: ParallelNodeRuntime
 ): Effect.Effect<RuntimeNodeResult, never, WorktreeService> {
   if (!context.config.parallel_worktrees?.enabled) {
-    return Effect.promise(() => runtime.executeNode(child, context));
+    return executeChild(child, context, runtime);
   }
   return Effect.gen(function* () {
     const worktree = yield* WorktreeService;
     return yield* Effect.acquireUseRelease(
       worktree.createChild(childLeaseOptions(child, context)),
-      (lease) =>
-        Effect.promise(() =>
-          runtime.executeNode(child, { ...context, worktreePath: lease.path })
-        ),
+      (lease) => runChildWithWorktreeLease(child, context, runtime, lease.path),
       (lease) => Effect.sync(() => lease.release())
     );
   });
+}
+
+function executeChild(
+  child: PlannedWorkflowNode,
+  context: RuntimeContext,
+  runtime: ParallelNodeRuntime
+): Effect.Effect<RuntimeNodeResult, never> {
+  return Effect.tryPromise(() => runtime.executeNode(child, context)).pipe(
+    Effect.orDie
+  );
+}
+
+function runChildWithWorktreeLease(
+  child: PlannedWorkflowNode,
+  context: RuntimeContext,
+  runtime: ParallelNodeRuntime,
+  worktreePath: string
+): Effect.Effect<RuntimeNodeResult, never> {
+  const childContext = { ...context, worktreePath };
+  if (!configUsesOpencode(context.config)) {
+    return executeChild(child, childContext, runtime);
+  }
+  return Effect.acquireUseRelease(
+    leaseChildOpencodeRuntime(context, worktreePath),
+    (childRuntime) =>
+      executeChild(
+        child,
+        { ...childContext, executor: childRuntime.executor },
+        runtime
+      ),
+    (childRuntime) =>
+      Effect.tryPromise(() => childRuntime.release()).pipe(Effect.orDie)
+  );
+}
+
+function leaseChildOpencodeRuntime(
+  context: RuntimeContext,
+  worktreePath: string
+) {
+  return Effect.tryPromise(() =>
+    leaseOpencodeRuntime({
+      config: context.config,
+      ...(context.signal ? { signal: context.signal } : {}),
+      worktreePath,
+    })
+  ).pipe(Effect.orDie);
 }
 
 function childLeaseOptions(
