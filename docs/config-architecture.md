@@ -361,13 +361,13 @@ overflow the call stack on deep generated workflow chains.
 
 ## Context, durability & best-of-N features (PIPE-83)
 
-The shipped `defaults/pipeline.yaml` turns **`context_handoff`, `repo_map`, and
-`durability` ON** — these are the low-cost quality/resilience wins, so moka uses
-its architecture by default. `best_of_n` + `parallel_worktrees` are threaded and
-usable but **off by default** (the cost/quality dial; on-by-default also needs
-the schedule-validator integration in PIPE-83.14). Each block can be overridden
-in `pipeline.yaml`; the per-block `# default …` notes below mark the *schema*
-default that applies when a block is omitted entirely.
+The shipped `defaults/pipeline.yaml` turns **`context_handoff`, `repo_map`,
+`durability`, `best_of_n` (n=2 on green), and `parallel_worktrees` ON** — moka
+uses its architecture by default. `best_of_n` is the cost/quality dial: n=2
+~doubles green-node spend, so lower `n` or set `enabled: false` to spend the
+minimum. Each block can be overridden in `pipeline.yaml`; the per-block
+`# default …` notes below mark the *schema* default that applies when a block is
+omitted entirely.
 
 ### `context_handoff` — curated node-to-node handoffs
 
