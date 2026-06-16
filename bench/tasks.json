@@ -1,0 +1,30 @@
+{
+  "schema": "moka-bench-tasks/1",
+  "tasks": [
+    {
+      "accept": "clamp tests pass",
+      "description": "Add a pure clamp(n, lo, hi) helper with unit tests",
+      "id": "clamp"
+    },
+    {
+      "accept": "debounce tests pass",
+      "description": "Add a debounce(fn, ms) utility with unit tests",
+      "id": "debounce"
+    },
+    {
+      "accept": "parseDuration tests pass",
+      "description": "Add parseDuration('1h30m') -> milliseconds with unit tests",
+      "id": "parse-duration"
+    },
+    {
+      "accept": "retry tests pass",
+      "description": "Add retry(fn, attempts) with exponential backoff and unit tests",
+      "id": "retry"
+    },
+    {
+      "accept": "groupBy tests pass",
+      "description": "Add groupBy(items, keyFn) returning a Map, with unit tests",
+      "id": "group-by"
+    }
+  ]
+}

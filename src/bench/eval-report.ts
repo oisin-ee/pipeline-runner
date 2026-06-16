@@ -1,0 +1,73 @@
+/**
+ * PIPE-83.3/83.6: eval harness scoring. Aggregates per-task run outcomes for a
+ * flat single-agent baseline vs the full pipeline (and ablations) into a
+ * comparison report, so "does selection-over-N / the pipeline beat one strong
+ * agent?" is measured, not assumed (see memory: project_architecture_verdict).
+ *
+ * Runs are produced separately (`moka run` over bench/tasks, recording one
+ * EvalRunResult per task+variant); this module turns them into the report. Pure
+ * and deterministic — no model calls.
+ */
+export interface EvalRunResult {
+  costTokens: number;
+  resolved: boolean;
+  task: string;
+  variant: string;
+  wallMs: number;
+}
+
+export interface VariantSummary {
+  avgWallMs: number;
+  count: number;
+  resolutionRate: number;
+  resolved: number;
+  totalCostTokens: number;
+  variant: string;
+}
+
+export interface EvalReport {
+  tasks: number;
+  variants: VariantSummary[];
+}
+
+export function buildEvalReport(results: EvalRunResult[]): EvalReport {
+  const variants = [...new Set(results.map((r) => r.variant))].sort();
+  return {
+    tasks: new Set(results.map((r) => r.task)).size,
+    variants: variants.map((variant) =>
+      summarizeVariant(
+        variant,
+        results.filter((r) => r.variant === variant)
+      )
+    ),
+  };
+}
+
+function summarizeVariant(
+  variant: string,
+  runs: EvalRunResult[]
+): VariantSummary {
+  const resolved = runs.filter((r) => r.resolved).length;
+  const totalWall = runs.reduce((sum, r) => sum + r.wallMs, 0);
+  return {
+    avgWallMs: runs.length ? Math.round(totalWall / runs.length) : 0,
+    count: runs.length,
+    resolutionRate: runs.length ? resolved / runs.length : 0,
+    resolved,
+    totalCostTokens: runs.reduce((sum, r) => sum + r.costTokens, 0),
+    variant,
+  };
+}
+
+export function renderEvalReport(report: EvalReport): string {
+  const lines = [
+    `Eval over ${report.tasks} task(s):`,
+    "variant | resolved | rate | tokens | avg ms",
+  ];
+  for (const v of report.variants) {
+    lines.push(
+      `${v.variant} | ${v.resolved}/${v.count} | ${(v.resolutionRate * 100).toFixed(0)}% | ${v.totalCostTokens} | ${v.avgWallMs}`
+    );
+  }
+  return lines.join("\n");
+}

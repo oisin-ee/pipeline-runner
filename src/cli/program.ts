@@ -10,6 +10,7 @@ import {
   formatCodexAuthSyncResult,
   syncLocalCodexAuth,
 } from "../codex-auth-sync";
+import { registerBenchCommand } from "../commands/bench-command";
 import { registerConfiguredEntrypointCommands } from "../commands/pipeline-command";
 import { registerRunnerCommandCommand } from "../commands/runner-command-command";
 import {
@@ -558,6 +559,7 @@ export function createCliProgram(): Command {
   });
 
   registerRunnerCommandCommand(program);
+  registerBenchCommand(program);
 
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,
