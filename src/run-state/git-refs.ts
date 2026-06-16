@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -9,9 +8,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { promisify } from "node:util";
+import { Effect } from "effect";
 import type { PipelineConfig } from "../config";
 import type { RunnerCommandPayload } from "../runner-command-contract";
+import {
+  GitPorcelainService,
+  GitPorcelainServiceLive,
+} from "../runtime/services/git-porcelain-service";
 
 const DEFAULT_WORKSPACE_PATH = "/workspace";
 const DEFAULT_GIT_CREDENTIALS_DIR = "/etc/pipeline/git-credentials";
@@ -20,7 +23,6 @@ const WRITABLE_GIT_CREDENTIAL_STORE = resolve(
   "pipeline-git-credentials"
 );
 const SCP_LIKE_SSH_REMOTE_RE = /^[^@\s]+@[^:\s]+:.+/u;
-const execGit = promisify(execFile);
 
 let preparedBasicAuthCredentialStore:
   | { host: string; path: string }
@@ -60,22 +62,38 @@ export async function prepareRunnerGitWorkspace(
   payload: RunnerCommandPayload,
   options: PrepareRunnerGitWorkspaceOptions = {}
 ): Promise<string> {
-  if (options.cwd) {
-    return resolve(options.cwd);
-  }
-  const worktreePath = options.workspacePath ?? DEFAULT_WORKSPACE_PATH;
-  mkdirSync(dirname(worktreePath), { recursive: true });
-  await runGit(dirname(worktreePath), [
-    "clone",
-    "--no-tags",
-    payload.repository.url,
-    worktreePath,
-  ]);
-  await runGit(worktreePath, [
-    "checkout",
-    payload.repository.sha ?? `origin/${payload.repository.baseBranch}`,
-  ]);
-  return worktreePath;
+  return await Effect.runPromise(
+    Effect.provide(
+      prepareRunnerGitWorkspaceEffect(payload, options),
+      GitPorcelainServiceLive
+    )
+  );
+}
+
+function prepareRunnerGitWorkspaceEffect(
+  payload: RunnerCommandPayload,
+  options: PrepareRunnerGitWorkspaceOptions
+): Effect.Effect<string, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    if (options.cwd) {
+      return resolve(options.cwd);
+    }
+    const worktreePath = options.workspacePath ?? DEFAULT_WORKSPACE_PATH;
+    yield* Effect.sync(() =>
+      mkdirSync(dirname(worktreePath), { recursive: true })
+    );
+    yield* runGit(dirname(worktreePath), [
+      "clone",
+      "--no-tags",
+      payload.repository.url,
+      worktreePath,
+    ]);
+    yield* runGit(worktreePath, [
+      "checkout",
+      payload.repository.sha ?? `origin/${payload.repository.baseBranch}`,
+    ]);
+    return worktreePath;
+  });
 }
 
 export async function mergeDependencyRefs(input: {
@@ -84,17 +102,41 @@ export async function mergeDependencyRefs(input: {
   payload: RunnerCommandPayload;
   worktreePath: string;
 }): Promise<void> {
-  await configureGitCommitter(input.worktreePath, input.committer);
-  for (const nodeId of input.dependencyNodeIds) {
-    const ref = runnerGitRefs(input.payload, nodeId).nodeRef;
-    await runGit(input.worktreePath, ["fetch", "origin", ref]);
-    await runGit(input.worktreePath, [
+  return await Effect.runPromise(
+    Effect.provide(mergeDependencyRefsEffect(input), GitPorcelainServiceLive)
+  );
+}
+
+function mergeDependencyRefsEffect(input: {
+  committer: PipelineConfig["runner_command"]["git"]["committer"];
+  dependencyNodeIds: string[];
+  payload: RunnerCommandPayload;
+  worktreePath: string;
+}): Effect.Effect<void, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    yield* configureGitCommitter(input.worktreePath, input.committer);
+    yield* Effect.forEach(input.dependencyNodeIds, (nodeId) =>
+      mergeDependencyRef(
+        input.worktreePath,
+        runnerGitRefs(input.payload, nodeId).nodeRef
+      )
+    );
+  });
+}
+
+function mergeDependencyRef(
+  worktreePath: string,
+  ref: string
+): Effect.Effect<void, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    yield* runGit(worktreePath, ["fetch", "origin", ref]);
+    yield* runGit(worktreePath, [
       "merge",
       "--no-ff",
       "--no-edit",
       "FETCH_HEAD",
     ]);
-  }
+  });
 }
 
 export async function commitAndPushNodeRef(input: {
@@ -103,18 +145,31 @@ export async function commitAndPushNodeRef(input: {
   payload: RunnerCommandPayload;
   worktreePath: string;
 }): Promise<string> {
-  await commitChangesIfNeeded(
-    input.worktreePath,
-    input.nodeId,
-    input.committer
+  return await Effect.runPromise(
+    Effect.provide(commitAndPushNodeRefEffect(input), GitPorcelainServiceLive)
   );
-  const sha = (await runGit(input.worktreePath, ["rev-parse", "HEAD"])).trim();
-  await runGit(input.worktreePath, [
-    "push",
-    "origin",
-    `HEAD:${runnerGitRefs(input.payload, input.nodeId).nodeRef}`,
-  ]);
-  return sha;
+}
+
+function commitAndPushNodeRefEffect(input: {
+  committer: PipelineConfig["runner_command"]["git"]["committer"];
+  nodeId: string;
+  payload: RunnerCommandPayload;
+  worktreePath: string;
+}): Effect.Effect<string, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    yield* commitChangesIfNeeded(
+      input.worktreePath,
+      input.nodeId,
+      input.committer
+    );
+    const sha = yield* headSha(input.worktreePath);
+    yield* runGit(input.worktreePath, [
+      "push",
+      "origin",
+      `HEAD:${runnerGitRefs(input.payload, input.nodeId).nodeRef}`,
+    ]);
+    return sha;
+  });
 }
 
 export async function promoteFinalRef(input: {
@@ -123,56 +178,81 @@ export async function promoteFinalRef(input: {
   sourceNodeIds: string[];
   worktreePath: string;
 }): Promise<string> {
-  await mergeDependencyRefs({
-    committer: input.committer,
-    dependencyNodeIds: input.sourceNodeIds,
-    payload: input.payload,
-    worktreePath: input.worktreePath,
-  });
-  await commitChangesIfNeeded(input.worktreePath, "final", input.committer);
-  const sha = (await runGit(input.worktreePath, ["rev-parse", "HEAD"])).trim();
-  await runGit(input.worktreePath, [
-    "push",
-    "origin",
-    `HEAD:${runnerGitRefs(input.payload, "final").finalRef}`,
-  ]);
-  return sha;
+  return await Effect.runPromise(
+    Effect.provide(promoteFinalRefEffect(input), GitPorcelainServiceLive)
+  );
 }
 
-async function commitChangesIfNeeded(
+function promoteFinalRefEffect(input: {
+  committer: PipelineConfig["runner_command"]["git"]["committer"];
+  payload: RunnerCommandPayload;
+  sourceNodeIds: string[];
+  worktreePath: string;
+}): Effect.Effect<string, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    yield* mergeDependencyRefsEffect({
+      committer: input.committer,
+      dependencyNodeIds: input.sourceNodeIds,
+      payload: input.payload,
+      worktreePath: input.worktreePath,
+    });
+    yield* commitChangesIfNeeded(input.worktreePath, "final", input.committer);
+    const sha = yield* headSha(input.worktreePath);
+    yield* runGit(input.worktreePath, [
+      "push",
+      "origin",
+      `HEAD:${runnerGitRefs(input.payload, "final").finalRef}`,
+    ]);
+    return sha;
+  });
+}
+
+function headSha(
+  worktreePath: string
+): Effect.Effect<string, unknown, GitPorcelainService> {
+  return Effect.map(runGit(worktreePath, ["rev-parse", "HEAD"]), (sha) =>
+    sha.trim()
+  );
+}
+
+function commitChangesIfNeeded(
   worktreePath: string,
   nodeId: string,
   committer: PipelineConfig["runner_command"]["git"]["committer"]
-): Promise<void> {
-  const status = await runGit(worktreePath, [
-    "status",
-    "--porcelain",
-    "--untracked-files=all",
-  ]);
-  if (status.trim().length === 0) {
-    return;
-  }
-  await runGit(worktreePath, ["add", "--all"]);
-  await configureGitCommitter(worktreePath, committer);
-  await runGit(worktreePath, ["commit", "-m", `pipeline: ${nodeId}`]);
+): Effect.Effect<void, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    const status = yield* runGit(worktreePath, [
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+    ]);
+    if (status.trim().length === 0) {
+      return;
+    }
+    yield* runGit(worktreePath, ["add", "--all"]);
+    yield* configureGitCommitter(worktreePath, committer);
+    yield* runGit(worktreePath, ["commit", "-m", `pipeline: ${nodeId}`]);
+  });
 }
 
-async function configureGitCommitter(
+function configureGitCommitter(
   worktreePath: string,
   committer: PipelineConfig["runner_command"]["git"]["committer"]
-): Promise<void> {
-  await runGit(worktreePath, [
-    "config",
-    "--local",
-    "user.name",
-    committer.name,
-  ]);
-  await runGit(worktreePath, [
-    "config",
-    "--local",
-    "user.email",
-    committer.email,
-  ]);
+): Effect.Effect<void, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    yield* runGit(worktreePath, [
+      "config",
+      "--local",
+      "user.name",
+      committer.name,
+    ]);
+    yield* runGit(worktreePath, [
+      "config",
+      "--local",
+      "user.email",
+      committer.email,
+    ]);
+  });
 }
 
 function runnerGitCommandArgs(
@@ -182,19 +262,20 @@ function runnerGitCommandArgs(
   return [...gitCredentialConfigArgs(remoteUrl), ...args];
 }
 
-async function runGit(cwd: string, args: string[]): Promise<string> {
-  const remoteUrl = await remoteUrlFromGitArgs(cwd, args);
-  assertSshCredentialsAvailable(remoteUrl);
-  const { stdout } = await execGit(
-    "git",
-    runnerGitCommandArgs(args, remoteUrl),
-    {
-      cwd,
-      encoding: "utf8",
-      env: runnerGitEnv(remoteUrl),
-    }
-  );
-  return stdout;
+function runGit(
+  cwd: string,
+  args: string[]
+): Effect.Effect<string, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    const remoteUrl = yield* remoteUrlFromGitArgs(cwd, args);
+    yield* Effect.try({
+      try: () => assertSshCredentialsAvailable(remoteUrl),
+      catch: (error) => error,
+    });
+    const git = yield* GitPorcelainService;
+    const commandArgs = runnerGitCommandArgs(args, remoteUrl);
+    return yield* git.run(cwd, commandArgs, runnerGitEnv(remoteUrl));
+  });
 }
 
 function assertSshCredentialsAvailable(remoteUrl: string | undefined): void {
@@ -386,19 +467,25 @@ function readCredentialFile(path: string): string {
   return readFileSync(path, "utf8").trim();
 }
 
-async function remoteUrlFromGitArgs(
+function remoteUrlFromGitArgs(
   cwd: string,
   args: string[]
-): Promise<string | undefined> {
-  const literalRemoteUrl = literalRemoteUrlFromGitArgs(args);
-  if (literalRemoteUrl) {
-    return literalRemoteUrl;
-  }
-  const remoteName = remoteNameFromGitArgs(args);
-  if (!remoteName) {
-    return;
-  }
-  return await gitRemoteUrl(cwd, remoteName);
+): Effect.Effect<string | undefined, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    const literalRemoteUrl = literalRemoteUrlFromGitArgs(args);
+    if (literalRemoteUrl) {
+      return literalRemoteUrl;
+    }
+    const remoteName = remoteNameFromGitArgs(args);
+    return yield* remoteUrlForName(cwd, remoteName);
+  });
+}
+
+function remoteUrlForName(
+  cwd: string,
+  remoteName: string | undefined
+): Effect.Effect<string | undefined, unknown, GitPorcelainService> {
+  return remoteName ? gitRemoteUrl(cwd, remoteName) : Effect.succeed(undefined);
 }
 
 function literalRemoteUrlFromGitArgs(args: string[]): string | undefined {
@@ -422,16 +509,18 @@ function remoteNameFromGitArgs(args: string[]): string | undefined {
   return;
 }
 
-async function gitRemoteUrl(
+function gitRemoteUrl(
   cwd: string,
   remoteName: string
-): Promise<string | undefined> {
-  const { stdout } = await execGit("git", ["remote", "get-url", remoteName], {
-    cwd,
-    encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+): Effect.Effect<string | undefined, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    const git = yield* GitPorcelainService;
+    const stdout = yield* git.run(cwd, ["remote", "get-url", remoteName], {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+    });
+    return stdout.trim() || undefined;
   });
-  return stdout.trim() || undefined;
 }
 
 function isRemoteUrl(value: string): boolean {

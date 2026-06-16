@@ -1,32 +1,47 @@
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Effect } from "effect";
 import type { ChangedFilesSnapshot } from "../contracts";
+import {
+  GitPorcelainService,
+  GitPorcelainServiceLive,
+} from "../services/git-porcelain-service";
 
 export function snapshotChangedFiles(
   worktreePath: string
 ): ChangedFilesSnapshot {
-  try {
-    const stdout = execFileSync(
-      "git",
-      ["status", "--porcelain=v1", "--untracked-files=all", "-z"],
-      {
-        cwd: worktreePath,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }
-    );
+  return Effect.runSync(
+    Effect.provide(
+      snapshotChangedFilesEffect(worktreePath),
+      GitPorcelainServiceLive
+    )
+  );
+}
+
+function snapshotChangedFilesEffect(
+  worktreePath: string
+): Effect.Effect<ChangedFilesSnapshot, never, GitPorcelainService> {
+  return Effect.gen(function* () {
+    const git = yield* GitPorcelainService;
+    const stdout = yield* git
+      .statusPorcelain(worktreePath)
+      .pipe(Effect.catchAll(() => Effect.succeed("")));
     const files = new Set(parsePorcelainStatus(stdout));
-    return {
-      files,
-      fingerprints: new Map(
-        [...files].map((file) => [file, fileFingerprint(worktreePath, file)])
-      ),
-    };
-  } catch {
-    return { files: new Set(), fingerprints: new Map() };
-  }
+    return changedFilesSnapshot(worktreePath, files);
+  });
+}
+
+function changedFilesSnapshot(
+  worktreePath: string,
+  files: Set<string>
+): ChangedFilesSnapshot {
+  return {
+    files,
+    fingerprints: new Map(
+      [...files].map((file) => [file, fileFingerprint(worktreePath, file)])
+    ),
+  };
 }
 
 function parsePorcelainStatus(stdout: string): string[] {

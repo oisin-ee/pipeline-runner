@@ -8,6 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
 import type { HookEvent } from "../../config";
 import {
   type HookContext,
@@ -18,7 +19,6 @@ import {
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import { parseJson as parseSafeJson } from "../../safe-json";
 import { runtimeActorId } from "../actor-ids";
-import { executeCommand } from "../command-executor";
 import type {
   HookBinding,
   HookFunctionSpec,
@@ -28,6 +28,10 @@ import type {
 } from "../contracts";
 import { emit, runtimeSystemId } from "../events";
 import { validateJsonSchemaSource } from "../json-validation";
+import {
+  CommandExecutor,
+  CommandExecutorLive,
+} from "../services/command-executor-service";
 
 export async function dispatchHooks(
   context: RuntimeContext,
@@ -541,7 +545,7 @@ function hookModuleSpecifier(
   return hookFunction.module;
 }
 
-async function executeCommandHookFunction(
+function executeCommandHookFunction(
   hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
   binding: HookBinding,
   event: HookEvent,
@@ -550,61 +554,139 @@ async function executeCommandHookFunction(
   node?: PlannedWorkflowNode,
   gateId?: string
 ): Promise<RuntimeHookInvocationResult> {
-  if (context.hookPolicy.allowCommandHooks === false) {
-    return {
-      failure: runtimeHookFailure(
-        binding,
-        `hook '${binding.id}' failed`,
-        ["command hooks are disabled"],
-        node
-      ),
-    };
-  }
-  if (
-    hookFunction.trusted !== true &&
-    (context.config.hooks.policy?.commands === "trusted-only" ||
-      context.hookPolicy.allowUntrustedCommandHooks === false)
-  ) {
-    return {
-      failure: runtimeHookFailure(
-        binding,
-        `hook '${binding.id}' failed`,
-        ["command hook is not trusted"],
-        node
-      ),
-    };
-  }
-  if (context.config.hooks.policy?.commands === "deny") {
-    return {
-      failure: runtimeHookFailure(
-        binding,
-        `hook '${binding.id}' failed`,
-        ["command hooks are disabled"],
-        node
-      ),
-    };
-  }
-  const tempDir = mkdtempSync(join(tmpdir(), "pipeline-hook-"));
-  const inputPath = join(tempDir, "input.json");
-  const resultPath = join(tempDir, "result.json");
-  try {
-    writeFileSync(
-      inputPath,
-      JSON.stringify(
-        hookContext(context, event, binding, failure, node, gateId)
-      )
+  const program = executeCommandHookFunctionEffect(
+    hookFunction,
+    binding,
+    event,
+    context,
+    failure,
+    node,
+    gateId
+  );
+  return Effect.runPromise(Effect.provide(program, CommandExecutorLive));
+}
+
+function executeCommandHookFunctionEffect(
+  hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
+  binding: HookBinding,
+  event: HookEvent,
+  context: RuntimeContext,
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): Effect.Effect<RuntimeHookInvocationResult, unknown, CommandExecutor> {
+  return Effect.gen(function* () {
+    const policyFailure = commandHookPolicyFailure(
+      hookFunction,
+      binding,
+      context,
+      node
     );
-    const commandResult = await executeCommand(hookFunction.command, context, {
-      env: {
-        ...hookEnv(hookFunction, context),
-        PIPELINE_HOOK_INPUT: inputPath,
-        PIPELINE_HOOK_RESULT: resultPath,
-      },
-      extendEnv: false,
-      outputLimitBytes:
-        hookFunction.output_limit_bytes ?? context.hookPolicy.outputLimitBytes,
-      timeout: hookFunction.timeout_ms ?? context.hookPolicy.timeoutMs,
-    });
+    if (policyFailure) {
+      return { failure: policyFailure };
+    }
+    const files = yield* createHookTempFiles();
+    return yield* runCommandHookWithTempFiles(
+      files,
+      hookFunction,
+      binding,
+      event,
+      context,
+      failure,
+      node,
+      gateId
+    ).pipe(Effect.ensuring(removeHookTempDir(files.tempDir)));
+  });
+}
+
+interface CommandHookTempFiles {
+  inputPath: string;
+  resultPath: string;
+  tempDir: string;
+}
+
+function createHookTempFiles(): Effect.Effect<CommandHookTempFiles, unknown> {
+  return Effect.try(() => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pipeline-hook-"));
+    return {
+      inputPath: join(tempDir, "input.json"),
+      resultPath: join(tempDir, "result.json"),
+      tempDir,
+    };
+  });
+}
+
+function removeHookTempDir(tempDir: string): Effect.Effect<void> {
+  return Effect.sync(() => rmSync(tempDir, { force: true, recursive: true }));
+}
+
+function commandHookPolicyFailure(
+  hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
+  binding: HookBinding,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): RuntimeFailure | undefined {
+  if (commandHooksDisabled(context)) {
+    return commandHookFailure(binding, "command hooks are disabled", node);
+  }
+  if (untrustedCommandHookDisabled(hookFunction, context)) {
+    return commandHookFailure(binding, "command hook is not trusted", node);
+  }
+}
+
+function commandHooksDisabled(context: RuntimeContext): boolean {
+  return (
+    context.hookPolicy.allowCommandHooks === false ||
+    context.config.hooks.policy?.commands === "deny"
+  );
+}
+
+function untrustedCommandHookDisabled(
+  hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
+  context: RuntimeContext
+): boolean {
+  const commandPolicy = context.config.hooks.policy?.commands;
+  return (
+    hookFunction.trusted !== true &&
+    (commandPolicy === "trusted-only" ||
+      context.hookPolicy.allowUntrustedCommandHooks === false)
+  );
+}
+
+function commandHookFailure(
+  binding: HookBinding,
+  evidence: string,
+  node?: PlannedWorkflowNode
+): RuntimeFailure {
+  return runtimeHookFailure(
+    binding,
+    `hook '${binding.id}' failed`,
+    [evidence],
+    node
+  );
+}
+
+function runCommandHookWithTempFiles(
+  files: CommandHookTempFiles,
+  hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
+  binding: HookBinding,
+  event: HookEvent,
+  context: RuntimeContext,
+  failure?: RuntimeFailure,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): Effect.Effect<RuntimeHookInvocationResult, unknown, CommandExecutor> {
+  return Effect.gen(function* () {
+    yield* writeCommandHookInput(
+      files.inputPath,
+      hookContext(context, event, binding, failure, node, gateId)
+    );
+    const executor = yield* CommandExecutor;
+    const commandResult = yield* executor.execute(
+      hookFunction.command,
+      context,
+      commandHookOptions(hookFunction, context, files)
+    );
     if (commandResult.exitCode !== 0) {
       return {
         failure: runtimeHookFailure(
@@ -615,26 +697,85 @@ async function executeCommandHookFunction(
         ),
       };
     }
-    if (!existsSync(resultPath)) {
-      return {
-        failure: runtimeHookFailure(
-          binding,
-          `hook '${binding.id}' failed`,
-          ["command hook did not write PIPELINE_HOOK_RESULT"],
-          node
-        ),
-      };
-    }
-    return parseAndValidateHookResult(
-      parseSafeJson(readFileSync(resultPath, "utf8"), "hook result"),
+    return yield* readCommandHookResult(
+      files.resultPath,
       binding,
       hookFunction,
       context,
       node
     );
-  } finally {
-    rmSync(tempDir, { force: true, recursive: true });
-  }
+  });
+}
+
+function writeCommandHookInput(
+  inputPath: string,
+  context: HookContext
+): Effect.Effect<void, unknown> {
+  return Effect.try(() => writeFileSync(inputPath, JSON.stringify(context)));
+}
+
+function commandHookOptions(
+  hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
+  context: RuntimeContext,
+  files: CommandHookTempFiles
+) {
+  return {
+    env: {
+      ...hookEnv(hookFunction, context),
+      PIPELINE_HOOK_INPUT: files.inputPath,
+      PIPELINE_HOOK_RESULT: files.resultPath,
+    },
+    extendEnv: false,
+    outputLimitBytes:
+      hookFunction.output_limit_bytes ?? context.hookPolicy.outputLimitBytes,
+    timeout: hookFunction.timeout_ms ?? context.hookPolicy.timeoutMs,
+  };
+}
+
+function readCommandHookResult(
+  resultPath: string,
+  binding: HookBinding,
+  hookFunction: HookFunctionSpec,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): Effect.Effect<RuntimeHookInvocationResult, unknown> {
+  return Effect.gen(function* () {
+    const resultExists = yield* Effect.sync(() => existsSync(resultPath));
+    if (!resultExists) {
+      return {
+        failure: commandHookFailure(
+          binding,
+          "command hook did not write PIPELINE_HOOK_RESULT",
+          node
+        ),
+      };
+    }
+    return yield* parseCommandHookResult(
+      resultPath,
+      binding,
+      hookFunction,
+      context,
+      node
+    );
+  });
+}
+
+function parseCommandHookResult(
+  resultPath: string,
+  binding: HookBinding,
+  hookFunction: HookFunctionSpec,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): Effect.Effect<RuntimeHookInvocationResult, unknown> {
+  return Effect.try(() =>
+    parseAndValidateHookResult(
+      parseSafeJson(readFileSync(resultPath, "utf8"), "hook result"),
+      binding,
+      hookFunction,
+      context,
+      node
+    )
+  );
 }
 
 function hookContext(

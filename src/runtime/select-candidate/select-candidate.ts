@@ -1,10 +1,14 @@
+import { Effect } from "effect";
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import { createRunnerLaunchPlan, type RunnerLaunchPlan } from "../../runner";
 import { normalizeRunnerOutput } from "../../runner-output";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { parseJsonObject } from "../json-validation";
-import { promoteWorktreeChanges } from "../parallel-worktrees/parallel-worktrees";
+import {
+  SelectCandidateService,
+  SelectCandidateServiceLive,
+} from "../services/select-candidate-service";
 
 const SCORE_RE = /-?\d+(?:\.\d+)?/;
 
@@ -41,27 +45,39 @@ export async function executeSelectCandidateBuiltin(
   context: RuntimeContext,
   node?: PlannedWorkflowNode
 ): Promise<NodeAttemptResult> {
-  const candidates = await scoreCandidates(
-    context,
-    readCandidates(context, node?.needs.at(0) ?? null)
+  const program = executeSelectCandidateBuiltinProgram(context, node);
+  return await Effect.runPromise(
+    Effect.provide(program, SelectCandidateServiceLive)
   );
-  const selected = selectBestCandidate(candidates);
-  if (!selected) {
+}
+
+function executeSelectCandidateBuiltinProgram(
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): Effect.Effect<NodeAttemptResult, unknown, SelectCandidateService> {
+  return Effect.gen(function* () {
+    const candidates = yield* scoreCandidates(
+      context,
+      readCandidates(context, firstNeed(node))
+    );
+    const selected = selectBestCandidate(candidates);
+    if (!selected) {
+      return {
+        evidence: [
+          `select-candidate: no passing candidate among ${candidates.length}`,
+          ...candidates.map((candidate) => `- ${candidate.nodeId}: FAIL`),
+        ],
+        exitCode: 1,
+        output: "",
+      };
+    }
+    const promoted = yield* promoteWinner(context, node, selected.nodeId);
     return {
-      evidence: [
-        `select-candidate: no passing candidate among ${candidates.length}`,
-        ...candidates.map((candidate) => `- ${candidate.nodeId}: FAIL`),
-      ],
-      exitCode: 1,
-      output: "",
+      evidence: selectionEvidence(selected, candidates.length, promoted),
+      exitCode: 0,
+      output: selected.output,
     };
-  }
-  const promoted = promoteWinner(context, node, selected.nodeId);
-  return {
-    evidence: selectionEvidence(selected, candidates.length, promoted),
-    exitCode: 0,
-    output: selected.output,
-  };
+  });
 }
 
 function selectionEvidence(
@@ -85,48 +101,69 @@ function promoteWinner(
   context: RuntimeContext,
   node: PlannedWorkflowNode | undefined,
   winnerNodeId: string
-): string[] {
-  const parentNodeId = node?.needs.at(0);
-  if (!(context.config.parallel_worktrees?.enabled && parentNodeId)) {
-    return [];
+): Effect.Effect<string[], never, SelectCandidateService> {
+  const parentNodeId = firstNeed(node);
+  if (!shouldPromoteWinner(context, parentNodeId)) {
+    return Effect.succeed([]);
   }
-  return promoteWorktreeChanges(
-    context.worktreePath,
-    context.runId,
-    parentNodeId,
-    winnerNodeId
-  );
-}
-
-async function scoreCandidates(
-  context: RuntimeContext,
-  candidates: Candidate[]
-): Promise<Candidate[]> {
-  const model = context.config.best_of_n?.judge_model;
-  const runner = Object.keys(context.config.runners).at(0);
-  if (!(model && runner)) {
-    return candidates;
-  }
-  return await Promise.all(
-    candidates.map((candidate) =>
-      scoreCandidate(context, candidate, runner, model)
+  return SelectCandidateService.pipe(
+    Effect.flatMap((service) =>
+      service.promoteWinner(
+        context.worktreePath,
+        context.runId,
+        parentNodeId,
+        winnerNodeId
+      )
     )
   );
 }
 
-async function scoreCandidate(
+function shouldPromoteWinner(
+  context: RuntimeContext,
+  parentNodeId: string | null
+): parentNodeId is string {
+  const parallelWorktrees = context.config.parallel_worktrees;
+  return Boolean(parallelWorktrees?.enabled) && parentNodeId !== null;
+}
+
+function firstNeed(node: PlannedWorkflowNode | undefined): string | null {
+  return node?.needs.at(0) ?? null;
+}
+
+function scoreCandidates(
+  context: RuntimeContext,
+  candidates: Candidate[]
+): Effect.Effect<Candidate[], unknown, SelectCandidateService> {
+  const model = context.config.best_of_n?.judge_model;
+  const runner = Object.keys(context.config.runners).at(0);
+  if (!(model && runner)) {
+    return Effect.succeed(candidates);
+  }
+  return Effect.forEach(
+    candidates,
+    (candidate) => scoreCandidate(context, candidate, runner, model),
+    { concurrency: "unbounded" }
+  );
+}
+
+function scoreCandidate(
   context: RuntimeContext,
   candidate: Candidate,
   runner: string,
   model: string
-): Promise<Candidate> {
-  const plan = judgePlan(context, candidate, runner, model);
-  context.agentInvocations.push(plan);
-  const result = await context.executor(plan, { signal: context.signal });
-  const judgeScore = parseScore(
-    normalizeRunnerOutput(plan, result.stdout).output
-  );
-  return judgeScore === null ? candidate : { ...candidate, judgeScore };
+): Effect.Effect<Candidate, unknown, SelectCandidateService> {
+  return Effect.gen(function* () {
+    const plan = judgePlan(context, candidate, runner, model);
+    context.agentInvocations.push(plan);
+    const service = yield* SelectCandidateService;
+    const result = yield* service.executeRunner(context.executor, plan, {
+      signal: context.signal,
+    });
+    const judgeScore = parseScore(
+      normalizeRunnerOutput(plan, result.stdout).output
+    );
+    return judgeScore === null ? candidate : { ...candidate, judgeScore };
+  });
 }
 
 function judgePlan(
