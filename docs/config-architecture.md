@@ -359,13 +359,11 @@ The toposort uses `@dagrejs/graphlib` for the graph model but an iterative
 traversal for the topological sort, because graphlib's recursive topsort can
 overflow the call stack on deep generated workflow chains.
 
-## Context, durability & best-of-N features (PIPE-83)
+## Context & durability features (PIPE-83)
 
-The shipped `defaults/pipeline.yaml` turns **`context_handoff`, `repo_map`,
-`durability`, `best_of_n` (n=2 on green), and `parallel_worktrees` ON** — moka
-uses its architecture by default. `best_of_n` is the cost/quality dial: n=2
-~doubles green-node spend, so lower `n` or set `enabled: false` to spend the
-minimum. Each block can be overridden in `pipeline.yaml`; the per-block
+The shipped `defaults/pipeline.yaml` turns **`context_handoff`, `repo_map`, and
+`durability` ON** — moka uses its architecture by default; `parallel_worktrees`
+is opt-in. Each block can be overridden in `pipeline.yaml`; the per-block
 `# default …` notes below mark the *schema* default that applies when a block is
 omitted entirely.
 
@@ -399,26 +397,6 @@ worktree with dirty or unpushed work is retained (never deleted), and orphaned
 worktrees are GC'd on the next parallel node under the same guard. A worktree is
 *not* a sandbox (node_modules/build state are shared) — real isolation remains
 k8s mode. SDK-runner nodes honour the per-child directory via `plan.cwd`.
-
-### `best_of_n` — generate N candidates and select the winner
-
-```yaml
-best_of_n:
-  enabled: true          # default false
-  n: 3                   # candidates per matching node (default 1 = off)
-  categories: [green]    # which node categories fan out (id-substring match)
-  judge_model: openai/gpt-5.5   # optional LLM judge; omit for status-only
-```
-
-When enabled with `n > 1`, the `candidates` schedule pass expands each matching
-agent node into a `kind: parallel` of N candidate children
-(`<node>--candidates`) feeding a `select-candidate` builtin that keeps the
-original node id. Each candidate builds in its own worktree (pair with
-`parallel_worktrees`) and is throttled by its category's
-`token_budget.fan_out_width` cap. The selector scores candidates by a hybrid of
-execution status (PASS/FAIL) and, when `judge_model` is set, a 0..1 LLM judge
-score; it emits the winner's output and **never self-fixes** — if no candidate
-passes, the node fails with evidence.
 
 ### `durability` — durable crash-resume
 

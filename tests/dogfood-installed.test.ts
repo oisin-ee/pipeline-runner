@@ -487,9 +487,8 @@ workflows:
     );
 
     expect(compiled.workflowId).toBe("schedule-run-pc37-dogfood-root");
-    // best_of_n stays opt-in for installed defaults, so generated schedules keep
-    // their ticket-accurate work-unit nodes instead of introducing candidate
-    // fan-out unless the user explicitly enables that verifier-pattern dial.
+    // Generated schedules carry their ticket-accurate work-unit nodes with no
+    // candidate fan-out (best_of_n was removed).
     expect(
       new Set(compiled.plan.topologicalOrder.map((node) => node.id))
     ).toEqual(

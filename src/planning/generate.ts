@@ -18,7 +18,6 @@ import {
 import { normalizeRunnerOutput } from "../runner-output";
 import { loadBacklogPlanningContext } from "../schedule/backlog-context";
 import { baselineScheduleArtifact } from "../schedule/baseline";
-import { expandBestOfNCandidates } from "../schedule/passes/candidates";
 import { addGeneratedImplementationCoverage } from "../schedule/passes/coverage";
 import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
 import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
@@ -42,15 +41,14 @@ const SCHEDULE_BUILTINS = [
   "duplication",
   "fallow",
   "lint",
-  "select-candidate",
   "semgrep",
   "test",
   "typecheck",
 ] as const;
 // Builtins that consume a parallel's write-capable children and resolve them to
 // a single result, satisfying the worktree-isolation requirement: drain-merge
-// integrates the children, select-candidate (PIPE-83.7) picks one winner.
-const PARALLEL_MERGE_BUILTINS = new Set(["drain-merge", "select-candidate"]);
+// integrates the children.
+const PARALLEL_MERGE_BUILTINS = new Set(["drain-merge"]);
 const scheduleArtifactSchema = z
   .object({
     generated_at: z.string().datetime(),
@@ -222,10 +220,7 @@ export async function generateScheduleArtifact(
       applyNodeCatalogModelFallbacks(
         options.config,
         policy.node_catalog,
-        expandBestOfNCandidates(
-          options.config,
-          addGeneratedImplementationCoverage(options.config, generatedArtifact)
-        )
+        addGeneratedImplementationCoverage(options.config, generatedArtifact)
       )
     ),
     planningContext
@@ -239,13 +234,7 @@ export async function generateScheduleArtifact(
 }
 
 function assertSchedulePassOrder(): void {
-  const expected = [
-    "coverage",
-    "candidates",
-    "models",
-    "ids",
-    "references",
-  ] as const;
+  const expected = ["coverage", "models", "ids", "references"] as const;
   if (SCHEDULE_PASS_ORDER.join("\0") !== expected.join("\0")) {
     throw new ScheduleArtifactError("Schedule pass order is misconfigured");
   }
@@ -793,10 +782,7 @@ function workUnitDependencyIssues(
       const index = dependentsByNeedWithContainment(workflow.nodes, nodes);
       const nodesByWorkUnit = nodesByAssignedWorkUnit(nodes);
       return nodes
-        .filter(
-          (node) =>
-            isImplementationNode(config, node) || isSelectCandidateNode(node)
-        )
+        .filter((node) => isImplementationNode(config, node))
         .flatMap((node) => {
           const dependentId = node.task_context?.id;
           if (!dependentId) {
@@ -823,13 +809,6 @@ function workUnitDependencyIssues(
         });
     }
   );
-}
-
-// PIPE-83.7: the select-candidate node carries the work unit's task_context and
-// stands in for its expanded green node, so it is the unit's representative for
-// dependency validation even though it is not itself an implementation agent.
-function isSelectCandidateNode(node: WorkflowNode): boolean {
-  return node.kind === "builtin" && node.builtin === "select-candidate";
 }
 
 function nodesByAssignedWorkUnit(

@@ -8,7 +8,6 @@ import type { PlannedWorkflowNode } from "../../planning/compile";
 import { parseJson } from "../../safe-json";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { executeDrainMergeBuiltin } from "../drain-merge";
-import { executeSelectCandidateBuiltin } from "../select-candidate/select-candidate";
 import {
   CommandExecutor,
   CommandExecutorLive,
@@ -58,8 +57,6 @@ const BUILTIN_HANDLERS: Record<string, BuiltinHandler> = {
   duplication: (context) => executeDuplicationBuiltinEffect(context),
   fallow: (context) => executeFallowBuiltinEffect(context),
   lint: (context) => executeScriptBuiltinEffect(context, "lint"),
-  "select-candidate": (context, node) =>
-    Effect.tryPromise(() => executeSelectCandidateBuiltin(context, node)),
   semgrep: (context) => executeSemgrepBuiltinEffect(context),
   test: (context) => executeTestBuiltinEffect(context),
   typecheck: (context) => executeScriptBuiltinEffect(context, "typecheck"),

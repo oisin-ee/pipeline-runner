@@ -33,10 +33,6 @@ const generatedSchedulePassOrder = [
     sourcePath: "src/schedule/passes/coverage.ts",
   },
   {
-    importPath: "../src/schedule/passes/candidates.ts",
-    sourcePath: "src/schedule/passes/candidates.ts",
-  },
-  {
     importPath: "../src/schedule/passes/models.ts",
     sourcePath: "src/schedule/passes/models.ts",
   },
@@ -52,7 +48,6 @@ const generatedSchedulePassOrder = [
 
 const expectedSchedulePassOrder = [
   "coverage",
-  "candidates",
   "models",
   "ids",
   "references",
@@ -100,7 +95,7 @@ describe("schedule planner module boundaries", () => {
     }
   });
 
-  it("documents generated schedule pass order as coverage, candidates, models, ids, then references", async () => {
+  it("documents generated schedule pass order as coverage, models, ids, then references", async () => {
     const missingPassModules = generatedSchedulePassOrder
       .map(({ sourcePath }) => sourcePath)
       .filter((sourcePath) => !existsSync(join(repoRoot, sourcePath)));
@@ -111,7 +106,6 @@ describe("schedule planner module boundaries", () => {
       generatedSchedulePassOrder.map(({ sourcePath }) => sourcePath)
     ).toEqual([
       "src/schedule/passes/coverage.ts",
-      "src/schedule/passes/candidates.ts",
       "src/schedule/passes/models.ts",
       "src/schedule/passes/ids.ts",
       "src/schedule/passes/references.ts",

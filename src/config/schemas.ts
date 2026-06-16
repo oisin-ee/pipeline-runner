@@ -808,18 +808,6 @@ const durabilitySchema = z
 // schedule pass expands each matching agent node (by category-in-id) into a
 // kind:parallel of N candidate children. Default OFF / n=1 so schedules are
 // unchanged until PIPE-83.9's selector picks among candidates.
-const bestOfNSchema = z
-  .object({
-    categories: z.array(z.string()).default(["green"]),
-    enabled: z.boolean().default(false),
-    // PIPE-83.9: when set, the select-candidate builtin scores each candidate
-    // with this model (hybrid with the execution/test signal). Unset = the
-    // deterministic status-only selection.
-    judge_model: z.string().optional(),
-    n: z.number().int().positive().default(1),
-  })
-  .strict();
-
 // PIPE-83.2/83.5: opt-in repo-map code-context selection. When enabled,
 // renderAgentPrompt prepends a tree-sitter + PageRank ranked code map (seeded by
 // the node's task + handoff artifacts) within token_budget. Default OFF.
@@ -846,7 +834,6 @@ export const pipelineFileSchema = z
     }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
-    best_of_n: bestOfNSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
     durability: durabilitySchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
@@ -879,7 +866,6 @@ const configSchemaBase = z
     schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
-    best_of_n: bestOfNSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
     durability: durabilitySchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
