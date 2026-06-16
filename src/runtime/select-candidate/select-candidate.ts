@@ -4,6 +4,7 @@ import { createRunnerLaunchPlan, type RunnerLaunchPlan } from "../../runner";
 import { normalizeRunnerOutput } from "../../runner-output";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { parseJsonObject } from "../json-validation";
+import { promoteWorktreeChanges } from "../parallel-worktrees/parallel-worktrees";
 
 const SCORE_RE = /-?\d+(?:\.\d+)?/;
 
@@ -55,13 +56,46 @@ export async function executeSelectCandidateBuiltin(
       output: "",
     };
   }
+  const promoted = promoteWinner(context, node, selected.nodeId);
   return {
-    evidence: [
-      `select-candidate: selected '${selected.nodeId}' (judge=${selected.judgeScore ?? "n/a"}) from ${candidates.length} candidates`,
-    ],
+    evidence: selectionEvidence(selected, candidates.length, promoted),
     exitCode: 0,
     output: selected.output,
   };
+}
+
+function selectionEvidence(
+  selected: Candidate,
+  candidateCount: number,
+  promoted: string[]
+): string[] {
+  const lines = [
+    `select-candidate: selected '${selected.nodeId}' (judge=${selected.judgeScore ?? "n/a"}) from ${candidateCount} candidates`,
+  ];
+  if (promoted.length > 0) {
+    lines.push(`promoted ${promoted.length} file(s) from the winning worktree`);
+  }
+  return lines;
+}
+
+// PIPE-83.14: merge the winning candidate's edits from its isolated worktree
+// back into the main worktree so downstream nodes see them. No-op unless
+// parallel_worktrees is on (otherwise candidates already ran in the shared tree).
+function promoteWinner(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode | undefined,
+  winnerNodeId: string
+): string[] {
+  const parentNodeId = node?.needs.at(0);
+  if (!(context.config.parallel_worktrees?.enabled && parentNodeId)) {
+    return [];
+  }
+  return promoteWorktreeChanges(
+    context.worktreePath,
+    context.runId,
+    parentNodeId,
+    winnerNodeId
+  );
 }
 
 async function scoreCandidates(

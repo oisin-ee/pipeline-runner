@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /**
  * PIPE-83.4: git-worktree isolation for parallel candidate nodes. Each parallel
@@ -20,6 +21,95 @@ import { join } from "node:path";
 const WORKTREE_ROOT = ".pipeline/worktrees";
 const REGISTRY_DIR = join(WORKTREE_ROOT, "registry");
 const OWNER = "oisin-pipeline";
+
+// PIPE-83.14: a git worktree only checks out COMMITTED files, but the opencode
+// agent + command definitions (.opencode/agents, .opencode/command) are
+// install-generated and gitignored. The opencode SDK throws (createUserMessage
+// UnknownError) when a prompt selects an agent that doesn't exist in the session
+// directory — unlike the CLI, which falls back to the default agent. So a
+// candidate worktree must carry these generated resources or every agent prompt
+// in it fails. Copied from the parent repo on worktree creation.
+const GENERATED_WORKTREE_RESOURCES = [
+  join(".opencode", "agents"),
+  join(".opencode", "command"),
+];
+
+function provisionGeneratedResources(
+  repoRoot: string,
+  worktreePath: string
+): void {
+  for (const relativePath of GENERATED_WORKTREE_RESOURCES) {
+    const source = join(repoRoot, relativePath);
+    const target = join(worktreePath, relativePath);
+    if (existsSync(source) && !existsSync(target)) {
+      cpSync(source, target, { recursive: true });
+    }
+  }
+}
+
+function childWorktreeRelPath(
+  runId: string | undefined,
+  parentNodeId: string,
+  childNodeId: string
+): string {
+  return join(
+    WORKTREE_ROOT,
+    "trees",
+    sanitize(runId ?? "local"),
+    sanitize(parentNodeId),
+    sanitize(childNodeId)
+  );
+}
+
+function changedWorktreeFiles(worktreePath: string): string[] {
+  const modified = git(worktreePath, ["diff", "--name-only", "HEAD"]);
+  const untracked = git(worktreePath, [
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+  ]);
+  return [...modified.split("\n"), ...untracked.split("\n")].filter(Boolean);
+}
+
+function copyFileInto(
+  fromRoot: string,
+  toRoot: string,
+  relativePath: string
+): void {
+  const source = join(fromRoot, relativePath);
+  if (!existsSync(source)) {
+    return;
+  }
+  const dest = join(toRoot, relativePath);
+  mkdirSync(dirname(dest), { recursive: true });
+  cpSync(source, dest, { recursive: true });
+}
+
+/**
+ * PIPE-83.14: promote a best-of-N winner's edits from its (retained) worktree
+ * back into the main worktree, so downstream nodes (tests, verification) see the
+ * selected candidate's changes. Copies modified + untracked files; no-op if the
+ * worktree is gone. Returns the promoted file paths.
+ */
+export function promoteWorktreeChanges(
+  repoRoot: string,
+  runId: string | undefined,
+  parentNodeId: string,
+  childNodeId: string
+): string[] {
+  const worktreePath = join(
+    repoRoot,
+    childWorktreeRelPath(runId, parentNodeId, childNodeId)
+  );
+  if (!existsSync(worktreePath)) {
+    return [];
+  }
+  const files = changedWorktreeFiles(worktreePath);
+  for (const relativePath of files) {
+    copyFileInto(worktreePath, repoRoot, relativePath);
+  }
+  return files;
+}
 
 type WorktreeState =
   | "active"
@@ -78,7 +168,11 @@ export function createChildWorktree(
   const parentSeg = sanitize(opts.parentNodeId);
   const childSeg = sanitize(opts.childNodeId);
   const baseSha = git(opts.repoRoot, ["rev-parse", "HEAD"]);
-  const relPath = join(WORKTREE_ROOT, "trees", runSeg, parentSeg, childSeg);
+  const relPath = childWorktreeRelPath(
+    opts.runId,
+    opts.parentNodeId,
+    opts.childNodeId
+  );
   const absPath = join(opts.repoRoot, relPath);
   const branch = `pipeline/worktrees/${runSeg}/${parentSeg}/${childSeg}`;
   const leaseId = `${runSeg}__${parentSeg}__${childSeg}`;
@@ -104,6 +198,7 @@ export function createChildWorktree(
   if (!existsSync(absPath)) {
     git(opts.repoRoot, ["worktree", "add", "-b", branch, absPath, baseSha]);
   }
+  provisionGeneratedResources(opts.repoRoot, absPath);
   writeManifest(manifestPath, { ...manifest, state: "active" });
 
   return {

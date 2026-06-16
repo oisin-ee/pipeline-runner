@@ -1,4 +1,4 @@
-import pLimit from "p-limit";
+import { Effect } from "effect";
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type {
@@ -21,48 +21,159 @@ export interface ParallelNodeRuntime {
   markNodeReady: (context: RuntimeContext, nodeId: string) => void;
 }
 
-export async function executeParallelNode(
+type CategorySemaphores = Map<string, Effect.Semaphore>;
+
+// The fan-out abort controller signals running children (via context.signal) and
+// lets queued ones short-circuit when fail-fast trips.
+interface FailFastGate {
+  abort: () => void;
+  aborted: () => boolean;
+}
+
+export function executeParallelNode(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   runtime: ParallelNodeRuntime
 ): Promise<NodeAttemptResult> {
+  return Effect.runPromise(parallelNodeProgram(node, context, runtime));
+}
+
+function parallelNodeProgram(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  runtime: ParallelNodeRuntime
+): Effect.Effect<NodeAttemptResult> {
   const children = node.children ?? [];
   if (children.length === 0) {
-    return {
+    return Effect.succeed({
       evidence: [`parallel node '${node.id}' has no children`],
       exitCode: 1,
       output: "",
-    };
+    });
   }
+  return Effect.gen(function* () {
+    gcStaleWorktrees(context);
+    const failFast = context.plan.execution.failFast;
+    const linkedAbort = createLinkedAbortController(context.signal);
+    const childContext = createParallelChildContext(
+      context,
+      node.id,
+      children,
+      failFast ? linkedAbort.controller.signal : context.signal
+    );
+    const gate = failFast
+      ? makeFailFastGate(linkedAbort.controller)
+      : undefined;
+    for (const child of children) {
+      runtime.markNodeReady(childContext, child.id);
+    }
+    const caps = yield* makeCategorySemaphores(childContext);
+    const settled = yield* runAllChildren(
+      children,
+      childContext,
+      runtime,
+      caps,
+      gate
+    ).pipe(Effect.ensuring(Effect.sync(linkedAbort.cleanup)));
+    return aggregateParallelResult(node.id, children, settled);
+  });
+}
 
-  gcStaleWorktrees(context);
-  const linkedAbort = createLinkedAbortController(context.signal);
-  const childContext = createParallelChildContext(
-    context,
-    node.id,
-    children,
-    context.plan.execution.failFast
-      ? linkedAbort.controller.signal
-      : context.signal
+function makeFailFastGate(controller: AbortController): FailFastGate {
+  return {
+    abort: () => controller.abort(),
+    aborted: () => controller.signal.aborted,
+  };
+}
+
+function aggregateParallelResult(
+  nodeId: string,
+  children: PlannedWorkflowNode[],
+  settled: Array<RuntimeNodeResult | undefined>
+): NodeAttemptResult {
+  const results = settled.filter(
+    (result): result is RuntimeNodeResult => result !== undefined
   );
-  try {
-    const results = context.plan.execution.failFast
-      ? await executeFailFastParallelChildren(
-          children,
-          childContext,
-          linkedAbort.controller,
-          runtime
-        )
-      : await executeParallelChildren(children, childContext, runtime);
-    const failed = results.filter((result) => result.status === "failed");
-    return {
-      evidence: parallelEvidence(node.id, results, failed),
-      exitCode: failed.length > 0 ? 1 : 0,
-      output: parallelOutput(children, results),
-    };
-  } finally {
-    linkedAbort.cleanup();
+  const failed = results.filter((result) => result.status === "failed");
+  return {
+    evidence: parallelEvidence(nodeId, results, failed),
+    exitCode: failed.length > 0 ? 1 : 0,
+    output: parallelOutput(children, results),
+  };
+}
+
+function runAllChildren(
+  children: PlannedWorkflowNode[],
+  context: RuntimeContext,
+  runtime: ParallelNodeRuntime,
+  caps: CategorySemaphores,
+  gate: FailFastGate | undefined
+): Effect.Effect<Array<RuntimeNodeResult | undefined>> {
+  return Effect.forEach(
+    children,
+    (child) => runChildCapped(child, context, runtime, caps, gate),
+    { concurrency: context.maxParallelNodes ?? "unbounded" }
+  );
+}
+
+// One child: skip if fail-fast already tripped, otherwise run it under its
+// category cap and trip the gate on failure. `undefined` = skipped (excluded
+// from results, mirroring the prior clearQueue behaviour).
+function runChildCapped(
+  child: PlannedWorkflowNode,
+  context: RuntimeContext,
+  runtime: ParallelNodeRuntime,
+  caps: CategorySemaphores,
+  gate: FailFastGate | undefined
+): Effect.Effect<RuntimeNodeResult | undefined> {
+  return Effect.gen(function* () {
+    if (gate?.aborted()) {
+      return;
+    }
+    const result = yield* withCategoryCap(
+      caps,
+      child.id,
+      context,
+      runChildInWorktree(child, context, runtime)
+    );
+    if (gate && result.status === "failed") {
+      gate.abort();
+    }
+    return result;
+  });
+}
+
+function withCategoryCap(
+  caps: CategorySemaphores,
+  childId: string,
+  context: RuntimeContext,
+  effect: Effect.Effect<RuntimeNodeResult>
+): Effect.Effect<RuntimeNodeResult> {
+  const category = childCategory(
+    childId,
+    context.config.token_budget?.fan_out_width
+  );
+  const semaphore = category ? caps.get(category) : undefined;
+  return semaphore ? semaphore.withPermits(1)(effect) : effect;
+}
+
+// PIPE-83.7 AC3: per-category fan-out caps as Effect semaphores keyed by the
+// token_budget.fan_out_width categories (e.g. green=2), so N candidates of a
+// category never exceed its cap even within the global maxParallelNodes.
+function makeCategorySemaphores(
+  context: RuntimeContext
+): Effect.Effect<CategorySemaphores> {
+  const fanOut = context.config.token_budget?.fan_out_width;
+  if (!fanOut) {
+    return Effect.succeed(new Map());
   }
+  return Effect.gen(function* () {
+    const caps: CategorySemaphores = new Map();
+    for (const [category, permits] of Object.entries(fanOut.by_category)) {
+      caps.set(category, yield* Effect.makeSemaphore(permits));
+    }
+    return caps;
+  });
 }
 
 function gcStaleWorktrees(context: RuntimeContext): void {
@@ -73,19 +184,26 @@ function gcStaleWorktrees(context: RuntimeContext): void {
 
 /**
  * PIPE-83.4: run a parallel child in its own git worktree when enabled, so
- * concurrent candidate edits can't collide. The lease is created inside the
- * per-child callback (not before scheduling) so failFast-cleared children never
- * allocate a worktree; release retains dirty/unpushed work for downstream
- * selection. Default-off path is byte-identical to the prior behaviour.
+ * concurrent candidate edits can't collide. The worktree lease is acquired and
+ * released as an Effect-scoped resource (released on success, failure, or
+ * interruption); release retains dirty/unpushed work for downstream selection.
  */
 function runChildInWorktree(
   child: PlannedWorkflowNode,
   context: RuntimeContext,
   runtime: ParallelNodeRuntime
-): Promise<RuntimeNodeResult> {
-  return context.config.parallel_worktrees?.enabled
-    ? runInLease(child, context, runtime, createChildLease(child, context))
-    : runtime.executeNode(child, context);
+): Effect.Effect<RuntimeNodeResult> {
+  if (!context.config.parallel_worktrees?.enabled) {
+    return Effect.promise(() => runtime.executeNode(child, context));
+  }
+  return Effect.acquireUseRelease(
+    Effect.sync(() => createChildLease(child, context)),
+    (lease) =>
+      Effect.promise(() =>
+        runtime.executeNode(child, { ...context, worktreePath: lease.path })
+      ),
+    (lease) => Effect.sync(() => lease.release())
+  );
 }
 
 function createChildLease(
@@ -98,22 +216,6 @@ function createChildLease(
     repoRoot: context.worktreePath,
     ...(context.runId ? { runId: context.runId } : {}),
   });
-}
-
-async function runInLease(
-  child: PlannedWorkflowNode,
-  context: RuntimeContext,
-  runtime: ParallelNodeRuntime,
-  lease: WorktreeLease
-): Promise<RuntimeNodeResult> {
-  try {
-    return await runtime.executeNode(child, {
-      ...context,
-      worktreePath: lease.path,
-    });
-  } finally {
-    lease.release();
-  }
 }
 
 function createParallelChildContext(
@@ -170,79 +272,6 @@ export function childCategory(
         childId.includes(category)
       )
     : undefined;
-}
-
-function makeCategoryGate(
-  context: RuntimeContext
-): (
-  childId: string,
-  run: () => Promise<RuntimeNodeResult>
-) => Promise<RuntimeNodeResult> {
-  const fanOut = context.config.token_budget?.fan_out_width;
-  const limits = new Map<string, ReturnType<typeof pLimit>>();
-  return (childId, run) => {
-    const category = childCategory(childId, fanOut);
-    if (!(category && fanOut)) {
-      return run();
-    }
-    let limit = limits.get(category);
-    if (!limit) {
-      limit = pLimit(fanOut.by_category[category]);
-      limits.set(category, limit);
-    }
-    return limit(run);
-  };
-}
-
-function executeParallelChildren(
-  children: PlannedWorkflowNode[],
-  context: RuntimeContext,
-  runtime: ParallelNodeRuntime
-): Promise<RuntimeNodeResult[]> {
-  for (const child of children) {
-    runtime.markNodeReady(context, child.id);
-  }
-  const gate = makeCategoryGate(context);
-  const runChild = (child: PlannedWorkflowNode) =>
-    gate(child.id, () => runChildInWorktree(child, context, runtime));
-  if (!context.maxParallelNodes) {
-    return Promise.all(children.map((child) => runChild(child)));
-  }
-  const limit = pLimit(context.maxParallelNodes);
-  return Promise.all(children.map((child) => limit(() => runChild(child))));
-}
-
-async function executeFailFastParallelChildren(
-  children: PlannedWorkflowNode[],
-  context: RuntimeContext,
-  abortController: AbortController,
-  runtime: ParallelNodeRuntime
-): Promise<RuntimeNodeResult[]> {
-  for (const child of children) {
-    runtime.markNodeReady(context, child.id);
-  }
-  const gate = makeCategoryGate(context);
-  const limit = pLimit({
-    concurrency: context.maxParallelNodes ?? children.length,
-    rejectOnClear: true,
-  });
-  const settled = await Promise.allSettled(
-    children.map((child) =>
-      limit(async () => {
-        const result = await gate(child.id, () =>
-          runChildInWorktree(child, context, runtime)
-        );
-        if (result.status === "failed") {
-          abortController.abort();
-          limit.clearQueue();
-        }
-        return result;
-      })
-    )
-  );
-  return settled.flatMap((result) =>
-    result.status === "fulfilled" ? [result.value] : []
-  );
 }
 
 // fallow-ignore-next-line unused-export
