@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
+import { Effect } from "effect";
 import type { PipelineConfig } from "../../config";
-import { buildRepoMapContext } from "../../context/repo-map";
 import { gatewayServerForProfile } from "../../mcp/gateway";
 import { type ModelSelection, selectNodeModel } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
@@ -36,101 +35,128 @@ import {
   readJsonSchemaSource,
   validateJsonSchemaSource,
 } from "../json-validation";
+import {
+  AgentNodeRuntimeService,
+  AgentNodeRuntimeServiceLive,
+} from "../services/agent-node-runtime-service";
 
-export async function executeAgentNode(
+export function executeAgentNode(
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number
 ): Promise<NodeAttemptResult> {
-  if (!node.profile) {
-    return {
-      evidence: [`node '${node.id}' has no profile`],
-      exitCode: 1,
-      output: "",
-    };
-  }
-  const prompt = await renderAgentPrompt(node, context);
-  const decision = decideNodeModel(prompt, node, context.config.token_budget);
-  if (decision.overBudget) {
-    return {
-      evidence: [
-        `agent boundary node=${node.id} profile=${node.profile}`,
-        `over token budget: ${decision.selection.reason}`,
-        ...(decision.selection.skipped.length
-          ? [
-              `model fallbacks skipped: ${decision.selection.skipped.join(", ")}`,
-            ]
-          : []),
-      ],
-      exitCode: 1,
-      output: "",
-    };
-  }
-  const modelSelection = decision.selection;
-  const plan = createRunnerLaunchPlan(context.config, {
-    model: modelSelection.model,
-    nodeId: node.id,
-    profileId: node.profile,
-    prompt,
-    worktreePath: context.worktreePath,
-  });
-  if (node.timeoutMs) {
-    plan.timeoutMs = node.timeoutMs;
-  }
-  context.agentInvocations.push(plan);
-  emitAgentStart(context, plan, attempt);
-  const result = await context.executor(plan, {
-    onOutput: (event) => {
-      if (event.stream !== "stdout") {
-        return;
-      }
-      emit(context, {
-        attempt,
-        format: "text",
-        nodeId: node.id,
-        output: event.chunk,
-        ...(node.profile ? { profile: node.profile } : {}),
-        type: "node.output.recorded",
-      });
-    },
-    signal: context.signal,
-  });
-  emitAgentFinish(context, plan, attempt, result);
-  if (result.sessionId) {
-    context.nodeStateStore.recordSessionId(node.id, result.sessionId);
-  }
-  const normalized = normalizeAgentOutput(plan, result.stdout);
-  const finalized = await finalizeAgentOutput({
-    context,
-    node,
-    normalized,
-    plan,
-    result,
-    attempt,
-  });
-  const handoff = await maybeDeriveHandoff(
-    context,
-    node,
-    finalized.output,
-    attempt
+  const program = executeAgentNodeEffect(node, context, attempt);
+  return Effect.runPromise(
+    Effect.provide(program, AgentNodeRuntimeServiceLive)
   );
-  const attemptResult: NodeAttemptResult = {
-    evidence: [
-      `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId}`,
-      `estimated context tokens: ${decision.estimatedTokens}`,
-      `model selection: ${modelSelection.model ?? "profile/default"} (${modelSelection.reason})`,
-      ...(modelSelection.skipped.length
-        ? [`model fallbacks skipped: ${modelSelection.skipped.join(", ")}`]
-        : []),
-      ...finalized.evidence,
-      ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
-      ...(result.timedOut ? ["agent timed out"] : []),
-    ],
-    exitCode: result.exitCode,
-    output: finalized.output,
-    timedOut: result.timedOut,
+}
+
+function executeAgentNodeEffect(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext,
+  attempt: number
+): Effect.Effect<NodeAttemptResult, unknown, AgentNodeRuntimeService> {
+  // fallow-ignore-next-line complexity
+  return Effect.gen(function* () {
+    if (!node.profile) {
+      return {
+        evidence: [`node '${node.id}' has no profile`],
+        exitCode: 1,
+        output: "",
+      };
+    }
+    const prompt = yield* renderAgentPromptEffect(node, context);
+    const decision = decideNodeModel(prompt, node, context.config.token_budget);
+    if (decision.overBudget) {
+      return {
+        evidence: [
+          `agent boundary node=${node.id} profile=${node.profile}`,
+          `over token budget: ${decision.selection.reason}`,
+          ...(decision.selection.skipped.length
+            ? [
+                `model fallbacks skipped: ${decision.selection.skipped.join(", ")}`,
+              ]
+            : []),
+        ],
+        exitCode: 1,
+        output: "",
+      };
+    }
+    const modelSelection = decision.selection;
+    const plan = createRunnerLaunchPlan(context.config, {
+      model: modelSelection.model,
+      nodeId: node.id,
+      profileId: node.profile,
+      prompt,
+      worktreePath: context.worktreePath,
+    });
+    if (node.timeoutMs) {
+      plan.timeoutMs = node.timeoutMs;
+    }
+    context.agentInvocations.push(plan);
+    emitAgentStart(context, plan, attempt);
+    const service = yield* AgentNodeRuntimeService;
+    const result = yield* service.executeRunner(context.executor, plan, {
+      onOutput: agentOutputRecorder(context, node, attempt),
+      signal: context.signal,
+    });
+    emitAgentFinish(context, plan, attempt, result);
+    if (result.sessionId) {
+      context.nodeStateStore.recordSessionId(node.id, result.sessionId);
+    }
+    const normalized = normalizeAgentOutput(plan, result.stdout);
+    const finalized = yield* finalizeAgentOutputEffect({
+      context,
+      node,
+      normalized,
+      plan,
+      result,
+      attempt,
+    });
+    const handoff = yield* maybeDeriveHandoffEffect(
+      context,
+      node,
+      finalized.output,
+      attempt
+    );
+    const attemptResult: NodeAttemptResult = {
+      evidence: [
+        `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId}`,
+        `estimated context tokens: ${decision.estimatedTokens}`,
+        `model selection: ${modelSelection.model ?? "profile/default"} (${modelSelection.reason})`,
+        ...(modelSelection.skipped.length
+          ? [`model fallbacks skipped: ${modelSelection.skipped.join(", ")}`]
+          : []),
+        ...finalized.evidence,
+        ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
+        ...(result.timedOut ? ["agent timed out"] : []),
+      ],
+      exitCode: result.exitCode,
+      output: finalized.output,
+      timedOut: result.timedOut,
+    };
+    return withOptionalHandoff(attemptResult, handoff);
+  });
+}
+
+function agentOutputRecorder(
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  attempt: number
+) {
+  return (event: { chunk: string; stream: "stderr" | "stdout" }) => {
+    if (event.stream !== "stdout") {
+      return;
+    }
+    emit(context, {
+      attempt,
+      format: "text",
+      nodeId: node.id,
+      output: event.chunk,
+      ...(node.profile ? { profile: node.profile } : {}),
+      type: "node.output.recorded",
+    });
   };
-  return withOptionalHandoff(attemptResult, handoff);
 }
 
 function withOptionalHandoff(
@@ -156,39 +182,45 @@ function profileRunner(
  * raw output, falling back to a synthesized minimal handoff. Returns undefined
  * when disabled so behaviour is unchanged.
  */
-async function maybeDeriveHandoff(
+function maybeDeriveHandoffEffect(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   rawOutput: string,
   attempt: number
-): Promise<NodeHandoff | undefined> {
+): Effect.Effect<NodeHandoff | undefined, unknown, AgentNodeRuntimeService> {
   if (!context.config.context_handoff?.enabled) {
-    return;
+    return Effect.succeed(undefined);
   }
-  // Fast-path an already-handoff-shaped output; otherwise run the finalizer.
-  return (
-    parseHandoff(rawOutput) ??
-    (await runHandoffFinalizer(context, node, rawOutput, attempt))
-  );
+  const handoff = parseHandoff(rawOutput);
+  return handoff
+    ? Effect.succeed(handoff)
+    : runHandoffFinalizerEffect(context, node, rawOutput, attempt);
 }
 
-async function runHandoffFinalizer(
+function runHandoffFinalizerEffect(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   rawOutput: string,
   attempt: number
-): Promise<NodeHandoff> {
-  const runner = profileRunner(context, node);
-  if (!(runner && rawOutput.trim())) {
-    return synthesizeMinimalHandoff(rawOutput);
-  }
-  const plan = createHandoffFinalizerPlan(context, node, runner, rawOutput);
-  context.agentInvocations.push(plan);
-  emitAgentStart(context, plan, attempt);
-  const result = await context.executor(plan, { signal: context.signal });
-  emitAgentFinish(context, plan, attempt, result);
-  const normalized = normalizeAgentOutput(plan, result.stdout);
-  return parseHandoff(normalized.output) ?? synthesizeMinimalHandoff(rawOutput);
+): Effect.Effect<NodeHandoff, unknown, AgentNodeRuntimeService> {
+  return Effect.gen(function* () {
+    const runner = profileRunner(context, node);
+    if (!(runner && rawOutput.trim())) {
+      return synthesizeMinimalHandoff(rawOutput);
+    }
+    const plan = createHandoffFinalizerPlan(context, node, runner, rawOutput);
+    context.agentInvocations.push(plan);
+    emitAgentStart(context, plan, attempt);
+    const service = yield* AgentNodeRuntimeService;
+    const result = yield* service.executeRunner(context.executor, plan, {
+      signal: context.signal,
+    });
+    emitAgentFinish(context, plan, attempt, result);
+    const normalized = normalizeAgentOutput(plan, result.stdout);
+    return (
+      parseHandoff(normalized.output) ?? synthesizeMinimalHandoff(rawOutput)
+    );
+  });
 }
 
 function createHandoffFinalizerPlan(
@@ -254,39 +286,51 @@ function decideNodeModel(
   return { estimatedTokens, overBudget: !selection.model, selection };
 }
 
-async function finalizeAgentOutput(inputs: {
+function finalizeAgentOutputEffect(inputs: {
   attempt: number;
   context: RuntimeContext;
   node: PlannedWorkflowNode;
   normalized: { evidence: string[]; output: string };
   plan: RunnerLaunchPlan;
   result: AgentResult;
-}): Promise<{ evidence: string[]; output: string }> {
-  const { attempt, context, node, normalized, plan, result } = inputs;
-  const validStructuredOutput = selectValidStructuredOutput(
-    context,
-    node,
-    normalized,
-    plan,
-    result.stdout
-  );
-  if (validStructuredOutput) {
-    return validStructuredOutput;
-  }
-  const repairContext = outputRepairContext(context, node, normalized, result);
-  if (!repairContext) {
-    return normalized;
-  }
+}): Effect.Effect<
+  { evidence: string[]; output: string },
+  unknown,
+  AgentNodeRuntimeService
+> {
+  return Effect.gen(function* () {
+    const { attempt, context, node, normalized, plan, result } = inputs;
+    const validStructuredOutput = selectValidStructuredOutput(
+      context,
+      node,
+      normalized,
+      plan,
+      result.stdout
+    );
+    if (validStructuredOutput) {
+      return validStructuredOutput;
+    }
+    const repairContext = outputRepairContext(
+      context,
+      node,
+      normalized,
+      result
+    );
+    if (!repairContext) {
+      return normalized;
+    }
 
-  return await runOutputRepair(
-    context,
-    node,
-    normalized,
-    repairContext,
-    attempt
-  );
+    return yield* runOutputRepairEffect(
+      context,
+      node,
+      normalized,
+      repairContext,
+      attempt
+    );
+  });
 }
 
+// fallow-ignore-next-line complexity
 function selectValidStructuredOutput(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
@@ -339,6 +383,7 @@ function structuredOutputCandidates(
   ];
 }
 
+// fallow-ignore-next-line complexity
 function outputRepairContext(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
@@ -383,80 +428,93 @@ function outputRepairContext(
   };
 }
 
-async function runOutputRepair(
+function runOutputRepairEffect(
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   normalized: { evidence: string[]; output: string },
   repairContext: OutputRepairContext,
   nodeAttempt: number
-): Promise<{ evidence: string[]; output: string }> {
-  let latest = normalized;
-  let latestValidation = repairContext.validation;
-  const evidence = [...repairContext.evidence];
-  for (let attempt = 1; attempt <= repairContext.maxAttempts; attempt += 1) {
-    const repairPlan = createOutputRepairPlan({
-      context,
-      node,
-      originalOutput: latest.output,
-      repairRunner: repairContext.runner,
-      schemaPath: repairContext.schemaPath,
-      validation: latestValidation,
-    });
-    context.agentInvocations.push(repairPlan);
-    emitAgentStart(context, repairPlan, nodeAttempt);
-    const repairResult = await context.executor(repairPlan, {
-      signal: context.signal,
-    });
-    emitAgentFinish(context, repairPlan, nodeAttempt, repairResult);
-    const repaired = normalizeAgentOutput(repairPlan, repairResult.stdout);
-    const repairedOutput = normalizeJsonSource(repaired.output);
-    const repairedValidation = validateJsonSchemaSource(
-      repairedOutput,
-      repairContext.schemaPath,
-      context.worktreePath
-    );
-    latest = {
-      evidence: [
-        ...repaired.evidence,
-        ...(repairResult.stderr
-          ? [`repair stderr: ${repairResult.stderr}`]
-          : []),
-        ...(repairResult.timedOut ? ["output repair timed out"] : []),
-      ],
-      output: repairedOutput,
-    };
-    latestValidation = repairedValidation;
-    const passed = repairResult.exitCode === 0 && repairedValidation.passed;
-    evidence.push(
-      ...repaired.evidence,
-      passed
-        ? `output repair passed for ${node.id} after attempt ${attempt}`
-        : `output repair failed for ${node.id} after attempt ${attempt}`,
-      ...repairedValidation.evidence.map((item) => `repaired output: ${item}`)
-    );
-    emit(context, {
-      attempt,
-      nodeId: node.id,
-      passed,
-      type: "output.repair",
-      ...(passed
-        ? {}
-        : { reason: repairedValidation.reason ?? "repair failed" }),
-    });
-    if (passed) {
-      return {
-        evidence,
+): Effect.Effect<
+  { evidence: string[]; output: string },
+  unknown,
+  AgentNodeRuntimeService
+> {
+  // fallow-ignore-next-line complexity
+  return Effect.gen(function* () {
+    let latest = normalized;
+    let latestValidation = repairContext.validation;
+    const evidence = [...repairContext.evidence];
+    const service = yield* AgentNodeRuntimeService;
+    for (let attempt = 1; attempt <= repairContext.maxAttempts; attempt += 1) {
+      const repairPlan = createOutputRepairPlan({
+        context,
+        node,
+        originalOutput: latest.output,
+        repairRunner: repairContext.runner,
+        schemaPath: repairContext.schemaPath,
+        validation: latestValidation,
+      });
+      context.agentInvocations.push(repairPlan);
+      emitAgentStart(context, repairPlan, nodeAttempt);
+      const repairResult = yield* service.executeRunner(
+        context.executor,
+        repairPlan,
+        {
+          signal: context.signal,
+        }
+      );
+      emitAgentFinish(context, repairPlan, nodeAttempt, repairResult);
+      const repaired = normalizeAgentOutput(repairPlan, repairResult.stdout);
+      const repairedOutput = normalizeJsonSource(repaired.output);
+      const repairedValidation = validateJsonSchemaSource(
+        repairedOutput,
+        repairContext.schemaPath,
+        context.worktreePath
+      );
+      latest = {
+        evidence: [
+          ...repaired.evidence,
+          ...(repairResult.stderr
+            ? [`repair stderr: ${repairResult.stderr}`]
+            : []),
+          ...(repairResult.timedOut ? ["output repair timed out"] : []),
+        ],
         output: repairedOutput,
       };
+      latestValidation = repairedValidation;
+      const passed = repairResult.exitCode === 0 && repairedValidation.passed;
+      evidence.push(
+        ...repaired.evidence,
+        passed
+          ? `output repair passed for ${node.id} after attempt ${attempt}`
+          : `output repair failed for ${node.id} after attempt ${attempt}`,
+        ...repairedValidation.evidence.map((item) => `repaired output: ${item}`)
+      );
+      emit(context, {
+        attempt,
+        nodeId: node.id,
+        passed,
+        type: "output.repair",
+        ...(passed
+          ? {}
+          : { reason: repairedValidation.reason ?? "repair failed" }),
+      });
+      if (passed) {
+        return {
+          evidence,
+          output: repairedOutput,
+        };
+      }
     }
-  }
 
-  return {
-    evidence,
-    output: latest.output,
-  };
+    return {
+      evidence,
+      output: latest.output,
+    };
+  });
 }
 
+// fallow-ignore-next-line complexity
 function outputRepairOptions(
   output: NonNullable<PipelineConfig["profiles"][string]["output"]>
 ): { enabled: boolean; maxAttempts: number; runner?: string } {
@@ -532,41 +590,72 @@ function normalizeAgentOutput(
 
 // PIPE-83.5: ranked code-context map (PIPE-83.2), seeded by the node's task and
 // its dependencies' handoff artifacts. Empty (and skipped) unless repo_map is on.
-async function repoMapSection(
+function repoMapSectionEffect(
   node: PlannedWorkflowNode,
   context: RuntimeContext
-): Promise<string> {
+): Effect.Effect<string, never, AgentNodeRuntimeService> {
   const repoMap = context.config.repo_map;
   if (!repoMap?.enabled) {
-    return "";
+    return Effect.succeed("");
   }
-  // Best-effort: a repo-map failure (parse/fs/ranking) must never break a run.
-  try {
-    const result = await buildRepoMapContext({
-      artifacts: node.needs.flatMap(
-        (need) => context.nodeStateStore.handoff(need)?.artifacts ?? []
-      ),
-      taskText: context.task,
-      tokenBudget: repoMap.token_budget,
-      worktreePath: context.worktreePath,
+  return Effect.gen(function* () {
+    const service = yield* AgentNodeRuntimeService;
+    const result = yield* Effect.tryPromise({
+      catch: () => "",
+      try: () =>
+        service.buildRepoMap({
+          artifacts: node.needs.flatMap(
+            (need) => context.nodeStateStore.handoff(need)?.artifacts ?? []
+          ),
+          taskText: context.task,
+          tokenBudget: repoMap.token_budget,
+          worktreePath: context.worktreePath,
+        }),
     });
     return result.context;
-  } catch {
-    return "";
-  }
+  }).pipe(Effect.catchAll(() => Effect.succeed("")));
 }
 
-async function renderAgentPrompt(
+function renderAgentPromptEffect(
   node: PlannedWorkflowNode,
   context: RuntimeContext
-): Promise<string> {
-  const profile = node.profile
-    ? context.config.profiles[node.profile]
-    : undefined;
-  const instructions = profile
-    ? readInstructions(context.worktreePath, profile.instructions)
-    : "";
-  const repoMap = await repoMapSection(node, context);
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
+  return Effect.gen(function* () {
+    const profile = node.profile
+      ? context.config.profiles[node.profile]
+      : undefined;
+    const instructions = profile
+      ? yield* readInstructionsEffect(
+          context.worktreePath,
+          profile.instructions
+        )
+      : "";
+    const repoMap = yield* repoMapSectionEffect(node, context);
+    const pathReferences = yield* renderProfilePathReferences(profile, context);
+    return agentPromptSections({
+      context,
+      instructions,
+      node,
+      pathReferences,
+      profile,
+      repoMap,
+    })
+      .filter(Boolean)
+      .join("\n");
+  });
+}
+
+// fallow-ignore-next-line complexity
+function agentPromptSections(inputs: {
+  context: RuntimeContext;
+  instructions: string;
+  node: PlannedWorkflowNode;
+  pathReferences: string[];
+  profile: PipelineConfig["profiles"][string] | undefined;
+  repoMap: string;
+}): string[] {
+  const { context, instructions, node, pathReferences, profile, repoMap } =
+    inputs;
   return [
     instructions.trim(),
     "",
@@ -584,26 +673,33 @@ async function renderAgentPrompt(
     `- rules: ${(profile?.rules ?? []).join(", ") || "none"}`,
     `- skills: ${(profile?.skills ?? []).join(", ") || "none"}`,
     `- mcp_servers: ${(profile?.mcp_servers ?? []).join(", ") || "none"}`,
-    renderPathReferences(
-      "Loaded rules",
-      profile?.rules,
-      context.config.rules,
-      context.worktreePath
-    ),
-    renderPathReferences(
-      "Loaded skills",
-      profile?.skills,
-      context.config.skills,
-      context.worktreePath
-    ),
+    ...pathReferences,
     renderMcpReferences(context.config, profile),
     "",
     ...inheritedOutputSections(node, context),
     "Dependency outputs:",
     ...node.needs.map((need) => renderDependencySection(need, context)),
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ];
+}
+
+function renderProfilePathReferences(
+  profile: PipelineConfig["profiles"][string] | undefined,
+  context: RuntimeContext
+): Effect.Effect<string[], unknown, AgentNodeRuntimeService> {
+  return Effect.all([
+    renderPathReferencesEffect(
+      "Loaded rules",
+      profile?.rules,
+      context.config.rules,
+      context.worktreePath
+    ),
+    renderPathReferencesEffect(
+      "Loaded skills",
+      profile?.skills,
+      context.config.skills,
+      context.worktreePath
+    ),
+  ]);
 }
 
 /**
@@ -655,6 +751,7 @@ function renderGateOutputContract(node: PlannedWorkflowNode): string {
   return "";
 }
 
+// fallow-ignore-next-line complexity
 function renderProfileOutputContract(
   profile: PipelineConfig["profiles"][string] | undefined,
   worktreePath: string
@@ -700,7 +797,7 @@ export function inheritedOutputSections(
   ];
 }
 
-// fallow-ignore-next-line unused-export
+// fallow-ignore-next-line unused-export complexity
 export function renderTaskContext(
   taskContext: PipelineTaskContext | undefined
 ): string {
@@ -721,23 +818,25 @@ export function renderTaskContext(
     .join("\n");
 }
 
-function readInstructions(
+function readInstructionsEffect(
   worktreePath: string,
   instructions: PipelineConfig["profiles"][string]["instructions"]
-): string {
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
   if (instructions.inline) {
-    return instructions.inline;
+    return Effect.succeed(instructions.inline);
   }
   if (instructions.path) {
-    return readFileSync(
-      resolveFileReference(worktreePath, instructions.path),
-      "utf8"
+    const instructionPath = instructions.path;
+    return AgentNodeRuntimeService.pipe(
+      Effect.flatMap((service) =>
+        service.readText(resolveFileReference(worktreePath, instructionPath))
+      )
     );
   }
-  return "";
+  return Effect.succeed("");
 }
 
-function renderPathReferences(
+function renderPathReferencesEffect(
   heading: string,
   ids: string[] | undefined,
   registry: Record<
@@ -745,31 +844,44 @@ function renderPathReferences(
     { path: string; source_root?: "package" | "project" }
   >,
   worktreePath: string
-): string {
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
   if (!ids?.length) {
-    return "";
+    return Effect.succeed("");
   }
-  return [
-    "",
-    `${heading}:`,
-    ...ids.map((id) => {
-      const ref = registry[id];
-      const path = ref?.path ?? "";
-      const content = readFileSync(
-        resolveRuntimePathReference(worktreePath, ref),
-        "utf8"
-      ).trimEnd();
-      return [`## ${id}`, `Path: ${path}`, "", content].join("\n");
-    }),
-  ].join("\n");
+  return Effect.gen(function* () {
+    const sections = yield* Effect.all(
+      ids.map((id) => renderPathReferenceEffect(id, registry, worktreePath))
+    );
+    return ["", `${heading}:`, ...sections].join("\n");
+  });
 }
 
+function renderPathReferenceEffect(
+  id: string,
+  registry: Record<
+    string,
+    { path: string; source_root?: "package" | "project" }
+  >,
+  worktreePath: string
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
+  const ref = registry[id];
+  const path = ref?.path ?? "";
+  const resolved = resolveRuntimePathReference(worktreePath, ref);
+  return AgentNodeRuntimeService.pipe(
+    Effect.flatMap((service) => service.readText(resolved)),
+    Effect.map((content) =>
+      [`## ${id}`, `Path: ${path}`, "", content.trimEnd()].join("\n")
+    )
+  );
+}
+
+// fallow-ignore-next-line complexity
 function resolveRuntimePathReference(
   worktreePath: string,
   ref: { path?: string; source_root?: "package" | "project" } | undefined
 ): string {
   if (ref?.source_root === "package") {
-    return resolvePackageAssetPath(ref.path);
+    return resolvePackageAssetPath(ref.path ?? "");
   }
   return resolveFileReference(worktreePath, ref?.path ?? "");
 }
@@ -785,6 +897,7 @@ function renderMcpReferences(
   return [
     "",
     "Loaded MCP servers:",
+    // fallow-ignore-next-line complexity
     ...Object.entries(servers).map(([id, server]) => {
       if (server?.url) {
         return [
