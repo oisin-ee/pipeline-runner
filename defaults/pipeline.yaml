@@ -2,6 +2,19 @@ version: 1
 default_workflow: inspect
 orchestrator:
   profile: moka-orchestrator
+# PIPE-83 architecture hardening — ON by default so moka actually uses it.
+# context_handoff: nodes pass curated NodeHandoffs downstream instead of raw
+# transitive transcripts (kills the re-hydration latency/quality leak).
+context_handoff:
+  enabled: true
+# repo_map: prepend a tree-sitter + PageRank ranked code map to agent prompts,
+# seeded by the node's task + handoff artifacts, within token_budget.
+repo_map:
+  enabled: true
+# durability: journal each terminal node result so a killed run resumes from the
+# last passed node without re-running (or re-spending tokens on) finished work.
+durability:
+  enabled: true
 token_budget:
   default_context_window: 200000
   max_context_pct: 50

@@ -76,6 +76,28 @@ function durabilityField(
   return durability ? { durability } : {};
 }
 
+// PIPE-83: thread the opt-in architecture-hardening blocks from pipeline.yaml
+// into the resolved config so real runs (not just injected-config tests) honour
+// them. Without this they were unreachable from a normal config load.
+function pipe83Fields(
+  pipeline: z.infer<typeof pipelineFileSchema>
+): Partial<PipelineConfig> {
+  const keys = [
+    "best_of_n",
+    "context_handoff",
+    "parallel_worktrees",
+    "repo_map",
+  ] as const;
+  const source = pipeline as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (source[key] !== undefined) {
+      out[key] = source[key];
+    }
+  }
+  return out as Partial<PipelineConfig>;
+}
+
 export function parsePipelineConfigParts(
   sources: PipelineConfigParts,
   projectRoot?: string,
@@ -105,6 +127,7 @@ export function parsePipelineConfigParts(
     {
       default_workflow: pipeline.default_workflow,
       ...durabilityField(pipeline.durability),
+      ...pipe83Fields(pipeline),
       entrypoints: pipeline.entrypoints,
       hooks: pipeline.hooks,
       ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),

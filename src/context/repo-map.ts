@@ -257,8 +257,24 @@ function linkFileReferences(
   }
 }
 
+// PIPE-83.2: pagerank can fail to converge on some graph shapes, and the repo
+// map is a best-effort context aid that must never break a run. On failure fall
+// back to uniform ranks so ordering is driven by the seed bonus + deterministic
+// tie-break.
+function pagerankScores(graph: Graph): Record<string, number> {
+  try {
+    return pagerank(graph, {
+      getEdgeWeight: "weight",
+      maxIterations: 200,
+      tolerance: 1e-4,
+    });
+  } catch {
+    return {};
+  }
+}
+
 function rankDefinitions(graph: Graph): RepoMapSelectedSymbol[] {
-  const scores = pagerank(graph, { getEdgeWeight: "weight" });
+  const scores = pagerankScores(graph);
   const ranked: RepoMapSelectedSymbol[] = [];
   graph.forEachNode((key, attrs) => {
     if (key.startsWith("def:")) {

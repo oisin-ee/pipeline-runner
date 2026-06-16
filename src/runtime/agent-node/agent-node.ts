@@ -540,15 +540,20 @@ async function repoMapSection(
   if (!repoMap?.enabled) {
     return "";
   }
-  const result = await buildRepoMapContext({
-    artifacts: node.needs.flatMap(
-      (need) => context.nodeStateStore.handoff(need)?.artifacts ?? []
-    ),
-    taskText: context.task,
-    tokenBudget: repoMap.token_budget,
-    worktreePath: context.worktreePath,
-  });
-  return result.context;
+  // Best-effort: a repo-map failure (parse/fs/ranking) must never break a run.
+  try {
+    const result = await buildRepoMapContext({
+      artifacts: node.needs.flatMap(
+        (need) => context.nodeStateStore.handoff(need)?.artifacts ?? []
+      ),
+      taskText: context.task,
+      tokenBudget: repoMap.token_budget,
+      worktreePath: context.worktreePath,
+    });
+    return result.context;
+  } catch {
+    return "";
+  }
 }
 
 async function renderAgentPrompt(
