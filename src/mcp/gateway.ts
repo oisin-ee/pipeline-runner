@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { Data } from "effect";
 import { execa } from "execa";
 import type { PipelineConfig } from "../config";
 import { resolveRepoLocalBackendSpecs } from "./repo-local-backends";
@@ -61,10 +62,13 @@ interface ToolHiveListWorkload {
   url?: unknown;
 }
 
-class PipelineMcpGatewayError extends Error {
+class PipelineMcpGatewayError extends Data.TaggedError(
+  "PipelineMcpGatewayError"
+)<{
+  readonly message: string;
+}> {
   constructor(message: string) {
-    super(message);
-    this.name = "PipelineMcpGatewayError";
+    super({ message });
   }
 }
 

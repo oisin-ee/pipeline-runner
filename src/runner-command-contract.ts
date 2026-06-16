@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { Data } from "effect";
 import parseGitUrl from "git-url-parse";
 import { z } from "zod";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime";
@@ -162,13 +163,14 @@ interface RecoverableRunnerCommandPayloadEnvelope {
   run: RunnerRunIdentity;
 }
 
-export class RunnerCommandPayloadValidationError extends Error {
+export class RunnerCommandPayloadValidationError extends Data.TaggedError(
+  "RunnerCommandPayloadValidationError"
+)<{
+  readonly message: string;
   readonly issues: RunnerCommandPayloadValidationIssue[];
-
+}> {
   constructor(message: string, issues: RunnerCommandPayloadValidationIssue[]) {
-    super(message);
-    this.name = "RunnerCommandPayloadValidationError";
-    this.issues = issues;
+    super({ message, issues });
   }
 }
 

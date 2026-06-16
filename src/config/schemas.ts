@@ -1,3 +1,4 @@
+import { Data } from "effect";
 import { z } from "zod";
 
 export const ID_RE = /^[a-z][a-z0-9-]*$/;
@@ -80,19 +81,19 @@ export interface PipelineConfigIssue {
   path?: string;
 }
 
-export class PipelineConfigError extends Error {
-  code: PipelineConfigErrorCode;
-  issues: PipelineConfigIssue[];
-
+export class PipelineConfigError extends Data.TaggedError(
+  "PipelineConfigError"
+)<{
+  readonly code: PipelineConfigErrorCode;
+  readonly message: string;
+  readonly issues: PipelineConfigIssue[];
+}> {
   constructor(
     code: PipelineConfigErrorCode,
     message: string,
     issues: PipelineConfigIssue[] = []
   ) {
-    super(message);
-    this.name = "PipelineConfigError";
-    this.code = code;
-    this.issues = issues;
+    super({ code, message, issues });
   }
 }
 

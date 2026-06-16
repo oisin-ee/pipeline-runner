@@ -1,4 +1,5 @@
 import { Graph } from "@dagrejs/graphlib";
+import { Data } from "effect";
 import type { PipelineConfig, WorkflowNodeKind } from "../config";
 import { uniqueStrings } from "../strings";
 import { findDependencyCycles } from "./graph";
@@ -15,19 +16,19 @@ export interface WorkflowPlannerIssue {
   path?: string;
 }
 
-export class WorkflowPlannerError extends Error {
-  code: WorkflowPlannerErrorCode;
-  issues: WorkflowPlannerIssue[];
-
+export class WorkflowPlannerError extends Data.TaggedError(
+  "WorkflowPlannerError"
+)<{
+  readonly code: WorkflowPlannerErrorCode;
+  readonly message: string;
+  readonly issues: WorkflowPlannerIssue[];
+}> {
   constructor(
     code: WorkflowPlannerErrorCode,
     message: string,
     issues: WorkflowPlannerIssue[] = []
   ) {
-    super(message);
-    this.name = "WorkflowPlannerError";
-    this.code = code;
-    this.issues = issues;
+    super({ code, message, issues });
   }
 }
 

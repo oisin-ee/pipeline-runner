@@ -1,3 +1,4 @@
+import { Data } from "effect";
 import ky, { isHTTPError } from "ky";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime";
 import {
@@ -57,13 +58,12 @@ const RETRYABLE_STATUS_CODES = [
  * failure handling.
  */
 
-class EventSinkHttpError extends Error {
+class EventSinkHttpError extends Data.TaggedError("EventSinkHttpError")<{
   readonly status: number;
-
+  readonly message: string;
+}> {
   constructor(status: number, message: string) {
-    super(message);
-    this.name = "EventSinkHttpError";
-    this.status = status;
+    super({ status, message });
   }
 }
 

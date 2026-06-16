@@ -6,6 +6,7 @@ import {
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
+import { Data } from "effect";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config";
 
@@ -101,10 +102,13 @@ export interface RunnerLaunchInput {
   worktreePath: string;
 }
 
-export class RunnerCapabilityError extends Error {
+export class RunnerCapabilityError extends Data.TaggedError(
+  "RunnerCapabilityError"
+)<{
+  readonly message: string;
+}> {
   constructor(message: string) {
-    super(message);
-    this.name = "RunnerCapabilityError";
+    super({ message });
   }
 }
 

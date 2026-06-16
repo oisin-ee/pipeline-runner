@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Data } from "effect";
 import { parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import {
@@ -135,10 +136,13 @@ export function parseScheduleArtifact(
   return parsed.data;
 }
 
-export class ScheduleArtifactError extends Error {
+export class ScheduleArtifactError extends Data.TaggedError(
+  "ScheduleArtifactError"
+)<{
+  readonly message: string;
+}> {
   constructor(message: string) {
-    super(message);
-    this.name = "ScheduleArtifactError";
+    super({ message });
   }
 }
 

@@ -3,6 +3,7 @@ import {
   createOpencodeClient,
   type OpencodeClient,
 } from "@opencode-ai/sdk";
+import { Data } from "effect";
 
 /**
  * Server lifecycle for the opencode SDK transport.
@@ -42,10 +43,14 @@ export interface OpencodeServerOptions {
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
-export class OpencodeServerStartupError extends Error {
+export class OpencodeServerStartupError extends Data.TaggedError(
+  "OpencodeServerStartupError"
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {
   constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = "OpencodeServerStartupError";
+    super({ message, cause: options?.cause });
   }
 }
 

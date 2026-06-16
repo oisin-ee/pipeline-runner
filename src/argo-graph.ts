@@ -1,3 +1,4 @@
+import { Data } from "effect";
 import { z } from "zod";
 import type { WorkflowNodeKind } from "./config";
 import type {
@@ -32,17 +33,19 @@ export type ArgoExecutionGraph = z.infer<typeof argoExecutionGraphSchema>;
  * lowered to an Argo DAG task. Callers should surface this as a validation
  * failure before attempting a cluster submission.
  */
-export class ArgoGraphCompilerError extends Error {
+export class ArgoGraphCompilerError extends Data.TaggedError(
+  "ArgoGraphCompilerError"
+)<{
   readonly kind: string;
   readonly nodeId: string;
-
+  readonly message: string;
+}> {
   constructor(kind: string, nodeId: string) {
-    super(
-      `Argo graph compiler: node kind '${kind}' on node '${nodeId}' cannot be lowered to an Argo DAG task`
-    );
-    this.name = "ArgoGraphCompilerError";
-    this.kind = kind;
-    this.nodeId = nodeId;
+    super({
+      kind,
+      nodeId,
+      message: `Argo graph compiler: node kind '${kind}' on node '${nodeId}' cannot be lowered to an Argo DAG task`,
+    });
   }
 }
 
