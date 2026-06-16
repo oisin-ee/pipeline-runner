@@ -202,7 +202,7 @@ function runHandoffFinalizerEffect(
   node: PlannedWorkflowNode,
   rawOutput: string,
   attempt: number
-): Effect.Effect<NodeHandoff, unknown, AgentNodeRuntimeService> {
+): Effect.Effect<NodeHandoff, never, AgentNodeRuntimeService> {
   return Effect.gen(function* () {
     const runner = profileRunner(context, node);
     if (!(runner && rawOutput.trim())) {
@@ -220,7 +220,12 @@ function runHandoffFinalizerEffect(
     return (
       parseHandoff(normalized.output) ?? synthesizeMinimalHandoff(rawOutput)
     );
-  });
+    // The handoff finalizer is best-effort: a failed/erroring finalizer agent
+    // must degrade to a minimal handoff, never hard-fail the node (matches the
+    // pre-Effect behaviour; the conversion had dropped this recovery).
+  }).pipe(
+    Effect.catchAll(() => Effect.succeed(synthesizeMinimalHandoff(rawOutput)))
+  );
 }
 
 function createHandoffFinalizerPlan(
