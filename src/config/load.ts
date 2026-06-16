@@ -68,6 +68,14 @@ export function parsePipelineConfigYaml(
   );
 }
 
+// PIPE-83.10: spread the optional durability block only when present, kept as a
+// helper so the assembly in parsePipelineConfigParts stays within complexity.
+function durabilityField(
+  durability: PipelineConfig["durability"]
+): Pick<Partial<PipelineConfig>, "durability"> {
+  return durability ? { durability } : {};
+}
+
 export function parsePipelineConfigParts(
   sources: PipelineConfigParts,
   projectRoot?: string,
@@ -96,6 +104,7 @@ export function parsePipelineConfigParts(
   return validatePipelineConfig(
     {
       default_workflow: pipeline.default_workflow,
+      ...durabilityField(pipeline.durability),
       entrypoints: pipeline.entrypoints,
       hooks: pipeline.hooks,
       ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),

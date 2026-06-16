@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
@@ -19,12 +20,12 @@ import type { RuntimeContext } from "../src/runtime/contracts";
 import {
   LocalScheduler,
   type PipelineScheduler,
-  readyNodeIds,
+} from "../src/runtime/local-scheduler";
+import { fileRunJournal } from "../src/runtime/run-journal";
+import {
   runWorkflowScheduler,
-  unstartedBlockingDescendants,
   type WorkflowScheduleNode,
   type WorkflowSchedulerInput,
-  workflowNodeCapacity,
 } from "../src/runtime/scheduler";
 import {
   runWorkflowLifecycle,
@@ -185,52 +186,6 @@ describe("plain workflow scheduler", () => {
     expect(
       result.completed.map((node: RuntimeNodeResult) => node.nodeId)
     ).toEqual(["root", "failed-branch", "independent"]);
-  });
-
-  it("exports pure helpers for ready nodes, capacity, and unstarted blocking descendants", () => {
-    const nodes = [
-      scheduleNode("a", 0),
-      scheduleNode("b", 1, ["a"]),
-      scheduleNode("c", 2, ["b"]),
-      scheduleNode("d", 3),
-    ];
-    const passedA = nodeResult("a", "passed");
-
-    expect(
-      readyNodeIds({
-        blocked: ["c"],
-        completed: [passedA],
-        nodes,
-        running: [],
-        shouldContinueAfterNodeResult: (result: RuntimeNodeResult) =>
-          result.status === "passed",
-      })
-    ).toEqual(["b", "d"]);
-
-    expect(
-      workflowNodeCapacity({
-        failFast: false,
-        maxParallelNodes: 3,
-        nodes,
-        running: ["b"],
-      })
-    ).toBe(2);
-    expect(
-      workflowNodeCapacity({
-        failFast: true,
-        maxParallelNodes: 3,
-        nodes,
-        running: ["b"],
-      })
-    ).toBe(0);
-
-    expect(
-      unstartedBlockingDescendants("b", {
-        completed: [passedA],
-        nodes,
-        running: [],
-      })
-    ).toEqual(["c"]);
   });
 
   it("keeps Argo and Kubernetes clients out of the local scheduler seam", () => {
@@ -882,6 +837,82 @@ function categorizedNodes(
     needs: [],
   }));
 }
+
+describe("runWorkflowScheduler durable crash-resume", () => {
+  it("does not re-run or re-ready nodes the journal already recorded as passed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "scheduler-resume-seed-"));
+    try {
+      const path = join(dir, "run.jsonl");
+      // Seed the durable journal as if "a" had already passed in a prior run.
+      fileRunJournal(path).record(nodeResult("a", "passed"));
+
+      const ran: string[] = [];
+      const readied: string[] = [];
+      const result = await runWorkflowScheduler(
+        schedulerInput({
+          journal: fileRunJournal(path),
+          markNodeReady: (nodeId: string) => readied.push(nodeId),
+          nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
+          runNode: (nodeId: string) => {
+            ran.push(nodeId);
+            return Promise.resolve(nodeResult(nodeId, "passed"));
+          },
+        })
+      );
+
+      // "a" was resumed from the journal: never re-run, never re-readied.
+      expect(ran).toEqual(["b"]);
+      expect(readied).toEqual(["b"]);
+      // ...but it is still part of the completed run, ahead of its dependent.
+      expect(result.outcome).toBe("PASS");
+      expect(result.completed.map((node) => node.nodeId)).toEqual(["a", "b"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes a killed run from a file journal without re-spending the finished node", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "scheduler-resume-"));
+    try {
+      const path = join(dir, "run.jsonl");
+      const firstRan: string[] = [];
+
+      // First attempt: "a" completes and is journaled, then the run is "killed"
+      // before "b" by cancelling immediately after the first node.
+      await runWorkflowScheduler(
+        schedulerInput({
+          isCancelled: () => firstRan.length >= 1,
+          journal: fileRunJournal(path),
+          nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
+          runNode: (nodeId: string) => {
+            firstRan.push(nodeId);
+            return Promise.resolve(nodeResult(nodeId, "passed"));
+          },
+        })
+      );
+      expect(firstRan).toEqual(["a"]);
+
+      // Resume with a fresh journal handle over the same file: only "b" runs.
+      const resumedRan: string[] = [];
+      const resumed = await runWorkflowScheduler(
+        schedulerInput({
+          journal: fileRunJournal(path),
+          nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
+          runNode: (nodeId: string) => {
+            resumedRan.push(nodeId);
+            return Promise.resolve(nodeResult(nodeId, "passed"));
+          },
+        })
+      );
+
+      expect(resumedRan).toEqual(["b"]);
+      expect(resumed.outcome).toBe("PASS");
+      expect(resumed.completed.map((node) => node.nodeId)).toEqual(["a", "b"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("runWorkflowScheduler per-category fan-out", () => {
   it("never runs more than a category's fan-out width concurrently", async () => {

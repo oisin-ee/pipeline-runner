@@ -1,99 +1,10 @@
-import type { WorkflowExecutionPlan } from "../planning/compile";
 import { uniqueStrings } from "../strings";
 import type {
   PipelineRuntimeResult,
-  RuntimeContext,
   RuntimeFailure,
   RuntimeNodeResult,
 } from "./contracts";
-import {
-  runWorkflowLifecycle,
-  type WorkflowHookEvent,
-} from "./workflow-lifecycle";
-
-export interface PipelineScheduler {
-  runWorkflow(
-    plan: WorkflowExecutionPlan,
-    context: RuntimeContext
-  ): Promise<PipelineRuntimeResult>;
-}
-
-export interface LocalSchedulerOptions {
-  buildResult: (
-    outcome: PipelineRuntimeResult["outcome"],
-    nodes: RuntimeNodeResult[],
-    failure?: RuntimeFailure
-  ) => PipelineRuntimeResult;
-  emitWorkflowPlanned: (context: RuntimeContext) => void;
-  emitWorkflowStarted: (context: RuntimeContext) => void;
-  executeNode: (
-    nodeId: string,
-    context: RuntimeContext
-  ) => Promise<RuntimeNodeResult>;
-  isCancelled: (context: RuntimeContext) => boolean;
-  markNodeReady: (nodeId: string, context: RuntimeContext) => void;
-  runWorkflowHook: (
-    event: WorkflowHookEvent,
-    failure: RuntimeFailure | undefined,
-    context: RuntimeContext
-  ) => Promise<RuntimeFailure | null> | RuntimeFailure | null;
-  shouldContinueAfterNodeResult: (
-    result: RuntimeNodeResult,
-    context: RuntimeContext
-  ) => boolean;
-  skipNode: (nodeId: string, reason: string, context: RuntimeContext) => void;
-}
-
-export class LocalScheduler implements PipelineScheduler {
-  private readonly options?: LocalSchedulerOptions;
-
-  constructor(options?: LocalSchedulerOptions) {
-    this.options = options;
-  }
-
-  async runWorkflow(
-    plan: WorkflowExecutionPlan,
-    context: RuntimeContext
-  ): Promise<PipelineRuntimeResult> {
-    const options = this.options;
-    if (!options) {
-      throw new Error(
-        "LocalScheduler requires runtime options to run workflow"
-      );
-    }
-
-    const lifecycle = await runWorkflowLifecycle({
-      buildResult: options.buildResult,
-      emitWorkflowPlanned: () => options.emitWorkflowPlanned(context),
-      emitWorkflowStarted: () => options.emitWorkflowStarted(context),
-      executeWorkflow: () =>
-        runWorkflowScheduler({
-          failFast: plan.execution.failFast,
-          fanOutWidth: context.config.token_budget?.fan_out_width,
-          isCancelled: () => options.isCancelled(context),
-          markNodeReady: (nodeId) => options.markNodeReady(nodeId, context),
-          maxParallelNodes: context.maxParallelNodes,
-          nodes: plan.topologicalOrder.map((node) => ({
-            category: node.category,
-            dependents: node.dependents,
-            id: node.id,
-            index: node.index,
-            needs: node.needs,
-          })),
-          runNode: (nodeId) => options.executeNode(nodeId, context),
-          shouldContinueAfterNodeResult: (result) =>
-            options.shouldContinueAfterNodeResult(result, context),
-          skipNode: (nodeId, reason) =>
-            options.skipNode(nodeId, reason, context),
-        }),
-      isCancelled: () => options.isCancelled(context),
-      runWorkflowHook: (event, failure) =>
-        options.runWorkflowHook(event, failure, context),
-    });
-
-    return lifecycle.result;
-  }
-}
+import type { RunJournal } from "./run-journal";
 
 export interface WorkflowScheduleNode {
   category?: string;
@@ -112,6 +23,12 @@ export interface WorkflowSchedulerInput {
   failFast: boolean;
   fanOutWidth?: FanOutWidth;
   isCancelled: () => boolean;
+  /**
+   * PIPE-83.10: optional durability seam. When provided, the run resumes from
+   * the journal's passed nodes (they are not re-run) and every terminal result
+   * is recorded. Absent → byte-identical to the prior in-memory behaviour.
+   */
+  journal?: RunJournal;
   markNodeReady: (nodeId: string) => void;
   maxParallelNodes?: number;
   nodes: WorkflowScheduleNode[];
@@ -120,7 +37,7 @@ export interface WorkflowSchedulerInput {
   skipNode: (nodeId: string, reason: string) => void;
 }
 
-export interface WorkflowSchedulerState {
+interface WorkflowSchedulerState {
   blocked?: string[];
   completed?: RuntimeNodeResult[];
   failFast?: boolean;
@@ -142,13 +59,26 @@ interface RunningNode {
   promise: Promise<RuntimeNodeResult>;
 }
 
+// PIPE-83.10: journal interactions are factored out so the durability seam adds
+// no branches to the hot scheduler loop.
+function resumeFromJournal(input: WorkflowSchedulerInput): RuntimeNodeResult[] {
+  return input.journal?.resumeCompleted() ?? [];
+}
+
+function recordToJournal(
+  input: WorkflowSchedulerInput,
+  result: RuntimeNodeResult
+): void {
+  input.journal?.record(result);
+}
+
 export async function runWorkflowScheduler(
   input: WorkflowSchedulerInput
 ): Promise<WorkflowSchedulerRunResult> {
   const state: Required<Pick<WorkflowSchedulerState, "blocked" | "completed">> &
     Omit<WorkflowSchedulerState, "blocked" | "completed"> = {
     blocked: [],
-    completed: [],
+    completed: resumeFromJournal(input),
     failFast: input.failFast,
     fanOutWidth: input.fanOutWidth,
     maxParallelNodes: input.maxParallelNodes,
@@ -190,6 +120,7 @@ export async function runWorkflowScheduler(
     running.delete(result.nodeId);
     state.running = state.running.filter((nodeId) => nodeId !== result.nodeId);
     state.completed = [...state.completed, result];
+    recordToJournal(input, result);
 
     if (!isBlockingFailure(result, state)) {
       continue;
@@ -211,30 +142,36 @@ export async function runWorkflowScheduler(
   }
 }
 
-export function readyNodeIds(context: WorkflowSchedulerState): string[] {
+// Nodes already completed or in flight — i.e. claimed, never re-launchable.
+function settledNodeIds(
+  context: Pick<WorkflowSchedulerState, "completed" | "running">
+): Set<string> {
+  const ids = new Set((context.completed ?? []).map((result) => result.nodeId));
+  for (const nodeId of context.running) {
+    ids.add(nodeId);
+  }
+  return ids;
+}
+
+function readyNodeIds(context: WorkflowSchedulerState): string[] {
+  const settled = settledNodeIds(context);
   const blocked = new Set(context.blocked ?? []);
-  const completed = new Set(
-    (context.completed ?? []).map((result) => result.nodeId)
-  );
-  const running = new Set(context.running);
   return orderedNodes(context.nodes)
-    .filter((node) => !completed.has(node.id))
-    .filter((node) => !running.has(node.id))
-    .filter((node) => !blocked.has(node.id))
+    .filter((node) => !(settled.has(node.id) || blocked.has(node.id)))
     .filter((node) =>
       node.needs.every((need) => dependencyPassed(need, context))
     )
     .map((node) => node.id);
 }
 
-export function workflowNodeCapacity(context: WorkflowSchedulerState): number {
+function workflowNodeCapacity(context: WorkflowSchedulerState): number {
   const limit = context.failFast
     ? 1
     : (context.maxParallelNodes ?? context.nodes.length);
   return Math.max(0, limit - context.running.length);
 }
 
-export function unstartedBlockingDescendants(
+function unstartedBlockingDescendants(
   nodeId: string,
   context: Pick<WorkflowSchedulerState, "completed" | "nodes" | "running">
 ): string[] {
@@ -375,14 +312,10 @@ function isBlockingFailure(
 function unstartedNodeIds(
   context: Pick<WorkflowSchedulerState, "completed" | "nodes" | "running">
 ): string[] {
-  const completed = new Set(
-    (context.completed ?? []).map((result) => result.nodeId)
-  );
-  const running = new Set(context.running);
+  const settled = settledNodeIds(context);
   return orderedNodes(context.nodes)
     .map((node) => node.id)
-    .filter((nodeId) => !completed.has(nodeId))
-    .filter((nodeId) => !running.has(nodeId));
+    .filter((nodeId) => !settled.has(nodeId));
 }
 
 function directDependents(

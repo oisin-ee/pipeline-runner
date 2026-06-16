@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -40,6 +41,10 @@ import { evaluateNodeGates } from "./runtime/gates";
 import { dispatchHooks } from "./runtime/hooks";
 import { parseJsonObject } from "./runtime/json-validation";
 import {
+  LocalScheduler,
+  type PipelineScheduler,
+} from "./runtime/local-scheduler";
+import {
   type NodeExecutionEvent,
   NodeStateTracker,
 } from "./runtime/node-state-tracker";
@@ -50,7 +55,7 @@ import {
 } from "./runtime/opencode-runtime";
 import { executeParallelNode } from "./runtime/parallel-node";
 import { decideNodeRetry, nodeRetryPolicy } from "./runtime/retry";
-import { LocalScheduler, type PipelineScheduler } from "./runtime/scheduler";
+import { fileRunJournal, type RunJournal } from "./runtime/run-journal";
 
 /**
  * Top layer of the runtime-options stack (PIPE-74 B3). Extends
@@ -155,6 +160,21 @@ async function runWithLeasedOpencode<T>(
   }
 }
 
+function runJournalPath(context: RuntimeContext, dir: string): string {
+  const base = context.worktreePath ?? process.cwd();
+  return join(base, dir, `${context.runId}.jsonl`);
+}
+
+// PIPE-83.10: build the run's durable journal when durability is enabled and
+// the run has an id; otherwise undefined → the scheduler runs purely in-memory.
+function resolveRunJournal(context: RuntimeContext): RunJournal | undefined {
+  const durability = context.config.durability;
+  if (!(durability?.enabled && context.runId)) {
+    return;
+  }
+  return fileRunJournal(runJournalPath(context, durability.dir));
+}
+
 async function runPipelineWithContext(
   context: RuntimeContext
 ): Promise<PipelineRuntimeResult> {
@@ -168,6 +188,7 @@ async function runPipelineWithContext(
     isCancelled: (nextContext) => isCancelled(nextContext),
     markNodeReady: (nodeId, nextContext) =>
       recordNodeEvent(nextContext, nodeId, { at: now(), type: "READY" }),
+    resolveJournal: (nextContext) => resolveRunJournal(nextContext),
     runWorkflowHook: (event, failure, nextContext) =>
       dispatchHooks(nextContext, event, failure),
     shouldContinueAfterNodeResult: (result, nextContext) =>

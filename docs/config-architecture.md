@@ -415,6 +415,24 @@ execution status (PASS/FAIL) and, when `judge_model` is set, a 0..1 LLM judge
 score; it emits the winner's output and **never self-fixes** — if no candidate
 passes, the node fails with evidence.
 
+### `durability` — durable crash-resume
+
+```yaml
+durability:
+  enabled: true              # default false
+  dir: .pipeline/journal     # default
+```
+
+When enabled, the scheduler journals each terminal node result to an
+append-only JSONL log under `dir`, keyed by run id (`<dir>/<runId>.jsonl`). A
+killed run, re-invoked with the same run id, resumes from the last **passed**
+node — finished nodes are not re-run and their tokens are not re-spent — while a
+failed node and everything downstream replay so fail-fast and blocked-descendant
+handling stay live. The journal is a swappable seam (`RunJournal`): the shipped
+`fileRunJournal` needs zero external infra; a future `@effect/workflow` / cluster
+provider can implement the same interface without touching the scheduler. Off by
+default → the scheduler runs purely in-memory, exactly as before.
+
 ### `mcp_gateway.host_scope` — register the gateway once globally
 
 ```yaml
