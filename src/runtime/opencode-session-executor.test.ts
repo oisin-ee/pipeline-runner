@@ -10,7 +10,11 @@ interface FakeClientOptions {
   events?: Record<string, unknown>[];
   promptInfoError?: { data?: unknown; name: string };
   promptParts?: Record<string, unknown>[];
-  recordPrompts?: { body: unknown; path: { id: string } }[];
+  recordPrompts?: {
+    body: unknown;
+    path: { id: string };
+    query?: { directory?: string };
+  }[];
   sessionId?: string;
 }
 
@@ -126,6 +130,19 @@ describe("opencode session executor", () => {
     ]);
     expect(seen).toHaveLength(2);
     expect(seen.every((entry) => entry.sessionId === "ses_test")).toBe(true);
+  });
+
+  it("uses plan.cwd as the session directory so worktree-isolated children stay isolated (PIPE-83.4)", async () => {
+    const recordPrompts: FakeClientOptions["recordPrompts"] = [];
+    const execute = createOpencodeExecutor({
+      client: fakeClient({ recordPrompts }),
+      directory: "/parent-worktree",
+      registry: createOpencodeSessionRegistry(),
+    });
+
+    await execute(opencodePlan({ cwd: "/child-worktree" }), {});
+
+    expect(recordPrompts?.[0].query?.directory).toBe("/child-worktree");
   });
 
   it("selects the opencode agent name and split model per message", async () => {

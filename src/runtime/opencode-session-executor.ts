@@ -79,6 +79,15 @@ export function createOpencodeExecutor(deps: OpencodeExecutorDeps) {
   };
 }
 
+// PIPE-83.4: a worktree-isolated child carries its tree in plan.cwd; fall back
+// to the lease directory for normal nodes (where plan.cwd === deps.directory).
+function sessionDirectory(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan
+): string {
+  return plan.cwd ?? deps.directory;
+}
+
 async function driveSession(
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
@@ -91,7 +100,9 @@ async function driveSession(
     const response = await deps.client.session.prompt({
       body: promptBody(plan),
       path: { id: sessionId },
-      query: { directory: deps.directory },
+      // PIPE-83.4: honor the node's per-child worktree (plan.cwd) so worktree-
+      // isolated parallel candidates run in their own tree, not the lease dir.
+      query: { directory: sessionDirectory(deps, plan) },
     });
     const data = unwrap(response);
     return {
@@ -114,7 +125,7 @@ async function resolveSessionId(
   }
   const created = await deps.client.session.create({
     body: { title: `moka:${plan.nodeId}` },
-    query: { directory: deps.directory },
+    query: { directory: plan.cwd ?? deps.directory },
   });
   const session = unwrap(created);
   deps.registry.sessions.set(plan.nodeId, session.id);
