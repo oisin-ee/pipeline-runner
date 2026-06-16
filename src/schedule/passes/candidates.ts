@@ -28,7 +28,7 @@ export function expandBestOfNCandidates(
         id,
         {
           ...workflow,
-          nodes: workflow.nodes.map((node) =>
+          nodes: workflow.nodes.flatMap((node) =>
             expandNode(node, bestOfN.categories, bestOfN.n)
           ),
         },
@@ -41,22 +41,33 @@ function expandNode(
   node: WorkflowNode,
   categories: string[],
   n: number
-): WorkflowNode {
+): WorkflowNode[] {
   if (
     node.kind !== "agent" ||
     !categories.some((category) => node.id.includes(category))
   ) {
-    return node;
+    return [node];
   }
+  const candidatesId = `${node.id}--candidates`;
   const children: WorkflowNode[] = Array.from({ length: n }, (_, index) => ({
     ...node,
     id: `${node.id}--c${index + 1}`,
     needs: [],
   }));
-  return {
-    id: node.id,
-    kind: "parallel",
-    nodes: children,
-    ...(node.needs ? { needs: node.needs } : {}),
-  };
+  // Parallel candidates feed a select-candidate builtin that keeps the original
+  // node id, so the consumer's `needs` resolves to the selected winner.
+  return [
+    {
+      id: candidatesId,
+      kind: "parallel",
+      nodes: children,
+      ...(node.needs ? { needs: node.needs } : {}),
+    },
+    {
+      builtin: "select-candidate",
+      id: node.id,
+      kind: "builtin",
+      needs: [candidatesId],
+    },
+  ];
 }

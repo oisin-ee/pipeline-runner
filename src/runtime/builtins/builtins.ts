@@ -9,6 +9,7 @@ import {
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { executeDrainMergeBuiltin } from "../drain-merge";
+import { executeSelectCandidateBuiltin } from "../select-candidate/select-candidate";
 
 interface BuiltinCommandResult {
   command?: string;
@@ -24,6 +25,8 @@ export async function executeBuiltin(
   switch (builtin) {
     case "drain-merge":
       return executeDrainMergeBuiltin(context, node);
+    case "select-candidate":
+      return executeSelectCandidateBuiltin(context, node);
     case "test": {
       const result = await runTests(context.worktreePath, context.signal);
       return {

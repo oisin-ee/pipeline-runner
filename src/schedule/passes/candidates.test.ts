@@ -53,7 +53,7 @@ describe("expandBestOfNCandidates", () => {
     ).toEqual(artifact);
   });
 
-  it("expands a matching agent node into a parallel of N candidates, leaving others", () => {
+  it("expands a matching node into a parallel of N candidates feeding a select-candidate builtin", () => {
     const artifact = artifactWith([redNode, greenNode]);
 
     const out = expandBestOfNCandidates(
@@ -63,20 +63,24 @@ describe("expandBestOfNCandidates", () => {
     const nodes = out.workflows.wf.nodes;
 
     expect(nodes[0]).toEqual(redNode);
+
     const parallel = nodes[1];
     if (parallel.kind !== "parallel") {
-      throw new Error("expected the green node to expand to a parallel node");
+      throw new Error("expected a parallel candidates node");
     }
-    expect(parallel.id).toBe("green-implementation");
+    expect(parallel.id).toBe("green-implementation--candidates");
     expect(parallel.needs).toEqual(["red-tests"]);
     expect(parallel.nodes.map((child) => child.id)).toEqual([
       "green-implementation--c1",
       "green-implementation--c2",
     ]);
-    expect(
-      parallel.nodes.every(
-        (child) => child.kind === "agent" && child.needs?.length === 0
-      )
-    ).toBe(true);
+
+    const selector = nodes[2];
+    if (selector.kind !== "builtin") {
+      throw new Error("expected a select-candidate builtin node");
+    }
+    expect(selector.id).toBe("green-implementation");
+    expect(selector.builtin).toBe("select-candidate");
+    expect(selector.needs).toEqual(["green-implementation--candidates"]);
   });
 });
