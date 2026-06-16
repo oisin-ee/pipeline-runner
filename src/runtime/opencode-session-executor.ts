@@ -4,12 +4,17 @@ import type {
   OpencodeClient,
   Part,
 } from "@opencode-ai/sdk";
+import { Effect } from "effect";
 import type {
   AgentResult,
   RunnerExecutionOptions,
   RunnerLaunchPlan,
 } from "../runner";
 import { opencodeAgentName } from "./opencode-agent-name";
+import {
+  OpencodeSdkService,
+  OpencodeSdkServiceLive,
+} from "./services/opencode-sdk-service";
 
 /**
  * Session bookkeeping shared across a run. Keyed by node id so goal-loop
@@ -65,18 +70,48 @@ export function createOpencodeExecutor(deps: OpencodeExecutorDeps) {
     plan: RunnerLaunchPlan,
     options: RunnerExecutionOptions = {}
   ): Promise<AgentResult> {
-    if (plan.type !== "opencode") {
-      throw new Error(
-        `opencode executor cannot drive runner type '${plan.type}'`
-      );
-    }
-    try {
-      const drive = await driveSession(deps, plan, options);
-      return successResult(plan, drive);
-    } catch (error) {
-      return failureResult(plan, error);
-    }
+    return await Effect.runPromise(
+      Effect.provide(
+        executeOpencodeEffect(deps, plan, options),
+        OpencodeSdkServiceLive
+      )
+    );
   };
+}
+
+function executeOpencodeEffect(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions
+): Effect.Effect<AgentResult, Error, OpencodeSdkService> {
+  return Effect.gen(function* () {
+    yield* validateOpencodePlan(plan);
+    return yield* executeOpencodeSession(deps, plan, options);
+  });
+}
+
+function executeOpencodeSession(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions
+): Effect.Effect<AgentResult, never, OpencodeSdkService> {
+  return Effect.gen(function* () {
+    const drive = yield* driveSession(deps, plan, options);
+    return successResult(plan, drive);
+  }).pipe(
+    Effect.catchAll((error) => Effect.succeed(failureResult(plan, error)))
+  );
+}
+
+function validateOpencodePlan(
+  plan: RunnerLaunchPlan
+): Effect.Effect<void, Error> {
+  if (plan.type === "opencode") {
+    return Effect.void;
+  }
+  return Effect.fail(
+    new Error(`opencode executor cannot drive runner type '${plan.type}'`)
+  );
 }
 
 // PIPE-83.4: a worktree-isolated child carries its tree in plan.cwd; fall back
@@ -88,48 +123,86 @@ function sessionDirectory(
   return plan.cwd ?? deps.directory;
 }
 
-async function driveSession(
+function driveSession(
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions
-): Promise<SessionDriveResult> {
-  const sessionId = await resolveSessionId(deps, plan);
-  deps.onSession?.(plan.nodeId, sessionId);
-  const stream = await streamEventsToOutput(deps, sessionId, plan, options);
-  try {
-    const response = await deps.client.session.prompt({
-      body: promptBody(plan),
-      path: { id: sessionId },
-      // PIPE-83.4: honor the node's per-child worktree (plan.cwd) so worktree-
-      // isolated parallel candidates run in their own tree, not the lease dir.
-      query: { directory: sessionDirectory(deps, plan) },
-    });
+): Effect.Effect<SessionDriveResult, unknown, OpencodeSdkService> {
+  return Effect.gen(function* () {
+    const sessionId = yield* resolveSessionId(deps, plan);
+    recordSession(deps, plan.nodeId, sessionId);
+    const stream = yield* streamEventsToOutput(deps, sessionId, plan, options);
+    return yield* promptSessionResult(deps, plan, sessionId).pipe(
+      Effect.ensuring(stopStream(stream))
+    );
+  });
+}
+
+function promptSessionResult(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  sessionId: string
+): Effect.Effect<SessionDriveResult, unknown, OpencodeSdkService> {
+  return Effect.gen(function* () {
+    const sdk = yield* OpencodeSdkService;
+    const response = yield* sdk.promptSession(
+      deps.client,
+      promptRequest(deps, plan, sessionId)
+    );
     const data = unwrap(response);
     return {
       ...(data.info ? { assistant: data.info } : {}),
       parts: data.parts ?? [],
       sessionId,
     };
-  } finally {
-    await stream.stop();
-  }
+  });
 }
 
-async function resolveSessionId(
+function promptRequest(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  sessionId: string
+) {
+  return {
+    body: promptBody(plan),
+    path: { id: sessionId },
+    query: { directory: sessionDirectory(deps, plan) },
+  };
+}
+
+function stopStream(stream: EventStreamHandle): Effect.Effect<void> {
+  return Effect.tryPromise(() => stream.stop()).pipe(
+    Effect.asVoid,
+    Effect.catchAll(() => Effect.void)
+  );
+}
+
+function recordSession(
+  deps: OpencodeExecutorDeps,
+  nodeId: string,
+  sessionId: string
+): void {
+  deps.onSession?.(nodeId, sessionId);
+}
+
+function resolveSessionId(
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan
-): Promise<string> {
+): Effect.Effect<string, unknown, OpencodeSdkService> {
   const existing = deps.registry.sessions.get(plan.nodeId);
   if (existing) {
-    return existing;
+    return Effect.succeed(existing);
   }
-  const created = await deps.client.session.create({
-    body: { title: `moka:${plan.nodeId}` },
-    query: { directory: plan.cwd ?? deps.directory },
+  return Effect.gen(function* () {
+    const sdk = yield* OpencodeSdkService;
+    const created = yield* sdk.createSession(deps.client, {
+      body: { title: `moka:${plan.nodeId}` },
+      query: { directory: plan.cwd ?? deps.directory },
+    });
+    const session = unwrap(created);
+    deps.registry.sessions.set(plan.nodeId, session.id);
+    return session.id;
   });
-  const session = unwrap(created);
-  deps.registry.sessions.set(plan.nodeId, session.id);
-  return session.id;
 }
 
 function promptBody(plan: RunnerLaunchPlan): {
@@ -193,38 +266,100 @@ interface EventStreamHandle {
   stop(): Promise<void>;
 }
 
-async function streamEventsToOutput(
+function streamEventsToOutput(
   deps: OpencodeExecutorDeps,
   sessionId: string,
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions
-): Promise<EventStreamHandle> {
+): Effect.Effect<EventStreamHandle, unknown, OpencodeSdkService> {
   if (!options.onOutput) {
-    return { stop: () => Promise.resolve() };
+    return Effect.succeed({ stop: () => Promise.resolve() });
   }
-  const subscription = await deps.client.event.subscribe();
-  const iterator = subscription.stream;
-  const pump = (async () => {
-    try {
-      for await (const event of iterator) {
-        forwardEvent(event, sessionId, plan, options);
+  return Effect.gen(function* () {
+    const sdk = yield* OpencodeSdkService;
+    const subscription = yield* sdk.subscribeEvents(deps.client);
+    const iterator = subscription.stream;
+    const pump = Effect.runPromise(
+      pumpEvents(iterator, sessionId, plan, options)
+    );
+    return { stop: () => stopIterator(iterator, pump) };
+  });
+}
+
+function pumpEvents(
+  iterator: AsyncIterator<Event>,
+  sessionId: string,
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    let done = false;
+    while (!done) {
+      const next = yield* readNextEvent(iterator);
+      done = next.done === true;
+      if (!done) {
+        forwardEvent(next.value, sessionId, plan, options);
       }
-    } catch (error) {
-      options.onOutput?.({
-        chunk: `opencode event stream dropped: ${errorMessage(error)}\n`,
-        nodeId: plan.nodeId,
-        stream: "stderr",
-      });
     }
-  })();
-  return {
-    stop: async () => {
-      // Break an otherwise-infinite live stream, then let the pump drain any
-      // events it already pulled so no granularity is lost on completion.
-      await iterator.return?.(undefined);
-      await pump;
-    },
-  };
+  }).pipe(Effect.catchAll((error) => reportStreamDrop(error, plan, options)));
+}
+
+function readNextEvent(
+  iterator: AsyncIterator<Event>
+): Effect.Effect<IteratorResult<Event>, unknown> {
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => iterator.next(),
+  });
+}
+
+function reportStreamDrop(
+  error: unknown,
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    options.onOutput?.({
+      chunk: `opencode event stream dropped: ${errorMessage(error)}\n`,
+      nodeId: plan.nodeId,
+      stream: "stderr",
+    });
+  });
+}
+
+function stopIterator(
+  iterator: AsyncIterator<Event>,
+  pump: Promise<void>
+): Promise<void> {
+  return Effect.runPromise(stopIteratorEffect(iterator, pump));
+}
+
+function stopIteratorEffect(
+  iterator: AsyncIterator<Event>,
+  pump: Promise<void>
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    yield* requestIteratorReturn(iterator);
+    yield* Effect.tryPromise(() => pump).pipe(
+      Effect.catchAll(() => Effect.void)
+    );
+  });
+}
+
+function requestIteratorReturn(
+  iterator: AsyncIterator<Event>
+): Effect.Effect<void> {
+  const returnIterator = iterator.return;
+  if (!returnIterator) {
+    return Effect.void;
+  }
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => returnIterator.call(iterator, undefined),
+  }).pipe(
+    Effect.asVoid,
+    Effect.catchAll(() => Effect.void)
+  );
 }
 
 interface ForwardChunk {

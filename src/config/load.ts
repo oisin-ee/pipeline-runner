@@ -1,5 +1,9 @@
-import { parseDocument } from "yaml";
+import { Effect } from "effect";
 import type { z } from "zod";
+import {
+  parseConfigYamlAs,
+  runConfigIoSync,
+} from "../runtime/services/config-io-service";
 import {
   PACKAGE_DEFAULT_PIPELINE_YAML,
   PACKAGE_DEFAULT_PROFILES_YAML,
@@ -9,15 +13,12 @@ import {
   RUNNERS_CONFIG_PATH,
 } from "./defaults";
 import {
-  configIssuesFromZodError,
   type PipelineConfig,
-  PipelineConfigError,
   type PipelineConfigParts,
   type PipelineConfigValidationOptions,
   pipelineFileSchema,
   profilesFileSchema,
   runnersFileSchema,
-  validationError,
 } from "./schemas";
 import { validatePipelineConfig } from "./validate";
 
@@ -32,7 +33,7 @@ export function loadPackagePipelineConfig(
   projectRoot: string,
   options: PipelineConfigValidationOptions = {}
 ): PipelineConfig {
-  return parsePipelineConfigParts(
+  const program = parsePipelineConfigPartsEffect(
     {
       pipeline: PACKAGE_DEFAULT_PIPELINE_YAML,
       profiles: PACKAGE_DEFAULT_PROFILES_YAML,
@@ -46,6 +47,7 @@ export function loadPackagePipelineConfig(
     },
     options
   );
+  return runConfigIoSync(program);
 }
 
 export function parsePipelineConfigYaml(
@@ -108,68 +110,65 @@ export function parsePipelineConfigParts(
   },
   options: PipelineConfigValidationOptions = {}
 ): PipelineConfig {
-  const runners = parseYamlAs(
-    sources.runners,
-    sourcePaths.runners,
-    runnersFileSchema
-  );
-  const profiles = parseYamlAs(
-    sources.profiles,
-    sourcePaths.profiles,
-    profilesFileSchema
-  );
-  const pipeline = parseYamlAs(
-    sources.pipeline,
-    sourcePaths.pipeline,
-    pipelineFileSchema
-  );
-  return validatePipelineConfig(
-    {
-      default_workflow: pipeline.default_workflow,
-      ...durabilityField(pipeline.durability),
-      ...pipe83Fields(pipeline),
-      entrypoints: pipeline.entrypoints,
-      hooks: pipeline.hooks,
-      ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
-      mcp_servers: profiles.mcp_servers,
-      ...(pipeline.orchestrator ? { orchestrator: pipeline.orchestrator } : {}),
-      profiles: profiles.profiles,
-      runner_command: pipeline.runner_command,
-      rules: profiles.rules,
-      runners: runners.runners,
-      scheduler: pipeline.scheduler,
-      schedules: pipeline.schedules,
-      skills: profiles.skills,
-      ...(pipeline.task_context ? { task_context: pipeline.task_context } : {}),
-      token_budget: pipeline.token_budget,
-      version: 1,
-      workflows: pipeline.workflows,
-    },
+  const program = parsePipelineConfigPartsEffect(
+    sources,
     projectRoot,
+    sourcePaths,
     options
   );
+  return runConfigIoSync(program);
 }
 
-function parseYamlAs<T extends z.ZodTypeAny>(
-  source: string,
-  sourcePath: string,
-  schema: T
-): z.infer<T> {
-  const document = parseDocument(source, {
-    prettyErrors: false,
-    uniqueKeys: true,
-  });
-  if (document.errors.length > 0) {
-    throw new PipelineConfigError(
-      "PIPELINE_CONFIG_PARSE_ERROR",
-      `Failed to parse ${sourcePath}`,
-      document.errors.map((err) => ({ message: err.message, path: sourcePath }))
+function parsePipelineConfigPartsEffect(
+  sources: PipelineConfigParts,
+  projectRoot: string | undefined,
+  sourcePaths: PipelineConfigParts,
+  options: PipelineConfigValidationOptions
+) {
+  return Effect.gen(function* () {
+    const runners = yield* parseConfigYamlAs(
+      sources.runners,
+      sourcePaths.runners,
+      runnersFileSchema
     );
-  }
-
-  const parsed = schema.safeParse(document.toJS());
-  if (!parsed.success) {
-    throw validationError(configIssuesFromZodError(parsed.error));
-  }
-  return parsed.data;
+    const profiles = yield* parseConfigYamlAs(
+      sources.profiles,
+      sourcePaths.profiles,
+      profilesFileSchema
+    );
+    const pipeline = yield* parseConfigYamlAs(
+      sources.pipeline,
+      sourcePaths.pipeline,
+      pipelineFileSchema
+    );
+    return validatePipelineConfig(
+      {
+        default_workflow: pipeline.default_workflow,
+        ...durabilityField(pipeline.durability),
+        ...pipe83Fields(pipeline),
+        entrypoints: pipeline.entrypoints,
+        hooks: pipeline.hooks,
+        ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
+        mcp_servers: profiles.mcp_servers,
+        ...(pipeline.orchestrator
+          ? { orchestrator: pipeline.orchestrator }
+          : {}),
+        profiles: profiles.profiles,
+        runner_command: pipeline.runner_command,
+        rules: profiles.rules,
+        runners: runners.runners,
+        scheduler: pipeline.scheduler,
+        schedules: pipeline.schedules,
+        skills: profiles.skills,
+        ...(pipeline.task_context
+          ? { task_context: pipeline.task_context }
+          : {}),
+        token_budget: pipeline.token_budget,
+        version: 1,
+        workflows: pipeline.workflows,
+      },
+      projectRoot,
+      options
+    );
+  });
 }

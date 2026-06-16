@@ -1,9 +1,10 @@
+import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk";
+import { Data, Effect } from "effect";
+import type { OpencodeServerSpawn } from "./services/opencode-sdk-service";
 import {
-  createOpencode,
-  createOpencodeClient,
-  type OpencodeClient,
-} from "@opencode-ai/sdk";
-import { Data } from "effect";
+  OpencodeSdkService,
+  OpencodeSdkServiceLive,
+} from "./services/opencode-sdk-service";
 
 /**
  * Server lifecycle for the opencode SDK transport.
@@ -37,7 +38,7 @@ export interface OpencodeServerOptions {
   serverUrl?: string;
   signal?: AbortSignal;
   /** Spawn hook seam for tests; defaults to the real SDK. */
-  spawn?: typeof createOpencode;
+  spawn?: OpencodeServerSpawn;
   startupTimeoutMs?: number;
 }
 
@@ -54,43 +55,69 @@ export class OpencodeServerStartupError extends Data.TaggedError(
   }
 }
 
-export async function openOpencodeServer(
+export function openOpencodeServer(
   options: OpencodeServerOptions
 ): Promise<OpencodeServerHandle> {
+  return Effect.runPromise(
+    Effect.provide(openOpencodeServerEffect(options), OpencodeSdkServiceLive)
+  );
+}
+
+function openOpencodeServerEffect(
+  options: OpencodeServerOptions
+): Effect.Effect<
+  OpencodeServerHandle,
+  OpencodeServerStartupError,
+  OpencodeSdkService
+> {
   const externalUrl =
     options.serverUrl ?? process.env.OPENCODE_SERVER_URL ?? "";
   if (externalUrl.length > 0) {
-    return connectExternalServer(externalUrl, options.directory);
+    return connectExternalServer(externalUrl, options.directory).pipe(
+      Effect.mapError(startupError)
+    );
   }
-  return await spawnOwnedServer(options);
+  return spawnOwnedServer(options);
 }
 
 function connectExternalServer(
   url: string,
   directory: string
-): OpencodeServerHandle {
-  const client = createOpencodeClient({ baseUrl: url, directory });
-  return {
-    close: () => Promise.resolve(),
-    client,
-    owned: false,
-    url,
-  };
+): Effect.Effect<OpencodeServerHandle, unknown, OpencodeSdkService> {
+  return Effect.gen(function* () {
+    const sdk = yield* OpencodeSdkService;
+    const client = yield* sdk.createClient({ baseUrl: url, directory });
+    return {
+      close: () => Promise.resolve(),
+      client,
+      owned: false,
+      url,
+    };
+  });
 }
 
-async function spawnOwnedServer(
+function spawnOwnedServer(
   options: OpencodeServerOptions
-): Promise<OpencodeServerHandle> {
-  const spawn = options.spawn ?? createOpencode;
-  try {
-    const { client, server } = await spawn(spawnArgs(options));
-    return ownedHandle(client, server, options.directory);
-  } catch (error) {
-    throw new OpencodeServerStartupError(
-      `Failed to start opencode server: ${errorText(error)}`,
-      { cause: error }
+): Effect.Effect<
+  OpencodeServerHandle,
+  OpencodeServerStartupError,
+  OpencodeSdkService
+> {
+  return Effect.gen(function* () {
+    const sdk = yield* OpencodeSdkService;
+    const { client, server } = yield* sdk.spawnServer(
+      spawnArgs(options),
+      options.spawn
     );
-  }
+    return ownedHandle(client, server, options.directory);
+  }).pipe(Effect.catchAll((error) => Effect.fail(startupError(error))));
+}
+
+function startupError(error: unknown): OpencodeServerStartupError {
+  return new OpencodeServerStartupError(
+    `Failed to start opencode server: ${errorText(error)}`,
+    { cause: error }
+  );
 }
 
 function spawnArgs(options: OpencodeServerOptions) {

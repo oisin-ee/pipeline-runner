@@ -1,9 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parseDocument } from "yaml";
+import { Effect } from "effect";
 import { z } from "zod";
 import { PipelineConfigError } from "./config";
+import {
+  ConfigIoService,
+  runConfigIoSync,
+} from "./runtime/services/config-io-service";
 
 export const MOKA_GLOBAL_CONFIG_PATH = ".config/moka/config.yaml";
 
@@ -46,51 +49,50 @@ export function mokaGlobalConfigPath(homeDir = homedir()): string {
 
 export function loadMokaGlobalConfig(): MokaGlobalConfig | null {
   const configPath = mokaGlobalConfigPath();
-  if (!existsSync(configPath)) {
-    return null;
-  }
-
-  return parseMokaGlobalConfig(readFileSync(configPath, "utf8"), configPath);
+  const program = Effect.gen(function* () {
+    const configIo = yield* ConfigIoService;
+    const source = yield* configIo.readOptionalText(configPath);
+    return source === null
+      ? null
+      : yield* parseMokaGlobalConfigEffect(source, configPath);
+  });
+  return runConfigIoSync(program);
 }
 
 export function parseMokaGlobalConfig(
   source: string,
   sourcePath: string
 ): MokaGlobalConfig {
-  const document = parseDocument(source, {
-    prettyErrors: false,
-    uniqueKeys: true,
+  const program = parseMokaGlobalConfigEffect(source, sourcePath);
+  return runConfigIoSync(program);
+}
+
+function parseMokaGlobalConfigEffect(source: string, sourcePath: string) {
+  return Effect.gen(function* () {
+    const configIo = yield* ConfigIoService;
+    const yaml = yield* configIo.parseYaml(source, sourcePath);
+    const parsed = mokaGlobalConfigSchema.safeParse(yaml);
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      }));
+      return yield* Effect.fail(
+        new PipelineConfigError(
+          "PIPELINE_CONFIG_VALIDATION_ERROR",
+          [
+            `Invalid ${sourcePath}:`,
+            ...issues.map((issue) =>
+              issue.path
+                ? `- ${issue.path}: ${issue.message}`
+                : `- ${issue.message}`
+            ),
+          ].join("\n"),
+          issues
+        )
+      );
+    }
+
+    return parsed.data;
   });
-  if (document.errors.length > 0) {
-    throw new PipelineConfigError(
-      "PIPELINE_CONFIG_PARSE_ERROR",
-      `Failed to parse ${sourcePath}`,
-      document.errors.map((err) => ({
-        message: err.message,
-        path: sourcePath,
-      }))
-    );
-  }
-
-  const parsed = mokaGlobalConfigSchema.safeParse(document.toJS());
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((issue) => ({
-      path: issue.path.join("."),
-      message: issue.message,
-    }));
-    throw new PipelineConfigError(
-      "PIPELINE_CONFIG_VALIDATION_ERROR",
-      [
-        `Invalid ${sourcePath}:`,
-        ...issues.map((issue) =>
-          issue.path
-            ? `- ${issue.path}: ${issue.message}`
-            : `- ${issue.message}`
-        ),
-      ].join("\n"),
-      issues
-    );
-  }
-
-  return parsed.data;
 }

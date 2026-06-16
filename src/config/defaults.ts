@@ -1,11 +1,10 @@
-import { readFileSync } from "node:fs";
-import { parseDocument } from "yaml";
+import { Effect } from "effect";
 import { z } from "zod";
 import {
-  configIssuesFromZodError,
-  PipelineConfigError,
-  validationError,
-} from "./schemas";
+  ConfigIoService,
+  parseConfigYamlAs,
+  runConfigIoSync,
+} from "../runtime/services/config-io-service";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
@@ -19,7 +18,13 @@ const DEFAULT_PACKAGE_DEFAULTS_ROOT = new URL(
 );
 
 function loadDefaultYaml(filename: string): string {
-  return readFileSync(new URL(filename, DEFAULT_PACKAGE_DEFAULTS_ROOT), "utf8");
+  const program = Effect.gen(function* () {
+    const configIo = yield* ConfigIoService;
+    return yield* configIo.readText(
+      new URL(filename, DEFAULT_PACKAGE_DEFAULTS_ROOT)
+    );
+  });
+  return runConfigIoSync(program);
 }
 
 export const PACKAGE_DEFAULT_RUNNERS_YAML: string =
@@ -169,38 +174,28 @@ export function parseOpenCodeEcosystemManifest(
   source: string,
   sourcePath = OPENCODE_ECOSYSTEM_MANIFEST_PATH
 ): OpenCodeEcosystemManifest {
-  return parseYamlAs(source, sourcePath, openCodeEcosystemManifestSchema);
+  const program = parseConfigYamlAs(
+    source,
+    sourcePath,
+    openCodeEcosystemManifestSchema
+  );
+  return runConfigIoSync(program);
 }
 
 function loadDefaultOpenCodeEcosystemManifest(): OpenCodeEcosystemManifest {
-  return parseOpenCodeEcosystemManifest(
-    readFileSync(DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL, "utf8")
-  );
+  const program = Effect.gen(function* () {
+    const configIo = yield* ConfigIoService;
+    const source = yield* configIo.readText(
+      DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL
+    );
+    return yield* parseConfigYamlAs(
+      source,
+      OPENCODE_ECOSYSTEM_MANIFEST_PATH,
+      openCodeEcosystemManifestSchema
+    );
+  });
+  return runConfigIoSync(program);
 }
 
 export const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST =
   loadDefaultOpenCodeEcosystemManifest();
-
-function parseYamlAs<T extends z.ZodTypeAny>(
-  source: string,
-  sourcePath: string,
-  schema: T
-): z.infer<T> {
-  const document = parseDocument(source, {
-    prettyErrors: false,
-    uniqueKeys: true,
-  });
-  if (document.errors.length > 0) {
-    throw new PipelineConfigError(
-      "PIPELINE_CONFIG_PARSE_ERROR",
-      `Failed to parse ${sourcePath}`,
-      document.errors.map((err) => ({ message: err.message, path: sourcePath }))
-    );
-  }
-
-  const parsed = schema.safeParse(document.toJS());
-  if (!parsed.success) {
-    throw validationError(configIssuesFromZodError(parsed.error));
-  }
-  return parsed.data;
-}
