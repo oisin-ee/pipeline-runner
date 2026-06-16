@@ -1,4 +1,10 @@
-import { execa } from "execa";
+// fallow-ignore-file unused-file
+import { Effect } from "effect";
+import {
+  BacklogParseError,
+  BacklogService,
+  BacklogServiceLive,
+} from "./runtime/services/backlog-service";
 
 const PHASES = [
   { suffix: "R", label: "research", deps: [] as string[] },
@@ -67,13 +73,108 @@ function parseTaskId(stdout: string): string | null {
   return m ? m[1] : null;
 }
 
-async function runBacklog(args: string[], cwd: string): Promise<string> {
-  try {
-    const result = await execa("backlog", args, { cwd });
-    return result.stdout;
-  } catch (err) {
-    return (err as { stdout?: string }).stdout ?? "";
-  }
+function parseTaskIdEffect(
+  stdout: string,
+  failureMessage: string
+): Effect.Effect<string, BacklogParseError> {
+  const taskId = parseTaskId(stdout);
+  return taskId
+    ? Effect.succeed(taskId)
+    : Effect.fail(new BacklogParseError({ message: failureMessage }));
+}
+
+function createParentArgs(taskDescription: string): string[] {
+  return [
+    "task",
+    "create",
+    taskDescription,
+    "--labels",
+    "swarm-parent",
+    "--plain",
+  ];
+}
+
+function createChildArgs(
+  taskDescription: string,
+  parentId: string,
+  phase: (typeof PHASES)[number]
+): string[] {
+  return [
+    "task",
+    "create",
+    `${taskDescription} — ${phase.label}`,
+    "--parent",
+    parentId,
+    "--labels",
+    `swarm,phase-${phase.suffix}`,
+    "--plain",
+  ];
+}
+
+function runBacklogEffect(
+  args: readonly string[],
+  cwd: string
+): Effect.Effect<string, never, BacklogService> {
+  return Effect.gen(function* () {
+    const backlog = yield* BacklogService;
+    return yield* backlog
+      .run(args, cwd)
+      .pipe(Effect.catchAll((error) => Effect.succeed(error.stdout)));
+  });
+}
+
+function parseParentId(
+  stdout: string
+): Effect.Effect<string, BacklogParseError> {
+  return parseTaskIdEffect(
+    stdout,
+    `createSwarmTasks: could not parse parent task id from backlog output: ${stdout.slice(0, 200)}`
+  );
+}
+
+function parseChildId(
+  stdout: string,
+  phase: PhaseSuffix
+): Effect.Effect<string, BacklogParseError> {
+  return parseTaskIdEffect(
+    stdout,
+    `createSwarmTasks: could not parse ${phase} child task id from backlog output: ${stdout.slice(0, 200)}`
+  );
+}
+
+function createSwarmTasksEffect(
+  taskDescription: string,
+  worktreePath: string
+): Effect.Effect<SwarmTaskMap, BacklogParseError, BacklogService> {
+  return Effect.gen(function* () {
+    const parentOut = yield* runBacklogEffect(
+      createParentArgs(taskDescription),
+      worktreePath
+    );
+    const parentId = yield* parseParentId(parentOut);
+    const phases: Partial<Record<PhaseSuffix, string>> = {};
+    for (const phase of PHASES) {
+      const childOut = yield* runBacklogEffect(
+        createChildArgs(taskDescription, parentId, phase),
+        worktreePath
+      );
+      phases[phase.suffix] = yield* parseChildId(childOut, phase.suffix);
+    }
+    return { parentId, phases: phases as Record<PhaseSuffix, string> };
+  });
+}
+
+function markPhaseEffect(
+  taskId: string,
+  status: BacklogStatus,
+  worktreePath: string
+): Effect.Effect<void, never, BacklogService> {
+  return Effect.gen(function* () {
+    yield* runBacklogEffect(
+      ["task", "edit", taskId, "--status", status],
+      worktreePath
+    );
+  });
 }
 
 /**
@@ -87,42 +188,12 @@ export async function createSwarmTasks(
   taskDescription: string,
   worktreePath: string
 ): Promise<SwarmTaskMap> {
-  const parentOut = await runBacklog(
-    ["task", "create", taskDescription, "--labels", "swarm-parent", "--plain"],
-    worktreePath
+  return await Effect.runPromise(
+    Effect.provide(
+      createSwarmTasksEffect(taskDescription, worktreePath),
+      BacklogServiceLive
+    )
   );
-  const parentId = parseTaskId(parentOut);
-  if (!parentId) {
-    throw new Error(
-      `createSwarmTasks: could not parse parent task id from backlog output: ${parentOut.slice(0, 200)}`
-    );
-  }
-
-  const phases: Partial<Record<PhaseSuffix, string>> = {};
-  for (const phase of PHASES) {
-    const childOut = await runBacklog(
-      [
-        "task",
-        "create",
-        `${taskDescription} — ${phase.label}`,
-        "--parent",
-        parentId,
-        "--labels",
-        `swarm,phase-${phase.suffix}`,
-        "--plain",
-      ],
-      worktreePath
-    );
-    const childId = parseTaskId(childOut);
-    if (!childId) {
-      throw new Error(
-        `createSwarmTasks: could not parse ${phase.suffix} child task id from backlog output: ${childOut.slice(0, 200)}`
-      );
-    }
-    phases[phase.suffix] = childId;
-  }
-
-  return { parentId, phases: phases as Record<PhaseSuffix, string> };
 }
 
 export async function markPhase(
@@ -130,7 +201,12 @@ export async function markPhase(
   status: BacklogStatus,
   worktreePath: string
 ): Promise<void> {
-  await runBacklog(["task", "edit", taskId, "--status", status], worktreePath);
+  await Effect.runPromise(
+    Effect.provide(
+      markPhaseEffect(taskId, status, worktreePath),
+      BacklogServiceLive
+    )
+  );
 }
 
 function formatFailureNote(failure: GateFailure): string {
@@ -147,35 +223,59 @@ function formatFailureNote(failure: GateFailure): string {
     .join("\n\n");
 }
 
+function failedPhaseFor(result: PipelineLifecycleResult): PhaseSuffix | null {
+  const firstFailure = result.failureDetails[0];
+  if (result.outcome === "PASS") {
+    return null;
+  }
+  if (!firstFailure) {
+    return "R";
+  }
+  return GATE_PHASES[firstFailure.gate];
+}
+
+function phaseLifecycleFailureNote(
+  taskId: string,
+  failure: GateFailure | undefined
+): PhaseLifecyclePlan["failureNote"] {
+  return {
+    taskId,
+    note: failure
+      ? formatFailureNote(failure)
+      : "Pipeline failed before reporting gate failure details.",
+  };
+}
+
+function phaseStatusUpdatesUntil(
+  swarm: SwarmTaskMap,
+  failedPhase: PhaseSuffix | null
+): PhaseStatusUpdate[] {
+  const statusUpdates: PhaseStatusUpdate[] = [];
+  for (const phase of PHASES) {
+    const taskId = swarm.phases[phase.suffix];
+    statusUpdates.push({ taskId, status: "In Progress" });
+    if (phase.suffix === failedPhase) {
+      return statusUpdates;
+    }
+    statusUpdates.push({ taskId, status: "Done" });
+  }
+  return statusUpdates;
+}
+
 export function planPhaseLifecycle(
   swarm: SwarmTaskMap,
   result: PipelineLifecycleResult
 ): PhaseLifecyclePlan {
-  const firstFailure = result.failureDetails[0];
-  let failedPhase: PhaseSuffix | null = null;
-  if (result.outcome === "FAIL") {
-    failedPhase = firstFailure ? GATE_PHASES[firstFailure.gate] : "R";
+  const failedPhase = failedPhaseFor(result);
+  const statusUpdates = phaseStatusUpdatesUntil(swarm, failedPhase);
+  if (!failedPhase) {
+    return { statusUpdates };
   }
-  const statusUpdates: PhaseStatusUpdate[] = [];
-
-  for (const phase of PHASES) {
-    const taskId = swarm.phases[phase.suffix];
-    statusUpdates.push({ taskId, status: "In Progress" });
-
-    if (phase.suffix === failedPhase) {
-      return {
-        statusUpdates,
-        failureNote: {
-          taskId,
-          note: firstFailure
-            ? formatFailureNote(firstFailure)
-            : "Pipeline failed before reporting gate failure details.",
-        },
-      };
-    }
-
-    statusUpdates.push({ taskId, status: "Done" });
-  }
-
-  return { statusUpdates };
+  return {
+    statusUpdates,
+    failureNote: phaseLifecycleFailureNote(
+      swarm.phases[failedPhase],
+      result.failureDetails[0]
+    ),
+  };
 }

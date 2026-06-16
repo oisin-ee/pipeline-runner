@@ -1,15 +1,17 @@
-import { Data } from "effect";
-import ky, { isHTTPError } from "ky";
+import { Effect } from "effect";
 import type { PipelineRuntimeEvent } from "./pipeline-runtime";
 import {
   mapRuntimeEventToRunnerEventRecords as mapRuntimeEventRecords,
   type RunnerEventRecord,
 } from "./runner-command-contract";
+import {
+  type RunnerEventSinkFetch,
+  RunnerEventSinkHttpService,
+  RunnerEventSinkHttpServiceLive,
+  type RunnerEventSinkPostBatchRequest,
+} from "./runtime/services/runner-event-sink-http-service";
 
-type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
+type FetchLike = RunnerEventSinkFetch;
 
 export interface RunnerEventSinkOptions {
   authHeader?: string;
@@ -47,9 +49,6 @@ export interface RunnerEventSink {
 const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_MAX_RETRIES = 0;
 const DEFAULT_RETRY_DELAY_MS = 250;
-const RETRYABLE_STATUS_CODES = [
-  408, 429, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511,
-];
 
 /*
  * Keep the custom event sink HTTP batching and retry path. Kubernetes events are
@@ -58,27 +57,12 @@ const RETRYABLE_STATUS_CODES = [
  * failure handling.
  */
 
-class EventSinkHttpError extends Data.TaggedError("EventSinkHttpError")<{
-  readonly status: number;
-  readonly message: string;
-}> {
-  constructor(status: number, message: string) {
-    super({ status, message });
-  }
-}
-
 export function createRunnerEventSink(
   options: RunnerEventSinkOptions
 ): RunnerEventSink {
-  const batchSize = Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE);
-  const fetchImpl = options.fetch ?? globalThis.fetch?.bind(globalThis);
-  if (!fetchImpl) {
-    throw new Error("Runner event sink requires fetch support");
-  }
-  if (!options.authToken.trim()) {
-    throw new Error("Runner event sink requires an auth token");
-  }
-
+  const batchSize = positiveOrDefault(options.batchSize, DEFAULT_BATCH_SIZE);
+  const fetchImpl = resolveFetch(options.fetch);
+  assertAuthToken(options.authToken);
   const queue: RunnerEventRecord[] = [];
   let flushChain: Promise<void> = Promise.resolve();
   let nextSequence = 1;
@@ -93,16 +77,27 @@ export function createRunnerEventSink(
     };
   };
 
-  const flushQueue = async (): Promise<void> => {
-    while (queue.length > 0) {
-      const batch = queue.slice(0, batchSize);
-      await postBatch(options, fetchImpl, batch);
-      queue.splice(0, batch.length);
-    }
-  };
+  const flushQueueEffect = (): Effect.Effect<
+    void,
+    Error,
+    RunnerEventSinkHttpService
+  > =>
+    Effect.gen(function* () {
+      const service = yield* RunnerEventSinkHttpService;
+      while (hasQueuedEvents(queue)) {
+        const batch = queue.slice(0, batchSize);
+        yield* service.postBatch(postBatchRequest(options, fetchImpl, batch));
+        queue.splice(0, batch.length);
+      }
+    });
+
+  const runFlush = (): Promise<void> =>
+    Effect.runPromise(
+      Effect.provide(flushQueueEffect(), RunnerEventSinkHttpServiceLive)
+    );
 
   const runSerializedFlush = (): Promise<void> => {
-    const nextFlush = flushChain.then(flushQueue, flushQueue);
+    const nextFlush = flushChain.then(runFlush, runFlush);
     flushChain = nextFlush.catch(() => undefined);
     return nextFlush;
   };
@@ -195,57 +190,54 @@ export function createRunnerEventSink(
   };
 }
 
-async function postBatch(
-  options: RunnerEventSinkOptions,
-  fetchImpl: FetchLike,
-  events: RunnerEventRecord[]
-): Promise<void> {
-  const maxRetries = Math.max(0, options.maxRetries ?? DEFAULT_MAX_RETRIES);
-  const retryDelayMs = Math.max(
-    0,
-    options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
-  );
-  try {
-    await ky.post(options.url, {
-      fetch: kyFetchAdapter(fetchImpl),
-      headers: {
-        [options.authHeader ?? "Authorization"]: `Bearer ${options.authToken}`,
-      },
-      json: { events },
-      retry: {
-        delay: () => retryDelayMs,
-        limit: maxRetries,
-        methods: ["post"],
-        retryOnTimeout: true,
-        statusCodes: RETRYABLE_STATUS_CODES,
-      },
-    });
-  } catch (err) {
-    if (isHTTPError(err)) {
-      let data = "";
-      if (typeof err.data === "string") {
-        data = err.data;
-      } else if (err.data !== undefined) {
-        data = JSON.stringify(err.data);
-      }
-      throw new EventSinkHttpError(
-        err.response.status,
-        `Event sink responded with ${err.response.status}${data ? `: ${data}` : ""}`
-      );
-    }
-    throw err instanceof Error ? err : new Error(String(err));
+function hasQueuedEvents(queue: RunnerEventRecord[]): boolean {
+  return queue.length > 0;
+}
+
+function positiveOrDefault(
+  value: number | undefined,
+  fallback: number
+): number {
+  return Math.max(1, value ?? fallback);
+}
+
+function nonNegativeOrDefault(
+  value: number | undefined,
+  fallback: number
+): number {
+  return Math.max(0, value ?? fallback);
+}
+
+function resolveFetch(fetchImpl: FetchLike | undefined): FetchLike {
+  const resolved = fetchImpl ?? globalThis.fetch?.bind(globalThis);
+  if (!resolved) {
+    throw new Error("Runner event sink requires fetch support");
+  }
+  return resolved;
+}
+
+function assertAuthToken(authToken: string): void {
+  if (!authToken.trim()) {
+    throw new Error("Runner event sink requires an auth token");
   }
 }
 
-function kyFetchAdapter(fetchImpl: FetchLike): typeof fetch {
-  return async (input, init) => {
-    const request = new Request(input, init);
-    return fetchImpl(request.url, {
-      body: await request.clone().text(),
-      headers: request.headers,
-      method: request.method,
-      signal: request.signal,
-    });
+function postBatchRequest(
+  options: RunnerEventSinkOptions,
+  fetchImpl: FetchLike,
+  events: RunnerEventRecord[]
+): RunnerEventSinkPostBatchRequest {
+  return {
+    authHeader: options.authHeader,
+    authToken: options.authToken,
+    events,
+    fetch: fetchImpl,
+    maxRetries: nonNegativeOrDefault(options.maxRetries, DEFAULT_MAX_RETRIES),
+    retryDelayMs: nonNegativeOrDefault(
+      options.retryDelayMs,
+      DEFAULT_RETRY_DELAY_MS
+    ),
+    url: options.url,
   };
 }
 
