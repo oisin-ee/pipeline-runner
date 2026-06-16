@@ -1,9 +1,10 @@
 ---
 id: PIPE-82.6
 title: Make the schedule-planner prompt token-aware
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:36'
+updated_date: '2026-06-14 23:26'
 labels:
   - token-engineering
   - scheduler
@@ -40,3 +41,9 @@ QUALITY: prompt text only; no behavioural casts. Keep the existing catalog/profi
 - [ ] #3 tests/schedule-planner.test.ts (or a prompt-focused test) asserts the generated prompt contains the cap and fan-out lines
 - [ ] #4 npx vitest run (planner prompt test) passes and npx tsc --noEmit is clean
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+plannerPrompt is token-aware (emits max_context_pct, model windows, per-category fan-out caps + smallest-fitting-model instruction). Asserted via a plannerPrompt test.
+<!-- SECTION:FINAL_SUMMARY:END -->

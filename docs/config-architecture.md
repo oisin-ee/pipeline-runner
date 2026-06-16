@@ -408,6 +408,25 @@ execution status (PASS/FAIL) and, when `judge_model` is set, a 0..1 LLM judge
 score; it emits the winner's output and **never self-fixes** — if no candidate
 passes, the node fails with evidence.
 
+### `mcp_gateway.host_scope` — register the gateway once globally
+
+```yaml
+mcp_gateway:
+  provider: toolhive
+  mode: hosted
+  host_scope: global       # default "project"
+```
+
+The singleton pipeline gateway is normally synthesized into each repo's
+`.opencode/opencode.json` (`host_scope: project`, the default — unchanged
+goldens). Setting `host_scope: global` stops that per-project synthesis: the
+generated project config omits the `pipeline-gateway` MCP entry and instead
+inherits one global registration written once via
+`moka gateway configure-host --scope global` (which targets
+`$OPENCODE_CONFIG_DIR`/`$XDG_CONFIG_HOME/opencode/opencode.json`). This is the
+PIPE-83.11 standardization path — register the MCP gateway once per machine
+rather than re-emitting it into every project.
+
 ## Troubleshooting
 
 - Missing host resources: run `moka install-commands`; `moka run` loads the

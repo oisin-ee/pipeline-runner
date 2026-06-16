@@ -1,9 +1,10 @@
 ---
 id: PIPE-82.2
 title: 'Add token_budget config block (schema, defaults, validation)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:35'
+updated_date: '2026-06-14 23:26'
 labels:
   - token-engineering
   - config
@@ -49,3 +50,9 @@ CONFIG-FIRST: thresholds live in YAML, not code. QUALITY: no casts; strict schem
 - [ ] #4 tests/config.test.ts asserts: block parses; omitted block yields the documented defaults; invalid pct and negative window are rejected with the expected error
 - [ ] #5 npx vitest run tests/config.test.ts passes and npx tsc --noEmit is clean
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added token_budget config block (schema + validation + defaults in both pipeline.yamls). Live: `moka validate` and `moka doctor` pass on 2.4.0 with the block; bundled defaults ship it. Tests assert defaults/parse/reject.
+<!-- SECTION:FINAL_SUMMARY:END -->

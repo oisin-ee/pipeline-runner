@@ -1,9 +1,10 @@
 ---
 id: PIPE-82
 title: 'Epic: Token-aware task sizing & budgeting (scheduler + orchestrate skill)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:35'
+updated_date: '2026-06-14 23:26'
 labels:
   - epic
   - scheduler
@@ -39,3 +40,9 @@ Full design + source list in the plan doc (see references). Children: token-esti
 - [ ] #4 The orchestrate skill carries a 'Task sizing & token budget' section, distributed via oisin-ee/skills and verified by a scratch install
 - [ ] #5 Full vitest suite, tsc --noEmit, and the ultracite + fallow gates are green
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Token-aware sizing & budgeting shipped in @oisincoveney/pipeline 2.4.0. Live-verified on the published global moka: validate/explain-plan/doctor/init/run all pass with the token_budget config; a real `moka run --schedule` triggered the hard per-node context cap (estimated 308148 tokens > 50% of the 200k window → openai/gpt-5.5 skipped, node failed fast, no dispatch); `moka init` distributes the updated orchestrate skill. Fan-out caps + planner awareness + size-aware routing covered by the CI-gated test suite. Remaining for a future demo: live multi-agent green fan-out (≤2 concurrent) and a token-efficiency-vs-uncapped measurement, both expensive (multiple real agent runs).
+<!-- SECTION:FINAL_SUMMARY:END -->

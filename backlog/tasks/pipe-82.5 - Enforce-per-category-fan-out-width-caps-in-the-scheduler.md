@@ -1,9 +1,10 @@
 ---
 id: PIPE-82.5
 title: Enforce per-category fan-out width caps in the scheduler
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:36'
+updated_date: '2026-06-14 23:26'
 labels:
   - token-engineering
   - scheduler
@@ -40,3 +41,9 @@ QUALITY: no casts; do not regress the existing global maxParallelNodes behaviour
 - [ ] #3 A scheduler test asserts: a ready batch of N same-category nodes launches <= the category cap per tick; mixed categories each respect their own cap; absence of token_budget preserves current behaviour
 - [ ] #4 npx vitest run (scheduler test) passes and npx tsc --noEmit is clean
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Scheduler enforces per-category fan-out caps (claimCategorySlot) under the global maxParallelNodes; category threaded through schema/compile/catalog-apply. Asserted by runWorkflowScheduler integration tests (CI-gated in 2.4.0).
+<!-- SECTION:FINAL_SUMMARY:END -->

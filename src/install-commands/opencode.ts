@@ -468,8 +468,22 @@ function toolPermission(allowed: Set<string>, tool: string): string {
   return allowed.has(tool) ? "allow" : "deny";
 }
 
+/**
+ * PIPE-83.11: whether to synthesize the singleton pipeline gateway into this
+ * repo's `.opencode/opencode.json`. A "global"-scoped gateway is registered
+ * once in the global opencode config (via `moka gateway configure-host
+ * --scope global`) and inherited, so it is not embedded per project.
+ */
+// fallow-ignore-next-line unused-export
+export function shouldEmbedProjectGateway(config: PipelineConfig): boolean {
+  return (
+    config.mcp_gateway !== undefined &&
+    config.mcp_gateway.host_scope !== "global"
+  );
+}
+
 function renderOpenCodeProjectConfig(config: PipelineConfig): string {
-  const base = config.mcp_gateway
+  const base = shouldEmbedProjectGateway(config)
     ? (JSON.parse(renderOpenCodeGatewayConfig(config)) as Record<
         string,
         unknown

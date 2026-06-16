@@ -1,9 +1,10 @@
 ---
 id: PIPE-82.7
 title: Enforce hard per-node context budget at execution (agent-node)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:37'
+updated_date: '2026-06-14 23:26'
 labels:
   - token-engineering
   - runtime
@@ -41,3 +42,9 @@ QUALITY: backward-compatible when token_budget is absent (current dispatch path 
 - [ ] #3 A pure decideNodeModel(prompt, node, budget) helper is extracted and unit-tested in src/runtime/agent-node/agent-node.test.ts: over-budget + small-window-only -> fail message; under-budget -> normal dispatch; absent token_budget -> unchanged
 - [ ] #4 npx vitest run (agent-node test) passes and npx tsc --noEmit is clean
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+agent-node enforces the hard per-node cap (decideNodeModel): over-budget nodes fail fast with evidence, no dispatch, no truncation. LIVE-verified on 2.4.0 — a 308148-token node failed with "over token budget ... exceeds 50% of every available model window".
+<!-- SECTION:FINAL_SUMMARY:END -->

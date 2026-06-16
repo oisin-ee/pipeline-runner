@@ -1,9 +1,10 @@
 ---
 id: PIPE-82.4
 title: Make selectNodeModel size-aware (skip models whose window can't hold the node)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:36'
+updated_date: '2026-06-14 23:26'
 labels:
   - token-engineering
 dependencies:
@@ -40,3 +41,9 @@ QUALITY: no casts/suppressions; pure function; reason strings are explicit.
 - [ ] #4 tests/model-resolver.test.ts is extended to assert: too-small model skipped with reason, first-fit chosen, none-fit path, and the legacy no-opts path
 - [ ] #5 npx vitest run tests/model-resolver.test.ts passes and npx tsc --noEmit is clean
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+selectNodeModel is size-aware (skips models whose window can't hold the node within the cap; none-fit → no model + reason). Backward-compatible. Live: drove the 308148-token over-budget run skipping openai/gpt-5.5.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -1,9 +1,10 @@
 ---
 id: PIPE-82.1
 title: Add js-tiktoken token-estimation primitive (src/token-estimator.ts)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:35'
+updated_date: '2026-06-14 23:26'
 labels:
   - token-engineering
 dependencies: []
@@ -37,3 +38,9 @@ LIBRARY: adopt js-tiktoken (do NOT hand-roll chars/4). QUALITY: no casts/suppres
 - [ ] #3 tests/token-estimator.test.ts asserts: empty string -> 0; a longer string returns strictly more than a shorter one; a fixed known string returns a count within an asserted band
 - [ ] #4 npx vitest run tests/token-estimator.test.ts passes and npx tsc --noEmit is clean
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added src/token-estimator.ts (js-tiktoken o200k_base estimateTokens) + tests. Shipped in @oisincoveney/pipeline 2.4.0; the estimator drove a live over-budget run (estimated 308148 tokens).
+<!-- SECTION:FINAL_SUMMARY:END -->

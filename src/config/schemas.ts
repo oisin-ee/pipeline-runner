@@ -239,6 +239,11 @@ const mcpGatewaySchema = z
   .object({
     backends: strictRecord(mcpGatewayBackendSchema).default({}),
     default_profile: z.string().min(1).optional(),
+    // PIPE-83.11: where the singleton pipeline gateway is registered. "project"
+    // (default) embeds it in each repo's .opencode/opencode.json; "global" stops
+    // the per-project synthesis and inherits one global registration (written
+    // once via `moka gateway configure-host --scope global`).
+    host_scope: z.enum(["project", "global"]).default("project"),
     mode: z.enum(["hosted", "local"]),
     provider: z.literal("toolhive"),
     authorization_env: z

@@ -1,9 +1,10 @@
 ---
 id: PIPE-82.3
 title: Add 'Task sizing & token budget' section to the orchestrate skill
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 22:36'
+updated_date: '2026-06-14 23:26'
 labels:
   - token-engineering
   - skills
@@ -36,3 +37,9 @@ This ticket is independent of the code tickets (different files/repo).
 - [ ] #3 The two vendored copies (.agents/skills/orchestrate/SKILL.md and .claude/skills/orchestrate/SKILL.md) are byte-identical to canonical (md5 match)
 - [ ] #4 After pushing oisin-ee/skills, a scratch `npx skills add oisin-ee/skills --skill orchestrate --copy` installs a SKILL.md containing the new section
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added "Task sizing & token budget" section to the orchestrate skill (canonical oisin-ee/skills + vendored copies). LIVE-verified: `moka init` on 2.4.0 installs the section into .agents/.claude skills.
+<!-- SECTION:FINAL_SUMMARY:END -->
