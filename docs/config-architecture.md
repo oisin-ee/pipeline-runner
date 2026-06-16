@@ -352,6 +352,62 @@ The toposort uses `@dagrejs/graphlib` for the graph model but an iterative
 traversal for the topological sort, because graphlib's recursive topsort can
 overflow the call stack on deep generated workflow chains.
 
+## Opt-in context & best-of-N features (PIPE-83)
+
+These top-level config blocks are all **off by default** — generated schedules,
+runtime behaviour, and the PIPE-57 goldens are unchanged until you enable them.
+
+### `context_handoff` — curated node-to-node handoffs
+
+```yaml
+context_handoff:
+  enabled: true          # default false
+  model: openai/gpt-5.5-fast   # optional cheap model for the deriving call
+```
+
+When enabled, each agent node derives a structured `NodeHandoff`
+(`summary`, `decisions`, `artifacts`, `testNames`, `openQuestions`) from its raw
+output via a cheap read-only finalizer. Downstream nodes then receive that
+curated handoff in their prompt instead of the upstream node's full transcript
+(`renderAgentPrompt`), which kills the prompt-bloat from re-hydrating every
+ancestor's output. When a node produces no handoff, consumers fall back to the
+raw output text, so disabling the flag is byte-identical to prior behaviour.
+
+### `parallel_worktrees` — isolated parallel children
+
+```yaml
+parallel_worktrees:
+  enabled: true          # default false
+```
+
+When enabled, every child of a `kind: parallel` node runs in its own git
+worktree on an auto-named branch (`.pipeline/worktrees/...`), so concurrent
+candidate edits cannot collide. Teardown is idempotent and crash-safe: a
+worktree with dirty or unpushed work is retained (never deleted), and orphaned
+worktrees are GC'd on the next parallel node under the same guard. A worktree is
+*not* a sandbox (node_modules/build state are shared) — real isolation remains
+k8s mode. SDK-runner nodes honour the per-child directory via `plan.cwd`.
+
+### `best_of_n` — generate N candidates and select the winner
+
+```yaml
+best_of_n:
+  enabled: true          # default false
+  n: 3                   # candidates per matching node (default 1 = off)
+  categories: [green]    # which node categories fan out (id-substring match)
+  judge_model: openai/gpt-5.5   # optional LLM judge; omit for status-only
+```
+
+When enabled with `n > 1`, the `candidates` schedule pass expands each matching
+agent node into a `kind: parallel` of N candidate children
+(`<node>--candidates`) feeding a `select-candidate` builtin that keeps the
+original node id. Each candidate builds in its own worktree (pair with
+`parallel_worktrees`) and is throttled by its category's
+`token_budget.fan_out_width` cap. The selector scores candidates by a hybrid of
+execution status (PASS/FAIL) and, when `judge_model` is set, a 0..1 LLM judge
+score; it emits the winner's output and **never self-fixes** — if no candidate
+passes, the node fails with evidence.
+
 ## Troubleshooting
 
 - Missing host resources: run `moka install-commands`; `moka run` loads the
