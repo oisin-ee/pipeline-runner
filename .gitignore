@@ -12,6 +12,8 @@ dist
 .pipeline/worktrees/
 .pipeline/dogfood/
 .pipeline/runs/
+.pipeline/journal/
+.DS_Store
 .devspace/
 # worktrees and build artifacts
 .agents/worktrees/
