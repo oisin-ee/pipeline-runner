@@ -1,6 +1,10 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { Effect } from "effect";
 import type { PipelineConfig } from "../config";
+import {
+  RepoIoService,
+  runRepoIoSync,
+} from "../runtime/services/repo-io-service";
 
 type McpGatewayConfig = NonNullable<PipelineConfig["mcp_gateway"]>;
 type McpGatewayBackend = McpGatewayConfig["backends"][string];
@@ -63,66 +67,97 @@ export function resolveRepoLocalBackendSpecs(
   config: PipelineConfig,
   options: ResolveRepoLocalBackendSpecsOptions
 ): RepoLocalBackendSpec[] {
-  const gateway = config.mcp_gateway;
-  if (!gateway) {
-    return [];
-  }
-  const exists = options.exists ?? existsSync;
-  return Object.entries(gateway.backends)
-    .filter(([, backend]) => backend.locality === "repo-local")
-    .map(([id, backend]) =>
-      repoLocalBackendSpec(id, backend, {
-        cwd: options.cwd,
-        env: options.env ?? process.env,
-        exists,
-      })
-    );
+  return runRepoIoSync(resolveRepoLocalBackendSpecsEffect(config, options));
 }
 
-function repoLocalBackendSpec(
+function resolveRepoLocalBackendSpecsEffect(
+  config: PipelineConfig,
+  options: ResolveRepoLocalBackendSpecsOptions
+): Effect.Effect<RepoLocalBackendSpec[], unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const gateway = config.mcp_gateway;
+    if (!gateway) {
+      return [];
+    }
+    return yield* Effect.all(
+      Object.entries(gateway.backends)
+        .filter(([, backend]) => backend.locality === "repo-local")
+        .map(([id, backend]) =>
+          repoLocalBackendSpecEffect(id, backend, {
+            cwd: options.cwd,
+            env: options.env ?? process.env,
+            exists: options.exists,
+          })
+        )
+    );
+  });
+}
+
+function repoLocalBackendSpecEffect(
   id: string,
   backend: McpGatewayBackend,
-  options: Required<ResolveRepoLocalBackendSpecsOptions>
-): RepoLocalBackendSpec {
-  const workspacePath = workspacePathForBackend(backend, options);
-  const template = BACKEND_TEMPLATES[id] ?? {
-    args: () => [],
-    command: id,
-    requiredPath: ".",
-  };
-  const requiredPath = join(workspacePath, template.requiredPath);
-  const ready = options.exists(requiredPath);
-  const readiness = ready
-    ? { ok: true }
-    : {
-        ok: false,
-        reason: `Missing ${template.requiredPath} in ${workspacePath}`,
-      };
-  const enabled = ready || backend.required;
+  options: RepoLocalBackendSpecOptions
+): Effect.Effect<RepoLocalBackendSpec, unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const workspacePath = workspacePathForBackend(backend, options);
+    const template = BACKEND_TEMPLATES[id] ?? {
+      args: () => [],
+      command: id,
+      requiredPath: ".",
+    };
+    const requiredPath = join(workspacePath, template.requiredPath);
+    const ready = yield* backendPathExists(requiredPath, options.exists);
+    const readiness = ready
+      ? { ok: true }
+      : {
+          ok: false,
+          reason: `Missing ${template.requiredPath} in ${workspacePath}`,
+        };
+    const enabled = ready || backend.required;
 
-  return {
-    args: template.args(workspacePath),
-    command: template.command,
-    cwd: workspacePath,
-    enabled,
-    env: {
-      PIPELINE_TARGET_PATH: workspacePath,
-    },
-    id,
-    mount: {
-      containerPath: "/workspace",
-      hostPath: workspacePath,
-    },
-    readiness,
-    required: backend.required,
-    toolPrefixes: backend.tool_prefixes,
-    workspacePath,
-  };
+    return {
+      args: template.args(workspacePath),
+      command: template.command,
+      cwd: workspacePath,
+      enabled,
+      env: {
+        PIPELINE_TARGET_PATH: workspacePath,
+      },
+      id,
+      mount: {
+        containerPath: "/workspace",
+        hostPath: workspacePath,
+      },
+      readiness,
+      required: backend.required,
+      toolPrefixes: backend.tool_prefixes,
+      workspacePath,
+    };
+  });
+}
+
+interface RepoLocalBackendSpecOptions {
+  cwd: string;
+  env: Record<string, string | undefined>;
+  exists?: (path: string) => boolean;
+}
+
+function backendPathExists(
+  path: string,
+  exists: ((path: string) => boolean) | undefined
+): Effect.Effect<boolean, unknown, RepoIoService> {
+  if (exists) {
+    return Effect.sync(() => exists(path));
+  }
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    return yield* service.exists(path);
+  });
 }
 
 function workspacePathForBackend(
   backend: McpGatewayBackend,
-  options: Pick<Required<ResolveRepoLocalBackendSpecsOptions>, "cwd" | "env">
+  options: Pick<RepoLocalBackendSpecOptions, "cwd" | "env">
 ): string {
   return backend.workspace_path_source === "PIPELINE_TARGET_PATH"
     ? options.env.PIPELINE_TARGET_PATH || options.cwd

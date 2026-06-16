@@ -1,9 +1,18 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { extname, join, relative } from "node:path";
+import { Effect } from "effect";
 import Graph from "graphology";
 import pagerank from "graphology-metrics/centrality/pagerank";
-import { Language, Parser, Query, type QueryMatch } from "web-tree-sitter";
+import {
+  type Language,
+  type Parser,
+  Query,
+  type QueryMatch,
+} from "web-tree-sitter";
+import {
+  RepoIoService,
+  RepoIoServiceLive,
+} from "../runtime/services/repo-io-service";
 import { estimateTokens as defaultEstimateTokens } from "../token-estimator";
 
 /**
@@ -74,43 +83,31 @@ const SEED_BONUS = 1;
 const WORD_RE = /[a-z_][a-z0-9_]+/gi;
 const require = createRequire(import.meta.url);
 
-let parserPromise: Promise<Parser> | null = null;
-const languageCache = new Map<string, Promise<Language>>();
 const queryCache = new Map<string, Query>();
 
-function getParser(): Promise<Parser> {
-  parserPromise ??= Parser.init().then(() => new Parser());
-  return parserPromise;
-}
-
-function loadLanguage(grammar: "javascript" | "typescript"): Promise<Language> {
-  const cached = languageCache.get(grammar);
-  if (cached) {
-    return cached;
-  }
-  const promise = Language.load(
-    require.resolve(`tree-sitter-${grammar}/tree-sitter-${grammar}.wasm`)
-  );
-  languageCache.set(grammar, promise);
-  return promise;
-}
-
-function tagsQuery(language: Language, grammar: string): Query {
+function tagsQueryEffect(
+  language: Language,
+  grammar: string
+): Effect.Effect<Query, unknown, RepoIoService> {
   const cached = queryCache.get(grammar);
   if (cached) {
-    return cached;
+    return Effect.succeed(cached);
   }
-  const js = readFileSync(
-    require.resolve("tree-sitter-javascript/queries/tags.scm"),
-    "utf8"
-  );
-  const ts = readFileSync(
-    require.resolve("tree-sitter-typescript/queries/tags.scm"),
-    "utf8"
-  );
-  const query = new Query(language, `${js}\n${ts}`);
-  queryCache.set(grammar, query);
-  return query;
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    const js = yield* service.readText(
+      require.resolve("tree-sitter-javascript/queries/tags.scm")
+    );
+    const ts = yield* service.readText(
+      require.resolve("tree-sitter-typescript/queries/tags.scm")
+    );
+    const query = yield* Effect.try({
+      catch: (error) => error,
+      try: () => new Query(language, `${js}\n${ts}`),
+    });
+    queryCache.set(grammar, query);
+    return query;
+  });
 }
 
 function grammarFor(file: string): "javascript" | "typescript" {
@@ -118,46 +115,87 @@ function grammarFor(file: string): "javascript" | "typescript" {
   return ext === ".ts" || ext === ".tsx" ? "typescript" : "javascript";
 }
 
-function discoverFiles(root: string): string[] {
-  const found: string[] = [];
-  walkDir(root, found);
-  return found.sort();
+function discoverFilesEffect(
+  root: string
+): Effect.Effect<string[], unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const found: string[] = [];
+    yield* walkDirEffect(root, found);
+    return found.sort();
+  });
 }
 
-function walkDir(dir: string, found: string[]): void {
-  for (const entry of readdirSync(dir).sort()) {
-    handleEntry(join(dir, entry), entry, found);
-  }
+function walkDirEffect(
+  dir: string,
+  found: string[]
+): Effect.Effect<void, unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    for (const entry of yield* service.readDir(dir)) {
+      yield* handleEntryEffect(join(dir, entry.name), entry.name, found);
+    }
+  });
 }
 
-function handleEntry(full: string, name: string, found: string[]): void {
+function handleEntryEffect(
+  full: string,
+  name: string,
+  found: string[]
+): Effect.Effect<void, unknown, RepoIoService> {
   if (SKIP_DIRS.has(name)) {
-    return;
+    return Effect.void;
   }
-  if (statSync(full).isDirectory()) {
-    walkDir(full, found);
-    return;
-  }
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    if (yield* service.isDirectory(full)) {
+      return yield* walkDirEffect(full, found);
+    }
+    addSourceFile(full, name, found);
+  });
+}
+
+function addSourceFile(full: string, name: string, found: string[]): void {
   if (SOURCE_EXTENSIONS.has(extname(name))) {
     found.push(full);
   }
 }
 
-async function tagFile(root: string, file: string): Promise<FileTags> {
-  const parser = await getParser();
+function tagFileEffect(
+  root: string,
+  file: string
+): Effect.Effect<FileTags, unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    const parser = yield* service.createParser();
+    const content = yield* service.readText(file);
+    return yield* parseFileTags(root, file, parser, content);
+  });
+}
+
+function parseFileTags(
+  root: string,
+  file: string,
+  parser: Parser,
+  content: string
+): Effect.Effect<FileTags, unknown, RepoIoService> {
   const grammar = grammarFor(file);
-  const language = await loadLanguage(grammar);
-  parser.setLanguage(language);
   const path = relative(root, file);
-  const tree = parser.parse(readFileSync(file, "utf8"));
-  const tags: FileTags = { definitions: [], path, references: [] };
-  if (!tree) {
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    const language = yield* service.loadLanguage(
+      require.resolve(`tree-sitter-${grammar}/tree-sitter-${grammar}.wasm`)
+    );
+    parser.setLanguage(language);
+    const tree = parser.parse(content);
+    const tags: FileTags = { definitions: [], path, references: [] };
+    const query = yield* tagsQueryEffect(language, grammar);
+    if (tree) {
+      for (const match of query.matches(tree.rootNode)) {
+        addMatch(tags, path, match);
+      }
+    }
     return tags;
-  }
-  for (const match of tagsQuery(language, grammar).matches(tree.rootNode)) {
-    addMatch(tags, path, match);
-  }
-  return tags;
+  });
 }
 
 function addMatch(tags: FileTags, path: string, match: QueryMatch): void {
@@ -353,26 +391,36 @@ function selectWithinBudget(
   return { context, estimatedTokens: estimateTokens(context), selected };
 }
 
-export async function buildRepoMapContext(
+export function buildRepoMapContext(
   input: RepoMapInput
 ): Promise<RepoMapResult> {
-  const estimateTokens = input.estimateTokens ?? defaultEstimateTokens;
-  const fileTags = await Promise.all(
-    discoverFiles(input.worktreePath).map((file) =>
-      tagFile(input.worktreePath, file)
-    )
+  return Effect.runPromise(
+    Effect.provide(buildRepoMapContextEffect(input), RepoIoServiceLive)
   );
-  const ranked = rankDefinitions(buildGraph(fileTags, input));
-  const { context, estimatedTokens, selected } = selectWithinBudget(
-    ranked,
-    input.tokenBudget,
-    estimateTokens
-  );
-  return {
-    budget: input.tokenBudget,
-    context,
-    estimatedTokens,
-    selected,
-    totalRanked: ranked.length,
-  };
+}
+
+function buildRepoMapContextEffect(
+  input: RepoMapInput
+): Effect.Effect<RepoMapResult, unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const estimateTokens = input.estimateTokens ?? defaultEstimateTokens;
+    const files = yield* discoverFilesEffect(input.worktreePath);
+    const fileTags = yield* Effect.all(
+      files.map((file) => tagFileEffect(input.worktreePath, file)),
+      { concurrency: "unbounded" }
+    );
+    const ranked = rankDefinitions(buildGraph(fileTags, input));
+    const { context, estimatedTokens, selected } = selectWithinBudget(
+      ranked,
+      input.tokenBudget,
+      estimateTokens
+    );
+    return {
+      budget: input.tokenBudget,
+      context,
+      estimatedTokens,
+      selected,
+      totalRanked: ranked.length,
+    };
+  });
 }

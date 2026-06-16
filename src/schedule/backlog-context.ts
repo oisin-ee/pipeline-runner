@@ -1,11 +1,15 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { alg, Graph } from "@dagrejs/graphlib";
+import { Effect } from "effect";
 import matter from "gray-matter";
 import type {
   BacklogWorkUnit,
   SchedulePlanningContext,
 } from "../planning/generate";
+import {
+  RepoIoService,
+  runRepoIoSync,
+} from "../runtime/services/repo-io-service";
 import { extractTicketIds } from "../task-ref";
 
 const DESCRIPTION_SECTION_RE = /## Description\s+([\s\S]*?)(?=\n## |\s*$)/;
@@ -18,38 +22,89 @@ export function loadBacklogPlanningContext(
   task: string,
   worktreePath: string
 ): SchedulePlanningContext {
-  const ticketIds = extractTicketIds(task);
-  if (ticketIds.length === 0) {
-    return { parentWorkUnits: [], workUnits: [] };
-  }
-  const tasks = readBacklogTasks(worktreePath);
-  const tasksById = new Map(tasks.map((taskFile) => [taskFile.id, taskFile]));
-  const taskGraph = backlogTaskGraph(tasks);
-  const parentWorkUnits: BacklogWorkUnit[] = [];
-  const workUnits: BacklogWorkUnit[] = [];
-  const parentIds = new Set<string>();
-  const workUnitIds = new Set<string>();
+  return runRepoIoSync(loadBacklogPlanningContextEffect(task, worktreePath));
+}
 
-  for (const ticketId of ticketIds) {
-    const taskFile = tasksById.get(ticketId);
-    if (!taskFile) {
-      continue;
+function loadBacklogPlanningContextEffect(
+  task: string,
+  worktreePath: string
+): Effect.Effect<SchedulePlanningContext, unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const ticketIds = extractTicketIds(task);
+    if (ticketIds.length === 0) {
+      return { parentWorkUnits: [], workUnits: [] };
     }
-    const descendants = descendantBacklogTasks(ticketId, taskGraph);
-    if (descendants.length === 0) {
-      addUniqueWorkUnit(taskFile.workUnit, workUnits, workUnitIds);
-      continue;
-    }
-    addUniqueWorkUnit(taskFile.workUnit, parentWorkUnits, parentIds);
-    for (const descendant of descendants) {
-      addUniqueWorkUnit(descendant.workUnit, workUnits, workUnitIds);
-    }
-  }
+    const tasks = yield* readBacklogTasksEffect(worktreePath);
+    const tasksById = new Map(tasks.map((taskFile) => [taskFile.id, taskFile]));
+    const taskGraph = backlogTaskGraph(tasks);
+    const context = emptyPlanningContext();
 
+    for (const ticketId of ticketIds) {
+      addTicketWorkUnits(ticketId, tasksById, taskGraph, context);
+    }
+
+    return {
+      parentWorkUnits: context.parentWorkUnits,
+      workUnits: context.workUnits,
+    };
+  });
+}
+
+interface BacklogPlanningAccumulator {
+  parentIds: Set<string>;
+  parentWorkUnits: BacklogWorkUnit[];
+  workUnitIds: Set<string>;
+  workUnits: BacklogWorkUnit[];
+}
+
+function emptyPlanningContext(): BacklogPlanningAccumulator {
   return {
-    parentWorkUnits,
-    workUnits,
+    parentIds: new Set<string>(),
+    parentWorkUnits: [],
+    workUnitIds: new Set<string>(),
+    workUnits: [],
   };
+}
+
+function addTicketWorkUnits(
+  ticketId: string,
+  tasksById: Map<string, BacklogTaskFile>,
+  taskGraph: Graph<undefined, BacklogTaskFile>,
+  context: BacklogPlanningAccumulator
+): void {
+  const taskFile = tasksById.get(ticketId);
+  if (!taskFile) {
+    return;
+  }
+  const descendants = descendantBacklogTasks(ticketId, taskGraph);
+  addTaskWorkUnits(taskFile, descendants, context);
+}
+
+function addTaskWorkUnits(
+  taskFile: BacklogTaskFile,
+  descendants: BacklogTaskFile[],
+  context: BacklogPlanningAccumulator
+): void {
+  if (descendants.length === 0) {
+    addUniqueWorkUnit(
+      taskFile.workUnit,
+      context.workUnits,
+      context.workUnitIds
+    );
+    return;
+  }
+  addUniqueWorkUnit(
+    taskFile.workUnit,
+    context.parentWorkUnits,
+    context.parentIds
+  );
+  for (const descendant of descendants) {
+    addUniqueWorkUnit(
+      descendant.workUnit,
+      context.workUnits,
+      context.workUnitIds
+    );
+  }
 }
 
 function backlogTaskGraph(
@@ -104,18 +159,39 @@ interface BacklogTaskFile {
   workUnit: BacklogWorkUnit;
 }
 
-function readBacklogTasks(worktreePath: string): BacklogTaskFile[] {
+function readBacklogTasksEffect(
+  worktreePath: string
+): Effect.Effect<BacklogTaskFile[], unknown, RepoIoService> {
   const tasksDir = join(worktreePath, "backlog", "tasks");
-  if (!existsSync(tasksDir)) {
-    return [];
-  }
-  return readdirSync(tasksDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .flatMap((entry) => readBacklogTaskFile(join(tasksDir, entry.name)));
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    if (!(yield* service.exists(tasksDir))) {
+      return [];
+    }
+    const entries = yield* service.readDir(tasksDir);
+    return yield* Effect.all(
+      entries
+        .filter(isMarkdownFile)
+        .map((entry) => readBacklogTaskFileEffect(join(tasksDir, entry.name)))
+    ).pipe(Effect.map((tasks) => tasks.flat()));
+  });
 }
 
-function readBacklogTaskFile(path: string): BacklogTaskFile[] {
-  const parsed = matter(readFileSync(path, "utf8"));
+function isMarkdownFile(entry: { isFile(): boolean; name: string }): boolean {
+  return entry.isFile() && entry.name.endsWith(".md");
+}
+
+function readBacklogTaskFileEffect(
+  path: string
+): Effect.Effect<BacklogTaskFile[], unknown, RepoIoService> {
+  return Effect.gen(function* () {
+    const service = yield* RepoIoService;
+    return parseBacklogTaskFile(yield* service.readText(path));
+  });
+}
+
+function parseBacklogTaskFile(source: string): BacklogTaskFile[] {
+  const parsed = matter(source);
   const id = stringFrontmatter(parsed.data.id);
   if (!id) {
     return [];
