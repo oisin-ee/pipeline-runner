@@ -1,5 +1,11 @@
-import { execa } from "execa";
+import { Effect } from "effect";
 import { loadMokaGlobalConfig } from "./moka-global-config";
+import {
+  type KubectlOptions,
+  type KubectlResult,
+  KubernetesArgoService,
+  KubernetesArgoServiceLive,
+} from "./runtime/services/kubernetes-argo-service";
 
 const DEFAULT_NAMESPACE = "momokaya-pipeline";
 const DEFAULT_RESOURCES = {
@@ -31,62 +37,67 @@ export interface DoctorResult {
   passed: boolean;
 }
 
-interface KubectlResult {
-  ok: boolean;
-  stderr: string;
-  stdout: string;
-}
-
-interface KubectlOptions {
-  kubeContext?: string;
-  kubeconfigPath?: string;
-}
-
-export async function runClusterDoctor(
+export function runClusterDoctor(
   options: ClusterDoctorOptions = {}
 ): Promise<DoctorResult> {
+  return Effect.runPromise(
+    Effect.provide(
+      Effect.suspend(() => runClusterDoctorEffect(options)),
+      KubernetesArgoServiceLive
+    )
+  );
+}
+
+function runClusterDoctorEffect(
+  options: ClusterDoctorOptions = {}
+): Effect.Effect<DoctorResult, never, KubernetesArgoService> {
   const resources = clusterResources();
   const namespace = options.namespace ?? DEFAULT_NAMESPACE;
   const kubectlOptions = {
     kubeContext: options.kubeContext,
     kubeconfigPath: options.kubeconfigPath,
   };
-  const checks = await Promise.all([
-    checkKubectlNamespace(namespace, kubectlOptions),
-    ...secretChecks(namespace, kubectlOptions, resources),
-    checkExternalSecret(
-      namespace,
-      resources.eventAuthExternalSecretName,
-      resources.externalSecretRemoteRef,
-      kubectlOptions
-    ),
-    checkClusterSecretStore("openbao", kubectlOptions),
-    checkServiceAccount(
-      namespace,
-      resources.serviceAccountName,
-      kubectlOptions
-    ),
-    checkWorkflowSubmitPermission(namespace, {
-      resource: "workflows.argoproj.io",
-      verb: "create",
-      ...kubectlOptions,
-    }),
-    checkClusterResource(
-      "argo-workflow-crd",
-      ["get", "crd", "workflows.argoproj.io"],
-      kubectlOptions
-    ),
-    checkClusterResource(
-      "argo-workflow-controller",
-      ["get", "pods", "-A", "-l", "app=workflow-controller"],
-      kubectlOptions
-    ),
-  ]);
+  return Effect.gen(function* () {
+    const checks = yield* Effect.all(
+      [
+        checkKubectlNamespace(namespace, kubectlOptions),
+        ...secretChecks(namespace, kubectlOptions, resources),
+        checkExternalSecret(
+          namespace,
+          resources.eventAuthExternalSecretName,
+          resources.externalSecretRemoteRef,
+          kubectlOptions
+        ),
+        checkClusterSecretStore("openbao", kubectlOptions),
+        checkServiceAccount(
+          namespace,
+          resources.serviceAccountName,
+          kubectlOptions
+        ),
+        checkWorkflowSubmitPermission(namespace, {
+          resource: "workflows.argoproj.io",
+          verb: "create",
+          ...kubectlOptions,
+        }),
+        checkClusterResource(
+          "argo-workflow-crd",
+          ["get", "crd", "workflows.argoproj.io"],
+          kubectlOptions
+        ),
+        checkClusterResource(
+          "argo-workflow-controller",
+          ["get", "pods", "-A", "-l", "app=workflow-controller"],
+          kubectlOptions
+        ),
+      ],
+      { concurrency: "unbounded" }
+    );
 
-  return {
-    checks,
-    passed: checks.every((check) => check.passed),
-  };
+    return {
+      checks,
+      passed: checks.every((check) => check.passed),
+    };
+  });
 }
 
 export function defaultClusterDoctorNamespace(): string {
@@ -112,7 +123,7 @@ function secretChecks(
   namespace: string,
   kubectlOptions: KubectlOptions,
   resources: typeof DEFAULT_RESOURCES
-): Promise<DoctorCheck>[] {
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService>[] {
   return [
     [resources.eventAuthSecretName, eventAuthMissingDetail(namespace)],
     [
@@ -148,7 +159,7 @@ function eventAuthMissingDetail(namespace: string): string {
 function checkKubectlNamespace(
   namespace: string,
   kubectlOptions: KubectlOptions
-): Promise<DoctorCheck> {
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService> {
   return checkNamespacedResource(
     `namespace/${namespace}`,
     ["get", "namespace", namespace],
@@ -157,75 +168,84 @@ function checkKubectlNamespace(
   );
 }
 
-async function checkNamespacedResource(
+function checkNamespacedResource(
   name: string,
   args: string[],
   missingDetail: string,
   kubectlOptions: KubectlOptions
-): Promise<DoctorCheck> {
-  const result = await kubectl(args, kubectlOptions);
-  return result.ok
-    ? { detail: "present", name, passed: true }
-    : {
-        detail: inaccessibleOrMissingDetail(name, missingDetail, result),
-        name,
-        passed: false,
-      };
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService> {
+  return kubectl(args, kubectlOptions).pipe(
+    Effect.map((result) =>
+      result.ok
+        ? { detail: "present", name, passed: true }
+        : {
+            detail: inaccessibleOrMissingDetail(name, missingDetail, result),
+            name,
+            passed: false,
+          }
+    )
+  );
 }
 
-async function checkExternalSecret(
+function checkExternalSecret(
   namespace: string,
   name: string,
   remoteRef: string,
   kubectlOptions: KubectlOptions
-): Promise<DoctorCheck> {
-  const result = await kubectl(
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService> {
+  return kubectl(
     ["get", "externalsecret", name, "-n", namespace, "-o", "json"],
     kubectlOptions
+  ).pipe(
+    Effect.map((result) => {
+      if (!result.ok) {
+        const missingDetail = `ExternalSecret ${name} missing in ${namespace}; expected it to sync ${remoteRef}.`;
+        return {
+          detail: inaccessibleOrMissingDetail(
+            `externalsecret/${name}`,
+            missingDetail,
+            result
+          ),
+          name: `externalsecret/${name}`,
+          passed: false,
+        };
+      }
+      return readyConditionCheck(`externalsecret/${name}`, result.stdout);
+    })
   );
-  if (!result.ok) {
-    const missingDetail = `ExternalSecret ${name} missing in ${namespace}; expected it to sync ${remoteRef}.`;
-    return {
-      detail: inaccessibleOrMissingDetail(
-        `externalsecret/${name}`,
-        missingDetail,
-        result
-      ),
-      name: `externalsecret/${name}`,
-      passed: false,
-    };
-  }
-  return readyConditionCheck(`externalsecret/${name}`, result.stdout);
 }
 
-async function checkClusterSecretStore(
+function checkClusterSecretStore(
   name: string,
   kubectlOptions: KubectlOptions
-): Promise<DoctorCheck> {
-  const result = await kubectl(
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService> {
+  return kubectl(
     ["get", "clustersecretstore", name, "-o", "json"],
     kubectlOptions
+  ).pipe(
+    Effect.map((result) => {
+      if (!result.ok) {
+        const missingDetail = `ClusterSecretStore/${name} missing or inaccessible; OpenBao/ESO readiness is an external prerequisite.`;
+        return {
+          detail: inaccessibleOrMissingDetail(
+            `clustersecretstore/${name}`,
+            missingDetail,
+            result
+          ),
+          name: `clustersecretstore/${name}`,
+          passed: false,
+        };
+      }
+      return readyConditionCheck(`clustersecretstore/${name}`, result.stdout);
+    })
   );
-  if (!result.ok) {
-    const missingDetail = `ClusterSecretStore/${name} missing or inaccessible; OpenBao/ESO readiness is an external prerequisite.`;
-    return {
-      detail: inaccessibleOrMissingDetail(
-        `clustersecretstore/${name}`,
-        missingDetail,
-        result
-      ),
-      name: `clustersecretstore/${name}`,
-      passed: false,
-    };
-  }
-  return readyConditionCheck(`clustersecretstore/${name}`, result.stdout);
 }
 
 function checkServiceAccount(
   namespace: string,
   name: string,
   kubectlOptions: KubectlOptions
-): Promise<DoctorCheck> {
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService> {
   return checkNamespacedResource(
     `serviceaccount/${name}`,
     ["get", "serviceaccount", name, "-n", namespace],
@@ -234,7 +254,7 @@ function checkServiceAccount(
   );
 }
 
-async function checkWorkflowSubmitPermission(
+function checkWorkflowSubmitPermission(
   namespace: string,
   options: {
     kubeContext?: string;
@@ -242,90 +262,75 @@ async function checkWorkflowSubmitPermission(
     resource: string;
     verb: string;
   }
-): Promise<DoctorCheck> {
-  const result = await kubectl(
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService> {
+  return kubectl(
     ["auth", "can-i", options.verb, options.resource, "-n", namespace],
     options
+  ).pipe(
+    Effect.map((result) =>
+      result.stdout.trim() === "yes"
+        ? {
+            detail: `current kube identity can ${options.verb} ${options.resource}`,
+            name: "rbac/workflow-create",
+            passed: true,
+          }
+        : {
+            detail: `current kube identity cannot ${options.verb} ${options.resource}; check submitter RBAC for Workflow creation.`,
+            name: "rbac/workflow-create",
+            passed: false,
+          }
+    )
   );
-  return result.stdout.trim() === "yes"
-    ? {
-        detail: `current kube identity can ${options.verb} ${options.resource}`,
-        name: "rbac/workflow-create",
-        passed: true,
-      }
-    : {
-        detail: `current kube identity cannot ${options.verb} ${options.resource}; check submitter RBAC for Workflow creation.`,
-        name: "rbac/workflow-create",
-        passed: false,
-      };
 }
 
-async function checkClusterResource(
+function checkClusterResource(
   name: string,
   args: string[],
   kubectlOptions: KubectlOptions
-): Promise<DoctorCheck> {
-  const result = await kubectl(args, kubectlOptions);
-  return result.ok
-    ? { detail: "present", name, passed: true }
-    : {
-        detail: isForbidden(result)
-          ? inaccessibleDetail(name, result)
-          : result.stderr || "missing or inaccessible",
-        name,
-        passed: false,
-      };
+): Effect.Effect<DoctorCheck, never, KubernetesArgoService> {
+  return kubectl(args, kubectlOptions).pipe(
+    Effect.map((result) =>
+      result.ok
+        ? { detail: "present", name, passed: true }
+        : {
+            detail: isForbidden(result)
+              ? inaccessibleDetail(name, result)
+              : result.stderr || "missing or inaccessible",
+            name,
+            passed: false,
+          }
+    )
+  );
+}
+
+function findReadyCondition(source: string): Condition | undefined {
+  const status = parseJson(source) as { status?: { conditions?: Condition[] } };
+  return status.status?.conditions?.find(
+    (condition) => condition.type === "Ready"
+  );
+}
+
+function readyDetail(ready: Condition | undefined, passed: boolean): string {
+  const fallback = passed
+    ? "Ready=True"
+    : "Ready condition is missing or not True";
+  return ready?.message || fallback;
 }
 
 function readyConditionCheck(name: string, source: string): DoctorCheck {
-  const status = parseJson(source) as { status?: { conditions?: Condition[] } };
-  const ready = status.status?.conditions?.find(
-    (condition) => condition.type === "Ready"
-  );
-  return ready?.status === "True"
-    ? { detail: ready.message || "Ready=True", name, passed: true }
-    : {
-        detail: ready?.message || "Ready condition is missing or not True",
-        name,
-        passed: false,
-      };
+  const ready = findReadyCondition(source);
+  const passed = ready?.status === "True";
+  return { detail: readyDetail(ready, passed), name, passed };
 }
 
-async function kubectl(
+function kubectl(
   args: string[],
   options: KubectlOptions
-): Promise<KubectlResult> {
-  try {
-    const result = await execa(
-      "kubectl",
-      kubectlArgs(args, options.kubeContext),
-      {
-        env: options.kubeconfigPath
-          ? { KUBECONFIG: options.kubeconfigPath }
-          : undefined,
-        stdin: "ignore",
-      }
-    );
-    return { ok: true, stderr: result.stderr, stdout: result.stdout };
-  } catch (err) {
-    const error = err as {
-      shortMessage?: string;
-      stderr?: string;
-      stdout?: string;
-    };
-    return {
-      ok: false,
-      stderr: (error.stderr || error.shortMessage || "kubectl failed").trim(),
-      stdout: (error.stdout || "").trim(),
-    };
-  }
-}
-
-function kubectlArgs(
-  args: string[],
-  kubeContext: string | undefined
-): string[] {
-  return kubeContext ? ["--context", kubeContext, ...args] : args;
+): Effect.Effect<KubectlResult, never, KubernetesArgoService> {
+  return Effect.gen(function* () {
+    const service = yield* KubernetesArgoService;
+    return yield* service.kubectl(args, options);
+  });
 }
 
 function inaccessibleOrMissingDetail(

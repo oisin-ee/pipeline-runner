@@ -1,9 +1,5 @@
 import { randomBytes } from "node:crypto";
-import {
-  CoreV1Api,
-  CustomObjectsApi,
-  KubeConfig,
-} from "@kubernetes/client-node";
+import { Effect } from "effect";
 import { stringify } from "yaml";
 import { z } from "zod";
 import {
@@ -27,6 +23,13 @@ import {
   type RunnerCommandPayload,
   runnerCommandPayloadSchema,
 } from "./runner-command-contract";
+import {
+  type CoreApi,
+  type KubernetesArgoIoDependencies,
+  KubernetesArgoService,
+  KubernetesArgoServiceLive,
+  type WorkflowApi,
+} from "./runtime/services/kubernetes-argo-service";
 import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
 const scheduleIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/);
@@ -94,19 +97,34 @@ export type CommandScheduleOptions = z.input<
   typeof commandScheduleOptionsSchema
 >;
 
-type CoreApi = Pick<CoreV1Api, "createNamespacedConfigMap">;
-type WorkflowApi = Pick<CustomObjectsApi, "createNamespacedCustomObject">;
-
 export interface SubmitRunnerArgoWorkflowDependencies {
   coreApi?: CoreApi;
-  kubeConfig?: KubeConfig;
+  kubeConfig?: KubernetesArgoIoDependencies["kubeConfig"];
   workflowApi?: WorkflowApi;
 }
 
-export async function submitRunnerArgoWorkflow(
+export function submitRunnerArgoWorkflow(
   rawOptions: SubmitRunnerArgoWorkflowOptions,
   dependencies: SubmitRunnerArgoWorkflowDependencies = {}
 ): Promise<SubmitRunnerArgoWorkflowResult> {
+  return Effect.runPromise(
+    Effect.provide(
+      Effect.suspend(() =>
+        submitRunnerArgoWorkflowEffect(rawOptions, dependencies)
+      ),
+      KubernetesArgoServiceLive
+    )
+  );
+}
+
+function submitRunnerArgoWorkflowEffect(
+  rawOptions: SubmitRunnerArgoWorkflowOptions,
+  dependencies: SubmitRunnerArgoWorkflowDependencies
+): Effect.Effect<
+  SubmitRunnerArgoWorkflowResult,
+  unknown,
+  KubernetesArgoService
+> {
   const { config, ...schemaOptions } = rawOptions;
   const options = submitRunnerArgoWorkflowOptionsSchema.parse(schemaOptions);
   const parsedPayload = runnerCommandPayloadSchema.parse(
@@ -128,7 +146,14 @@ export async function submitRunnerArgoWorkflow(
       `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`
     );
   }
-  const graph = compileSubmitArgoGraph(compiled);
+  const graphEffect = compileSubmitArgoGraph(compiled).pipe(
+    Effect.mapError(
+      (error) =>
+        new Error(
+          `Schedule '${compiled.workflowId}' cannot be submitted: ${error.message}`
+        )
+    )
+  );
   const labels = {
     "pipeline.oisin.dev/project": payload.run.project,
     "pipeline.oisin.dev/run-id": payload.run.id,
@@ -163,76 +188,84 @@ export async function submitRunnerArgoWorkflow(
     serviceAccountName: options.serviceAccountName,
     taskDescriptorConfigMapName,
   });
-  const { coreApi, workflowApi } = apiClients(options, dependencies);
-  await coreApi.createNamespacedConfigMap({
-    body: configMapSchema.parse({
-      apiVersion: "v1",
-      data: { "payload.json": payloadJson },
-      kind: "ConfigMap",
-      metadata: {
-        labels,
-        name: payloadConfigMapName,
-        namespace: options.namespace,
-      },
-    }),
-    namespace: options.namespace,
-  });
-  await coreApi.createNamespacedConfigMap({
-    body: configMapSchema.parse({
-      apiVersion: "v1",
-      data: Object.fromEntries(
-        graph.tasks.map((task) => [
-          `${task.taskName}.json`,
-          `${JSON.stringify(buildRunnerTaskDescriptor(task.nodeId))}\n`,
-        ])
-      ),
-      kind: "ConfigMap",
-      metadata: {
-        labels,
-        name: taskDescriptorConfigMapName,
-        namespace: options.namespace,
-      },
-    }),
-    namespace: options.namespace,
-  });
-  await coreApi.createNamespacedConfigMap({
-    body: configMapSchema.parse({
-      apiVersion: "v1",
-      data: { "schedule.yaml": options.scheduleYaml },
-      kind: "ConfigMap",
-      metadata: {
-        labels,
-        name: scheduleArtifactConfigMapName,
-        namespace: options.namespace,
-      },
-    }),
-    namespace: options.namespace,
-  });
-  const response = await workflowApi.createNamespacedCustomObject({
-    body: runnerArgoWorkflowManifestSchema.parse(workflow),
-    group: "argoproj.io",
-    namespace: options.namespace,
-    plural: "workflows",
-    version: "v1alpha1",
-  });
-  const created = z
-    .object({
-      metadata: z
-        .object({
-          name: z.string().min(1).optional(),
-          uid: z.string().min(1).optional(),
-        })
-        .passthrough(),
-    })
-    .passthrough()
-    .parse(response);
-  return workflowSubmitResultSchema.parse({
-    namespace: options.namespace,
-    payloadConfigMapName,
-    scheduleConfigMapName: scheduleArtifactConfigMapName,
-    taskDescriptorConfigMapName,
-    workflowName: created.metadata.name ?? workflow.metadata.name,
-    workflowUid: created.metadata.uid,
+  return Effect.gen(function* () {
+    const service = yield* KubernetesArgoService;
+    const graph = yield* graphEffect;
+    yield* service.createConfigMap({
+      body: configMapSchema.parse({
+        apiVersion: "v1",
+        data: { "payload.json": payloadJson },
+        kind: "ConfigMap",
+        metadata: {
+          labels,
+          name: payloadConfigMapName,
+          namespace: options.namespace,
+        },
+      }),
+      dependencies,
+      namespace: options.namespace,
+      options,
+    });
+    yield* service.createConfigMap({
+      body: configMapSchema.parse({
+        apiVersion: "v1",
+        data: Object.fromEntries(
+          graph.tasks.map((task) => [
+            `${task.taskName}.json`,
+            `${JSON.stringify(buildRunnerTaskDescriptor(task.nodeId))}\n`,
+          ])
+        ),
+        kind: "ConfigMap",
+        metadata: {
+          labels,
+          name: taskDescriptorConfigMapName,
+          namespace: options.namespace,
+        },
+      }),
+      dependencies,
+      namespace: options.namespace,
+      options,
+    });
+    yield* service.createConfigMap({
+      body: configMapSchema.parse({
+        apiVersion: "v1",
+        data: { "schedule.yaml": options.scheduleYaml },
+        kind: "ConfigMap",
+        metadata: {
+          labels,
+          name: scheduleArtifactConfigMapName,
+          namespace: options.namespace,
+        },
+      }),
+      dependencies,
+      namespace: options.namespace,
+      options,
+    });
+    const response = yield* service.createWorkflow({
+      body: runnerArgoWorkflowManifestSchema.parse(workflow),
+      dependencies,
+      namespace: options.namespace,
+      options,
+    });
+    const created = z
+      .object({
+        metadata: z
+          .object({
+            name: z.string().min(1).optional(),
+            uid: z.string().min(1).optional(),
+          })
+          .passthrough(),
+      })
+      .passthrough()
+      .parse(response);
+    return workflowSubmitResultSchema.parse({
+      namespace: options.namespace,
+      payloadConfigMapName,
+      scheduleConfigMapName: scheduleArtifactConfigMapName,
+      taskDescriptorConfigMapName,
+      workflowName: created.metadata.name ?? workflow.metadata.name,
+      workflowUid: created.metadata.uid,
+    });
   });
 }
 
@@ -283,40 +316,17 @@ function normalizeRunnerPayloadForSubmit(input: {
 
 function compileSubmitArgoGraph(
   compiled: CompiledScheduleArtifact
-): ReturnType<typeof compileArgoExecutionGraph> {
-  try {
-    return compileArgoExecutionGraph(compiled.plan);
-  } catch (err) {
-    if (err instanceof ArgoGraphCompilerError) {
-      throw new Error(
-        `Schedule '${compiled.workflowId}' cannot be submitted: ${err.message}`
-      );
-    }
-    throw err;
-  }
-}
-
-function apiClients(
-  options: z.output<typeof submitRunnerArgoWorkflowOptionsSchema>,
-  dependencies: SubmitRunnerArgoWorkflowDependencies
-): { coreApi: CoreApi; workflowApi: WorkflowApi } {
-  if (dependencies.coreApi && dependencies.workflowApi) {
-    return {
-      coreApi: dependencies.coreApi,
-      workflowApi: dependencies.workflowApi,
-    };
-  }
-  const kubeConfig = dependencies.kubeConfig ?? new KubeConfig();
-  if (!dependencies.kubeConfig) {
-    if (options.kubeconfigPath) {
-      kubeConfig.loadFromFile(options.kubeconfigPath);
-    } else {
-      kubeConfig.loadFromDefault();
-    }
-  }
-  return {
-    coreApi: dependencies.coreApi ?? kubeConfig.makeApiClient(CoreV1Api),
-    workflowApi:
-      dependencies.workflowApi ?? kubeConfig.makeApiClient(CustomObjectsApi),
-  };
+): Effect.Effect<
+  ReturnType<typeof compileArgoExecutionGraph>,
+  ArgoGraphCompilerError
+> {
+  return Effect.try({
+    try: () => compileArgoExecutionGraph(compiled.plan),
+    catch: (error) => {
+      if (error instanceof ArgoGraphCompilerError) {
+        return error;
+      }
+      throw error;
+    },
+  });
 }
