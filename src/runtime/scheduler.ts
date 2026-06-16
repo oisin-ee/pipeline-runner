@@ -1,3 +1,4 @@
+import { Effect, Fiber, Queue } from "effect";
 import { uniqueStrings } from "../strings";
 import type {
   PipelineRuntimeResult,
@@ -54,13 +55,27 @@ export interface WorkflowSchedulerRunResult {
   outcome: PipelineRuntimeResult["outcome"];
 }
 
-interface RunningNode {
-  nodeId: string;
-  promise: Promise<RuntimeNodeResult>;
+type ActiveSchedulerState = Required<
+  Pick<WorkflowSchedulerState, "blocked" | "completed">
+> &
+  Omit<WorkflowSchedulerState, "blocked" | "completed">;
+
+// A node fiber reports exactly one terminal outcome onto the completion queue:
+// either its result, or the error its runNode promise rejected with.
+type NodeOutcome =
+  | { kind: "ok"; result: RuntimeNodeResult }
+  | { error: unknown; kind: "error" };
+
+interface SchedulerContext {
+  completions: Queue.Queue<NodeOutcome>;
+  failure?: RuntimeFailure;
+  input: WorkflowSchedulerInput;
+  running: Map<string, Fiber.RuntimeFiber<void>>;
+  state: ActiveSchedulerState;
 }
 
 // PIPE-83.10: journal interactions are factored out so the durability seam adds
-// no branches to the hot scheduler loop.
+// no branches to the scheduler loop.
 function resumeFromJournal(input: WorkflowSchedulerInput): RuntimeNodeResult[] {
   return input.journal?.resumeCompleted() ?? [];
 }
@@ -72,11 +87,10 @@ function recordToJournal(
   input.journal?.record(result);
 }
 
-export async function runWorkflowScheduler(
+function initialSchedulerState(
   input: WorkflowSchedulerInput
-): Promise<WorkflowSchedulerRunResult> {
-  const state: Required<Pick<WorkflowSchedulerState, "blocked" | "completed">> &
-    Omit<WorkflowSchedulerState, "blocked" | "completed"> = {
+): ActiveSchedulerState {
+  return {
     blocked: [],
     completed: resumeFromJournal(input),
     failFast: input.failFast,
@@ -86,60 +100,163 @@ export async function runWorkflowScheduler(
     running: [],
     shouldContinueAfterNodeResult: input.shouldContinueAfterNodeResult,
   };
-  const running = new Map<string, RunningNode>();
-  let failure: RuntimeFailure | undefined;
+}
 
-  while (true) {
-    if (input.isCancelled()) {
-      return { completed: state.completed, outcome: "CANCELLED" };
+function cancelledResult(
+  state: ActiveSchedulerState
+): WorkflowSchedulerRunResult {
+  return { completed: state.completed, outcome: "CANCELLED" };
+}
+
+function terminalResult(
+  state: ActiveSchedulerState,
+  failure: RuntimeFailure | undefined
+): WorkflowSchedulerRunResult {
+  return {
+    completed: state.completed,
+    failure,
+    outcome: failure ? "FAIL" : "PASS",
+  };
+}
+
+function nodeErrorResult(
+  state: ActiveSchedulerState,
+  error: unknown
+): WorkflowSchedulerRunResult {
+  return {
+    completed: state.completed,
+    failure: workflowServiceFailure(error, "workflow.node"),
+    outcome: "FAIL",
+  };
+}
+
+// PIPE-83.10: the engine runs on Effect — each node is a forked fiber that
+// reports its terminal outcome onto a completion queue. `Queue.take` replaces
+// the hand-rolled `Promise.race`, and structured concurrency interrupts the
+// in-flight fibers on cancellation or a node-level defect.
+function runNodeFiber(
+  ctx: SchedulerContext,
+  nodeId: string
+): Effect.Effect<void> {
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => ctx.input.runNode(nodeId),
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) =>
+        Queue.offer(ctx.completions, { error, kind: "error" }),
+      onSuccess: (result) =>
+        Queue.offer(ctx.completions, { kind: "ok", result }),
+    })
+  );
+}
+
+function launchReady(ctx: SchedulerContext): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const capacity = workflowNodeCapacity(ctx.state);
+    if (capacity <= 0) {
+      return;
     }
-
-    launchReadyNodes(input, state, running);
-
-    if (running.size === 0) {
-      return {
-        completed: state.completed,
-        failure,
-        outcome: failure ? "FAIL" : "PASS",
-      };
+    for (const nodeId of selectLaunchableNodes(ctx.state, capacity)) {
+      ctx.input.markNodeReady(nodeId);
+      ctx.state.running = [...ctx.state.running, nodeId];
+      const fiber = yield* Effect.fork(runNodeFiber(ctx, nodeId));
+      ctx.running.set(nodeId, fiber);
     }
+  });
+}
 
-    let result: RuntimeNodeResult;
-    try {
-      result = await Promise.race(
-        [...running.values()].map(({ promise }) => promise)
-      );
-    } catch (error: unknown) {
-      return {
-        completed: state.completed,
-        failure: workflowServiceFailure(error, "workflow.node"),
-        outcome: "FAIL",
-      };
-    }
-
-    running.delete(result.nodeId);
-    state.running = state.running.filter((nodeId) => nodeId !== result.nodeId);
-    state.completed = [...state.completed, result];
-    recordToJournal(input, result);
-
-    if (!isBlockingFailure(result, state)) {
-      continue;
-    }
-
-    failure ??= nodeRuntimeFailure(result);
-    if (input.failFast) {
-      const reason = `skipped because workflow fail_fast stopped after node '${result.nodeId}' failed`;
-      const skipped = unstartedNodeIds(state);
-      state.blocked = uniqueStrings([...state.blocked, ...skipped]);
-      for (const nodeId of skipped) {
-        input.skipNode(nodeId, reason);
-      }
-      continue;
-    }
-
-    const blocked = unstartedBlockingDescendants(result.nodeId, state);
-    state.blocked = uniqueStrings([...state.blocked, ...blocked]);
+function applyFailFastSkip(
+  ctx: SchedulerContext,
+  result: RuntimeNodeResult
+): void {
+  const reason = `skipped because workflow fail_fast stopped after node '${result.nodeId}' failed`;
+  const skipped = unstartedNodeIds(ctx.state);
+  ctx.state.blocked = uniqueStrings([...ctx.state.blocked, ...skipped]);
+  for (const nodeId of skipped) {
+    ctx.input.skipNode(nodeId, reason);
   }
+}
+
+// Fold one completed node into the run state (mutates ctx), mirroring the prior
+// loop body: record it, then on a blocking failure either fail-fast-skip the
+// rest or block its descendants.
+function applyCompletion(
+  ctx: SchedulerContext,
+  result: RuntimeNodeResult
+): void {
+  ctx.running.delete(result.nodeId);
+  ctx.state.running = ctx.state.running.filter((id) => id !== result.nodeId);
+  ctx.state.completed = [...ctx.state.completed, result];
+  recordToJournal(ctx.input, result);
+  if (!isBlockingFailure(result, ctx.state)) {
+    return;
+  }
+  ctx.failure ??= nodeRuntimeFailure(result);
+  if (ctx.input.failFast) {
+    applyFailFastSkip(ctx, result);
+    return;
+  }
+  const blocked = unstartedBlockingDescendants(result.nodeId, ctx.state);
+  ctx.state.blocked = uniqueStrings([...ctx.state.blocked, ...blocked]);
+}
+
+function applyOutcome(
+  ctx: SchedulerContext,
+  outcome: NodeOutcome
+): Effect.Effect<WorkflowSchedulerRunResult | undefined> {
+  return Effect.gen(function* () {
+    if (outcome.kind === "error") {
+      yield* Fiber.interruptAll(ctx.running.values());
+      return nodeErrorResult(ctx.state, outcome.error);
+    }
+    applyCompletion(ctx, outcome.result);
+    return;
+  });
+}
+
+// One scheduler tick: stop if cancelled, launch newly-ready nodes within the
+// caps, then either drain (no fibers left) or await the next completion.
+function schedulerTick(
+  ctx: SchedulerContext
+): Effect.Effect<WorkflowSchedulerRunResult | undefined> {
+  return Effect.gen(function* () {
+    if (ctx.input.isCancelled()) {
+      yield* Fiber.interruptAll(ctx.running.values());
+      return cancelledResult(ctx.state);
+    }
+    yield* launchReady(ctx);
+    if (ctx.running.size === 0) {
+      return terminalResult(ctx.state, ctx.failure);
+    }
+    const outcome = yield* Queue.take(ctx.completions);
+    return yield* applyOutcome(ctx, outcome);
+  });
+}
+
+function schedulerProgram(
+  input: WorkflowSchedulerInput
+): Effect.Effect<WorkflowSchedulerRunResult> {
+  return Effect.gen(function* () {
+    const ctx: SchedulerContext = {
+      completions: yield* Queue.unbounded<NodeOutcome>(),
+      input,
+      running: new Map<string, Fiber.RuntimeFiber<void>>(),
+      state: initialSchedulerState(input),
+    };
+    while (true) {
+      const done = yield* schedulerTick(ctx);
+      if (done) {
+        return done;
+      }
+    }
+  });
+}
+
+export function runWorkflowScheduler(
+  input: WorkflowSchedulerInput
+): Promise<WorkflowSchedulerRunResult> {
+  return Effect.runPromise(schedulerProgram(input));
 }
 
 // Nodes already completed or in flight — i.e. claimed, never re-launchable.
@@ -190,22 +307,6 @@ function unstartedBlockingDescendants(
     .map((node) => node.id)
     .filter((descendantId) => descendants.has(descendantId))
     .filter((descendantId) => unstarted.has(descendantId));
-}
-
-function launchReadyNodes(
-  input: WorkflowSchedulerInput,
-  state: WorkflowSchedulerState,
-  running: Map<string, RunningNode>
-): void {
-  const capacity = workflowNodeCapacity(state);
-  if (capacity <= 0) {
-    return;
-  }
-  for (const nodeId of selectLaunchableNodes(state, capacity)) {
-    input.markNodeReady(nodeId);
-    state.running = [...state.running, nodeId];
-    running.set(nodeId, { nodeId, promise: input.runNode(nodeId) });
-  }
 }
 
 /**
