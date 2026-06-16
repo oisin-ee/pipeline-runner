@@ -795,6 +795,10 @@ const bestOfNSchema = z
   .object({
     categories: z.array(z.string()).default(["green"]),
     enabled: z.boolean().default(false),
+    // PIPE-83.9: when set, the select-candidate builtin scores each candidate
+    // with this model (hybrid with the execution/test signal). Unset = the
+    // deterministic status-only selection.
+    judge_model: z.string().optional(),
     n: z.number().int().positive().default(1),
   })
   .strict();

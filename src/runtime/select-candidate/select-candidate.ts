@@ -1,6 +1,11 @@
+import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
+import { createRunnerLaunchPlan, type RunnerLaunchPlan } from "../../runner";
+import { normalizeRunnerOutput } from "../../runner-output";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { parseJsonObject } from "../json-validation";
+
+const SCORE_RE = /-?\d+(?:\.\d+)?/;
 
 /**
  * PIPE-83.9: select-candidate builtin. Sits between a best-of-N kind:parallel
@@ -8,10 +13,10 @@ import { parseJsonObject } from "../json-validation";
  * score (execution status PASS/FAIL + an optional LLM judge score), and emits
  * the winning candidate's output so downstream sees one selected result.
  *
- * v1 selection is deterministic: prefer a PASS candidate, break ties by the
- * highest judge score (when present), and FAIL the node when no candidate
- * passes. The LLM-judge half writes `judge_score` into a candidate's output;
- * wiring that model call is a follow-up — the scoring already consumes it.
+ * Selection prefers a PASS candidate, breaks ties by the highest judge score,
+ * and FAILs the node when no candidate passes (no silent self-fix). When
+ * best_of_n.judge_model is set, each candidate is scored by that model (a
+ * read-only judge call); otherwise selection is status-only.
  */
 export interface Candidate {
   judgeScore: number | null;
@@ -31,11 +36,14 @@ export function selectBestCandidate(candidates: Candidate[]): Candidate | null {
   );
 }
 
-export function executeSelectCandidateBuiltin(
+export async function executeSelectCandidateBuiltin(
   context: RuntimeContext,
   node?: PlannedWorkflowNode
-): NodeAttemptResult {
-  const candidates = readCandidates(context, node?.needs.at(0) ?? null);
+): Promise<NodeAttemptResult> {
+  const candidates = await scoreCandidates(
+    context,
+    readCandidates(context, node?.needs.at(0) ?? null)
+  );
   const selected = selectBestCandidate(candidates);
   if (!selected) {
     return {
@@ -54,6 +62,88 @@ export function executeSelectCandidateBuiltin(
     exitCode: 0,
     output: selected.output,
   };
+}
+
+async function scoreCandidates(
+  context: RuntimeContext,
+  candidates: Candidate[]
+): Promise<Candidate[]> {
+  const model = context.config.best_of_n?.judge_model;
+  const runner = Object.keys(context.config.runners).at(0);
+  if (!(model && runner)) {
+    return candidates;
+  }
+  return await Promise.all(
+    candidates.map((candidate) =>
+      scoreCandidate(context, candidate, runner, model)
+    )
+  );
+}
+
+async function scoreCandidate(
+  context: RuntimeContext,
+  candidate: Candidate,
+  runner: string,
+  model: string
+): Promise<Candidate> {
+  const plan = judgePlan(context, candidate, runner, model);
+  context.agentInvocations.push(plan);
+  const result = await context.executor(plan, { signal: context.signal });
+  const judgeScore = parseScore(
+    normalizeRunnerOutput(plan, result.stdout).output
+  );
+  return judgeScore === null ? candidate : { ...candidate, judgeScore };
+}
+
+function judgePlan(
+  context: RuntimeContext,
+  candidate: Candidate,
+  runner: string,
+  model: string
+): RunnerLaunchPlan {
+  const profileId = `select-candidate:judge:${candidate.nodeId}`;
+  const config: PipelineConfig = {
+    ...context.config,
+    profiles: {
+      ...context.config.profiles,
+      [profileId]: {
+        filesystem: { mode: "read-only" },
+        instructions: { inline: "Score the candidate implementation." },
+        network: { mode: "disabled" },
+        output: { format: "text" },
+        runner,
+        tools: [],
+      },
+    },
+  };
+  return createRunnerLaunchPlan(config, {
+    model,
+    nodeId: profileId,
+    profileId,
+    prompt: judgePrompt(context.task, candidate.output),
+    worktreePath: context.worktreePath,
+  });
+}
+
+function judgePrompt(task: string, output: string): string {
+  return [
+    "Score how well this candidate implementation satisfies the task.",
+    "Return ONLY a number between 0 and 1 (1 = best). No prose, no fences.",
+    "",
+    `Task: ${task}`,
+    "",
+    "Candidate result:",
+    output,
+  ].join("\n");
+}
+
+function parseScore(text: string): number | null {
+  const match = SCORE_RE.exec(text);
+  if (!match) {
+    return null;
+  }
+  const value = Number(match[0]);
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
 }
 
 function readCandidates(
