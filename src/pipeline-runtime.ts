@@ -862,18 +862,39 @@ function cancelledRetry(
   };
 }
 
+// Effect's Effect.tryPromise wraps the real rejection in an UnknownException
+// (whose own .message is the generic "An unknown error occurred in
+// Effect.tryPromise"), and Effect.runPromise rejects with a FiberFailure whose
+// .message is the pretty-printed cause. Unwrap both so a failed node surfaces the
+// REAL cause as evidence instead of the opaque wrapper (the pre-Effect behaviour).
+function unwrapAttemptError(error: unknown): unknown {
+  const wrapped = error as { error?: unknown };
+  const inner = wrapped?.error;
+  return inner !== undefined && inner !== error ? inner : error;
+}
+
+function attemptErrorMessage(error: unknown): string {
+  const inner = unwrapAttemptError(error);
+  if (inner !== error) {
+    return attemptErrorMessage(inner);
+  }
+  return error instanceof Error && error.message
+    ? error.message
+    : String(error);
+}
+
 function failedAttemptRetry(
   nodeId: string,
   attempt: number,
   last: NodeAttemptResult,
   err: unknown
 ): NodeAttemptRetry {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = attemptErrorMessage(err);
   return {
     attempt,
     evidence: [...last.evidence, message],
     gate: nodeId,
-    reason: err instanceof Error ? err.message : "node retry failed",
+    reason: message,
     retryReason: nodeRetryReason(last),
   };
 }
@@ -1827,25 +1848,31 @@ function executeAgentAttempt(
   context: RuntimeContext,
   attempt: number
 ): Effect.Effect<NodeAttemptResult, unknown> {
-  return Effect.tryPromise(() => executeAgentNode(node, context, attempt));
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => executeAgentNode(node, context, attempt),
+  });
 }
 
 function executeCommandAttempt(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, unknown> {
-  return Effect.tryPromise(() =>
-    executeCommand(node.command ?? [], context, { timeout: node.timeoutMs })
-  );
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () =>
+      executeCommand(node.command ?? [], context, { timeout: node.timeoutMs }),
+  });
 }
 
 function executeBuiltinAttempt(
   node: PlannedWorkflowNode,
   context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, unknown> {
-  return Effect.tryPromise(() =>
-    executeBuiltin(node.builtin ?? "", context, node)
-  );
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => executeBuiltin(node.builtin ?? "", context, node),
+  });
 }
 
 function executeGroupAttempt(

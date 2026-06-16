@@ -306,6 +306,24 @@ describe("runPipelineFromConfig", () => {
     expect(seen[1].args.join("\n")).toContain("Node: b");
   });
 
+  it("surfaces the real error cause when an agent executor throws, not the opaque Effect wrapper", async () => {
+    const project = tempProject();
+
+    const result = await runPipelineFromConfig({
+      config: baseConfig(),
+      executor: () => Promise.reject(new Error("DISTINCT_REAL_CAUSE_42")),
+      task: "ship",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("FAIL");
+    const serialized = JSON.stringify(result);
+    expect(serialized).toContain("DISTINCT_REAL_CAUSE_42");
+    expect(serialized).not.toContain(
+      "An unknown error occurred in Effect.tryPromise"
+    );
+  });
+
   it("renders node-specific task context in agent prompts", async () => {
     const project = tempProject();
     const config = baseConfig();
