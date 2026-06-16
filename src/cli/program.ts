@@ -485,9 +485,18 @@ export function createCliProgram(): Command {
     .description(
       "Initialize package-owned pipeline support without repo-local config"
     )
-    .action(async () => {
+    .addOption(
+      new Option(
+        "--skill-scope <scope>",
+        "where to install default skills: project (repo-local copy) or personal (one inherited user/global install)"
+      )
+        .choices(["project", "personal"])
+        .default("project")
+    )
+    .action(async (flags: { skillScope: "project" | "personal" }) => {
       const result = await initPipelineProject({
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
+        scope: flags.skillScope,
       });
       console.log(formatPipelineInitResult(result));
     });

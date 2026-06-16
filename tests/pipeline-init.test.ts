@@ -13,6 +13,7 @@ import { loadPipelineConfig } from "../src/config";
 import {
   formatPipelineInitResult,
   initPipelineProject,
+  skillInstallArgs,
 } from "../src/pipeline-init";
 
 const DEFAULT_INIT_SKILLS = [
@@ -121,6 +122,32 @@ describe("initPipelineProject", () => {
     expect(output).toContain(
       "no repo-local pipeline config files were created"
     );
+  });
+
+  it("defaults to project scope and reports it", async () => {
+    const result = await init();
+
+    expect(result.scope).toBe("project");
+    expect(formatPipelineInitResult(result)).toContain("repo-local copy");
+  });
+
+  it("threads personal scope through to the result", async () => {
+    const result = await init({ scope: "personal" });
+
+    expect(result.scope).toBe("personal");
+    expect(formatPipelineInitResult(result)).toContain("user/global scope");
+  });
+
+  it("installs personal-scope skills globally without a per-repo copy", () => {
+    const personal = skillInstallArgs("personal");
+    expect(personal).toContain("--global");
+    expect(personal).not.toContain("--copy");
+  });
+
+  it("vendors project-scope skills as a repo-local copy", () => {
+    const project = skillInstallArgs("project");
+    expect(project).toContain("--copy");
+    expect(project).not.toContain("--global");
   });
 
   it("does not write generated host resources when skill installation fails", async () => {

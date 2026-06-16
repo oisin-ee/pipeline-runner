@@ -164,6 +164,13 @@ Project-authored skill and rule paths resolve from the project root and must
 exist for runtime use. If default skill files are missing, run `moka init` to
 install them before executing workflows.
 
+`moka init --skill-scope` (PIPE-83.12) chooses how the default set is installed:
+`project` (default) vendors a repo-local copy (`skills add … --copy`,
+`skills-lock.json`); `personal` installs once at user/global scope
+(`skills add … --global`) so every repo the user opens inherits the skills with
+no per-repo copy and no project lockfile — the standardization path for a single
+user across many projects.
+
 MCP-enabled profiles use one gateway grant:
 
 ```yaml
