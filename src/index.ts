@@ -4,7 +4,8 @@ import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CommanderError } from "commander";
-import { runCli } from "./cli/program";
+import { Cause, Effect, Exit } from "effect";
+import { runCliEffect } from "./cli/program";
 import { PipelineConfigError } from "./config";
 import { formatConfigError } from "./pipeline-runtime";
 
@@ -38,28 +39,42 @@ function normalizeEntrypointPath(path: string | undefined): string | undefined {
   return existsSync(resolved) ? realpathSync(resolved) : resolved;
 }
 
+// Single Effect runMain boundary: the whole CLI runs as one Effect and its Exit
+// is matched here — the only place the process maps a failure to an exit code.
 if (isCliEntrypoint(process.argv)) {
-  runCli(process.argv).catch((err: unknown) => {
-    if (err instanceof CommanderError) {
-      process.exit(err.exitCode);
+  Effect.runPromiseExit(runCliEffect(process.argv)).then((exit) => {
+    if (Exit.isFailure(exit)) {
+      handleCliFailure(Cause.squash(exit.cause));
     }
-    if (hasExitCode(err)) {
-      if (err.message) {
-        console.error(err.message);
-      }
-      process.exit(err.exitCode);
-    }
-    if (err instanceof Error) {
-      if (err instanceof PipelineConfigError) {
-        console.error(formatConfigError(err));
-      } else {
-        console.error(err.message);
-      }
-      process.exit(1);
-    }
-    console.error(String(err));
-    process.exit(1);
   });
+}
+
+function handleCliFailure(err: unknown): never {
+  const message = cliErrorMessage(err);
+  if (message) {
+    console.error(message);
+  }
+  process.exit(cliErrorCode(err));
+}
+
+function cliErrorCode(err: unknown): number {
+  if (err instanceof CommanderError || hasExitCode(err)) {
+    return err.exitCode;
+  }
+  return 1;
+}
+
+function cliErrorMessage(err: unknown): string | undefined {
+  if (err instanceof CommanderError) {
+    return;
+  }
+  if (err instanceof PipelineConfigError) {
+    return formatConfigError(err);
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
 }
 
 function hasExitCode(err: unknown): err is Error & { exitCode: number } {

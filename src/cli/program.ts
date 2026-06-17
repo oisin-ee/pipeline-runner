@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Command, Help, Option } from "commander";
+import { Effect } from "effect";
 import { execa } from "execa";
 import {
   defaultClusterDoctorNamespace,
@@ -644,6 +645,18 @@ function parseGatewayHost(value: string): GatewayHostSelection {
     return value;
   }
   throw new Error("host must be all or opencode");
+}
+
+// The single Effect entry for the CLI: parseAsync runs inside Effect.tryPromise
+// so the process boundary in index.ts can run it through one
+// Effect.runPromiseExit / Exit.match and map failures to exit codes. runCli
+// stays a plain Promise facade for tests + the public API (its raw rejection
+// behaviour is relied on).
+export function runCliEffect(argv: string[]): Effect.Effect<void, unknown> {
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => createCliProgram().parseAsync(argv, { from: "node" }),
+  }).pipe(Effect.asVoid);
 }
 
 export async function runCli(argv: string[]): Promise<void> {
