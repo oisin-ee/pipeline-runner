@@ -1,5 +1,4 @@
 // fallow-ignore-file complexity
-import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { Effect } from "effect";
 import matter from "gray-matter";

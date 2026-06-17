@@ -78,8 +78,6 @@ import {
   runMokaSubmitFromCli,
 } from "./submit-options";
 
-export const runDoctor = runDoctorChecks;
-
 interface ExecuteOptions {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
@@ -606,7 +604,7 @@ export function createCliProgram(): Command {
     .option("--kubeconfig <path>", "kubeconfig path for cluster checks")
     .action(async (flags: DoctorFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-      const result = await runDoctor(cwd, flags);
+      const result = await runDoctorChecks(cwd, flags);
       console.log(
         flags.json ? JSON.stringify(result) : formatDoctorResult(result)
       );

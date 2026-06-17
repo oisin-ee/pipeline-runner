@@ -10,12 +10,12 @@ import { PipelineConfigError } from "./config";
 import { formatConfigError } from "./pipeline-runtime";
 
 // biome-ignore lint/performance/noBarrelFile: CLI package entrypoint intentionally re-exports the program API.
+export { runDoctor } from "./cli/doctor";
 export {
   createCliProgram,
   execute,
   quick,
   runCli,
-  runDoctor,
 } from "./cli/program";
 
 const PATH_SEPARATOR_RE = /[\\/]/;
