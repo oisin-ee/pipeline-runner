@@ -5,6 +5,7 @@ import { resolveCommand } from "package-manager-detector/commands";
 import { detect } from "package-manager-detector/detect";
 import type { GateViolation } from "../../gates";
 import type { PlannedWorkflowNode } from "../../planning/compile";
+import { acquireRunStateLock } from "../../run-control/run-state-lock";
 import { parseJson } from "../../safe-json";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { executeDrainMergeBuiltin } from "../drain-merge";
@@ -191,10 +192,20 @@ function withHiddenPipelineRuns<A, E, R>(
   worktreePath: string,
   effect: Effect.Effect<A, E, R>
 ): Effect.Effect<A, E, R> {
+  // Hold the run-state lock across the entire hide -> command -> restore window
+  // so the run-control reporter never persists a node-status event while
+  // .pipeline/runs is relocated. The lock is acquired BEFORE hiding and released
+  // AFTER restoring, so concurrent run-state persistence simply queues behind
+  // this builtin rather than failing on a missing run directory.
   return Effect.acquireUseRelease(
-    Effect.sync(() => hidePipelineRunsDirectory(worktreePath)),
-    () => effect,
-    (hiddenRuns) => Effect.sync(() => hiddenRuns?.restore())
+    Effect.promise(() => acquireRunStateLock()),
+    () =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => hidePipelineRunsDirectory(worktreePath)),
+        () => effect,
+        (hiddenRuns) => Effect.sync(() => hiddenRuns?.restore())
+      ),
+    (release) => Effect.sync(() => release())
   );
 }
 

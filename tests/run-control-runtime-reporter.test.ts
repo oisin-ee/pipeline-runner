@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -84,6 +90,79 @@ describe("run-control runtime reporter bridge", () => {
 
   afterEach(() => {
     rmSync(workspaceRoot, { force: true, recursive: true });
+  });
+
+  it("serializes run-state persistence against a builtin hide window so the run survives parallel mechanical-checks", async () => {
+    const { createRunStoreRuntimeReporter } = await loadRuntimeReporter();
+    const { acquireRunStateLock } = await import(
+      "../src/run-control/run-state-lock"
+    );
+    const runId = "run-hide-window";
+    await createRun({
+      effort: "normal",
+      mode: "write",
+      nodeIds: ["writer"],
+      runId,
+      target: "local",
+      workspaceRoot,
+    });
+    const bridge = createRunStoreRuntimeReporter({
+      now: sequentialClock(),
+      runId,
+      workspaceRoot,
+    });
+
+    const runsDir = join(workspaceRoot, ".pipeline", "runs");
+    const hiddenDir = join(workspaceRoot, ".pipeline", ".runs-hidden-test");
+
+    // Reproduce the builtin lint/fallow hide: hold the run-state lock and
+    // relocate .pipeline/runs while a sibling node persists its status.
+    const release = await acquireRunStateLock();
+    renameSync(runsDir, hiddenDir);
+
+    bridge.reporter({
+      nodeIds: ["writer"],
+      type: "workflow.start",
+      workflowId: "hide-window",
+    });
+    // Persistence must queue behind the lock, not run against the missing dir.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    renameSync(hiddenDir, runsDir);
+    release();
+
+    // Without the lock this flush rejects with "Run ... does not exist".
+    await expect(bridge.flush()).resolves.toBeUndefined();
+    const status = readJson(runPath(workspaceRoot, runId, "status.json")) as {
+      status: string;
+    };
+    expect(status.status).toBe("starting");
+  });
+
+  it("documents the hazard: a direct run-state write during a hide window fails", async () => {
+    const { updateRunStatus } = await import("../src/run-control/store");
+    const runId = "run-hide-hazard";
+    await createRun({
+      effort: "normal",
+      mode: "write",
+      nodeIds: ["writer"],
+      runId,
+      target: "local",
+      workspaceRoot,
+    });
+    const runsDir = join(workspaceRoot, ".pipeline", "runs");
+    const hiddenDir = join(workspaceRoot, ".pipeline", ".runs-hidden-hazard");
+
+    renameSync(runsDir, hiddenDir);
+    await expect(
+      updateRunStatus({
+        at: new Date(Date.UTC(2026, 5, 17, 12, 0, 0)).toISOString(),
+        runId,
+        status: "running",
+        workspaceRoot,
+      })
+    ).rejects.toThrow("does not exist");
+    renameSync(hiddenDir, runsDir);
   });
 
   it("forwards PipelineRuntimeEvents and persists the exact runtime stream", async () => {

@@ -7,6 +7,7 @@ import type {
   PipelineRuntimeOptions,
 } from "../pipeline-runtime";
 import type { MokaNodeStatus, MokaRunStatus } from "./contracts";
+import { withRunStateLock } from "./run-state-lock";
 import {
   updateNodeSessionEffect,
   updateNodeStatusEffect,
@@ -59,8 +60,14 @@ function createRunStoreRuntimeReporterRuntime(
       observedNodeStatuses,
     });
     writeChain = writeChain.then(() =>
-      Effect.runPromise(
-        persistRuntimeEventEffect(input, event, projection, now)
+      // Serialize against the builtin run-state hide window: persistence writes
+      // under .pipeline/runs/<id>/, which a concurrent lint/fallow builtin
+      // temporarily relocates. The lock keeps the two mutually exclusive so a
+      // sibling node-status event never observes a missing run directory.
+      withRunStateLock(() =>
+        Effect.runPromise(
+          persistRuntimeEventEffect(input, event, projection, now)
+        )
       )
     );
   };
