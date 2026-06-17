@@ -4,12 +4,13 @@ import type {
   OpencodeClient,
   Part,
 } from "@opencode-ai/sdk";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import type {
   AgentResult,
   RunnerExecutionOptions,
   RunnerLaunchPlan,
 } from "../runner";
+import { isRecord } from "../safe-json";
 import { opencodeAgentName } from "./opencode-agent-name";
 import {
   OpencodeSdkService,
@@ -70,11 +71,14 @@ export function createOpencodeExecutor(deps: OpencodeExecutorDeps) {
     plan: RunnerLaunchPlan,
     options: RunnerExecutionOptions = {}
   ): Promise<AgentResult> {
+    // Thread the caller's AbortSignal into the Effect runtime so transient-retry
+    // backoff sleeps are interruptible on cancellation rather than uncancellable.
     return await Effect.runPromise(
       Effect.provide(
         executeOpencodeEffect(deps, plan, options),
         OpencodeSdkServiceLive
-      )
+      ),
+      options.signal ? { signal: options.signal } : undefined
     );
   };
 }
@@ -129,10 +133,10 @@ function driveSession(
   options: RunnerExecutionOptions
 ): Effect.Effect<SessionDriveResult, unknown, OpencodeSdkService> {
   return Effect.gen(function* () {
-    const sessionId = yield* resolveSessionId(deps, plan);
+    const sessionId = yield* resolveSessionId(deps, plan, options);
     recordSession(deps, plan.nodeId, sessionId);
     const stream = yield* streamEventsToOutput(deps, sessionId, plan, options);
-    return yield* promptSessionResult(deps, plan, sessionId).pipe(
+    return yield* promptSessionResult(deps, plan, sessionId, options).pipe(
       Effect.ensuring(stopStream(stream))
     );
   });
@@ -141,21 +145,32 @@ function driveSession(
 function promptSessionResult(
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
-  sessionId: string
+  sessionId: string,
+  options: RunnerExecutionOptions
 ): Effect.Effect<SessionDriveResult, unknown, OpencodeSdkService> {
-  return Effect.gen(function* () {
-    const sdk = yield* OpencodeSdkService;
-    const response = yield* sdk.promptSession(
-      deps.client,
-      promptRequest(deps, plan, sessionId)
-    );
-    const data = unwrap(response);
-    return {
-      ...(data.info ? { assistant: data.info } : {}),
-      parts: data.parts ?? [],
-      sessionId,
-    };
-  });
+  // promptSession retry is bounded to transport-class failures (fetch failed,
+  // connection reset/timeout, HTTP 429/5xx) raised BEFORE the server accepts the
+  // turn — the prompt was provably not accepted, so re-issuing it to the same
+  // session does not duplicate an accepted message. A turn that completes and
+  // then reports MessageOutputLength/Aborted never throws here (it returns on
+  // data.info.error and is classified by successResult), so it is not retried.
+  return retryTransientTransport(
+    () =>
+      Effect.gen(function* () {
+        const sdk = yield* OpencodeSdkService;
+        const response = yield* sdk.promptSession(
+          deps.client,
+          promptRequest(deps, plan, sessionId)
+        );
+        const data = yield* unwrapEffect(response);
+        return {
+          ...(data.info ? { assistant: data.info } : {}),
+          parts: data.parts ?? [],
+          sessionId,
+        };
+      }),
+    { label: "session.prompt", options, plan }
+  );
 }
 
 function promptRequest(
@@ -187,22 +202,130 @@ function recordSession(
 
 function resolveSessionId(
   deps: OpencodeExecutorDeps,
-  plan: RunnerLaunchPlan
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions
 ): Effect.Effect<string, unknown, OpencodeSdkService> {
   const existing = deps.registry.sessions.get(plan.nodeId);
   if (existing) {
     return Effect.succeed(existing);
   }
   return Effect.gen(function* () {
-    const sdk = yield* OpencodeSdkService;
-    const created = yield* sdk.createSession(deps.client, {
-      body: { title: `moka:${plan.nodeId}` },
-      query: { directory: plan.cwd ?? deps.directory },
-    });
-    const session = unwrap(created);
+    // createSession retry is idempotency-safe: no session id is recorded until a
+    // create succeeds, so a transient transport failure can be re-issued without
+    // orphaning or duplicating a session.
+    const session = yield* retryTransientTransport(
+      () =>
+        Effect.gen(function* () {
+          const sdk = yield* OpencodeSdkService;
+          const created = yield* sdk.createSession(deps.client, {
+            body: { title: `moka:${plan.nodeId}` },
+            query: { directory: plan.cwd ?? deps.directory },
+          });
+          return yield* unwrapEffect(created);
+        }),
+      { label: "session.create", options, plan }
+    );
     deps.registry.sessions.set(plan.nodeId, session.id);
     return session.id;
   });
+}
+
+/**
+ * Bounded retry for transient OpenCode transport failures at the SDK boundary.
+ * Distinct from the node-level retry in retry.ts (which reprompts on gate
+ * failures): this re-issues a single SDK call that failed to complete a round
+ * trip, before the executor returns an AgentResult. `make` is re-invoked per
+ * attempt so each retry issues a fresh request. Backoff sleeps are interruptible
+ * via the AbortSignal threaded into Effect.runPromise.
+ */
+const MAX_TRANSIENT_RETRIES = 2;
+const TRANSIENT_RETRY_BASE_MS = 250;
+
+interface TransientRetryContext {
+  label: string;
+  options: RunnerExecutionOptions;
+  plan: RunnerLaunchPlan;
+}
+
+function retryTransientTransport<A>(
+  make: () => Effect.Effect<A, unknown, OpencodeSdkService>,
+  ctx: TransientRetryContext,
+  attempt = 0
+): Effect.Effect<A, unknown, OpencodeSdkService> {
+  return make().pipe(
+    Effect.catchAll((error) =>
+      attempt < MAX_TRANSIENT_RETRIES && isTransientTransportError(error)
+        ? scheduleTransientRetry(make, ctx, attempt, error)
+        : Effect.fail(error)
+    )
+  );
+}
+
+function scheduleTransientRetry<A>(
+  make: () => Effect.Effect<A, unknown, OpencodeSdkService>,
+  ctx: TransientRetryContext,
+  attempt: number,
+  error: unknown
+): Effect.Effect<A, unknown, OpencodeSdkService> {
+  const nextAttempt = attempt + 1;
+  const delay = Duration.millis(TRANSIENT_RETRY_BASE_MS * 2 ** attempt);
+  return emitTransientRetry(ctx, error, nextAttempt, delay).pipe(
+    Effect.zipRight(Effect.sleep(delay)),
+    Effect.zipRight(retryTransientTransport(make, ctx, nextAttempt))
+  );
+}
+
+function emitTransientRetry(
+  ctx: TransientRetryContext,
+  error: unknown,
+  attempt: number,
+  delay: Duration.Duration
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    ctx.options.onOutput?.({
+      chunk: `opencode ${ctx.label} transient failure: ${errorMessage(error)}; retry ${attempt}/${MAX_TRANSIENT_RETRIES} in ${Duration.toMillis(delay)}ms\n`,
+      nodeId: ctx.plan.nodeId,
+      stream: "stderr",
+    });
+  });
+}
+
+const TRANSIENT_TRANSPORT_RE =
+  /fetch failed|econnreset|etimedout|enotfound|eai_again|socket hang ?up|network|connection (?:reset|closed|refused)|aborterror|operation was aborted|timed? ?out/i;
+
+/**
+ * Retry only failures that prove the turn was NOT accepted: transport errors
+ * (no completed round trip) and HTTP 429/5xx rejections. Deterministic agent
+ * outcomes (output-length, aborted message, schema/contract problems) and gate
+ * failures are out of scope and never reach this classifier as retryable.
+ */
+function isTransientTransportError(error: unknown): boolean {
+  if (TRANSIENT_TRANSPORT_RE.test(errorMessage(error))) {
+    return true;
+  }
+  const status = httpStatusFromError(error);
+  return status !== undefined && (status === 429 || status >= 500);
+}
+
+function numericField(container: unknown, key: string): number | undefined {
+  const value = isRecord(container) ? container[key] : undefined;
+  return typeof value === "number" ? value : undefined;
+}
+
+function httpStatusFromError(error: unknown): number | undefined {
+  const response = isRecord(error) ? error.response : undefined;
+  return (
+    numericField(error, "status") ??
+    numericField(error, "statusCode") ??
+    numericField(response, "status")
+  );
+}
+
+function unwrapEffect<T>(response: {
+  data?: T;
+  error?: unknown;
+}): Effect.Effect<T, unknown> {
+  return Effect.try({ catch: (error) => error, try: () => unwrap(response) });
 }
 
 function promptBody(plan: RunnerLaunchPlan): {

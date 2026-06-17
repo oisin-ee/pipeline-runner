@@ -7,9 +7,12 @@ import {
 } from "./opencode-session-executor";
 
 interface FakeClientOptions {
+  createErrors?: unknown[];
   events?: Record<string, unknown>[];
+  promptErrors?: unknown[];
   promptInfoError?: { data?: unknown; name: string };
   promptParts?: Record<string, unknown>[];
+  recordCreates?: unknown[];
   recordPrompts?: {
     body: unknown;
     path: { id: string };
@@ -21,6 +24,8 @@ interface FakeClientOptions {
 function fakeClient(options: FakeClientOptions = {}): OpencodeClient {
   const sessionId = options.sessionId ?? "ses_test";
   const events = options.events ?? [];
+  const createErrors = [...(options.createErrors ?? [])];
+  const promptErrors = [...(options.promptErrors ?? [])];
   // Mirror production: the prompt completes only after the agent's events have
   // streamed, so the executor sees every event before it stops the stream.
   let drained: () => void = () => {
@@ -41,10 +46,20 @@ function fakeClient(options: FakeClientOptions = {}): OpencodeClient {
       subscribe: () => Promise.resolve({ stream: eventStream() }),
     },
     session: {
-      create: () =>
-        Promise.resolve({ data: { id: sessionId }, error: undefined }),
+      create: () => {
+        options.recordCreates?.push(true);
+        const failure = createErrors.shift();
+        if (failure !== undefined) {
+          return Promise.reject(failure);
+        }
+        return Promise.resolve({ data: { id: sessionId }, error: undefined });
+      },
       prompt: async (args: { body: unknown; path: { id: string } }) => {
         options.recordPrompts?.push(args);
+        const failure = promptErrors.shift();
+        if (failure !== undefined) {
+          return Promise.reject(failure);
+        }
         if (events.length > 0) {
           await streamDrained;
         }
@@ -264,6 +279,130 @@ describe("opencode session executor", () => {
 
     expect(result.exitCode).toBe(70);
     expect(result.stderr).toContain("boom");
+  });
+
+  it("retries a transient prompt transport failure then succeeds (exit 0)", async () => {
+    const recordPrompts: FakeClientOptions["recordPrompts"] = [];
+    const chunks: Array<{ chunk: string; stream: string }> = [];
+    const execute = createOpencodeExecutor({
+      client: fakeClient({
+        promptErrors: [new Error("fetch failed")],
+        recordPrompts,
+      }),
+      directory: "/repo",
+      registry: createOpencodeSessionRegistry(),
+    });
+
+    const result = await execute(opencodePlan(), {
+      onOutput: (event) => chunks.push(event),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(recordPrompts).toHaveLength(2);
+    // The transient retry is observable in the run log.
+    const stderr = chunks.filter((entry) => entry.stream === "stderr");
+    expect(
+      stderr.some(
+        (entry) =>
+          entry.chunk.includes("session.prompt transient failure") &&
+          entry.chunk.includes("retry 1/2")
+      )
+    ).toBe(true);
+  });
+
+  it("retries an HTTP 5xx prompt rejection then succeeds", async () => {
+    const recordPrompts: FakeClientOptions["recordPrompts"] = [];
+    const execute = createOpencodeExecutor({
+      client: fakeClient({
+        promptErrors: [Object.assign(new Error("overloaded"), { status: 529 })],
+        recordPrompts,
+      }),
+      directory: "/repo",
+      registry: createOpencodeSessionRegistry(),
+    });
+
+    const result = await execute(opencodePlan(), {});
+
+    expect(result.exitCode).toBe(0);
+    expect(recordPrompts).toHaveLength(2);
+  });
+
+  it("retries a transient createSession failure before recording the session", async () => {
+    const recordCreates: unknown[] = [];
+    const registry = createOpencodeSessionRegistry();
+    const execute = createOpencodeExecutor({
+      client: fakeClient({
+        createErrors: [new Error("ECONNRESET")],
+        recordCreates,
+      }),
+      directory: "/repo",
+      registry,
+    });
+
+    const result = await execute(opencodePlan(), {});
+
+    expect(result.exitCode).toBe(0);
+    expect(recordCreates).toHaveLength(2);
+    expect(registry.sessions.get("node-a")).toBe("ses_test");
+  });
+
+  it("stops after the bounded retry budget and returns infra exit 70", async () => {
+    const recordPrompts: FakeClientOptions["recordPrompts"] = [];
+    const execute = createOpencodeExecutor({
+      client: fakeClient({
+        promptErrors: [
+          new Error("fetch failed"),
+          new Error("fetch failed"),
+          new Error("fetch failed"),
+          new Error("fetch failed"),
+        ],
+        recordPrompts,
+      }),
+      directory: "/repo",
+      registry: createOpencodeSessionRegistry(),
+    });
+
+    const result = await execute(opencodePlan(), {});
+
+    expect(result.exitCode).toBe(70);
+    expect(result.stderr).toContain("fetch failed");
+    // One initial attempt + MAX_TRANSIENT_RETRIES (2) = 3, never more.
+    expect(recordPrompts).toHaveLength(3);
+  });
+
+  it("does not retry a non-transient prompt failure", async () => {
+    const recordPrompts: FakeClientOptions["recordPrompts"] = [];
+    const execute = createOpencodeExecutor({
+      client: fakeClient({
+        promptErrors: [new Error("schema contract invalid")],
+        recordPrompts,
+      }),
+      directory: "/repo",
+      registry: createOpencodeSessionRegistry(),
+    });
+
+    const result = await execute(opencodePlan(), {});
+
+    expect(result.exitCode).toBe(70);
+    expect(recordPrompts).toHaveLength(1);
+  });
+
+  it("does not retry a completed turn that reports an output-length error", async () => {
+    const recordPrompts: FakeClientOptions["recordPrompts"] = [];
+    const execute = createOpencodeExecutor({
+      client: fakeClient({
+        promptInfoError: { data: {}, name: "MessageOutputLengthError" },
+        promptParts: [],
+        recordPrompts,
+      }),
+      directory: "/repo",
+      registry: createOpencodeSessionRegistry(),
+    });
+
+    const result = await execute(opencodePlan(), {});
+
+    expect(result.exitCode).toBe(1);
+    expect(recordPrompts).toHaveLength(1);
   });
 
   it("rejects non-opencode plans", async () => {

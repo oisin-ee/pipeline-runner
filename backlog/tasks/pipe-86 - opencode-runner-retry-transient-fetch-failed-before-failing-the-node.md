@@ -30,21 +30,40 @@ Secondary failure in moka run run-4a0f183d (see backlog doc-1). The red-backend-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 OpenCode SDK transport failures that occur before an agent response is accepted (fetch failed, ECONNRESET, ETIMEDOUT, HTTP 429, HTTP 5xx) are retried with bounded backoff before returning an AgentResult; evidence: src/runtime/opencode-session-executor.test.ts simulates retry-then-success and asserts the final exitCode is 0.
-- [ ] #2 Non-transient or deterministic agent outcomes are not retried by this boundary: MessageOutputLengthError and MessageAbortedError still return exitCode 1, provider/assistant errors still classify through the existing infra-vs-agent mapping, and gate failures remain outside this path; evidence: focused tests assert call counts and exit codes.
-- [ ] #3 Prompt retry idempotency is explicitly handled: retry is applied only where the SDK call is known not to have accepted the user prompt, or the implementation records why retrying the prompt is safe for OpenCode sessions; evidence: test names and code comments identify create-session retry versus prompt-session retry behavior.
-- [ ] #4 Each scheduled transport retry emits observable output or runtime evidence visible in the run log without adding a new broad retry reason to gate remediation; evidence: test captures onOutput/reporter/observability event and final summary includes an example line.
-- [ ] #5 Total retry cost is bounded to a small fixed policy for the SDK boundary and remains distinct from node-level retries in src/runtime/retry.ts; evidence: tests assert max attempts and no change to gate_failure retry behavior.
+- [x] #1 OpenCode SDK transport failures that occur before an agent response is accepted (fetch failed, ECONNRESET, ETIMEDOUT, HTTP 429, HTTP 5xx) are retried with bounded backoff before returning an AgentResult; evidence: src/runtime/opencode-session-executor.test.ts simulates retry-then-success and asserts the final exitCode is 0.
+- [x] #2 Non-transient or deterministic agent outcomes are not retried by this boundary: MessageOutputLengthError and MessageAbortedError still return exitCode 1, provider/assistant errors still classify through the existing infra-vs-agent mapping, and gate failures remain outside this path; evidence: focused tests assert call counts and exit codes.
+- [x] #3 Prompt retry idempotency is explicitly handled: retry is applied only where the SDK call is known not to have accepted the user prompt, or the implementation records why retrying the prompt is safe for OpenCode sessions; evidence: test names and code comments identify create-session retry versus prompt-session retry behavior.
+- [x] #4 Each scheduled transport retry emits observable output or runtime evidence visible in the run log without adding a new broad retry reason to gate remediation; evidence: test captures onOutput/reporter/observability event and final summary includes an example line.
+- [x] #5 Total retry cost is bounded to a small fixed policy for the SDK boundary and remains distinct from node-level retries in src/runtime/retry.ts; evidence: tests assert max attempts and no change to gate_failure retry behavior.
 - [ ] #6 Real repository usage is verified after PIPE-85: a moka write-mode run using OpenCode can survive a transient SDK failure in a controlled seam or dogfood path, or the task remains open with the exact blocker recorded.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] Focused OpenCode executor tests cover retry-then-success, exhausted retry, and non-retry deterministic failure.
-- [ ] Existing runtime retry tests still pass, proving gate/node retry semantics were not widened.
+- [x] Focused OpenCode executor tests cover retry-then-success, exhausted retry, and non-retry deterministic failure.
+- [x] Existing runtime retry tests still pass, proving gate/node retry semantics were not widened.
 - [ ] Real moka/OpenCode path is exercised after the changed-files gate fix, or the blocker is explicitly recorded without claiming this incident follow-up is fixed.
-- [ ] No sleeps as synchronization, unbounded retries, swallowed errors, or catch-all retry classification are introduced.
+- [x] No sleeps as synchronization, unbounded retries, swallowed errors, or catch-all retry classification are introduced.
 <!-- DOD:END -->
+
+## Implementation Notes
+<!-- SECTION:NOTES:BEGIN -->
+Added a bounded SDK-boundary retry in `src/runtime/opencode-session-executor.ts`, distinct from the node/gate retry in `retry.ts`.
+
+**Helper** `retryTransientTransport(make, ctx, attempt=0)` — idiomatic Effect recursion (pipe/`catchAll`/`zipRight`), re-invokes `make()` per attempt so each retry issues a fresh request. Policy: `MAX_TRANSIENT_RETRIES = 2` after the first attempt (≤3 total), exponential backoff `TRANSIENT_RETRY_BASE_MS=250` → 250ms, 500ms. Backoff uses `Effect.sleep`, made interruptible by threading `options.signal` into `Effect.runPromise` (AbortSignal was already on `RunnerExecutionOptions`) — no uncancellable sleeps.
+
+**Classification** `isTransientTransportError` — retries only failures proving the turn was NOT accepted: transport errors (`fetch failed`, ECONNRESET/ETIMEDOUT/ENOTFOUND/EAI_AGAIN, socket hang up, connection reset/closed/refused, AbortError/timeout) and HTTP 429/5xx (via `status`/`statusCode`/`response.status`). Deterministic outcomes (MessageOutputLength/Aborted) never reach this path — they return on `data.info.error` through `successResult`, not as a throw — so AC#2 holds without special-casing.
+
+**Idempotency (AC#3)** — `createSession` retry is safe (no session id recorded until create succeeds); `promptSession` retry is bounded to transport/429/5xx failures that prove the prompt was not accepted, so re-issuing to the same session cannot duplicate an accepted turn. Both documented in code comments.
+
+**Evidence (AC#4)** — each scheduled retry emits an `onOutput` stderr line: `opencode session.prompt transient failure: <reason>; retry N/2 in <ms>ms`. No new RetryReason added to the gate-remediation contract.
+
+**Tests** (`src/runtime/opencode-session-executor.test.ts`, +6): transient prompt fetch-failed → retry → exit 0 (+ asserts the retry notice); HTTP 529 → retry → exit 0; createSession ECONNRESET → retry → exit 0, create called twice; exhausted (4× fetch failed) → exit 70 with exactly 3 prompt attempts; non-transient ("schema contract invalid") → exit 70, 1 attempt; completed-turn output-length error → exit 1, 1 attempt. Proven fail-before/pass-after (the 4 retry tests fail when the retry is neutralized; the no-retry tests are unaffected). `tests/runtime-retry.test.ts` (node/gate retry) unchanged and green.
+
+**Commands**: `npx vitest run src/runtime/opencode-session-executor.test.ts tests/runtime-retry.test.ts` → all pass; `npx tsc --noEmit` → 0; `npx ultracite check` (changed files) → clean.
+
+**AC#6 (live real-usage)** pending: covered by the live `moka run`/`moka submit` smoke after PIPE-85 and PIPE-87 land.
+<!-- SECTION:NOTES:END -->
 
 ## Implementation Plan
 
