@@ -1249,7 +1249,7 @@ workflows:
     }
   });
 
-  it("adds generated coverage inside parallel node scopes", async () => {
+  it("covers a parallel implementation node after the parallel, not inside it", async () => {
     const dir = mkdtempSync(
       join(tmpdir(), "pipeline-schedule-parallel-coverage-fan-in-")
     );
@@ -1293,23 +1293,29 @@ workflows:
         worktreePath: dir,
       });
 
-      expect(result.artifact.workflows.root.nodes[0]).toMatchObject({
-        id: "current-club",
-        kind: "parallel",
-        nodes: expect.arrayContaining([
-          expect.objectContaining({
-            id: "generated-coverage",
-            kind: "agent",
-            needs: [
-              "implement-current-club-state",
-              "implement-club-picker-header",
-              "implement-signout-reset",
-            ],
-            profile: "moka-verifier",
-          }),
-        ]),
+      // Coverage for parallelized implementation runs AFTER the parallel, never
+      // among its children (which execute concurrently and ignore inter-sibling
+      // needs, so a coverage child would verify before the implementation ran).
+      const rootNodes = result.artifact.workflows.root.nodes;
+      const parallel = rootNodes.find((node) => node.id === "current-club");
+      expect(parallel?.kind).toBe("parallel");
+      expect(
+        parallel?.kind === "parallel"
+          ? parallel.nodes.map((child) => child.id)
+          : []
+      ).toEqual([
+        "implement-current-club-state",
+        "implement-club-picker-header",
+        "implement-signout-reset",
+      ]);
+      expect(
+        rootNodes.find((node) => node.id === "generated-coverage")
+      ).toMatchObject({
+        kind: "agent",
+        needs: ["current-club"],
+        profile: "moka-verifier",
       });
-      expect(result.artifact.workflows.root.nodes).toHaveLength(2);
+      expect(rootNodes).toHaveLength(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
