@@ -32,6 +32,7 @@ import {
   type RunMode,
   type RunTarget,
 } from "./contracts";
+import { ensurePipelineWorkspaceIgnore } from "./workspace";
 
 interface StoreContext {
   workspaceRoot: string;
@@ -128,6 +129,9 @@ export function createRunEffect(
     );
     const paths = runPaths(input.workspaceRoot, runId);
 
+    yield* Effect.sync(() =>
+      ensurePipelineWorkspaceIgnore(input.workspaceRoot)
+    );
     yield* mkdirEffect(paths.runsRoot, { recursive: true });
     yield* mkdirEffect(paths.runRoot, { recursive: true });
     yield* mkdirEffect(paths.nodesRoot, { recursive: true });

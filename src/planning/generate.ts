@@ -8,6 +8,7 @@ import {
   validatePipelineConfig,
   workflowSchema,
 } from "../config";
+import { ensurePipelineWorkspaceIgnore } from "../run-control/workspace";
 import {
   type AgentResult,
   createRunnerLaunchPlan,
@@ -255,6 +256,7 @@ function persistScheduleArtifact(
   worktreePath: string,
   artifact: ScheduleArtifact
 ): string {
+  ensurePipelineWorkspaceIgnore(worktreePath);
   const relativePath = join(
     ".pipeline",
     "runs",
