@@ -180,9 +180,9 @@ mcp_backends:
     required: true
     credentials: [GITHUB_TOKEN]
     role: repository, PR, issue, and release workflow access
-  - id: playwright-browser
-    name: Playwright/browser
-    locality: repo-local
+  - id: playwright
+    name: Playwright
+    locality: shared-remote
     required: true
     credentials: []
     role: browser automation and frontend verification

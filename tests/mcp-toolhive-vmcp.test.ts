@@ -33,6 +33,9 @@ mcp_gateway:
     uidotsh:
       locality: shared-remote
       tool_prefixes: [uidotsh]
+    playwright:
+      locality: shared-remote
+      tool_prefixes: [playwright]
     qdrant:
       locality: repo-scoped-remote
       tool_prefixes: [qdrant]
@@ -89,6 +92,7 @@ describe("ToolHive vMCP inventory rendering", () => {
       "backlog",
       "context7",
       "fallow",
+      "playwright",
       "qdrant",
       "serena",
       "uidotsh",
@@ -163,6 +167,7 @@ describe("ToolHive vMCP inventory rendering", () => {
       "backlog",
       "context7",
       "fallow",
+      "playwright",
       "qdrant",
       "serena",
       "uidotsh",

@@ -79,7 +79,7 @@ describe("OpenCode ecosystem manifest", () => {
       "serena",
       "backlog",
       "github",
-      "playwright-browser",
+      "playwright",
       "neon",
     ]);
     expect(

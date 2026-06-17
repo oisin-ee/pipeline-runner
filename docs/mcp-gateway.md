@@ -110,20 +110,21 @@ Use an off-the-shelf aggregator when possible:
 - ToolHive vMCP gateway: hosted or local aggregation behind a single MCP URL.
 
 Use `moka mcp gateway reconcile` to render the complete aggregate backend list;
-adding one backend must not replace the existing Context7, uidotsh, Qdrant,
-Fallow, Serena, or Backlog declarations. Use `moka mcp gateway doctor` to check
-required environment variables, gateway health, required `tools/list` prefixes,
-local ToolHive availability for local mode, and legacy direct MCP entries. Use
-`moka init` to install generated OpenCode and Claude Code host surfaces with the
-singleton `pipeline-gateway` remote entry. Use `moka install-commands --host all`
-to refresh generated host files after package upgrades, and use
+adding one backend must not replace the existing Context7, uidotsh, Playwright,
+Qdrant, Fallow, Serena, or Backlog declarations. Use
+`moka mcp gateway doctor` to check required environment variables, gateway
+health, required `tools/list` prefixes, local ToolHive availability for local
+mode, and legacy direct MCP entries. Use `moka init` to install generated
+OpenCode and Claude Code host surfaces with the singleton `pipeline-gateway`
+remote entry. Use `moka install-commands --host all` to refresh generated host
+files after package upgrades, and use
 `moka mcp gateway configure-host` as an explicit migration or repair command
 when existing host MCP config must be rewritten with a backup. The hosted gateway
 requires `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to be set in the OpenCode
 environment.
 
 The package-owned MCP inventory exposed through the ecosystem manifest includes
-`pipeline-gateway`, Context7, uidotsh, Qdrant, Fallow, Serena, Backlog, GitHub,
-Playwright Browser, and Neon. Repo-scoped backends must bind to
+`pipeline-gateway`, Context7, uidotsh, Playwright, Qdrant, Fallow, Serena,
+Backlog, GitHub, and Neon. Repo-scoped backends must bind to
 `PIPELINE_TARGET_PATH` or the current workspace path supplied by the gateway
 configuration.

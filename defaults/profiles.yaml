@@ -13,6 +13,9 @@ mcp_gateway:
     uidotsh:
       locality: shared-remote
       tool_prefixes: [uidotsh]
+    playwright:
+      locality: shared-remote
+      tool_prefixes: [playwright]
     qdrant:
       locality: repo-scoped-remote
       tool_prefixes: [qdrant]

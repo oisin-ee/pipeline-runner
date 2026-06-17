@@ -987,6 +987,7 @@ const COMPLETE_TOOLHIVE_WORKLOADS = [
   "backlog",
   "context7",
   "oisin-pipeline-fallow",
+  "playwright",
   "oisin-pipeline-qdrant",
   "serena",
   "uidotsh",
@@ -2900,6 +2901,7 @@ profiles:
       expect(rendered).toContain("name: backlog");
       expect(rendered).toContain("name: context7");
       expect(rendered).toContain("name: fallow");
+      expect(rendered).toContain("name: playwright");
       expect(rendered).toContain("name: qdrant");
       expect(rendered).toContain(
         "url: http://127.0.0.1/oisin-pipeline-qdrant/mcp/"
