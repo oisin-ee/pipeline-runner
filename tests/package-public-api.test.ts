@@ -116,7 +116,7 @@ function packJson(output: string): string {
 }
 
 describe("package public app-facing API", () => {
-  it("packs package-owned skills referenced by default config", () => {
+  it("does not pack install-managed skills but packs package-owned defaults", () => {
     const output = runChecked("npm", ["pack", "--dry-run", "--json"], {
       cwd: process.cwd(),
     });
@@ -125,11 +125,16 @@ describe("package public app-facing API", () => {
     ];
     const packedPaths = files.map((file) => file.path);
 
+    // Skills are install-managed: `moka init` installs them from the skills
+    // source into host dirs, so the package must not ship skill bodies.
+    expect(packedPaths.some((path) => path.startsWith(".agents/skills/"))).toBe(
+      false
+    );
+    // The package still owns and ships its runtime config defaults.
     expect(packedPaths).toEqual(
       expect.arrayContaining([
-        ".agents/skills/execute/SKILL.md",
-        ".agents/skills/inspect/SKILL.md",
-        ".agents/skills/quick/SKILL.md",
+        "defaults/pipeline.yaml",
+        "defaults/profiles.yaml",
       ])
     );
   }, 30_000);

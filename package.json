@@ -108,7 +108,6 @@
     }
   },
   "files": [
-    ".agents/skills",
     "defaults",
     "dist",
     "docs",

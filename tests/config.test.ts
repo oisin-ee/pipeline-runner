@@ -1391,7 +1391,7 @@ workflows:
     expect(error.message).toContain("referenced file");
   });
 
-  it("rejects missing rule and skill files", () => {
+  it("rejects a missing rule file but tolerates an install-managed skill body", () => {
     const project = makeProject();
     rmSync(join(project, "rules/test-first.md"));
     rmSync(join(project, ".agents/skills/repo-research/SKILL.md"));
@@ -1400,7 +1400,8 @@ workflows:
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("rules.test-first.path");
-    expect(error.message).toContain("skills.repo-research.path");
+    // Skill bodies are install-managed, so a missing one is not a config defect.
+    expect(error.message).not.toContain("skills.repo-research.path");
   });
 });
 
@@ -1664,14 +1665,17 @@ describe("final review asset bundle", () => {
     ).toBe(false);
   });
 
-  it("uses the installed critique skill as the reviewer instructions", () => {
-    const skill = readFileSync(
-      join(process.cwd(), ".agents/skills/critique/SKILL.md"),
-      "utf8"
-    );
+  it("wires the install-managed critique skill into the reviewer profile", () => {
+    // Skill bodies are install-managed (installed from the skills source into
+    // host dirs by `moka init`), not bundled in the package, so the contract is
+    // the config wiring: the reviewer grants the critique skill and the skill is
+    // declared in the registry.
+    const config = loadPackagePipelineConfig(process.cwd());
 
-    expect(skill).toContain("name: critique");
-    expect(skill).toContain("Code Review");
+    expect(config.skills.critique).toBeDefined();
+    expect(config.profiles["moka-thermo-nuclear-reviewer"]?.skills).toContain(
+      "critique"
+    );
   });
 });
 

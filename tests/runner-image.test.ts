@@ -208,12 +208,17 @@ describe("runner container image packaging", () => {
     expect(imageSmokeTest).toMatch(RUNNER_COMMAND_RE);
   });
 
-  it("publishes package-owned skills without publishing project-installed skill assets", () => {
+  it("publishes package-owned config without publishing install-managed skill assets", () => {
     const pkg = JSON.parse(readProjectFile("package.json")) as {
       files?: string[];
     };
 
-    expect(pkg.files).toContain(".agents/skills");
+    // Skills are install-managed (`moka init` installs them from the skills
+    // source into host dirs), so the package ships neither the repo harness copy
+    // (.agents/skills) nor a project-installed copy (.pipeline/skills); it ships
+    // the runtime config defaults it owns.
+    expect(pkg.files).toContain("defaults");
+    expect(pkg.files).not.toContain(".agents/skills");
     expect(pkg.files).not.toContain(".pipeline/skills");
   });
 });

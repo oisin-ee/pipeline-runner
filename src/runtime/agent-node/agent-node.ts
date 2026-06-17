@@ -876,6 +876,21 @@ function renderPathReferenceEffect(
     Effect.flatMap((service) => service.readText(resolved)),
     Effect.map((content) =>
       [`## ${id}`, `Path: ${path}`, "", content.trimEnd()].join("\n")
+    ),
+    // Install-managed harness assets (e.g. globally-installed skills) may not
+    // have a readable body in this worktree; the host agent runtime loads them
+    // natively, so reference them without inlining instead of failing the node.
+    // readText surfaces a missing file as a defect (Effect.sync), so catch the
+    // whole cause, not just the typed failure channel.
+    Effect.catchAllCause(() =>
+      Effect.succeed(
+        [
+          `## ${id}`,
+          `Path: ${path}`,
+          "",
+          "(install-managed harness asset; loaded by the host agent runtime)",
+        ].join("\n")
+      )
     )
   );
 }

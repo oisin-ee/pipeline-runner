@@ -79,9 +79,10 @@ function lintFileReferences(config: PipelineConfig): Array<{
   ref: { path: string; source_root?: "package" | "project" };
 }> {
   const refs: ReturnType<typeof lintFileReferences> = [];
-  for (const [skillId, skill] of Object.entries(config.skills)) {
-    pushLintPathRef(refs, `skills.${skillId}.path`, skill);
-  }
+  // Skill bodies are install-managed (installed into host dirs by `moka init`),
+  // so a missing skill body is not a config defect and must not produce a
+  // missing-file-reference lint warning. Profile instructions and output
+  // schemas remain package/project assets and are still linted below.
   for (const [profileId, profile] of Object.entries(config.profiles)) {
     pushLintPathRef(refs, `profiles.${profileId}.instructions.path`, {
       path: profile.instructions.path,

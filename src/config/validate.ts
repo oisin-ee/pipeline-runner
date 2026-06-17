@@ -74,9 +74,12 @@ export function validatePipelineConfig(
     validatePath(`rules.${ruleId}.path`, rule, projectRoot, issues, options);
   }
 
-  for (const [skillId, skill] of Object.entries(config.skills)) {
-    validatePath(`skills.${skillId}.path`, skill, projectRoot, issues, options);
-  }
+  // Skill bodies are install-managed harness assets: `moka init` installs them
+  // from the skills source into per-machine host dirs (global scope) or vendors
+  // a repo-local copy (project scope), so their on-disk presence is not a
+  // config-load guarantee. The skill registry ids are still validated above
+  // (validateRegistryIds) and profile references are checked separately; only
+  // body existence is intentionally not asserted here.
 
   for (const [workflowId, workflow] of Object.entries(config.workflows)) {
     validateWorkflow(
