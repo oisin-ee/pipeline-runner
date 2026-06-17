@@ -48,6 +48,7 @@ export function plannerPrompt(
     "Shape the graph by intent, not by ticket count. Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket unless each step needs ticket-specific evidence.",
     "Only add needs edges for real dependencies, shared constraints, or verification/review fan-in.",
     "Use one RED node for a group of tickets when they share a test strategy, then fan out to parallel GREEN implementation nodes where the work can be implemented independently.",
+    "When a parallel node contains more than one write-capable (implementation/GREEN) child, it MUST be followed by a builtin drain-merge node that needs the parallel node, and the parallel's downstream consumers must depend on that drain-merge. The drain-merge integrates the concurrent children; a parallel of multiple writers without one is rejected.",
     "Use one acceptance or verifier node for multiple GREEN nodes when the same acceptance checklist or real repository commands prove the group.",
     "Only serialize ticket nodes when the backlog, a shared migration/schema/API dependency, or implementation risk requires it.",
     "",

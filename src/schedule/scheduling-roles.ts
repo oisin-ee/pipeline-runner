@@ -33,3 +33,36 @@ export function isCoverageNode(
 ): boolean {
   return hasSchedulingRole(config, node, "coverage");
 }
+
+/**
+ * Whether a parallel child mutates the workspace, and therefore must not share a
+ * worktree with sibling writers unless their results are integrated downstream
+ * (a `drain-merge` builtin). Agent nodes are write-capable when their profile is
+ * workspace-write; command nodes always are; a nested parallel is write-capable
+ * when any descendant is. Single source of truth for both schedule normalization
+ * (the drain-merge integration pass) and validation.
+ */
+export function isWriteCapableParallelChild(
+  config: PipelineConfig,
+  node: WorkflowNode
+): boolean {
+  if (node.kind === "command") {
+    return true;
+  }
+  if (node.kind === "parallel") {
+    return node.nodes.some((child) =>
+      isWriteCapableParallelChild(config, child)
+    );
+  }
+  if (node.kind === "agent") {
+    return isWorkspaceWriteProfile(config, node.profile);
+  }
+  return false;
+}
+
+function isWorkspaceWriteProfile(
+  config: PipelineConfig,
+  profileId: string
+): boolean {
+  return config.profiles[profileId]?.filesystem?.mode === "workspace-write";
+}

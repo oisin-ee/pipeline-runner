@@ -19,6 +19,7 @@ import { normalizeRunnerOutput } from "../runner-output";
 import { loadBacklogPlanningContext } from "../schedule/backlog-context";
 import { baselineScheduleArtifact } from "../schedule/baseline";
 import { addGeneratedImplementationCoverage } from "../schedule/passes/coverage";
+import { integrateParallelWriteFanout } from "../schedule/passes/drain-merge";
 import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
 import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
 import { applyNodeCatalogModelFallbacks } from "../schedule/passes/models";
@@ -27,6 +28,7 @@ import { plannerPrompt, plannerRepairPrompt } from "../schedule/prompts";
 import {
   isCoverageNode,
   isImplementationNode,
+  isWriteCapableParallelChild,
 } from "../schedule/scheduling-roles";
 import { compileWorkflowPlan, type WorkflowExecutionPlan } from "./compile";
 import { dependentsByNeed, flattenNodes, hasReachableDependent } from "./graph";
@@ -220,7 +222,10 @@ export async function generateScheduleArtifact(
       applyNodeCatalogModelFallbacks(
         options.config,
         policy.node_catalog,
-        addGeneratedImplementationCoverage(options.config, generatedArtifact)
+        integrateParallelWriteFanout(
+          options.config,
+          addGeneratedImplementationCoverage(options.config, generatedArtifact)
+        )
       )
     ),
     planningContext
@@ -234,7 +239,13 @@ export async function generateScheduleArtifact(
 }
 
 function assertSchedulePassOrder(): void {
-  const expected = ["coverage", "models", "ids", "references"] as const;
+  const expected = [
+    "coverage",
+    "drain-merge",
+    "models",
+    "ids",
+    "references",
+  ] as const;
   if (SCHEDULE_PASS_ORDER.join("\0") !== expected.join("\0")) {
     throw new ScheduleArtifactError("Schedule pass order is misconfigured");
   }
@@ -633,26 +644,6 @@ function workflowNodeIssues(
       });
     }
   );
-}
-
-function isWriteCapableParallelChild(
-  config: PipelineConfig,
-  node: WorkflowNode
-): boolean {
-  if (node.kind === "agent") {
-    return (
-      config.profiles[node.profile]?.filesystem?.mode === "workspace-write"
-    );
-  }
-  if (node.kind === "command") {
-    return true;
-  }
-  if (node.kind === "parallel") {
-    return node.nodes.some((child) =>
-      isWriteCapableParallelChild(config, child)
-    );
-  }
-  return false;
 }
 
 function hasDownstreamDrainMerge(

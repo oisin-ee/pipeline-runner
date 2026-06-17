@@ -21,8 +21,6 @@ const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
 const WORK_UNIT_DEPENDENCY_RE =
   /work unit dependency edge.*PC-37\.2.*PC-37\.1/s;
-const SHARED_WORKTREE_PARALLEL_RE =
-  /write-capable children sharing a worktree/i;
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
   /schedule planner 'moka-schedule-planner' failed with exit 1.*planner auth missing.*partial planner output/s;
@@ -380,7 +378,7 @@ workflows:
     }
   });
 
-  it("rejects write-capable parallel specialists without isolated worktrees or drain merge", async () => {
+  it("integrates write-capable parallel specialists with a drain-merge and reroutes dependents", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-unsafe-team-"));
     const unsafeSchedule = `
 version: 1
@@ -409,17 +407,24 @@ workflows:
 `;
 
     try {
-      await expect(
-        generateScheduleArtifact({
-          config: config(),
-          entrypointId: "execute",
-          executor: () => ({ exitCode: 0, stdout: unsafeSchedule }),
-          generatedAt: new Date("2026-06-03T12:00:00.000Z"),
-          runId: "run-unsafe-team",
-          task: "Unsafe team",
-          worktreePath: dir,
-        })
-      ).rejects.toThrow(SHARED_WORKTREE_PARALLEL_RE);
+      const { artifact } = await generateScheduleArtifact({
+        config: config(),
+        entrypointId: "execute",
+        executor: () => ({ exitCode: 0, stdout: unsafeSchedule }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-unsafe-team",
+        task: "Unsafe team",
+        worktreePath: dir,
+      });
+
+      const nodes = artifact.workflows.root.nodes;
+      const drainMerge = nodes.find(
+        (node) => node.kind === "builtin" && node.builtin === "drain-merge"
+      );
+      expect(drainMerge?.needs).toContain("specialists");
+      // The downstream verifier now depends on the integrated result.
+      const verify = nodes.find((node) => node.id === "verify");
+      expect(verify?.needs).toEqual([drainMerge?.id]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
