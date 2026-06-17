@@ -439,9 +439,17 @@ function runTicketScoperEffect(
 function checkTicketGraphEffect(worktreePath: string, flags: TicketRootFlags) {
   return Effect.gen(function* () {
     const loaded = yield* loadTicketGraphEffect(worktreePath, flags.root);
+    const dangling = loaded.graph.danglingDependencies;
     yield* writeLineEffect(
       `OK: ticket graph valid (${loaded.scopedIds.length} tickets)`
     );
+    if (dangling.length > 0) {
+      yield* writeLineEffect(
+        `WARN: ${dangling.length} dependency reference(s) point to tasks absent from this backlog (treated as non-blocking): ${dangling.join(
+          "; "
+        )}`
+      );
+    }
   });
 }
 

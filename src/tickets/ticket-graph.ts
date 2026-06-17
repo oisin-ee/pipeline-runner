@@ -12,6 +12,14 @@ export interface TicketGraph {
     string,
     readonly BacklogTaskRecord[]
   >;
+  /**
+   * Human-readable descriptions of dependencies that reference tasks absent
+   * from this backlog (archived, completed-and-pruned, or cross-tree). These
+   * edges are intentionally dropped from {@link dependencyGraph} and treated as
+   * non-blocking by selection, but are surfaced so integrity issues stay
+   * visible without aborting ticket selection on real-world backlogs.
+   */
+  readonly danglingDependencies: readonly string[];
   readonly dependencyGraph: Graph<undefined, BacklogTaskRecord>;
   readonly tasksById: ReadonlyMap<string, BacklogTaskRecord>;
 }
@@ -25,16 +33,6 @@ export function buildTicketGraphEffect(
 ): Effect.Effect<TicketGraph, TicketGraphError> {
   return Effect.gen(function* () {
     const graph = buildUncheckedTicketGraph(tasks);
-    const missingDependencies = missingDependencyMessages(graph);
-    if (missingDependencies.length > 0) {
-      return yield* Effect.fail(
-        new TicketGraphError({
-          message: `Backlog dependency graph has missing references: ${missingDependencies.join(
-            "; "
-          )}`,
-        })
-      );
-    }
 
     const cycles = alg.findCycles(graph.dependencyGraph);
     if (cycles.length > 0) {
@@ -107,8 +105,17 @@ function buildUncheckedTicketGraph(
   const tasksById = indexTasksById(sortedTasks);
   const dependencyGraph = buildDependencyGraph(sortedTasks, tasksById);
   const childrenByParentId = indexChildrenByParentId(sortedTasks);
+  const danglingDependencies = missingDependencyMessages(
+    sortedTasks,
+    tasksById
+  );
 
-  return { childrenByParentId, dependencyGraph, tasksById };
+  return {
+    childrenByParentId,
+    danglingDependencies,
+    dependencyGraph,
+    tasksById,
+  };
 }
 
 function indexTasksById(
@@ -164,11 +171,14 @@ function addTaskDependencyEdges(
   }
 }
 
-function missingDependencyMessages(graph: TicketGraph): string[] {
+function missingDependencyMessages(
+  tasks: readonly BacklogTaskRecord[],
+  tasksById: ReadonlyMap<string, BacklogTaskRecord>
+): string[] {
   const messages: string[] = [];
-  for (const task of graph.tasksById.values()) {
+  for (const task of tasks) {
     for (const dependency of task.dependencies) {
-      if (!graph.tasksById.has(dependency)) {
+      if (!tasksById.has(dependency)) {
         messages.push(`${task.id} depends on missing ${dependency}`);
       }
     }

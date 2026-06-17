@@ -42,19 +42,31 @@ describe("ticket dependency graph", () => {
     ).toEqual(["PIPE-84.1", "PIPE-84.2"]);
   });
 
-  it("keeps missing dependencies and cycles in the Effect error channel", async () => {
+  it("retains missing dependencies as non-blocking warnings instead of failing", async () => {
     const { buildTicketGraphEffect } = await import(
       "../src/tickets/ticket-graph"
     );
 
-    const missingExit = await Effect.runPromiseExit(
-      buildTicketGraphEffect([task("PIPE-1", { dependencies: ["PIPE-404"] })])
+    const graph = await Effect.runPromise(
+      buildTicketGraphEffect([
+        task("PIPE-1", { dependencies: ["PIPE-404"] }),
+        task("PIPE-2", { dependencies: ["PIPE-1"] }),
+      ])
     );
-    if (!Exit.isFailure(missingExit)) {
-      throw new Error("Expected missing dependency graph to fail");
-    }
-    expect(String(missingExit.cause)).toContain("PIPE-1");
-    expect(String(missingExit.cause)).toContain("PIPE-404");
+
+    // The dangling edge is dropped so it cannot block selection,
+    expect(graph.dependencyGraph.hasEdge("PIPE-404", "PIPE-1")).toBe(false);
+    expect(graph.dependencyGraph.hasEdge("PIPE-1", "PIPE-2")).toBe(true);
+    // but the reference stays visible for integrity reporting.
+    expect(graph.danglingDependencies).toEqual([
+      "PIPE-1 depends on missing PIPE-404",
+    ]);
+  });
+
+  it("keeps cycles in the Effect error channel", async () => {
+    const { buildTicketGraphEffect } = await import(
+      "../src/tickets/ticket-graph"
+    );
 
     const cycleExit = await Effect.runPromiseExit(
       buildTicketGraphEffect([
