@@ -329,7 +329,12 @@ describe("installed dogfood configuration", () => {
 
   it("keeps installed host resources aligned with package defaults and agent grants", async () => {
     const root = tempProject();
-    await installCommands({ cwd: root, force: true, host: "all" });
+    await installCommands({
+      cwd: root,
+      force: true,
+      host: "all",
+      scope: "project",
+    });
     const config = loadPipelineConfig(root, {
       allowMissingLintFileReferences: true,
     });

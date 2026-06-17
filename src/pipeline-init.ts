@@ -2,16 +2,30 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
 import { installCommands } from "./install-commands";
+import {
+  DEFAULT_HARNESS_SCOPE,
+  type HarnessScope,
+} from "./install-commands/shared";
 
 export type PipelineSkillInstaller = (cwd: string) => Promise<void>;
 
 /**
- * PIPE-83.12: where the default skill set is installed. "project" (default)
- * vendors a repo-local copy (the legacy `--copy` + skills-lock.json path);
- * "personal" installs once at user/global scope so every repo the user opens
- * inherits the skills with no per-repo copy and no project lockfile.
+ * Where the default skill set is installed. "project" vendors a repo-local
+ * copy (the legacy `--copy` + skills-lock.json path); "personal" installs once
+ * at user/global scope so every repo the user opens inherits the skills with
+ * no per-repo copy and no project lockfile.
  */
 export type PipelineSkillScope = "project" | "personal";
+
+/**
+ * The harness scope drives every generated resource at once: skills, host
+ * commands/agents, and config. "global" (default) installs the single
+ * per-machine harness (user/global skills + ~/.claude, ~/.config/opencode,
+ * ~/.codex host config); "project" vendors everything repo-local.
+ */
+function skillScopeFor(scope: HarnessScope): PipelineSkillScope {
+  return scope === "global" ? "personal" : "project";
+}
 
 const DEFAULT_SKILL_INSTALL_SOURCE = "oisin-ee/skills";
 const SKILL_INSTALL_AGENT_ARGS = [
@@ -36,13 +50,13 @@ function skillInstallArgs(scope: PipelineSkillScope): string[] {
 
 export interface PipelineInitOptions {
   cwd?: string;
-  scope?: PipelineSkillScope;
+  scope?: HarnessScope;
   skillInstaller?: PipelineSkillInstaller;
 }
 
 export interface PipelineInitResult {
   files: string[];
-  scope: PipelineSkillScope;
+  scope: HarnessScope;
 }
 
 export interface CommandResult {
@@ -116,11 +130,17 @@ export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const scope = options.scope ?? "project";
+  const scope = options.scope ?? DEFAULT_HARNESS_SCOPE;
   const skillInstaller =
-    options.skillInstaller ?? ((target) => installDefaultSkills(target, scope));
+    options.skillInstaller ??
+    ((target) => installDefaultSkills(target, skillScopeFor(scope)));
   await skillInstaller(cwd);
-  const result = await installCommands({ cwd, force: true, host: "all" });
+  const result = await installCommands({
+    cwd,
+    force: true,
+    host: "all",
+    scope,
+  });
   return {
     files: result.items.map((item) => item.path),
     scope,
@@ -136,7 +156,12 @@ export async function refreshAgentHarnesses(
     scope: options.scope,
     skillInstaller: options.skillInstaller,
   });
-  const committed = await refreshAgentHarnessesCommitResult(context);
+  // Global installs write to per-machine host dirs with nothing repo-local to
+  // stage, so the git commit only applies to project scope.
+  const committed =
+    init.scope === "project"
+      ? await refreshAgentHarnessesCommitResult(context)
+      : false;
   return { ...init, commitMessage: context.commitMessage, committed };
 }
 
@@ -164,26 +189,34 @@ async function refreshAgentHarnessesCommitResult(
 }
 
 export function formatPipelineInitResult(result: PipelineInitResult): string {
-  const skillLine =
-    result.scope === "personal"
-      ? "installed default skills at user/global scope (inherited by every repo, no per-repo copy)"
-      : "installed default skills (repo-local copy)";
+  const summaryLine =
+    result.scope === "global"
+      ? "installed the per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); inherited by every repo with no per-repo copy"
+      : "installed default skills and host config repo-local";
   return [
     "Initialized package-owned pipeline support:",
-    skillLine,
+    summaryLine,
     ...result.files.map((path) => `generated ${path}`),
     "no repo-local pipeline config files were created",
   ].join("\n");
 }
 
+function refreshCommitSummary(result: RefreshAgentHarnessesResult): string {
+  if (result.scope === "global") {
+    return "global harness refreshed; no repo commit (per-machine install)";
+  }
+  if (result.committed) {
+    return `committed refreshed harnesses: ${result.commitMessage}`;
+  }
+  return "refreshed harnesses already current; no commit created";
+}
+
 export function formatRefreshAgentHarnessesResult(
   result: RefreshAgentHarnessesResult
 ): string {
-  const refreshSummary = formatPipelineInitResult(result);
-  const commitSummary = result.committed
-    ? `committed refreshed harnesses: ${result.commitMessage}`
-    : "refreshed harnesses already current; no commit created";
-  return [refreshSummary, commitSummary].join("\n");
+  return [formatPipelineInitResult(result), refreshCommitSummary(result)].join(
+    "\n"
+  );
 }
 
 async function runCommand(

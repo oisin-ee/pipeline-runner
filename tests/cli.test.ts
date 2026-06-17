@@ -494,7 +494,13 @@ async function prepareGatewayWorkspace(
   options: { init?: boolean } = {}
 ): Promise<void> {
   if (options.init) {
-    await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+    await runCli([
+      "node",
+      "/repo/node_modules/.bin/oisin-pipeline",
+      "init",
+      "--scope",
+      "project",
+    ]);
   }
   mkdirSync(join(dir, ".serena"), { recursive: true });
   writeFileSync(join(dir, ".serena/project.yml"), "name: test\n");
@@ -1089,7 +1095,13 @@ describe("execute", () => {
 
   it("supports direct init invocation from the package binary", async () => {
     await withDirectInitDir("pipeline-cli-init-", async ({ dir, runCli }) => {
-      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--scope",
+        "project",
+      ]);
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
@@ -1162,6 +1174,8 @@ describe("execute", () => {
           "node",
           "/repo/node_modules/.bin/oisin-pipeline",
           "init",
+          "--scope",
+          "project",
         ]);
         expect(hasMcpmRegistration()).toBe(false);
       }
@@ -1178,6 +1192,8 @@ describe("execute", () => {
           "node",
           "/repo/node_modules/.bin/oisin-pipeline",
           "init",
+          "--scope",
+          "project",
         ]);
 
         expect(
@@ -1199,7 +1215,13 @@ describe("execute", () => {
 
   it("initializes host resources into PIPELINE_TARGET_PATH", async () => {
     await withCliTempDir("pipeline-cli-install-", async ({ dir, runCli }) => {
-      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--scope",
+        "project",
+      ]);
 
       expect(
         existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))
@@ -1850,7 +1872,13 @@ workflows:
 
     try {
       process.env.PIPELINE_TARGET_PATH = initDir;
-      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--scope",
+        "project",
+      ]);
       expect(existsSync(join(initDir, ".pipeline"))).toBe(false);
 
       writeMockSkills(DEFAULT_TEST_SKILLS, doctorDir, [], false);
@@ -1909,6 +1937,8 @@ workflows:
         "node",
         "/repo/node_modules/.bin/oisin-pipeline",
         "refresh-harnesses",
+        "--scope",
+        "project",
       ]);
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
@@ -1961,6 +1991,8 @@ workflows:
           "node",
           "/repo/node_modules/.bin/oisin-pipeline",
           "init",
+          "--scope",
+          "project",
         ]);
 
         expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
@@ -1974,7 +2006,13 @@ workflows:
 
   it("validates and explains the initialized YAML plan", async () => {
     await withCliTempDir("pipeline-cli-plan-", async ({ output, runCli }) => {
-      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--scope",
+        "project",
+      ]);
       await runCli([
         "node",
         "/repo/node_modules/.bin/oisin-pipeline",
@@ -2362,7 +2400,13 @@ profiles:
   it("doctor reports missing prerequisites", async () => {
     await withCliTempDir("pipeline-cli-doctor-", async ({ dir, runCli }) => {
       const { runDoctor } = await import("../src/index");
-      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--scope",
+        "project",
+      ]);
       mockExeca.mockImplementation(((command: string) => {
         if (command === "opencode") {
           return Promise.reject({ shortMessage: "opencode missing" });
@@ -2599,7 +2643,13 @@ profiles:
       process.env.PIPELINE_TARGET_PATH = dir;
       process.env.PIPELINE_MCP_GATEWAY_URL = "https://gateway.example/mcp";
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
-      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--scope",
+        "project",
+      ]);
       mkdirSync(join(dir, ".opencode"), { recursive: true });
       writeFileSync(
         join(dir, ".opencode/opencode.json"),
@@ -2650,7 +2700,13 @@ profiles:
       process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
       global.fetch = vi.fn().mockResolvedValue({ status: 200 }) as any;
-      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--scope",
+        "project",
+      ]);
       writeFileSync(
         join(dir, ".mcp.json"),
         JSON.stringify({ mcpServers: { legacy: { command: "uvx" } } })

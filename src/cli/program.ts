@@ -19,6 +19,7 @@ import { formatConfigLintWarning, lintPipelineConfig } from "../config/lint";
 import {
   type CommandHostSelection,
   formatInstallCommandsResult,
+  type HarnessScope,
   installCommands,
   parseCommandHost,
 } from "../install-commands";
@@ -425,6 +426,7 @@ interface InstallCommandFlags {
   dryRun?: boolean;
   force?: boolean;
   host?: CommandHostSelection;
+  scope?: HarnessScope;
 }
 
 interface CodexAuthSyncLocalFlags {
@@ -752,16 +754,16 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
     )
     .addOption(
       new Option(
-        "--skill-scope <scope>",
-        "where to install default skills: project (repo-local copy) or personal (one inherited user/global install)"
+        "--scope <scope>",
+        "where to install the harness: global (one per-machine install in ~/.claude, ~/.config/opencode, ~/.codex; inherited by every repo) or project (repo-local copy)"
       )
-        .choices(["project", "personal"])
-        .default("project")
+        .choices(["global", "project"])
+        .default("global")
     )
-    .action(async (flags: { skillScope: "project" | "personal" }) => {
+    .action(async (flags: { scope: HarnessScope }) => {
       const result = await initPipelineProject({
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-        scope: flags.skillScope,
+        scope: flags.scope,
       });
       console.log(formatPipelineInitResult(result));
     });
@@ -769,45 +771,48 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
   program
     .command("refresh-harnesses")
     .description(
-      "Force-refresh generated agent harnesses and commit owned resource changes"
+      "Force-refresh generated agent harnesses (global by default; commits owned resource changes only for project scope)"
     )
     .addOption(
       new Option(
-        "--skill-scope <scope>",
-        "where to install default skills: project (repo-local copy) or personal (one inherited user/global install)"
+        "--scope <scope>",
+        "where to refresh the harness: global (per-machine install) or project (repo-local copy, committed)"
       )
-        .choices(["project", "personal"])
-        .default("project")
+        .choices(["global", "project"])
+        .default("global")
     )
     .option(
       "--message <message>",
-      "git commit message for refreshed harness changes",
+      "git commit message for refreshed harness changes (project scope only)",
       "chore: update agent harnesses"
     )
-    .action(
-      async (flags: {
-        message: string;
-        skillScope: "project" | "personal";
-      }) => {
-        const result = await refreshAgentHarnesses({
-          commitMessage: flags.message,
-          cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-          scope: flags.skillScope,
-        });
-        console.log(formatRefreshAgentHarnessesResult(result));
-      }
-    );
+    .action(async (flags: { message: string; scope: HarnessScope }) => {
+      const result = await refreshAgentHarnesses({
+        commitMessage: flags.message,
+        cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
+        scope: flags.scope,
+      });
+      console.log(formatRefreshAgentHarnessesResult(result));
+    });
 
   program
     .command("install-commands")
     .description(
-      "Install generated slash-command adapters into this repository"
+      "Install generated slash-command adapters (global per-machine by default)"
     )
     .addOption(
       new Option("--host <host>", "host command set to install")
         .choices(["all", "opencode", "claude-code"])
         .default("all")
         .argParser(parseCommandHost)
+    )
+    .addOption(
+      new Option(
+        "--scope <scope>",
+        "where to install: global (~/.claude, ~/.config/opencode, ~/.codex) or project (repo-local)"
+      )
+        .choices(["global", "project"])
+        .default("global")
     )
     .option("--dry-run", "show planned changes without writing files")
     .option("--check", "fail if generated command files are missing or stale")

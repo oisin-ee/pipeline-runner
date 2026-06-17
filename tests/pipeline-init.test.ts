@@ -97,9 +97,13 @@ describe("initPipelineProject", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // Repo-local (project) scope keeps generated files under `dir`, which the
+  // filesystem assertions below depend on. Global-scope behaviour is covered
+  // in the dedicated describe block further down (with redirected host dirs).
   const init = (options: Parameters<typeof initPipelineProject>[0] = {}) =>
     initPipelineProject({
       cwd: dir,
+      scope: "project",
       skillInstaller: installMockSkills,
       ...options,
     });
@@ -154,18 +158,11 @@ describe("initPipelineProject", () => {
     );
   });
 
-  it("defaults to project scope and reports it", async () => {
-    const result = await init();
+  it("reports project scope as repo-local", async () => {
+    const result = await init({ scope: "project" });
 
     expect(result.scope).toBe("project");
-    expect(formatPipelineInitResult(result)).toContain("repo-local copy");
-  });
-
-  it("threads personal scope through to the result", async () => {
-    const result = await init({ scope: "personal" });
-
-    expect(result.scope).toBe("personal");
-    expect(formatPipelineInitResult(result)).toContain("user/global scope");
+    expect(formatPipelineInitResult(result)).toContain("repo-local");
   });
 
   it("does not write generated host resources when skill installation fails", async () => {
@@ -200,6 +197,7 @@ describe("initPipelineProject", () => {
     const result = await refreshAgentHarnesses({
       commandRunner: git.run,
       cwd: dir,
+      scope: "project",
       skillInstaller: installMockSkills,
     });
 
@@ -217,18 +215,18 @@ describe("initPipelineProject", () => {
     expect(addCall?.args).not.toContain(".");
   });
 
-  it("forwards personal skill scope and custom commit messages when refreshing harnesses", async () => {
+  it("forwards custom commit messages when refreshing project-scope harnesses", async () => {
     const git = createGitRecorder();
 
     const result = await refreshAgentHarnesses({
       commandRunner: git.run,
       commitMessage: "chore: refresh moka harnesses",
       cwd: dir,
-      scope: "personal",
+      scope: "project",
       skillInstaller: installMockSkills,
     });
 
-    expect(result.scope).toBe("personal");
+    expect(result.scope).toBe("project");
     expect(result.commitMessage).toBe("chore: refresh moka harnesses");
     expect(git.calls).toContainEqual({
       command: "git",
@@ -242,6 +240,7 @@ describe("initPipelineProject", () => {
     const result = await refreshAgentHarnesses({
       commandRunner: git.run,
       cwd: dir,
+      scope: "project",
       skillInstaller: installMockSkills,
     });
 
@@ -258,6 +257,7 @@ describe("initPipelineProject", () => {
       refreshAgentHarnesses({
         commandRunner: git.run,
         cwd: dir,
+        scope: "project",
         skillInstaller: installMockSkills,
       })
     ).rejects.toThrow(
@@ -265,5 +265,75 @@ describe("initPipelineProject", () => {
     );
 
     expect(git.calls.some((call) => call.args[0] === "commit")).toBe(false);
+  });
+});
+
+describe("initPipelineProject (global scope)", () => {
+  let dir: string;
+  let home: string;
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "pipeline-init-repo-"));
+    home = mkdtempSync(join(tmpdir(), "pipeline-init-home-"));
+    for (const key of [
+      "CLAUDE_CONFIG_DIR",
+      "CODEX_HOME",
+      "OPENCODE_CONFIG_DIR",
+    ]) {
+      savedEnv[key] = process.env[key];
+    }
+    // Redirect the per-machine host dirs into the temp home so the global
+    // install never touches the real ~/.claude, ~/.codex, ~/.config/opencode.
+    process.env.CLAUDE_CONFIG_DIR = join(home, ".claude");
+    process.env.CODEX_HOME = join(home, ".codex");
+    process.env.OPENCODE_CONFIG_DIR = join(home, ".config", "opencode");
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("defaults to global scope and writes into the per-machine host dirs", async () => {
+    const result = await initPipelineProject({
+      cwd: dir,
+      skillInstaller: installMockSkills,
+    });
+
+    expect(result.scope).toBe("global");
+    // Generated host files land in the redirected global dirs, not the repo.
+    expect(
+      existsSync(
+        join(home, ".config", "opencode", "commands", "moka-execute.md")
+      )
+    ).toBe(true);
+    expect(existsSync(join(home, ".config", "opencode", "opencode.json"))).toBe(
+      true
+    );
+    expect(existsSync(join(dir, ".opencode"))).toBe(false);
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    expect(formatPipelineInitResult(result)).toContain("per-machine");
+  });
+
+  it("refreshes the global harness without staging or committing", async () => {
+    const git = createGitRecorder();
+
+    const result = await refreshAgentHarnesses({
+      commandRunner: git.run,
+      cwd: dir,
+      skillInstaller: installMockSkills,
+    });
+
+    expect(result.scope).toBe("global");
+    expect(result.committed).toBe(false);
+    expect(git.calls).toEqual([]);
   });
 });
