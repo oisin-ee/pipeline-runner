@@ -342,6 +342,24 @@ function commandInstallPlanItem(
   };
 }
 
+// AGENTS.md carries repo-scoped guidance (its Qdrant collection is derived from
+// the repo dir name), so it only belongs in a project-local harness. A
+// per-machine global install must not emit it — doing so would bake one repo's
+// cwd into a machine-wide file and make `--check` perpetually non-idempotent.
+const PROJECT_ONLY_PATHS = new Set(["AGENTS.md"]);
+
+function scopedDefinitions(
+  definitions: CommandDefinition[],
+  scope: HarnessScope
+): CommandDefinition[] {
+  if (scope !== "global") {
+    return definitions;
+  }
+  return definitions.filter(
+    (definition) => !PROJECT_ONLY_PATHS.has(definition.path)
+  );
+}
+
 function installCommandsContext(
   options: InstallCommandsOptions
 ): InstallCommandsContext {
@@ -351,7 +369,10 @@ function installCommandsContext(
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
-  const definitions = definitionsFor(host, config, cwd);
+  const definitions = scopedDefinitions(
+    definitionsFor(host, config, cwd),
+    scope
+  );
   return {
     cwd,
     definitions,

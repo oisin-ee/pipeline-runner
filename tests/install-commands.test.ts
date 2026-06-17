@@ -722,6 +722,33 @@ describe("installCommands (global scope)", () => {
     expect(existsSync(join(dir, ".claude"))).toBe(false);
   });
 
+  it("omits the repo-scoped AGENTS.md in global scope and stays idempotent across cwds", async () => {
+    const first = await installCommandsImpl({
+      cwd: dir,
+      host: "all",
+      scope: "global",
+    });
+    expect(first.items.map((item) => item.path)).not.toContain("AGENTS.md");
+    expect(existsSync(join(opencodeDir(), "AGENTS.md"))).toBe(false);
+
+    // A second run from a *different* cwd must report no changes — AGENTS.md
+    // was the only cwd-dependent surface, so global --check is now stable.
+    const otherCwd = mkdtempSync(join(tmpdir(), "pipeline-other-cwd-"));
+    try {
+      const checked = await installCommandsImpl({
+        check: true,
+        cwd: otherCwd,
+        host: "all",
+        scope: "global",
+      });
+      expect(checked.items.every((item) => item.action === "unchanged")).toBe(
+        true
+      );
+    } finally {
+      rmSync(otherCwd, { recursive: true, force: true });
+    }
+  });
+
   it("reports the same repo-relative item paths regardless of scope", async () => {
     const result = await installCommandsImpl({
       cwd: dir,
