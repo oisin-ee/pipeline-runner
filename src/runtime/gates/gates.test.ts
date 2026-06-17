@@ -14,6 +14,18 @@ import {
   evaluateNodeGates,
 } from "./gates";
 
+function changedFilesContext(
+  files: string[]
+): Pick<RuntimeContext, "nodeStateStore"> {
+  return {
+    nodeStateStore: new NodeStateStore({
+      nodeSnapshots: new Map([
+        ["node-a", { files: new Set(files), fingerprints: new Map() }],
+      ]),
+    }),
+  } satisfies Pick<RuntimeContext, "nodeStateStore">;
+}
+
 function directGateRuntimeContext(
   node: PlannedWorkflowNode,
   observability: RuntimeObservabilityEvent[],
@@ -128,6 +140,85 @@ describe("runtime gates", () => {
       nodeId: "node-a",
       passed: false,
       reason: "changed-file policy failed",
+    });
+  });
+
+  it("excludes supervisor run-state but still gates real disallowed source changes", () => {
+    const context = changedFilesContext([
+      "src/app.ts",
+      "README.md",
+      ".pipeline/journal/run-4a0f183d.jsonl",
+      ".pipeline/runs/run-4a0f183d/runtime-events.jsonl",
+      ".pipeline/runs/run-4a0f183d/status.json",
+      ".pipeline/runs/run-4a0f183d/nodes/red-app/stdout.jsonl",
+    ]);
+    const gate: ChangedFilesGateSpec = {
+      changed_files: { allow: ["src/**"] },
+      kind: "changed_files",
+    };
+
+    const result = evaluateChangedFilesGate(
+      gate,
+      "changed:node-a",
+      "node-a",
+      context
+    );
+
+    // README.md is the only genuine violation; no .pipeline run-state leaks in.
+    expect(result.passed).toBe(false);
+    expect(result.evidence).toEqual(["changes outside allow list: README.md"]);
+    expect(JSON.stringify(result.evidence)).not.toContain(".pipeline");
+  });
+
+  it("does not let supervisor run-state satisfy require_any for source/tests", () => {
+    const context = changedFilesContext([
+      ".pipeline/runs/run-4a0f183d/status.json",
+      ".pipeline/journal/run-4a0f183d.jsonl",
+    ]);
+    const gate: ChangedFilesGateSpec = {
+      changed_files: { require_any: ["src/**", "**/*.test.ts"] },
+      kind: "changed_files",
+    };
+
+    const result = evaluateChangedFilesGate(
+      gate,
+      "changed:node-a",
+      "node-a",
+      context
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.evidence).toEqual([
+      "missing required changes matching: src/**, **/*.test.ts",
+    ]);
+  });
+
+  it("passes when only allowed source and supervisor run-state changed", () => {
+    const context = changedFilesContext([
+      "src/app.ts",
+      ".pipeline/runs/run-4a0f183d/status.json",
+      // untracked-prefixed shape is normalized before run-state matching.
+      "?? .pipeline/runs/run-4a0f183d/nodes/green-app/stdout.jsonl",
+    ]);
+    const gate: ChangedFilesGateSpec = {
+      changed_files: { allow: ["src/**"], require_any: ["src/**"] },
+      kind: "changed_files",
+    };
+
+    const result = evaluateChangedFilesGate(
+      gate,
+      "changed:node-a",
+      "node-a",
+      context
+    );
+
+    expect(result).toEqual({
+      evidence: ["changed files: src/app.ts"],
+      gateId: "changed:node-a",
+      kind: "changed_files",
+      nodeId: "node-a",
+      passed: true,
+      reason: undefined,
     });
   });
 

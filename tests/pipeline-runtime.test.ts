@@ -157,6 +157,23 @@ function gitStatusSnapshot(baseDir?: string): {
   }
 }
 
+function initCommittedGitProject(project: string, files: string[]): void {
+  execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: project,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["config", "user.name", "Test User"], {
+    cwd: project,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["add", ...files], { cwd: project, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "initial"], {
+    cwd: project,
+    stdio: "ignore",
+  });
+}
+
 function baseConfig(extraWorkflow = "") {
   return parsePipelineConfigParts({
     runners: `
@@ -889,6 +906,76 @@ workflows:
       ["semgrep", "scan", "--config=p/ci", "--error", "--", "src/app.ts"],
       expect.objectContaining({ cwd: project })
     );
+  });
+
+  it("reaches a green write-mode node while supervisor run-state lives in the worktree (PIPE-85)", async () => {
+    const project = tempProject();
+    writeProjectFile(project, "src/app.ts", "export const value = 1;\n");
+    initCommittedGitProject(project, ["src/app.ts"]);
+    const config = baseConfig(`
+  run-state-gate:
+    nodes:
+      - id: green-edit
+        kind: agent
+        profile: a
+        gates:
+          - id: changed-policy
+            kind: changed_files
+            changed_files:
+              allow: ["src/**"]
+              require_any: ["src/**"]
+`);
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => {
+        // Real node-authored source change, on the node's allow list.
+        writeProjectFile(project, "src/app.ts", "export const value = 2;\n");
+        // Supervisor run-state written into the worktree WHILE the node runs;
+        // none of it is on the allow list. Before PIPE-85 these failed the gate.
+        writeProjectFile(
+          project,
+          ".pipeline/runs/run-fixture/status.json",
+          '{"status":"running"}\n'
+        );
+        writeProjectFile(
+          project,
+          ".pipeline/runs/run-fixture/runtime-events.jsonl",
+          "{}\n"
+        );
+        writeProjectFile(
+          project,
+          ".pipeline/runs/run-fixture/nodes/green-edit/stdout.jsonl",
+          "{}\n"
+        );
+        writeProjectFile(
+          project,
+          ".pipeline/journal/run-fixture.jsonl",
+          "{}\n"
+        );
+        return { exitCode: 0, stdout: "done" };
+      },
+      task: "run-state gate",
+      workflowId: "run-state-gate",
+      worktreePath: project,
+    });
+
+    expect(result.outcome, JSON.stringify(result, null, 2)).toBe("PASS");
+    expect(
+      result.nodes.find((node) => node.nodeId === "green-edit")
+    ).toMatchObject({ status: "passed" });
+    const changedGate = result.gates.find(
+      (gate) => gate.gateId === "changed-policy"
+    );
+    expect(changedGate).toMatchObject({
+      kind: "changed_files",
+      passed: true,
+    });
+    // The gate evaluated the genuine source edit, not supervisor bookkeeping.
+    expect(changedGate?.evidence).toEqual(["changed files: src/app.ts"]);
+    const serializedGates = JSON.stringify(result.gates);
+    expect(serializedGates).not.toContain(".pipeline/runs");
+    expect(serializedGates).not.toContain(".pipeline/journal");
   });
 
   it("honors retry_on when deciding whether to retry a failed node", async () => {

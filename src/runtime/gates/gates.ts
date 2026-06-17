@@ -631,10 +631,19 @@ export function evaluateChangedFilesGate(
   const changed = context.nodeStateStore.changedFiles(nodeId);
   const policy = gate.changed_files ?? {};
   const evidence: string[] = [];
-  const included =
+  const untrackedFiltered =
     policy.include_untracked === false
       ? changed.filter((file) => !file.startsWith("?? "))
       : changed;
+  // Drop the supervisor's own run-state writes before any deny/allow/require_any
+  // evaluation. The run-control store and journal write into .pipeline/ inside
+  // the worktree WHILE nodes run (PIPE-85), so without this every write-mode
+  // node would fail the gate on bookkeeping it never authored. Scope is limited
+  // to named run-state paths so genuine node output under .pipeline/ is still
+  // gated.
+  const included = untrackedFiltered.filter(
+    (file) => !isSupervisorRunStatePath(file)
+  );
   const denied = included.filter((file) =>
     (policy.deny ?? []).some((pattern) => globMatch(pattern, file))
   );
@@ -670,6 +679,38 @@ export function evaluateChangedFilesGate(
     passed,
     reason: passed ? undefined : "changed-file policy failed",
   };
+}
+
+/**
+ * Supervisor-owned run-state the run-control store and journal write into the
+ * worktree's .pipeline/ during a run (src/run-control/store.ts RUNS_DIRECTORY
+ * and src/runtime/run-journal.ts). These are never node-authored content under
+ * test, so the changed_files gate must not attribute them to a node. Narrowly
+ * scoped to run-state, NOT a blanket .pipeline/ bypass, so a node that writes
+ * real output under .pipeline/ is still gated.
+ */
+const SUPERVISOR_RUN_STATE_GLOBS = [
+  "**/.pipeline/runs/**",
+  "**/.pipeline/journal/**",
+  "**/.pipeline/runtime-events.jsonl",
+  "**/.pipeline/**/status.json",
+];
+
+function isSupervisorRunStatePath(file: string): boolean {
+  const path = stripPorcelainStatusPrefix(file);
+  return SUPERVISOR_RUN_STATE_GLOBS.some((pattern) => globMatch(pattern, path));
+}
+
+/**
+ * Snapshot entries are repo-relative paths (the porcelain parser already strips
+ * the status code), but some fixtures and untracked entries carry a leading
+ * "XY " status prefix. Strip it before matching run-state globs so both shapes
+ * resolve to the same path; non-prefixed paths (".pipeline/...") are unchanged.
+ */
+const PORCELAIN_STATUS_PREFIX = /^.{2} /;
+
+function stripPorcelainStatusPrefix(file: string): string {
+  return PORCELAIN_STATUS_PREFIX.test(file) ? file.slice(3) : file;
 }
 
 function globMatch(pattern: string, value: string): boolean {
