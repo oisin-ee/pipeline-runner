@@ -59,16 +59,23 @@ function createRunStoreRuntimeReporterRuntime(
       activeHookPreviousStatuses,
       observedNodeStatuses,
     });
+    // Run-control persistence is observability and must never abort the pipeline
+    // run: a single event that cannot be recorded (e.g. a session reported by an
+    // internal sub-invocation such as the `<node>:handoff` finalizer, which is
+    // not a declared run node) is logged and skipped, not propagated into the
+    // write chain that flush() rethrows.
+    const persisted = persistRuntimeEventEffect(
+      input,
+      event,
+      projection,
+      now
+    ).pipe(Effect.catchAll((error) => warnPersistSkipped(input, event, error)));
     writeChain = writeChain.then(() =>
       // Serialize against the builtin run-state hide window: persistence writes
       // under .pipeline/runs/<id>/, which a concurrent lint/fallow builtin
       // temporarily relocates. The lock keeps the two mutually exclusive so a
       // sibling node-status event never observes a missing run directory.
-      withRunStateLock(() =>
-        Effect.runPromise(
-          persistRuntimeEventEffect(input, event, projection, now)
-        )
-      )
+      withRunStateLock(() => Effect.runPromise(persisted))
     );
   };
 
@@ -389,4 +396,24 @@ function timestamp(now: () => Date): string {
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled runtime reporter value: ${String(value)}`);
+}
+
+function warnPersistSkipped(
+  input: CreateRunStoreRuntimeReporterInput,
+  event: PipelineRuntimeEvent,
+  error: unknown
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    const nodeId =
+      "nodeId" in event && typeof event.nodeId === "string"
+        ? ` node=${event.nodeId}`
+        : "";
+    process.stderr.write(
+      `run-control: skipped persisting ${event.type}${nodeId} for run ${input.runId}: ${errorMessage(error)}\n`
+    );
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

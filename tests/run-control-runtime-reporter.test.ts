@@ -139,6 +139,52 @@ describe("run-control runtime reporter bridge", () => {
     expect(status.status).toBe("starting");
   });
 
+  it("keeps the run alive when an internal sub-invocation reports a session for an undeclared node", async () => {
+    const { createRunStoreRuntimeReporter } = await loadRuntimeReporter();
+    const runId = "run-handoff-session";
+    await createRun({
+      effort: "normal",
+      mode: "write",
+      nodeIds: ["writer"],
+      runId,
+      target: "local",
+      workspaceRoot,
+    });
+    const bridge = createRunStoreRuntimeReporter({
+      now: sequentialClock(),
+      runId,
+      workspaceRoot,
+    });
+
+    bridge.reporter({
+      nodeIds: ["writer"],
+      type: "workflow.start",
+      workflowId: "handoff",
+    });
+    // The `<node>:handoff` finalizer is an internal sub-invocation, not a
+    // declared run node; persisting its session fails in the store, but that
+    // must be skipped (best-effort observability), not abort the run on flush.
+    bridge.reporter({
+      nodeId: "writer:handoff",
+      sessionId: "ses_handoff",
+      type: "node.session",
+    });
+    await expect(bridge.flush()).resolves.toBeUndefined();
+
+    // The declared node's own session still records.
+    bridge.reporter({
+      nodeId: "writer",
+      sessionId: "ses_writer",
+      type: "node.session",
+    });
+    await expect(bridge.flush()).resolves.toBeUndefined();
+    const status = readJson(runPath(workspaceRoot, runId, "status.json")) as {
+      nodes: Record<string, { sessionId?: string }>;
+    };
+    expect(status.nodes.writer?.sessionId).toBe("ses_writer");
+    expect(status.nodes["writer:handoff"]).toBeUndefined();
+  });
+
   it("documents the hazard: a direct run-state write during a hide window fails", async () => {
     const { updateRunStatus } = await import("../src/run-control/store");
     const runId = "run-hide-hazard";
