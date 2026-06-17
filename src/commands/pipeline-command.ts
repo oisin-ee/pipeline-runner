@@ -8,11 +8,13 @@ export const BUILTIN_PIPE_COMMANDS = new Set([
   "explain-plan",
   "doctor",
   "init",
+  "refresh-harnesses",
   "install-commands",
   "mcp",
   "submit",
   "argo",
   "runner-command",
+  "ticket",
 ]);
 
 interface EntrypointCommandFlags {

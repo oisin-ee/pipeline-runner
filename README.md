@@ -98,6 +98,8 @@ Canonical commands:
 - `moka export <run-id> --sanitize`: print a portable evidence bundle.
 - `moka doctor`: check local prerequisites and config health.
 - `moka init`: install package-owned host resources for a repository.
+- `moka refresh-harnesses`: force-refresh generated agent harnesses and commit
+  owned resource changes.
 
 ```shell
 moka run "Implement PIPE-123 user-facing behavior"
@@ -109,6 +111,7 @@ moka run --effort normal "Implement a standard fix"
 moka run --target remote --effort thorough "Submit a full hosted graph run"
 moka run --read-only "Inspect the repository without edits"
 moka run --target remote --command -- opencode run "fix this bug"
+moka refresh-harnesses
 ```
 
 Flag defaults and choices:
@@ -118,6 +121,27 @@ Flag defaults and choices:
   hosted graph runs.
 - `--effort` selects `quick`, `normal`, or `thorough`; `normal` is the default.
 - `--read-only` switches mode to `read`; mode defaults to `write`.
+
+Moka ticket selects and scopes Backlog work; moka run executes selected work.
+Use Backlog CLI for task creation and editing instead of direct markdown edits.
+
+```shell
+moka ticket graph check --root PIPE-84
+moka ticket sequence --root PIPE-84 --plain
+moka ticket next --root PIPE-84 --json
+moka ticket next --claim --root PIPE-84
+moka ticket create --dry-run "Plan a small Backlog task"
+moka ticket create --apply --parent PIPE-84 "Plan and create child tasks"
+moka ticket start --root PIPE-84
+moka ticket start --dry-run --root PIPE-84 --effort quick --target local
+```
+
+Read-only ticket commands are `moka ticket graph check`, `moka ticket sequence`,
+`moka ticket next`, `moka ticket create --dry-run`, and
+`moka ticket start --dry-run`. Commands that mutate or run work are
+`moka ticket next --claim`, `moka ticket create --apply`, and
+`moka ticket start` without `--dry-run`: they use Backlog CLI task creation and
+editing or invoke `moka run` for the selected ticket.
 
 Local run artifacts live under `.pipeline/runs/<runId>/`:
 

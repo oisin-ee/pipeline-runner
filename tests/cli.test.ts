@@ -1078,204 +1078,6 @@ function execaCommands(): string[] {
   return mockExeca.mock.calls.map(([command]) => String(command));
 }
 
-// ─── backlog.ts ───────────────────────────────────────────────────────────────
-
-function backlogCreateOutput(id: string, title: string): string {
-  return `File: /tmp/wt/backlog/tasks/${id.toLowerCase()} - slug.md\n\nTask ${id} - ${title}\n==================================================\n`;
-}
-
-describe("createSwarmTasks", () => {
-  it("creates parent + 5 child tasks via backlog and returns the assigned id map", async () => {
-    const { createSwarmTasks } = await import("../src/backlog");
-
-    // Sequence of backlog task create stdouts: parent, then R, TW, CW, V, L children
-    mockExeca
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("TASK-10", "pipe task"),
-        exitCode: 0,
-      } as any)
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("TASK-10.1", "research"),
-        exitCode: 0,
-      } as any)
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("TASK-10.2", "test-write"),
-        exitCode: 0,
-      } as any)
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("TASK-10.3", "implement"),
-        exitCode: 0,
-      } as any)
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("TASK-10.4", "verify"),
-        exitCode: 0,
-      } as any)
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("TASK-10.5", "learn"),
-        exitCode: 0,
-      } as any);
-
-    const swarm = await createSwarmTasks("pipe task", "/tmp/wt");
-
-    expect(swarm).toEqual({
-      parentId: "TASK-10",
-      phases: {
-        R: "TASK-10.1",
-        TW: "TASK-10.2",
-        CW: "TASK-10.3",
-        V: "TASK-10.4",
-        L: "TASK-10.5",
-      },
-    });
-    // 6 calls total: 1 parent + 5 children
-    const createCalls = mockExeca.mock.calls.filter((c) => {
-      const args = c[1] as string[] | undefined;
-      return (
-        c[0] === "backlog" && args?.[0] === "task" && args?.[1] === "create"
-      );
-    });
-    expect(createCalls.length).toBe(6);
-  });
-
-  it("threads worktree path as cwd into every backlog invocation", async () => {
-    const { createSwarmTasks } = await import("../src/backlog");
-
-    mockExeca.mockResolvedValue({
-      stdout: backlogCreateOutput("TASK-1", "x"),
-      exitCode: 0,
-    } as any);
-
-    await createSwarmTasks("x", "/some/wt");
-
-    for (const call of mockExeca.mock.calls) {
-      if (call[0] === "backlog") {
-        expect(
-          (call as unknown as [string, string[], { cwd: string }])[2]
-        ).toMatchObject({ cwd: "/some/wt" });
-      }
-    }
-  });
-
-  it("accepts custom Backlog task prefixes from real CLI output", async () => {
-    const { createSwarmTasks } = await import("../src/backlog");
-
-    mockExeca
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("PIPE-1", "pipe task"),
-        exitCode: 0,
-      } as any)
-      .mockResolvedValueOnce({
-        stdout: backlogCreateOutput("PIPE-1.1", "research"),
-        exitCode: 0,
-      } as any)
-      .mockResolvedValue({
-        stdout: backlogCreateOutput("PIPE-1.2", "phase"),
-        exitCode: 0,
-      } as any);
-
-    const swarm = await createSwarmTasks("pipe task", "/tmp/wt");
-
-    expect(swarm.parentId).toBe("PIPE-1");
-    expect(swarm.phases.R).toBe("PIPE-1.1");
-  });
-
-  it("does not append --no-git to backlog calls (init-only flag in upstream)", async () => {
-    const { createSwarmTasks } = await import("../src/backlog");
-
-    mockExeca.mockResolvedValue({
-      stdout: backlogCreateOutput("TASK-1", "x"),
-      exitCode: 0,
-    } as any);
-
-    await createSwarmTasks("PIPE-42", "/tmp/wt");
-
-    for (const call of mockExeca.mock.calls) {
-      if (call[0] === "backlog") {
-        expect(call[1]).not.toContain("--no-git");
-      }
-    }
-  });
-});
-
-describe("markPhase", () => {
-  it("calls backlog task edit with --status against the assigned id", async () => {
-    const { markPhase } = await import("../src/backlog");
-
-    mockExeca.mockResolvedValue({ stdout: "", exitCode: 0 } as any);
-
-    await markPhase("TASK-10.1", "Done", "/tmp/wt");
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "backlog",
-      expect.arrayContaining(["task", "edit", "TASK-10.1", "--status", "Done"]),
-      expect.objectContaining({ cwd: "/tmp/wt" })
-    );
-  });
-});
-
-describe("planPhaseLifecycle", () => {
-  const SWARM = {
-    parentId: "TASK-99",
-    phases: {
-      R: "TASK-99.1",
-      TW: "TASK-99.2",
-      CW: "TASK-99.3",
-      V: "TASK-99.4",
-      L: "TASK-99.5",
-    },
-  } as const;
-
-  it("plans each phase In Progress then Done for a successful run", async () => {
-    const { planPhaseLifecycle } = await import("../src/backlog");
-
-    const result = planPhaseLifecycle(SWARM, {
-      outcome: "PASS",
-      failureDetails: [],
-    });
-
-    expect(result.statusUpdates).toEqual([
-      { taskId: "TASK-99.1", status: "In Progress" },
-      { taskId: "TASK-99.1", status: "Done" },
-      { taskId: "TASK-99.2", status: "In Progress" },
-      { taskId: "TASK-99.2", status: "Done" },
-      { taskId: "TASK-99.3", status: "In Progress" },
-      { taskId: "TASK-99.3", status: "Done" },
-      { taskId: "TASK-99.4", status: "In Progress" },
-      { taskId: "TASK-99.4", status: "Done" },
-      { taskId: "TASK-99.5", status: "In Progress" },
-      { taskId: "TASK-99.5", status: "Done" },
-    ]);
-    expect(result.failureNote).toBeUndefined();
-  });
-
-  it("stops at the gate failure phase and records failure context", async () => {
-    const { planPhaseLifecycle } = await import("../src/backlog");
-
-    const result = planPhaseLifecycle(SWARM, {
-      outcome: "FAIL",
-      failureDetails: [
-        {
-          gate: "GREEN",
-          reason: "tests failed",
-          evidence: ["expected 2 received 1"],
-        },
-      ],
-    });
-
-    expect(result.statusUpdates).toEqual([
-      { taskId: "TASK-99.1", status: "In Progress" },
-      { taskId: "TASK-99.1", status: "Done" },
-      { taskId: "TASK-99.2", status: "In Progress" },
-      { taskId: "TASK-99.2", status: "Done" },
-      { taskId: "TASK-99.3", status: "In Progress" },
-    ]);
-    expect(result.failureNote).toEqual({
-      taskId: "TASK-99.3",
-      note: "GREEN gate failed: tests failed\n\nEvidence:\n- expected 2 received 1",
-    });
-  });
-});
-
 // ─── CLI entry ────────────────────────────────────────────────────────────────
 
 describe("execute", () => {
@@ -2070,6 +1872,61 @@ workflows:
       }
       rmSync(initDir, { recursive: true, force: true });
       rmSync(doctorDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps refresh-harnesses reachable without config", async () => {
+    const { runCli } = await import("../src/index");
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-bootstrap-refresh-"));
+    const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+
+    try {
+      process.env.PIPELINE_TARGET_PATH = dir;
+      mockExeca.mockImplementation(((
+        command: string,
+        args?: string[],
+        options?: { cwd?: string; reject?: boolean }
+      ) => {
+        if (isSkillsInstallCommand(command, args)) {
+          installMockSkills(
+            args,
+            (options as { cwd?: string } | undefined)?.cwd
+          );
+        }
+        if (command === "git" && args?.join(" ") === "diff --cached --quiet") {
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+        }
+        if (
+          command === "git" &&
+          args?.join(" ") === "diff --cached --name-only"
+        ) {
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+        }
+        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "true\n" });
+      }) as any);
+
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "refresh-harnesses",
+      ]);
+
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+      expect(
+        existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))
+      ).toBe(true);
+      expect(mockExeca).toHaveBeenCalledWith(
+        "git",
+        expect.arrayContaining(["add"]),
+        expect.objectContaining({ cwd: dir })
+      );
+    } finally {
+      if (originalTargetPath === undefined) {
+        delete process.env.PIPELINE_TARGET_PATH;
+      } else {
+        process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+      }
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

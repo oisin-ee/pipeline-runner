@@ -16,8 +16,9 @@ This repository uses package-owned `@oisincoveney/pipeline` config.
 
 Use Qdrant collection `oisin-pipeline` for this repository.
 
-- Call `qdrant-find` before research with `collection_name: oisin-pipeline` unless the user explicitly disables memory.
-- Call `qdrant-store` during LEARN with `collection_name: oisin-pipeline` for durable lessons worth reusing.
+- Use the Qdrant interface exposed by the active host; do not assume `qdrant-find` or `qdrant-store` are shell commands.
+- Before research, call MCP tool `qdrant_qdrant_find` with `collection_name: oisin-pipeline` when MCP tools are available; otherwise use the host's `qdrant-find` command/alias if one exists.
+- During LEARN, call MCP tool `qdrant_qdrant_store` with `collection_name: oisin-pipeline` for durable lessons worth reusing; otherwise use the host's `qdrant-store` command/alias if one exists.
 - Include metadata with at least `repo`, `phase`, `workflow` or `entrypoint`, `task`, and `outcome` when storing lessons.
 
 <!-- @oisincoveney/pipeline:agents:end -->

@@ -53,6 +53,31 @@ Flags:
 - `--effort` selects `quick`, `normal`, or `thorough`; `normal` is the default.
 - `--read-only` selects read mode; mode defaults to `write`.
 
+`moka ticket`
+
+Moka ticket selects and scopes Backlog work; moka run executes selected work.
+Use Backlog CLI for task creation and editing
+instead of direct markdown edits.
+
+```shell
+moka ticket graph check --root PIPE-84
+moka ticket sequence --root PIPE-84 --plain
+moka ticket next --root PIPE-84 --json
+moka ticket next --claim --root PIPE-84
+moka ticket create --dry-run "Plan a small Backlog task"
+moka ticket create --apply --parent PIPE-84 "Plan and create child tasks"
+moka ticket start --root PIPE-84
+moka ticket start --dry-run --root PIPE-84 --effort quick --target local
+```
+
+Read-only ticket commands are `moka ticket graph check`, `moka ticket sequence`,
+`moka ticket next`, `moka ticket create --dry-run`, and
+`moka ticket start --dry-run`. Commands that mutate or run work are
+`moka ticket next --claim`, `moka ticket create --apply`, and
+`moka ticket start` without `--dry-run`: they either mutate Backlog through
+Backlog CLI task creation and editing or dispatch `moka run` for the selected
+ticket.
+
 Run-control commands:
 
 ```shell
@@ -170,6 +195,17 @@ moka install-commands --host all --force
 ```
 
 Host choices are `all` and `opencode`.
+
+`moka refresh-harnesses`
+
+Force-refreshes package-owned skills and generated agent harnesses, stages only
+owned harness/resource paths, and commits them with `--no-verify`. The default
+commit message is `chore: update agent harnesses`.
+
+```shell
+moka refresh-harnesses
+moka refresh-harnesses --message "chore: refresh moka harnesses"
+```
 
 Use `PIPELINE_TARGET_PATH=/path/to/repo` when invoking `moka` from outside the
 target worktree.

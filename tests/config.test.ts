@@ -367,6 +367,7 @@ describe("loadPipelineConfig", () => {
     ).toEqual([
       ["moka-orchestrator", "opencode"],
       ["moka-researcher", "opencode"],
+      ["moka-ticket-scoper", "opencode"],
       ["moka-inspector", "opencode"],
       ["moka-schedule-planner", "opencode"],
       ["moka-test-writer", "opencode"],
@@ -490,6 +491,24 @@ describe("loadPipelineConfig", () => {
       },
       timeout_ms: 5000,
     });
+  });
+
+  it("declares a ticket scoper profile with binding scope instructions", () => {
+    const project = mkdtempSync(join(tmpdir(), "pipeline-config-defaults-"));
+    tempDirs.push(project);
+    writeDefaultPackageSkills(project);
+
+    const profile = loadPipelineConfig(project).profiles["moka-ticket-scoper"];
+
+    expect(profile.skills).toContain("scope");
+    expect(profile.output).toMatchObject({
+      format: "json_schema",
+      schema_path: ".pipeline/schemas/ticket-plan.schema.json",
+    });
+    expect(profile.instructions.inline).toContain("scope skill contract");
+    expect(profile.instructions.inline).toContain(
+      "Do not emit partial tickets"
+    );
   });
 
   it("parses a minimal custom pipeline config without an orchestrator", () => {
@@ -753,6 +772,34 @@ workflows:
     expect(
       config.workflows.default.nodes[0].gates?.map((gate) => gate.kind)
     ).toEqual(["verdict", "acceptance", "changed_files"]);
+  });
+
+  it("warns when a configured entrypoint shadows the builtin ticket command", () => {
+    const project = makeProject();
+    const config = parseProjectParts(project, {
+      pipeline: `
+version: 1
+default_workflow: default
+entrypoints:
+  ticket:
+    workflow: default
+    description: Ticket entrypoint
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: research
+        kind: agent
+        profile: researcher
+`,
+    });
+
+    expect(lintPipelineConfig(config, project)).toContainEqual({
+      ruleId: "entrypoint-shadowed",
+      message:
+        "entrypoint 'ticket' is shadowed by the builtin subcommand; invoke via 'moka run --entrypoint ticket ...'",
+    });
   });
 
   it("rejects obsolete schedule planner_strategy config", () => {

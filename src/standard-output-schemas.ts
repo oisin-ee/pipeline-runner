@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ticketPlanSchema } from "./tickets/ticket-plan";
 
 const VERDICT_SCHEMA = z.enum(["PASS", "FAIL"]);
 const STRING_ARRAY_SCHEMA = z.array(z.string());
@@ -76,6 +77,7 @@ const STANDARD_OUTPUT_SCHEMAS = {
       verdict: VERDICT_SCHEMA,
     })
     .strict(),
+  "ticket-plan": ticketPlanSchema,
   verify: z
     .object({
       evidence: STRING_ARRAY_SCHEMA,

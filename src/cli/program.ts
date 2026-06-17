@@ -10,6 +10,10 @@ import {
 import { registerBenchCommand } from "../commands/bench-command";
 import { registerConfiguredEntrypointCommands } from "../commands/pipeline-command";
 import { registerRunnerCommandCommand } from "../commands/runner-command-command";
+import {
+  registerTicketCommand,
+  type TicketCommandOptions,
+} from "../commands/ticket-command";
 import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { formatConfigLintWarning, lintPipelineConfig } from "../config/lint";
 import {
@@ -30,7 +34,9 @@ import {
 } from "../mcp/gateway";
 import {
   formatPipelineInitResult,
+  formatRefreshAgentHarnessesResult,
   initPipelineProject,
+  refreshAgentHarnesses,
 } from "../pipeline-init";
 import { runPipelineFromConfig } from "../pipeline-runtime";
 import {
@@ -64,6 +70,7 @@ import {
   formatRuntimeFailure,
   formatRuntimeResult,
 } from "./format";
+import { dispatchMokaRunCommand, type RunCommand } from "./run-command";
 import {
   type LocalRuntimeExecution,
   MOKA_RUN_EFFORTS,
@@ -450,7 +457,12 @@ interface RunControllerFlags {
   workflow?: string;
 }
 
-export function createCliProgram(): Command {
+export interface CliProgramOptions {
+  readonly runCommand?: RunCommand;
+  readonly ticketCommand?: TicketCommandOptions;
+}
+
+export function createCliProgram(options: CliProgramOptions = {}): Command {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const configuredPipeline = loadConfiguredEntrypoints(cwd);
   const program = new Command();
@@ -460,27 +472,32 @@ export function createCliProgram(): Command {
     .version(readPackageVersion())
     .exitOverride();
 
+  const dispatchResolvedRunCommand: RunCommand = async (call) => {
+    await dispatchMokaRunCommand(call, {
+      runCommand: options.runCommand,
+      runDetached: ({ execution, runControl, task: resolvedTask }) =>
+        runDetachedResolvedTask(resolvedTask, execution, runControl),
+      runLocal: ({ execution, runControl, task: resolvedTask }) =>
+        runLocalResolvedTask(resolvedTask, execution, runControl),
+      runRemoteSubmit: async ({ descriptionParts: parts, execution }) => {
+        const result = await runMokaSubmitFromCli(
+          parts,
+          remoteSubmitFlags(execution)
+        );
+        printMokaSubmitResult(result);
+      },
+    });
+  };
+
   const runAction = async (descriptionParts: string[], flags: RunFlags) => {
     const task = descriptionParts.join(" ");
     const resolution = resolveMokaRun({ flags, task });
-    if (resolution.execution.kind === "remote-submit") {
-      const result = await runMokaSubmitFromCli(
-        descriptionParts,
-        remoteSubmitFlags(resolution.execution)
-      );
-      printMokaSubmitResult(result);
-      return;
-    }
-    const runControl = {
-      effort: resolution.effort,
-      mode: resolution.mode === "read" ? "read-only" : "write",
-      target: resolution.target,
-    } satisfies RunControlOptions;
-    if (flags.detach) {
-      await runDetachedResolvedTask(task, resolution.execution, runControl);
-      return;
-    }
-    await runLocalResolvedTask(task, resolution.execution, runControl);
+    await dispatchResolvedRunCommand({
+      descriptionParts,
+      flags,
+      resolution,
+      task,
+    });
   };
 
   program
@@ -750,6 +767,38 @@ export function createCliProgram(): Command {
     });
 
   program
+    .command("refresh-harnesses")
+    .description(
+      "Force-refresh generated agent harnesses and commit owned resource changes"
+    )
+    .addOption(
+      new Option(
+        "--skill-scope <scope>",
+        "where to install default skills: project (repo-local copy) or personal (one inherited user/global install)"
+      )
+        .choices(["project", "personal"])
+        .default("project")
+    )
+    .option(
+      "--message <message>",
+      "git commit message for refreshed harness changes",
+      "chore: update agent harnesses"
+    )
+    .action(
+      async (flags: {
+        message: string;
+        skillScope: "project" | "personal";
+      }) => {
+        const result = await refreshAgentHarnesses({
+          commitMessage: flags.message,
+          cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
+          scope: flags.skillScope,
+        });
+        console.log(formatRefreshAgentHarnessesResult(result));
+      }
+    );
+
+  program
     .command("install-commands")
     .description(
       "Install generated slash-command adapters into this repository"
@@ -819,6 +868,10 @@ export function createCliProgram(): Command {
 
   registerRunnerCommandCommand(program);
   registerBenchCommand(program);
+  registerTicketCommand(program, {
+    ...options.ticketCommand,
+    runCommand: options.ticketCommand?.runCommand ?? dispatchResolvedRunCommand,
+  });
 
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,

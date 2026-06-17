@@ -21,7 +21,34 @@ const CANONICAL_COMMANDS = [
   "moka export",
   "moka doctor",
   "moka init",
+  "moka refresh-harnesses",
 ] as const;
+
+const MOKA_TICKET_COMMANDS = [
+  "moka ticket graph check --root PIPE-84",
+  "moka ticket sequence --root PIPE-84 --plain",
+  "moka ticket next --root PIPE-84 --json",
+  "moka ticket next --claim --root PIPE-84",
+  "moka ticket create --dry-run",
+  "moka ticket create --apply --parent PIPE-84",
+  "moka ticket start --root PIPE-84",
+  "moka ticket start --dry-run --root PIPE-84",
+] as const;
+
+const MOKA_TICKET_RELATIONSHIP_PATTERN =
+  /moka ticket selects and scopes Backlog work[\s\S]{0,220}moka run executes selected work/i;
+
+const MOKA_TICKET_READ_ONLY_BOUNDARY_PATTERN =
+  /read-only[\s\S]{0,240}graph check[\s\S]{0,240}sequence[\s\S]{0,240}next[\s\S]{0,240}create --dry-run/i;
+
+const MOKA_TICKET_MUTATION_BOUNDARY_PATTERN =
+  /mutate[\s\S]{0,240}next --claim[\s\S]{0,240}create --apply[\s\S]{0,240}ticket start[\s\S]{0,160}without `--dry-run`/i;
+
+const MOKA_TICKET_START_DRY_RUN_BOUNDARY_PATTERN =
+  /ticket start --dry-run[\s\S]{0,160}read-only/i;
+
+const BACKLOG_CLI_MARKDOWN_BOUNDARY_PATTERN =
+  /Backlog CLI[\s\S]{0,240}task creation and editing[\s\S]{0,240}direct markdown edits/i;
 
 const FLAG_DOCUMENTATION_REQUIREMENTS: Requirement[] = [
   {
@@ -226,5 +253,20 @@ describe("README command surface", () => {
     expect(canonicalRemoteIndex).toBeLessThan(submitIndex);
     expect(cheatSheet).toMatch(submitCompatibilityContext);
     expect(cheatSheet).not.toMatch(SUBMIT_PRIMARY_COMMAND_PATTERN);
+  });
+
+  it("documents moka ticket commands and mutation boundaries", () => {
+    const section = commandSurfaceSection();
+    const guide = operatorGuideSection("## Command Cheat Sheet");
+    const docs = `${section}\n\n${guide}`;
+
+    for (const command of MOKA_TICKET_COMMANDS) {
+      expect(docs).toContain(command);
+    }
+    expect(docs).toMatch(MOKA_TICKET_RELATIONSHIP_PATTERN);
+    expect(docs).toMatch(MOKA_TICKET_READ_ONLY_BOUNDARY_PATTERN);
+    expect(docs).toMatch(MOKA_TICKET_START_DRY_RUN_BOUNDARY_PATTERN);
+    expect(docs).toMatch(MOKA_TICKET_MUTATION_BOUNDARY_PATTERN);
+    expect(docs).toMatch(BACKLOG_CLI_MARKDOWN_BOUNDARY_PATTERN);
   });
 });

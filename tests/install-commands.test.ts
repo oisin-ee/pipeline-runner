@@ -96,6 +96,7 @@ describe("installCommands", () => {
       ".opencode/agents/MoKa Schedule Planner.md",
       ".opencode/agents/MoKa Test Writer.md",
       ".opencode/agents/MoKa Thermo Nuclear Reviewer.md",
+      ".opencode/agents/MoKa Ticket Scoper.md",
       ".opencode/agents/MoKa Verifier.md",
       ".opencode/plugins/pipeline-goal-context.ts",
       ".claude/commands/moka-quick.md",
@@ -260,8 +261,11 @@ describe("installCommands", () => {
     expect(content).toContain(
       "Use `/moka-quick`, `/moka-execute`, or `/moka-inspect`"
     );
-    expect(content).toContain("Call `qdrant-find` before research");
-    expect(content).toContain("Call `qdrant-store` during LEARN");
+    expect(content).toContain("do not assume `qdrant-find`");
+    expect(content).toContain("MCP tool `qdrant_qdrant_find`");
+    expect(content).toContain("MCP tool `qdrant_qdrant_store`");
+    expect(content).toContain("`qdrant-find` command/alias");
+    expect(content).toContain("`qdrant-store` command/alias");
     expect(content).toContain(`collection_name: ${basename(dir)}`);
     expect(content).toContain("metadata");
     expect(content).toContain("repo");

@@ -13,7 +13,7 @@ import { loadPipelineConfig } from "../src/config";
 import {
   formatPipelineInitResult,
   initPipelineProject,
-  skillInstallArgs,
+  refreshAgentHarnesses,
 } from "../src/pipeline-init";
 
 const DEFAULT_INIT_SKILLS = [
@@ -46,6 +46,36 @@ async function installMockSkills(cwd: string): Promise<void> {
       `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
     );
   }
+}
+
+interface GitCall {
+  args: string[];
+  command: string;
+}
+
+function createGitRecorder(
+  options: { cachedDiffExitCode?: number; stagedFiles?: string[] } = {}
+) {
+  const calls: GitCall[] = [];
+  const run = (command: string, args: string[]) => {
+    calls.push({ args, command });
+    if (args.join(" ") === "diff --cached --quiet") {
+      return Promise.resolve({
+        exitCode: options.cachedDiffExitCode ?? 1,
+        stderr: "",
+        stdout: "",
+      });
+    }
+    if (args.join(" ") === "diff --cached --name-only") {
+      return Promise.resolve({
+        exitCode: 0,
+        stderr: "",
+        stdout: (options.stagedFiles ?? []).join("\n"),
+      });
+    }
+    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "true\n" });
+  };
+  return { calls, run };
 }
 
 function bootstrappedHostFilesExist(root: string): boolean {
@@ -138,18 +168,6 @@ describe("initPipelineProject", () => {
     expect(formatPipelineInitResult(result)).toContain("user/global scope");
   });
 
-  it("installs personal-scope skills globally without a per-repo copy", () => {
-    const personal = skillInstallArgs("personal");
-    expect(personal).toContain("--global");
-    expect(personal).not.toContain("--copy");
-  });
-
-  it("vendors project-scope skills as a repo-local copy", () => {
-    const project = skillInstallArgs("project");
-    expect(project).toContain("--copy");
-    expect(project).not.toContain("--global");
-  });
-
   it("does not write generated host resources when skill installation fails", async () => {
     await expect(
       initPipelineProject({
@@ -174,5 +192,78 @@ describe("initPipelineProject", () => {
     );
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
+  });
+
+  it("refreshes harnesses, stages only owned resources, and commits with the default message", async () => {
+    const git = createGitRecorder();
+
+    const result = await refreshAgentHarnesses({
+      commandRunner: git.run,
+      cwd: dir,
+      skillInstaller: installMockSkills,
+    });
+
+    expect(result.committed).toBe(true);
+    expect(result.commitMessage).toBe("chore: update agent harnesses");
+    expect(git.calls).toContainEqual({
+      command: "git",
+      args: ["commit", "--no-verify", "-m", "chore: update agent harnesses"],
+    });
+    const addCall = git.calls.find((call) => call.args[0] === "add");
+    expect(addCall?.args).toContain(".opencode");
+    expect(addCall?.args).toContain(".claude/commands");
+    expect(addCall?.args).toContain(".agents/skills");
+    expect(addCall?.args).not.toContain(".codex/skills");
+    expect(addCall?.args).not.toContain(".");
+  });
+
+  it("forwards personal skill scope and custom commit messages when refreshing harnesses", async () => {
+    const git = createGitRecorder();
+
+    const result = await refreshAgentHarnesses({
+      commandRunner: git.run,
+      commitMessage: "chore: refresh moka harnesses",
+      cwd: dir,
+      scope: "personal",
+      skillInstaller: installMockSkills,
+    });
+
+    expect(result.scope).toBe("personal");
+    expect(result.commitMessage).toBe("chore: refresh moka harnesses");
+    expect(git.calls).toContainEqual({
+      command: "git",
+      args: ["commit", "--no-verify", "-m", "chore: refresh moka harnesses"],
+    });
+  });
+
+  it("skips the commit when refreshed owned resources are already current", async () => {
+    const git = createGitRecorder({ cachedDiffExitCode: 0 });
+
+    const result = await refreshAgentHarnesses({
+      commandRunner: git.run,
+      cwd: dir,
+      skillInstaller: installMockSkills,
+    });
+
+    expect(result.committed).toBe(false);
+    expect(git.calls.some((call) => call.args[0] === "commit")).toBe(false);
+  });
+
+  it("refuses to commit when unrelated files are already staged", async () => {
+    const git = createGitRecorder({
+      stagedFiles: [".opencode/opencode.json", "src/app.ts"],
+    });
+
+    await expect(
+      refreshAgentHarnesses({
+        commandRunner: git.run,
+        cwd: dir,
+        skillInstaller: installMockSkills,
+      })
+    ).rejects.toThrow(
+      "Refusing to commit because unrelated files are already staged."
+    );
+
+    expect(git.calls.some((call) => call.args[0] === "commit")).toBe(false);
   });
 });

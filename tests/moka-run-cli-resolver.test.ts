@@ -27,6 +27,13 @@ interface SubmitCall {
   input: string[];
 }
 
+interface RunCommandCall {
+  descriptionParts: string[];
+  flags: Record<string, unknown>;
+  resolution: Record<string, unknown>;
+  task: string;
+}
+
 const mockState = vi.hoisted(() => ({
   runtimeCalls: [] as RuntimeCall[],
   scheduleCalls: [] as ScheduleCall[],
@@ -128,21 +135,34 @@ afterEach(() => {
 async function withCliTarget(
   run: (input: {
     dir: string;
-    parseMoka: (args: string[]) => Promise<void>;
-    parseRun: (args: string[]) => Promise<void>;
+    parseMoka: (
+      args: string[],
+      programOptions?: Record<string, unknown>
+    ) => Promise<void>;
+    parseRun: (
+      args: string[],
+      programOptions?: Record<string, unknown>
+    ) => Promise<void>;
   }) => Promise<void>
 ): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "moka-run-resolver-cli-"));
   process.env.PIPELINE_TARGET_PATH = dir;
   try {
     const { createCliProgram } = await import("../src/cli/program");
-    const parseMoka = async (args: string[]) => {
-      await createCliProgram().parseAsync(
-        ["node", "/repo/node_modules/.bin/moka", ...args],
-        { from: "node" }
-      );
+    const parseMoka = async (
+      args: string[],
+      programOptions?: Record<string, unknown>
+    ) => {
+      await createCliProgram(
+        programOptions as Parameters<typeof createCliProgram>[0]
+      ).parseAsync(["node", "/repo/node_modules/.bin/moka", ...args], {
+        from: "node",
+      });
     };
-    const parseRun = (args: string[]) => parseMoka(["run", ...args]);
+    const parseRun = (
+      args: string[],
+      programOptions?: Record<string, unknown>
+    ) => parseMoka(["run", ...args], programOptions);
     await run({ dir, parseMoka, parseRun });
   } finally {
     rmSync(dir, { force: true, recursive: true });
@@ -175,6 +195,76 @@ function writeSchedule(root: string, relativePath: string): string {
 }
 
 describe("moka run CLI flag resolver wiring", () => {
+  it("passes a resolved local read-only run to the injected runCommand dispatcher", async () => {
+    await withCliTarget(async ({ parseRun }) => {
+      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+
+      await parseRun(["--read-only", "Inspect", "the", "repo"], {
+        runCommand,
+      });
+
+      expect(runCommand).toHaveBeenCalledTimes(1);
+      expect(runCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          descriptionParts: ["Inspect", "the", "repo"],
+          flags: expect.objectContaining({
+            effort: "normal",
+            readOnly: true,
+            target: "local",
+          }),
+          resolution: expect.objectContaining({
+            effort: "normal",
+            execution: expect.objectContaining({
+              kind: "local-runtime",
+              workflow: "inspect",
+            }),
+            mode: "read",
+            target: "local",
+          }),
+          task: "Inspect the repo",
+        })
+      );
+      expect(mockState.runtimeCalls).toEqual([]);
+      expect(mockState.scheduleCalls).toEqual([]);
+      expect(mockState.submitCalls).toEqual([]);
+    });
+  });
+
+  it("passes a resolved remote quick run to the injected runCommand dispatcher", async () => {
+    await withCliTarget(async ({ parseRun }) => {
+      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+
+      await parseRun(
+        ["--target", "remote", "--effort", "quick", "Ship", "remote"],
+        { runCommand }
+      );
+
+      expect(runCommand).toHaveBeenCalledTimes(1);
+      expect(runCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          descriptionParts: ["Ship", "remote"],
+          flags: expect.objectContaining({
+            effort: "quick",
+            target: "remote",
+          }),
+          resolution: expect.objectContaining({
+            effort: "quick",
+            execution: expect.objectContaining({
+              kind: "remote-submit",
+              mode: "quick",
+            }),
+            mode: "write",
+            target: "remote",
+          }),
+          task: "Ship remote",
+        })
+      );
+      expect(mockState.runtimeCalls).toEqual([]);
+      expect(mockState.scheduleCalls).toEqual([]);
+      expect(mockState.submitCalls).toEqual([]);
+    });
+  });
+
   it("routes --read-only to the local inspect workflow without schedule generation", async () => {
     await withCliTarget(async ({ parseRun }) => {
       await parseRun(["--read-only", "Inspect", "the", "repo"]);
