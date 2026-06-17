@@ -509,6 +509,38 @@ workflows:
     expect(started.slice(1).sort()).toEqual(["left", "right"]);
   });
 
+  it("includes parallel child node ids in the workflow.start event", async () => {
+    // Regression: the run-control store rejects state updates for node ids it
+    // was not told about. The workflow.start event seeds that node set, so it
+    // must flatten parallel children — otherwise a child's first session/result
+    // update crashes any parallel fan-out with "Node <child> does not exist".
+    const project = tempProject();
+    const config = baseConfig(`
+  fanout:
+    nodes:
+      - id: fan
+        kind: parallel
+        nodes:
+          - { id: left, kind: agent, profile: a }
+          - { id: right, kind: agent, profile: b }
+`);
+    const events: PipelineRuntimeEvent[] = [];
+
+    await runPipelineFromConfig({
+      config,
+      executor: () => ({ exitCode: 0, stdout: "ok" }),
+      reporter: (event) => events.push(event),
+      task: "fanout",
+      workflowId: "fanout",
+      worktreePath: project,
+    });
+
+    const started = events.find((event) => event.type === "workflow.start");
+    const nodeIds =
+      started && "nodeIds" in started ? (started.nodeIds as string[]) : [];
+    expect(nodeIds).toEqual(expect.arrayContaining(["fan", "left", "right"]));
+  });
+
   it("limits parallel node execution when configured", async () => {
     const project = tempProject();
     const config = baseConfig(`

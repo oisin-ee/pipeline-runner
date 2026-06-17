@@ -49,6 +49,7 @@ import {
   generateScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
+import { flattenNodes } from "../planning/graph";
 import { registerRunControlCommands } from "../run-control/commands";
 import type { RunEffort, RunMode, RunTarget } from "../run-control/contracts";
 import { startDetachedRunController } from "../run-control/detach";
@@ -365,7 +366,12 @@ function plannedRunStoreNodeIds(
     inputs.entrypoint
   );
   const plan = compileWorkflowPlan(inputs.config, workflowId);
-  return plan.topologicalOrder.map((node) => node.id);
+  // Include parallel children: the runtime reports node sessions/results for
+  // each child, and the run-control store rejects unknown node ids — registering
+  // only top-level nodes crashes any parallel fan-out the moment a child runs.
+  return flattenNodes(plan.topologicalOrder, (node) => node.children).map(
+    (node) => node.id
+  );
 }
 
 function formatSupervisedRunFollowUp(runId: string): string {

@@ -1,3 +1,4 @@
+import { flattenNodes } from "../../planning/graph";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
 import { isRecord } from "../../safe-json";
 import {
@@ -211,7 +212,13 @@ export function emitWorkflowPlanned(context: RuntimeContext): void {
 
 export function emitWorkflowStarted(context: RuntimeContext): void {
   emit(context, {
-    nodeIds: context.plan.topologicalOrder.map((node) => node.id),
+    // Include parallel children so the run-control store registers every node
+    // the runtime will report on; otherwise a parallel child's session/result
+    // update is rejected as an unknown node id.
+    nodeIds: flattenNodes(
+      context.plan.topologicalOrder,
+      (node) => node.children
+    ).map((node) => node.id),
     type: "workflow.start",
     workflowId: context.workflowId,
   });
