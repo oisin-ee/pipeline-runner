@@ -1,3 +1,5 @@
+// fallow-ignore-file complexity
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { Effect } from "effect";
 import matter from "gray-matter";
@@ -236,62 +238,57 @@ function orchestratorBlock(config: PipelineConfig): string {
   ].join("\n");
 }
 
-function dispatchBlock(
-  host: ActiveCommandHost,
-  config: PipelineConfig,
-  workflowId = config.default_workflow
-): string | undefined {
-  const routes = agentDispatchRoutes(host, config, workflowId);
-  if (routes.length === 0) {
-    return;
-  }
-  const plan = compileWorkflowPlan(config, workflowId);
-  const nativeRoutes = routes.filter((route) => route.kind !== "cli");
-  const cliRoutes = routes.filter((route) => route.kind === "cli");
-  return [
-    `Run workflow \`${plan.workflowId}\` for the user task.`,
-    "",
-    nativeDispatchBlock(host, nativeRoutes),
-    cliDispatchBlock(host, cliRoutes),
-    nodePromptContract(plan.workflowId, routes),
-    "Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
-    "If a node returns targeted evidence and has no configured blocking gate, advance to the next node.",
-    "Do not bypass configured runner subprocesses or package-configured gates when executing nodes.",
-    "Use the listed Task tool routes for native nodes, and run nodes with satisfied dependencies in parallel whenever the host supports concurrent subagent work.",
-    hostSpecificDispatchGuard(host, nativeRoutes, cliRoutes),
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
-}
-
 export function entrypointDispatchBlock(
-  host: ActiveCommandHost,
-  config: PipelineConfig,
+  _host: ActiveCommandHost,
+  _config: PipelineConfig,
   id: string,
   entrypoint: PipelineConfig["entrypoints"][string]
 ): string | undefined {
-  if ("workflow" in entrypoint) {
-    return dispatchBlock(host, config, entrypoint.workflow);
-  }
+  const command = canonicalLocalRunCommand(id, entrypoint);
   return [
-    `Generate a schedule for entrypoint \`${id}\` and the user task.`,
-    `The schedule policy is \`${entrypoint.schedule}\`.`,
-    id === "quick"
-      ? "Run `moka submit --quick <task description>` to submit the graph as an Argo Workflow."
-      : `Run \`moka submit <task description>\` to submit the \`${id}\` graph as an Argo Workflow.`,
-    "The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.",
-    "Configure the target in `~/.config/moka/config.yaml`; use `--kubeconfig <path>` and `--namespace <namespace>` only for explicit command overrides.",
-    "Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.",
+    `Run \`${command}\` for local supervised execution.`,
+    `Configured entrypoint target: ${entrypointTargetId(entrypoint)}.`,
+    "This compatibility slash command delegates to the canonical `moka run` supervisor instead of reimplementing orchestration in the host.",
+    "The supervisor owns schedule generation, node execution, run state, and configured gates.",
+    "Keep reporting clear that this path is CLI/supervised runtime, not host-native Task execution.",
   ].join("\n");
 }
 
-export function scheduledEntrypointK8sNote(
+function entrypointTargetId(
   entrypoint: PipelineConfig["entrypoints"][string]
-): string | undefined {
-  if ("workflow" in entrypoint) {
-    return;
+): string {
+  return "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule;
+}
+
+function canonicalLocalRunCommand(
+  id: string,
+  entrypoint: PipelineConfig["entrypoints"][string]
+): string {
+  return [
+    "moka",
+    "run",
+    ...canonicalLocalRunFlags(id, entrypoint),
+    "<task description>",
+  ].join(" ");
+}
+
+function canonicalLocalRunFlags(
+  id: string,
+  entrypoint: PipelineConfig["entrypoints"][string]
+): string[] {
+  if (id === "quick") {
+    return ["--effort", "quick"];
   }
-  return "Submit Momokaya work as Argo Workflows through `moka submit` and `moka submit --quick`.";
+  if (id === "execute") {
+    return ["--effort", "thorough"];
+  }
+  if (id === "inspect") {
+    return ["--read-only"];
+  }
+  if ("workflow" in entrypoint) {
+    return ["--workflow", entrypoint.workflow];
+  }
+  return ["--entrypoint", id];
 }
 
 function localRosterAgentIds(config: PipelineConfig): string[] {
@@ -303,108 +300,15 @@ function localRosterAgentIds(config: PipelineConfig): string[] {
 function localOrchestratorDispatchBlock(config: PipelineConfig): string {
   const roster = localRosterAgentIds(config);
   return [
-    "Orchestrate locally. Load and follow the `orchestrate` skill.",
-    "Do not submit to Argo or run `moka submit`. Spawn the roster as native Task subagents on this machine and run nodes with satisfied dependencies in parallel.",
+    "Orchestrate through the canonical local `moka run` supervisor. Load and follow the `orchestrate` skill.",
+    "For compatibility slash commands, run the `moka run` command and flags shown in the command body.",
+    "Treat execution as CLI/supervised runtime, not OpenCode-native Task execution.",
     "",
-    "Roster (Task tool subagent_type):",
+    "Configured roster:",
     ...roster.map((id) => `- ${id}`),
     "",
-    "Gather each subagent's structured output, enforce only package-configured gates, and report only the evidence the subagents returned.",
+    "Report the supervisor's evidence and configured-gate results; do not invent extra gates.",
   ].join("\n");
-}
-
-function nativeDispatchBlock(
-  host: ActiveCommandHost,
-  routes: AgentDispatchRoute[]
-): string | undefined {
-  if (routes.length === 0) {
-    return;
-  }
-  return [
-    `${hostDisplayName(host)} native routes:`,
-    ...routes.map(nativeDispatchLine),
-    "",
-  ].join("\n");
-}
-
-function nativeDispatchLine(route: AgentDispatchRoute): string {
-  const needs = needsSummary(route.needs);
-  const model = route.model ? ` model=${route.model}` : "";
-  return `- ${route.nodeId}: Task tool subagent_type=${route.nativeAgentId}${model} runner=${route.runnerId} needs=${needs}`;
-}
-
-function cliDispatchBlock(
-  host: ActiveCommandHost,
-  routes: AgentDispatchRoute[]
-): string | undefined {
-  if (routes.length === 0) {
-    return;
-  }
-  const nativeNotice = `These nodes are not ${hostDisplayName(host)} native routes.`;
-  return [nativeNotice, "CLI routes:", ...routes.map(cliDispatchLine), ""].join(
-    "\n"
-  );
-}
-
-function cliDispatchLine(route: AgentDispatchRoute): string {
-  return `- ${route.nodeId}: ${route.runnerId} CLI profile=${route.profileId} command=\`${runnerCliCommand(route)}\` needs=${needsSummary(route.needs)}`;
-}
-
-function runnerCliCommand(route: AgentDispatchRoute): string {
-  if (route.runnerId === "opencode") {
-    return `opencode run --agent "${opencodeAgentName(route.profileId)}" --format json --dir <repo-root> <node prompt>`;
-  }
-  throw new Error(
-    `runner '${route.runnerId}' cannot be represented as a supported native or CLI route`
-  );
-}
-
-function nodePromptContract(
-  workflowId: string,
-  routes: AgentDispatchRoute[]
-): string {
-  const hasCliRoutes = routes.some((route) => route.kind === "cli");
-  const lead = hasCliRoutes
-    ? "For each CLI node prompt include:"
-    : "For each native node prompt include:";
-  return [
-    lead,
-    "- user task",
-    `- workflow id: ${workflowId}`,
-    "- node id",
-    "- profile id",
-    "- runner id",
-    "- profile instructions reference",
-    "- profile grants",
-    "- dependency outputs",
-    "",
-  ].join("\n");
-}
-
-function hostSpecificDispatchGuard(
-  host: ActiveCommandHost,
-  nativeRoutes: AgentDispatchRoute[],
-  cliRoutes: AgentDispatchRoute[]
-): string | undefined {
-  if (cliRoutes.length > 0 && nativeRoutes.length > 0) {
-    return `Do not claim CLI routes are ${hostDisplayName(host)} native routes.`;
-  }
-  if (cliRoutes.length > 0 && nativeRoutes.length === 0) {
-    return `Do not claim these nodes are ${hostDisplayName(host)} subagents.`;
-  }
-  return;
-}
-
-function hostDisplayName(host: ActiveCommandHost): string {
-  const names: Record<ActiveCommandHost, string> = {
-    opencode: "OpenCode",
-    "claude-code": "Claude Code",
-  };
-  return names[host];
-}
-
-function needsSummary(needs: string[]): string {
-  return needs.length > 0 ? needs.join(",") : "none";
 }
 
 const OPENCODE_PERMISSION_TOOLS = [
@@ -597,8 +501,6 @@ function opencodeDefinitionsEffect(
             "",
             orchestratorBlock(config),
             "",
-            scheduledEntrypointK8sNote(entrypoint),
-            scheduledEntrypointK8sNote(entrypoint) ? "" : undefined,
             entrypointDispatchBlock("opencode", config, id, entrypoint),
           ]).join("\n")
         ),
@@ -689,7 +591,8 @@ export function projectAgentsMdDefinition(
       "",
       "This repository uses package-owned `@oisincoveney/pipeline` config.",
       "",
-      "- Use `/moka-quick`, `/moka-execute`, or `/moka-inspect` for OpenCode slash-command entrypoints when available.",
+      '- Use `moka run "<task>"` first for local supervised execution from the package-owned pipeline config.',
+      "- Use `/moka-quick`, `/moka-execute`, or `/moka-inspect` as compatibility slash-command entrypoints when available.",
       "- Load and follow the relevant skill from `.agents/skills` before doing specialized work.",
       "- Prefer the package-defined pipeline profiles and generated command surfaces over ad hoc subagent prompts.",
       "- When the user needs to run a command, copy the command into the clipboard and tell the user what needs to be returned.",

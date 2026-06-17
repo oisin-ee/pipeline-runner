@@ -6,7 +6,8 @@
 
 This repository uses package-owned `@oisincoveney/pipeline` config.
 
-- Use `/moka-quick`, `/moka-execute`, or `/moka-inspect` for OpenCode slash-command entrypoints when available.
+- Use `moka run "<task>"` first for local supervised execution from the package-owned pipeline config.
+- Use `/moka-quick`, `/moka-execute`, or `/moka-inspect` as compatibility slash-command entrypoints when available.
 - Load and follow the relevant skill from `.agents/skills` before doing specialized work.
 - Prefer the package-defined pipeline profiles and generated command surfaces over ad hoc subagent prompts.
 - When the user needs to run a command, copy the command into the clipboard and tell the user what needs to be returned.

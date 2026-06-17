@@ -49,6 +49,8 @@ export function configUsesOpencode(config: PipelineConfig): boolean {
  */
 export function leaseOpencodeRuntime(input: {
   config: PipelineConfig;
+  /** Called with the SDK session id once the executor resolves it. */
+  onSession?: (nodeId: string, sessionId: string) => void;
   signal?: AbortSignal;
   worktreePath: string;
   /** Test seam: override how the server is opened. Defaults to startServer. */
@@ -64,6 +66,7 @@ export function leaseOpencodeRuntime(input: {
 
 function leaseOpencodeRuntimeEffect(input: {
   config: PipelineConfig;
+  onSession?: (nodeId: string, sessionId: string) => void;
   signal?: AbortSignal;
   worktreePath: string;
   openServer?: OpenOpencodeRuntimeServer;
@@ -101,6 +104,7 @@ function leaseOpencodeRuntimeEffect(input: {
 
 function ensureExecutorEffect(
   input: {
+    onSession?: (nodeId: string, sessionId: string) => void;
     openServer?: OpenOpencodeRuntimeServer;
     signal?: AbortSignal;
     worktreePath: string;
@@ -117,6 +121,7 @@ function ensureExecutorEffect(
     const delegate = createOpencodeExecutor({
       client: handle.client,
       directory: input.worktreePath,
+      ...(input.onSession ? { onSession: input.onSession } : {}),
       registry,
     });
     return { delegate, handle };

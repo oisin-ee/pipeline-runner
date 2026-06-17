@@ -5,40 +5,6 @@ the host resources it generates. The package CLI is `moka`.
 
 ## Command Cheat Sheet
 
-`moka submit "<task>"`
-
-Generates the full graph schedule for the task, builds the runner payload from
-the current git context, and submits an Argo Workflow to Momokaya.
-
-```shell
-moka submit "Implement PIPE-54"
-```
-
-`moka submit "<task>" --quick`
-
-Uses the compact graph for smaller work.
-
-```shell
-moka submit "fix the login bug" --quick
-```
-
-`moka submit --schedule <path> "<task>"`
-
-Submits an approved schedule artifact. In examples, `<path>` is usually a
-`.pipeline/runs/<runId>/schedule.yaml` file.
-
-```shell
-moka submit --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-54"
-```
-
-`moka submit --command -- <command...>`
-
-Submits one explicit argv command as a one-task Argo Workflow.
-
-```shell
-moka submit --command -- opencode run "fix this bug"
-```
-
 `moka run "<task>"`
 
 Runs the package-owned workflow runtime from the current worktree. Scheduled
@@ -47,18 +13,90 @@ the compiled graph through the runtime.
 
 ```shell
 moka run "Implement PIPE-123"
+moka run --target local --effort normal "Implement a standard local change"
 moka run --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-123"
 moka run --workflow inspect "Inspect this repo"
-moka run --entrypoint quick "Implement a focused fix"
+moka run --read-only "Inspect this repo without edits"
 ```
 
-`moka inspect "<task>"`
+`moka run --target remote "<task>"`
 
-Runs the configured read-only inspection entrypoint.
+Canonical hosted submission. It builds the runner payload from the current git
+context and submits an Argo Workflow to Momokaya.
 
 ```shell
-moka inspect "Explain the app structure and available checks"
+moka run --target remote --effort normal "Implement PIPE-54"
+moka run --target remote --effort quick "Fix the login bug"
+moka run --target remote --effort thorough "Implement a full hosted graph run"
 ```
+
+`moka run --target remote --schedule <path> "<task>"`
+
+Submits an approved schedule artifact. In examples, `<path>` is usually a
+`.pipeline/runs/<runId>/schedule.yaml` file.
+
+```shell
+moka run --target remote --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-54"
+```
+
+`moka run --target remote --command -- <command...>`
+
+Submits one explicit argv command as a one-task Argo Workflow.
+
+```shell
+moka run --target remote --command -- opencode run "fix this bug"
+```
+
+Flags:
+
+- `--target` selects `local` or `remote`; `local` is the default.
+- `--effort` selects `quick`, `normal`, or `thorough`; `normal` is the default.
+- `--read-only` selects read mode; mode defaults to `write`.
+
+Run-control commands:
+
+```shell
+moka runs
+moka status <run-id>
+moka status <run-id> --watch
+moka logs <run-id> [node-id]
+moka stop <run-id> [node-id]
+moka export <run-id> --sanitize
+```
+
+Run directories use `.pipeline/runs/<runId>/`:
+
+```text
+.pipeline/runs/<runId>/
+  schedule.yaml
+  manifest.json
+  status.json
+  events.ndjson
+  nodes/<node-id>/
+  artifacts/
+```
+
+`moka export <run-id> --sanitize` emits a portable evidence bundle while omitting
+prompt text, session body content, secrets, tokens, and credentials.
+
+Compatibility aliases and presets:
+
+```shell
+moka quick "Implement a focused fix"
+moka execute "Implement a thorough change"
+moka inspect "Explain the app structure and available checks"
+moka submit "Implement PIPE-54"
+moka submit "fix the login bug" --quick
+moka submit "Fix the login bug" --quick
+moka submit --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-54"
+moka submit --command -- opencode run "fix this bug"
+```
+
+`moka quick`, `moka execute`, and `moka inspect` are compatibility presets for
+`moka run --effort quick`, `moka run --effort thorough`, and
+`moka run --read-only`. `moka submit` is a compatibility alias for canonical
+`moka run --target remote`; use `moka run --target remote` in new docs and
+scripts so there is one primary hosted-run path.
 
 `moka validate`
 
@@ -138,13 +176,14 @@ target worktree.
 
 ## Momokaya Argo Execution
 
-`moka submit` submits Argo Workflows by default. Without `--schedule`, it creates
-a schedule through the package scheduler, builds a runner payload from the task
-description and current git context, creates payload/schedule ConfigMaps, and
-submits an Argo Workflow that runs the graph as DAG tasks using the package-owned
-runner image.
+Canonical hosted runs use `moka run --target remote`. The compatibility
+`moka submit` surface submits Argo Workflows by default. Without `--schedule`,
+the command creates a schedule through the package scheduler, builds a runner payload
+from the task description and current git context, creates payload/schedule
+ConfigMaps, and submits an Argo Workflow that runs the graph as DAG tasks using
+the package-owned runner image.
 
-`moka submit` reads the private Momokaya target from
+`moka run --target remote` reads the private Momokaya target from
 `~/.config/moka/config.yaml`.
 
 ```yaml
@@ -164,19 +203,21 @@ momokaya:
 ```
 
 ```shell
-moka submit "fix the login bug" --quick
-moka submit "Implement PIPE-54"
+moka run --target remote --effort quick "Fix the login bug"
+moka run --target remote --effort thorough "Implement PIPE-54"
 ```
 
 For a local cluster, point the same commands at that cluster with
 `--kubeconfig <path>` and `--namespace <namespace>`:
 
 ```shell
-moka submit "fix the login bug" --quick --kubeconfig ~/.kube/config --namespace <workflow-namespace>
+moka run --target remote --effort quick "Fix the login bug" --kubeconfig ~/.kube/config --namespace <workflow-namespace>
 ```
 
-There is no separate workstation-local `submit` path; local submission means
-submitting to a local Kubernetes cluster.
+`moka submit` remains a compatibility alias for the remote path, but new docs and
+scripts should use `moka run --target remote` so hosted submission has one
+canonical command. There is no separate workstation-local `submit` path; local
+submission means submitting to a local Kubernetes cluster.
 
 Pipeline Console and other TypeScript control planes should use
 `@oisincoveney/pipeline/moka-submit` instead of shelling out or importing Argo

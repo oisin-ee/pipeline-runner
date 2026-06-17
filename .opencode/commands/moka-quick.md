@@ -18,13 +18,10 @@ network: inherit
 hooks: generated-defaults-audit
 
 Instructions:
-Orchestrate the configured pipeline locally. Load the `orchestrate` skill and spawn the roster as native Task subagents on this machine. Do not submit to Argo or run `moka submit`. Enforce only package-configured gates.
+Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates.
 
-Submit Momokaya work as Argo Workflows through `moka submit` and `moka submit --quick`.
-
-Generate a schedule for entrypoint `quick` and the user task.
-The schedule policy is `quick-schedule`.
-Run `moka submit --quick <task description>` to submit the graph as an Argo Workflow.
-The pipeline runtime executes as Argo DAG tasks using the package-owned runner image.
-Configure the target in `~/.config/moka/config.yaml`; use `--kubeconfig <path>` and `--namespace <namespace>` only for explicit command overrides.
-Use `moka submit --schedule <schedule.yaml> <task description>` only when rerunning an existing schedule artifact.
+Run `moka run --effort quick <task description>` for local supervised execution.
+Configured entrypoint target: quick-schedule.
+This compatibility slash command delegates to the canonical `moka run` supervisor instead of reimplementing orchestration in the host.
+The supervisor owns schedule generation, node execution, run state, and configured gates.
+Keep reporting clear that this path is CLI/supervised runtime, not host-native Task execution.

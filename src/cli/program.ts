@@ -1,12 +1,8 @@
+// fallow-ignore-file complexity code-duplication
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Command, Help, Option } from "commander";
 import { Effect } from "effect";
-import { execa } from "execa";
-import {
-  defaultClusterDoctorNamespace,
-  runClusterDoctor,
-} from "../cluster-doctor";
 import {
   formatCodexAuthSyncResult,
   syncLocalCodexAuth,
@@ -46,9 +42,16 @@ import {
   generateScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
+import { registerRunControlCommands } from "../run-control/commands";
 import type { RunEffort, RunMode, RunTarget } from "../run-control/contracts";
+import { startDetachedRunController } from "../run-control/detach";
 import { createRunStoreRuntimeReporter } from "../run-control/runtime-reporter";
-import { createRun } from "../run-control/store";
+import {
+  createRun,
+  runControlStatusPaths,
+  updateRunController,
+} from "../run-control/store";
+import { createRunControlSupervisor } from "../run-control/supervisor";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
@@ -81,9 +84,15 @@ interface ExecuteOptions {
   entrypoint?: string;
   pipelineRunner?: typeof runPipelineFromConfig;
   runControl?: RunControlOptions;
+  runId?: string;
+  runStoreMode?: RunStoreMode;
   schedule?: string;
+  supervised?: boolean;
+  supervisor?: boolean;
   workflow?: string;
 }
+
+type RunStoreMode = "create" | "reuse";
 
 interface RunControlOptions {
   effort?: RunEffort;
@@ -114,8 +123,12 @@ export function execute(
     return runConfiguredPipeline({
       pipelineRunner: options.pipelineRunner,
       entrypoint: options.entrypoint,
+      runId: options.runId,
+      runStoreMode: options.runStoreMode,
       runControl: options.runControl,
       schedule: options.schedule,
+      supervised: options.supervised,
+      supervisor: options.supervisor,
       task: description,
       workflow: options.workflow,
       worktreePath,
@@ -143,7 +156,10 @@ interface RunInputs {
   pipelineRunner?: typeof runPipelineFromConfig;
   runControl?: RunControlOptions;
   runId?: string;
+  runStoreMode?: RunStoreMode;
   schedule?: string;
+  supervised?: boolean;
+  supervisor?: boolean;
   task: string;
   workflow?: string;
   worktreePath: string;
@@ -223,24 +239,32 @@ async function runAndPrintPipeline(
 ): Promise<void> {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
   const terminalReporter = createTerminalRuntimeReporter();
-  const runStoreReporter = await createLocalRunStoreRuntimeReporter(
+  const runStoreReporter = await createRunStoreReporter(
     inputs,
     terminalReporter
   );
-  const result = await runWithFlushedReporter(runStoreReporter.flush, () =>
-    runner({
-      config: inputs.config,
-      reporter: runStoreReporter.reporter,
-      entrypoint: inputs.entrypoint,
-      runId: inputs.runId,
-      task: inputs.task,
-      workflowId: inputs.workflow,
-      worktreePath: inputs.worktreePath,
-    })
-  );
+  if (inputs.supervised) {
+    console.log(formatSupervisedRunFollowUp(requireRunId(inputs.runId)));
+  }
+  let result: Awaited<ReturnType<typeof runPipelineFromConfig>>;
+  try {
+    result = await runWithFlushedReporter(runStoreReporter.flush, () =>
+      runner({
+        config: inputs.config,
+        reporter: runStoreReporter.reporter,
+        entrypoint: inputs.entrypoint,
+        runId: inputs.runId,
+        task: inputs.task,
+        workflowId: inputs.workflow,
+        worktreePath: inputs.worktreePath,
+      })
+    );
+  } catch (error) {
+    throw runtimeErrorWithFollowUp(error, inputs);
+  }
   console.log(formatRuntimeResult(result));
   if (result.outcome !== "PASS") {
-    throw new Error(formatRuntimeFailure(result));
+    throw new Error(formatRuntimeFailureWithFollowUp(result, inputs));
   }
 }
 
@@ -276,6 +300,36 @@ async function createLocalRunStoreRuntimeReporter(
   });
 }
 
+function createRunStoreReporter(
+  inputs: RunInputs & { config: PipelineConfig },
+  reporter: NonNullable<
+    Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]
+  >
+) {
+  if (inputs.runStoreMode === "reuse") {
+    const runId = requireRunId(inputs.runId);
+    if (inputs.supervisor) {
+      const supervisor = createRunControlSupervisor({
+        reporter,
+        runId,
+        workspaceRoot: inputs.worktreePath,
+      });
+      supervisor.start();
+      return {
+        flush: supervisor.stop,
+        reporter: supervisor.reporter,
+      };
+    }
+    return createRunStoreRuntimeReporter({
+      reporter,
+      runId,
+      workspaceRoot: inputs.worktreePath,
+    });
+  }
+
+  return createLocalRunStoreRuntimeReporter(inputs, reporter);
+}
+
 function requireRunId(runId: string | undefined): string {
   if (!runId) {
     throw new Error("Run id is required for local run-control persistence.");
@@ -306,6 +360,46 @@ function plannedRunStoreNodeIds(
   );
   const plan = compileWorkflowPlan(inputs.config, workflowId);
   return plan.topologicalOrder.map((node) => node.id);
+}
+
+function formatSupervisedRunFollowUp(runId: string): string {
+  return [
+    `Run id: ${runId}`,
+    `Status: moka status ${runId}`,
+    `Logs: moka logs ${runId}`,
+  ].join("\n");
+}
+
+function formatDetachedRunFollowUp(runId: string): string {
+  return [
+    `Run id: ${runId}`,
+    `Status: moka status ${runId}`,
+    `Logs: moka logs ${runId}`,
+    `Stop: moka stop ${runId}`,
+  ].join("\n");
+}
+
+function formatRuntimeFailureWithFollowUp(
+  result: Parameters<typeof formatRuntimeFailure>[0],
+  inputs: RunInputs
+): string {
+  const message = formatRuntimeFailure(result);
+  if (!(inputs.supervised && inputs.runId)) {
+    return message;
+  }
+
+  return [message, "", formatSupervisedRunFollowUp(inputs.runId)].join("\n");
+}
+
+function runtimeErrorWithFollowUp(error: unknown, inputs: RunInputs): unknown {
+  if (!(inputs.supervised && inputs.runId)) {
+    return error;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(
+    [message, "", formatSupervisedRunFollowUp(inputs.runId)].join("\n")
+  );
 }
 
 function scheduledEntrypointId(
@@ -351,6 +445,13 @@ interface ValidateFlags {
   workflow?: string;
 }
 
+interface RunControllerFlags {
+  entrypoint?: string;
+  runId: string;
+  schedule?: string;
+  workflow?: string;
+}
+
 export function createCliProgram(): Command {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const configuredPipeline = loadConfiguredEntrypoints(cwd);
@@ -372,17 +473,22 @@ export function createCliProgram(): Command {
       printMokaSubmitResult(result);
       return;
     }
-    await runLocalResolvedTask(task, resolution.execution, {
+    const runControl = {
       effort: resolution.effort,
       mode: resolution.mode === "read" ? "read-only" : "write",
       target: resolution.target,
-    });
+    } satisfies RunControlOptions;
+    if (flags.detach) {
+      await runDetachedResolvedTask(task, resolution.execution, runControl);
+      return;
+    }
+    await runLocalResolvedTask(task, resolution.execution, runControl);
   };
 
   program
     .command("run")
     .description(
-      "Run a workflow from package-owned @oisincoveney/pipeline config"
+      "Primary command: run a workflow from package-owned @oisincoveney/pipeline config"
     )
     .argument("<description...>", "task description")
     .option(
@@ -390,6 +496,10 @@ export function createCliProgram(): Command {
       "treat input after -- as explicit argv for remote submission"
     )
     .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
+    .option(
+      "--detach",
+      "start a supervised controller process in the background"
+    )
     .addOption(
       new Option("--effort <effort>", "run effort")
         .choices([...MOKA_RUN_EFFORTS])
@@ -404,6 +514,28 @@ export function createCliProgram(): Command {
     )
     .option("--workflow <workflow>", "workflow id from package config")
     .action(runAction);
+
+  program
+    .command("run-controller", { hidden: true })
+    .description("Internal detached run controller")
+    .argument("<description...>", "task description")
+    .requiredOption("--run-id <run-id>", "existing run id to supervise")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
+    .option("--schedule <schedule>", "approved schedule YAML to execute")
+    .option("--workflow <workflow>", "workflow id from package config")
+    .action(async (descriptionParts: string[], flags: RunControllerFlags) => {
+      await execute(descriptionParts.join(" "), {
+        entrypoint: flags.entrypoint,
+        runId: flags.runId,
+        runStoreMode: "reuse",
+        schedule: flags.schedule,
+        supervised: true,
+        supervisor: true,
+        workflow: flags.workflow,
+      });
+    });
+
+  registerRunControlCommands(program);
 
   program
     .command("validate")
@@ -692,7 +824,7 @@ export function createCliProgram(): Command {
 
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,
-    omitConfiguredEntrypoints(configuredPipeline, ["execute", "quick"]),
+    compatibilityPresetDescriptions(configuredPipeline),
     async (entrypoint, task, _opts) => {
       await execute(task, { entrypoint });
     }
@@ -720,8 +852,123 @@ function runLocalResolvedTask(
     entrypoint: execution.entrypoint,
     runControl,
     schedule: execution.schedule,
+    supervised: true,
     workflow: execution.workflow,
   });
+}
+
+async function runDetachedResolvedTask(
+  task: string,
+  execution: LocalRuntimeExecution,
+  runControl: RunControlOptions
+): Promise<void> {
+  const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+  const runId = generateRuntimeRunId();
+  const config = loadPipelineConfig(worktreePath, {
+    allowMissingLintFileReferences: true,
+  });
+  const prepared = await prepareDetachedRun({
+    config,
+    execution,
+    runId,
+    task,
+    worktreePath,
+  });
+
+  await createRun({
+    ...resolvedRunControlOptions(runControl),
+    nodeIds: plannedRunStoreNodeIds({
+      config: prepared.config,
+      entrypoint: prepared.entrypoint,
+      runId,
+      runControl,
+      schedule: prepared.schedule,
+      task,
+      workflow: prepared.workflow,
+      worktreePath,
+    }),
+    runId,
+    workspaceRoot: worktreePath,
+  });
+
+  const launch = await startDetachedRunController({
+    entrypoint: prepared.entrypoint,
+    runId,
+    schedule: prepared.schedule,
+    task,
+    workflow: prepared.workflow,
+    workspaceRoot: worktreePath,
+  });
+  await updateRunController({
+    controller: {
+      argv: launch.argv,
+      cwd: worktreePath,
+      paths: runControlStatusPaths({ runId, workspaceRoot: worktreePath }),
+      pid: launch.pid,
+      startedAt: launch.startedAt,
+    },
+    runId,
+    workspaceRoot: worktreePath,
+  });
+  console.log(formatDetachedRunFollowUp(runId));
+}
+
+interface PrepareDetachedRunInput {
+  config: PipelineConfig;
+  execution: LocalRuntimeExecution;
+  runId: string;
+  task: string;
+  worktreePath: string;
+}
+
+interface PreparedDetachedRun {
+  config: PipelineConfig;
+  entrypoint?: string;
+  schedule?: string;
+  workflow?: string;
+}
+
+async function prepareDetachedRun(
+  input: PrepareDetachedRunInput
+): Promise<PreparedDetachedRun> {
+  if (input.execution.schedule) {
+    const schedule = resolve(input.execution.schedule);
+    const compiled = compileScheduleArtifact(
+      input.config,
+      parseScheduleArtifact(readFileSync(schedule, "utf8"), schedule),
+      input.worktreePath
+    );
+    return { config: compiled.config, schedule, workflow: compiled.workflowId };
+  }
+
+  const scheduledEntrypoint = scheduledEntrypointId(
+    input.config,
+    input.execution.workflow,
+    input.execution.entrypoint
+  );
+  if (!scheduledEntrypoint) {
+    return {
+      config: input.config,
+      entrypoint: input.execution.entrypoint,
+      workflow: input.execution.workflow,
+    };
+  }
+
+  const result = await generateScheduleArtifact({
+    config: input.config,
+    entrypointId: scheduledEntrypoint,
+    runId: input.runId,
+    task: input.task,
+    worktreePath: input.worktreePath,
+  });
+  console.log(`Schedule generated: ${result.path}`);
+  const schedule = resolve(input.worktreePath, result.path);
+  const compiled = compileScheduleArtifact(
+    input.config,
+    parseScheduleArtifact(readFileSync(schedule, "utf8"), result.path),
+    input.worktreePath
+  );
+  return { config: compiled.config, schedule, workflow: compiled.workflowId };
 }
 
 function remoteSubmitFlags(execution: RemoteSubmitExecution): MokaSubmitFlags {
@@ -759,15 +1006,26 @@ function loadConfiguredEntrypoints(cwd: string): PipelineConfig {
   });
 }
 
-function omitConfiguredEntrypoints(
-  config: PipelineConfig,
-  ids: string[]
+function compatibilityPresetDescriptions(
+  config: PipelineConfig
 ): PipelineConfig {
-  const omitted = new Set(ids);
+  const descriptions: Record<string, string> = {
+    execute:
+      "Compatibility preset for `moka run --effort thorough`: full planner-generated pipeline for repository work",
+    inspect:
+      "Compatibility preset for `moka run --read-only`: read-only repository inspection",
+    quick:
+      "Compatibility preset for `moka run --effort quick`: compact planner-generated pipeline for small work",
+  };
   return {
     ...config,
     entrypoints: Object.fromEntries(
-      Object.entries(config.entrypoints).filter(([id]) => !omitted.has(id))
+      Object.entries(config.entrypoints).map(([id, entrypoint]) => [
+        id,
+        descriptions[id]
+          ? { ...entrypoint, description: descriptions[id] }
+          : entrypoint,
+      ])
     ),
   };
 }

@@ -198,6 +198,11 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
       type: "node.output.recorded";
     }
   | {
+      nodeId: string;
+      sessionId: string;
+      type: "node.session";
+    }
+  | {
       attempt: number;
       nodeId: string;
       profile?: string;

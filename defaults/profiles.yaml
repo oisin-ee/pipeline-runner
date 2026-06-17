@@ -88,7 +88,7 @@ profiles:
   moka-orchestrator:
     runner: opencode
     description: Orchestrate the configured pipeline and enforce gates.
-    instructions: { inline: "Orchestrate the configured pipeline locally. Load the `orchestrate` skill and spawn the roster as native Task subagents on this machine. Do not submit to Argo or run `moka submit`. Enforce only package-configured gates." }
+    instructions: { inline: "Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates." }
     skills: [orchestrate, execute, quick, inspect]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]

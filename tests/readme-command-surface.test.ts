@@ -1,0 +1,230 @@
+import { existsSync, readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const RUNBOOK_DOCS = [
+  "README.md",
+  "docs/operator-guide.md",
+  "docs/run-control.md",
+] as const;
+
+interface Requirement {
+  label: string;
+  pattern: RegExp;
+}
+
+const CANONICAL_COMMANDS = [
+  "moka run",
+  "moka runs",
+  "moka status",
+  "moka logs",
+  "moka stop",
+  "moka export",
+  "moka doctor",
+  "moka init",
+] as const;
+
+const FLAG_DOCUMENTATION_REQUIREMENTS: Requirement[] = [
+  {
+    label: "--target local command example",
+    pattern: /moka run[^\n]*--target local[^\n]*"[^"]+"/,
+  },
+  {
+    label: "--target remote command example",
+    pattern: /moka run[^\n]*--target remote[^\n]*"[^"]+"/,
+  },
+  {
+    label: "--target choices explained as local and remote",
+    pattern: /--target[\s\S]{0,260}`?local`?[\s\S]{0,260}`?remote`?/i,
+  },
+  {
+    label: "--effort quick command example",
+    pattern: /moka run[^\n]*--effort quick[^\n]*"[^"]+"/,
+  },
+  {
+    label: "--effort normal command example",
+    pattern: /moka run[^\n]*--effort normal[^\n]*"[^"]+"/,
+  },
+  {
+    label: "--effort thorough command example",
+    pattern: /moka run[^\n]*--effort thorough[^\n]*"[^"]+"/,
+  },
+  {
+    label: "--effort choices explained as quick, normal, and thorough",
+    pattern:
+      /--effort[\s\S]{0,320}`?quick`?[\s\S]{0,320}`?normal`?[\s\S]{0,320}`?thorough`?/i,
+  },
+  {
+    label: "read-only mode command example",
+    pattern:
+      /moka run[^\n]*(?:--read-only|--mode (?:read|read-only))[^\n]*"[^"]+"/,
+  },
+  {
+    label: "write mode default explained",
+    pattern: /(?:mode defaults? to|default(?:s)? .*mode is) `?write`?/i,
+  },
+];
+
+const RUN_DIRECTORY_REQUIREMENTS: Requirement[] = [
+  {
+    label: "run directory root",
+    pattern: /\.pipeline\/runs\/<runId>\//,
+  },
+  { label: "manifest.json", pattern: /manifest\.json/ },
+  { label: "status.json", pattern: /status\.json/ },
+  { label: "events.ndjson", pattern: /events\.ndjson/ },
+  { label: "nodes directory", pattern: /nodes\// },
+  { label: "artifacts directory", pattern: /artifacts\// },
+  { label: "schedule.yaml", pattern: /schedule\.yaml/ },
+  {
+    label: "sanitized export command",
+    pattern: /moka export[^\n]*--sanitize|moka export --sanitize[^\n]*/,
+  },
+  {
+    label: "sanitized export omits sensitive run artifacts",
+    pattern:
+      /(?:saniti[sz]ed|--sanitize)[\s\S]{0,360}(?:prompt|session|body|secret|token|credential)/i,
+  },
+];
+
+const SUBMIT_PRIMARY_COMMAND_PATTERN =
+  /`moka submit "<task>"`\s+\n\s*(?:Generates|Submits|Creates|Uses)\b/i;
+
+function projectFile(relativePath: string): URL {
+  return new URL(`../${relativePath}`, import.meta.url);
+}
+
+function readProjectFile(relativePath: string): string {
+  return readFileSync(projectFile(relativePath), "utf8");
+}
+
+function readOptionalProjectFile(relativePath: string): string {
+  const file = projectFile(relativePath);
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
+}
+
+function commandSurfaceSection(): string {
+  return markdownSection(readProjectFile("README.md"), "## Command Surface");
+}
+
+function operatorGuideSection(heading: string): string {
+  return markdownSection(readProjectFile("docs/operator-guide.md"), heading);
+}
+
+function markdownSection(markdown: string, heading: string): string {
+  const start = markdown.indexOf(heading);
+  if (start === -1) {
+    throw new Error(`Missing markdown section: ${heading}`);
+  }
+  const nextSection = markdown.indexOf("\n## ", start + 1);
+  return markdown.slice(start, nextSection === -1 ? undefined : nextSection);
+}
+
+function runbookDocs(): string {
+  return RUNBOOK_DOCS.map(readOptionalProjectFile).join("\n\n");
+}
+
+function countOccurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1;
+}
+
+function escapedRegExp(source: string): string {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function documentedCommandPattern(command: string): RegExp {
+  const escapedCommand = escapedRegExp(command);
+  return new RegExp(
+    `(?:\`${escapedCommand}(?:\\s|\`)|^${escapedCommand}(?:\\s|$))`,
+    "m"
+  );
+}
+
+function missingRequirements(
+  text: string,
+  requirements: readonly Requirement[]
+): string[] {
+  return requirements
+    .filter((requirement) => !requirement.pattern.test(text))
+    .map((requirement) => requirement.label);
+}
+
+describe("README command surface", () => {
+  it("makes moka run primary without duplicate submit/run examples", () => {
+    const section = commandSurfaceSection();
+    const primaryRunExample =
+      'moka run "Implement PIPE-123 user-facing behavior"';
+
+    expect(section.indexOf('`moka run "<task>"`')).toBeGreaterThanOrEqual(0);
+    expect(section.indexOf('`moka run "<task>"`')).toBeLessThan(
+      section.indexOf("moka submit")
+    );
+    expect(
+      countOccurrences(section, "Implement PIPE-123 user-facing behavior")
+    ).toBe(1);
+    expect(section).toContain(primaryRunExample);
+    expect(section).not.toContain(
+      'moka submit "Implement PIPE-123 user-facing behavior"'
+    );
+  });
+
+  it.each([
+    "moka quick",
+    "moka execute",
+    "moka inspect",
+    "moka submit",
+  ])("documents %s as a compatibility alias or preset", (alias) => {
+    const section = commandSurfaceSection();
+    const aliasContext = new RegExp(
+      [
+        `(alias|preset|compatibility)[\\s\\S]{0,180}${escapedRegExp(alias)}`,
+        `${escapedRegExp(alias)}[\\s\\S]{0,180}(alias|preset|compatibility)`,
+      ].join("|"),
+      "i"
+    );
+
+    expect(section).toMatch(aliasContext);
+  });
+
+  it("lists the canonical run and run-control commands", () => {
+    const section = commandSurfaceSection();
+
+    const missingCommands = CANONICAL_COMMANDS.filter(
+      (command) => !documentedCommandPattern(command).test(section)
+    );
+
+    expect(missingCommands).toEqual([]);
+  });
+
+  it("explains target, effort, and read/write mode flags with examples", () => {
+    const docs = runbookDocs();
+
+    expect(missingRequirements(docs, FLAG_DOCUMENTATION_REQUIREMENTS)).toEqual(
+      []
+    );
+  });
+
+  it("explains the run directory layout and sanitized export", () => {
+    const docs = runbookDocs();
+
+    expect(missingRequirements(docs, RUN_DIRECTORY_REQUIREMENTS)).toEqual([]);
+  });
+
+  it("keeps remote submission canonical via moka run and submit compatibility-only", () => {
+    const cheatSheet = operatorGuideSection("## Command Cheat Sheet");
+    const canonicalRemoteIndex = cheatSheet.indexOf("moka run --target remote");
+    const submitIndex = cheatSheet.indexOf("moka submit");
+    const submitCompatibilityContext = new RegExp(
+      [
+        `(compatibility|alias)[\\s\\S]{0,240}${escapedRegExp("moka submit")}`,
+        `${escapedRegExp("moka submit")}[\\s\\S]{0,240}(compatibility|alias)`,
+      ].join("|"),
+      "i"
+    );
+
+    expect(canonicalRemoteIndex).toBeGreaterThanOrEqual(0);
+    expect(submitIndex).toBeGreaterThanOrEqual(0);
+    expect(canonicalRemoteIndex).toBeLessThan(submitIndex);
+    expect(cheatSheet).toMatch(submitCompatibilityContext);
+    expect(cheatSheet).not.toMatch(SUBMIT_PRIMARY_COMMAND_PATTERN);
+  });
+});

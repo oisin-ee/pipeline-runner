@@ -82,60 +82,70 @@ moka explain-plan
 
 ## Command Surface
 
-`moka submit "<task>"`
+`moka run "<task>"` is the primary command surface.
 
-Generates the full graph schedule for a task, builds the runner payload from the
-current git context, and submits an Argo Workflow to the configured Momokaya
-cluster.
-
-```shell
-moka submit "Implement PIPE-123 user-facing behavior"
-```
-
-`moka submit "<task>" --quick`
-
-Uses the compact graph for smaller work.
-
-```shell
-moka submit "Fix the login bug" --quick
-```
-
-`moka submit --schedule <schedule.yaml> "<task>"`
-
-Submits a previously approved schedule artifact.
-
-```shell
-moka submit --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-123"
-```
-
-`moka submit --command -- <argv...>`
-
-Submits one explicit command as a one-task Argo Workflow.
-
-```shell
-moka submit --command -- opencode run "fix this bug"
-```
-
-`moka run "<task>"`
-
-Runs package-owned workflow config from the current worktree. Scheduled
+It runs package-owned workflow config from the current worktree. Scheduled
 entrypoints generate a schedule artifact under `.pipeline/runs/<runId>/` and run
 the compiled schedule through the runtime.
 
+Canonical commands:
+
+- `moka run "<task>"`: start the primary local or remote run flow.
+- `moka runs`: list known runs, newest first.
+- `moka status <run-id>`: show run and node status; add `--watch` to poll.
+- `moka logs <run-id> [node-id]`: print whole-run or node-specific artifacts.
+- `moka stop <run-id> [node-id]`: abort a run or one active node.
+- `moka export <run-id> --sanitize`: print a portable evidence bundle.
+- `moka doctor`: check local prerequisites and config health.
+- `moka init`: install package-owned host resources for a repository.
+
 ```shell
 moka run "Implement PIPE-123 user-facing behavior"
+moka run --target local --effort normal "Implement a standard local change"
 moka run --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-123"
 moka run --workflow inspect "Report the app structure and available checks. Do not modify files."
-moka run --entrypoint quick "Implement a focused fix"
+moka run --effort quick "Implement a focused fix"
+moka run --effort normal "Implement a standard fix"
+moka run --target remote --effort thorough "Submit a full hosted graph run"
+moka run --read-only "Inspect the repository without edits"
+moka run --target remote --command -- opencode run "fix this bug"
 ```
 
-`moka inspect "<task>"`
+Flag defaults and choices:
 
-Runs the configured read-only inspection entrypoint.
+- `--target` selects `local` (default, current worktree) or `remote` (hosted
+  Momokaya submission). Use canonical `moka run --target remote "<task>"` for
+  hosted graph runs.
+- `--effort` selects `quick`, `normal`, or `thorough`; `normal` is the default.
+- `--read-only` switches mode to `read`; mode defaults to `write`.
 
-```shell
-moka inspect "Explain the app structure and available checks"
+Local run artifacts live under `.pipeline/runs/<runId>/`:
+
+```text
+.pipeline/runs/<runId>/
+  schedule.yaml
+  manifest.json
+  status.json
+  events.ndjson
+  nodes/<node-id>/
+  artifacts/
 ```
+
+Use `moka export <run-id> --sanitize` before sharing a run. The sanitized export
+keeps portable evidence and omits prompt text, session body content, secrets,
+tokens, and credentials.
+
+Compatibility aliases and presets remain available for existing scripts:
+
+- `moka quick "<task>"` is a compatibility preset for
+  `moka run --effort quick "<task>"`.
+- `moka execute "<task>"` is a compatibility preset for
+  `moka run --effort thorough "<task>"`.
+- `moka inspect "<task>"` is a compatibility preset for
+  `moka run --read-only "<task>"`.
+- `moka submit "<task>"` is a compatibility alias for
+  `moka run --target remote --effort thorough "<task>"`. Its existing `--quick`,
+  `--schedule`, and `--command` options remain supported for remote submissions.
 
 Use `PIPELINE_TARGET_PATH=/path/to/worktree` when invoking `moka` from outside
 the target repository.

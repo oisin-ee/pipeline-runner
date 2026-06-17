@@ -18,23 +18,10 @@ network: inherit
 hooks: generated-defaults-audit
 
 Instructions:
-Orchestrate the configured pipeline locally. Load the `orchestrate` skill and spawn the roster as native Task subagents on this machine. Do not submit to Argo or run `moka submit`. Enforce only package-configured gates.
+Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates.
 
-Run workflow `inspect` for the user task.
-OpenCode native routes:
-- inspect: Task tool subagent_type=MoKa Inspector model=openai/gpt-5.5-low runner=opencode needs=none
-
-For each native node prompt include:
-- user task
-- workflow id: inspect
-- node id
-- profile id
-- runner id
-- profile instructions reference
-- profile grants
-- dependency outputs
-
-Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.
-If a node returns targeted evidence and has no configured blocking gate, advance to the next node.
-Do not bypass configured runner subprocesses or package-configured gates when executing nodes.
-Use the listed Task tool routes for native nodes, and run nodes with satisfied dependencies in parallel whenever the host supports concurrent subagent work.
+Run `moka run --read-only <task description>` for local supervised execution.
+Configured entrypoint target: inspect.
+This compatibility slash command delegates to the canonical `moka run` supervisor instead of reimplementing orchestration in the host.
+The supervisor owns schedule generation, node execution, run state, and configured gates.
+Keep reporting clear that this path is CLI/supervised runtime, not host-native Task execution.

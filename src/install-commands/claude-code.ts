@@ -11,7 +11,6 @@ import {
   markdown,
   projectAgentsMdDefinition,
   resolvedHostModel,
-  scheduledEntrypointK8sNote,
 } from "./opencode";
 import {
   type ActiveCommandHost,
@@ -28,7 +27,7 @@ import {
 } from "./shared";
 
 const CLAUDE_CODE_HOST: ActiveCommandHost = "claude-code";
-const CLAUDE_ALLOWED_TOOLS = "Task, Bash(opencode run *)";
+const CLAUDE_ALLOWED_TOOLS = "Bash(moka run *)";
 const CLAUDE_AGENT_TOOLS = "Bash, Read";
 const MOKA_PROFILE_PREFIX = "moka-";
 
@@ -66,43 +65,9 @@ function commandDispatchBody(
   id: string,
   entrypoint: PipelineConfig["entrypoints"][string]
 ): string {
-  if (!("workflow" in entrypoint)) {
-    return (
-      entrypointDispatchBlock(CLAUDE_CODE_HOST, config, id, entrypoint) ?? ""
-    );
-  }
-  const routes = agentDispatchRoutes(
-    CLAUDE_CODE_HOST,
-    config,
-    entrypoint.workflow
+  return (
+    entrypointDispatchBlock(CLAUDE_CODE_HOST, config, id, entrypoint) ?? ""
   );
-  return [
-    `Run workflow \`${entrypoint.workflow}\` for the user task.`,
-    "",
-    "Delegate each agent node to a Claude Code `Task` subagent that wraps a local `opencode run` subprocess.",
-    "Spawn one node at a time respecting `needs`; run nodes whose dependencies are satisfied in parallel.",
-    "",
-    "Node routes:",
-    ...routes.map(claudeNodeRouteLine),
-    "",
-    "For each node prompt include:",
-    "- user task",
-    `- workflow id: ${entrypoint.workflow}`,
-    "- node id",
-    "- profile id",
-    "- profile instructions reference",
-    "- profile grants",
-    "- dependency outputs",
-    "",
-    "Only package-configured gates are blocking. Do not invent RED, GREEN, full-suite, typecheck, or unrelated-drift gates.",
-    "If a node returns targeted evidence and has no configured blocking gate, advance to the next node.",
-    "The Task subagents wrap `opencode run` subprocesses; do not claim these worker nodes are Claude Code native agents.",
-  ].join("\n");
-}
-
-function claudeNodeRouteLine(route: AgentDispatchRoute): string {
-  const needs = route.needs.length > 0 ? route.needs.join(",") : "none";
-  return `- ${route.nodeId}: Task subagent_type=${claudeAgentNameForProfile(route.profileId)} runner=${route.runnerId} agent="${opencodeAgentName(route.profileId)}" needs=${needs}`;
 }
 
 function commandDefinitions(config: PipelineConfig): CommandDefinition[] {
@@ -120,8 +85,6 @@ function commandDefinitions(config: PipelineConfig): CommandDefinition[] {
         "",
         "Load and follow the `execute` skill for the execution doctrine before dispatching work.",
         "",
-        scheduledEntrypointK8sNote(entrypoint),
-        scheduledEntrypointK8sNote(entrypoint) ? "" : undefined,
         commandDispatchBody(config, id, entrypoint),
       ]).join("\n")
     ),
@@ -178,7 +141,7 @@ function agentDefinitions(config: PipelineConfig): CommandDefinition[] {
 function settingsDefinition(config: PipelineConfig): CommandDefinition[] {
   const settings: Record<string, unknown> = {
     permissions: {
-      allow: ["Task", "Bash(opencode run *)"],
+      allow: ["Bash(moka run *)"],
     },
   };
   if (config.mcp_gateway) {

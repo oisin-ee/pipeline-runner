@@ -257,10 +257,21 @@ function leaseChildOpencodeRuntime(
   return Effect.tryPromise(() =>
     leaseOpencodeRuntime({
       config: context.config,
+      ...(context.reporter
+        ? { onSession: opencodeSessionReporter(context) }
+        : {}),
       ...(context.signal ? { signal: context.signal } : {}),
       worktreePath,
     })
   ).pipe(Effect.orDie);
+}
+
+function opencodeSessionReporter(
+  context: RuntimeContext
+): (nodeId: string, sessionId: string) => void {
+  return (nodeId, sessionId) => {
+    context.reporter?.({ nodeId, sessionId, type: "node.session" });
+  };
 }
 
 function childLeaseOptions(

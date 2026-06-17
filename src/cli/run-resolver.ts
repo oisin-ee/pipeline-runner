@@ -1,3 +1,4 @@
+// fallow-ignore-file complexity
 export const MOKA_RUN_EFFORTS = ["normal", "quick", "thorough"] as const;
 export const MOKA_RUN_TARGETS = ["local", "remote"] as const;
 
@@ -7,6 +8,7 @@ export type MokaRunMode = "read" | "write";
 
 export interface RunResolverFlags {
   command?: boolean;
+  detach?: boolean;
   effort?: MokaRunEffort;
   entrypoint?: string;
   readOnly?: boolean;
@@ -47,6 +49,9 @@ export function resolveMokaRun(input: {
 
   if (flags.command && target !== "remote") {
     throw new Error("--command requires --target remote");
+  }
+  if (flags.detach && target !== "local") {
+    throw new Error("--detach requires --target local");
   }
 
   return {

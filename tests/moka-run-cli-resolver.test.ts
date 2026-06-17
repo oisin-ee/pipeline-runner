@@ -128,6 +128,7 @@ afterEach(() => {
 async function withCliTarget(
   run: (input: {
     dir: string;
+    parseMoka: (args: string[]) => Promise<void>;
     parseRun: (args: string[]) => Promise<void>;
   }) => Promise<void>
 ): Promise<void> {
@@ -135,13 +136,14 @@ async function withCliTarget(
   process.env.PIPELINE_TARGET_PATH = dir;
   try {
     const { createCliProgram } = await import("../src/cli/program");
-    const parseRun = async (args: string[]) => {
+    const parseMoka = async (args: string[]) => {
       await createCliProgram().parseAsync(
-        ["node", "/repo/node_modules/.bin/moka", "run", ...args],
+        ["node", "/repo/node_modules/.bin/moka", ...args],
         { from: "node" }
       );
     };
-    await run({ dir, parseRun });
+    const parseRun = (args: string[]) => parseMoka(["run", ...args]);
+    await run({ dir, parseMoka, parseRun });
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -241,6 +243,55 @@ describe("moka run CLI flag resolver wiring", () => {
         task: "Use approved",
         workflowId: "schedule-approved-run-root",
       });
+    });
+  });
+
+  it("keeps top-level compatibility aliases wired to canonical local run presets", async () => {
+    await withCliTarget(async ({ parseMoka }) => {
+      await parseMoka(["quick", "Fix", "small"]);
+      await parseMoka(["execute", "Ship", "feature"]);
+      await parseMoka(["inspect", "Map", "repo"]);
+
+      expect(mockState.submitCalls).toEqual([]);
+      expect(mockState.scheduleCalls).toHaveLength(2);
+      expect(mockState.scheduleCalls[0]).toMatchObject({
+        entrypointId: "quick",
+        task: "Fix small",
+      });
+      expect(mockState.scheduleCalls[1]).toMatchObject({
+        entrypointId: "execute",
+        task: "Ship feature",
+      });
+      expect(mockState.runtimeCalls).toHaveLength(3);
+      expect(mockState.runtimeCalls[0]).toMatchObject({
+        entrypoint: "quick",
+        task: "Fix small",
+      });
+      expect(mockState.runtimeCalls[1]).toMatchObject({
+        entrypoint: "execute",
+        task: "Ship feature",
+      });
+      expect(mockState.runtimeCalls[2]).toMatchObject({
+        task: "Map repo",
+      });
+      expect([
+        mockState.runtimeCalls[2].entrypoint,
+        mockState.runtimeCalls[2].workflowId,
+      ]).toContain("inspect");
+    });
+  });
+
+  it("keeps moka submit wired as a remote compatibility alias", async () => {
+    await withCliTarget(async ({ parseMoka }) => {
+      await parseMoka(["submit", "--quick", "Ship", "remote"]);
+
+      expect(mockState.runtimeCalls).toEqual([]);
+      expect(mockState.scheduleCalls).toEqual([]);
+      expect(mockState.submitCalls).toHaveLength(1);
+      expect(mockState.submitCalls[0]).toMatchObject({
+        input: ["Ship", "remote"],
+      });
+      expect(mockState.submitCalls[0].flags).toMatchObject({ quick: true });
     });
   });
 

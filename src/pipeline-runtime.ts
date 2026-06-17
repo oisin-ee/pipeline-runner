@@ -160,6 +160,9 @@ function runWithLeasedOpencode<T>(
         Effect.tryPromise(() =>
           leaseOpencodeRuntime({
             config,
+            ...(options.reporter
+              ? { onSession: opencodeSessionReporter(options.reporter) }
+              : {}),
             ...(options.signal ? { signal: options.signal } : {}),
             worktreePath,
           })
@@ -173,6 +176,14 @@ function runWithLeasedOpencode<T>(
       });
     })
   );
+}
+
+function opencodeSessionReporter(
+  reporter: NonNullable<PipelineRuntimeOptions["reporter"]>
+): (nodeId: string, sessionId: string) => void {
+  return (nodeId, sessionId) => {
+    reporter({ nodeId, sessionId, type: "node.session" });
+  };
 }
 
 function runJournalPath(context: RuntimeContext, dir: string): string {

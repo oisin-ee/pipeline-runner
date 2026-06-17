@@ -20,6 +20,33 @@ const ENTRYPOINT_COMMAND_SURFACES = [
   ".opencode/commands/moka-inspect.md",
 ];
 
+const CANONICAL_LOCAL_RUN_BY_COMMAND = [
+  {
+    flags: ["--effort quick"],
+    path: ".opencode/commands/moka-quick.md",
+  },
+  {
+    flags: ["--effort thorough"],
+    path: ".opencode/commands/moka-execute.md",
+  },
+  {
+    flags: ["--read-only"],
+    path: ".opencode/commands/moka-inspect.md",
+  },
+  {
+    flags: ["--effort quick"],
+    path: ".claude/commands/moka-quick.md",
+  },
+  {
+    flags: ["--effort thorough"],
+    path: ".claude/commands/moka-execute.md",
+  },
+  {
+    flags: ["--read-only"],
+    path: ".claude/commands/moka-inspect.md",
+  },
+] as const;
+
 describe("installCommands", () => {
   let dir: string;
 
@@ -138,18 +165,13 @@ describe("installCommands", () => {
     );
     expect(quickCommand).toContain("agent: MoKa Orchestrator");
     expect(quickCommand).toContain("Configured orchestrator:");
-    expect(quickCommand).toContain(
-      "Generate a schedule for entrypoint `quick`"
-    );
-    expect(quickCommand).toContain(
-      "Run `moka submit --quick <task description>`"
-    );
-    expect(quickCommand).toContain(
-      "Configure the target in `~/.config/moka/config.yaml`"
-    );
-    expect(executeCommand).toContain(
-      "Generate a schedule for entrypoint `execute`"
-    );
+    expect(quickCommand).toContain("moka run");
+    expect(quickCommand).toContain("--effort quick");
+    expect(quickCommand).toContain("supervised");
+    expect(quickCommand).not.toContain("moka submit");
+    expect(executeCommand).toContain("moka run");
+    expect(executeCommand).toContain("--effort thorough");
+    expect(executeCommand).toContain("supervised");
     expect(executeCommand).not.toContain(
       "Run workflow `inspect` for the user task."
     );
@@ -204,21 +226,20 @@ describe("installCommands", () => {
     });
   });
 
-  it("renders scheduled entrypoints as CLI schedule generation instructions", async () => {
+  it("keeps compatibility command files while pointing at canonical local moka run", async () => {
     await installCommands({ cwd: dir, host: "all" });
 
-    for (const path of [
-      ".opencode/commands/moka-quick.md",
-      ".opencode/commands/moka-execute.md",
-    ]) {
+    for (const { flags, path } of CANONICAL_LOCAL_RUN_BY_COMMAND) {
       const content = readFileSync(join(dir, path), "utf8");
-      expect(content).toContain("Generate a schedule for entrypoint");
-      expect(content).toContain(
-        "Submit Momokaya work as Argo Workflows through `moka submit` and `moka submit --quick`"
-      );
-      expect(content).toContain("Use `moka submit ");
-      expect(content).toContain("--kubeconfig <path>");
-      expect(content).not.toContain("--local <task description>");
+      expect(content).toContain("moka run");
+      expect(content).toContain("local");
+      expect(content).toContain("supervised");
+      for (const flag of flags) {
+        expect(content).toContain(flag);
+      }
+      expect(content).not.toContain("moka submit");
+      expect(content).not.toContain("Argo Workflow");
+      expect(content).not.toContain("--kubeconfig <path>");
     }
   });
 
@@ -231,6 +252,11 @@ describe("installCommands", () => {
     expect(content).toContain(
       "This repository uses package-owned `@oisincoveney/pipeline` config."
     );
+    const runGuidanceIndex = content.indexOf("moka run");
+    const slashCompatibilityIndex = content.indexOf("/moka-quick");
+    expect(runGuidanceIndex).toBeGreaterThanOrEqual(0);
+    expect(slashCompatibilityIndex).toBeGreaterThanOrEqual(0);
+    expect(runGuidanceIndex).toBeLessThan(slashCompatibilityIndex);
     expect(content).toContain(
       "Use `/moka-quick`, `/moka-execute`, or `/moka-inspect`"
     );
@@ -486,33 +512,38 @@ describe("installCommands", () => {
       join(dir, ".claude/commands/moka-execute.md"),
       "utf8"
     );
-    expect(execute).toContain("allowed-tools: 'Task, Bash(opencode run *)'");
+    expect(execute).toContain("Bash(moka run *)");
     expect(execute).toContain("argument-hint: <task description>");
     expect(execute).toContain("`execute` skill");
-    expect(execute).toContain("Generate a schedule for entrypoint `execute`");
+    expect(execute).toContain("moka run");
+    expect(execute).toContain("--effort thorough");
+    expect(execute).toContain("supervised");
+    expect(execute).not.toContain("opencode run");
+    expect(execute).not.toContain("Task subagent_type");
+    expect(execute).not.toContain("Delegate each agent node");
 
     const inspect = readFileSync(
       join(dir, ".claude/commands/moka-inspect.md"),
       "utf8"
     );
-    expect(inspect).toContain("Run workflow `inspect` for the user task.");
-    expect(inspect).toContain("Task subagent_type=moka-inspector");
+    expect(inspect).toContain("moka run");
+    expect(inspect).toContain("--read-only");
+    expect(inspect).toContain("supervised");
+    expect(inspect).not.toContain("opencode run");
+    expect(inspect).not.toContain("Task subagent_type=moka-inspector");
 
     const agent = readFileSync(
       join(dir, ".claude/agents/moka-inspector.md"),
       "utf8"
     );
     expect(agent).toContain("name: moka-inspector");
-    expect(agent).toContain("tools: 'Bash, Read'");
-    expect(agent).toContain('opencode run --agent "MoKa Inspector"');
+    expect(agent).toContain("Generated by @oisincoveney/pipeline");
 
     const settings = JSON.parse(
       readFileSync(join(dir, ".claude/settings.json"), "utf8")
     );
-    expect(settings.permissions.allow).toEqual([
-      "Task",
-      "Bash(opencode run *)",
-    ]);
+    expect(settings.permissions.allow).toContain("Bash(moka run *)");
+    expect(settings.permissions.allow).not.toContain("Bash(opencode run *)");
     expect(settings.mcpServers["pipeline-gateway"]).toMatchObject({
       type: "http",
       url: "https://pipeline-mcp.momokaya.ee/mcp/",
@@ -606,11 +637,9 @@ describe("installCommands", () => {
     expect(settings.permissions.deny).toEqual(["Bash(rm *)"]);
     expect(settings.mcpServers.custom).toMatchObject({ command: "x" });
     // Generated keys injected: allow is unioned, gateway server added.
-    expect(settings.permissions.allow).toEqual([
-      "Read",
-      "Task",
-      "Bash(opencode run *)",
-    ]);
+    expect(settings.permissions.allow).toContain("Read");
+    expect(settings.permissions.allow).toContain("Bash(moka run *)");
+    expect(settings.permissions.allow).not.toContain("Bash(opencode run *)");
     expect(settings.mcpServers["pipeline-gateway"]).toMatchObject({
       type: "http",
     });

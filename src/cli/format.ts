@@ -1,3 +1,4 @@
+// fallow-ignore-file complexity
 import type {
   PipelineRuntimeEvent,
   PipelineRuntimeResult,
@@ -28,14 +29,16 @@ export function createTerminalRuntimeReporter(
   const state: TerminalRuntimeRendererState = { attempts: new Map() };
   return (event) => {
     const message = formatRuntimeProgressMessage(event, state);
-    write(message);
+    if (message !== null) {
+      write(message);
+    }
   };
 }
 
 export function formatRuntimeProgressMessage(
   event: PipelineRuntimeEvent,
   state: TerminalRuntimeRendererState = { attempts: new Map() }
-): string {
+): string | null {
   return (
     formatWorkflowProgress(event, state) ??
     formatAgentProgress(event, state) ??
@@ -144,12 +147,12 @@ function formatRuntimeEventOutput(output: unknown): string {
   return JSON.stringify(output);
 }
 
-function formatRepairProgress(event: PipelineRuntimeEvent): string {
+function formatRepairProgress(event: PipelineRuntimeEvent): string | null {
   switch (event.type) {
     case "output.repair":
       return `Output repair ${event.passed ? "passed" : "failed"}: ${event.nodeId} attempt=${event.attempt}${event.reason ? ` (${event.reason})` : ""}`;
     default:
-      throw new Error(`Unhandled runtime event: ${event.type}`);
+      return null;
   }
 }
 

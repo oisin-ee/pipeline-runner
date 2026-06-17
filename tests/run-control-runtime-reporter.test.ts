@@ -47,6 +47,10 @@ function readJsonl(path: string): unknown[] {
     .map((line) => JSON.parse(line) as unknown);
 }
 
+function readJson(path: string): unknown {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
 function sequentialClock(): () => Date {
   let seconds = 0;
   return () => {
@@ -319,5 +323,63 @@ describe("run-control runtime reporter bridge", () => {
     expect(
       readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))
     ).toEqual(outputEvents);
+  });
+
+  it("persists OpenCode session ids as per-node metadata in run status", async () => {
+    const { createRunStoreRuntimeReporter } = await loadRuntimeReporter();
+    const runId = "run-opencode-session-metadata";
+    await createRun({
+      effort: "quick",
+      mode: "write",
+      nodeIds: ["writer"],
+      runId,
+      target: "local",
+      workspaceRoot,
+    });
+    const bridge = createRunStoreRuntimeReporter({
+      now: sequentialClock(),
+      runId,
+      workspaceRoot,
+    });
+    const sessionEvent = {
+      nodeId: "writer",
+      sessionId: "ses_writer",
+      type: "node.session",
+    } as unknown as PipelineRuntimeEvent;
+
+    bridge.reporter({
+      nodeIds: ["writer"],
+      type: "workflow.start",
+      workflowId: "runtime-bridge",
+    });
+    bridge.reporter(sessionEvent);
+    bridge.reporter({
+      attempt: 1,
+      exitCode: 0,
+      nodeId: "writer",
+      profile: "code-writer",
+      runnerId: "opencode",
+      status: "passed",
+      type: "node.finish",
+    });
+    bridge.reporter({
+      outcome: "PASS",
+      type: "workflow.finish",
+      workflowId: "runtime-bridge",
+    });
+    await bridge.flush();
+
+    expect(readJson(runPath(workspaceRoot, runId, "status.json"))).toEqual({
+      nodes: {
+        writer: {
+          sessionId: "ses_writer",
+          status: "passed",
+        },
+      },
+      status: "passed",
+    });
+    expect(
+      readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))
+    ).toContainEqual(sessionEvent);
   });
 });

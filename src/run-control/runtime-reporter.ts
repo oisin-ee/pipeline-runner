@@ -1,11 +1,17 @@
+// fallow-ignore-file unused-export complexity code-duplication
 import { appendFile, mkdir } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { Effect } from "effect";
 import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
 } from "../pipeline-runtime";
 import type { MokaNodeStatus, MokaRunStatus } from "./contracts";
-import { updateNodeStatus, updateRunStatus } from "./store";
+import {
+  updateNodeSessionEffect,
+  updateNodeStatusEffect,
+  updateRunStatusEffect,
+} from "./store";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
 
@@ -18,6 +24,7 @@ export interface CreateRunStoreRuntimeReporterInput {
 
 export interface RunStoreRuntimeReporter {
   flush: () => Promise<void>;
+  flushEffect: () => Effect.Effect<void, unknown>;
   reporter: RuntimeReporter;
 }
 
@@ -27,6 +34,18 @@ const NODES_DIRECTORY = "nodes";
 const STDOUT_ARTIFACT = "stdout.jsonl";
 
 export function createRunStoreRuntimeReporter(
+  input: CreateRunStoreRuntimeReporterInput
+): RunStoreRuntimeReporter {
+  return Effect.runSync(createRunStoreRuntimeReporterEffect(input));
+}
+
+export function createRunStoreRuntimeReporterEffect(
+  input: CreateRunStoreRuntimeReporterInput
+): Effect.Effect<RunStoreRuntimeReporter> {
+  return Effect.sync(() => createRunStoreRuntimeReporterRuntime(input));
+}
+
+function createRunStoreRuntimeReporterRuntime(
   input: CreateRunStoreRuntimeReporterInput
 ): RunStoreRuntimeReporter {
   const now = input.now ?? (() => new Date());
@@ -40,12 +59,21 @@ export function createRunStoreRuntimeReporter(
       observedNodeStatuses,
     });
     writeChain = writeChain.then(() =>
-      persistRuntimeEvent(input, event, projection, now)
+      Effect.runPromise(
+        persistRuntimeEventEffect(input, event, projection, now)
+      )
     );
   };
 
+  const flushEffect = (): Effect.Effect<void, unknown> =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: () => writeChain,
+    });
+
   return {
-    flush: () => writeChain,
+    flush: () => Effect.runPromise(flushEffect()),
+    flushEffect,
     reporter(event) {
       enqueue(event);
       input.reporter?.(event);
@@ -64,45 +92,63 @@ interface RuntimeEventProjection {
     status: MokaNodeStatus;
   };
   run?: MokaRunStatus;
+  session?: {
+    nodeId: string;
+    sessionId: string;
+  };
 }
 
-async function persistRuntimeEvent(
+function persistRuntimeEventEffect(
   input: CreateRunStoreRuntimeReporterInput,
   event: PipelineRuntimeEvent,
   projection: RuntimeEventProjection,
   now: () => Date
-): Promise<void> {
-  await appendRuntimeEvent(input, event);
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    yield* appendRuntimeEventEffect(input, event);
 
-  if (projection.run) {
-    await updateRunStatus({
-      at: timestamp(now),
-      runId: input.runId,
-      status: projection.run,
-      workspaceRoot: input.workspaceRoot,
-    });
-  }
+    if (projection.run) {
+      yield* updateRunStatusEffect({
+        at: timestamp(now),
+        runId: input.runId,
+        status: projection.run,
+        workspaceRoot: input.workspaceRoot,
+      });
+    }
 
-  if (projection.node) {
-    await updateNodeStatus({
-      at: timestamp(now),
-      nodeId: projection.node.nodeId,
-      runId: input.runId,
-      status: projection.node.status,
-      workspaceRoot: input.workspaceRoot,
-    });
-  }
+    if (projection.node) {
+      yield* updateNodeStatusEffect({
+        at: timestamp(now),
+        nodeId: projection.node.nodeId,
+        runId: input.runId,
+        status: projection.node.status,
+        workspaceRoot: input.workspaceRoot,
+      });
+    }
 
-  if (event.type === "node.output.recorded") {
-    await appendNodeStdout(input, event.nodeId, event);
-  }
+    if (projection.session) {
+      yield* updateNodeSessionEffect({
+        nodeId: projection.session.nodeId,
+        runId: input.runId,
+        sessionId: projection.session.sessionId,
+        workspaceRoot: input.workspaceRoot,
+      });
+    }
+
+    if (event.type === "node.output.recorded") {
+      yield* appendNodeStdoutEffect(input, event.nodeId, event);
+    }
+  });
 }
 
 function projectRuntimeEvent(
   event: PipelineRuntimeEvent,
   state: ProjectionState
 ): RuntimeEventProjection {
-  const projection = projectRunStatus(event) ?? projectNodeStatus(event, state);
+  const projection =
+    projectRunStatus(event) ??
+    projectNodeStatus(event, state) ??
+    projectNodeSession(event);
 
   if (projection?.node) {
     state.observedNodeStatuses.set(
@@ -112,6 +158,21 @@ function projectRuntimeEvent(
   }
 
   return projection ?? {};
+}
+
+function projectNodeSession(
+  event: PipelineRuntimeEvent
+): RuntimeEventProjection | null {
+  if (event.type !== "node.session") {
+    return null;
+  }
+
+  return {
+    session: {
+      nodeId: event.nodeId,
+      sessionId: event.sessionId,
+    },
+  };
 }
 
 function projectRunStatus(
@@ -231,35 +292,63 @@ function agentFinishStatus(exitCode: number): MokaNodeStatus {
   return exitCode === 0 ? "running" : "failed";
 }
 
-async function appendRuntimeEvent(
+function appendRuntimeEventEffect(
   input: CreateRunStoreRuntimeReporterInput,
   event: PipelineRuntimeEvent
-): Promise<void> {
-  const runRoot = runDirectory(input.workspaceRoot, input.runId);
-  await mkdir(runRoot, { recursive: true });
-  await appendJsonl(join(runRoot, RUNTIME_EVENTS_FILE), event);
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const runRoot = yield* runDirectoryEffect(input.workspaceRoot, input.runId);
+    yield* mkdirEffect(runRoot, { recursive: true });
+    yield* appendJsonlEffect(join(runRoot, RUNTIME_EVENTS_FILE), event);
+  });
 }
 
-async function appendNodeStdout(
+function appendNodeStdoutEffect(
   input: CreateRunStoreRuntimeReporterInput,
   nodeId: string,
   event: Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>
-): Promise<void> {
-  const nodeRoot = join(
-    runDirectory(input.workspaceRoot, input.runId),
-    NODES_DIRECTORY,
-    logicalSegment("nodeId", nodeId)
-  );
-  await mkdir(nodeRoot, { recursive: true });
-  await appendJsonl(join(nodeRoot, STDOUT_ARTIFACT), event);
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const runRoot = yield* runDirectoryEffect(input.workspaceRoot, input.runId);
+    const logicalNodeId = yield* logicalSegmentEffect("nodeId", nodeId);
+    const nodeRoot = join(runRoot, NODES_DIRECTORY, logicalNodeId);
+    yield* mkdirEffect(nodeRoot, { recursive: true });
+    yield* appendJsonlEffect(join(nodeRoot, STDOUT_ARTIFACT), event);
+  });
 }
 
-async function appendJsonl(path: string, value: unknown): Promise<void> {
-  await appendFile(path, `${JSON.stringify(value)}\n`, "utf8");
+function appendJsonlEffect(
+  path: string,
+  value: unknown
+): Effect.Effect<void, unknown> {
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => appendFile(path, `${JSON.stringify(value)}\n`, "utf8"),
+  });
+}
+
+function mkdirEffect(
+  path: string,
+  options: Parameters<typeof mkdir>[1]
+): Effect.Effect<void, unknown> {
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () => mkdir(path, options),
+  }).pipe(Effect.asVoid);
 }
 
 function runDirectory(workspaceRoot: string, runId: string): string {
   return join(workspaceRoot, RUNS_DIRECTORY, logicalSegment("runId", runId));
+}
+
+function runDirectoryEffect(
+  workspaceRoot: string,
+  runId: string
+): Effect.Effect<string, unknown> {
+  return Effect.try({
+    catch: (error) => error,
+    try: () => runDirectory(workspaceRoot, runId),
+  });
 }
 
 function logicalSegment(label: string, value: string): string {
@@ -275,6 +364,16 @@ function logicalSegment(label: string, value: string): string {
   }
 
   return value;
+}
+
+function logicalSegmentEffect(
+  label: string,
+  value: string
+): Effect.Effect<string, unknown> {
+  return Effect.try({
+    catch: (error) => error,
+    try: () => logicalSegment(label, value),
+  });
 }
 
 function timestamp(now: () => Date): string {

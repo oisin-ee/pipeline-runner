@@ -44,12 +44,13 @@ network: inherit
 hooks: generated-defaults-audit
 
 Instructions:
-Orchestrate the configured pipeline locally. Load the `orchestrate` skill and spawn the roster as native Task subagents on this machine. Do not submit to Argo or run `moka submit`. Enforce only package-configured gates.
+Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates.
 
-Orchestrate locally. Load and follow the `orchestrate` skill.
-Do not submit to Argo or run `moka submit`. Spawn the roster as native Task subagents on this machine and run nodes with satisfied dependencies in parallel.
+Orchestrate through the canonical local `moka run` supervisor. Load and follow the `orchestrate` skill.
+For compatibility slash commands, run the `moka run` command and flags shown in the command body.
+Treat execution as CLI/supervised runtime, not OpenCode-native Task execution.
 
-Roster (Task tool subagent_type):
+Configured roster:
 - MoKa Acceptance Reviewer
 - MoKa Code Writer
 - MoKa Inspector
@@ -60,4 +61,4 @@ Roster (Task tool subagent_type):
 - MoKa Thermo Nuclear Reviewer
 - MoKa Verifier
 
-Gather each subagent's structured output, enforce only package-configured gates, and report only the evidence the subagents returned.
+Report the supervisor's evidence and configured-gate results; do not invent extra gates.

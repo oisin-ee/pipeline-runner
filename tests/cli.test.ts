@@ -27,11 +27,10 @@ const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const DESCRIPTION_RE = /description/i;
 const FAILURE_DETAILS_RE =
   /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
-const PACKAGE_INSPECT_COMMAND_RE = /inspect\s+Read-only repository inspection/;
-const MOKA_SUBMIT_COMMAND_RE =
-  /submit\s+\[options\]\s+\[input\.\.\.\]\s+Submit work to Momokaya as an Argo Workflow/;
-const PACKAGE_EXECUTE_TOP_LEVEL_COMMAND_RE = /\n\s+execute\s/;
-const PACKAGE_QUICK_TOP_LEVEL_COMMAND_RE = /\n\s+quick\s/;
+const ALIAS_OR_PRESET_RE = /\b(?:alias|preset|compatibility)\b/i;
+const COMMAND_CONTINUATION_RE = /^ {20,}\S/;
+const COMMAND_SUMMARY_RE = /^ {2}([a-z][\w-]*)(?:\s|$)(.*)$/;
+const PRIMARY_COMMAND_RE = /\bprimary\b/i;
 
 const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
 const SCHEDULE_PATH_RE =
@@ -329,6 +328,29 @@ const GATEWAY_DOCTOR_ARGV = [
 
 function spyOutput(spy: ConsoleSpy): string {
   return spy.mock.calls.map(([message]) => String(message)).join("\n");
+}
+
+function topLevelCommandSummaries(help: string): Map<string, string> {
+  const summaries = new Map<string, string>();
+  let currentCommand: string | null = null;
+  for (const line of help.split("\n")) {
+    const commandLine = line.match(COMMAND_SUMMARY_RE);
+    if (commandLine) {
+      currentCommand = commandLine[1];
+      summaries.set(currentCommand, line.trim().replace(/\s+/g, " "));
+      continue;
+    }
+    if (currentCommand && COMMAND_CONTINUATION_RE.test(line)) {
+      summaries.set(
+        currentCommand,
+        `${summaries.get(currentCommand) ?? ""} ${line.trim()}`.replace(
+          /\s+/g,
+          " "
+        )
+      );
+    }
+  }
+  return summaries;
 }
 
 function kubectlCalls(): string[][] {
@@ -1847,15 +1869,25 @@ workflows:
     }
   });
 
-  it("lists package entrypoint subcommands with descriptions in CLI help", async () => {
+  it("makes moka run primary and labels compatibility commands in CLI help", async () => {
     await withCliTempDir("pipeline-cli-entrypoint-help-", async () => {
       const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
+      const commandSummaries = topLevelCommandSummaries(help);
 
-      expect(help).toMatch(PACKAGE_INSPECT_COMMAND_RE);
-      expect(help).toMatch(MOKA_SUBMIT_COMMAND_RE);
-      expect(help).not.toMatch(PACKAGE_EXECUTE_TOP_LEVEL_COMMAND_RE);
-      expect(help).not.toMatch(PACKAGE_QUICK_TOP_LEVEL_COMMAND_RE);
+      expect(commandSummaries.get("run") ?? "").toMatch(PRIMARY_COMMAND_RE);
+      for (const aliasCommand of ["quick", "execute", "inspect", "submit"]) {
+        expect(commandSummaries.get(aliasCommand) ?? "").toMatch(
+          ALIAS_OR_PRESET_RE
+        );
+      }
+      const commandOrder = [...commandSummaries.keys()];
+      const runIndex = commandOrder.indexOf("run");
+      expect(runIndex).toBeGreaterThanOrEqual(0);
+      expect(commandOrder.indexOf("quick")).toBeGreaterThan(runIndex);
+      expect(commandOrder.indexOf("execute")).toBeGreaterThan(runIndex);
+      expect(commandOrder.indexOf("inspect")).toBeGreaterThan(runIndex);
+      expect(commandOrder.indexOf("submit")).toBeGreaterThan(runIndex);
       expect(help).not.toContain("runner-job");
     });
   });
@@ -1914,10 +1946,10 @@ workflows:
       expect(k8sRun).toBeUndefined();
       expect(
         program.commands.find((command) => command.name() === "quick")
-      ).toBeUndefined();
+      ).toBeDefined();
       expect(
         program.commands.find((command) => command.name() === "execute")
-      ).toBeUndefined();
+      ).toBeDefined();
       const help = submitCmd?.helpInformation() ?? "";
       expect(help).not.toContain("--local");
       expect(help).toContain("--quick");
