@@ -14,11 +14,23 @@ export interface ModelSizingOptions {
   estimatedTokens: number;
 }
 
+export interface ModelSelectionOptions extends Partial<ModelSizingOptions> {
+  /**
+   * Models actually resolvable in the runtime (e.g. providers authenticated in
+   * the leased opencode server). When provided, candidates outside the set are
+   * skipped like disabled models, so a preferred-but-unavailable provider
+   * (opencode-go) falls back to the next candidate (gpt-5.5/...) instead of
+   * being selected and then failing at dispatch. Omitted → no availability
+   * filtering (legacy behaviour).
+   */
+  available?: ReadonlySet<string>;
+}
+
 const DISABLED_MODELS_ENV = "PIPELINE_DISABLED_MODELS";
 
 export function selectNodeModel(
   node: PlannedWorkflowNode,
-  options?: ModelSizingOptions
+  options?: ModelSelectionOptions
 ): ModelSelection {
   const models = node.models ?? [];
   return fallbackModelSelection(models, options);
@@ -26,7 +38,7 @@ export function selectNodeModel(
 
 function fallbackModelSelection(
   models: string[],
-  options?: ModelSizingOptions
+  options?: ModelSelectionOptions
 ): ModelSelection {
   if (models.length === 0) {
     return {
@@ -35,17 +47,39 @@ function fallbackModelSelection(
     };
   }
   const disabled = disabledModels();
-  const enabled = models.filter((candidate) => !disabled.has(candidate));
-  const disabledSkipped = models.filter((candidate) => disabled.has(candidate));
-  if (!options) {
+  const available = options?.available;
+  const enabled = models.filter(
+    (candidate) => !disabled.has(candidate) && isAvailable(candidate, available)
+  );
+  const skipped = models.filter(
+    (candidate) => disabled.has(candidate) || !isAvailable(candidate, available)
+  );
+  const sizing = sizingFromOptions(options);
+  if (!sizing) {
     const model = enabled[0];
     return {
       model,
       reason: selectionReason(model),
-      skipped: disabledSkipped,
+      skipped,
     };
   }
-  return sizedSelection(enabled, disabledSkipped, options);
+  return sizedSelection(enabled, skipped, sizing);
+}
+
+function isAvailable(
+  candidate: string,
+  available: ReadonlySet<string> | undefined
+): boolean {
+  return available ? available.has(candidate) : true;
+}
+
+function sizingFromOptions(
+  options: ModelSelectionOptions | undefined
+): ModelSizingOptions | undefined {
+  if (options?.budget && typeof options.estimatedTokens === "number") {
+    return { budget: options.budget, estimatedTokens: options.estimatedTokens };
+  }
+  return;
 }
 
 function sizedSelection(

@@ -58,6 +58,44 @@ describe("selectNodeModel", () => {
       skipped: ["openai/gpt-5.5"],
     });
   });
+
+  it("falls back past an unavailable preferred model to an available one", () => {
+    const selected = selectNodeModel(
+      node(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]),
+      { available: new Set(["openai/gpt-5.5-high"]) }
+    );
+
+    expect(selected).toMatchObject({
+      model: "openai/gpt-5.5-high",
+      skipped: ["opencode-go/qwen3.7-max"],
+    });
+  });
+
+  it("selects the preferred model when it is available", () => {
+    const selected = selectNodeModel(
+      node(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]),
+      {
+        available: new Set(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]),
+      }
+    );
+
+    expect(selected.model).toBe("opencode-go/qwen3.7-max");
+    expect(selected.skipped).toEqual([]);
+  });
+
+  it("returns no model when no candidate is available", () => {
+    const selected = selectNodeModel(node(["opencode-go/qwen3.7-max"]), {
+      available: new Set(["openai/gpt-5.5-high"]),
+    });
+
+    expect(selected.model).toBeUndefined();
+    expect(selected.skipped).toEqual(["opencode-go/qwen3.7-max"]);
+  });
+
+  it("does not filter by availability when no set is provided", () => {
+    const selected = selectNodeModel(node(["opencode-go/qwen3.7-max"]));
+    expect(selected.model).toBe("opencode-go/qwen3.7-max");
+  });
 });
 
 function budget(overrides: {
