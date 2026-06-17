@@ -86,7 +86,7 @@ scheduler:
         green-implementation:
           category: green
           profile: moka-code-writer
-          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          models: [opencode-go/qwen3.7-max, openai/gpt-5.5-high, kimi-for-coding/k2p6]
         verification:
           category: verification
           profile: moka-verifier
@@ -109,7 +109,7 @@ scheduler:
         green-backend:
           category: green
           profile: moka-code-writer
-          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          models: [opencode-go/qwen3.7-max, openai/gpt-5.5-high, kimi-for-coding/k2p6]
         green-frontend:
           category: green
           profile: moka-code-writer

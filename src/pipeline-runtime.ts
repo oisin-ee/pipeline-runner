@@ -169,10 +169,14 @@ function runWithLeasedOpencode<T>(
         ),
         (lease) => Effect.promise(() => lease.release())
       );
+      const availableModels = yield* Effect.promise(() =>
+        lease.availableModels()
+      );
       return yield* run({
         ...options,
         config,
         executor: lease.executor as RuntimeExecutor,
+        ...(availableModels ? { availableModels } : {}),
       });
     })
   );

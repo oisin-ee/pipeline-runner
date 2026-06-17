@@ -64,7 +64,10 @@ import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
 } from "../runner";
-import { generateRuntimeRunId } from "../runtime/context";
+import {
+  generateRuntimeRunId,
+  resolveWorkflowSelection,
+} from "../runtime/context";
 import { type DoctorFlags, runDoctor as runDoctorChecks } from "./doctor";
 import {
   createTerminalRuntimeReporter,
@@ -1218,29 +1221,6 @@ function formatWorkflowPlanNode(
   ]
     .filter(Boolean)
     .join(" ");
-}
-
-function resolveWorkflowSelection(
-  config: PipelineConfig,
-  workflowId?: string,
-  entrypointId?: string
-): string | undefined {
-  if (workflowId) {
-    return workflowId;
-  }
-  if (!entrypointId) {
-    return;
-  }
-  const entrypoint = config.entrypoints[entrypointId];
-  if (!entrypoint) {
-    throw new Error(`Unknown pipeline entrypoint '${entrypointId}'`);
-  }
-  if ("schedule" in entrypoint) {
-    throw new Error(
-      `Pipeline entrypoint '${entrypointId}' generates schedule '${entrypoint.schedule}'; use the entrypoint to create a schedule, then run with --schedule.`
-    );
-  }
-  return entrypoint.workflow;
 }
 
 function formatOrchestratorPlan(

@@ -34,6 +34,9 @@ export function createRuntimeContext(
     : undefined;
   return {
     agentInvocations: [],
+    ...(options.availableModels
+      ? { availableModels: options.availableModels }
+      : {}),
     ...(runId ? { runId } : {}),
     config,
     executor: options.executor ?? runLaunchPlan,
@@ -99,7 +102,7 @@ function runtimeMaxParallelNodes(
   return;
 }
 
-export function normalizeMaxParallelNodes(value: number): number {
+function normalizeMaxParallelNodes(value: number): number {
   if (!(Number.isInteger(value) && value > 0)) {
     throw new Error("maxParallelNodes must be a positive integer");
   }

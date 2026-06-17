@@ -66,7 +66,12 @@ function executeAgentNodeEffect(
       };
     }
     const prompt = yield* renderAgentPromptEffect(node, context);
-    const decision = decideNodeModel(prompt, node, context.config.token_budget);
+    const decision = decideNodeModel(
+      prompt,
+      node,
+      context.config.token_budget,
+      context.availableModels
+    );
     if (decision.overBudget) {
       return {
         evidence: [
@@ -277,17 +282,22 @@ interface NodeModelDecision {
 function decideNodeModel(
   prompt: string,
   node: PlannedWorkflowNode,
-  budget: PipelineConfig["token_budget"] | undefined
+  budget: PipelineConfig["token_budget"] | undefined,
+  availableModels: ReadonlySet<string> | undefined
 ): NodeModelDecision {
   const estimatedTokens = estimateTokens(prompt);
   if (!(budget && node.models?.length)) {
     return {
       estimatedTokens,
       overBudget: false,
-      selection: selectNodeModel(node),
+      selection: selectNodeModel(node, { available: availableModels }),
     };
   }
-  const selection = selectNodeModel(node, { budget, estimatedTokens });
+  const selection = selectNodeModel(node, {
+    available: availableModels,
+    budget,
+    estimatedTokens,
+  });
   return { estimatedTokens, overBudget: !selection.model, selection };
 }
 

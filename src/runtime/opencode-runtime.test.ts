@@ -162,4 +162,50 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
       "ses_runtime"
     );
   });
+
+  it("resolves available models from the server's authenticated providers", async () => {
+    const client = {
+      config: {
+        providers: () =>
+          Promise.resolve({
+            data: {
+              providers: [
+                {
+                  id: "openai",
+                  models: { "gpt-5.5-high": {}, "gpt-5.5-low": {} },
+                },
+                { id: "opencode-go", models: { "qwen3.7-max": {} } },
+              ],
+            },
+            error: undefined,
+          }),
+      },
+    } as unknown as OpencodeServerHandle["client"];
+    const lease = await leaseOpencodeRuntime({
+      config: CONFIG,
+      openServer: () => Promise.resolve(fakeHandle(client)),
+      worktreePath: "/repo",
+    });
+
+    expect(await lease.availableModels()).toEqual(
+      new Set([
+        "openai/gpt-5.5-high",
+        "openai/gpt-5.5-low",
+        "opencode-go/qwen3.7-max",
+      ])
+    );
+  });
+
+  it("returns undefined available models when provider listing fails (best-effort)", async () => {
+    const client = {
+      config: { providers: () => Promise.reject(new Error("boom")) },
+    } as unknown as OpencodeServerHandle["client"];
+    const lease = await leaseOpencodeRuntime({
+      config: CONFIG,
+      openServer: () => Promise.resolve(fakeHandle(client)),
+      worktreePath: "/repo",
+    });
+
+    expect(await lease.availableModels()).toBeUndefined();
+  });
 });

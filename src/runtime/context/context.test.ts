@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../../config";
-import {
-  createRuntimeContext,
-  normalizeMaxParallelNodes,
-  resolveWorkflowSelection,
-} from "./context";
+import { createRuntimeContext, resolveWorkflowSelection } from "./context";
 
 function configWithWorkflow(extraWorkflow = "") {
   return parsePipelineConfigParts({
@@ -66,14 +62,28 @@ describe("runtime context", () => {
     ).toThrow("Unknown pipeline entrypoint 'missing'");
   });
 
-  it("normalizes maxParallelNodes as a positive integer", () => {
-    expect(normalizeMaxParallelNodes(2)).toBe(2);
-    expect(() => normalizeMaxParallelNodes(0)).toThrow(
-      "maxParallelNodes must be a positive integer"
-    );
-    expect(() => normalizeMaxParallelNodes(1.5)).toThrow(
-      "maxParallelNodes must be a positive integer"
-    );
+  it("normalizes an explicit maxParallelNodes as a positive integer", () => {
+    expect(
+      createRuntimeContext({
+        config: configWithWorkflow(),
+        maxParallelNodes: 2,
+        task: "task",
+      }).maxParallelNodes
+    ).toBe(2);
+    expect(() =>
+      createRuntimeContext({
+        config: configWithWorkflow(),
+        maxParallelNodes: 1.5,
+        task: "task",
+      })
+    ).toThrow("maxParallelNodes must be a positive integer");
+    expect(() =>
+      createRuntimeContext({
+        config: configWithWorkflow(),
+        maxParallelNodes: -1,
+        task: "task",
+      })
+    ).toThrow("maxParallelNodes must be a positive integer");
   });
 
   it("creates a runtime context with defaults and honors explicit run id", () => {

@@ -22,6 +22,14 @@ export type RuntimeExecutor = (
 ) => AgentResult | Promise<AgentResult>;
 
 export interface OpencodeRuntimeLease {
+  /**
+   * Models resolvable in the leased server (every authenticated provider's
+   * models, as `provider/model`). Best-effort and cached: returns undefined when
+   * availability cannot be determined, so callers apply no filtering rather than
+   * starving selection. Resolving it ensures the server, which the run needs
+   * anyway.
+   */
+  availableModels(): Promise<ReadonlySet<string> | undefined>;
   executor: RuntimeExecutor;
   release(): Promise<void>;
 }
@@ -74,6 +82,9 @@ function leaseOpencodeRuntimeEffect(input: {
   const registry = createOpencodeSessionRegistry();
   let handle: OpencodeServerHandle | undefined;
   let pending: Promise<RuntimeExecutor> | undefined;
+  let availableModelsPending:
+    | Promise<ReadonlySet<string> | undefined>
+    | undefined;
 
   const ensureExecutor = (): Promise<RuntimeExecutor> => {
     pending ??= Effect.runPromise(
@@ -88,7 +99,19 @@ function leaseOpencodeRuntimeEffect(input: {
     return pending;
   };
 
+  const resolveAvailableModels = (): Promise<
+    ReadonlySet<string> | undefined
+  > => {
+    availableModelsPending ??= ensureExecutor()
+      .then(() =>
+        handle ? queryAvailableOpencodeModels(handle.client) : undefined
+      )
+      .catch(() => undefined);
+    return availableModelsPending;
+  };
+
   return Effect.succeed({
+    availableModels: resolveAvailableModels,
     executor: async (plan, options) => {
       const delegate = await ensureExecutor();
       return await delegate(plan, options);
@@ -100,6 +123,25 @@ function leaseOpencodeRuntimeEffect(input: {
       }
     },
   });
+}
+
+/**
+ * Collect every model the leased server can resolve (each authenticated
+ * provider's models as `provider/model`) from the opencode `/config/providers`
+ * endpoint, for availability-aware model selection.
+ */
+async function queryAvailableOpencodeModels(
+  client: OpencodeServerHandle["client"]
+): Promise<ReadonlySet<string>> {
+  const response = await client.config.providers();
+  const providers = response.data?.providers ?? [];
+  return new Set(
+    providers.flatMap((provider) =>
+      Object.keys(provider.models ?? {}).map(
+        (modelId) => `${provider.id}/${modelId}`
+      )
+    )
+  );
 }
 
 function ensureExecutorEffect(

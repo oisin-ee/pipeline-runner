@@ -313,6 +313,7 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
  * single-node, schedule-driven execution path.
  */
 export interface PipelineRuntimeOptions {
+  availableModels?: ReadonlySet<string>;
   config?: PipelineConfig;
   entrypoint?: string;
   executor?: (
@@ -362,6 +363,13 @@ export interface OutputRepairContext {
 
 export interface RuntimeContext {
   agentInvocations: RunnerLaunchPlan[];
+  /**
+   * Models resolvable in this runtime (authenticated providers in the leased
+   * opencode server). Threaded into model selection so a preferred but
+   * unavailable provider falls back instead of failing. Undefined when
+   * availability cannot be determined (no filtering applied).
+   */
+  availableModels?: ReadonlySet<string>;
   config: PipelineConfig;
   executor: (
     plan: RunnerLaunchPlan,
