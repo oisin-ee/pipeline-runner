@@ -90,6 +90,7 @@ skills:
 profiles:
   moka-orchestrator:
     runner: opencode
+    model: openai/gpt-5.5-xhigh
     description: Orchestrate the configured pipeline and enforce gates.
     instructions: { inline: "Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates." }
     skills: [orchestrate, execute, quick, inspect]
