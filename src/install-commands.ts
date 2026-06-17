@@ -10,10 +10,12 @@ import {
   type CommandDefinition,
   type CommandHostSelection,
   type CommandInstallPlanItem,
+  DEFAULT_HARNESS_SCOPE,
   ENTRYPOINT_PATH_PATTERNS,
   GENERATED_MARKER,
   GENERATED_TS_MARKER,
   GENERATED_YAML_MARKER,
+  type HarnessScope,
   type HostAdapter,
   type InstallAction,
   type InstallCommandsContext,
@@ -23,10 +25,12 @@ import {
   OWNER_MARKER_PREFIX,
   OWNER_TS_MARKER_PREFIX,
   OWNER_YAML_MARKER_PREFIX,
+  resolveHarnessTarget,
 } from "./install-commands/shared";
 
 export type {
   CommandHostSelection,
+  HarnessScope,
   InstallCommandsOptions,
   InstallCommandsResult,
 } from "./install-commands/shared";
@@ -100,24 +104,42 @@ function generatedHostFor(content: string): ActiveCommandHost | undefined {
 async function obsoleteGeneratedItems(
   cwd: string,
   host: CommandHostSelection,
-  wantedPaths: Set<string>
+  wantedPaths: Set<string>,
+  scope: HarnessScope
 ): Promise<CommandInstallPlanItem[]> {
   const hosts = new Set<ActiveCommandHost>(selectedHosts(host));
   const roots = selectedHosts(host).flatMap((selectedHost) =>
     resourceRootsFor(selectedHost)
   );
-  const files = await Promise.all(
-    roots.map((root) => listFiles(join(cwd, root)))
+  const scanned = await Promise.all(
+    roots.map(async (root) => {
+      const absRoot = resolveHarnessTarget(scope, cwd, root);
+      const files = await listFiles(absRoot);
+      // Reconstruct the canonical repo-relative path (.opencode/…, .claude/…)
+      // from the scanned root so it can be compared against wantedPaths
+      // regardless of where the scope rooted the scan.
+      return files.map((absolutePath) => ({
+        absolutePath,
+        path: join(root, relative(absRoot, absolutePath)).replaceAll("\\", "/"),
+      }));
+    })
   );
-  return files
+  return scanned
     .flat()
-    .flatMap((absolutePath) => {
-      const content = readFileSync(absolutePath, "utf8");
+    .flatMap(({ absolutePath, path }) => {
+      // Global scope scans live user config dirs (~/.config/opencode, …); a
+      // file that vanished mid-scan or is an unreadable/broken symlink can't be
+      // one we generated, so skip it rather than abort the whole install.
+      let content: string;
+      try {
+        content = readFileSync(absolutePath, "utf8");
+      } catch {
+        return [];
+      }
       const generatedHost = generatedHostFor(content);
       if (!(generatedHost && hosts.has(generatedHost))) {
         return [];
       }
-      const path = relative(cwd, absolutePath).replaceAll("\\", "/");
       if (wantedPaths.has(path)) {
         return [];
       }
@@ -290,9 +312,10 @@ function shouldSkipInstallWrite(
 async function installDefinition(
   cwd: string,
   definition: CommandDefinition,
-  options: InstallCommandsOptions
+  options: InstallCommandsOptions,
+  scope: HarnessScope
 ): Promise<CommandInstallPlanItem> {
-  const target = join(cwd, definition.path);
+  const target = resolveHarnessTarget(scope, cwd, definition.path);
   const resolved = resolveDefinitionContent(definition, target);
   const action = installActionForDefinition(
     definition,
@@ -324,6 +347,7 @@ function installCommandsContext(
 ): InstallCommandsContext {
   const cwd = options.cwd ?? process.cwd();
   const host = options.host ?? "all";
+  const scope = options.scope ?? DEFAULT_HARNESS_SCOPE;
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
@@ -332,6 +356,7 @@ function installCommandsContext(
     cwd,
     definitions,
     host,
+    scope,
     wantedPaths: new Set(definitions.map((definition) => definition.path)),
   };
 }
@@ -339,11 +364,12 @@ function installCommandsContext(
 async function installDefinitions(
   cwd: string,
   definitions: CommandDefinition[],
-  options: InstallCommandsOptions
+  options: InstallCommandsOptions,
+  scope: HarnessScope
 ): Promise<CommandInstallPlanItem[]> {
   const items: CommandInstallPlanItem[] = [];
   for (const definition of definitions) {
-    items.push(await installDefinition(cwd, definition, options));
+    items.push(await installDefinition(cwd, definition, options, scope));
   }
   return items;
 }
@@ -355,13 +381,14 @@ function shouldRemoveObsoleteItems(options: InstallCommandsOptions): boolean {
 async function removeObsoleteItems(
   cwd: string,
   items: CommandInstallPlanItem[],
-  options: InstallCommandsOptions
+  options: InstallCommandsOptions,
+  scope: HarnessScope
 ): Promise<void> {
   if (!shouldRemoveObsoleteItems(options)) {
     return;
   }
   for (const item of items) {
-    await rm(join(cwd, item.path), { force: true });
+    await rm(resolveHarnessTarget(scope, cwd, item.path), { force: true });
   }
 }
 
@@ -419,15 +446,17 @@ export async function installCommands(
   const items = await installDefinitions(
     context.cwd,
     context.definitions,
-    options
+    options,
+    context.scope
   );
   const obsoleteItems = await obsoleteGeneratedItems(
     context.cwd,
     context.host,
-    context.wantedPaths
+    context.wantedPaths,
+    context.scope
   );
   items.push(...obsoleteItems);
-  await removeObsoleteItems(context.cwd, obsoleteItems, options);
+  await removeObsoleteItems(context.cwd, obsoleteItems, options, context.scope);
   assertNoInstallConflicts(options, items);
   assertInstallCheckCurrent(options, items);
   return { items };
