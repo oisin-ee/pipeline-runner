@@ -386,6 +386,24 @@ describe("runner event sink", () => {
     ).toMatchObject({ finalResult: { outcome: "CANCELLED" } });
   });
 
+  it("maps node.session to no wire records instead of throwing", async () => {
+    const { mapRuntimeEventToRunnerEventRecords } = await loadContractModule();
+    // node.session is an in-process run-control/projection event with no
+    // representation in the runner -> event-sink wire contract. It must map to
+    // an empty record set rather than hit the unhandled-event guard, which
+    // previously crashed task.run on the cluster.
+    expect(
+      mapRuntimeEventToRunnerEventRecords(
+        {
+          nodeId: "backlog-intake",
+          sessionId: "ses_abc",
+          type: "node.session",
+        },
+        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
+      )
+    ).toEqual([]);
+  });
+
   it("records cancellation before the final flush", async () => {
     const { createRunnerEventSink } = await loadSinkModule();
     const fetchMock = vi.fn(async () => okResponse());

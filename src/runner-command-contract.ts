@@ -524,6 +524,13 @@ function mapNodeRunnerEvent(
   record: RunnerEventRecordBase
 ): RunnerEventRecord[] | null {
   switch (event.type) {
+    case "node.session":
+      // node.session associates a node with its agent session id. It is an
+      // in-process run-control/projection concern (see projectNodeSession in
+      // run-control/runtime-reporter) with no representation in the
+      // runner -> event-sink wire contract, so it maps to no records rather
+      // than falling through to throwUnhandledRuntimeEvent.
+      return [];
     case "node.start":
       return [
         {
