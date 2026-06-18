@@ -52,8 +52,31 @@ hooks:
 runner_command:
   environment:
     setup:
-      - command: bun
-        args: [install, --frozen-lockfile]
+      # Environment bootstrap (dependency install, toolchain pinning, codegen) is
+      # OWNED BY THE TARGET REPO and is REQUIRED — moka does not guess it. The
+      # repo's own CI already encodes the correct sequence (package manager,
+      # mise/asdf/nvm toolchains, generated clients), which moka cannot reliably
+      # reproduce. moka runs the repo's declared entrypoint here: an executable
+      # .moka/bootstrap.sh, or a "moka:setup" package.json script. If the repo
+      # declares neither, the run fails loudly rather than silently under-
+      # provisioning the workspace.
+      - command: sh
+        args:
+          - -c
+          - |
+            if [ -f .moka/bootstrap.sh ]; then
+              echo "moka: running repo bootstrap (.moka/bootstrap.sh)"
+              sh .moka/bootstrap.sh
+            elif [ -f package.json ] && grep -q '"moka:setup"' package.json; then
+              echo "moka: running repo bootstrap (npm run moka:setup)"
+              npm run moka:setup
+            else
+              echo "moka: repo environment bootstrap is REQUIRED but was not found." >&2
+              echo "Add an executable .moka/bootstrap.sh (or a 'moka:setup' package.json script)" >&2
+              echo "that installs dependencies and any toolchain/codegen this repo needs." >&2
+              echo "moka does not guess dependency/toolchain setup." >&2
+              exit 1
+            fi
       # Set up package-owned pipeline support + the opencode model registration
       # (.opencode/opencode.json, which declares the gpt-5.5-* reasoning selectors)
       # on every run, so opencode-backed agents in the pod resolve their models
