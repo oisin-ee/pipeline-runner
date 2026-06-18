@@ -10,7 +10,9 @@
       "!!**/.codex",
       "!!**/.gemini",
       "!!**/.qwen",
-      "!!**/.claude/worktrees"
+      "!!**/.claude/worktrees",
+      "!!**/.worktrees",
+      "!!**/.pipeline"
     ]
   }
 }

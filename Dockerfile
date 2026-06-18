@@ -12,6 +12,7 @@ ARG PNPM_PACKAGE_VERSION=10.24.0
 ARG BUN_PACKAGE_VERSION=1.3.14
 ARG FALLOW_PACKAGE_VERSION=2.90.0
 ARG OC_CODEX_MULTI_AUTH_VERSION=6.3.1
+ARG MISE_VERSION=2026.4.11
 ARG TOOLHIVE_VERSION=0.29.1
 ARG TOOLHIVE_LINUX_AMD64_SHA256=a70f9b74493c7d3d8b62187e5b838e4333b07477810b83eb5086879b9fa37bc8
 
@@ -32,6 +33,16 @@ RUN curl -fsSL -o /tmp/toolhive.tar.gz "https://github.com/stacklok/toolhive/rel
   && echo "${TOOLHIVE_LINUX_AMD64_SHA256}  /tmp/toolhive.tar.gz" | sha256sum -c - \
   && tar -xzf /tmp/toolhive.tar.gz -C /usr/local/bin thv \
   && rm -f /tmp/toolhive.tar.gz
+
+# mise: per-repo toolchain manager. Target repos pin their toolchain (e.g. Go)
+# in mise.toml; their .moka/bootstrap.sh runs `mise install`, and the shims dir
+# on PATH then exposes the pinned tools to every runner shell — setup commands,
+# gate builtins, and the agent — without per-shell activation.
+RUN curl -fsSL https://mise.run | MISE_VERSION="${MISE_VERSION}" MISE_INSTALL_PATH=/usr/local/bin/mise sh \
+  && command -v mise \
+  && mise --version
+ENV MISE_DATA_DIR=/root/.local/share/mise
+ENV PATH="/root/.local/share/mise/shims:${PATH}"
 
 COPY --from=helm /usr/bin/helm /usr/local/bin/helm
 COPY --from=uv /uv /uvx /usr/local/bin/
