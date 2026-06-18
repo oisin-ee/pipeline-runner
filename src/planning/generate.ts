@@ -109,6 +109,35 @@ export interface SchedulePlanningContext {
   workUnits: BacklogWorkUnit[];
 }
 
+/**
+ * A backlog ticket's frontmatter may declare dependencies on sibling tickets
+ * that are not part of this run (e.g. submitting TOVA-766.03 alone when its
+ * frontmatter depends on TOVA-766.01). Those out-of-scope ids must not reach the
+ * planner: it is instructed to preserve Backlog dependency ids as needs edges,
+ * and an edge to a work unit that no node serves fails schedule validation. Prune
+ * each unit's dependencies to the ids actually in scope (parent + work units) —
+ * the same predicate workUnitDependencyIssues applies after generation — so the
+ * planner prompt context and downstream validation stay consistent.
+ */
+export function pruneOutOfScopeDependencies(
+  context: SchedulePlanningContext
+): SchedulePlanningContext {
+  const inScope = new Set(
+    [...context.parentWorkUnits, ...context.workUnits].map((unit) => unit.id)
+  );
+  const prune = (unit: BacklogWorkUnit): BacklogWorkUnit =>
+    unit.dependencies
+      ? {
+          ...unit,
+          dependencies: unit.dependencies.filter((id) => inScope.has(id)),
+        }
+      : unit;
+  return {
+    parentWorkUnits: context.parentWorkUnits.map(prune),
+    workUnits: context.workUnits.map(prune),
+  };
+}
+
 export function parseScheduleArtifact(
   source: string,
   sourcePath = "schedule.yaml"
@@ -207,9 +236,9 @@ export async function generateScheduleArtifact(
     runId: options.runId,
     task: options.task,
   });
-  const planningContext: SchedulePlanningContext = {
+  const planningContext: SchedulePlanningContext = pruneOutOfScopeDependencies({
     ...loadBacklogPlanningContext(options.task, options.worktreePath),
-  };
+  });
   const generatedArtifact = await planScheduleArtifact(
     baseline,
     policy.planner_profile,

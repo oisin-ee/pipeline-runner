@@ -14,6 +14,7 @@ import {
   compileScheduleArtifact,
   generateScheduleArtifact,
   parseScheduleArtifact,
+  pruneOutOfScopeDependencies,
   type ScheduleArtifact,
 } from "../src/planning/generate";
 
@@ -307,6 +308,28 @@ async function generateScheduleWithPrompt(options: {
 }
 
 describe("schedule artifacts", () => {
+  it("prunes out-of-scope sibling dependencies from the planner context", () => {
+    // Submitting one ticket whose frontmatter depends on a sibling not in the
+    // run (e.g. TOVA-766.03 -> TOVA-766.01) must not leak that id to the
+    // planner: it would preserve it as a needs edge to a node nothing serves
+    // and fail schedule validation. In-scope ids (here the parent PC-37) are
+    // kept; units without dependencies are untouched.
+    const pruned = pruneOutOfScopeDependencies({
+      parentWorkUnits: [{ acceptance_criteria: [], id: "PC-37" }],
+      workUnits: [
+        {
+          acceptance_criteria: [],
+          dependencies: ["PC-37", "PC-37.1"],
+          id: "PC-37.2",
+        },
+        { acceptance_criteria: [], id: "PC-37.3" },
+      ],
+    });
+
+    expect(pruned.workUnits[0]?.dependencies).toEqual(["PC-37"]);
+    expect(pruned.workUnits[1]?.dependencies).toBeUndefined();
+  });
+
   it("accepts explicit scheduling roles in profile config", () => {
     const parsed = parsePipelineConfigParts({
       pipeline: PIPELINE,
