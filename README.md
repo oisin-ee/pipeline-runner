@@ -43,10 +43,10 @@ Initialize package-owned pipeline support:
 moka init
 ```
 
-`moka init` vendors the package's default project skills, then writes generated
-OpenCode command surfaces plus the singleton `pipeline-gateway` MCP entry.
-OpenCode is the package default runtime. The command does not create repo-local
-`.pipeline` config files.
+`moka init` installs the package's default skills, generated host command
+surfaces, the singleton `pipeline-gateway` MCP entry, and copied hook files from
+the private `oisin-ee/agent-hooks` repository. OpenCode is the package default
+runtime. The command does not create repo-local `.pipeline` config files.
 
 The default MCP gateway can run locally or point at the hosted Momokaya gateway.
 Set `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to the full HTTP `Authorization` header
@@ -60,6 +60,12 @@ Check or refresh generated host files after package upgrades:
 
 ```shell
 moka install-commands --host all --check
+```
+
+Check or refresh copied agent hooks after editing `oisin-ee/agent-hooks`:
+
+```shell
+moka install-hooks --scope global --check
 ```
 
 Check local prerequisites and config health:
@@ -98,6 +104,7 @@ Canonical commands:
 - `moka export <run-id> --sanitize`: print a portable evidence bundle.
 - `moka doctor`: check local prerequisites and config health.
 - `moka init`: install package-owned host resources for a repository.
+- `moka install-hooks`: copy manually authored hooks from `oisin-ee/agent-hooks`.
 - `moka refresh-harnesses`: force-refresh generated agent harnesses and commit
   owned resource changes.
 

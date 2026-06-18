@@ -23,6 +23,7 @@ import {
   installCommands,
   parseCommandHost,
 } from "../install-commands";
+import { formatInstallHooksResult, installHooks } from "../install-hooks";
 import {
   configureGatewayHosts,
   type GatewayHostScope,
@@ -438,6 +439,13 @@ interface InstallCommandFlags {
   scope?: HarnessScope;
 }
 
+interface InstallHookFlags {
+  check?: boolean;
+  dryRun?: boolean;
+  force?: boolean;
+  scope?: HarnessScope;
+}
+
 interface CodexAuthSyncLocalFlags {
   check?: boolean;
   dryRun?: boolean;
@@ -832,6 +840,30 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
       });
       console.log(formatInstallCommandsResult(result));
+    });
+
+  program
+    .command("install-hooks")
+    .description(
+      "Install agent hooks from oisin-ee/agent-hooks (global per-machine by default)"
+    )
+    .addOption(
+      new Option(
+        "--scope <scope>",
+        "where to install: global (~/.claude, ~/.config/opencode, ~/.codex) or project (repo-local)"
+      )
+        .choices(["global", "project"])
+        .default("global")
+    )
+    .option("--dry-run", "show planned changes without writing files")
+    .option("--check", "fail if installed hook files are missing or stale")
+    .option("--force", "overwrite manually edited hook files")
+    .action(async (flags: InstallHookFlags) => {
+      const result = await installHooks({
+        ...flags,
+        cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
+      });
+      console.log(formatInstallHooksResult(result));
     });
 
   const codexAuthCommand = program

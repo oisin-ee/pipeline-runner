@@ -11,6 +11,10 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadPipelineConfig } from "../src/config";
 import {
+  type HarnessScope,
+  resolveHarnessTarget,
+} from "../src/install-commands/shared";
+import {
   formatPipelineInitResult,
   initPipelineProject,
   refreshAgentHarnesses,
@@ -46,6 +50,17 @@ async function installMockSkills(cwd: string): Promise<void> {
       `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
     );
   }
+}
+
+async function installMockHooks(
+  cwd: string,
+  scope: HarnessScope
+): Promise<{ files: string[] }> {
+  await Promise.resolve();
+  const path = resolveHarnessTarget(scope, cwd, ".claude/hooks/check.sh");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, "#!/bin/sh\necho hook\n");
+  return { files: [".claude/hooks/check.sh"] };
 }
 
 interface GitCall {
@@ -103,6 +118,7 @@ describe("initPipelineProject", () => {
   const init = (options: Parameters<typeof initPipelineProject>[0] = {}) =>
     initPipelineProject({
       cwd: dir,
+      hookInstaller: installMockHooks,
       scope: "project",
       skillInstaller: installMockSkills,
       ...options,
@@ -114,9 +130,11 @@ describe("initPipelineProject", () => {
     expect(result.files).toContain(".opencode/commands/moka-execute.md");
     expect(result.files).toContain(".opencode/commands/moka-quick.md");
     expect(result.files).toContain(".opencode/opencode.json");
+    expect(result.files).toContain(".claude/hooks/check.sh");
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(bootstrappedHostFilesExist(dir)).toBe(true);
+    expect(existsSync(join(dir, ".claude/hooks/check.sh"))).toBe(true);
     const opencode = JSON.parse(
       readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
     );
@@ -169,6 +187,7 @@ describe("initPipelineProject", () => {
     await expect(
       initPipelineProject({
         cwd: dir,
+        hookInstaller: installMockHooks,
         skillInstaller: () => Promise.reject(new Error("skills missing")),
       })
     ).rejects.toThrow("skills missing");
@@ -176,6 +195,18 @@ describe("initPipelineProject", () => {
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(existsSync(join(dir, ".opencode/opencode.json"))).toBe(false);
+    expect(existsSync(join(dir, ".claude/hooks/check.sh"))).toBe(false);
+  });
+
+  it("does not report initialized when hook installation fails", async () => {
+    await expect(
+      initPipelineProject({
+        cwd: dir,
+        hookInstaller: () => Promise.reject(new Error("hooks missing")),
+        scope: "project",
+        skillInstaller: installMockSkills,
+      })
+    ).rejects.toThrow("hooks missing");
   });
 
   it("does not modify existing repo-local pipeline files", async () => {
@@ -197,6 +228,7 @@ describe("initPipelineProject", () => {
     const result = await refreshAgentHarnesses({
       commandRunner: git.run,
       cwd: dir,
+      hookInstaller: installMockHooks,
       scope: "project",
       skillInstaller: installMockSkills,
     });
@@ -210,6 +242,7 @@ describe("initPipelineProject", () => {
     const addCall = git.calls.find((call) => call.args[0] === "add");
     expect(addCall?.args).toContain(".opencode");
     expect(addCall?.args).toContain(".claude/commands");
+    expect(addCall?.args).toContain(".claude/hooks");
     expect(addCall?.args).toContain(".agents/skills");
     expect(addCall?.args).not.toContain(".codex/skills");
     expect(addCall?.args).not.toContain(".");
@@ -222,6 +255,7 @@ describe("initPipelineProject", () => {
       commandRunner: git.run,
       commitMessage: "chore: refresh moka harnesses",
       cwd: dir,
+      hookInstaller: installMockHooks,
       scope: "project",
       skillInstaller: installMockSkills,
     });
@@ -240,6 +274,7 @@ describe("initPipelineProject", () => {
     const result = await refreshAgentHarnesses({
       commandRunner: git.run,
       cwd: dir,
+      hookInstaller: installMockHooks,
       scope: "project",
       skillInstaller: installMockSkills,
     });
@@ -257,6 +292,7 @@ describe("initPipelineProject", () => {
       refreshAgentHarnesses({
         commandRunner: git.run,
         cwd: dir,
+        hookInstaller: installMockHooks,
         scope: "project",
         skillInstaller: installMockSkills,
       })
@@ -305,6 +341,7 @@ describe("initPipelineProject (global scope)", () => {
   it("defaults to global scope and writes into the per-machine host dirs", async () => {
     const result = await initPipelineProject({
       cwd: dir,
+      hookInstaller: installMockHooks,
       skillInstaller: installMockSkills,
     });
 
@@ -329,6 +366,7 @@ describe("initPipelineProject (global scope)", () => {
     const result = await refreshAgentHarnesses({
       commandRunner: git.run,
       cwd: dir,
+      hookInstaller: installMockHooks,
       skillInstaller: installMockSkills,
     });
 

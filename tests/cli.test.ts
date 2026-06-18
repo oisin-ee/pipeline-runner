@@ -546,6 +546,7 @@ beforeEach(() => {
     ) {
       installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
     }
+    installMockHookRepoIfRequested(command, args);
     return Promise.resolve({
       exitCode: 0,
       stderr: "",
@@ -579,6 +580,35 @@ function installMockSkills(args: string[], cwd = process.cwd()): void {
     arg === "--agent" && args[index + 1] ? [args[index + 1]] : []
   );
   writeMockSkills(skills, cwd, agents, args.includes("--copy"));
+}
+
+function isHookRepoClone(args: string[]): boolean {
+  return args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent-hooks";
+}
+
+function installMockHookRepoIfRequested(
+  command: string,
+  args: string[] | undefined
+): void {
+  if (command === "gh" && Array.isArray(args) && isHookRepoClone(args)) {
+    installMockHookRepo(args[3]);
+  }
+}
+
+function installMockHookRepo(target: string): void {
+  writeFileAt(target, "claude-code/hooks/check.sh", "#!/bin/sh\necho claude\n");
+  writeFileAt(target, "codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
+  writeFileAt(
+    target,
+    "opencode/plugins/agent-hooks.ts",
+    "export const AgentHooks = async () => ({})\n"
+  );
+}
+
+function writeFileAt(root: string, path: string, content: string): void {
+  const target = join(root, path);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, content);
 }
 
 function writeMockSkills(
@@ -1243,6 +1273,64 @@ describe("execute", () => {
         "https://pipeline-mcp.momokaya.ee/mcp/"
       );
     });
+  });
+
+  it("installs agent hooks from the fixed private hook repository", async () => {
+    await withCliTempDir(
+      "pipeline-cli-hooks-",
+      async ({ dir, output, runCli }) => {
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "install-hooks",
+          "--scope",
+          "project",
+        ]);
+
+        expect(readFileSync(join(dir, ".claude/hooks/check.sh"), "utf8")).toBe(
+          "#!/bin/sh\necho claude\n"
+        );
+        expect(readFileSync(join(dir, ".codex/hooks/check.sh"), "utf8")).toBe(
+          "#!/bin/sh\necho codex\n"
+        );
+        expect(
+          readFileSync(join(dir, ".opencode/plugins/agent-hooks.ts"), "utf8")
+        ).toContain("AgentHooks");
+        expect(output()).toContain(
+          "create claude-code: .claude/hooks/check.sh"
+        );
+        expect(mockExeca).toHaveBeenCalledWith(
+          "gh",
+          [
+            "repo",
+            "clone",
+            "oisin-ee/agent-hooks",
+            expect.any(String),
+            "--",
+            "--depth=1",
+          ],
+          expect.objectContaining({ stdio: "inherit" })
+        );
+      }
+    );
+  });
+
+  it("does not expose a hook source override flag", async () => {
+    const { runCli } = await import("../src/index");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(
+        runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "install-hooks",
+          "--help",
+        ])
+      ).rejects.toThrow("outputHelp");
+      expect(spyOutput(log)).not.toContain("--source");
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("detects relative Node entrypoint paths as CLI executions", async () => {

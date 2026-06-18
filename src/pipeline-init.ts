@@ -6,8 +6,13 @@ import {
   DEFAULT_HARNESS_SCOPE,
   type HarnessScope,
 } from "./install-commands/shared";
+import { type InstallHooksResult, installHooks } from "./install-hooks";
 
 export type PipelineSkillInstaller = (cwd: string) => Promise<void>;
+export type PipelineHookInstaller = (
+  cwd: string,
+  scope: HarnessScope
+) => Promise<Pick<InstallHooksResult, "items"> | { files: string[] }>;
 
 /**
  * Where the default skill set is installed. "project" vendors a repo-local
@@ -15,7 +20,7 @@ export type PipelineSkillInstaller = (cwd: string) => Promise<void>;
  * at user/global scope so every repo the user opens inherits the skills with
  * no per-repo copy and no project lockfile.
  */
-export type PipelineSkillScope = "project" | "personal";
+type PipelineSkillScope = "project" | "personal";
 
 /**
  * The harness scope drives every generated resource at once: skills, host
@@ -50,6 +55,7 @@ function skillInstallArgs(scope: PipelineSkillScope): string[] {
 
 export interface PipelineInitOptions {
   cwd?: string;
+  hookInstaller?: PipelineHookInstaller;
   scope?: HarnessScope;
   skillInstaller?: PipelineSkillInstaller;
 }
@@ -93,8 +99,12 @@ const OWNED_HARNESS_PATHS = [
   ".agents/skills",
   ".claude/agents",
   ".claude/commands",
+  ".claude/hooks",
+  ".claude/.moka-agent-hooks.json",
   ".claude/settings.json",
   ".claude/skills",
+  ".codex/hooks",
+  ".codex/.moka-agent-hooks.json",
   ".codex/skills",
   ".opencode",
   "AGENTS.md",
@@ -126,6 +136,21 @@ async function installDefaultSkills(
   }
 }
 
+function installDefaultHooks(
+  cwd: string,
+  scope: HarnessScope
+): Promise<InstallHooksResult> {
+  return installHooks({ cwd, scope });
+}
+
+function hookInstallerFiles(
+  result: Pick<InstallHooksResult, "items"> | { files: string[] }
+): string[] {
+  return "items" in result
+    ? result.items.map((item) => item.path)
+    : result.files;
+}
+
 export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
@@ -134,6 +159,7 @@ export async function initPipelineProject(
   const skillInstaller =
     options.skillInstaller ??
     ((target) => installDefaultSkills(target, skillScopeFor(scope)));
+  const hookInstaller = options.hookInstaller ?? installDefaultHooks;
   await skillInstaller(cwd);
   const result = await installCommands({
     cwd,
@@ -141,8 +167,12 @@ export async function initPipelineProject(
     host: "all",
     scope,
   });
+  const hooks = await hookInstaller(cwd, scope);
   return {
-    files: result.items.map((item) => item.path),
+    files: [
+      ...result.items.map((item) => item.path),
+      ...hookInstallerFiles(hooks),
+    ],
     scope,
   };
 }
@@ -153,6 +183,7 @@ export async function refreshAgentHarnesses(
   const context = refreshAgentHarnessesContext(options);
   const init = await initPipelineProject({
     cwd: context.cwd,
+    hookInstaller: options.hookInstaller,
     scope: options.scope,
     skillInstaller: options.skillInstaller,
   });
