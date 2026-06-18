@@ -143,6 +143,45 @@ describe("runtime gates", () => {
     });
   });
 
+  it("allows monorepo-nested test support files under the test-writer policy", () => {
+    // The test-writer allow-list must accept test infrastructure nested inside
+    // monorepo packages (e.g. apps/app/tests/support/*.ts), not just root-level
+    // tests/. Root-anchored "tests/**" misses apps/app/tests/...; "**/tests/**"
+    // matches it. Mirrors the baseline red-tests changed_files policy.
+    const context = changedFilesContext([
+      "apps/app/tests/support/avatar-upload.ts",
+      "apps/app/tests/profile-form/profile-form.test.tsx",
+    ]);
+    const gate: ChangedFilesGateSpec = {
+      changed_files: {
+        allow: [
+          "**/*.test.*",
+          "**/*.spec.*",
+          "**/*_test.*",
+          "**/__tests__/**",
+          "test/**",
+          "tests/**",
+          "**/test/**",
+          "**/tests/**",
+          "**/*.snap",
+        ],
+        require_any: ["**/*.test.*", "**/tests/**"],
+      },
+      kind: "changed_files",
+    };
+
+    const result = evaluateChangedFilesGate(
+      gate,
+      "changed:node-a",
+      "node-a",
+      context
+    );
+    expect(result.passed).toBe(true);
+    expect(
+      result.evidence.some((line) => line.includes("outside allow list"))
+    ).toBe(false);
+  });
+
   it("excludes supervisor run-state but still gates real disallowed source changes", () => {
     const context = changedFilesContext([
       "src/app.ts",

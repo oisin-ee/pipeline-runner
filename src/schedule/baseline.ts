@@ -111,6 +111,8 @@ function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
                   "**/__tests__/**",
                   "test/**",
                   "tests/**",
+                  "**/test/**",
+                  "**/tests/**",
                   "**/*.snap",
                 ],
                 require_any: [
@@ -120,6 +122,8 @@ function executeBaselineWorkflow(): ScheduleArtifact["workflows"] {
                   "**/__tests__/**",
                   "test/**",
                   "tests/**",
+                  "**/test/**",
+                  "**/tests/**",
                 ],
               },
               id: "red-test-file-policy",
