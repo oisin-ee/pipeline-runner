@@ -105,8 +105,8 @@ Canonical commands:
 - `moka doctor`: check local prerequisites and config health.
 - `moka init`: install package-owned host resources for a repository.
 - `moka install-hooks`: copy manually authored hooks from `oisin-ee/agent-hooks`.
-- `moka refresh-harnesses`: force-refresh generated agent harnesses and commit
-  owned resource changes.
+- `moka refresh-harnesses`: force-refresh the per-machine (global) agent
+  harnesses. The harness is always installed globally; there is no `--scope`.
 
 ```shell
 moka run "Implement PIPE-123 user-facing behavior"
