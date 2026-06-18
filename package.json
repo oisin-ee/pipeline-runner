@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@dagrejs/graphlib": "^4.0.1",
+    "rulesync": "8.30.1",
     "@kubernetes/client-node": "^1.4.0",
     "@opencode-ai/sdk": "1.17.4",
     "ajv": "^8.20.0",

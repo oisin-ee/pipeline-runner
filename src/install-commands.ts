@@ -3,10 +3,6 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { loadPipelineConfig, type PipelineConfig } from "./config";
 import { claudeCodeAdapter } from "./install-commands/claude-code";
-import {
-  globalInstructionDefinitions,
-  INSTRUCTION_PATHS,
-} from "./install-commands/instructions";
 import { opencodeAdapter } from "./install-commands/opencode";
 import {
   type ActiveCommandHost,
@@ -354,11 +350,6 @@ function commandInstallPlanItem(
 // cwd into a machine-wide file and make `--check` perpetually non-idempotent.
 const PROJECT_ONLY_PATHS = new Set(["AGENTS.md"]);
 
-// Global instruction memory files (CLAUDE.md, codex/gemini behavior files) are
-// per-machine behavior, not repo-local guidance: they only belong in the global
-// harness. A project-scoped install must not emit them.
-const GLOBAL_ONLY_PATHS = new Set<string>(INSTRUCTION_PATHS);
-
 function scopedDefinitions(
   definitions: CommandDefinition[],
   scope: HarnessScope
@@ -368,9 +359,7 @@ function scopedDefinitions(
       (definition) => !PROJECT_ONLY_PATHS.has(definition.path)
     );
   }
-  return definitions.filter(
-    (definition) => !GLOBAL_ONLY_PATHS.has(definition.path)
-  );
+  return definitions;
 }
 
 function installCommandsContext(
@@ -382,11 +371,8 @@ function installCommandsContext(
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
-  const instructionDefinitions = globalInstructionDefinitions().filter(
-    (definition) => host === "all" || definition.host === host
-  );
   const definitions = scopedDefinitions(
-    [...definitionsFor(host, config, cwd), ...instructionDefinitions],
+    definitionsFor(host, config, cwd),
     scope
   );
   return {

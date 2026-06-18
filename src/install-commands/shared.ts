@@ -10,10 +10,6 @@ export const OWNER_TS_MARKER_PREFIX = "// @oisincoveney/pipeline:";
 export const OWNER_YAML_MARKER_PREFIX = "# @oisincoveney/pipeline:";
 export const AGENTS_MD_START = "<!-- @oisincoveney/pipeline:agents:start -->";
 export const AGENTS_MD_END = "<!-- @oisincoveney/pipeline:agents:end -->";
-export const INSTRUCTIONS_START =
-  "<!-- @oisincoveney/pipeline:instructions:start -->";
-export const INSTRUCTIONS_END =
-  "<!-- @oisincoveney/pipeline:instructions:end -->";
 export const SINGLE_OPENCODE_PLUGIN_ARRAY_RE =
   /\n {2}"plugin": \[\n {4}("[^"]+")\n {2}\]/;
 export const OPENCODE_PROJECT_CONFIG_PATH = ".opencode/opencode.json";
@@ -51,15 +47,15 @@ export const DEFAULT_HARNESS_SCOPE: HarnessScope = "global";
  * does our test suite): Claude Code reads `CLAUDE_CONFIG_DIR`, Codex reads
  * `CODEX_HOME`, OpenCode reads `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`.
  */
-export function claudeGlobalConfigDir(): string {
+function claudeGlobalConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
 }
 
-export function codexGlobalConfigDir(): string {
+function codexGlobalConfigDir(): string {
   return process.env.CODEX_HOME ?? join(homedir(), ".codex");
 }
 
-export function opencodeGlobalConfigDir(): string {
+function opencodeGlobalConfigDir(): string {
   return (
     process.env.OPENCODE_CONFIG_DIR ??
     join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode")

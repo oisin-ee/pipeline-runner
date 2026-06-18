@@ -14,6 +14,7 @@ import {
   type HarnessScope,
   resolveHarnessTarget,
 } from "../src/install-commands/shared";
+import type { PipelineRulesInstaller } from "../src/pipeline-init";
 import {
   formatPipelineInitResult,
   initPipelineProject,
@@ -62,6 +63,12 @@ async function installMockHooks(
   writeFileSync(path, "#!/bin/sh\necho hook\n");
   return { files: [".claude/hooks/check.sh"] };
 }
+
+// No-op rules installer: avoids hitting the network in unit tests.
+// Global instruction files are covered by the dedicated install-rules test.
+const noopRulesInstaller: PipelineRulesInstaller = async (_cwd, _scope) => ({
+  items: [],
+});
 
 interface GitCall {
   args: string[];
@@ -188,6 +195,7 @@ describe("initPipelineProject", () => {
       initPipelineProject({
         cwd: dir,
         hookInstaller: installMockHooks,
+        rulesInstaller: noopRulesInstaller,
         skillInstaller: () => Promise.reject(new Error("skills missing")),
       })
     ).rejects.toThrow("skills missing");
@@ -342,6 +350,7 @@ describe("initPipelineProject (global scope)", () => {
     const result = await initPipelineProject({
       cwd: dir,
       hookInstaller: installMockHooks,
+      rulesInstaller: noopRulesInstaller,
       skillInstaller: installMockSkills,
     });
 
@@ -367,6 +376,7 @@ describe("initPipelineProject (global scope)", () => {
       commandRunner: git.run,
       cwd: dir,
       hookInstaller: installMockHooks,
+      rulesInstaller: noopRulesInstaller,
       skillInstaller: installMockSkills,
     });
 

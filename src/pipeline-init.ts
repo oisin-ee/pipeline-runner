@@ -7,12 +7,18 @@ import {
   type HarnessScope,
 } from "./install-commands/shared";
 import { type InstallHooksResult, installHooks } from "./install-hooks";
+import { installRules } from "./install-rules";
 
 export type PipelineSkillInstaller = (cwd: string) => Promise<void>;
 export type PipelineHookInstaller = (
   cwd: string,
   scope: HarnessScope
 ) => Promise<Pick<InstallHooksResult, "items"> | { files: string[] }>;
+
+export type PipelineRulesInstaller = (
+  cwd: string,
+  scope: HarnessScope
+) => Promise<{ items: { path: string }[] }>;
 
 /**
  * Where the default skill set is installed. "project" vendors a repo-local
@@ -56,6 +62,7 @@ function skillInstallArgs(scope: PipelineSkillScope): string[] {
 export interface PipelineInitOptions {
   cwd?: string;
   hookInstaller?: PipelineHookInstaller;
+  rulesInstaller?: PipelineRulesInstaller;
   scope?: HarnessScope;
   skillInstaller?: PipelineSkillInstaller;
 }
@@ -160,6 +167,9 @@ export async function initPipelineProject(
     options.skillInstaller ??
     ((target) => installDefaultSkills(target, skillScopeFor(scope)));
   const hookInstaller = options.hookInstaller ?? installDefaultHooks;
+  const rulesInstaller =
+    options.rulesInstaller ??
+    ((target, s) => installRules({ cwd: target, scope: s }));
   await skillInstaller(cwd);
   const result = await installCommands({
     cwd,
@@ -168,10 +178,12 @@ export async function initPipelineProject(
     scope,
   });
   const hooks = await hookInstaller(cwd, scope);
+  const rulesResult = await rulesInstaller(cwd, scope);
   return {
     files: [
       ...result.items.map((item) => item.path),
       ...hookInstallerFiles(hooks),
+      ...rulesResult.items.map((item) => item.path),
     ],
     scope,
   };
@@ -184,6 +196,7 @@ export async function refreshAgentHarnesses(
   const init = await initPipelineProject({
     cwd: context.cwd,
     hookInstaller: options.hookInstaller,
+    rulesInstaller: options.rulesInstaller,
     scope: options.scope,
     skillInstaller: options.skillInstaller,
   });
@@ -222,7 +235,7 @@ async function refreshAgentHarnessesCommitResult(
 export function formatPipelineInitResult(result: PipelineInitResult): string {
   const summaryLine =
     result.scope === "global"
-      ? "installed the per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); inherited by every repo with no per-repo copy"
+      ? "installed the per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); global instruction files generated via rulesync from oisin-ee/rules; inherited by every repo with no per-repo copy"
       : "installed default skills and host config repo-local";
   return [
     "Initialized package-owned pipeline support:",
