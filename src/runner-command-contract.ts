@@ -312,6 +312,7 @@ export interface RunnerHookResultDetails {
 
 interface RunnerEventEnvelope {
   at?: string;
+  runId: string;
   sequence: number;
   type: string;
 }
@@ -356,7 +357,10 @@ export type RunnerEventRecord =
       type: "workflow.finish";
     });
 
-type RunnerEventRecordBase = Pick<RunnerEventEnvelope, "at" | "sequence">;
+type RunnerEventRecordBase = Pick<
+  RunnerEventEnvelope,
+  "at" | "runId" | "sequence"
+>;
 
 export function resolveRunnerEventSinkAuthToken(
   options: ResolveRunnerEventSinkAuthTokenOptions
@@ -450,6 +454,7 @@ export function mapRuntimeEventToRunnerEventRecords(
 ): RunnerEventRecord[] {
   const record: RunnerEventRecordBase = {
     at: context.timestamp,
+    runId: context.runId,
     sequence: context.sequence ?? 1,
   };
   return (
@@ -486,6 +491,7 @@ function mapWorkflowRunnerEvent(
             source: edge.source,
             target: edge.target,
           },
+          runId: context.runId,
           sequence: (context.sequence ?? 1) + index + 1,
           type: "workflow.edge",
         })

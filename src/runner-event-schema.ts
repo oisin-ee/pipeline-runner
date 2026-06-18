@@ -12,6 +12,11 @@ import type { RunnerEventRecord } from "./runner-command-contract";
 
 const runnerEventEnvelopeSchema = z.object({
   at: z.string().optional(),
+  // Every record carries the runId of the run it belongs to so the event-sink
+  // server can resolve the batch's run without relying on URL path/query. The
+  // runner is the source of truth for this contract; consumers (Pipeline
+  // Console) conform by reading the per-event runId.
+  runId: z.string().min(1),
   sequence: z.number().int().positive(),
 });
 

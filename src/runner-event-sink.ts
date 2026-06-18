@@ -68,11 +68,15 @@ export function createRunnerEventSink(
   let nextSequence = 1;
   let scheduledFlush = false;
 
-  const nextEnvelope = (): Pick<RunnerEventRecord, "at" | "sequence"> => {
+  const nextEnvelope = (): Pick<
+    RunnerEventRecord,
+    "at" | "runId" | "sequence"
+  > => {
     const sequence = nextSequence;
     nextSequence += 1;
     return {
       at: timestamp(options.now),
+      runId: options.runId,
       sequence,
     };
   };
