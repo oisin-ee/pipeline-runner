@@ -65,7 +65,7 @@ moka install-commands --host all --check
 Check or refresh copied agent hooks after editing `oisin-ee/agent-hooks`:
 
 ```shell
-moka install-hooks --scope global --check
+moka install-hooks --check
 ```
 
 Check local prerequisites and config health:

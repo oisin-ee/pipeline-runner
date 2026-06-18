@@ -329,40 +329,72 @@ describe("installed dogfood configuration", () => {
 
   it("keeps installed host resources aligned with package defaults and agent grants", async () => {
     const root = tempProject();
-    await installCommands({
-      cwd: root,
-      force: true,
-      host: "all",
-      scope: "project",
-    });
-    const config = loadPipelineConfig(root, {
-      allowMissingLintFileReferences: true,
-    });
-
-    expect(config.orchestrator).toEqual({ profile: "moka-orchestrator" });
-    for (const surface of entrypointCommandSurfaces(config)) {
-      expect(existsSync(join(root, surface.path)), surface.path).toBe(true);
-      const content = readFileSync(join(root, surface.path), "utf8");
-      expect(content).toContain("agent: MoKa Orchestrator");
-      expect(content).toContain("Configured orchestrator:");
-      expect(content).toContain(surface.invocation);
-      expect(content).toContain(surface.targetId);
+    // Redirect per-machine host dirs into `root` so installed files are
+    // testable with resolveHarnessTarget, and the real ~/.config/opencode etc.
+    // are never touched.
+    const savedEnv: Record<string, string | undefined> = {};
+    for (const key of [
+      "CLAUDE_CONFIG_DIR",
+      "CODEX_HOME",
+      "OPENCODE_CONFIG_DIR",
+      "GEMINI_CONFIG_DIR",
+    ]) {
+      savedEnv[key] = process.env[key];
     }
+    process.env.CLAUDE_CONFIG_DIR = join(root, ".claude");
+    process.env.CODEX_HOME = join(root, ".codex");
+    process.env.OPENCODE_CONFIG_DIR = join(root, ".opencode");
+    process.env.GEMINI_CONFIG_DIR = join(root, ".gemini");
+    try {
+      const { resolveHarnessTarget } = await import(
+        "../src/install-commands/shared"
+      );
+      await installCommands({
+        cwd: root,
+        force: true,
+        host: "all",
+      });
+      const config = loadPipelineConfig(root, {
+        allowMissingLintFileReferences: true,
+      });
 
-    expect(
-      existsSync(join(root, ".opencode/agents/MoKa Orchestrator.md"))
-    ).toBe(true);
+      expect(config.orchestrator).toEqual({ profile: "moka-orchestrator" });
+      for (const surface of entrypointCommandSurfaces(config)) {
+        const absolutePath = resolveHarnessTarget(surface.path);
+        expect(existsSync(absolutePath), surface.path).toBe(true);
+        const content = readFileSync(absolutePath, "utf8");
+        expect(content).toContain("agent: MoKa Orchestrator");
+        expect(content).toContain("Configured orchestrator:");
+        expect(content).toContain(surface.invocation);
+        expect(content).toContain(surface.targetId);
+      }
 
-    for (const profileId of workflowProfileIds(config)) {
-      const runner = config.profiles[profileId]?.runner;
-      const nativeAgentPath = nativeAgentPathFor(runner, profileId);
-      if (nativeAgentPath) {
-        const content = readFileSync(join(root, nativeAgentPath), "utf8");
-        if (nativeAgentPath.endsWith(".toml")) {
-          expect(content).toContain(`name = "${profileId}"`);
-          expect(content).toContain("developer_instructions = ");
+      expect(
+        existsSync(
+          resolveHarnessTarget(".opencode/agents/MoKa Orchestrator.md")
+        )
+      ).toBe(true);
+
+      for (const profileId of workflowProfileIds(config)) {
+        const runner = config.profiles[profileId]?.runner;
+        const nativeAgentPath = nativeAgentPathFor(runner, profileId);
+        if (nativeAgentPath) {
+          const absolutePath = resolveHarnessTarget(nativeAgentPath);
+          const content = readFileSync(absolutePath, "utf8");
+          if (nativeAgentPath.endsWith(".toml")) {
+            expect(content).toContain(`name = "${profileId}"`);
+            expect(content).toContain("developer_instructions = ");
+          } else {
+            expect(content).toContain("Configured grants:");
+          }
+        }
+      }
+    } finally {
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
         } else {
-          expect(content).toContain("Configured grants:");
+          process.env[key] = value;
         }
       }
     }

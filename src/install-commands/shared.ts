@@ -32,16 +32,6 @@ export type CommandHostSelection = ActiveCommandHost | "all";
  */
 export type HarnessHost = ActiveCommandHost | "codex" | "gemini";
 /**
- * Where generated harness resources are written.
- * - "global" (default): the per-machine host config dirs (~/.claude,
- *   ~/.config/opencode, ~/.codex). One harness shared by every repo on the
- *   machine/container.
- * - "project": repo-local .claude/.opencode/.codex dirs (opt-in).
- */
-export type HarnessScope = "global" | "project";
-export const DEFAULT_HARNESS_SCOPE: HarnessScope = "global";
-
-/**
  * The per-machine host config dirs. Each honors the same env var the host tool
  * itself uses to relocate its config (so containers/CI can redirect, and so
  * does our test suite): Claude Code reads `CLAUDE_CONFIG_DIR`, Codex reads
@@ -77,24 +67,14 @@ function stripPrefix(value: string, prefix: string): string {
 
 /**
  * Resolve a repo-relative harness path (e.g. ".claude/agents/x.md",
- * ".opencode/opencode.json", "AGENTS.md") to its absolute on-disk target for
- * the given scope.
- *
- * - project: rooted at `cwd` (the repo) — the historical behaviour.
- * - global: rooted at the host-native per-machine config dirs. `.claude/*` →
- *   the Claude config dir, `.codex/*` → the Codex config dir, and `.opencode/*`
- *   plus bare root files (e.g. AGENTS.md, which OpenCode reads globally) → the
- *   OpenCode config dir. The global `.opencode` and `~/.config/opencode`
- *   layouts use identical subdir names, so this is a pure prefix rebase.
+ * ".opencode/opencode.json") to its absolute on-disk target in the
+ * per-machine host config dirs. `.claude/*` → the Claude config dir,
+ * `.codex/*` → the Codex config dir, `.gemini/*` → the Gemini config dir,
+ * and `.opencode/*` plus other root files → the OpenCode config dir. The
+ * global `.opencode` and `~/.config/opencode` layouts use identical subdir
+ * names, so this is a pure prefix rebase.
  */
-export function resolveHarnessTarget(
-  scope: HarnessScope,
-  cwd: string,
-  relPath: string
-): string {
-  if (scope === "project") {
-    return join(cwd, relPath);
-  }
+export function resolveHarnessTarget(relPath: string): string {
   const normalized = relPath.replaceAll("\\", "/");
   if (normalized === ".claude" || normalized.startsWith(".claude/")) {
     return join(claudeGlobalConfigDir(), stripPrefix(normalized, ".claude"));
@@ -127,7 +107,6 @@ export interface InstallCommandsOptions {
   dryRun?: boolean;
   force?: boolean;
   host?: CommandHostSelection;
-  scope?: HarnessScope;
 }
 
 export interface InstallCommandsResult {
@@ -138,7 +117,6 @@ export interface InstallCommandsContext {
   cwd: string;
   definitions: CommandDefinition[];
   host: CommandHostSelection;
-  scope: HarnessScope;
   wantedPaths: Set<string>;
 }
 

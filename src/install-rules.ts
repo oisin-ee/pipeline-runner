@@ -10,10 +10,6 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
-import {
-  DEFAULT_HARNESS_SCOPE,
-  type HarnessScope,
-} from "./install-commands/shared";
 
 const DEFAULT_RULES_INSTALL_SOURCE = "oisin-ee/rules";
 
@@ -40,11 +36,9 @@ export type RulesyncRunner = (
 
 export interface InstallRulesOptions {
   check?: boolean;
-  cwd?: string;
   dryRun?: boolean;
   force?: boolean;
   rulesyncRunner?: RulesyncRunner;
-  scope?: HarnessScope;
   sourceOverride?: string;
 }
 
@@ -106,7 +100,7 @@ async function defaultRulesyncRunner(
     const cause = error instanceof Error ? `: ${error.message}` : "";
     throw new Error(
       `Failed to generate global rules from ${DEFAULT_RULES_INSTALL_SOURCE}${cause}. ` +
-        "If this is a private repository, authenticate GitHub access with `gh auth login` and rerun `moka refresh-harnesses --scope global`."
+        "If this is a private repository, authenticate GitHub access with `gh auth login` and rerun `moka refresh-harnesses`."
     );
   }
 }
@@ -143,12 +137,6 @@ async function buildRootRule(source: string): Promise<void> {
 export function installRules(
   options: InstallRulesOptions = {}
 ): Promise<InstallRulesResult> {
-  const scope = options.scope ?? DEFAULT_HARNESS_SCOPE;
-
-  if (scope !== "global") {
-    return Promise.resolve({ items: [], source: DEFAULT_RULES_INSTALL_SOURCE });
-  }
-
   const runner = options.rulesyncRunner ?? defaultRulesyncRunner;
 
   return withRulesSource(options.sourceOverride, async (source) => {

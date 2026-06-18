@@ -59,7 +59,6 @@ describe("installRules", () => {
     const { calls, runner } = makeCapturingRunner();
     await installRules({
       rulesyncRunner: runner,
-      scope: "global",
       sourceOverride: sourceDir,
     });
 
@@ -83,7 +82,6 @@ describe("installRules", () => {
     const { runner } = makeCapturingRunner();
     await installRules({
       rulesyncRunner: runner,
-      scope: "global",
       sourceOverride: sourceDir,
     });
 
@@ -109,7 +107,6 @@ describe("installRules", () => {
     try {
       await installRules({
         rulesyncRunner: runner,
-        scope: "global",
         sourceOverride: sourceDir,
       });
     } finally {
@@ -134,21 +131,7 @@ describe("installRules", () => {
     expect(call.cwd).toBe(sourceDir);
   });
 
-  it("(d) scope: project is a no-op returning empty items without calling the runner", async () => {
-    writeRuleFragment(sourceDir, "00-a.md", "# Rule A");
-
-    const { calls, runner } = makeCapturingRunner();
-    const result = await installRules({
-      rulesyncRunner: runner,
-      scope: "project",
-      sourceOverride: sourceDir,
-    });
-
-    expect(result.items).toHaveLength(0);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("(e) returns the four expected home-relative output paths", async () => {
+  it("(d) returns the four expected home-relative output paths", async () => {
     writeRuleFragment(sourceDir, "00-a.md", "# Rule A");
 
     const { runner } = makeCapturingRunner();
@@ -158,7 +141,6 @@ describe("installRules", () => {
     try {
       result = await installRules({
         rulesyncRunner: runner,
-        scope: "global",
         sourceOverride: sourceDir,
       });
     } finally {
@@ -177,14 +159,13 @@ describe("installRules", () => {
     expect(paths).toHaveLength(4);
   });
 
-  it("(f) dryRun: true adds --dry-run to args and uses action skip", async () => {
+  it("(e) dryRun: true adds --dry-run to args and uses action skip", async () => {
     writeRuleFragment(sourceDir, "00-a.md", "# Rule A");
 
     const { calls, runner } = makeCapturingRunner();
     const result = await installRules({
       dryRun: true,
       rulesyncRunner: runner,
-      scope: "global",
       sourceOverride: sourceDir,
     });
 
@@ -197,7 +178,6 @@ describe("installRules", () => {
     const { runner } = makeCapturingRunner();
     const result = await installRules({
       rulesyncRunner: runner,
-      scope: "global",
       sourceOverride: sourceDir,
     });
 
@@ -210,7 +190,6 @@ describe("installRules", () => {
     const { runner } = makeCapturingRunner();
     await installRules({
       rulesyncRunner: runner,
-      scope: "global",
       sourceOverride: sourceDir,
     });
 

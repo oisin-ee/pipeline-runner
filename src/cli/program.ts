@@ -19,7 +19,6 @@ import { formatConfigLintWarning, lintPipelineConfig } from "../config/lint";
 import {
   type CommandHostSelection,
   formatInstallCommandsResult,
-  type HarnessScope,
   installCommands,
   parseCommandHost,
 } from "../install-commands";
@@ -436,14 +435,12 @@ interface InstallCommandFlags {
   dryRun?: boolean;
   force?: boolean;
   host?: CommandHostSelection;
-  scope?: HarnessScope;
 }
 
 interface InstallHookFlags {
   check?: boolean;
   dryRun?: boolean;
   force?: boolean;
-  scope?: HarnessScope;
 }
 
 interface CodexAuthSyncLocalFlags {
@@ -767,20 +764,11 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
   program
     .command("init")
     .description(
-      "Initialize package-owned pipeline support without repo-local config"
+      "Initialize package-owned pipeline support without repo-local config (global per-machine install: ~/.claude, ~/.config/opencode, ~/.codex)"
     )
-    .addOption(
-      new Option(
-        "--scope <scope>",
-        "where to install the harness: global (one per-machine install in ~/.claude, ~/.config/opencode, ~/.codex; inherited by every repo) or project (repo-local copy)"
-      )
-        .choices(["global", "project"])
-        .default("global")
-    )
-    .action(async (flags: { scope: HarnessScope }) => {
+    .action(async () => {
       const result = await initPipelineProject({
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-        scope: flags.scope,
       });
       console.log(formatPipelineInitResult(result));
     });
@@ -788,26 +776,11 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
   program
     .command("refresh-harnesses")
     .description(
-      "Force-refresh generated agent harnesses (global by default; commits owned resource changes only for project scope)"
+      "Force-refresh generated agent harnesses (global per-machine install: ~/.claude, ~/.config/opencode, ~/.codex)"
     )
-    .addOption(
-      new Option(
-        "--scope <scope>",
-        "where to refresh the harness: global (per-machine install) or project (repo-local copy, committed)"
-      )
-        .choices(["global", "project"])
-        .default("global")
-    )
-    .option(
-      "--message <message>",
-      "git commit message for refreshed harness changes (project scope only)",
-      "chore: update agent harnesses"
-    )
-    .action(async (flags: { message: string; scope: HarnessScope }) => {
+    .action(async () => {
       const result = await refreshAgentHarnesses({
-        commitMessage: flags.message,
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-        scope: flags.scope,
       });
       console.log(formatRefreshAgentHarnessesResult(result));
     });
@@ -815,21 +788,13 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
   program
     .command("install-commands")
     .description(
-      "Install generated slash-command adapters (global per-machine by default)"
+      "Install generated slash-command adapters into per-machine host dirs (~/.claude, ~/.config/opencode, ~/.codex)"
     )
     .addOption(
       new Option("--host <host>", "host command set to install")
         .choices(["all", "opencode", "claude-code"])
         .default("all")
         .argParser(parseCommandHost)
-    )
-    .addOption(
-      new Option(
-        "--scope <scope>",
-        "where to install: global (~/.claude, ~/.config/opencode, ~/.codex) or project (repo-local)"
-      )
-        .choices(["global", "project"])
-        .default("global")
     )
     .option("--dry-run", "show planned changes without writing files")
     .option("--check", "fail if generated command files are missing or stale")
@@ -845,24 +810,13 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
   program
     .command("install-hooks")
     .description(
-      "Install agent hooks from oisin-ee/agent-hooks (global per-machine by default)"
-    )
-    .addOption(
-      new Option(
-        "--scope <scope>",
-        "where to install: global (~/.claude, ~/.config/opencode, ~/.codex) or project (repo-local)"
-      )
-        .choices(["global", "project"])
-        .default("global")
+      "Install agent hooks from oisin-ee/agent-hooks into per-machine host dirs (~/.claude, ~/.config/opencode, ~/.codex)"
     )
     .option("--dry-run", "show planned changes without writing files")
     .option("--check", "fail if installed hook files are missing or stale")
     .option("--force", "overwrite manually edited hook files")
     .action(async (flags: InstallHookFlags) => {
-      const result = await installHooks({
-        ...flags,
-        cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-      });
+      const result = await installHooks({ ...flags });
       console.log(formatInstallHooksResult(result));
     });
 

@@ -4,11 +4,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
-import {
-  DEFAULT_HARNESS_SCOPE,
-  type HarnessScope,
-  resolveHarnessTarget,
-} from "./install-commands/shared";
+import { resolveHarnessTarget } from "./install-commands/shared";
 
 const DEFAULT_HOOK_INSTALL_SOURCE = "oisin-ee/agent-hooks";
 
@@ -38,10 +34,8 @@ export interface HookInstallPlanItem {
 
 export interface InstallHooksOptions {
   check?: boolean;
-  cwd?: string;
   dryRun?: boolean;
   force?: boolean;
-  scope?: HarnessScope;
 }
 
 export interface InstallHooksResult {
@@ -145,28 +139,16 @@ async function sourceHookFiles(source: string): Promise<SourceHookFile[]> {
   return byHost.flat().sort((a, b) => a.path.localeCompare(b.path));
 }
 
-function manifestPath(
-  scope: HarnessScope,
-  cwd: string,
-  host: HookHost
-): string {
-  return resolveHarnessTarget(
-    scope,
-    cwd,
-    `${HOST_TARGET_ROOT[host]}/${MANIFEST_FILE}`
-  );
+function manifestPath(host: HookHost): string {
+  return resolveHarnessTarget(`${HOST_TARGET_ROOT[host]}/${MANIFEST_FILE}`);
 }
 
 function emptyManifest(): HookManifest {
   return { files: {}, repository: DEFAULT_HOOK_INSTALL_SOURCE, version: 1 };
 }
 
-function readManifest(
-  scope: HarnessScope,
-  cwd: string,
-  host: HookHost
-): HookManifest {
-  const path = manifestPath(scope, cwd, host);
+function readManifest(host: HookHost): HookManifest {
+  const path = manifestPath(host);
   if (!existsSync(path)) {
     return emptyManifest();
   }
@@ -196,18 +178,16 @@ function normalizeManifest(value: unknown): HookManifest {
   return { files, repository: DEFAULT_HOOK_INSTALL_SOURCE, version: 1 };
 }
 
-function targetPath(scope: HarnessScope, cwd: string, path: string): string {
-  return resolveHarnessTarget(scope, cwd, path);
+function targetPath(path: string): string {
+  return resolveHarnessTarget(path);
 }
 
 function actionForFile(
   file: SourceHookFile,
-  scope: HarnessScope,
-  cwd: string,
   force: boolean,
   manifests: Map<HookHost, HookManifest>
 ): HookInstallAction {
-  const target = targetPath(scope, cwd, file.path);
+  const target = targetPath(file.path);
   if (!existsSync(target)) {
     return "create";
   }
@@ -224,21 +204,17 @@ function actionForFile(
 
 function planFiles(
   files: SourceHookFile[],
-  scope: HarnessScope,
-  cwd: string,
   force: boolean,
   manifests: Map<HookHost, HookManifest>
 ): PlannedHookFile[] {
   return files.map((file) => ({
     ...file,
-    action: actionForFile(file, scope, cwd, force, manifests),
+    action: actionForFile(file, force, manifests),
   }));
 }
 
 function planObsoleteFiles(
   desiredPaths: Set<string>,
-  scope: HarnessScope,
-  cwd: string,
   force: boolean,
   manifests: Map<HookHost, HookManifest>
 ): PlannedObsoleteHookFile[] {
@@ -248,7 +224,7 @@ function planObsoleteFiles(
       if (desiredPaths.has(path)) {
         continue;
       }
-      const target = targetPath(scope, cwd, path);
+      const target = targetPath(path);
       if (!existsSync(target)) {
         continue;
       }
@@ -263,15 +239,11 @@ function planObsoleteFiles(
   return obsolete.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function writePlannedFile(
-  file: PlannedHookFile,
-  scope: HarnessScope,
-  cwd: string
-): Promise<void> {
+async function writePlannedFile(file: PlannedHookFile): Promise<void> {
   if (file.action === "conflict" || file.action === "unchanged") {
     return;
   }
-  const target = targetPath(scope, cwd, file.path);
+  const target = targetPath(file.path);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, file.content);
 }
@@ -285,14 +257,12 @@ function itemForObsolete(file: PlannedObsoleteHookFile): HookInstallPlanItem {
 }
 
 async function removeObsoleteFile(
-  file: PlannedObsoleteHookFile,
-  scope: HarnessScope,
-  cwd: string
+  file: PlannedObsoleteHookFile
 ): Promise<void> {
   if (file.action !== "delete") {
     return;
   }
-  await rm(targetPath(scope, cwd, file.path), { force: true });
+  await rm(targetPath(file.path), { force: true });
 }
 
 function assertNoConflicts(
@@ -334,11 +304,7 @@ function assertCheckCurrent(
   );
 }
 
-async function writeManifests(
-  files: PlannedHookFile[],
-  scope: HarnessScope,
-  cwd: string
-): Promise<void> {
+async function writeManifests(files: PlannedHookFile[]): Promise<void> {
   const byHost = new Map<HookHost, HookManifest>();
   for (const host of HOOK_HOSTS) {
     byHost.set(host, emptyManifest());
@@ -351,7 +317,7 @@ async function writeManifests(
   }
   await Promise.all(
     [...byHost.entries()].map(async ([host, manifest]) => {
-      const path = manifestPath(scope, cwd, host);
+      const path = manifestPath(host);
       if (Object.keys(manifest.files).length === 0) {
         await rm(path, { force: true });
         return;
@@ -365,24 +331,14 @@ async function writeManifests(
 export function installHooks(
   options: InstallHooksOptions = {}
 ): Promise<InstallHooksResult> {
-  const cwd = options.cwd ?? process.cwd();
-  const scope = options.scope ?? DEFAULT_HARNESS_SCOPE;
   return withHookSource(async (source) => {
     const files = await sourceHookFiles(source);
     const manifests = new Map(
-      HOOK_HOSTS.map((host) => [host, readManifest(scope, cwd, host)] as const)
+      HOOK_HOSTS.map((host) => [host, readManifest(host)] as const)
     );
-    const planned = planFiles(
-      files,
-      scope,
-      cwd,
-      Boolean(options.force),
-      manifests
-    );
+    const planned = planFiles(files, Boolean(options.force), manifests);
     const obsolete = planObsoleteFiles(
       new Set(files.map((file) => file.path)),
-      scope,
-      cwd,
       Boolean(options.force),
       manifests
     );
@@ -391,12 +347,12 @@ export function installHooks(
     assertNoConflicts(items, Boolean(options.dryRun));
     if (!(options.check || options.dryRun)) {
       for (const file of planned) {
-        await writePlannedFile(file, scope, cwd);
+        await writePlannedFile(file);
       }
       for (const file of obsolete) {
-        await removeObsoleteFile(file, scope, cwd);
+        await removeObsoleteFile(file);
       }
-      await writeManifests(planned, scope, cwd);
+      await writeManifests(planned);
     }
     return { items, source: DEFAULT_HOOK_INSTALL_SOURCE };
   });

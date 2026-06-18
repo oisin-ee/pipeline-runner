@@ -10,12 +10,10 @@ import {
   type CommandDefinition,
   type CommandHostSelection,
   type CommandInstallPlanItem,
-  DEFAULT_HARNESS_SCOPE,
   ENTRYPOINT_PATH_PATTERNS,
   GENERATED_MARKER,
   GENERATED_TS_MARKER,
   GENERATED_YAML_MARKER,
-  type HarnessScope,
   type HostAdapter,
   type InstallAction,
   type InstallCommandsContext,
@@ -30,7 +28,6 @@ import {
 
 export type {
   CommandHostSelection,
-  HarnessScope,
   InstallCommandsOptions,
   InstallCommandsResult,
 } from "./install-commands/shared";
@@ -102,10 +99,8 @@ function generatedHostFor(content: string): ActiveCommandHost | undefined {
 }
 
 async function obsoleteGeneratedItems(
-  cwd: string,
   host: CommandHostSelection,
-  wantedPaths: Set<string>,
-  scope: HarnessScope
+  wantedPaths: Set<string>
 ): Promise<CommandInstallPlanItem[]> {
   const hosts = new Set<ActiveCommandHost>(selectedHosts(host));
   const roots = selectedHosts(host).flatMap((selectedHost) =>
@@ -113,7 +108,7 @@ async function obsoleteGeneratedItems(
   );
   const scanned = await Promise.all(
     roots.map(async (root) => {
-      const absRoot = resolveHarnessTarget(scope, cwd, root);
+      const absRoot = resolveHarnessTarget(root);
       const files = await listFiles(absRoot);
       // Reconstruct the canonical repo-relative path (.opencode/…, .claude/…)
       // from the scanned root so it can be compared against wantedPaths
@@ -312,12 +307,10 @@ function shouldSkipInstallWrite(
 }
 
 async function installDefinition(
-  cwd: string,
   definition: CommandDefinition,
-  options: InstallCommandsOptions,
-  scope: HarnessScope
+  options: InstallCommandsOptions
 ): Promise<CommandInstallPlanItem> {
-  const target = resolveHarnessTarget(scope, cwd, definition.path);
+  const target = resolveHarnessTarget(definition.path);
   const resolved = resolveDefinitionContent(definition, target);
   const action = installActionForDefinition(
     definition,
@@ -345,54 +338,37 @@ function commandInstallPlanItem(
 }
 
 // AGENTS.md carries repo-scoped guidance (its Qdrant collection is derived from
-// the repo dir name), so it only belongs in a project-local harness. A
-// per-machine global install must not emit it — doing so would bake one repo's
-// cwd into a machine-wide file and make `--check` perpetually non-idempotent.
-const PROJECT_ONLY_PATHS = new Set(["AGENTS.md"]);
-
-function scopedDefinitions(
-  definitions: CommandDefinition[],
-  scope: HarnessScope
-): CommandDefinition[] {
-  if (scope === "global") {
-    return definitions.filter(
-      (definition) => !PROJECT_ONLY_PATHS.has(definition.path)
-    );
-  }
-  return definitions;
-}
+// the repo dir name) and must never be emitted to the per-machine global dirs
+// where it would bake one repo's cwd into a machine-wide file and make
+// --check perpetually non-idempotent.
+const GLOBAL_EXCLUDED_PATHS = new Set(["AGENTS.md"]);
 
 function installCommandsContext(
   options: InstallCommandsOptions
 ): InstallCommandsContext {
   const cwd = options.cwd ?? process.cwd();
   const host = options.host ?? "all";
-  const scope = options.scope ?? DEFAULT_HARNESS_SCOPE;
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
-  const definitions = scopedDefinitions(
-    definitionsFor(host, config, cwd),
-    scope
+  const definitions = definitionsFor(host, config, cwd).filter(
+    (definition) => !GLOBAL_EXCLUDED_PATHS.has(definition.path)
   );
   return {
     cwd,
     definitions,
     host,
-    scope,
     wantedPaths: new Set(definitions.map((definition) => definition.path)),
   };
 }
 
 async function installDefinitions(
-  cwd: string,
   definitions: CommandDefinition[],
-  options: InstallCommandsOptions,
-  scope: HarnessScope
+  options: InstallCommandsOptions
 ): Promise<CommandInstallPlanItem[]> {
   const items: CommandInstallPlanItem[] = [];
   for (const definition of definitions) {
-    items.push(await installDefinition(cwd, definition, options, scope));
+    items.push(await installDefinition(definition, options));
   }
   return items;
 }
@@ -402,16 +378,14 @@ function shouldRemoveObsoleteItems(options: InstallCommandsOptions): boolean {
 }
 
 async function removeObsoleteItems(
-  cwd: string,
   items: CommandInstallPlanItem[],
-  options: InstallCommandsOptions,
-  scope: HarnessScope
+  options: InstallCommandsOptions
 ): Promise<void> {
   if (!shouldRemoveObsoleteItems(options)) {
     return;
   }
   for (const item of items) {
-    await rm(resolveHarnessTarget(scope, cwd, item.path), { force: true });
+    await rm(resolveHarnessTarget(item.path), { force: true });
   }
 }
 
@@ -466,20 +440,13 @@ export async function installCommands(
   options: InstallCommandsOptions = {}
 ): Promise<InstallCommandsResult> {
   const context = installCommandsContext(options);
-  const items = await installDefinitions(
-    context.cwd,
-    context.definitions,
-    options,
-    context.scope
-  );
+  const items = await installDefinitions(context.definitions, options);
   const obsoleteItems = await obsoleteGeneratedItems(
-    context.cwd,
     context.host,
-    context.wantedPaths,
-    context.scope
+    context.wantedPaths
   );
   items.push(...obsoleteItems);
-  await removeObsoleteItems(context.cwd, obsoleteItems, options, context.scope);
+  await removeObsoleteItems(obsoleteItems, options);
   assertNoInstallConflicts(options, items);
   assertInstallCheckCurrent(options, items);
   return { items };
