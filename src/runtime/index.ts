@@ -10,4 +10,5 @@ export * from "./events";
 export * from "./gates";
 export * from "./hooks";
 export * from "./json-validation";
+export * from "./open-pull-request";
 export * from "./parallel-node";

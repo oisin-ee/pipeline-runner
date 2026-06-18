@@ -9,6 +9,7 @@ import { acquireRunStateLock } from "../../run-control/run-state-lock";
 import { parseJson } from "../../safe-json";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { executeDrainMergeBuiltin } from "../drain-merge";
+import { executeOpenPullRequestBuiltin } from "../open-pull-request";
 import {
   CommandExecutor,
   CommandExecutorLive,
@@ -55,6 +56,8 @@ const WHITESPACE_RE = /\s/;
 const BUILTIN_HANDLERS: Record<string, BuiltinHandler> = {
   "drain-merge": (context, node) =>
     Effect.tryPromise(() => executeDrainMergeBuiltin(context, node)),
+  "open-pull-request": (context, node) =>
+    Effect.tryPromise(() => executeOpenPullRequestBuiltin(context, node)),
   duplication: (context) => executeDuplicationBuiltinEffect(context),
   fallow: (context) => executeFallowBuiltinEffect(context),
   lint: (context) => executeScriptBuiltinEffect(context, "lint"),

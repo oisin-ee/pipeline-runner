@@ -84,7 +84,12 @@ function durabilityField(
 function pipe83Fields(
   pipeline: z.infer<typeof pipelineFileSchema>
 ): Partial<PipelineConfig> {
-  const keys = ["context_handoff", "parallel_worktrees", "repo_map"] as const;
+  const keys = [
+    "context_handoff",
+    "delivery",
+    "parallel_worktrees",
+    "repo_map",
+  ] as const;
   const source = pipeline as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const key of keys) {

@@ -1190,7 +1190,7 @@ workflows:
 
       expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
       expect(prompts[0]).toContain(
-        "Allowed builtin values: drain-merge, duplication, fallow, lint, semgrep, test, typecheck"
+        "Allowed builtin values: drain-merge, duplication, fallow, lint, open-pull-request, semgrep, test, typecheck"
       );
       expect(prompts[1]).toContain("unsupported generated builtin");
       expect(result.artifact.workflows.root.nodes).toContainEqual({

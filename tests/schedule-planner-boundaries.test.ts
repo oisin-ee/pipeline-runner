@@ -37,6 +37,10 @@ const generatedSchedulePassOrder = [
     sourcePath: "src/schedule/passes/drain-merge.ts",
   },
   {
+    importPath: "../src/schedule/passes/open-pull-request.ts",
+    sourcePath: "src/schedule/passes/open-pull-request.ts",
+  },
+  {
     importPath: "../src/schedule/passes/models.ts",
     sourcePath: "src/schedule/passes/models.ts",
   },
@@ -53,6 +57,7 @@ const generatedSchedulePassOrder = [
 const expectedSchedulePassOrder = [
   "coverage",
   "drain-merge",
+  "delivery",
   "models",
   "ids",
   "references",
@@ -100,7 +105,7 @@ describe("schedule planner module boundaries", () => {
     }
   });
 
-  it("documents generated schedule pass order as coverage, drain-merge, models, ids, then references", async () => {
+  it("documents generated schedule pass order as coverage, drain-merge, delivery, models, ids, then references", async () => {
     const missingPassModules = generatedSchedulePassOrder
       .map(({ sourcePath }) => sourcePath)
       .filter((sourcePath) => !existsSync(join(repoRoot, sourcePath)));
@@ -112,6 +117,7 @@ describe("schedule planner module boundaries", () => {
     ).toEqual([
       "src/schedule/passes/coverage.ts",
       "src/schedule/passes/drain-merge.ts",
+      "src/schedule/passes/open-pull-request.ts",
       "src/schedule/passes/models.ts",
       "src/schedule/passes/ids.ts",
       "src/schedule/passes/references.ts",

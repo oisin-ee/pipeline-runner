@@ -24,6 +24,7 @@ import { integrateParallelWriteFanout } from "../schedule/passes/drain-merge";
 import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
 import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
 import { applyNodeCatalogModelFallbacks } from "../schedule/passes/models";
+import { appendPullRequestDelivery } from "../schedule/passes/open-pull-request";
 import { namespaceScheduleWorkflows } from "../schedule/passes/references";
 import { plannerPrompt, plannerRepairPrompt } from "../schedule/prompts";
 import {
@@ -44,6 +45,7 @@ const SCHEDULE_BUILTINS = [
   "duplication",
   "fallow",
   "lint",
+  "open-pull-request",
   "semgrep",
   "test",
   "typecheck",
@@ -216,16 +218,23 @@ export async function generateScheduleArtifact(
   );
   assertSchedulePassOrder();
   // Generated schedules are normalized through auditable passes in this order:
-  // coverage -> models -> IDs -> references. Reference rewriting is applied by
-  // compileScheduleArtifact, where scheduled workflows are merged into config.
+  // coverage -> drain-merge -> delivery -> models -> IDs -> references.
+  // Reference rewriting is applied by compileScheduleArtifact, where scheduled
+  // workflows are merged into config.
   const artifact = hydrateScheduleTaskContexts(
     canonicalizeGeneratedScheduleIds(
       applyNodeCatalogModelFallbacks(
         options.config,
         policy.node_catalog,
-        integrateParallelWriteFanout(
+        appendPullRequestDelivery(
           options.config,
-          addGeneratedImplementationCoverage(options.config, generatedArtifact)
+          integrateParallelWriteFanout(
+            options.config,
+            addGeneratedImplementationCoverage(
+              options.config,
+              generatedArtifact
+            )
+          )
         )
       )
     ),
@@ -243,6 +252,7 @@ function assertSchedulePassOrder(): void {
   const expected = [
     "coverage",
     "drain-merge",
+    "delivery",
     "models",
     "ids",
     "references",

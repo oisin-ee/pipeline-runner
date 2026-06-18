@@ -818,12 +818,32 @@ const repoMapSchema = z
   })
   .strict();
 
+// Opt-in delivery configuration. When pull_request.enabled is true the
+// schedule planner appends an open-pull-request builtin node as the final
+// join in the root workflow, creating a preview PR after every successful run.
+const deliverySchema = z
+  .object({
+    pull_request: z
+      .object({
+        enabled: z.boolean().default(false),
+        label: z.string().min(1).default("preview"),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 export const pipelineFileSchema = z
   .object({
     default_workflow: z.string(),
+    context_handoff: contextHandoffSchema.optional(),
+    delivery: deliverySchema.optional(),
+    durability: durabilitySchema.optional(),
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     orchestrator: orchestratorSchema.optional(),
+    parallel_worktrees: parallelWorktreesSchema.optional(),
+    repo_map: repoMapSchema.optional(),
     runner_command: runnerCommandConfigSchema.default({
       environment: { setup: [], smoke: [] },
       git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
@@ -834,10 +854,6 @@ export const pipelineFileSchema = z
     }),
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
-    context_handoff: contextHandoffSchema.optional(),
-    durability: durabilitySchema.optional(),
-    parallel_worktrees: parallelWorktreesSchema.optional(),
-    repo_map: repoMapSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     workflows: strictRecord(workflowSchema).default({}),
     version: z.literal(1),
@@ -867,6 +883,7 @@ const configSchemaBase = z
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
+    delivery: deliverySchema.optional(),
     durability: durabilitySchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
     repo_map: repoMapSchema.optional(),

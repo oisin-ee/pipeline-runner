@@ -385,6 +385,21 @@ function configWithSubmitHooks(
   };
 }
 
+function withPullRequestDelivery(
+  config: PipelineConfig,
+  delivery: z.output<typeof runnerDeliverySchema>
+): PipelineConfig {
+  return {
+    ...config,
+    delivery: {
+      pull_request: {
+        enabled: delivery.pullRequest === true,
+        label: config.delivery?.pull_request?.label ?? "preview",
+      },
+    },
+  };
+}
+
 export function submitMoka(
   rawOptions: MokaSubmitInput,
   dependencies: SubmitMokaDependencies = {}
@@ -504,7 +519,7 @@ async function graphScheduleYaml(
   const generateSchedule =
     dependencies.generateSchedule ?? generateScheduleArtifact;
   const schedule = await generateSchedule({
-    config: options.config,
+    config: withPullRequestDelivery(options.config, options.delivery),
     entrypointId: options.mode === "quick" ? "quick" : "execute",
     runId,
     task,

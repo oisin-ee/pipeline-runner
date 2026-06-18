@@ -11,6 +11,7 @@ const SCHEDULE_BUILTINS = [
   "duplication",
   "fallow",
   "lint",
+  "open-pull-request",
   "semgrep",
   "test",
   "typecheck",

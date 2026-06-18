@@ -992,4 +992,55 @@ workflows:
     expect(calls[0].scheduleYaml).toBe(agentScheduleYaml);
     expect(calls[0].generateName).toBe("moka-full-");
   });
+
+  it("sets delivery.pull_request.enabled on the config passed to generateSchedule when delivery.pullRequest is true", async () => {
+    const capturedConfigs: (typeof CONFIG)[] = [];
+    const generatedSchedulePath = ".pipeline/runs/run-delivery/schedule.yaml";
+    const calls: CapturedSubmitOptions[] = [];
+
+    await submitMoka(
+      {
+        config: CONFIG,
+        delivery: { pullRequest: true },
+        eventUrl: "https://console.example/api/pipeline/runner-events",
+        mode: "full",
+        ...MANAGED_AUTH,
+        namespace: EXPLICIT_NAMESPACE,
+        task: "deliver feature",
+        type: "graph",
+        worktreePath: PROJECT_ROOT,
+      },
+      {
+        generateRunId: () => "run-delivery",
+        generateSchedule: (input) => {
+          capturedConfigs.push(input.config);
+          return Promise.resolve({
+            artifact: {
+              generated_at: "2026-06-18T00:00:00.000Z",
+              kind: "pipeline-schedule",
+              root_workflow: "root",
+              schedule_id: "run-delivery",
+              source_entrypoint: "execute",
+              task: "deliver feature",
+              version: 1,
+              workflows: { root: { nodes: [] } },
+            },
+            path: generatedSchedulePath,
+          });
+        },
+        readFile: () =>
+          buildCommandScheduleYaml({
+            command: ["true"],
+            generatedAt: new Date("2026-06-18T00:00:00.000Z"),
+            scheduleId: "run-delivery",
+            task: "deliver feature",
+          }),
+        resolveGitContext: () => Promise.resolve(GIT),
+        submitWorkflow: captureSubmitCall(calls),
+      }
+    );
+
+    expect(capturedConfigs).toHaveLength(1);
+    expect(capturedConfigs[0].delivery?.pull_request?.enabled).toBe(true);
+  });
 });

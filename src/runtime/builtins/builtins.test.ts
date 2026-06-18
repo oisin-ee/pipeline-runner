@@ -86,4 +86,18 @@ describe("runtime builtins", () => {
       integrationBranch: "runs/integration/run-builtins",
     });
   });
+
+  it("delegates open-pull-request to the open-pull-request builtin", async () => {
+    // Use a non-git directory so git operations fail fast (no network).
+    const context = { ...contextForBuiltins(), worktreePath: "/tmp" };
+
+    const result = await executeBuiltin("open-pull-request", context);
+
+    // The builtin dispatches — it does not return "unsupported builtin".
+    // It fails because /tmp is not a git repo, but the dispatch path ran.
+    expect(result.evidence[0]).not.toBe(
+      "unsupported builtin 'open-pull-request'"
+    );
+    expect(result.exitCode).toBe(1);
+  });
 });
