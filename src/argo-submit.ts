@@ -63,6 +63,7 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     name: z.string().min(1).optional(),
     namespace: z.string().min(1),
     opencodeAuthSecretName: z.string().min(1).optional(),
+    opencodeOpenaiAccountsSecretName: z.string().min(1).optional(),
     payloadJson: z.string().min(1),
     scheduleYaml: z.string().min(1),
     serviceAccountName: z.string().min(1).optional(),
@@ -182,6 +183,9 @@ function submitRunnerArgoWorkflowEffect(
     name: options.name,
     namespace: options.namespace,
     opencodeAuthSecretName: options.opencodeAuthSecretName,
+    opencodeOpenaiAccountsSecret: options.opencodeOpenaiAccountsSecretName
+      ? { name: options.opencodeOpenaiAccountsSecretName }
+      : undefined,
     payloadConfigMapName,
     plan: compiled.plan,
     scheduleConfigMapName: scheduleArtifactConfigMapName,

@@ -445,6 +445,30 @@ function runnerWorkflowStorage(
     });
   }
 
+  if (options.opencodeOpenaiAccountsSecret) {
+    const accountsKey =
+      options.opencodeOpenaiAccountsSecret.key ?? "accounts.json";
+    volumes.push({
+      name: "opencode-openai-accounts",
+      secret: {
+        defaultMode: 0o400,
+        items: [{ key: accountsKey, path: "accounts.json" }],
+        secretName: options.opencodeOpenaiAccountsSecret.name,
+      },
+    });
+    // The codex-multi-auth plugin reads both ChatGPT accounts from this global
+    // opencode path; without it the runner falls back to the single inline
+    // account in auth.json and a transient provider error reads as "all accounts
+    // failed". Read-only mirrors the auth.json mount — the run is far shorter
+    // than the token lifetime, so no in-pod refresh write is needed.
+    volumeMounts.push({
+      mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
+      name: "opencode-openai-accounts",
+      readOnly: true,
+      subPath: "accounts.json",
+    });
+  }
+
   if (options.gitCredentialsSecretName) {
     volumes.push({
       name: "runner-git-credentials",

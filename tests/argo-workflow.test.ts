@@ -1546,4 +1546,51 @@ describe("compileArgoExecutionGraph", () => {
     expect(err.message).toContain("unknown-kind");
     expect(err.message).toContain("node-xyz");
   });
+
+  it("mounts the codex multi-account store at the plugin's global opencode path", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      opencodeAuthSecretName: "opencode-auth-secret",
+      opencodeOpenaiAccountsSecret: { name: "opencode-openai-accounts-1" },
+      plan: plan(),
+    });
+
+    const allMounts = manifest.spec.templates.flatMap(
+      (template) => template.container?.volumeMounts ?? []
+    );
+    const allVolumes = manifest.spec.volumes ?? [];
+
+    expect(allMounts).toContainEqual(
+      expect.objectContaining({
+        mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
+        name: "opencode-openai-accounts",
+        readOnly: true,
+        subPath: "accounts.json",
+      })
+    );
+    expect(allVolumes).toContainEqual(
+      expect.objectContaining({
+        name: "opencode-openai-accounts",
+        secret: expect.objectContaining({
+          items: [{ key: "accounts.json", path: "accounts.json" }],
+          secretName: "opencode-openai-accounts-1",
+        }),
+      })
+    );
+  });
+
+  it("omits the codex multi-account mount when no accounts secret is configured", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      opencodeAuthSecretName: "opencode-auth-secret",
+      plan: plan(),
+    });
+
+    const allMounts = manifest.spec.templates.flatMap(
+      (template) => template.container?.volumeMounts ?? []
+    );
+    expect(
+      allMounts.some((mount) => mount.name === "opencode-openai-accounts")
+    ).toBe(false);
+  });
 });
