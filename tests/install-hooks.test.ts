@@ -27,7 +27,7 @@ function writeFixture(root: string, path: string, content: string): void {
 
 function installMockHookRepo(
   target: string,
-  options: { includeOpenCodeHook?: boolean } = {}
+  options: { includeOpenCodeHook?: boolean; claudeSettings?: string } = {}
 ): void {
   writeFixture(
     target,
@@ -42,17 +42,22 @@ function installMockHookRepo(
       "export const AgentHooks = async () => ({})\n"
     );
   }
+  if (options.claudeSettings !== undefined) {
+    writeFixture(target, "claude-code/settings.json", options.claudeSettings);
+  }
   writeFixture(target, "README.md", "not installed\n");
 }
 
 describe("installHooks", () => {
   let home: string;
   let includeOpenCodeHook: boolean;
+  let claudeSettings: string | undefined;
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "pipeline-hooks-home-"));
     includeOpenCodeHook = true;
+    claudeSettings = undefined;
     for (const key of [
       "CLAUDE_CONFIG_DIR",
       "CODEX_HOME",
@@ -65,7 +70,7 @@ describe("installHooks", () => {
     process.env.OPENCODE_CONFIG_DIR = join(home, ".config", "opencode");
     mockExeca.mockImplementation((command: string, args?: string[]) => {
       if (command === "gh" && Array.isArray(args)) {
-        installMockHookRepo(args[3], { includeOpenCodeHook });
+        installMockHookRepo(args[3], { claudeSettings, includeOpenCodeHook });
       }
       return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
     });
@@ -158,6 +163,45 @@ describe("installHooks", () => {
     await expect(installHooks({ check: true })).rejects.toThrow(
       "not up to date"
     );
+  });
+
+  it("merges hooks into an existing settings.json without clobbering other keys", async () => {
+    claudeSettings = JSON.stringify({
+      hooks: { Stop: [{ hooks: [{ command: "sh new.sh", type: "command" }] }] },
+    });
+    const settingsPath = join(home, ".claude/settings.json");
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify(
+        {
+          hooks: {
+            Stop: [{ hooks: [{ command: "sh OLD.sh", type: "command" }] }],
+          },
+          mcpServers: { neon: { command: "neon" } },
+          permissions: { allow: ["Bash"] },
+          theme: "dark",
+        },
+        null,
+        2
+      )}\n`
+    );
+
+    await installHooks({ force: true });
+
+    const merged = JSON.parse(readFileSync(settingsPath, "utf8"));
+    expect(merged.mcpServers).toEqual({ neon: { command: "neon" } });
+    expect(merged.permissions).toEqual({ allow: ["Bash"] });
+    expect(merged.theme).toBe("dark");
+    expect(merged.hooks).toEqual({
+      Stop: [{ hooks: [{ command: "sh new.sh", type: "command" }] }],
+    });
+
+    const second = await installHooks({});
+    expect(
+      second.items.find((item) => item.path === ".claude/settings.json")?.action
+    ).toBe("unchanged");
+    await expect(installHooks({ check: true })).resolves.toBeDefined();
   });
 
   it("deletes previously installed hook files removed from the hook repository", async () => {

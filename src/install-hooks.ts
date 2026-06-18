@@ -5,6 +5,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
 import { resolveHarnessTarget } from "./install-commands/shared";
+import {
+  applyJsonEdit,
+  ensureTrailingNewline,
+  parseJsonRecord,
+} from "./json-config-merge";
 
 const DEFAULT_HOOK_INSTALL_SOURCE = "oisin-ee/agent-hooks";
 
@@ -74,6 +79,64 @@ function hashContent(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+// Host config files that hold more than hooks (Claude's settings.json also carries
+// mcpServers, permissions, theme, …). For these we MERGE our managed key into the
+// existing file instead of overwriting the whole file, and base drift detection on
+// that key's subtree rather than the full bytes — so installing hooks never clobbers
+// the user's other settings. Codex's hooks.json and the opencode plugins are
+// dedicated hook files, so they stay raw whole-file copies.
+const MERGE_MANAGED: Record<string, string[]> = {
+  ".claude/settings.json": ["hooks"],
+};
+
+function mergeKeyFor(path: string): string[] | undefined {
+  return MERGE_MANAGED[path];
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (isRecord(value)) {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort()) {
+      out[key] = canonicalize(value[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+// Order-insensitive (for object keys) hash of a JSON subtree, so an unchanged set of
+// hooks hashes the same regardless of key ordering in the file.
+function hashJson(value: unknown): string {
+  return hashContent(Buffer.from(JSON.stringify(canonicalize(value) ?? null)));
+}
+
+function managedSubtree(text: string, keyPath: string[]): unknown {
+  const parsed = parseJsonRecord(text);
+  if (!parsed.ok) {
+    return;
+  }
+  let cursor: unknown = parsed.value;
+  for (const key of keyPath) {
+    if (!isRecord(cursor)) {
+      return;
+    }
+    cursor = cursor[key];
+  }
+  return cursor;
+}
+
+// The identity of an installed target: the managed subtree for merge-managed files,
+// the full file bytes otherwise. Drift/unchanged/conflict all compare this.
+function targetIdentityHash(path: string, content: Buffer): string {
+  const mergeKey = mergeKeyFor(path);
+  return mergeKey
+    ? hashJson(managedSubtree(content.toString("utf8"), mergeKey))
+    : hashContent(content);
+}
+
 async function cloneHookRepository(targetDir: string): Promise<void> {
   await execa(
     "gh",
@@ -127,11 +190,12 @@ async function sourceHookFiles(source: string): Promise<SourceHookFile[]> {
       return files.map((file): SourceHookFile => {
         const relativePath = relative(hostRoot, file).replaceAll("\\", "/");
         const content = readFileSync(file);
+        const path = `${HOST_TARGET_ROOT[host]}/${relativePath}`;
         return {
           content,
-          hash: hashContent(content),
+          hash: targetIdentityHash(path, content),
           host,
-          path: `${HOST_TARGET_ROOT[host]}/${relativePath}`,
+          path,
         };
       });
     })
@@ -191,7 +255,7 @@ function actionForFile(
   if (!existsSync(target)) {
     return "create";
   }
-  const currentHash = hashContent(readFileSync(target));
+  const currentHash = targetIdentityHash(file.path, readFileSync(target));
   if (currentHash === file.hash) {
     return "unchanged";
   }
@@ -245,6 +309,18 @@ async function writePlannedFile(file: PlannedHookFile): Promise<void> {
   }
   const target = targetPath(file.path);
   await mkdir(dirname(target), { recursive: true });
+  const mergeKey = mergeKeyFor(file.path);
+  if (mergeKey && existsSync(target)) {
+    // Merge our managed key into the user's existing file, preserving every other
+    // key (mcpServers, permissions, theme, …) and the file's formatting.
+    const currentText = readFileSync(target, "utf8");
+    const desired = managedSubtree(file.content.toString("utf8"), mergeKey);
+    await writeFile(
+      target,
+      ensureTrailingNewline(applyJsonEdit(currentText, mergeKey, desired))
+    );
+    return;
+  }
   await writeFile(target, file.content);
 }
 
