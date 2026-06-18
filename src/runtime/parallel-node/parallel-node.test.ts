@@ -3,12 +3,7 @@ import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { RuntimeContext, RuntimeNodeResult } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
-import {
-  childCategory,
-  executeParallelNode,
-  parallelEvidence,
-  parallelOutput,
-} from "./parallel-node";
+import { executeParallelNode } from "./parallel-node";
 
 const worktreeRecords = vi.hoisted(() => ({ creates: 0, releases: 0 }));
 const opencodeRecords = vi.hoisted(() => ({
@@ -59,20 +54,6 @@ vi.mock("../opencode-runtime", async (importOriginal) => {
   };
 });
 
-describe("childCategory", () => {
-  const fanOut = { by_category: { green: 2, verification: 1 }, default: 4 };
-
-  it("returns the matching category whose name the child id includes", () => {
-    expect(childCategory("green-implementation--c1", fanOut)).toBe("green");
-    expect(childCategory("verification", fanOut)).toBe("verification");
-  });
-
-  it("returns undefined when no category matches or fan-out is absent", () => {
-    expect(childCategory("intake", fanOut)).toBeUndefined();
-    expect(childCategory("green-x", undefined)).toBeUndefined();
-  });
-});
-
 describe("runtime parallel node", () => {
   it("uses a per-worktree opencode executor for isolated opencode children", async () => {
     worktreeRecords.creates = 0;
@@ -104,68 +85,111 @@ describe("runtime parallel node", () => {
     expect(childExecutor).not.toBe(parentExecutor);
   });
 
-  it("reports successful child completion", () => {
-    const results: RuntimeNodeResult[] = [
+  it("reports successful child completion in the aggregate evidence", async () => {
+    const result = await executeParallelNode(
+      parallelWith(["green-a", "green-b"]),
+      runtimeContextWith(vi.fn(), plainConfig()),
       {
-        attempts: 1,
-        evidence: ["left passed"],
-        exitCode: 0,
-        nodeId: "left",
-        output: "L",
-        status: "passed",
-      },
-    ];
+        executeNode: (child) => Promise.resolve(passedNodeResult(child.id)),
+        markNodeReady: () => undefined,
+      }
+    );
 
-    expect(parallelEvidence("fanout", results, [])).toEqual([
-      "parallel node 'fanout' completed 1 child nodes",
+    expect(result.exitCode).toBe(0);
+    expect(result.evidence).toEqual([
+      "parallel node 'green' completed 2 child nodes",
     ]);
   });
 
-  it("serializes child outputs in declaration order", () => {
-    const output = parallelOutput(
-      [
-        {
-          children: [],
-          dependents: [],
-          id: "left",
-          index: 0,
-          kind: "command",
-          command: ["left"],
-          needs: [],
-        },
-        {
-          children: [],
-          dependents: [],
-          id: "right",
-          index: 1,
-          kind: "command",
-          command: ["right"],
-          needs: [],
-        },
-      ],
-      [
-        {
-          attempts: 1,
-          evidence: [],
-          exitCode: 0,
-          nodeId: "right",
-          output: "R",
-          status: "passed",
-        },
-        {
-          attempts: 1,
-          evidence: [],
-          exitCode: 0,
-          nodeId: "left",
-          output: "L",
-          status: "passed",
-        },
-      ]
+  it("surfaces failed children in the aggregate evidence", async () => {
+    const result = await executeParallelNode(
+      parallelWith(["green-a", "green-b"]),
+      runtimeContextWith(vi.fn(), plainConfig()),
+      {
+        executeNode: (child) =>
+          Promise.resolve(
+            child.id === "green-b"
+              ? {
+                  attempts: 1,
+                  evidence: ["green-b failed"],
+                  exitCode: 1,
+                  nodeId: child.id,
+                  output: "",
+                  status: "failed",
+                }
+              : passedNodeResult(child.id)
+          ),
+        markNodeReady: () => undefined,
+      }
     );
 
-    expect(JSON.parse(output)).toEqual({
+    expect(result.exitCode).toBe(1);
+    expect(result.evidence).toContain(
+      "parallel node 'green' failed with 1 failed child nodes"
+    );
+    expect(result.evidence).toContain("green-b failed");
+  });
+
+  it("serializes child outputs in declaration order", async () => {
+    const result = await executeParallelNode(
+      parallelWith(["left", "right"]),
+      runtimeContextWith(vi.fn(), plainConfig()),
+      {
+        executeNode: (child) =>
+          Promise.resolve({
+            ...passedNodeResult(child.id),
+            output: child.id === "left" ? "L" : "R",
+          }),
+        markNodeReady: () => undefined,
+      }
+    );
+
+    expect(JSON.parse(result.output)).toEqual({
       children: { left: "L", right: "R" },
     });
+  });
+
+  it("throttles children that share a fan-out category", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const result = await executeParallelNode(
+      parallelWith(["green-1", "green-2"]),
+      runtimeContextWith(vi.fn(), plainConfig({ green: 1 })),
+      {
+        executeNode: async (child) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          active -= 1;
+          return passedNodeResult(child.id);
+        },
+        markNodeReady: () => undefined,
+      }
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(maxActive).toBe(1);
+  });
+
+  it("does not throttle children outside the capped category", async () => {
+    let active = 0;
+    let maxActive = 0;
+    await executeParallelNode(
+      parallelWith(["intake-1", "intake-2"]),
+      runtimeContextWith(vi.fn(), plainConfig({ green: 1 })),
+      {
+        executeNode: async (child) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          active -= 1;
+          return passedNodeResult(child.id);
+        },
+        markNodeReady: () => undefined,
+      }
+    );
+
+    expect(maxActive).toBe(2);
   });
 });
 
@@ -185,6 +209,13 @@ function parallelNode(): PlannedWorkflowNode {
   return { ...plannedNode("green", "parallel"), children: [child] };
 }
 
+function parallelWith(childIds: string[]): PlannedWorkflowNode {
+  return {
+    ...plannedNode("green", "parallel"),
+    children: childIds.map((id) => plannedNode(id, "agent")),
+  };
+}
+
 function plannedNode(
   id: string,
   kind: PlannedWorkflowNode["kind"]
@@ -196,6 +227,26 @@ function plannedNode(
     kind,
     needs: [],
   };
+}
+
+function runtimeContextWith(
+  executor: RuntimeContext["executor"],
+  config: PipelineConfig
+): Parameters<typeof executeParallelNode>[1] {
+  return { ...runtimeContext(executor), config };
+}
+
+function plainConfig(byCategory: Record<string, number> = {}): PipelineConfig {
+  return {
+    ...opencodeConfig(),
+    parallel_worktrees: { enabled: false },
+    token_budget: {
+      default_context_window: 200_000,
+      fan_out_width: { by_category: byCategory, default: 4 },
+      max_context_pct: 50,
+      model_context_windows: {},
+    },
+  } as unknown as PipelineConfig;
 }
 
 function runtimeContext(

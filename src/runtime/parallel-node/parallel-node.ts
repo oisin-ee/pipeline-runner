@@ -330,8 +330,7 @@ function createLinkedAbortController(signal?: AbortSignal): {
 // PIPE-83.7 AC3: a parallel node's children (e.g. best-of-N candidates) are
 // throttled by their category's token_budget.fan_out_width cap, not just the
 // global maxParallelNodes — so N green candidates respect green=2.
-// fallow-ignore-next-line unused-export
-export function childCategory(
+function childCategory(
   childId: string,
   fanOut: PipelineConfig["token_budget"]["fan_out_width"] | undefined
 ): string | undefined {
@@ -342,8 +341,7 @@ export function childCategory(
     : undefined;
 }
 
-// fallow-ignore-next-line unused-export
-export function parallelEvidence(
+function parallelEvidence(
   nodeId: string,
   results: RuntimeNodeResult[],
   failed: RuntimeNodeResult[]
@@ -359,8 +357,7 @@ export function parallelEvidence(
   ];
 }
 
-// fallow-ignore-next-line unused-export
-export function parallelOutput(
+function parallelOutput(
   children: PlannedWorkflowNode[],
   results: RuntimeNodeResult[]
 ): string {
