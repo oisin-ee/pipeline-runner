@@ -1592,6 +1592,93 @@ workflows:
     });
   });
 
+  it("remediates via a later ancestor when an earlier one makes no change", async () => {
+    // Regression: a coverage failure caused by production code can only be fixed
+    // by the code-writer ancestor; a test-writer ancestor that legitimately makes
+    // no change must not short-circuit the remediation loop and starve the
+    // code-writer of its turn.
+    const project = tempProject();
+    const config = baseConfig(`
+  remediate-order:
+    nodes:
+      - id: tests-impl
+        kind: agent
+        profile: a
+      - id: code-impl
+        kind: agent
+        profile: a
+        needs: [tests-impl]
+      - id: review
+        kind: agent
+        profile: b
+        needs: [code-impl]
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+`);
+    config.profiles.a.scheduling_roles = ["implementation"];
+    config.profiles.b.scheduling_roles = ["coverage"];
+    const seen: string[] = [];
+    let reviewAttempt = 0;
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        if (plan.nodeId === "review") {
+          reviewAttempt += 1;
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify(
+              reviewAttempt === 1
+                ? {
+                    acceptance: [
+                      { evidence: ["fails"], id: "AC1", verdict: "FAIL" },
+                    ],
+                    evidence: ["AC1 fails"],
+                    verdict: "FAIL",
+                  }
+                : {
+                    acceptance: [
+                      { evidence: ["passes"], id: "AC1", verdict: "PASS" },
+                    ],
+                    evidence: ["AC1 passes"],
+                    verdict: "PASS",
+                  }
+            ),
+          };
+        }
+        // tests-impl remediation makes NO change (identical output); code-impl
+        // remediation makes a change (different output) that unblocks review.
+        if (plan.nodeId.startsWith("code-impl:remediate")) {
+          return { exitCode: 0, stdout: "code output remediated" };
+        }
+        if (plan.nodeId.startsWith("tests-impl")) {
+          return { exitCode: 0, stdout: "tests output" };
+        }
+        return { exitCode: 0, stdout: "code output" };
+      },
+      task: "ancestor remediation order",
+      taskContext: {
+        acceptanceCriteria: [{ id: "AC1", text: "Criterion one" }],
+      },
+      workflowId: "remediate-order",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen).toContain("tests-impl:remediate:review:1");
+    expect(seen).toContain("code-impl:remediate:review:1");
+    expect(result.nodeStates.review).toMatchObject({
+      attempts: 2,
+      status: "passed",
+    });
+  });
+
   it("includes builtin gate command failures in coverage remediation prompts", async () => {
     const project = tempProject();
     process.env.PIPELINE_TYPECHECK_COMMAND = "node -e process.exit(1)";

@@ -1146,14 +1146,19 @@ function remediatePassedImplementationAncestors(
       return false;
     }
 
+    // Try every implementation ancestor and remediate if ANY of them produces a
+    // change — do not abort on the first that makes none. A coverage/gate
+    // failure in production code can only be fixed by the code-writer ancestor,
+    // so a test-writer ancestor (constrained to test files) that legitimately
+    // makes no change must not short-circuit the loop and starve the code-writer
+    // of its turn. Otherwise a production-code finding never converges.
+    let remediated = false;
     for (const implementationNode of implementationNodes) {
-      if (
-        !(yield* remediateImplementationAncestor(input, implementationNode))
-      ) {
-        return false;
+      if (yield* remediateImplementationAncestor(input, implementationNode)) {
+        remediated = true;
       }
     }
-    return true;
+    return remediated;
   });
 }
 
