@@ -18,3 +18,30 @@ run = "bun run build:cli"
 
 [tasks."pipeline:run"]
 run = "bun src/index.ts pipe"
+
+# Interactive runner inner loop (INFRA-072.04, replaces `devspace dev --profile
+# runner`). `mise run dev` applies the runner Deployment (k8s/runner-dev) into
+# the pipeline namespace — where the opencode/git/github secrets live — then
+# `okteto up runner` syncs the local source onto it and attaches a bash shell.
+# `mise run dev:down` detaches and removes the Deployment. Mirrors the fleet
+# _dev:env / dev:down shape (oisin-pipeline has no helm chart, so the env step is
+# a plain kubectl apply rather than a helm install).
+[tasks.dev]
+description = "Start the interactive runner inner loop (apply runner pod + okteto up) — one command"
+run = '''
+set -eu
+ctx="$(kubectl config current-context 2>/dev/null || true)"
+[ "$ctx" = "momokaya" ] || { echo "kube context must be momokaya; got ${ctx:-none}" >&2; exit 2; }
+ns="${PIPELINE_DEV_NAMESPACE:-momokaya-pipeline}"
+kubectl apply -n "$ns" -f k8s/runner-dev
+okteto up runner --namespace "$ns"
+'''
+
+[tasks."dev:down"]
+description = "Detach the runner inner loop and remove the runner pod"
+run = '''
+set -eu
+ns="${PIPELINE_DEV_NAMESPACE:-momokaya-pipeline}"
+okteto down runner --namespace "$ns" || true
+kubectl delete -n "$ns" -f k8s/runner-dev --wait=false || true
+'''

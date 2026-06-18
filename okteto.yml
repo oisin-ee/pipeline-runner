@@ -1,0 +1,24 @@
+# oisin-pipeline — Okteto dev manifest (INFRA-060.21 / INFRA-072.04)
+#
+# Cluster-sync inner loop for the interactive runner pod only. No top-level
+# `deploy:`/`destroy:` — those are Okteto Platform-only and the open-source CLI
+# rejects them on `okteto up`. The runner Deployment is applied/removed by the
+# mise dev / dev:down tasks (a plain `kubectl apply -f k8s/runner-dev`, since
+# oisin-pipeline has no env matrix / helm chart).
+#
+# `runner` is the dev-loop twin of the production Argo runner pod
+# (buildRunnerArgoWorkflowManifest in src/argo-workflow.ts). `okteto up runner`
+# syncs the local checkout onto k8s/runner-dev/deployment.yaml's pod and attaches
+# a bash shell for hands-on `moka run` sessions.
+dev:
+  runner:
+    selector:
+      app.kubernetes.io/name: pipeline-runner
+    container: runner
+    image: ghcr.io/oisin-ee/pipeline-runner:latest
+    workdir: /workspace/oisin-pipeline
+    command: bash
+    environment:
+      CODEX_AUTH_PER_PROJECT_ACCOUNTS: "0"
+    sync:
+      - .:/workspace/oisin-pipeline

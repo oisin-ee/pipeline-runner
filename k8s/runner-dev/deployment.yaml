@@ -1,0 +1,91 @@
+# Interactive runner dev pod (Okteto inner loop).
+#
+# This is the dev-loop twin of the production Argo runner pod built by
+# `buildRunnerArgoWorkflowManifest` in src/argo-workflow.ts. Keep this manifest
+# in PARITY with that builder — same image (RUNNER_WORKFLOW_IMAGE), service
+# account (RUNNER_WORKFLOW_SERVICE_ACCOUNT), CODEX_AUTH_PER_PROJECT_ACCOUNTS env,
+# and the opencode-auth / git-credentials / github-auth secret mounts — so that
+# "dev pod == prod runner pod" (the original PIPE-62 intent) holds.
+#
+# This is NOT a helm chart: oisin-pipeline has no env matrix to template, so a
+# single plain kubectl-appliable Deployment is enough. `mise run dev` applies it
+# into the pipeline namespace (default momokaya-pipeline, where the secrets live)
+# and then `okteto up runner` syncs the local source on top and attaches a bash
+# terminal. `mise run dev:down` deletes it.
+#
+# The `sleep infinity` command is the pod's intended idle purpose — it keeps the
+# container alive so Okteto can sync source and attach an interactive shell for
+# hands-on `moka run` sessions. It is not a readiness/poll hack.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline-runner
+  labels:
+    app.kubernetes.io/name: pipeline-runner
+    pipeline.oisin.dev/role: interactive-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pipeline-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pipeline-runner
+        pipeline.oisin.dev/role: interactive-runner
+    spec:
+      serviceAccountName: pipeline-runner
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: runner
+          image: ghcr.io/oisin-ee/pipeline-runner:latest
+          imagePullPolicy: Always
+          command:
+            - sleep
+          args:
+            - infinity
+          workingDir: /workspace/oisin-pipeline
+          env:
+            - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
+              value: "0"
+          volumeMounts:
+            - mountPath: /root/.local/share/opencode/auth.json
+              name: opencode-auth
+              readOnly: true
+              subPath: auth.json
+            - mountPath: /etc/pipeline/git-credentials
+              name: runner-git-credentials
+              readOnly: true
+            - mountPath: /root/.config/gh/hosts.yml
+              name: github-auth
+              readOnly: true
+              subPath: hosts.yml
+      volumes:
+        - name: opencode-auth
+          secret:
+            secretName: opencode-auth-1
+            defaultMode: 0400
+            items:
+              - key: auth.json
+                path: auth.json
+        - name: runner-git-credentials
+          secret:
+            secretName: oisin-bot-git-credentials
+            defaultMode: 0400
+            optional: true
+            items:
+              - key: username
+                path: username
+              - key: password
+                path: password
+              - key: identity
+                path: identity
+              - key: known_hosts
+                path: known_hosts
+        - name: github-auth
+          secret:
+            secretName: oisin-bot-github-auth
+            items:
+              - key: hosts.yml
+                path: hosts.yml
