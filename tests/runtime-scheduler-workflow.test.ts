@@ -426,10 +426,10 @@ describe("LocalScheduler and Argo workflow parity", () => {
     ]);
 
     expect(retryStrategiesByTemplate(argoManifest)).toEqual({
-      "task-descendant": startupOnlyRetryStrategy(),
-      "task-flaky": startupOnlyRetryStrategy(),
-      "task-setup": startupOnlyRetryStrategy(),
-      "workflow-start": startupOnlyRetryStrategy(),
+      "task-descendant": runnerRetryStrategy(),
+      "task-flaky": runnerRetryStrategy(),
+      "task-setup": runnerRetryStrategy(),
+      "workflow-start": runnerRetryStrategy(),
     });
     expect(
       argoManifest.spec.templates.find(
@@ -437,7 +437,7 @@ describe("LocalScheduler and Argo workflow parity", () => {
       )
     ).not.toHaveProperty("retryStrategy");
     expect(retryStrategiesByTemplate(argoManifest)["task-flaky"]).toEqual(
-      startupOnlyRetryStrategy()
+      runnerRetryStrategy()
     );
   });
 });
@@ -817,11 +817,12 @@ function retryStrategiesByTemplate(
   );
 }
 
-function startupOnlyRetryStrategy() {
+function runnerRetryStrategy() {
   return {
-    expression: "asInt(lastRetry.exitCode) == 70",
+    expression:
+      "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
     limit: "3",
-    retryPolicy: "OnFailure",
+    retryPolicy: "Always",
   };
 }
 
