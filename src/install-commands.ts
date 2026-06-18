@@ -3,6 +3,10 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { loadPipelineConfig, type PipelineConfig } from "./config";
 import { claudeCodeAdapter } from "./install-commands/claude-code";
+import {
+  globalInstructionDefinitions,
+  INSTRUCTION_PATHS,
+} from "./install-commands/instructions";
 import { opencodeAdapter } from "./install-commands/opencode";
 import {
   type ActiveCommandHost,
@@ -180,8 +184,10 @@ function resolveDefinitionContent(
   definition: CommandDefinition,
   target: string
 ): ResolvedCommandDefinitionContent {
-  const adapter = ADAPTERS[definition.host];
-  if (!(adapter.mergeDefinition && existsSync(target))) {
+  const adapter = ADAPTERS[definition.host as ActiveCommandHost] as
+    | HostAdapter
+    | undefined;
+  if (!(adapter?.mergeDefinition && existsSync(target))) {
     return { conflict: false, content: definition.content };
   }
   return applyMergeDefinition(
@@ -256,7 +262,7 @@ function upsertGeneratedBlock(
 }
 
 function adapterForcesDefinition(definition: CommandDefinition): boolean {
-  const fn = ADAPTERS[definition.host].isAlwaysForced;
+  const fn = ADAPTERS[definition.host as ActiveCommandHost]?.isAlwaysForced;
   return fn ? fn(definition) : false;
 }
 
@@ -348,15 +354,22 @@ function commandInstallPlanItem(
 // cwd into a machine-wide file and make `--check` perpetually non-idempotent.
 const PROJECT_ONLY_PATHS = new Set(["AGENTS.md"]);
 
+// Global instruction memory files (CLAUDE.md, codex/gemini behavior files) are
+// per-machine behavior, not repo-local guidance: they only belong in the global
+// harness. A project-scoped install must not emit them.
+const GLOBAL_ONLY_PATHS = new Set<string>(INSTRUCTION_PATHS);
+
 function scopedDefinitions(
   definitions: CommandDefinition[],
   scope: HarnessScope
 ): CommandDefinition[] {
-  if (scope !== "global") {
-    return definitions;
+  if (scope === "global") {
+    return definitions.filter(
+      (definition) => !PROJECT_ONLY_PATHS.has(definition.path)
+    );
   }
   return definitions.filter(
-    (definition) => !PROJECT_ONLY_PATHS.has(definition.path)
+    (definition) => !GLOBAL_ONLY_PATHS.has(definition.path)
   );
 }
 
@@ -369,8 +382,11 @@ function installCommandsContext(
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
+  const instructionDefinitions = globalInstructionDefinitions().filter(
+    (definition) => host === "all" || definition.host === host
+  );
   const definitions = scopedDefinitions(
-    definitionsFor(host, config, cwd),
+    [...definitionsFor(host, config, cwd), ...instructionDefinitions],
     scope
   );
   return {

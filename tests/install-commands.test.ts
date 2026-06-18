@@ -677,6 +677,8 @@ describe("installCommands (global scope)", () => {
   const savedEnv: Record<string, string | undefined> = {};
   const claudeDir = () => join(home, ".claude");
   const opencodeDir = () => join(home, ".config", "opencode");
+  const codexDir = () => join(home, ".codex");
+  const geminiDir = () => join(home, ".gemini");
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "pipeline-commands-repo-"));
@@ -685,12 +687,14 @@ describe("installCommands (global scope)", () => {
       "CLAUDE_CONFIG_DIR",
       "CODEX_HOME",
       "OPENCODE_CONFIG_DIR",
+      "GEMINI_CONFIG_DIR",
     ]) {
       savedEnv[key] = process.env[key];
     }
     process.env.CLAUDE_CONFIG_DIR = claudeDir();
-    process.env.CODEX_HOME = join(home, ".codex");
+    process.env.CODEX_HOME = codexDir();
     process.env.OPENCODE_CONFIG_DIR = opencodeDir();
+    process.env.GEMINI_CONFIG_DIR = geminiDir();
   });
 
   afterEach(() => {
@@ -801,5 +805,67 @@ describe("installCommands (global scope)", () => {
     expect(checked.items.every((item) => item.action === "unchanged")).toBe(
       true
     );
+  });
+
+  it("generates per-host global instruction memory files", async () => {
+    await installCommandsImpl({ cwd: dir, host: "all", scope: "global" });
+
+    const claudeMd = join(claudeDir(), "CLAUDE.md");
+    const codexMd = join(codexDir(), "AGENTS.md");
+    const geminiMd = join(geminiDir(), "GEMINI.md");
+    for (const file of [claudeMd, codexMd, geminiMd]) {
+      expect(existsSync(file)).toBe(true);
+      const content = readFileSync(file, "utf8");
+      expect(content).toContain(
+        "<!-- @oisincoveney/pipeline:instructions:start -->"
+      );
+      expect(content).toContain(
+        "<!-- @oisincoveney/pipeline:instructions:end -->"
+      );
+      // The package-owned instruction body is rendered, including caveman mode.
+      expect(content).toContain("Caveman Mode");
+    }
+    // Instruction files are tagged with their owning host.
+    expect(readFileSync(claudeMd, "utf8")).toContain("host=claude-code");
+    expect(readFileSync(codexMd, "utf8")).toContain("host=codex");
+    expect(readFileSync(geminiMd, "utf8")).toContain("host=gemini");
+  });
+
+  it("upserts the instruction block while preserving user content", async () => {
+    const claudeMd = join(claudeDir(), "CLAUDE.md");
+    mkdirSync(claudeDir(), { recursive: true });
+    writeFileSync(claudeMd, "# My own notes\n\nKeep me.\n");
+
+    await installCommandsImpl({ cwd: dir, host: "all", scope: "global" });
+
+    const content = readFileSync(claudeMd, "utf8");
+    expect(content).toContain("# My own notes");
+    expect(content).toContain("Keep me.");
+    expect(content).toContain(
+      "<!-- @oisincoveney/pipeline:instructions:start -->"
+    );
+
+    // Idempotent: a second run reports the instruction file unchanged.
+    const second = await installCommandsImpl({
+      cwd: dir,
+      host: "all",
+      scope: "global",
+    });
+    expect(
+      second.items.find((item) => item.path === ".claude/CLAUDE.md")?.action
+    ).toBe("unchanged");
+  });
+
+  it("omits global instruction files in project scope", async () => {
+    const result = await installCommandsImpl({
+      cwd: dir,
+      host: "all",
+      scope: "project",
+    });
+    const paths = result.items.map((item) => item.path);
+    expect(paths).not.toContain(".claude/CLAUDE.md");
+    expect(paths).not.toContain(".codex/AGENTS.md");
+    expect(paths).not.toContain(".gemini/GEMINI.md");
+    expect(existsSync(join(dir, ".claude", "CLAUDE.md"))).toBe(false);
   });
 });

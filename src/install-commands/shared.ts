@@ -10,6 +10,10 @@ export const OWNER_TS_MARKER_PREFIX = "// @oisincoveney/pipeline:";
 export const OWNER_YAML_MARKER_PREFIX = "# @oisincoveney/pipeline:";
 export const AGENTS_MD_START = "<!-- @oisincoveney/pipeline:agents:start -->";
 export const AGENTS_MD_END = "<!-- @oisincoveney/pipeline:agents:end -->";
+export const INSTRUCTIONS_START =
+  "<!-- @oisincoveney/pipeline:instructions:start -->";
+export const INSTRUCTIONS_END =
+  "<!-- @oisincoveney/pipeline:instructions:end -->";
 export const SINGLE_OPENCODE_PLUGIN_ARRAY_RE =
   /\n {2}"plugin": \[\n {4}("[^"]+")\n {2}\]/;
 export const OPENCODE_PROJECT_CONFIG_PATH = ".opencode/opencode.json";
@@ -23,6 +27,14 @@ export const COMMAND_HOSTS = ["opencode", "claude-code"] as const;
 
 export type ActiveCommandHost = (typeof COMMAND_HOSTS)[number];
 export type CommandHostSelection = ActiveCommandHost | "all";
+
+/**
+ * Any host a generated harness file can be attributed to. `codex` and `gemini`
+ * are instruction-only hosts: they receive a generated global instruction
+ * memory file (upserted via a marker block) but no slash-command/agent adapter,
+ * so they need no resourceRoots scan and no HostAdapter.
+ */
+export type HarnessHost = ActiveCommandHost | "codex" | "gemini";
 /**
  * Where generated harness resources are written.
  * - "global" (default): the per-machine host config dirs (~/.claude,
@@ -52,6 +64,10 @@ export function opencodeGlobalConfigDir(): string {
     process.env.OPENCODE_CONFIG_DIR ??
     join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode")
   );
+}
+
+function geminiGlobalConfigDir(): string {
+  return process.env.GEMINI_CONFIG_DIR ?? join(homedir(), ".gemini");
 }
 
 function stripPrefix(value: string, prefix: string): string {
@@ -90,6 +106,9 @@ export function resolveHarnessTarget(
   if (normalized === ".codex" || normalized.startsWith(".codex/")) {
     return join(codexGlobalConfigDir(), stripPrefix(normalized, ".codex"));
   }
+  if (normalized === ".gemini" || normalized.startsWith(".gemini/")) {
+    return join(geminiGlobalConfigDir(), stripPrefix(normalized, ".gemini"));
+  }
   return join(opencodeGlobalConfigDir(), stripPrefix(normalized, ".opencode"));
 }
 export type InstallAction =
@@ -101,7 +120,7 @@ export type InstallAction =
 
 export interface CommandInstallPlanItem {
   action: InstallAction;
-  host: ActiveCommandHost;
+  host: HarnessHost;
   invocation: string;
   path: string;
 }
@@ -133,7 +152,7 @@ export interface CommandDefinition {
     start: string;
   };
   content: string;
-  host: ActiveCommandHost;
+  host: HarnessHost;
   invocation: string;
   path: string;
 }
