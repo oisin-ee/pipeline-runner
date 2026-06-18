@@ -1134,13 +1134,11 @@ function remediatePassedImplementationAncestors(
   input: NodeRemediationInput
 ): Effect.Effect<boolean, unknown> {
   return Effect.gen(function* () {
+    // upstreamImplementationNodes returns only passed implementation ancestors
+    // (including code-writers nested inside passed parallel fan-outs).
     const implementationNodes = upstreamImplementationNodes(
       input.context,
       input.node
-    ).filter(
-      (candidate) =>
-        input.context.nodeStateStore.getNodeState(candidate.id)?.status ===
-        "passed"
     );
     if (implementationNodes.length === 0) {
       return false;
@@ -1396,9 +1394,50 @@ function appendImplementationNode(
   ordered: PlannedWorkflowNode[],
   candidate: PlannedWorkflowNode
 ): void {
-  if (hasSchedulingRole(context, candidate, "implementation")) {
-    ordered.push(candidate);
+  // Only passed nodes are remediation targets. Gating here (rather than via a
+  // post-walk filter) lets us treat a passed parallel's children as known-passed
+  // below — their own state lives in a forked store and is absent from this one.
+  if (!nodeStatePassed(context, candidate.id)) {
+    return;
   }
+  pushIfImplementation(context, ordered, candidate);
+  // A parallel fan-out's children are nested in `children` and are NOT registered
+  // as top-level graph nodes, so the `needs`-edge walk never reaches them, and
+  // they run under a forked node-state store so their per-child state is not
+  // visible here. The parallel's own passed state means every child passed. The
+  // code-writer that owns the production implementation is typically one such
+  // child, so descend into the children explicitly — otherwise a production-code
+  // gate failure only ever routes to the top-level implementation nodes (e.g. a
+  // test-writer constrained to test files, which can never satisfy a production
+  // acceptance criterion and would churn forever).
+  for (const child of candidate.children ?? []) {
+    appendPassedImplementationChild(context, ordered, child);
+  }
+}
+
+function appendPassedImplementationChild(
+  context: RuntimeContext,
+  ordered: PlannedWorkflowNode[],
+  child: PlannedWorkflowNode
+): void {
+  pushIfImplementation(context, ordered, child);
+  for (const grandchild of child.children ?? []) {
+    appendPassedImplementationChild(context, ordered, grandchild);
+  }
+}
+
+function pushIfImplementation(
+  context: RuntimeContext,
+  ordered: PlannedWorkflowNode[],
+  node: PlannedWorkflowNode
+): void {
+  if (hasSchedulingRole(context, node, "implementation")) {
+    ordered.push(node);
+  }
+}
+
+function nodeStatePassed(context: RuntimeContext, nodeId: string): boolean {
+  return context.nodeStateStore.getNodeState(nodeId)?.status === "passed";
 }
 
 function hasSchedulingRole(

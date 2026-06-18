@@ -1679,6 +1679,96 @@ workflows:
     });
   });
 
+  it("remediates a code-writer nested inside a parallel fan-out", async () => {
+    // Regression: the implementation-ancestor walk follows `needs` edges and only
+    // collects top-level graph nodes. A parallel fan-out's code-writer lives in
+    // `children` (not a top-level node, not reachable via `needs`), so a
+    // production-code coverage failure was only ever routed to the top-level
+    // test-writer — which cannot edit production code — and churned forever. The
+    // walk must descend into parallel children so the nested code-writer gets its
+    // remediation turn.
+    const project = tempProject();
+    const config = baseConfig(`
+  remediate-parallel:
+    nodes:
+      - id: tests-impl
+        kind: agent
+        profile: a
+      - id: green
+        kind: parallel
+        needs: [tests-impl]
+        nodes:
+          - { id: code-impl, kind: agent, profile: a }
+      - id: review
+        kind: agent
+        profile: b
+        needs: [green]
+        gates:
+          - id: acceptance-coverage
+            kind: acceptance
+            target: stdout
+          - id: acceptance-verdict
+            kind: verdict
+            target: stdout
+`);
+    config.profiles.a.scheduling_roles = ["implementation"];
+    config.profiles.b.scheduling_roles = ["coverage"];
+    const seen: string[] = [];
+    let reviewAttempt = 0;
+
+    const result = await runPipelineFromConfig({
+      config,
+      executor: (plan) => {
+        seen.push(plan.nodeId);
+        if (plan.nodeId === "review") {
+          reviewAttempt += 1;
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify(
+              reviewAttempt === 1
+                ? {
+                    acceptance: [
+                      { evidence: ["fails"], id: "AC1", verdict: "FAIL" },
+                    ],
+                    evidence: ["AC1 fails"],
+                    verdict: "FAIL",
+                  }
+                : {
+                    acceptance: [
+                      { evidence: ["passes"], id: "AC1", verdict: "PASS" },
+                    ],
+                    evidence: ["AC1 passes"],
+                    verdict: "PASS",
+                  }
+            ),
+          };
+        }
+        // The nested code-writer's remediation is the only ancestor that can fix
+        // the production-code failure; the top-level test-writer makes no change.
+        if (plan.nodeId.startsWith("code-impl:remediate")) {
+          return { exitCode: 0, stdout: "code output remediated" };
+        }
+        if (plan.nodeId.startsWith("tests-impl")) {
+          return { exitCode: 0, stdout: "tests output" };
+        }
+        return { exitCode: 0, stdout: "code output" };
+      },
+      task: "parallel ancestor remediation",
+      taskContext: {
+        acceptanceCriteria: [{ id: "AC1", text: "Criterion one" }],
+      },
+      workflowId: "remediate-parallel",
+      worktreePath: project,
+    });
+
+    expect(result.outcome).toBe("PASS");
+    expect(seen).toContain("code-impl:remediate:review:1");
+    expect(result.nodeStates.review).toMatchObject({
+      attempts: 2,
+      status: "passed",
+    });
+  });
+
   it("includes builtin gate command failures in coverage remediation prompts", async () => {
     const project = tempProject();
     process.env.PIPELINE_TYPECHECK_COMMAND = "node -e process.exit(1)";
