@@ -175,6 +175,16 @@ describe("runner Argo Workflow manifest", () => {
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
                 "imagePullPolicy": "Always",
                 "name": "runner",
+                "resources": {
+                  "limits": {
+                    "cpu": "4",
+                    "memory": "8Gi",
+                  },
+                  "requests": {
+                    "cpu": "1",
+                    "memory": "4Gi",
+                  },
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/etc/pipeline/payload.json",
@@ -240,6 +250,16 @@ describe("runner Argo Workflow manifest", () => {
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
                 "imagePullPolicy": "Always",
                 "name": "runner",
+                "resources": {
+                  "limits": {
+                    "cpu": "4",
+                    "memory": "8Gi",
+                  },
+                  "requests": {
+                    "cpu": "1",
+                    "memory": "4Gi",
+                  },
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/etc/pipeline/payload.json",
@@ -311,6 +331,16 @@ describe("runner Argo Workflow manifest", () => {
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
                 "imagePullPolicy": "Always",
                 "name": "runner",
+                "resources": {
+                  "limits": {
+                    "cpu": "4",
+                    "memory": "8Gi",
+                  },
+                  "requests": {
+                    "cpu": "1",
+                    "memory": "4Gi",
+                  },
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/etc/pipeline/payload.json",
@@ -382,6 +412,16 @@ describe("runner Argo Workflow manifest", () => {
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
                 "imagePullPolicy": "Always",
                 "name": "runner",
+                "resources": {
+                  "limits": {
+                    "cpu": "4",
+                    "memory": "8Gi",
+                  },
+                  "requests": {
+                    "cpu": "1",
+                    "memory": "4Gi",
+                  },
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/etc/pipeline/payload.json",
@@ -455,6 +495,16 @@ describe("runner Argo Workflow manifest", () => {
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
                 "imagePullPolicy": "Always",
                 "name": "runner",
+                "resources": {
+                  "limits": {
+                    "cpu": "4",
+                    "memory": "8Gi",
+                  },
+                  "requests": {
+                    "cpu": "1",
+                    "memory": "4Gi",
+                  },
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/etc/pipeline/payload.json",
@@ -647,6 +697,13 @@ describe("runner Argo Workflow manifest", () => {
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
+              resources:
+                limits:
+                  cpu: "4"
+                  memory: 8Gi
+                requests:
+                  cpu: "1"
+                  memory: 4Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -690,6 +747,13 @@ describe("runner Argo Workflow manifest", () => {
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
+              resources:
+                limits:
+                  cpu: "4"
+                  memory: 8Gi
+                requests:
+                  cpu: "1"
+                  memory: 4Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -737,6 +801,13 @@ describe("runner Argo Workflow manifest", () => {
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
+              resources:
+                limits:
+                  cpu: "4"
+                  memory: 8Gi
+                requests:
+                  cpu: "1"
+                  memory: 4Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -784,6 +855,13 @@ describe("runner Argo Workflow manifest", () => {
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
+              resources:
+                limits:
+                  cpu: "4"
+                  memory: 8Gi
+                requests:
+                  cpu: "1"
+                  memory: 4Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -833,6 +911,13 @@ describe("runner Argo Workflow manifest", () => {
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
+              resources:
+                limits:
+                  cpu: "4"
+                  memory: 8Gi
+                requests:
+                  cpu: "1"
+                  memory: 4Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload

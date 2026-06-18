@@ -25,6 +25,17 @@ const RUNNER_OPENCODE_ENV = [
   { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
 ] as const;
 
+// Runner containers run the agent plus memory-heavy gate commands (tsc, jest,
+// fallow) over the target repo. With no memory request the scheduler
+// overcommits a node with parallel agent nodes and the kernel OOM-kills one
+// (exit 137 — observed on the RN/Expo test node). Request enough that heavy
+// nodes spread across nodes; allow a generous limit for large typecheck/test
+// runs. Overridable per-submit via options.resources.
+const DEFAULT_RUNNER_RESOURCES = {
+  limits: { cpu: "4", memory: "8Gi" },
+  requests: { cpu: "1", memory: "4Gi" },
+} as const;
+
 const kubernetesNameSchema = z.string().min(1);
 const labelValueSchema = z.string().min(1);
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
@@ -526,7 +537,7 @@ function runnerLifecycleTemplate(
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",
-      ...(options.resources ? { resources: options.resources } : {}),
+      resources: options.resources ?? DEFAULT_RUNNER_RESOURCES,
       volumeMounts,
     },
     name: RUNNER_WORKFLOW_START_TASK,
@@ -559,7 +570,7 @@ function runnerCommandTemplate(
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",
-      ...(options.resources ? { resources: options.resources } : {}),
+      resources: options.resources ?? DEFAULT_RUNNER_RESOURCES,
       volumeMounts: [...volumeMounts, taskVolumeMount],
     },
     name: task.templateName,
@@ -587,7 +598,7 @@ function runnerFinalizerTemplate(
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",
-      ...(options.resources ? { resources: options.resources } : {}),
+      resources: options.resources ?? DEFAULT_RUNNER_RESOURCES,
       volumeMounts,
     },
     name: "pipeline-finalizer",
