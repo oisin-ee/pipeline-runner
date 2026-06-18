@@ -21,6 +21,7 @@ export interface MokaSubmitFlags {
   kubeconfig?: string;
   name?: string;
   namespace?: string;
+  openPr?: boolean;
   quick?: boolean;
   schedule?: string;
   serviceAccount?: string;
@@ -40,6 +41,10 @@ export function addMokaSubmitOptions(command: Command): Command {
       .option("--command", "treat input after -- as explicit argv")
       .option("--schedule <path>", "approved schedule YAML to submit")
       .option("--event-url <url>", "runner event sink URL")
+      .option(
+        "--open-pr",
+        "append an open-pull-request delivery node (preview-labelled PR)"
+      )
       .option("--task <text>", "task description for command-mode metadata"),
     {
       kubeconfig: true,
@@ -98,6 +103,7 @@ function mokaCommonSubmitOptions(input: {
   const momokaya = input.globalConfig?.momokaya;
   return {
     config: input.config,
+    delivery: { pullRequest: input.flags.openPr === true },
     eventUrl: input.eventUrl,
     eventAuthSecretKey: momokaya?.submit.eventAuthSecretKey,
     eventAuthSecretName: momokaya?.submit.eventAuthSecretName,

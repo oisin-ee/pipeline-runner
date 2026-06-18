@@ -12,6 +12,7 @@ import {
   buildMokaSubmitInputFromCli,
   parseImagePullPolicy,
 } from "../src/cli/submit-options";
+import { loadPackagePipelineConfig } from "../src/config";
 
 describe("PIPE-65 CLI refactor boundaries", () => {
   it("exposes runtime formatting helpers from src/cli/format", () => {
@@ -25,6 +26,25 @@ describe("PIPE-65 CLI refactor boundaries", () => {
     expect(addMokaSubmitOptions).toEqual(expect.any(Function));
     expect(buildMokaSubmitInputFromCli).toEqual(expect.any(Function));
     expect(parseImagePullPolicy).toEqual(expect.any(Function));
+  });
+
+  it("threads --open-pr into the submit delivery.pullRequest option", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const withPr = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: { openPr: true },
+      input: ["do a thing"],
+    });
+    expect(withPr.delivery).toEqual({ pullRequest: true });
+
+    const withoutPr = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: {},
+      input: ["do a thing"],
+    });
+    expect(withoutPr.delivery).toEqual({ pullRequest: false });
   });
 });
 
@@ -65,6 +85,7 @@ describe("PIPE-65 moka submit option normalization", () => {
         "--command",
         "--schedule",
         "--event-url",
+        "--open-pr",
         "--task",
         "--name",
         "--generate-name",
