@@ -385,6 +385,15 @@ function runSetupCommand(
       setupCommandFinishLog(command, commandIndex, exitCode),
       "setup.command finish"
     );
+    if (exitCode !== 0) {
+      // Surface the command's captured output on failure — without it a failing
+      // setup command (e.g. a repo bootstrap install) is undebuggable in the pod
+      // log, which only showed the exit code.
+      options.logger.error(
+        setupCommandOutputLog(command.command, commandIndex, result),
+        "setup.command output"
+      );
+    }
     if (exitCode !== 0 && command.required) {
       return yield* Effect.fail(
         new Error(
@@ -400,6 +409,32 @@ function setupExitCode(exitCode: number | undefined): number {
     return exitCode;
   }
   return 1;
+}
+
+const SETUP_OUTPUT_TAIL = 4000;
+
+function setupOutputTail(output: unknown): string {
+  if (typeof output !== "string" || output.length === 0) {
+    return "";
+  }
+  return output.length > SETUP_OUTPUT_TAIL
+    ? output.slice(-SETUP_OUTPUT_TAIL)
+    : output;
+}
+
+function setupCommandOutputLog(
+  command: string,
+  index: number,
+  result: { stderr?: unknown; stdout?: unknown }
+) {
+  return {
+    command,
+    index,
+    phase: "setup.command",
+    status: "output",
+    stderr: setupOutputTail(result.stderr),
+    stdout: setupOutputTail(result.stdout),
+  };
 }
 
 function setupCommandLog(command: string, index: number, status: "start") {
