@@ -633,17 +633,6 @@ function unwrap<T>(response: { data?: T; error?: unknown }): T {
   return response.data;
 }
 
-/**
- * Node's global fetch throws `TypeError: fetch failed` and stashes the real
- * transport reason (ETIMEDOUT/ECONNRESET/socket hang up/DNS/undici codes) on
- * `error.cause`. Recurse the standard cause chain so a transport failure
- * diagnoses to its actual reason instead of the opaque "fetch failed".
- */
 function errorMessage(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return String(error);
-  }
-  return error.cause === undefined
-    ? error.message
-    : `${error.message}: ${errorMessage(error.cause)}`;
+  return error instanceof Error ? error.message : String(error);
 }

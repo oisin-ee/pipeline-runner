@@ -370,31 +370,6 @@ describe("opencode session executor", () => {
     expect(recordPrompts).toHaveLength(3);
   });
 
-  it("surfaces the underlying transport cause behind 'fetch failed'", async () => {
-    const cause = Object.assign(new Error("connect ETIMEDOUT 10.0.0.1:443"), {
-      code: "ETIMEDOUT",
-    });
-    const execute = createOpencodeExecutor({
-      client: fakeClient({
-        promptErrors: [
-          new Error("fetch failed", { cause }),
-          new Error("fetch failed", { cause }),
-          new Error("fetch failed", { cause }),
-        ],
-        recordPrompts: [],
-      }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
-    });
-
-    const result = await execute(opencodePlan(), {});
-
-    expect(result.exitCode).toBe(70);
-    expect(result.stderr).toContain("fetch failed");
-    expect(result.stderr).toContain("connect ETIMEDOUT 10.0.0.1:443");
-    expect(result.stderr).toContain("ETIMEDOUT");
-  });
-
   it("does not retry a non-transient prompt failure", async () => {
     const recordPrompts: FakeClientOptions["recordPrompts"] = [];
     const execute = createOpencodeExecutor({
