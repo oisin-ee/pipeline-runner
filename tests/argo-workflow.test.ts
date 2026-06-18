@@ -51,14 +51,14 @@ const BASE_OPTIONS = {
   taskDescriptorConfigMapName: "pipeline-task-descriptors-run-1",
 };
 
-const STARTUP_ONLY_RETRY_STRATEGY = {
-  expression: "asInt(lastRetry.exitCode) == 70",
+const RUNNER_RETRY_STRATEGY = {
+  expression: "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
   limit: "3",
-  retryPolicy: "OnFailure",
+  retryPolicy: "Always",
 };
 
-const STARTUP_RETRY_STRATEGY_FRAGMENT_PATTERN =
-  /retryStrategy:\n\s+expression: asInt\(lastRetry\.exitCode\) == 70\n\s+limit: "3"\n\s+retryPolicy: OnFailure/;
+const RETRY_STRATEGY_FRAGMENT_PATTERN =
+  /retryStrategy:\n\s+expression: lastRetry\.status == 'Error' \|\| asInt\(lastRetry\.exitCode\) == 70\n\s+limit: "3"\n\s+retryPolicy: Always/;
 
 function retryStrategyForTemplate(
   manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>,
@@ -224,9 +224,9 @@ describe("runner Argo Workflow manifest", () => {
               },
               "name": "workflow-start",
               "retryStrategy": {
-                "expression": "asInt(lastRetry.exitCode) == 70",
+                "expression": "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
                 "limit": "3",
-                "retryPolicy": "OnFailure",
+                "retryPolicy": "Always",
               },
             },
             {
@@ -305,9 +305,9 @@ describe("runner Argo Workflow manifest", () => {
               },
               "name": "task-one",
               "retryStrategy": {
-                "expression": "asInt(lastRetry.exitCode) == 70",
+                "expression": "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
                 "limit": "3",
-                "retryPolicy": "OnFailure",
+                "retryPolicy": "Always",
               },
             },
             {
@@ -386,9 +386,9 @@ describe("runner Argo Workflow manifest", () => {
               },
               "name": "task-two",
               "retryStrategy": {
-                "expression": "asInt(lastRetry.exitCode) == 70",
+                "expression": "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
                 "limit": "3",
-                "retryPolicy": "OnFailure",
+                "retryPolicy": "Always",
               },
             },
             {
@@ -467,9 +467,9 @@ describe("runner Argo Workflow manifest", () => {
               },
               "name": "task-three",
               "retryStrategy": {
-                "expression": "asInt(lastRetry.exitCode) == 70",
+                "expression": "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
                 "limit": "3",
-                "retryPolicy": "OnFailure",
+                "retryPolicy": "Always",
               },
             },
             {
@@ -729,9 +729,9 @@ describe("runner Argo Workflow manifest", () => {
                   subPath: hosts.yml
             name: workflow-start
             retryStrategy:
-              expression: asInt(lastRetry.exitCode) == 70
+              expression: lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70
               limit: "3"
-              retryPolicy: OnFailure
+              retryPolicy: Always
           - container:
               args:
                 - runner-command
@@ -783,9 +783,9 @@ describe("runner Argo Workflow manifest", () => {
                   subPath: node-one.json
             name: task-one
             retryStrategy:
-              expression: asInt(lastRetry.exitCode) == 70
+              expression: lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70
               limit: "3"
-              retryPolicy: OnFailure
+              retryPolicy: Always
           - container:
               args:
                 - runner-command
@@ -837,9 +837,9 @@ describe("runner Argo Workflow manifest", () => {
                   subPath: node-two.json
             name: task-two
             retryStrategy:
-              expression: asInt(lastRetry.exitCode) == 70
+              expression: lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70
               limit: "3"
-              retryPolicy: OnFailure
+              retryPolicy: Always
           - container:
               args:
                 - runner-command
@@ -891,9 +891,9 @@ describe("runner Argo Workflow manifest", () => {
                   subPath: node-three.json
             name: task-three
             retryStrategy:
-              expression: asInt(lastRetry.exitCode) == 70
+              expression: lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70
               limit: "3"
-              retryPolicy: OnFailure
+              retryPolicy: Always
           - container:
               args:
                 - runner-finalize
@@ -1076,23 +1076,23 @@ describe("runner Argo Workflow manifest", () => {
     expect(manifest.spec.onExit).toBe("pipeline-finalizer");
   });
 
-  it("retries runner startup failures only when Argo sees exit code 70", () => {
+  it("retries runner nodes on transient Argo errors or exit 70, not task failures", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,
       plan: plan(),
     });
 
     expect(retryStrategyForTemplate(manifest, "workflow-start")).toEqual(
-      STARTUP_ONLY_RETRY_STRATEGY
+      RUNNER_RETRY_STRATEGY
     );
     expect(retryStrategyForTemplate(manifest, "task-one")).toEqual(
-      STARTUP_ONLY_RETRY_STRATEGY
+      RUNNER_RETRY_STRATEGY
     );
     expect(retryStrategyForTemplate(manifest, "task-two")).toEqual(
-      STARTUP_ONLY_RETRY_STRATEGY
+      RUNNER_RETRY_STRATEGY
     );
     expect(retryStrategyForTemplate(manifest, "task-three")).toEqual(
-      STARTUP_ONLY_RETRY_STRATEGY
+      RUNNER_RETRY_STRATEGY
     );
     expect(
       retryStrategyForTemplate(manifest, "pipeline-finalizer")
@@ -1100,17 +1100,12 @@ describe("runner Argo Workflow manifest", () => {
 
     const rendered = stringifyRunnerArgoWorkflow(manifest);
     expect(rendered).toContain("retryStrategy:\n");
-    expect(rendered).toContain("expression: asInt(lastRetry.exitCode) == 70");
-    expect(
-      rendered.match(STARTUP_RETRY_STRATEGY_FRAGMENT_PATTERN)?.[0]
-    ).toMatchInlineSnapshot(`
-        "retryStrategy:
-                expression: asInt(lastRetry.exitCode) == 70
-                limit: "3"
-                retryPolicy: OnFailure"
-      `);
-    expect(rendered).not.toContain("lastRetry.exitCode) == 1");
-    expect(rendered).not.toContain("lastRetry.exitCode) == 64");
+    // Retries a pod-deleted / NodeNotReady node (Argo "Error") and startup infra
+    // failures (exit 70); the expression keeps genuine task failures out.
+    expect(rendered).toContain("retryPolicy: Always");
+    expect(rendered.match(RETRY_STRATEGY_FRAGMENT_PATTERN)?.[0]).toBeDefined();
+    expect(rendered).toContain("lastRetry.status == 'Error'");
+    expect(rendered).toContain("asInt(lastRetry.exitCode) == 70");
     const finalizerTemplate = rendered.slice(
       rendered.indexOf("name: pipeline-finalizer"),
       rendered.indexOf("\n  volumes:")
@@ -1134,7 +1129,7 @@ describe("runner Argo Workflow manifest", () => {
         ...manifest.spec,
         templates: manifest.spec.templates.map((template) =>
           template.name === "task-one"
-            ? { ...template, retryStrategy: STARTUP_ONLY_RETRY_STRATEGY }
+            ? { ...template, retryStrategy: RUNNER_RETRY_STRATEGY }
             : template
         ),
       },

@@ -16,10 +16,18 @@ const RUNNER_WORKFLOW_START_TASK = "workflow-start";
 const RUNNER_WORKFLOW_PAYLOAD_PATH = "/etc/pipeline/payload.json";
 const RUNNER_WORKFLOW_SCHEDULE_PATH = "/etc/pipeline/schedule.yaml";
 const RUNNER_GIT_CREDENTIALS_PATH = "/etc/pipeline/git-credentials";
-const RUNNER_STARTUP_RETRY_STRATEGY = {
-  expression: "asInt(lastRetry.exitCode) == 70",
+// Retry a runner node on transient infrastructure disruption — an Argo "Error"
+// (pod deleted / node went NotReady / evicted), which carries no task exit code,
+// OR a startup-class infra failure (exit 70). retryPolicy "Always" makes both
+// Errored and Failed nodes retry candidates; the expression then keeps genuine
+// task failures (exit 1, status Failed) out of scope so node-level
+// retries/remediation still own those. A retried node reschedules — typically
+// onto a healthy node — while already-Succeeded upstream nodes are preserved,
+// so a single node/pod disruption no longer fails the whole run.
+const RUNNER_RETRY_STRATEGY = {
+  expression: "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
   limit: "3",
-  retryPolicy: "OnFailure",
+  retryPolicy: "Always",
 } as const;
 const RUNNER_OPENCODE_ENV = [
   { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
@@ -541,7 +549,7 @@ function runnerLifecycleTemplate(
       volumeMounts,
     },
     name: RUNNER_WORKFLOW_START_TASK,
-    retryStrategy: { ...RUNNER_STARTUP_RETRY_STRATEGY },
+    retryStrategy: { ...RUNNER_RETRY_STRATEGY },
   };
 }
 
@@ -574,7 +582,7 @@ function runnerCommandTemplate(
       volumeMounts: [...volumeMounts, taskVolumeMount],
     },
     name: task.templateName,
-    retryStrategy: { ...RUNNER_STARTUP_RETRY_STRATEGY },
+    retryStrategy: { ...RUNNER_RETRY_STRATEGY },
   };
 }
 
