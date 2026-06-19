@@ -16,16 +16,22 @@ const RUNNER_WORKFLOW_START_TASK = "workflow-start";
 const RUNNER_WORKFLOW_PAYLOAD_PATH = "/etc/pipeline/payload.json";
 const RUNNER_WORKFLOW_SCHEDULE_PATH = "/etc/pipeline/schedule.yaml";
 const RUNNER_GIT_CREDENTIALS_PATH = "/etc/pipeline/git-credentials";
-// Retry a runner node on transient infrastructure disruption — an Argo "Error"
-// (pod deleted / node went NotReady / evicted), which carries no task exit code,
-// OR a startup-class infra failure (exit 70). retryPolicy "Always" makes both
-// Errored and Failed nodes retry candidates; the expression then keeps genuine
-// task failures (exit 1, status Failed) out of scope so node-level
-// retries/remediation still own those. A retried node reschedules — typically
-// onto a healthy node — while already-Succeeded upstream nodes are preserved,
-// so a single node/pod disruption no longer fails the whole run.
+// Retry a runner node on transient infrastructure disruption, NOT on genuine
+// task failures (exit 1 / Failed) which node-level retries/remediation own.
+// retryPolicy "Always" makes both Errored and Failed nodes retry candidates;
+// the expression then allowlists the transient-infra outcomes:
+//   - status "Error": node went NotReady with no task exit code recorded.
+//   - exit 70: moka startup/internal infra failure.
+//   - exit 137: pod SIGKILL/OOM/eviction under node pressure. Argo records this
+//     as a "pod deleted" node that carries exitCode 137 — which is classed such
+//     that `status == 'Error'` does NOT match, so it must be matched by code.
+// exitCode is compared as a string so an empty code (pure pod-deleted, no exit)
+// can never make asInt() throw and silently void the whole expression. A retried
+// node reschedules — typically onto a healthy node — while already-Succeeded
+// upstream nodes are preserved, so a single pod disruption no longer fails the run.
 const RUNNER_RETRY_STRATEGY = {
-  expression: "lastRetry.status == 'Error' || asInt(lastRetry.exitCode) == 70",
+  expression:
+    "lastRetry.status == 'Error' || lastRetry.exitCode == '70' || lastRetry.exitCode == '137'",
   limit: "3",
   retryPolicy: "Always",
 } as const;
