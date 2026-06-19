@@ -64,7 +64,11 @@ async function installDefaultSkills(cwd: string): Promise<void> {
 }
 
 function installDefaultHooks(): Promise<InstallHooksResult> {
-  return installHooks({});
+  // moka owns the per-machine harness: init/refresh (re)write it on every run, so
+  // force past the "manually edited" guard the same way the command install does
+  // (installCommands force:true below). Without this, a pre-baked or version-skewed
+  // ~/.claude/settings.json makes the runner's `moka init` setup step exit 1.
+  return installHooks({ force: true });
 }
 
 function hookInstallerFiles(

@@ -8,15 +8,30 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPipelineConfig } from "../src/config";
 import { resolveHarnessTarget } from "../src/install-commands/shared";
+import { installHooks } from "../src/install-hooks";
 import type { PipelineRulesInstaller } from "../src/pipeline-init";
 import {
   formatPipelineInitResult,
   initPipelineProject,
   refreshAgentHarnesses,
 } from "../src/pipeline-init";
+
+// Mock only installHooks so the default hook-install path is exercised offline
+// (the real one clones oisin-ee/agent-hooks). Tests that inject their own
+// hookInstaller bypass this entirely.
+vi.mock("../src/install-hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/install-hooks")>();
+  const result: Awaited<ReturnType<typeof actual.installHooks>> = {
+    items: [
+      { action: "update", host: "claude-code", path: ".claude/settings.json" },
+    ],
+    source: "oisin-ee/agent-hooks",
+  };
+  return { ...actual, installHooks: vi.fn(() => Promise.resolve(result)) };
+});
 
 const DEFAULT_INIT_SKILLS = [
   "critique",
@@ -211,6 +226,22 @@ describe("initPipelineProject (global scope)", () => {
     );
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
+  });
+
+  it("force-installs hooks so a pre-baked/version-skewed settings.json is refreshed, not refused", async () => {
+    vi.mocked(installHooks).mockClear();
+
+    // Default hookInstaller path (no hookInstaller injected): exercises
+    // installDefaultHooks, which must force past the "manually edited" guard the
+    // same way command install does — otherwise the runner's `moka init` setup
+    // step exits 1 on the image's pre-baked ~/.claude/settings.json.
+    await initPipelineProject({
+      cwd: dir,
+      rulesInstaller: noopRulesInstaller,
+      skillInstaller: installMockSkills,
+    });
+
+    expect(installHooks).toHaveBeenCalledWith({ force: true });
   });
 
   it("refreshes the global harness without staging or committing", async () => {
