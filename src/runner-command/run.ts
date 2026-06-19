@@ -5,6 +5,10 @@ import { z } from "zod";
 import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { findPlannedNode } from "../planned-node";
 import {
+  indexPlannedNodesById,
+  resolveExecutableDependencyIds,
+} from "../planning/dependency-refs";
+import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
@@ -207,9 +211,17 @@ function runRunnerCommandEffect(
       "schedule.compile finish"
     );
     const node = yield* resolveRunnerTargetNode(payload, compiled, descriptor);
+    // Container nodes (parallel/group) push no output branch of their own, so a
+    // dependency on one must resolve to its executable leaf descendants — the
+    // nodes that actually wrote `nodes/<id>` refs. Same resolver the Argo DAG
+    // compiler uses, so ordering and ref-materialization never diverge.
+    const dependencyNodeIds = resolveExecutableDependencyIds(
+      indexPlannedNodesById(compiled.plan.topologicalOrder),
+      node.needs
+    );
     logger.info(
       {
-        dependencyCount: node.needs.length,
+        dependencyCount: dependencyNodeIds.length,
         nodeId: descriptor.nodeId,
         phase: "dependency.merge",
         status: "start",
@@ -218,13 +230,13 @@ function runRunnerCommandEffect(
     );
     yield* io.mergeDependencyRefs({
       committer: compiled.config.runner_command.git.committer,
-      dependencyNodeIds: node.needs,
+      dependencyNodeIds,
       payload,
       worktreePath,
     });
     logger.info(
       {
-        dependencyCount: node.needs.length,
+        dependencyCount: dependencyNodeIds.length,
         nodeId: descriptor.nodeId,
         phase: "dependency.merge",
         status: "finish",

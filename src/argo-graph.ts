@@ -5,6 +5,7 @@ import type {
   PlannedWorkflowNode,
   WorkflowExecutionPlan,
 } from "./planning/compile";
+import { resolveExecutableDependencyIds } from "./planning/dependency-refs";
 import { uniqueStrings } from "./strings";
 
 const argoExecutableTaskSchema = z
@@ -117,8 +118,8 @@ class ArgoGraphCompiler {
       case "group":
         /*
          * Group nodes are structural dependency anchors. They produce no Argo
-         * task; their members are resolved by resolveDependencyNodeIds when a
-         * downstream node lists the group in its needs.
+         * task; their members are resolved by resolveExecutableDependencyIds
+         * when a downstream node lists the group in its needs.
          */
         return;
       case "parallel":
@@ -169,66 +170,16 @@ class ArgoGraphCompiler {
   }
 
   private resolveDependencyTaskNames(nodeIds: string[]): string[] {
-    return uniqueStrings(
-      nodeIds.flatMap((nodeId) =>
-        this.resolveDependencyNodeIds(nodeId).map((id) => argoTaskName(id))
-      )
-    );
-  }
-
-  // fallow-ignore-next-line complexity
-  private resolveDependencyNodeIds(nodeId: string): string[] {
-    const node = this.nodeById.get(nodeId);
-    if (!node) {
-      return [];
-    }
-    const kind: WorkflowNodeKind = node.kind;
-    switch (kind) {
-      case "agent":
-      case "builtin":
-      case "command":
-        /*
-         * Executable nodes resolve to themselves: a downstream Argo task that
-         * needs this node will list its Argo task name as a dependency.
-         */
-        return [node.id];
-      case "group":
-        return this.resolveGroupNodeIds(node);
-      case "parallel":
-        return this.resolveParallelNodeIds(node);
-      default: {
-        const exhaustive: never = kind;
-        throw new ArgoGraphCompilerError(String(exhaustive), node.id);
-      }
-    }
-  }
-
-  private resolveGroupNodeIds(node: PlannedWorkflowNode): string[] {
     /*
-     * Groups are transparent dependency anchors: rewire through to the
-     * group's member nodes and any nodes the group itself depends on.
-     *
-     * Example: group G contains [A, B]. Node C needs [G].
-     * After lowering: C depends on [A, B] in the Argo DAG.
-     *
-     * This is correct because Argo requires concrete task names in dependency
-     * arrays; virtual group names are not valid there.
+     * Groups and parallel containers are transparent dependency anchors that
+     * produce no Argo task of their own: a downstream node that needs one
+     * depends on its executable leaf descendants. resolveExecutableDependencyIds
+     * is the single resolver shared with the runner's upstream-output (git ref)
+     * materialization, so DAG ordering and ref-fetch never diverge.
      */
     return uniqueStrings(
-      [...(node.nodes ?? []), ...node.needs].flatMap((id) =>
-        this.resolveDependencyNodeIds(id)
-      )
-    );
-  }
-
-  private resolveParallelNodeIds(node: PlannedWorkflowNode): string[] {
-    /*
-     * Parallel containers are transparent: a downstream node that needs a
-     * parallel container depends on all of the parallel's children.
-     */
-    return uniqueStrings(
-      (node.children ?? []).flatMap((child) =>
-        this.resolveDependencyNodeIds(child.id)
+      resolveExecutableDependencyIds(this.nodeById, nodeIds).map((id) =>
+        argoTaskName(id)
       )
     );
   }
