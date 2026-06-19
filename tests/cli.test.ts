@@ -41,6 +41,10 @@ const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const ORIGINAL_PIPELINE_TEST_COMMAND = process.env.PIPELINE_TEST_COMMAND;
+const CLAUDE_GATEWAY_AUTH_HEADER = [
+  "$",
+  "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
+].join("");
 const DEFAULT_TEST_SKILLS = [
   "add-dark-mode",
   "brand-kit",
@@ -2763,8 +2767,27 @@ profiles:
         url: "https://gateway.example/mcp",
       });
       expect(opencode.mcp.legacy).toBeUndefined();
+      const claude = JSON.parse(readFileSync(join(dir, ".mcp.json"), "utf8"));
+      expect(claude.mcpServers["pipeline-gateway"]).toMatchObject({
+        type: "http",
+        url: "https://gateway.example/mcp",
+      });
+      expect(claude.mcpServers["pipeline-gateway"].headers).toEqual({
+        Authorization: CLAUDE_GATEWAY_AUTH_HEADER,
+      });
+      const codex = readFileSync(join(dir, ".codex/config.toml"), "utf8");
+      expect(codex).toContain("[mcp_servers.pipeline-gateway]");
+      expect(codex).toContain('url = "https://gateway.example/mcp"');
+      expect(codex).toContain(
+        "[mcp_servers.pipeline-gateway.env_http_headers]"
+      );
+      expect(codex).toContain(
+        'Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"'
+      );
       const output = log.mock.calls.flat().join("\n");
       expect(output).toContain(".opencode/opencode.json");
+      expect(output).toContain(".mcp.json");
+      expect(output).toContain(".codex/config.toml");
       expect(output).toContain("backup=");
     } finally {
       log.mockRestore();

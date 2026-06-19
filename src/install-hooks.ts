@@ -232,7 +232,7 @@ function normalizeManifest(value: unknown): HookManifest {
   const files: Record<string, ManifestEntry> = {};
   const manifestFiles = isRecord(value) ? value.files : undefined;
   if (!isRecord(manifestFiles)) {
-    return { files, repository: DEFAULT_HOOK_INSTALL_SOURCE, version: 1 };
+    return emptyManifest();
   }
   for (const [path, entry] of Object.entries(manifestFiles)) {
     if (isRecord(entry) && typeof entry.hash === "string") {

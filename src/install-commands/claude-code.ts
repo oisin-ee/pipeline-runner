@@ -1,6 +1,5 @@
 import { mergeClaudeSettings } from "../claude-settings-config";
 import type { PipelineConfig } from "../config";
-import { renderClaudeGatewayMcpServers } from "../mcp/gateway";
 import { opencodeAgentName } from "../runtime/opencode-agent-name";
 import {
   type AgentDispatchRoute,
@@ -138,15 +137,12 @@ function agentDefinitions(config: PipelineConfig): CommandDefinition[] {
   });
 }
 
-function settingsDefinition(config: PipelineConfig): CommandDefinition[] {
+function settingsDefinition(): CommandDefinition[] {
   const settings: Record<string, unknown> = {
     permissions: {
       allow: ["Bash(moka run *)"],
     },
   };
-  if (config.mcp_gateway) {
-    settings.mcpServers = renderClaudeGatewayMcpServers(config);
-  }
   return [
     {
       content: `${JSON.stringify(settings, null, 2)}\n`,
@@ -164,7 +160,7 @@ function claudeCodeDefinitions(
   return [
     ...commandDefinitions(config),
     ...agentDefinitions(config),
-    ...settingsDefinition(config),
+    ...settingsDefinition(),
     projectAgentsMdDefinition(cwd, CLAUDE_CODE_HOST),
   ];
 }

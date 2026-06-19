@@ -7,11 +7,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { execa } from "execa";
 
 const DEFAULT_RULES_INSTALL_SOURCE = "oisin-ee/rules";
+const RULESYNC_PACKAGE = "rulesync@8.30.1";
 
 const RULESYNC_TARGETS = [
   "claudecode",
@@ -19,15 +19,6 @@ const RULESYNC_TARGETS = [
   "geminicli",
   "opencode",
 ] as const;
-
-function packageRoot(): string {
-  // This module lives at src/install-rules.ts (compiled to dist/install-rules.js).
-  // Walk up one directory from the compiled output to reach the package root.
-  const thisFile = fileURLToPath(import.meta.url);
-  return join(dirname(thisFile), "..");
-}
-
-const PACKAGE_ROOT = packageRoot();
 
 export type RulesyncRunner = (
   args: string[],
@@ -89,11 +80,9 @@ async function defaultRulesyncRunner(
   opts: { cwd: string; env: NodeJS.ProcessEnv }
 ): Promise<void> {
   try {
-    await execa("rulesync", args, {
+    await execa("npx", ["--yes", RULESYNC_PACKAGE, ...args], {
       cwd: opts.cwd,
       env: opts.env,
-      localDir: PACKAGE_ROOT,
-      preferLocal: true,
       stdio: "inherit",
     });
   } catch (error) {

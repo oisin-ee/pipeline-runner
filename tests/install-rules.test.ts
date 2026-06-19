@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -197,6 +198,46 @@ describe("installRules", () => {
     const content = readFileSync(rootMd, "utf8");
     expect(content).toContain("root: true");
     expect(content.endsWith("\n")).toBe(true);
+  });
+
+  it("uses npx with the pinned rulesync package when no runner is injected", async () => {
+    writeRuleFragment(sourceDir, "00-a.md", "# Rule A");
+    const binDir = mkdtempSync(join(tmpdir(), "install-rules-bin-"));
+    const argsFile = join(binDir, "npx-args.json");
+    const npxPath = join(binDir, "npx");
+    writeFileSync(
+      npxPath,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        `fs.writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(process.argv.slice(2)));`,
+      ].join("\n")
+    );
+    chmodSync(npxPath, 0o755);
+
+    const savedPath = process.env.PATH;
+    process.env.PATH = [binDir, savedPath].filter(Boolean).join(":");
+    try {
+      await installRules({ sourceOverride: sourceDir });
+    } finally {
+      if (savedPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = savedPath;
+      }
+    }
+
+    expect(JSON.parse(readFileSync(argsFile, "utf8"))).toEqual([
+      "--yes",
+      "rulesync@8.30.1",
+      "generate",
+      "-t",
+      "claudecode,codexcli,geminicli,opencode",
+      "-f",
+      "rules",
+      "--delete",
+    ]);
+    rmSync(binDir, { force: true, recursive: true });
   });
 });
 

@@ -8,6 +8,8 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
+import { replaceClaudeUserMcpServers } from "../claude-user-config";
+import { mergeCodexConfig } from "../codex-config";
 import type { PipelineConfig } from "../config";
 import {
   McpGatewayService,
@@ -25,8 +27,9 @@ const LEGACY_PIPELINE_MCP_RE = /path:\s*\.mcp\.json|uvx\s+mcpm|mcpm\s+run/;
 type ActorConfig = PipelineConfig["profiles"][string];
 type McpServerConfig = PipelineConfig["mcp_servers"][string];
 type McpGatewayConfig = NonNullable<PipelineConfig["mcp_gateway"]>;
-export type GatewayHostSelection = "all" | "opencode";
+export type GatewayHostSelection = "all" | GatewayHost;
 export type GatewayHostScope = "global" | "project";
+type GatewayHost = "opencode" | "claude-code" | "codex";
 
 export interface GatewayDoctorCheck {
   detail: string;
@@ -41,7 +44,7 @@ export interface GatewayDoctorResult {
 
 export interface GatewayHostConfigResult {
   backupPath?: string;
-  host: Exclude<GatewayHostSelection, "all">;
+  host: GatewayHost;
   path: string;
 }
 
@@ -160,17 +163,39 @@ export function renderOpenCodeGatewayConfig(config: PipelineConfig): string {
   )}\n`;
 }
 
-export function renderClaudeGatewayMcpServers(
+function renderClaudeGatewayMcpServers(
   config: PipelineConfig
 ): Record<string, unknown> {
   const gateway = configuredGateway(config);
   return {
     [PIPELINE_GATEWAY_SERVER_ID]: {
-      headers: gatewayOpenCodeHeaders(gateway),
+      headers: gatewayClaudeHeaders(gateway),
       type: "http",
       url: gatewayUrl(gateway),
     },
   };
+}
+
+export function renderClaudeGatewayUserConfig(config: PipelineConfig): string {
+  return `${JSON.stringify(
+    {
+      mcpServers: renderClaudeGatewayMcpServers(config),
+    },
+    null,
+    2
+  )}\n`;
+}
+
+export function renderCodexGatewayConfig(config: PipelineConfig): string {
+  const gateway = configuredGateway(config);
+  return [
+    `[mcp_servers.${PIPELINE_GATEWAY_SERVER_ID}]`,
+    `url = ${tomlString(gatewayUrl(gateway))}`,
+    "",
+    `[mcp_servers.${PIPELINE_GATEWAY_SERVER_ID}.env_http_headers]`,
+    `Authorization = ${tomlString(gateway.authorization_env)}`,
+    "",
+  ].join("\n");
 }
 
 export function configureGatewayHosts(
@@ -178,8 +203,10 @@ export function configureGatewayHosts(
   options: GatewayConfigureHostOptions
 ): GatewayHostConfigResult[] {
   return selectedGatewayHosts(options.host).map((host) => {
-    const path = gatewayHostConfigPath(options.scope, options.cwd);
-    const content = renderOpenCodeGatewayConfig(config);
+    const adapter = GATEWAY_HOST_CONFIGS[host];
+    const path = adapter.path(options.scope, options.cwd);
+    const current = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+    const content = adapter.configureContent(config, current);
     const backupPath = backupIfExists(path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
@@ -420,13 +447,48 @@ function callGatewayRpc(
   });
 }
 
-function selectedGatewayHosts(
-  host: GatewayHostSelection
-): Exclude<GatewayHostSelection, "all">[] {
-  return host === "all" ? ["opencode"] : [host];
+function selectedGatewayHosts(host: GatewayHostSelection): GatewayHost[] {
+  return host === "all" ? ["opencode", "claude-code", "codex"] : [host];
 }
 
-function gatewayHostConfigPath(scope: GatewayHostScope, cwd: string): string {
+interface GatewayHostConfigAdapter {
+  configureContent: (
+    config: PipelineConfig,
+    current: string | undefined
+  ) => string;
+  path: (scope: GatewayHostScope, cwd: string) => string;
+}
+
+const GATEWAY_HOST_CONFIGS: Record<GatewayHost, GatewayHostConfigAdapter> = {
+  "claude-code": {
+    configureContent: (config, current) => {
+      const merged = replaceClaudeUserMcpServers(current, {
+        mcpServers: renderClaudeGatewayMcpServers(config),
+      });
+      if (!merged.ok) {
+        throw new PipelineMcpGatewayError(
+          "Cannot parse Claude Code user config."
+        );
+      }
+      return merged.content;
+    },
+    path: claudeGatewayConfigPath,
+  },
+  codex: {
+    configureContent: (config, current) =>
+      mergeCodexConfig(current, renderCodexGatewayConfig(config)),
+    path: codexGatewayConfigPath,
+  },
+  opencode: {
+    configureContent: (config) => renderOpenCodeGatewayConfig(config),
+    path: opencodeGatewayConfigPath,
+  },
+};
+
+function opencodeGatewayConfigPath(
+  scope: GatewayHostScope,
+  cwd: string
+): string {
   if (scope === "project") {
     return join(cwd, ".opencode", "opencode.json");
   }
@@ -437,6 +499,26 @@ function gatewayHostConfigPath(scope: GatewayHostScope, cwd: string): string {
         "opencode"
       ),
     "opencode.json"
+  );
+}
+
+function claudeGatewayConfigPath(scope: GatewayHostScope, cwd: string): string {
+  if (scope === "project") {
+    return join(cwd, ".mcp.json");
+  }
+  return join(
+    dirname(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")),
+    ".claude.json"
+  );
+}
+
+function codexGatewayConfigPath(scope: GatewayHostScope, cwd: string): string {
+  if (scope === "project") {
+    return join(cwd, ".codex", "config.toml");
+  }
+  return join(
+    process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+    "config.toml"
   );
 }
 
@@ -486,6 +568,18 @@ function gatewayOpenCodeHeaders(
   return {
     Authorization: gatewayAuthorizationHeader(gateway),
   };
+}
+
+function gatewayClaudeHeaders(
+  gateway: McpGatewayConfig
+): Record<string, string> {
+  return {
+    Authorization: `\${${gateway.authorization_env}}`,
+  };
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
 }
 
 function checkThv(

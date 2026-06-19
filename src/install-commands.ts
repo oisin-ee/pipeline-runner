@@ -1,11 +1,15 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import { mergeClaudeUserConfig } from "./claude-user-config";
+import { mergeCodexConfig } from "./codex-config";
 import { loadPipelineConfig, type PipelineConfig } from "./config";
 import { claudeCodeAdapter } from "./install-commands/claude-code";
 import { opencodeAdapter } from "./install-commands/opencode";
 import {
   type ActiveCommandHost,
+  CLAUDE_USER_CONFIG_PATH,
+  CODEX_CONFIG_PATH,
   COMMAND_HOSTS,
   type CommandDefinition,
   type CommandHostSelection,
@@ -15,16 +19,23 @@ import {
   GENERATED_TS_MARKER,
   GENERATED_YAML_MARKER,
   type HostAdapter,
+  INSTALL_HOSTS,
   type InstallAction,
   type InstallCommandsContext,
   type InstallCommandsOptions,
   type InstallCommandsResult,
+  type InstallHost,
   invocationForHost,
   OWNER_MARKER_PREFIX,
   OWNER_TS_MARKER_PREFIX,
   OWNER_YAML_MARKER_PREFIX,
   resolveHarnessTarget,
 } from "./install-commands/shared";
+import { isRecord } from "./json-config-merge";
+import {
+  renderClaudeGatewayUserConfig,
+  renderCodexGatewayConfig,
+} from "./mcp/gateway";
 
 export type {
   CommandHostSelection,
@@ -42,11 +53,14 @@ function definitionsFor(
   config: PipelineConfig,
   cwd: string
 ): CommandDefinition[] {
-  const hosts = host === "all" ? COMMAND_HOSTS : [host];
+  const hosts = selectedCommandHosts(host);
   const rawDefinitions = hosts.flatMap((name) =>
     ADAPTERS[name].definitions(config, cwd)
   );
-  return dedupeDefinitionsByPath(rawDefinitions);
+  return dedupeDefinitionsByPath([
+    ...rawDefinitions,
+    ...gatewayHostConfigDefinitions(host, config),
+  ]);
 }
 
 function dedupeDefinitionsByPath(
@@ -61,8 +75,20 @@ function dedupeDefinitionsByPath(
   );
 }
 
-function selectedHosts(host: CommandHostSelection): ActiveCommandHost[] {
-  return host === "all" ? [...COMMAND_HOSTS] : [host];
+function selectedInstallHosts(host: CommandHostSelection): InstallHost[] {
+  return host === "all" ? [...INSTALL_HOSTS] : [host];
+}
+
+function isActiveCommandHost(host: InstallHost): host is ActiveCommandHost {
+  return host === "opencode" || host === "claude-code";
+}
+
+function isInstallHost(host: string): host is InstallHost {
+  return INSTALL_HOSTS.some((candidate) => candidate === host);
+}
+
+function selectedCommandHosts(host: CommandHostSelection): ActiveCommandHost[] {
+  return selectedInstallHosts(host).filter(isActiveCommandHost);
 }
 
 function resourceRootsFor(host: ActiveCommandHost): string[] {
@@ -102,8 +128,8 @@ async function obsoleteGeneratedItems(
   host: CommandHostSelection,
   wantedPaths: Set<string>
 ): Promise<CommandInstallPlanItem[]> {
-  const hosts = new Set<ActiveCommandHost>(selectedHosts(host));
-  const roots = selectedHosts(host).flatMap((selectedHost) =>
+  const hosts = new Set<ActiveCommandHost>(selectedCommandHosts(host));
+  const roots = selectedCommandHosts(host).flatMap((selectedHost) =>
     resourceRootsFor(selectedHost)
   );
   const scanned = await Promise.all(
@@ -171,13 +197,40 @@ interface ResolvedCommandDefinitionContent {
   content: string;
 }
 
+type DefinitionMerge = (
+  existingContent: string | undefined,
+  projectionContent: string
+) => ResolvedCommandDefinitionContent;
+
+const CONFIG_MERGES: Record<string, DefinitionMerge> = {
+  [CLAUDE_USER_CONFIG_PATH]: (existingContent, projectionContent) => {
+    const projection = JSON.parse(projectionContent);
+    if (!isRecord(projection)) {
+      return { conflict: true, content: projectionContent };
+    }
+    const merged = mergeClaudeUserConfig(existingContent, projection);
+    return merged.ok
+      ? { conflict: false, content: merged.content }
+      : { conflict: true, content: projectionContent };
+  },
+  [CODEX_CONFIG_PATH]: (existingContent, projectionContent) => ({
+    conflict: false,
+    content: mergeCodexConfig(existingContent, projectionContent),
+  }),
+};
+
 function resolveDefinitionContent(
   definition: CommandDefinition,
   target: string
 ): ResolvedCommandDefinitionContent {
-  const adapter = ADAPTERS[definition.host as ActiveCommandHost] as
-    | HostAdapter
-    | undefined;
+  const configMerge = CONFIG_MERGES[definition.path];
+  if (configMerge) {
+    return configMerge(
+      existsSync(target) ? readFileSync(target, "utf8") : undefined,
+      definition.content
+    );
+  }
+  const adapter = adapterForDefinition(definition);
   if (!(adapter?.mergeDefinition && existsSync(target))) {
     return { conflict: false, content: definition.content };
   }
@@ -186,6 +239,20 @@ function resolveDefinitionContent(
     definition,
     target
   );
+}
+
+function adapterForDefinition(
+  definition: CommandDefinition
+): HostAdapter | undefined {
+  return isActiveDefinitionHost(definition.host)
+    ? ADAPTERS[definition.host]
+    : undefined;
+}
+
+function isActiveDefinitionHost(
+  host: CommandDefinition["host"]
+): host is ActiveCommandHost {
+  return host === "opencode" || host === "claude-code";
 }
 
 function applyMergeDefinition(
@@ -201,6 +268,46 @@ function applyMergeDefinition(
     return { conflict: true, content: definition.content };
   }
   return { conflict: false, content: merged.content };
+}
+
+function gatewayHostConfigDefinitions(
+  host: CommandHostSelection,
+  config: PipelineConfig
+): CommandDefinition[] {
+  if (!config.mcp_gateway) {
+    return [];
+  }
+  return selectedInstallHosts(host).flatMap(
+    gatewayHostConfigDefinition(config)
+  );
+}
+
+function gatewayHostConfigDefinition(
+  config: PipelineConfig
+): (host: InstallHost) => CommandDefinition[] {
+  return (host) => {
+    if (host === "claude-code") {
+      return [
+        {
+          content: renderClaudeGatewayUserConfig(config),
+          host,
+          invocation: invocationForHost(host),
+          path: CLAUDE_USER_CONFIG_PATH,
+        },
+      ];
+    }
+    if (host === "codex") {
+      return [
+        {
+          content: renderCodexGatewayConfig(config),
+          host,
+          invocation: "codex",
+          path: CODEX_CONFIG_PATH,
+        },
+      ];
+    }
+    return [];
+  };
 }
 
 function actionFor(
@@ -253,7 +360,10 @@ function upsertGeneratedBlock(
 }
 
 function adapterForcesDefinition(definition: CommandDefinition): boolean {
-  const fn = ADAPTERS[definition.host as ActiveCommandHost]?.isAlwaysForced;
+  if (definition.path in CONFIG_MERGES) {
+    return true;
+  }
+  const fn = adapterForDefinition(definition)?.isAlwaysForced;
   return fn ? fn(definition) : false;
 }
 
@@ -456,11 +566,14 @@ export function parseCommandHost(
   value: string | undefined
 ): CommandHostSelection {
   const host = value ?? "all";
-  if (host === "all" || COMMAND_HOSTS.includes(host as ActiveCommandHost)) {
-    return host as CommandHostSelection;
+  if (host === "all") {
+    return host;
+  }
+  if (isInstallHost(host)) {
+    return host;
   }
   throw new Error(
-    `Unsupported host "${host}". Supported values: all, ${COMMAND_HOSTS.join(", ")}.`
+    `Unsupported host "${host}". Supported values: all, ${INSTALL_HOSTS.join(", ")}.`
   );
 }
 

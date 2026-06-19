@@ -685,7 +685,7 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
     .description("Rewrite host MCP config to the singleton pipeline gateway")
     .addOption(
       new Option("--host <host>", "host config to update")
-        .choices(["all", "opencode"])
+        .choices(["all", "opencode", "claude-code", "codex"])
         .default("all")
         .argParser(parseGatewayHost)
     )
@@ -792,7 +792,7 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
     )
     .addOption(
       new Option("--host <host>", "host command set to install")
-        .choices(["all", "opencode", "claude-code"])
+        .choices(["all", "opencode", "claude-code", "codex"])
         .default("all")
         .argParser(parseCommandHost)
     )
