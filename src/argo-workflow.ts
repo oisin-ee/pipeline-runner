@@ -41,14 +41,16 @@ const RUNNER_OPENCODE_ENV = [
 ] as const;
 
 // Runner containers run the agent plus memory-heavy gate commands (tsc, jest,
-// fallow) over the target repo. With no memory request the scheduler
-// overcommits a node with parallel agent nodes and the kernel OOM-kills one
-// (exit 137 — observed on the RN/Expo test node). Request enough that heavy
-// nodes spread across nodes; allow a generous limit for large typecheck/test
-// runs. Overridable per-submit via options.resources.
+// fallow) over the target repo. The RN/Expo cross-platform test suite alone
+// exceeds 8Gi and was cgroup-OOM-killed (exit 137) on every retry, so the limit
+// must clear that workload: 12Gi fits a 16GB worker with headroom for the
+// kubelet/system. The 8Gi request is deliberately high — it makes the scheduler
+// place at most one heavy runner per 16GB node, so two pods can't both spike to
+// the 12Gi limit and trigger a node-level OOM (which would evict, not just fail).
+// Overridable per-submit via options.resources.
 const DEFAULT_RUNNER_RESOURCES = {
-  limits: { cpu: "4", memory: "8Gi" },
-  requests: { cpu: "1", memory: "4Gi" },
+  limits: { cpu: "4", memory: "12Gi" },
+  requests: { cpu: "1", memory: "8Gi" },
 } as const;
 
 const kubernetesNameSchema = z.string().min(1);

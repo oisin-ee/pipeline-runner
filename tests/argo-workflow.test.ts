@@ -182,11 +182,11 @@ describe("runner Argo Workflow manifest", () => {
                 "resources": {
                   "limits": {
                     "cpu": "4",
-                    "memory": "8Gi",
+                    "memory": "12Gi",
                   },
                   "requests": {
                     "cpu": "1",
-                    "memory": "4Gi",
+                    "memory": "8Gi",
                   },
                 },
                 "volumeMounts": [
@@ -257,11 +257,11 @@ describe("runner Argo Workflow manifest", () => {
                 "resources": {
                   "limits": {
                     "cpu": "4",
-                    "memory": "8Gi",
+                    "memory": "12Gi",
                   },
                   "requests": {
                     "cpu": "1",
-                    "memory": "4Gi",
+                    "memory": "8Gi",
                   },
                 },
                 "volumeMounts": [
@@ -338,11 +338,11 @@ describe("runner Argo Workflow manifest", () => {
                 "resources": {
                   "limits": {
                     "cpu": "4",
-                    "memory": "8Gi",
+                    "memory": "12Gi",
                   },
                   "requests": {
                     "cpu": "1",
-                    "memory": "4Gi",
+                    "memory": "8Gi",
                   },
                 },
                 "volumeMounts": [
@@ -419,11 +419,11 @@ describe("runner Argo Workflow manifest", () => {
                 "resources": {
                   "limits": {
                     "cpu": "4",
-                    "memory": "8Gi",
+                    "memory": "12Gi",
                   },
                   "requests": {
                     "cpu": "1",
-                    "memory": "4Gi",
+                    "memory": "8Gi",
                   },
                 },
                 "volumeMounts": [
@@ -502,11 +502,11 @@ describe("runner Argo Workflow manifest", () => {
                 "resources": {
                   "limits": {
                     "cpu": "4",
-                    "memory": "8Gi",
+                    "memory": "12Gi",
                   },
                   "requests": {
                     "cpu": "1",
-                    "memory": "4Gi",
+                    "memory": "8Gi",
                   },
                 },
                 "volumeMounts": [
@@ -704,10 +704,10 @@ describe("runner Argo Workflow manifest", () => {
               resources:
                 limits:
                   cpu: "4"
-                  memory: 8Gi
+                  memory: 12Gi
                 requests:
                   cpu: "1"
-                  memory: 4Gi
+                  memory: 8Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -755,10 +755,10 @@ describe("runner Argo Workflow manifest", () => {
               resources:
                 limits:
                   cpu: "4"
-                  memory: 8Gi
+                  memory: 12Gi
                 requests:
                   cpu: "1"
-                  memory: 4Gi
+                  memory: 8Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -810,10 +810,10 @@ describe("runner Argo Workflow manifest", () => {
               resources:
                 limits:
                   cpu: "4"
-                  memory: 8Gi
+                  memory: 12Gi
                 requests:
                   cpu: "1"
-                  memory: 4Gi
+                  memory: 8Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -865,10 +865,10 @@ describe("runner Argo Workflow manifest", () => {
               resources:
                 limits:
                   cpu: "4"
-                  memory: 8Gi
+                  memory: 12Gi
                 requests:
                   cpu: "1"
-                  memory: 4Gi
+                  memory: 8Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
@@ -922,10 +922,10 @@ describe("runner Argo Workflow manifest", () => {
               resources:
                 limits:
                   cpu: "4"
-                  memory: 8Gi
+                  memory: 12Gi
                 requests:
                   cpu: "1"
-                  memory: 4Gi
+                  memory: 8Gi
               volumeMounts:
                 - mountPath: /etc/pipeline/payload.json
                   name: runner-payload
