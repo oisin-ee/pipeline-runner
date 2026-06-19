@@ -66,7 +66,10 @@ runner_command:
           - |
             if [ -f .moka/bootstrap.sh ]; then
               echo "moka: running repo bootstrap (.moka/bootstrap.sh)"
-              sh .moka/bootstrap.sh
+              # Run under the script's own shebang (e.g. bash), not forced `sh`:
+              # forcing dash breaks bash-feature bootstraps (`set -o pipefail`).
+              chmod +x .moka/bootstrap.sh
+              ./.moka/bootstrap.sh
             elif [ -f package.json ] && grep -q '"moka:setup"' package.json; then
               echo "moka: running repo bootstrap (npm run moka:setup)"
               npm run moka:setup
