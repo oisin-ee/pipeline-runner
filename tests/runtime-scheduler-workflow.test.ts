@@ -820,7 +820,7 @@ function retryStrategiesByTemplate(
 function runnerRetryStrategy() {
   return {
     expression:
-      "lastRetry.status == 'Error' || lastRetry.exitCode == '70' || lastRetry.exitCode == '137'",
+      "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
     limit: "3",
     retryPolicy: "Always",
   };

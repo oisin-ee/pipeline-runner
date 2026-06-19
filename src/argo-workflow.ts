@@ -16,22 +16,23 @@ const RUNNER_WORKFLOW_START_TASK = "workflow-start";
 const RUNNER_WORKFLOW_PAYLOAD_PATH = "/etc/pipeline/payload.json";
 const RUNNER_WORKFLOW_SCHEDULE_PATH = "/etc/pipeline/schedule.yaml";
 const RUNNER_GIT_CREDENTIALS_PATH = "/etc/pipeline/git-credentials";
-// Retry a runner node on transient infrastructure disruption, NOT on genuine
-// task failures (exit 1 / Failed) which node-level retries/remediation own.
-// retryPolicy "Always" makes both Errored and Failed nodes retry candidates;
-// the expression then allowlists the transient-infra outcomes:
-//   - status "Error": node went NotReady with no task exit code recorded.
-//   - exit 70: moka startup/internal infra failure.
-//   - exit 137: pod SIGKILL/OOM/eviction under node pressure. Argo records this
-//     as a "pod deleted" node that carries exitCode 137 — which is classed such
-//     that `status == 'Error'` does NOT match, so it must be matched by code.
-// exitCode is compared as a string so an empty code (pure pod-deleted, no exit)
-// can never make asInt() throw and silently void the whole expression. A retried
-// node reschedules — typically onto a healthy node — while already-Succeeded
+// Retry a runner node on ANY infrastructure/abnormal failure, NOT on a clean
+// deterministic task failure. The runner exits 1 (status Failed) only when the
+// node actually ran and its task/gates failed — that outcome is owned by
+// node-level remediation and must not retry. Everything else is transient infra
+// the cluster throws under control-plane/node disruption: Argo "Error" (NodeNot
+// Ready, no exit code), exit 70 (moka startup), exit 137 (SIGKILL/OOM/eviction),
+// exit 255 (abnormal pod termination), etc. Enumerating each code is whack-a-mole
+// as the cluster surfaces new ones, so the predicate inverts: retry unless the
+// last attempt cleanly succeeded (0) or cleanly failed its task (1). exitCode is
+// compared as a string so an empty code (status Error, no code) is naturally
+// retryable and never makes a numeric parse throw and void the expression.
+// retryPolicy "Always" makes both Errored and Failed nodes retry candidates; a
+// retried node reschedules — typically onto a healthy node — while Succeeded
 // upstream nodes are preserved, so a single pod disruption no longer fails the run.
 const RUNNER_RETRY_STRATEGY = {
   expression:
-    "lastRetry.status == 'Error' || lastRetry.exitCode == '70' || lastRetry.exitCode == '137'",
+    "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
   limit: "3",
   retryPolicy: "Always",
 } as const;
