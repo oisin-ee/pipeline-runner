@@ -53,6 +53,16 @@ const DEFAULT_RUNNER_RESOURCES = {
   requests: { cpu: "1", memory: "8Gi" },
 } as const;
 
+// Per-node runtime ceiling. retryStrategy only fires on a pod that FAILS; a pod
+// that hangs (e.g. a child process blocked on an interactive prompt) stays
+// Running forever and is never retried — one such node sat 7h46m. activeDeadline
+// Seconds is Argo's native guard: when a pod exceeds it Argo fails the node,
+// which then matches the retry expression and is retried. 3600s is a deliberate
+// hang ceiling, NOT a perf target — observed nodes finish well under 15m, so an
+// hour is generous headroom for a slow agent/gate while bounding a true hang to
+// at most limit×deadline instead of unbounded. Applies to every runner pod.
+const DEFAULT_RUNNER_DEADLINE_SECONDS = 3600;
+
 const kubernetesNameSchema = z.string().min(1);
 const labelValueSchema = z.string().min(1);
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
@@ -181,6 +191,7 @@ const argoWorkflowTemplateSchema = z
       })
       .strict()
       .optional(),
+    activeDeadlineSeconds: z.number().int().positive().optional(),
     name: z.string().min(1),
     retryStrategy: argoWorkflowRetryStrategySchema.optional(),
   })
@@ -559,6 +570,7 @@ function runnerLifecycleTemplate(
     },
     name: RUNNER_WORKFLOW_START_TASK,
     retryStrategy: { ...RUNNER_RETRY_STRATEGY },
+    activeDeadlineSeconds: DEFAULT_RUNNER_DEADLINE_SECONDS,
   };
 }
 
@@ -592,6 +604,7 @@ function runnerCommandTemplate(
     },
     name: task.templateName,
     retryStrategy: { ...RUNNER_RETRY_STRATEGY },
+    activeDeadlineSeconds: DEFAULT_RUNNER_DEADLINE_SECONDS,
   };
 }
 
@@ -619,6 +632,7 @@ function runnerFinalizerTemplate(
       volumeMounts,
     },
     name: "pipeline-finalizer",
+    activeDeadlineSeconds: DEFAULT_RUNNER_DEADLINE_SECONDS,
   };
 }
 

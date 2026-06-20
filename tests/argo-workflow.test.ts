@@ -157,6 +157,7 @@ describe("runner Argo Workflow manifest", () => {
               "name": "pipeline",
             },
             {
+              "activeDeadlineSeconds": 3600,
               "container": {
                 "args": [
                   "runner-lifecycle",
@@ -234,6 +235,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
+              "activeDeadlineSeconds": 3600,
               "container": {
                 "args": [
                   "runner-command",
@@ -315,6 +317,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
+              "activeDeadlineSeconds": 3600,
               "container": {
                 "args": [
                   "runner-command",
@@ -396,6 +399,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
+              "activeDeadlineSeconds": 3600,
               "container": {
                 "args": [
                   "runner-command",
@@ -477,6 +481,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
+              "activeDeadlineSeconds": 3600,
               "container": {
                 "args": [
                   "runner-finalize",
@@ -731,6 +736,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: github-auth
                   readOnly: true
                   subPath: hosts.yml
+            activeDeadlineSeconds: 3600
             name: workflow-start
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -786,6 +792,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-one.json
+            activeDeadlineSeconds: 3600
             name: task-one
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -841,6 +848,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-two.json
+            activeDeadlineSeconds: 3600
             name: task-two
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -896,6 +904,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-three.json
+            activeDeadlineSeconds: 3600
             name: task-three
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -949,6 +958,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: github-auth
                   readOnly: true
                   subPath: hosts.yml
+            activeDeadlineSeconds: 3600
             name: pipeline-finalizer
         ttlStrategy:
           secondsAfterCompletion: 3600
@@ -1120,6 +1130,29 @@ describe("runner Argo Workflow manifest", () => {
       rendered.indexOf("\n  volumes:")
     );
     expect(finalizerTemplate).not.toContain("retryStrategy:");
+  });
+
+  it("bounds every runner pod with activeDeadlineSeconds so a hung node is killed and retried", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      plan: plan(),
+    });
+
+    // A hung pod stays Running forever and never trips retryStrategy; the
+    // deadline is the only guard that turns an unbounded hang into a bounded,
+    // retryable failure. It must cover the lifecycle, every node, and finalize.
+    for (const templateName of [
+      "workflow-start",
+      "task-one",
+      "task-two",
+      "task-three",
+      "pipeline-finalizer",
+    ]) {
+      const template = manifest.spec.templates.find(
+        (candidate) => candidate.name === templateName
+      );
+      expect(template?.activeDeadlineSeconds).toBe(3600);
+    }
   });
 
   it("accepts retryStrategy on runner templates in the strict Argo schema", () => {
