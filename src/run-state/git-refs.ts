@@ -172,6 +172,23 @@ function commitAndPushNodeRefEffect(input: {
   });
 }
 
+/**
+ * Run a single git command through the runner's authenticated path: per-command
+ * credential-helper store (basic-auth from the mounted git-credentials) plus
+ * GIT_TERMINAL_PROMPT=0 so a missing credential fails fast instead of blocking
+ * forever on an interactive username prompt. This is the ONE git-auth primitive;
+ * every runner git operation (node delivery, dependency merge, open-pull-request)
+ * must route through it rather than spawning naked git.
+ */
+export async function runAuthenticatedGit(
+  cwd: string,
+  args: string[]
+): Promise<string> {
+  return await Effect.runPromise(
+    Effect.provide(runGit(cwd, args), GitPorcelainServiceLive)
+  );
+}
+
 export async function promoteFinalRef(input: {
   committer: PipelineConfig["runner_command"]["git"]["committer"];
   payload: RunnerCommandPayload;
