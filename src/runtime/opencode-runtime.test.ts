@@ -1,4 +1,4 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
+import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import { describe, expect, it } from "vitest";
 import type { PipelineConfig } from "../config";
 import type { RunnerLaunchPlan } from "../runner";

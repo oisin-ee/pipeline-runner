@@ -1,9 +1,4 @@
-import type {
-  AssistantMessage,
-  Event,
-  OpencodeClient,
-  Part,
-} from "@opencode-ai/sdk";
+import type { AssistantMessage, Event, Part } from "@opencode-ai/sdk/v2";
 import { Duration, Effect } from "effect";
 import type {
   AgentResult,
@@ -13,6 +8,7 @@ import type {
 import { isRecord } from "../safe-json";
 import { opencodeAgentName } from "./opencode-agent-name";
 import {
+  type OpencodeRuntimeClient,
   OpencodeSdkService,
   OpencodeSdkServiceLive,
 } from "./services/opencode-sdk-service";
@@ -38,7 +34,7 @@ export function createOpencodeSessionRegistry(): OpencodeSessionRegistry {
 }
 
 export interface OpencodeExecutorDeps {
-  client: OpencodeClient;
+  client: OpencodeRuntimeClient;
   /** Working directory threaded into every create/prompt request. */
   directory: string;
   /** Called with the resolved session id once known (run-state recording). */
@@ -179,9 +175,9 @@ function promptRequest(
   sessionId: string
 ) {
   return {
-    body: promptBody(plan),
-    path: { id: sessionId },
-    query: { directory: sessionDirectory(deps, plan) },
+    directory: sessionDirectory(deps, plan),
+    sessionID: sessionId,
+    ...promptBody(plan),
   };
 }
 
@@ -218,8 +214,8 @@ function resolveSessionId(
         Effect.gen(function* () {
           const sdk = yield* OpencodeSdkService;
           const created = yield* sdk.createSession(deps.client, {
-            body: { title: `moka:${plan.nodeId}` },
-            query: { directory: plan.cwd ?? deps.directory },
+            directory: plan.cwd ?? deps.directory,
+            title: `moka:${plan.nodeId}`,
           });
           return yield* unwrapEffect(created);
         }),
@@ -328,10 +324,15 @@ function unwrapEffect<T>(response: {
   return Effect.try({ catch: (error) => error, try: () => unwrap(response) });
 }
 
+// `variant` selects the opencode model variant (reasoning effort) on the prompt
+// request. The opencode server (1.17.x) reads it on /session/{id}/message, but
+// the SDK's request body type lags and omits it; the JSON body serializer
+// forwards the field verbatim, so we declare it here and let it ride through.
 function promptBody(plan: RunnerLaunchPlan): {
   agent?: string;
   model?: { modelID: string; providerID: string };
   parts: Array<{ text: string; type: "text" }>;
+  variant?: string;
 } {
   const prompt = promptText(plan);
   const model = parseModel(plan.model);
@@ -340,6 +341,7 @@ function promptBody(plan: RunnerLaunchPlan): {
     parts: [{ text: prompt, type: "text" }],
     ...(agent ? { agent } : {}),
     ...(model ? { model } : {}),
+    ...(plan.variant ? { variant: plan.variant } : {}),
   };
 }
 

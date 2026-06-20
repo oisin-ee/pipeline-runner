@@ -1,5 +1,5 @@
-import type { Event, OpencodeClient } from "@opencode-ai/sdk";
-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+import type { Event, OpencodeClient } from "@opencode-ai/sdk/v2";
+import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2";
 import { Context, Effect, Layer } from "effect";
 
 interface ServerProcess {
@@ -23,6 +23,24 @@ interface EventSubscription {
   stream: AsyncIterator<Event>;
 }
 
+/**
+ * The runtime only drives session create/prompt and event subscription. Depend
+ * on this minimal surface (with loose result shapes) so the full generated v2
+ * client AND small test doubles both satisfy it structurally — no casts.
+ */
+export interface OpencodeRuntimeClient {
+  event: {
+    subscribe: () => Promise<{ stream: AsyncIterableIterator<Event> }>;
+  };
+  session: {
+    // The service re-types the create/prompt results to the generated response
+    // shapes; the client surface only needs to be call-compatible, so the
+    // results stay `unknown` and small test doubles satisfy it without casts.
+    create: (args: CreateSessionArgs) => Promise<unknown>;
+    prompt: (args: PromptSessionArgs) => Promise<unknown>;
+  };
+}
+
 export class OpencodeSdkService extends Context.Tag("OpencodeSdkService")<
   OpencodeSdkService,
   {
@@ -31,11 +49,11 @@ export class OpencodeSdkService extends Context.Tag("OpencodeSdkService")<
       directory: string;
     }) => Effect.Effect<OpencodeClient, unknown>;
     readonly createSession: (
-      client: OpencodeClient,
+      client: OpencodeRuntimeClient,
       args: CreateSessionArgs
     ) => Effect.Effect<CreateSessionResponse, unknown>;
     readonly promptSession: (
-      client: OpencodeClient,
+      client: OpencodeRuntimeClient,
       args: PromptSessionArgs
     ) => Effect.Effect<PromptSessionResponse, unknown>;
     readonly spawnServer: (
@@ -46,7 +64,7 @@ export class OpencodeSdkService extends Context.Tag("OpencodeSdkService")<
       unknown
     >;
     readonly subscribeEvents: (
-      client: OpencodeClient
+      client: OpencodeRuntimeClient
     ) => Effect.Effect<EventSubscription, unknown>;
   }
 >() {}

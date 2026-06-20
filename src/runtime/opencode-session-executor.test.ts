@@ -1,27 +1,27 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
+import type { Event } from "@opencode-ai/sdk/v2";
 import { describe, expect, it } from "vitest";
 import type { RunnerExecutionOptions, RunnerLaunchPlan } from "../runner";
 import {
   createOpencodeExecutor,
   createOpencodeSessionRegistry,
 } from "./opencode-session-executor";
+import type { OpencodeRuntimeClient } from "./services/opencode-sdk-service";
+
+// The v2 session.prompt request is flat (sessionID + the message body fields).
+type RecordedPrompt = Parameters<OpencodeRuntimeClient["session"]["prompt"]>[0];
 
 interface FakeClientOptions {
   createErrors?: unknown[];
-  events?: Record<string, unknown>[];
+  events?: Event[];
   promptErrors?: unknown[];
   promptInfoError?: { data?: unknown; name: string };
   promptParts?: Record<string, unknown>[];
   recordCreates?: unknown[];
-  recordPrompts?: {
-    body: unknown;
-    path: { id: string };
-    query?: { directory?: string };
-  }[];
+  recordPrompts?: RecordedPrompt[];
   sessionId?: string;
 }
 
-function fakeClient(options: FakeClientOptions = {}): OpencodeClient {
+function fakeClient(options: FakeClientOptions = {}): OpencodeRuntimeClient {
   const sessionId = options.sessionId ?? "ses_test";
   const events = options.events ?? [];
   const createErrors = [...(options.createErrors ?? [])];
@@ -54,7 +54,7 @@ function fakeClient(options: FakeClientOptions = {}): OpencodeClient {
         }
         return Promise.resolve({ data: { id: sessionId }, error: undefined });
       },
-      prompt: async (args: { body: unknown; path: { id: string } }) => {
+      prompt: async (args: RecordedPrompt) => {
         options.recordPrompts?.push(args);
         const failure = promptErrors.shift();
         if (failure !== undefined) {
@@ -76,7 +76,7 @@ function fakeClient(options: FakeClientOptions = {}): OpencodeClient {
         };
       },
     },
-  } as unknown as OpencodeClient;
+  };
 }
 
 function opencodePlan(
@@ -125,7 +125,7 @@ describe("opencode session executor", () => {
   });
 
   it("records the session id and reuses it for a second prompt with the same nodeId", async () => {
-    const recordPrompts: Array<{ body: unknown; path: { id: string } }> = [];
+    const recordPrompts: RecordedPrompt[] = [];
     const registry = createOpencodeSessionRegistry();
     const seen: Array<{ nodeId: string; sessionId: string }> = [];
     const execute = createOpencodeExecutor({
@@ -139,7 +139,7 @@ describe("opencode session executor", () => {
     await execute(opencodePlan(), {});
 
     expect(registry.sessions.get("node-a")).toBe("ses_test");
-    expect(recordPrompts.map((entry) => entry.path.id)).toEqual([
+    expect(recordPrompts.map((entry) => entry.sessionID)).toEqual([
       "ses_test",
       "ses_test",
     ]);
@@ -157,30 +157,26 @@ describe("opencode session executor", () => {
 
     await execute(opencodePlan({ cwd: "/child-worktree" }), {});
 
-    expect(recordPrompts?.[0].query?.directory).toBe("/child-worktree");
+    expect(recordPrompts?.[0].directory).toBe("/child-worktree");
   });
 
-  it("selects the opencode agent name and split model per message", async () => {
-    const recordPrompts: Array<{ body: unknown; path: { id: string } }> = [];
+  it("selects the opencode agent, split model, and reasoning variant per message", async () => {
+    const recordPrompts: RecordedPrompt[] = [];
     const execute = createOpencodeExecutor({
       client: fakeClient({ recordPrompts }),
       directory: "/repo",
       registry: createOpencodeSessionRegistry(),
     });
 
-    await execute(opencodePlan(), {});
+    await execute(opencodePlan({ variant: "high" }), {});
 
-    const body = recordPrompts[0].body as {
-      agent?: string;
-      model?: { modelID: string; providerID: string };
-      parts: Array<{ text: string }>;
-    };
-    expect(body.agent).toBe("MoKa Code Writer");
-    expect(body.model).toEqual({
+    const prompt = recordPrompts[0];
+    expect(prompt.agent).toBe("MoKa Code Writer");
+    expect(prompt.model).toEqual({
       modelID: "gpt-5.5-low",
       providerID: "openai",
     });
-    expect(body.parts[0].text).toBe("do the task");
+    expect(prompt.variant).toBe("high");
   });
 
   it("forwards streamed text parts to onOutput as JSONL stdout chunks", async () => {
@@ -192,20 +188,34 @@ describe("opencode session executor", () => {
       client: fakeClient({
         events: [
           {
+            id: "evt-1",
             properties: {
-              part: { sessionID: "ses_test", text: "streamed", type: "text" },
+              part: {
+                id: "prt-1",
+                messageID: "msg-1",
+                sessionID: "ses_test",
+                text: "streamed",
+                type: "text",
+              },
+              sessionID: "ses_test",
+              time: 1,
             },
             type: "message.part.updated",
           },
           {
+            id: "evt-2",
             properties: {
               part: {
                 callID: "c1",
+                id: "prt-2",
+                messageID: "msg-1",
                 sessionID: "ses_test",
-                state: { status: "running" },
+                state: { input: {}, status: "running", time: { start: 0 } },
                 tool: "bash",
                 type: "tool",
               },
+              sessionID: "ses_test",
+              time: 2,
             },
             type: "message.part.updated",
           },
@@ -262,13 +272,13 @@ describe("opencode session executor", () => {
   });
 
   it("returns infra exit 70 when the session call throws", async () => {
-    const throwingClient = {
+    const throwingClient: OpencodeRuntimeClient = {
       event: { subscribe: () => Promise.resolve({ stream: emptyStream() }) },
       session: {
         create: () => Promise.reject(new Error("boom")),
         prompt: () => Promise.reject(new Error("boom")),
       },
-    } as unknown as OpencodeClient;
+    };
     const execute = createOpencodeExecutor({
       client: throwingClient,
       directory: "/repo",
@@ -420,7 +430,7 @@ describe("opencode session executor", () => {
 
 describe("opencode prompt body shaping", () => {
   it("recovers the prompt positional even when a context file follows it", async () => {
-    const recordPrompts: { body: unknown; path: { id: string } }[] = [];
+    const recordPrompts: RecordedPrompt[] = [];
     const execute = createOpencodeExecutor({
       client: fakeClient({ recordPrompts }),
       directory: "/repo",
@@ -443,12 +453,11 @@ describe("opencode prompt body shaping", () => {
       {}
     );
 
-    const body = recordPrompts[0].body as { parts: { text: string }[] };
-    expect(body.parts[0].text).toBe("do the task");
+    expect(recordPrompts[0].parts?.[0]).toMatchObject({ text: "do the task" });
   });
 
   it("omits the model when the selector has no provider/model split", async () => {
-    const recordPrompts: { body: unknown; path: { id: string } }[] = [];
+    const recordPrompts: RecordedPrompt[] = [];
     const execute = createOpencodeExecutor({
       client: fakeClient({ recordPrompts }),
       directory: "/repo",
@@ -457,16 +466,14 @@ describe("opencode prompt body shaping", () => {
 
     await execute(opencodePlan({ model: "baremodel" }), {});
 
-    const body = recordPrompts[0].body as {
-      model?: { modelID: string; providerID: string };
-    };
-    expect(body.model).toBeUndefined();
+    expect(recordPrompts[0].model).toBeUndefined();
   });
 });
 
-async function* emptyStream() {
+async function* emptyStream(): AsyncGenerator<Event> {
   await Promise.resolve();
-  if (emptyStream.length > 0) {
-    yield {} as Record<string, unknown>;
+  const none: Event[] = [];
+  for (const event of none) {
+    yield event;
   }
 }

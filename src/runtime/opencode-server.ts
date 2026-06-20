@@ -1,4 +1,4 @@
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2";
 import { Data, Effect } from "effect";
 import type { OpencodeServerSpawn } from "./services/opencode-sdk-service";
 import {
