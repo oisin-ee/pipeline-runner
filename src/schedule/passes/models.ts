@@ -70,6 +70,7 @@ function applyNodeCatalogModelsToAgentNode(
     ...node,
     category: node.category ?? template.category,
     models: nodeModelsOrCatalog(node, template),
+    reasoning_effort: node.reasoning_effort ?? template.reasoning_effort,
   };
 }
 

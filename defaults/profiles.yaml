@@ -90,7 +90,8 @@ skills:
 profiles:
   moka-orchestrator:
     runner: opencode
-    model: openai/gpt-5.5-xhigh
+    model: openai/gpt-5.5
+    reasoning_effort: xhigh
     description: Orchestrate the configured pipeline and enforce gates.
     instructions: { inline: "Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates." }
     skills: [orchestrate, execute, quick, inspect]
@@ -128,7 +129,8 @@ profiles:
       repair: { enabled: true, max_attempts: 1 }
   moka-inspector:
     runner: opencode
-    model: openai/gpt-5.5-low
+    model: openai/gpt-5.5
+    reasoning_effort: low
     description: Inspect the repository without modifying files.
     instructions: { inline: "Inspect the repository without modifying files." }
     skills: [research]
@@ -138,7 +140,8 @@ profiles:
     network: { mode: inherit }
   moka-schedule-planner:
     runner: opencode
-    model: openai/gpt-5.5-xhigh
+    model: openai/gpt-5.5
+    reasoning_effort: xhigh
     description: Refine a baseline schedule into a specialized approved-plan artifact.
     instructions: { inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only." }
     timeout_ms: 300000
@@ -219,7 +222,8 @@ profiles:
       repair: { enabled: true, max_attempts: 1 }
   moka-learner:
     runner: opencode
-    model: openai/gpt-5.5-low
+    model: openai/gpt-5.5
+    reasoning_effort: low
     description: Store durable lessons from the completed run.
     instructions: { inline: "Store durable lessons from the completed run when useful." }
     skills: [migrate]

@@ -159,20 +159,10 @@ describe("installCommands", () => {
       "@prevalentware/opencode-goal-plugin",
       "oc-codex-multi-auth@6.3.2",
     ]);
-    expect(Object.keys(opencode.provider.openai.models)).toEqual([
-      "gpt-5.5-none",
-      "gpt-5.5-low",
-      "gpt-5.5-medium",
-      "gpt-5.5-high",
-      "gpt-5.5-xhigh",
-    ]);
-    expect(
-      opencode.provider.openai.models["gpt-5.5-xhigh"].options
-    ).toMatchObject({
-      reasoningEffort: "xhigh",
-      reasoningSummary: "detailed",
-      store: false,
-    });
+    // moka no longer registers synthetic per-effort model selectors. Real base
+    // models + reasoning-effort variants are owned by the oc-codex-multi-auth
+    // plugin, so the generated project config carries no provider block.
+    expect(opencode.provider).toBeUndefined();
     const codexConfig = readFileSync(join(dir, ".codex/config.toml"), "utf8");
     expect(codexConfig).toContain("[features]");
     expect(codexConfig).toContain("hooks = true");

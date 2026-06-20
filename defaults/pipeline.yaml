@@ -104,54 +104,66 @@ scheduler:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [openai/gpt-5.5-medium]
+          models: [openai/gpt-5.5]
+          reasoning_effort: medium
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [openai/gpt-5.5-high, kimi-for-coding/kimi-k2-thinking]
+          models: [openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
+          reasoning_effort: high
         green-implementation:
           category: green
           profile: moka-code-writer
-          models: [opencode-go/qwen3.7-max, openai/gpt-5.5-high, kimi-for-coding/k2p6]
+          models: [opencode-go/qwen3.7-max, openai/gpt-5.5, kimi-for-coding/k2p6]
+          reasoning_effort: high
         verification:
           category: verification
           profile: moka-verifier
-          models: [openai/gpt-5.5-medium]
+          models: [openai/gpt-5.5]
+          reasoning_effort: medium
     execute:
       required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
       nodes:
         backlog-intake:
           category: intake
           profile: moka-researcher
-          models: [openai/gpt-5.5-medium]
+          models: [openai/gpt-5.5]
+          reasoning_effort: medium
         research:
           category: research
           profile: moka-researcher
-          models: [openai/gpt-5.5-medium, kimi-for-coding/k2p6]
+          models: [openai/gpt-5.5, kimi-for-coding/k2p6]
+          reasoning_effort: medium
         red-tests:
           category: red
           profile: moka-test-writer
-          models: [openai/gpt-5.5-high, kimi-for-coding/kimi-k2-thinking]
+          models: [openai/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
+          reasoning_effort: high
         green-backend:
           category: green
           profile: moka-code-writer
-          models: [opencode-go/qwen3.7-max, openai/gpt-5.5-high, kimi-for-coding/k2p6]
+          models: [opencode-go/qwen3.7-max, openai/gpt-5.5, kimi-for-coding/k2p6]
+          reasoning_effort: high
         green-frontend:
           category: green
           profile: moka-code-writer
-          models: [openai/gpt-5.5-high, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          models: [openai/gpt-5.5, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          reasoning_effort: high
         acceptance-review:
           category: acceptance
           profile: moka-acceptance-reviewer
-          models: [openai/gpt-5.5-medium]
+          models: [openai/gpt-5.5]
+          reasoning_effort: medium
         verification:
           category: verification
           profile: moka-verifier
-          models: [openai/gpt-5.5-medium]
+          models: [openai/gpt-5.5]
+          reasoning_effort: medium
         learn:
           category: learn
           profile: moka-learner
-          models: [openai/gpt-5.5-low]
+          models: [openai/gpt-5.5]
+          reasoning_effort: low
 schedules:
   quick-schedule:
     baseline: quick

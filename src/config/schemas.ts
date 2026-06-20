@@ -3,6 +3,18 @@ import { z } from "zod";
 
 export const ID_RE = /^[a-z][a-z0-9-]*$/;
 
+// Reasoning effort is carried as data on the role (node/profile/runner) and
+// applied at runtime as the opencode model variant for the selected model,
+// rather than baked into synthetic per-effort model ids. Mirrors the variant
+// levels the oc-codex-multi-auth plugin exposes for the GPT-5 family.
+const reasoningEffortSchema = z.enum([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
+
 const RUNNER_TYPES = ["opencode", "command"] as const;
 const NODE_KINDS = [
   "agent",
@@ -120,6 +132,7 @@ const runnerSchema = z
     command: z.string().optional(),
     host_models: z.record(z.string(), z.string().min(1)).optional(),
     model: z.string().optional(),
+    reasoning_effort: reasoningEffortSchema.optional(),
     type: z.enum(RUNNER_TYPES),
   })
   .strict();
@@ -405,6 +418,7 @@ const profileSchema = z
     model: z.string().optional(),
     network: networkSchema.optional(),
     output: outputSchema.optional(),
+    reasoning_effort: reasoningEffortSchema.optional(),
     rules: z.array(z.string()).optional(),
     runner: z.string(),
     scheduling_roles: z.array(z.enum(SCHEDULING_ROLES)).optional(),
@@ -587,6 +601,7 @@ const schedulerNodeTemplateSchema = z
     gates: z.array(gateSchema).optional(),
     models: modelFallbacksSchema,
     profile: z.string().min(1),
+    reasoning_effort: reasoningEffortSchema.optional(),
   })
   .strict();
 
@@ -610,6 +625,7 @@ const workflowNodeBaseSchema = z.object({
   id: z.string(),
   models: modelFallbacksSchema.optional(),
   needs: z.array(z.string()).optional(),
+  reasoning_effort: reasoningEffortSchema.optional(),
   retries: retriesSchema.optional(),
   task_context: nodeTaskContextSchema.optional(),
   timeout_ms: z.number().int().positive().optional(),

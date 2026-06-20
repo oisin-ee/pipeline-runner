@@ -47,6 +47,7 @@ export interface PlannedWorkflowNode {
   needs: string[];
   nodes?: string[];
   profile?: string;
+  reasoning_effort?: WorkflowNode["reasoning_effort"];
   retries?: WorkflowNode["retries"];
   taskContext?: PlannedWorkflowTaskContext;
   timeoutMs?: number;
@@ -433,6 +434,7 @@ function toPlannedNode(node: WorkflowNode, index: number): PlannedWorkflowNode {
     needs: node.needs ?? [],
     nodes: node.kind === "group" ? node.nodes : undefined,
     profile: "profile" in node ? node.profile : undefined,
+    reasoning_effort: node.reasoning_effort,
     retries: node.retries,
     taskContext: plannedTaskContext(node.task_context),
   };

@@ -79,6 +79,10 @@ export interface AgentAdapter {
   run(request: AgentRunRequest): Promise<AgentResult>;
 }
 
+type ReasoningEffort = NonNullable<
+  PipelineConfig["profiles"][string]["reasoning_effort"]
+>;
+
 export interface RunnerLaunchPlan {
   args: string[];
   command: string;
@@ -91,6 +95,7 @@ export interface RunnerLaunchPlan {
   runnerId: string;
   timeoutMs?: number;
   type: RunnerType;
+  variant?: ReasoningEffort;
 }
 
 export interface RunnerLaunchInput {
@@ -99,6 +104,7 @@ export interface RunnerLaunchInput {
   nodeId: string;
   profileId?: string;
   prompt: string;
+  reasoningEffort?: ReasoningEffort;
   worktreePath: string;
 }
 
@@ -187,6 +193,11 @@ interface NativeArgOptions {
   model?: string;
   nodeId?: string;
   runner?: PipelineConfig["runners"][string];
+  variant?: ReasoningEffort;
+}
+
+function optionalVariantArgs(variant?: ReasoningEffort): string[] {
+  return variant ? ["--variant", variant] : [];
 }
 
 /**
@@ -205,6 +216,7 @@ function harnessArgv(
         "--format",
         "json",
         ...optionalModelArgs(options.runner, options.actor, options.model),
+        ...optionalVariantArgs(options.variant),
         ...skillArgs,
         "--dangerously-skip-permissions",
         "--dir",
@@ -218,6 +230,7 @@ function harnessArgv(
         "--format",
         "json",
         ...optionalModelArgs(options.runner, options.actor, options.model),
+        ...optionalVariantArgs(options.variant),
         ...skillArgs,
         "--dangerously-skip-permissions",
         "--dir",
@@ -340,16 +353,18 @@ function createActorLaunchPlan(
   const command = runner.command ?? runner.type;
   const timeoutMs = actor?.timeout_ms ?? agentTimeoutMsFromEnv();
   const env: Record<string, string | undefined> = {};
+  const { model, variant } = resolveLaunchModel(input, actor, runner);
   const base = {
     cwd: input.worktreePath,
     env,
-    model: input.model ?? actor?.model ?? runner.model,
+    model,
     nodeId: input.nodeId,
     outputFormat,
     profileId: input.profileId,
     runnerId,
     timeoutMs,
     type: runner.type,
+    variant,
   };
 
   if (runner.type === "command") {
@@ -377,10 +392,42 @@ function createActorLaunchPlan(
         model: input.model,
         nodeId: input.nodeId,
         runner,
+        variant,
       }
     ),
     command,
   };
+}
+
+/**
+ * Reasoning effort applies as the opencode model variant, but only the GPT-5
+ * family (openai provider, via oc-codex-multi-auth) defines variants. For any
+ * other selected fallback model, omit the variant so opencode does not reject
+ * an unknown variant.
+ */
+function resolveVariant(
+  effort: ReasoningEffort | undefined,
+  model: string | undefined
+): ReasoningEffort | undefined {
+  if (!(effort && model)) {
+    return;
+  }
+  return model.startsWith("openai/") ? effort : undefined;
+}
+
+/**
+ * Resolve the selected model and its opencode variant from the launch input,
+ * actor (profile), and runner, preferring the most specific source.
+ */
+function resolveLaunchModel(
+  input: RunnerLaunchInput,
+  actor: ActorConfig | undefined,
+  runner: PipelineConfig["runners"][string]
+): { model: string | undefined; variant: ReasoningEffort | undefined } {
+  const model = input.model ?? actor?.model ?? runner.model;
+  const effort =
+    input.reasoningEffort ?? actor?.reasoning_effort ?? runner.reasoning_effort;
+  return { model, variant: resolveVariant(effort, model) };
 }
 
 function skillArgsFor(): string[] {

@@ -93,6 +93,7 @@ function executeAgentNodeEffect(
       nodeId: node.id,
       profileId: node.profile,
       prompt,
+      reasoningEffort: node.reasoning_effort,
       worktreePath: context.worktreePath,
     });
     if (node.timeoutMs) {

@@ -1788,10 +1788,10 @@ workflows:
 
         // With the PIPE-73 SDK transport the executor calls session.prompt
         // instead of execa("opencode"). Verify the stub received a prompt
-        // carrying the model declared on moka-inspector (openai/gpt-5.5-low).
+        // carrying the base model declared on moka-inspector (openai/gpt-5.5).
         expect(stub.promptBodies.length).toBeGreaterThan(0);
         expect(stub.promptBodies[0]).toMatchObject({
-          model: { modelID: "gpt-5.5-low", providerID: "openai" },
+          model: { modelID: "gpt-5.5", providerID: "openai" },
         });
         // quick-node-bin must not be called regardless of transport.
         expect(execaCommands()).not.toContain("quick-node-bin");

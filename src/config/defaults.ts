@@ -90,25 +90,6 @@ const ecosystemCodeSchema = z
   })
   .strict();
 
-const ecosystemProviderModelOptionsSchema = z
-  .object({
-    include: ecosystemStringArraySchema,
-    reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh"]),
-    reasoningSummary: z.enum(["auto", "detailed"]),
-    store: z.literal(false),
-    textVerbosity: z.enum(["low", "medium", "high"]),
-  })
-  .strict();
-
-const ecosystemProviderModelSchema = z
-  .object({
-    id: z.string().min(1),
-    options: ecosystemProviderModelOptionsSchema,
-    provider: z.string().min(1),
-    role: z.string().min(1),
-  })
-  .strict();
-
 const ecosystemMcpBackendSchema = z
   .object({
     credentials: ecosystemStringArraySchema,
@@ -158,7 +139,6 @@ const openCodeEcosystemManifestSchema = z
     mcp_backends: z.array(ecosystemMcpBackendSchema).min(1),
     official_dependencies: z.array(ecosystemDependencySchema).min(1),
     prompts: z.array(ecosystemProfileResourceSchema).min(1),
-    provider_models: z.array(ecosystemProviderModelSchema).min(1),
     runtime: ecosystemRuntimeSchema,
     skills: z.array(ecosystemProfileResourceSchema).min(1),
     sources: z.array(ecosystemSourceSchema).min(1),
