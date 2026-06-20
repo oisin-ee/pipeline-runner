@@ -41,16 +41,21 @@ const RUNNER_OPENCODE_ENV = [
 ] as const;
 
 // Runner containers run the agent plus memory-heavy gate commands (tsc, jest,
-// fallow) over the target repo. The RN/Expo cross-platform test suite alone
-// exceeds 8Gi and was cgroup-OOM-killed (exit 137) on every retry, so the limit
-// must clear that workload: 12Gi fits a 16GB worker with headroom for the
-// kubelet/system. The 8Gi request is deliberately high — it makes the scheduler
-// place at most one heavy runner per 16GB node, so two pods can't both spike to
-// the 12Gi limit and trigger a node-level OOM (which would evict, not just fail).
-// Overridable per-submit via options.resources.
+// fallow) over the target repo. The 12Gi limit clears the heaviest known gate
+// workload — an RN/Expo cross-platform suite that exceeds 8Gi and was
+// cgroup-OOM-killed (exit 137) on lower limits — and still fits a 16GB worker.
+//
+// The 5Gi request is sized to what a runner ACTUALLY uses (observed ~5Gi RSS
+// for a verification node), not to its worst-case burst. An 8Gi request
+// over-reserved nearly a whole 13Gi-allocatable node per pod, so a 3-node
+// cluster wedged at two concurrent runs — pods sat Pending behind reservations
+// that were never used. Packing by real footprint fixes that.
+// Trade-off: two runners can now co-schedule on one node, so a repo whose gates
+// burst to the 12Gi limit on both pods at once could node-OOM. Pin requests
+// back up (or lower the limit) per-submit via options.resources for such repos.
 const DEFAULT_RUNNER_RESOURCES = {
   limits: { cpu: "4", memory: "12Gi" },
-  requests: { cpu: "1", memory: "8Gi" },
+  requests: { cpu: "1", memory: "5Gi" },
 } as const;
 
 // Per-node runtime ceiling. retryStrategy only fires on a pod that FAILS; a pod
