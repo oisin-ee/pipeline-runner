@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { PipelineConfig } from "../../config";
 import { gatewayServerForProfile } from "../../mcp/gateway";
-import { type ModelSelection, selectNodeModel } from "../../model-resolver";
+import { selectNodeModelCandidates } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
 import { resolveFileReference } from "../../path-refs";
 import type { PlannedWorkflowNode } from "../../planning/compile";
@@ -23,6 +23,7 @@ import type {
   RuntimeContext,
 } from "../contracts";
 import { emit, emitAgentFinish, emitAgentStart } from "../events";
+import { EXIT_INFRA } from "../exit-codes";
 import {
   handoffFinalizerPrompt,
   type NodeHandoff,
@@ -76,22 +77,109 @@ function executeAgentNodeEffect(
       return {
         evidence: [
           `agent boundary node=${node.id} profile=${node.profile}`,
-          `over token budget: ${decision.selection.reason}`,
-          ...(decision.selection.skipped.length
-            ? [
-                `model fallbacks skipped: ${decision.selection.skipped.join(", ")}`,
-              ]
+          `over token budget: ${decision.reason}`,
+          ...(decision.skipped.length
+            ? [`model fallbacks skipped: ${decision.skipped.join(", ")}`]
             : []),
         ],
         exitCode: 1,
         output: "",
       };
     }
-    const modelSelection = decision.selection;
+    const profileId = node.profile;
+    // The model array is a fallback set: try each candidate in declared order,
+    // moving on only when one's session fails at runtime with an infra error
+    // (provider/server down). All non-infra outcomes — success, or a genuine
+    // agent-task error — belong to a model that actually ran, so they are the
+    // node's result and stop the walk. The final candidate is always the
+    // result, infra or not, so an exhausted set surfaces as the real failure.
+    const fallbackEvidence: string[] = [];
+    const lastIndex = decision.candidates.length - 1;
+    for (let index = 0; index < lastIndex; index += 1) {
+      const model = decision.candidates[index];
+      const attemptOutcome = yield* runModelAttemptEffect({
+        attempt,
+        context,
+        model,
+        node,
+        profileId,
+        prompt,
+      });
+      if (attemptOutcome.result.exitCode !== EXIT_INFRA) {
+        return yield* buildAgentAttemptResultEffect({
+          attempt,
+          context,
+          decision,
+          fallbackEvidence,
+          model,
+          node,
+          outcome: attemptOutcome,
+          profileId,
+        });
+      }
+      fallbackEvidence.push(
+        fallbackNote(
+          model,
+          decision.candidates[index + 1],
+          attemptOutcome.result
+        )
+      );
+    }
+    const lastModel = decision.candidates[lastIndex];
+    const lastOutcome = yield* runModelAttemptEffect({
+      attempt,
+      context,
+      model: lastModel,
+      node,
+      profileId,
+      prompt,
+    });
+    return yield* buildAgentAttemptResultEffect({
+      attempt,
+      context,
+      decision,
+      fallbackEvidence,
+      model: lastModel,
+      node,
+      outcome: lastOutcome,
+      profileId,
+    });
+  });
+}
+
+function modelLabel(model: string | undefined): string {
+  return model ?? "profile/default";
+}
+
+function fallbackNote(
+  failed: string | undefined,
+  next: string | undefined,
+  result: AgentResult
+): string {
+  const detail = result.stderr ? `: ${result.stderr}` : "";
+  return `model ${modelLabel(failed)} failed (infra exit ${result.exitCode}${detail}); falling back to ${modelLabel(next)}`;
+}
+
+interface ModelAttemptOutcome {
+  plan: RunnerLaunchPlan;
+  result: AgentResult;
+}
+
+function runModelAttemptEffect(inputs: {
+  attempt: number;
+  context: RuntimeContext;
+  model: string | undefined;
+  node: PlannedWorkflowNode;
+  profileId: string;
+  prompt: string;
+}): Effect.Effect<ModelAttemptOutcome, unknown, AgentNodeRuntimeService> {
+  return Effect.gen(function* () {
+    const { attempt, context, model, node, profileId, prompt } = inputs;
+    const service = yield* AgentNodeRuntimeService;
     const plan = createRunnerLaunchPlan(context.config, {
-      model: modelSelection.model,
+      model,
       nodeId: node.id,
-      profileId: node.profile,
+      profileId,
       prompt,
       reasoningEffort: node.reasoning_effort,
       worktreePath: context.worktreePath,
@@ -101,7 +189,6 @@ function executeAgentNodeEffect(
     }
     context.agentInvocations.push(plan);
     emitAgentStart(context, plan, attempt);
-    const service = yield* AgentNodeRuntimeService;
     const result = yield* service.executeRunner(context.executor, plan, {
       onOutput: agentOutputRecorder(context, node, attempt),
       signal: context.signal,
@@ -110,6 +197,32 @@ function executeAgentNodeEffect(
     if (result.sessionId) {
       context.nodeStateStore.recordSessionId(node.id, result.sessionId);
     }
+    return { plan, result };
+  });
+}
+
+function buildAgentAttemptResultEffect(inputs: {
+  attempt: number;
+  context: RuntimeContext;
+  decision: NodeModelDecision;
+  fallbackEvidence: string[];
+  model: string | undefined;
+  node: PlannedWorkflowNode;
+  outcome: ModelAttemptOutcome;
+  profileId: string;
+}): Effect.Effect<NodeAttemptResult, unknown, AgentNodeRuntimeService> {
+  return Effect.gen(function* () {
+    const {
+      attempt,
+      context,
+      decision,
+      fallbackEvidence,
+      model,
+      node,
+      outcome,
+      profileId,
+    } = inputs;
+    const { plan, result } = outcome;
     const normalized = normalizeAgentOutput(plan, result.stdout);
     const finalized = yield* finalizeAgentOutputEffect({
       context,
@@ -127,12 +240,13 @@ function executeAgentNodeEffect(
     );
     const attemptResult: NodeAttemptResult = {
       evidence: [
-        `agent boundary node=${node.id} profile=${node.profile} runner=${plan.runnerId}`,
+        `agent boundary node=${node.id} profile=${profileId} runner=${plan.runnerId}`,
         `estimated context tokens: ${decision.estimatedTokens}`,
-        `model selection: ${modelSelection.model ?? "profile/default"} (${modelSelection.reason})`,
-        ...(modelSelection.skipped.length
-          ? [`model fallbacks skipped: ${modelSelection.skipped.join(", ")}`]
+        `model selection: ${modelLabel(model)} (${decision.reason})`,
+        ...(decision.skipped.length
+          ? [`model fallbacks skipped: ${decision.skipped.join(", ")}`]
           : []),
+        ...fallbackEvidence,
         ...finalized.evidence,
         ...(result.stderr ? [`stderr: ${result.stderr}`] : []),
         ...(result.timedOut ? ["agent timed out"] : []),
@@ -268,17 +382,26 @@ function createHandoffFinalizerPlan(
 }
 
 interface NodeModelDecision {
+  /**
+   * Ordered models to attempt, declared priority first. A lone `undefined`
+   * means "use the profile's default model" — the node declared no fallback
+   * array, or every declared model was filtered out, so there is one attempt
+   * on whatever the profile resolves.
+   */
+  candidates: (string | undefined)[];
   estimatedTokens: number;
   overBudget: boolean;
-  selection: ModelSelection;
+  reason: string;
+  skipped: string[];
 }
 
 /**
  * Pure model-routing decision for a node: estimate the assembled prompt size and
- * pick the smallest fallback model whose window holds it within the context cap.
- * A node with no fallback array keeps the legacy (size-unaware) selection. A node
- * with a fallback array but no fitting model is `overBudget` — the caller fails
- * it fast rather than truncating.
+ * resolve the ordered fallback set of models whose window holds it within the
+ * context cap. A node with no fallback array (or none surviving the filters)
+ * falls back to the profile default (`undefined`). A node with a fallback array
+ * but no fitting model under budget is `overBudget` — the caller fails it fast
+ * rather than truncating.
  */
 function decideNodeModel(
   prompt: string,
@@ -287,19 +410,20 @@ function decideNodeModel(
   availableModels: ReadonlySet<string> | undefined
 ): NodeModelDecision {
   const estimatedTokens = estimateTokens(prompt);
-  if (!(budget && node.models?.length)) {
-    return {
-      estimatedTokens,
-      overBudget: false,
-      selection: selectNodeModel(node, { available: availableModels }),
-    };
-  }
-  const selection = selectNodeModel(node, {
+  const sizing = budget ? { budget, estimatedTokens } : {};
+  const candidates = selectNodeModelCandidates(node, {
     available: availableModels,
-    budget,
-    estimatedTokens,
+    ...sizing,
   });
-  return { estimatedTokens, overBudget: !selection.model, selection };
+  const overBudget =
+    Boolean(budget && node.models?.length) && candidates.models.length === 0;
+  return {
+    candidates: candidates.models.length ? candidates.models : [undefined],
+    estimatedTokens,
+    overBudget,
+    reason: candidates.reason,
+    skipped: candidates.skipped,
+  };
 }
 
 function finalizeAgentOutputEffect(inputs: {

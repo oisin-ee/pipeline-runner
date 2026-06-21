@@ -1,12 +1,6 @@
 import type { PipelineConfig } from "./config";
 import type { PlannedWorkflowNode } from "./planning/compile";
 
-export interface ModelSelection {
-  model?: string;
-  reason: string;
-  skipped: string[];
-}
-
 type TokenBudget = PipelineConfig["token_budget"];
 
 export interface ModelSizingOptions {
@@ -28,20 +22,30 @@ export interface ModelSelectionOptions extends Partial<ModelSizingOptions> {
 
 const DISABLED_MODELS_ENV = "PIPELINE_DISABLED_MODELS";
 
-export function selectNodeModel(
-  node: PlannedWorkflowNode,
-  options?: ModelSelectionOptions
-): ModelSelection {
-  const models = node.models ?? [];
-  return fallbackModelSelection(models, options);
+/**
+ * The ordered list of models worth attempting for a node. A node's model array
+ * is a fallback SET: the runner tries them in declared order and only falls
+ * through to the next when one's session fails at runtime (provider/server
+ * error), so availability checks at selection time are not the last line of
+ * defence. `models` is every candidate that is enabled, available, and (when a
+ * budget is supplied) fits the context cap, in priority order; the head is the
+ * preferred model. `skipped` collects the disabled/unavailable/over-window
+ * candidates for evidence.
+ */
+export interface ModelCandidates {
+  models: string[];
+  reason: string;
+  skipped: string[];
 }
 
-function fallbackModelSelection(
-  models: string[],
+export function selectNodeModelCandidates(
+  node: PlannedWorkflowNode,
   options?: ModelSelectionOptions
-): ModelSelection {
+): ModelCandidates {
+  const models = node.models ?? [];
   if (models.length === 0) {
     return {
+      models: [],
       reason: "node declares no model fallback array",
       skipped: [],
     };
@@ -51,19 +55,43 @@ function fallbackModelSelection(
   const enabled = models.filter(
     (candidate) => !disabled.has(candidate) && isAvailable(candidate, available)
   );
-  const skipped = models.filter(
+  const baseSkipped = models.filter(
     (candidate) => disabled.has(candidate) || !isAvailable(candidate, available)
   );
   const sizing = sizingFromOptions(options);
   if (!sizing) {
-    const model = enabled[0];
     return {
-      model,
-      reason: selectionReason(model),
-      skipped,
+      models: enabled,
+      reason: selectionReason(enabled[0]),
+      skipped: baseSkipped,
     };
   }
-  return sizedSelection(enabled, skipped, sizing);
+  return sizedCandidates(enabled, baseSkipped, sizing);
+}
+
+function sizedCandidates(
+  enabled: string[],
+  baseSkipped: string[],
+  options: ModelSizingOptions
+): ModelCandidates {
+  const { estimatedTokens, budget } = options;
+  const required = estimatedTokens / (budget.max_context_pct / 100);
+  const fits: string[] = [];
+  const tooSmall: string[] = [];
+  for (const candidate of enabled) {
+    const window =
+      budget.model_context_windows[candidate] ?? budget.default_context_window;
+    if (window >= required) {
+      fits.push(candidate);
+    } else {
+      tooSmall.push(candidate);
+    }
+  }
+  const head = fits[0];
+  const reason = head
+    ? `selected '${head}' (window ${budget.model_context_windows[head] ?? budget.default_context_window}) — holds estimated ${estimatedTokens} tokens within the ${budget.max_context_pct}% context cap`
+    : `estimated context ${estimatedTokens} tokens exceeds ${budget.max_context_pct}% of every available model window`;
+  return { models: fits, reason, skipped: [...baseSkipped, ...tooSmall] };
 }
 
 function isAvailable(
@@ -80,32 +108,6 @@ function sizingFromOptions(
     return { budget: options.budget, estimatedTokens: options.estimatedTokens };
   }
   return;
-}
-
-function sizedSelection(
-  enabled: string[],
-  disabledSkipped: string[],
-  options: ModelSizingOptions
-): ModelSelection {
-  const { estimatedTokens, budget } = options;
-  const required = estimatedTokens / (budget.max_context_pct / 100);
-  const tooSmall: string[] = [];
-  for (const candidate of enabled) {
-    const window =
-      budget.model_context_windows[candidate] ?? budget.default_context_window;
-    if (window >= required) {
-      return {
-        model: candidate,
-        reason: `selected '${candidate}' (window ${window}) — holds estimated ${estimatedTokens} tokens within the ${budget.max_context_pct}% context cap`,
-        skipped: [...disabledSkipped, ...tooSmall],
-      };
-    }
-    tooSmall.push(candidate);
-  }
-  return {
-    reason: `estimated context ${estimatedTokens} tokens exceeds ${budget.max_context_pct}% of every available model window`,
-    skipped: [...disabledSkipped, ...tooSmall],
-  };
 }
 
 function selectionReason(model: string | undefined): string {

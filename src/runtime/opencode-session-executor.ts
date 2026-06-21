@@ -6,6 +6,7 @@ import type {
   RunnerLaunchPlan,
 } from "../runner";
 import { isRecord } from "../safe-json";
+import { EXIT_AGENT_ERROR, EXIT_INFRA, EXIT_OK } from "./exit-codes";
 import { opencodeAgentName } from "./opencode-agent-name";
 import {
   type OpencodeRuntimeClient,
@@ -41,16 +42,6 @@ export interface OpencodeExecutorDeps {
   onSession?: (nodeId: string, sessionId: string) => void;
   registry: OpencodeSessionRegistry;
 }
-
-/**
- * Distinguish infra failure (server/session error -> retry-eligible exit 70)
- * from a normal agent completion (the agent may still have produced a wrong
- * answer; gates decide that, exit 0). This mirrors the EXIT_STARTUP convention
- * in runner-command/run.ts and feeds retry.ts via the node's retry policy.
- */
-const EXIT_OK = 0;
-const EXIT_AGENT_ERROR = 1;
-const EXIT_INFRA = 70;
 
 interface SessionDriveResult {
   assistant?: AssistantMessage;

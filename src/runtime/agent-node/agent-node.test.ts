@@ -337,3 +337,70 @@ describe("executeAgentNode token budget enforcement", () => {
     expect(result.output).toBe("done");
   });
 });
+
+const INFRA_EXIT = 70;
+
+describe("executeAgentNode model fallback", () => {
+  it("falls back to the next model when a session fails with an infra error", async () => {
+    const node = budgetNode(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
+    const tried: (string | undefined)[] = [];
+    const executor = (plan: RunnerLaunchPlan): AgentResult => {
+      tried.push(plan.model);
+      if (plan.model === "opencode-go/qwen3.7-max") {
+        return {
+          exitCode: INFRA_EXIT,
+          stderr: "opencode session failed: {}",
+          stdout: "",
+        };
+      }
+      return { exitCode: 0, stdout: opencodeText("implemented") };
+    };
+    const context = agentExecutionContext(node, executor);
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(tried).toEqual(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe("implemented");
+    expect(result.evidence.join("\n")).toContain(
+      "model opencode-go/qwen3.7-max failed (infra exit 70"
+    );
+    expect(result.evidence.join("\n")).toContain(
+      "model selection: openai/gpt-5.5"
+    );
+  });
+
+  it("does not fall back on a genuine agent-task error (the model ran)", async () => {
+    const node = budgetNode(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
+    const tried: (string | undefined)[] = [];
+    const executor = (plan: RunnerLaunchPlan): AgentResult => {
+      tried.push(plan.model);
+      return { exitCode: 1, stdout: opencodeText("tried but failed") };
+    };
+    const context = agentExecutionContext(node, executor);
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(tried).toEqual(["opencode-go/qwen3.7-max"]);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("surfaces the infra failure when every candidate's session fails", async () => {
+    const node = budgetNode(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
+    const tried: (string | undefined)[] = [];
+    const executor = (plan: RunnerLaunchPlan): AgentResult => {
+      tried.push(plan.model);
+      return {
+        exitCode: INFRA_EXIT,
+        stderr: "opencode session failed: {}",
+        stdout: "",
+      };
+    };
+    const context = agentExecutionContext(node, executor);
+
+    const result = await executeAgentNode(node, context, 1);
+
+    expect(tried).toEqual(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
+    expect(result.exitCode).toBe(INFRA_EXIT);
+  });
+});
