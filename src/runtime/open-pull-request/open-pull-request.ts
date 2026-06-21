@@ -20,6 +20,7 @@ interface OpenPrContext {
   committer: RuntimeContext["config"]["runner_command"]["git"]["committer"];
   headBranch: string;
   label: string;
+  mode: "create-new-pr" | "update-existing-pr";
   runId: string;
   task: string;
 }
@@ -61,12 +62,15 @@ function resolveOpenPrContext(
 ): Effect.Effect<OpenPrContext, unknown> {
   return Effect.gen(function* () {
     const baseBranch = yield* resolveDefaultBranch(git, context);
-    const headBranch = resolveHeadBranch(context.runId);
+    const headBranch =
+      context.config.delivery?.pull_request?.head_branch ??
+      resolveHeadBranch(context.runId);
     return {
       baseBranch,
       committer: context.config.runner_command.git.committer,
       headBranch,
       label: context.config.delivery?.pull_request?.label ?? "preview",
+      mode: context.config.delivery?.pull_request?.mode ?? "create-new-pr",
       runId: context.runId ?? "local",
       task: context.task,
     };
@@ -130,10 +134,21 @@ function prepareHeadBranch(
   git: OpenPullRequestGitClient,
   prCtx: OpenPrContext
 ): Effect.Effect<void, unknown> {
-  return checkoutOrCreateHeadBranch(git, prCtx.headBranch).pipe(
+  return fetchExistingBranchIfUpdate(git, prCtx).pipe(
+    Effect.flatMap(() => checkoutOrCreateHeadBranch(git, prCtx.headBranch)),
     Effect.flatMap(() => stageAndCommitChanges(git, prCtx)),
     Effect.asVoid
   );
+}
+
+function fetchExistingBranchIfUpdate(
+  git: OpenPullRequestGitClient,
+  prCtx: OpenPrContext
+): Effect.Effect<void, unknown> {
+  if (prCtx.mode !== "update-existing-pr") {
+    return Effect.void;
+  }
+  return git.raw(["fetch", "origin", prCtx.headBranch]).pipe(Effect.asVoid);
 }
 
 function checkoutOrCreateHeadBranch(
@@ -200,6 +215,9 @@ function submitPullRequest(
   prCtx: OpenPrContext,
   context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, never, CommandExecutor> {
+  if (prCtx.mode === "update-existing-pr") {
+    return handleExistingPr(prCtx.headBranch, prCtx.label, context);
+  }
   return Effect.gen(function* () {
     const executor = yield* CommandExecutor;
     const title = extractPrTitle(prCtx.task);

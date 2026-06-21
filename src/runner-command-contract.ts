@@ -61,6 +61,7 @@ export const runnerTaskSchema = z.discriminatedUnion("kind", [
 export const runnerRepositoryContextSchema = z
   .object({
     baseBranch: z.string().min(1),
+    headBranch: z.string().min(1).optional(),
     sha: z.string().min(1).optional(),
     url: gitRemoteUrlSchema,
   })
@@ -68,6 +69,9 @@ export const runnerRepositoryContextSchema = z
 
 export const runnerDeliverySchema = z
   .object({
+    mode: z
+      .enum(["create-new-pr", "update-existing-pr"])
+      .default("create-new-pr"),
     pullRequest: z.boolean().default(false),
   })
   .strict();
@@ -125,7 +129,10 @@ export const runnerCommandPayloadSchema = z
         error: "runner command payload contract version must be 1",
       })
       .default(RUNNER_COMMAND_CONTRACT_VERSION),
-    delivery: runnerDeliverySchema.default({ pullRequest: false }),
+    delivery: runnerDeliverySchema.default({
+      mode: "create-new-pr",
+      pullRequest: false,
+    }),
     events: runnerEventsSchema,
     hookPolicy: runnerHookPolicySchema.optional(),
     momokaya: runnerMomokayaContextSchema.optional(),

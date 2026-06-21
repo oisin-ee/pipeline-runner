@@ -110,7 +110,10 @@ export const mokaSubmitResultSchema = workflowSubmitResultSchema;
 
 const mokaSubmitBaseOptionsSchema = z
   .object({
-    delivery: runnerDeliverySchema.default({ pullRequest: false }),
+    delivery: runnerDeliverySchema.default({
+      mode: "create-new-pr",
+      pullRequest: false,
+    }),
     eventSink: mokaSubmitEventsSchema.optional(),
     eventAuthSecretKey: z.string().min(1).optional(),
     eventAuthSecretName: z.string().min(1).optional(),
@@ -389,14 +392,19 @@ function configWithSubmitHooks(
 
 function withPullRequestDelivery(
   config: PipelineConfig,
-  delivery: z.output<typeof runnerDeliverySchema>
+  delivery: z.output<typeof runnerDeliverySchema>,
+  repository?: z.output<typeof runnerRepositoryContextSchema>
 ): PipelineConfig {
   return {
     ...config,
     delivery: {
       pull_request: {
         enabled: delivery.pullRequest === true,
+        ...(repository?.headBranch
+          ? { head_branch: repository.headBranch }
+          : {}),
         label: config.delivery?.pull_request?.label ?? "preview",
+        mode: delivery.mode,
       },
     },
   };
@@ -521,7 +529,11 @@ async function graphScheduleYaml(
   const generateSchedule =
     dependencies.generateSchedule ?? generateScheduleArtifact;
   const schedule = await generateSchedule({
-    config: withPullRequestDelivery(options.config, options.delivery),
+    config: withPullRequestDelivery(
+      options.config,
+      options.delivery,
+      options.repository
+    ),
     entrypointId: options.mode === "quick" ? "quick" : "execute",
     runId,
     task,

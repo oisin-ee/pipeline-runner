@@ -21,7 +21,7 @@ function validEvents(): Record<string, unknown> {
 function validPayload(): Record<string, unknown> {
   return {
     contractVersion: RUNNER_COMMAND_CONTRACT_VERSION,
-    delivery: { pullRequest: false },
+    delivery: { mode: "create-new-pr", pullRequest: false },
     events: validEvents(),
     repository: {
       baseBranch: "main",
