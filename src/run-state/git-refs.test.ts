@@ -16,11 +16,16 @@ import {
   mergeDependencyRefs,
   prepareRunnerGitWorkspace,
   promoteFinalRef,
+  runnerCommitMessage,
 } from "./git-refs";
 
 const tempDirs: string[] = [];
 const COMMITTER = { email: "git@oisin.ee", name: "oisin-bot" };
 const SHA_RE = /^[0-9a-f]{40}$/;
+// Mirrors the Conventional Commits subject that a target repo's commit-msg hook
+// (e.g. jalgpall-web's `conventional-commits` lefthook) enforces.
+const CONVENTIONAL_SUBJECT_RE =
+  /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!?: .+/;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -113,6 +118,18 @@ describe("runner Git refs", () => {
     expect(finalSha).toMatch(SHA_RE);
     expect(readFileSync(join(checkPath, "left.txt"), "utf8")).toBe("left\n");
     expect(readFileSync(join(checkPath, "right.txt"), "utf8")).toBe("right\n");
+
+    // Every checkpoint subject on the promoted branch must satisfy a target
+    // repo's Conventional Commits commit-msg hook (the bare `pipeline: <node>`
+    // form was rejected with exit 1 by jalgpall-web's hook).
+    const subjects = git(checkPath, "log", "--format=%s").trim().split("\n");
+    const checkpointSubjects = subjects.filter((subject) =>
+      subject.startsWith("chore(pipeline):")
+    );
+    expect(checkpointSubjects).toContain(runnerCommitMessage("right"));
+    for (const subject of checkpointSubjects) {
+      expect(subject).toMatch(CONVENTIONAL_SUBJECT_RE);
+    }
   });
 
   it("writes mounted username and password credentials to a writable store for runner git commands", async () => {

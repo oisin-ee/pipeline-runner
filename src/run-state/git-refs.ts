@@ -232,6 +232,18 @@ function headSha(
   );
 }
 
+/*
+ * Checkpoint commits are plumbing (one per node, plus the promoted final), but
+ * they land on the branch a target repo's commit-msg hook validates. jalgpall-web
+ * (and many repos) enforce Conventional Commits, which rejects a bare
+ * `pipeline: <node>` subject. Emit a Conventional-Commits-valid message —
+ * `chore` is the honest type for a mechanical pipeline checkpoint — so the hook
+ * passes without bypassing it (--no-verify is never used).
+ */
+export function runnerCommitMessage(nodeId: string): string {
+  return `chore(pipeline): ${nodeId}`;
+}
+
 function commitChangesIfNeeded(
   worktreePath: string,
   nodeId: string,
@@ -248,7 +260,7 @@ function commitChangesIfNeeded(
     }
     yield* runGit(worktreePath, ["add", "--all"]);
     yield* configureGitCommitter(worktreePath, committer);
-    yield* runGit(worktreePath, ["commit", "-m", `pipeline: ${nodeId}`]);
+    yield* runGit(worktreePath, ["commit", "-m", runnerCommitMessage(nodeId)]);
   });
 }
 
