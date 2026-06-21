@@ -33,12 +33,14 @@ function stage(path: string, content: string): void {
   chmodSync(path, 0o400); // the real secret mount is read-only
 }
 
+const ACCOUNTS_DEST_NAME = "oc-codex-multi-auth-accounts.json";
+
 describe("prepareOpencodeCredentials", () => {
-  it("copies every staged credential file to a writable live path", () => {
+  it("copies staged files writable and syncs the fresh openai token into auth.json", () => {
     const fixture = tempDir();
     const accountsStaged = join(fixture, "staged-accounts", "accounts.json");
     const authStaged = join(fixture, "staged-auth", "auth.json");
-    const accountsDest = join(fixture, "home", ".opencode", "accounts.json");
+    const accountsDest = join(fixture, "home", ".opencode", ACCOUNTS_DEST_NAME);
     const authDest = join(
       fixture,
       "home",
@@ -47,8 +49,35 @@ describe("prepareOpencodeCredentials", () => {
       "opencode",
       "auth.json"
     );
-    stage(accountsStaged, '{"version":1,"accounts":[]}\n');
-    stage(authStaged, '{"openai":{"type":"oauth"}}\n');
+    // Pool has a FRESH token at the active index; auth.json has a STALE openai
+    // token (the exact shape that caused the 401: plugin skips backfill of an
+    // existing-but-expired entry).
+    stage(
+      accountsStaged,
+      JSON.stringify({
+        accounts: [
+          {
+            accessToken: "fresh-access",
+            expiresAt: 9999,
+            refreshToken: "fresh-refresh",
+          },
+        ],
+        activeIndex: 0,
+        activeIndexByFamily: { codex: 0 },
+      })
+    );
+    stage(
+      authStaged,
+      JSON.stringify({
+        anthropic: { type: "api", key: "keep-me" },
+        openai: {
+          access: "stale-access",
+          expires: 1,
+          refresh: "stale-refresh",
+          type: "oauth",
+        },
+      })
+    );
 
     const result = prepareOpencodeCredentials({
       files: [
@@ -57,11 +86,21 @@ describe("prepareOpencodeCredentials", () => {
       ],
     });
 
-    expect(result.copied.sort()).toEqual(["accounts.json", "auth.json"]);
-    expect(readFileSync(accountsDest, "utf8")).toContain('"accounts"');
-    expect(readFileSync(authDest, "utf8")).toContain('"openai"');
-    // Both writable so the plugin's atomic rewrite + token backfill succeed,
-    // even though the staged sources were read-only.
+    expect(result.copied.sort()).toEqual(
+      [ACCOUNTS_DEST_NAME, "auth.json"].sort()
+    );
+    expect(result.hostOpenaiTokenSynced).toBe(true);
+    const auth = JSON.parse(readFileSync(authDest, "utf8"));
+    // openai token replaced with the pool's fresh token...
+    expect(auth.openai).toEqual({
+      access: "fresh-access",
+      expires: 9999,
+      refresh: "fresh-refresh",
+      type: "oauth",
+    });
+    // ...other providers preserved.
+    expect(auth.anthropic).toEqual({ type: "api", key: "keep-me" });
+    // Both writable so the plugin's atomic rewrite succeeds.
     expect(() => accessSync(accountsDest, constants.W_OK)).not.toThrow();
     expect(() => accessSync(authDest, constants.W_OK)).not.toThrow();
   });
