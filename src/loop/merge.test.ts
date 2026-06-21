@@ -18,6 +18,7 @@ import {
 interface RecordingGh extends GhRunner {
   readonly jsonCalls: string[][];
   readonly textCalls: string[][];
+  readonly secretEnvCalls: (Readonly<Record<string, string>> | undefined)[];
 }
 
 function recordingGh(
@@ -26,14 +27,17 @@ function recordingGh(
 ): RecordingGh {
   const jsonCalls: string[][] = [];
   const textCalls: string[][] = [];
+  const secretEnvCalls: (Readonly<Record<string, string>> | undefined)[] = [];
   return {
     json: (args) => {
       jsonCalls.push(args);
       return Effect.fail(new Error(`unexpected json call: ${args.join(" ")}`));
     },
     jsonCalls,
-    text: (args) => {
+    secretEnvCalls,
+    text: (args, options) => {
       textCalls.push(args);
+      secretEnvCalls.push(options?.secretEnv);
       return text(args);
     },
     textCalls,
@@ -167,14 +171,12 @@ describe("adminMerge token confidentiality (AC2 redaction)", () => {
     expect(token.reveal()).toBe(SECRET);
   });
 
-  it("never lets the raw token reach any recorded log/arg line", async () => {
+  it("never lets the raw token reach argv; it travels only via secretEnv", async () => {
     const logLines: string[] = [];
-    // The gh runner double logs every arg it receives — proves argv carries no
-    // bare secret. The runner contract is `--with-token <secret>`; that pair is
-    // the ONLY place the raw value appears, and it is an env-injection marker,
-    // not a logged line.
+    // The gh runner logs every arg UNFILTERED — if the raw secret were in argv
+    // it would show here. The token must reach the child only via secretEnv.
     const gh = recordingGh((args) => {
-      logLines.push(`gh ${args.filter((a) => a !== SECRET).join(" ")}`);
+      logLines.push(`gh ${args.join(" ")}`);
       return Effect.succeed("merged");
     });
     const token = secretToken(SECRET);
@@ -182,9 +184,15 @@ describe("adminMerge token confidentiality (AC2 redaction)", () => {
     const outcome = await Effect.runPromise(adminMerge(PR, token, gh));
 
     expect(outcome._tag).toBe("merged");
+    // argv carries no bare secret (asserted without filtering the secret out).
+    for (const args of gh.textCalls) {
+      expect(args.join(" ")).not.toContain(SECRET);
+    }
     for (const line of logLines) {
       expect(line).not.toContain(SECRET);
     }
+    // the token IS delivered — but only through the env channel.
+    expect(gh.secretEnvCalls.at(-1)).toEqual({ GH_TOKEN: SECRET });
   });
 });
 

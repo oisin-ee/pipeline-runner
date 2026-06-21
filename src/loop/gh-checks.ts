@@ -17,14 +17,28 @@ export type PrResolution =
 // DI boundary — injected gh runner (tests stub this, prod uses execa/gh)
 // ---------------------------------------------------------------------------
 
+/**
+ * Options for a mutating `gh` invocation. `secretEnv` carries sensitive values
+ * (e.g. `GH_TOKEN`) to the child process ENVIRONMENT only — never into argv, so
+ * the raw secret never appears in a command line, process listing, or an args
+ * log. This is the sole sanctioned transport for the admin bypass token.
+ */
+export interface GhTextOptions {
+  readonly secretEnv?: Readonly<Record<string, string>>;
+}
+
 export interface GhRunner {
   /** Run a `gh …` command and parse the JSON response. */
   json: (args: string[]) => Effect.Effect<unknown, Error>;
   /**
    * Run a `gh …` command that does not emit JSON (e.g. `pr merge`) and return
-   * its combined stdout text. Mutating commands route through here.
+   * its combined stdout text. Mutating commands route through here. Secret
+   * values (the admin token) travel via `options.secretEnv`, never `args`.
    */
-  text: (args: string[]) => Effect.Effect<string, Error>;
+  text: (
+    args: string[],
+    options?: GhTextOptions
+  ) => Effect.Effect<string, Error>;
 }
 
 // ---------------------------------------------------------------------------

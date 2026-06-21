@@ -163,21 +163,16 @@ export function adminMerge(
   gh: GhRunner
 ): Effect.Effect<Merged | MergeBlocked, Error> {
   const args = ["pr", "merge", String(pr.number), "--admin", "--squash"];
-  // Token is revealed only here, at the auth-injection boundary, to pass to the
-  // gh runner. It is never placed in a logged object or interpolated string.
-  return gh.text([...withToken(args, token)]).pipe(
-    Effect.map((): Merged => ({ _tag: "merged", pr: pr.number })),
-    Effect.catchAll((error) => Effect.succeed(toBlocked(pr, error)))
-  );
-}
-
-/**
- * Marker args understood by the gh runner: the runner reads the secret and sets
- * `GH_TOKEN` in the child env, then strips the marker before exec. Keeping the
- * raw token out of argv prevents it appearing in process listings or logs.
- */
-function withToken(args: string[], token: SecretToken): string[] {
-  return ["--with-token", token.reveal(), ...args];
+  // The token is revealed ONCE, here at the auth-injection boundary, and handed
+  // to the gh runner via `secretEnv` (child-process env), NOT via argv. The raw
+  // value never enters `args`, so it cannot surface in a command line, process
+  // listing, or an args log.
+  return gh
+    .text(args, { secretEnv: { GH_TOKEN: token.reveal() } })
+    .pipe(
+      Effect.map((): Merged => ({ _tag: "merged", pr: pr.number })),
+      Effect.catchAll((error) => Effect.succeed(toBlocked(pr, error)))
+    );
 }
 
 function toBlocked(pr: OpenPr, error: unknown): MergeBlocked {
