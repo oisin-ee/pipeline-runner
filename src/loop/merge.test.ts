@@ -17,8 +17,8 @@ import {
 
 interface RecordingGh extends GhRunner {
   readonly jsonCalls: string[][];
-  readonly textCalls: string[][];
   readonly secretEnvCalls: (Readonly<Record<string, string>> | undefined)[];
+  readonly textCalls: string[][];
 }
 
 function recordingGh(

@@ -167,12 +167,10 @@ export function adminMerge(
   // to the gh runner via `secretEnv` (child-process env), NOT via argv. The raw
   // value never enters `args`, so it cannot surface in a command line, process
   // listing, or an args log.
-  return gh
-    .text(args, { secretEnv: { GH_TOKEN: token.reveal() } })
-    .pipe(
-      Effect.map((): Merged => ({ _tag: "merged", pr: pr.number })),
-      Effect.catchAll((error) => Effect.succeed(toBlocked(pr, error)))
-    );
+  return gh.text(args, { secretEnv: { GH_TOKEN: token.reveal() } }).pipe(
+    Effect.map((): Merged => ({ _tag: "merged", pr: pr.number })),
+    Effect.catchAll((error) => Effect.succeed(toBlocked(pr, error)))
+  );
 }
 
 function toBlocked(pr: OpenPr, error: unknown): MergeBlocked {
