@@ -1,50 +1,75 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /*
- * The oc-codex-multi-auth plugin rotates the OAuth refresh token on every
- * refresh and persists the new token by atomically rewriting its accounts file
- * (temp file + rename over the target). Mounting the accounts secret read-only
- * DIRECTLY at the plugin's path makes that rename fail, so the plugin can never
- * persist a rotated token: every refresh replays the stale token from the secret
- * and the provider answers 401 ("Token refresh failed: 401"), which the runner
- * surfaces as an opaque session failure on every model.
+ * The oc-codex-multi-auth plugin keeps two writable credential files:
+ *   - its account pool (oc-codex-multi-auth-accounts.json), rewritten on token
+ *     rotation, and
+ *   - opencode's host auth store (~/.local/share/opencode/auth.json), into which
+ *     it backfills the ACTIVE account's current openai token — this is the token
+ *     opencode actually sends.
+ * Both rewrite via atomic write / writeFile. Mounting either secret read-only
+ * DIRECTLY at its live path makes that write fail, so the plugin can never
+ * publish a fresh token: opencode keeps sending the stale token from the mount
+ * and the provider answers 401 ("Token refresh failed: 401") on every model.
  *
- * Fix: mount the secret read-only at a staging path and copy it to the writable
- * plugin path once at runner startup. The plugin then owns a normal writable
- * file and can persist rotated tokens for the pod's lifetime.
+ * Fix: mount each secret read-only at a staging dir and copy it to its writable
+ * live path once at runner startup. The plugin then owns normal writable files
+ * and can persist rotations + backfill the fresh token for the pod's lifetime.
  */
 export const OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR =
   "/etc/pipeline/opencode-openai-accounts";
-const STAGED_ACCOUNTS_FILE = join(
-  OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR,
-  "accounts.json"
-);
-const ACCOUNTS_FILE_NAME = "oc-codex-multi-auth-accounts.json";
+export const OPENCODE_AUTH_STAGING_DIR = "/etc/pipeline/opencode-auth";
 
-export interface PrepareOpencodeAccountsOptions {
-  destPath?: string;
-  stagedPath?: string;
+interface WritableCredentialFile {
+  /** Writable destination, as path segments under $HOME. */
+  destFromHome: string[];
+  /** Read-only staged source (the secret mount). */
+  stagedPath: string;
+}
+
+const WRITABLE_OPENCODE_CREDENTIAL_FILES: WritableCredentialFile[] = [
+  {
+    destFromHome: [".opencode", "oc-codex-multi-auth-accounts.json"],
+    stagedPath: join(OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR, "accounts.json"),
+  },
+  {
+    destFromHome: [".local", "share", "opencode", "auth.json"],
+    stagedPath: join(OPENCODE_AUTH_STAGING_DIR, "auth.json"),
+  },
+];
+
+export interface PrepareOpencodeCredentialsOptions {
+  /** Test override: explicit (stagedPath -> destPath) pairs. */
+  files?: Array<{ destPath: string; stagedPath: string }>;
 }
 
 /**
- * Copy the staged codex-multi-auth accounts secret to the writable plugin path
- * so the plugin can persist rotated tokens. A no-op (copied: false) when no
- * staged secret is mounted — local dev, tests, and configs without the accounts
- * secret keep whatever account store already exists.
+ * Copy each staged opencode credential secret to its writable live path so the
+ * plugin can rewrite tokens. Only files whose staged source exists are copied
+ * (local dev / tests / configs without a given secret keep whatever store is
+ * already present). Returns the basenames copied, for run-log evidence.
  */
-export function prepareOpencodeAccounts(
-  options: PrepareOpencodeAccountsOptions = {}
-): { copied: boolean } {
-  const stagedPath = options.stagedPath ?? STAGED_ACCOUNTS_FILE;
-  if (!existsSync(stagedPath)) {
-    return { copied: false };
+export function prepareOpencodeCredentials(
+  options: PrepareOpencodeCredentialsOptions = {}
+): { copied: string[] } {
+  const home = homedir();
+  const files =
+    options.files ??
+    WRITABLE_OPENCODE_CREDENTIAL_FILES.map((file) => ({
+      destPath: join(home, ...file.destFromHome),
+      stagedPath: file.stagedPath,
+    }));
+  const copied: string[] = [];
+  for (const { stagedPath, destPath } of files) {
+    if (!existsSync(stagedPath)) {
+      continue;
+    }
+    mkdirSync(dirname(destPath), { recursive: true });
+    copyFileSync(stagedPath, destPath);
+    chmodSync(destPath, 0o600);
+    copied.push(basename(destPath));
   }
-  const destPath =
-    options.destPath ?? join(homedir(), ".opencode", ACCOUNTS_FILE_NAME);
-  mkdirSync(dirname(destPath), { recursive: true });
-  copyFileSync(stagedPath, destPath);
-  chmodSync(destPath, 0o600);
-  return { copied: true };
+  return { copied };
 }

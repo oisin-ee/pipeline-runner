@@ -181,17 +181,17 @@ function runRunnerCommandEffect(
       "git.workspace.prepare finish"
     );
     logger.info(
-      { phase: "opencode.accounts.prepare", status: "start" },
-      "opencode.accounts.prepare start"
+      { phase: "opencode.credentials.prepare", status: "start" },
+      "opencode.credentials.prepare start"
     );
-    const accountsPrep = yield* io.prepareOpencodeAccounts();
+    const credentialsPrep = yield* io.prepareOpencodeCredentials();
     logger.info(
       {
-        copied: accountsPrep.copied,
-        phase: "opencode.accounts.prepare",
+        copied: credentialsPrep.copied,
+        phase: "opencode.credentials.prepare",
         status: "finish",
       },
-      "opencode.accounts.prepare finish"
+      "opencode.credentials.prepare finish"
     );
     logger.info({ phase: "config.load", status: "start" }, "config.load start");
     const baseConfig = yield* attemptSync(() =>

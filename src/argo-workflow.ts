@@ -5,7 +5,10 @@ import {
   compileArgoExecutionGraph,
 } from "./argo-graph";
 import type { WorkflowExecutionPlan } from "./planning/compile";
-import { OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR } from "./run-state/opencode-accounts";
+import {
+  OPENCODE_AUTH_STAGING_DIR,
+  OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR,
+} from "./run-state/opencode-accounts";
 import { DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH } from "./runner-command/task-descriptor";
 
 const ARGO_WORKFLOW_API_VERSION = "argoproj.io/v1alpha1";
@@ -482,11 +485,16 @@ function runnerWorkflowStorage(
         secretName: options.opencodeAuthSecretName,
       },
     });
+    // Stage read-only; the runner copies it to the writable
+    // ~/.local/share/opencode/auth.json at startup (opencode.credentials.prepare).
+    // The codex-multi-auth plugin backfills the active account's FRESH openai
+    // token into this file — opencode then sends that token. A read-only mount at
+    // the live path makes the backfill fail, so opencode keeps sending the stale
+    // mounted token and the provider returns 401 ("Token refresh failed").
     volumeMounts.push({
-      mountPath: "/root/.local/share/opencode/auth.json",
+      mountPath: OPENCODE_AUTH_STAGING_DIR,
       name: "opencode-auth",
       readOnly: true,
-      subPath: "auth.json",
     });
   }
 

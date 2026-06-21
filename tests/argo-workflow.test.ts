@@ -209,10 +209,9 @@ describe("runner Argo Workflow manifest", () => {
                     "readOnly": true,
                   },
                   {
-                    "mountPath": "/root/.local/share/opencode/auth.json",
+                    "mountPath": "/etc/pipeline/opencode-auth",
                     "name": "opencode-auth",
                     "readOnly": true,
-                    "subPath": "auth.json",
                   },
                   {
                     "mountPath": "/etc/pipeline/git-credentials",
@@ -285,10 +284,9 @@ describe("runner Argo Workflow manifest", () => {
                     "readOnly": true,
                   },
                   {
-                    "mountPath": "/root/.local/share/opencode/auth.json",
+                    "mountPath": "/etc/pipeline/opencode-auth",
                     "name": "opencode-auth",
                     "readOnly": true,
-                    "subPath": "auth.json",
                   },
                   {
                     "mountPath": "/etc/pipeline/git-credentials",
@@ -367,10 +365,9 @@ describe("runner Argo Workflow manifest", () => {
                     "readOnly": true,
                   },
                   {
-                    "mountPath": "/root/.local/share/opencode/auth.json",
+                    "mountPath": "/etc/pipeline/opencode-auth",
                     "name": "opencode-auth",
                     "readOnly": true,
-                    "subPath": "auth.json",
                   },
                   {
                     "mountPath": "/etc/pipeline/git-credentials",
@@ -449,10 +446,9 @@ describe("runner Argo Workflow manifest", () => {
                     "readOnly": true,
                   },
                   {
-                    "mountPath": "/root/.local/share/opencode/auth.json",
+                    "mountPath": "/etc/pipeline/opencode-auth",
                     "name": "opencode-auth",
                     "readOnly": true,
-                    "subPath": "auth.json",
                   },
                   {
                     "mountPath": "/etc/pipeline/git-credentials",
@@ -533,10 +529,9 @@ describe("runner Argo Workflow manifest", () => {
                     "readOnly": true,
                   },
                   {
-                    "mountPath": "/root/.local/share/opencode/auth.json",
+                    "mountPath": "/etc/pipeline/opencode-auth",
                     "name": "opencode-auth",
                     "readOnly": true,
-                    "subPath": "auth.json",
                   },
                   {
                     "mountPath": "/etc/pipeline/git-credentials",
@@ -725,10 +720,9 @@ describe("runner Argo Workflow manifest", () => {
                 - mountPath: /etc/pipeline/event-auth
                   name: runner-event-auth
                   readOnly: true
-                - mountPath: /root/.local/share/opencode/auth.json
+                - mountPath: /etc/pipeline/opencode-auth
                   name: opencode-auth
                   readOnly: true
-                  subPath: auth.json
                 - mountPath: /etc/pipeline/git-credentials
                   name: runner-git-credentials
                   readOnly: true
@@ -777,10 +771,9 @@ describe("runner Argo Workflow manifest", () => {
                 - mountPath: /etc/pipeline/event-auth
                   name: runner-event-auth
                   readOnly: true
-                - mountPath: /root/.local/share/opencode/auth.json
+                - mountPath: /etc/pipeline/opencode-auth
                   name: opencode-auth
                   readOnly: true
-                  subPath: auth.json
                 - mountPath: /etc/pipeline/git-credentials
                   name: runner-git-credentials
                   readOnly: true
@@ -833,10 +826,9 @@ describe("runner Argo Workflow manifest", () => {
                 - mountPath: /etc/pipeline/event-auth
                   name: runner-event-auth
                   readOnly: true
-                - mountPath: /root/.local/share/opencode/auth.json
+                - mountPath: /etc/pipeline/opencode-auth
                   name: opencode-auth
                   readOnly: true
-                  subPath: auth.json
                 - mountPath: /etc/pipeline/git-credentials
                   name: runner-git-credentials
                   readOnly: true
@@ -889,10 +881,9 @@ describe("runner Argo Workflow manifest", () => {
                 - mountPath: /etc/pipeline/event-auth
                   name: runner-event-auth
                   readOnly: true
-                - mountPath: /root/.local/share/opencode/auth.json
+                - mountPath: /etc/pipeline/opencode-auth
                   name: opencode-auth
                   readOnly: true
-                  subPath: auth.json
                 - mountPath: /etc/pipeline/git-credentials
                   name: runner-git-credentials
                   readOnly: true
@@ -947,10 +938,9 @@ describe("runner Argo Workflow manifest", () => {
                 - mountPath: /etc/pipeline/event-auth
                   name: runner-event-auth
                   readOnly: true
-                - mountPath: /root/.local/share/opencode/auth.json
+                - mountPath: /etc/pipeline/opencode-auth
                   name: opencode-auth
                   readOnly: true
-                  subPath: auth.json
                 - mountPath: /etc/pipeline/git-credentials
                   name: runner-git-credentials
                   readOnly: true
@@ -1235,7 +1225,7 @@ describe("runner Argo Workflow manifest", () => {
         expect.objectContaining({ mountPath: "/etc/pipeline/event-auth" }),
         expect.objectContaining({ mountPath: "/etc/pipeline/git-credentials" }),
         expect.objectContaining({
-          mountPath: "/root/.local/share/opencode/auth.json",
+          mountPath: "/etc/pipeline/opencode-auth",
         }),
         expect.objectContaining({ mountPath: "/root/.config/gh/hosts.yml" }),
       ])
@@ -1697,6 +1687,23 @@ describe("compileArgoExecutionGraph", () => {
         (mount) =>
           mount.name === "opencode-openai-accounts" &&
           mount.mountPath.endsWith("oc-codex-multi-auth-accounts.json")
+      )
+    ).toBe(false);
+    // Same for the opencode auth store: staged read-only, NOT subPath-mounted at
+    // ~/.local/share/opencode/auth.json, so the plugin can backfill the fresh
+    // openai token into the writable copy.
+    expect(allMounts).toContainEqual(
+      expect.objectContaining({
+        mountPath: "/etc/pipeline/opencode-auth",
+        name: "opencode-auth",
+        readOnly: true,
+      })
+    );
+    expect(
+      allMounts.some(
+        (mount) =>
+          mount.name === "opencode-auth" &&
+          mount.mountPath.endsWith("auth.json")
       )
     ).toBe(false);
     expect(allVolumes).toContainEqual(
