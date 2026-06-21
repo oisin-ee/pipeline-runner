@@ -6,9 +6,15 @@ import {
 } from "../tickets/ticket-graph";
 import type { LoopState } from "../tickets/ticket-graph-dto";
 import { serializeTicketGraph } from "../tickets/ticket-graph-dto";
+import type { TicketSelectionStrategy } from "../tickets/ticket-selection";
 import { selectNextTicket } from "../tickets/ticket-selection";
+import type { TerminalPhase } from "./argo-poll";
 import type { CheckClassification, GhRunner, PrResolution } from "./gh-checks";
 import type { MergeOutcome } from "./merge";
+
+// The loop reacts to the same terminal Argo phases the poller reports — argo-poll
+// is the single owner of that type; re-export it so loop consumers have one import.
+export type { TerminalPhase } from "./argo-poll";
 
 // ===========================================================================
 // PIPE-88.7 — Loop traversal state machine (controller core, headless)
@@ -20,9 +26,6 @@ import type { MergeOutcome } from "./merge";
 // ===========================================================================
 
 type OpenPr = Extract<PrResolution, { found: true }>;
-
-/** Terminal Argo phase the loop reacts to (mirrors argo-poll's TerminalPhase). */
-export type TerminalPhase = "Succeeded" | "Failed" | "Error";
 
 // ---------------------------------------------------------------------------
 // Injected effect boundaries
@@ -95,8 +98,12 @@ export interface ControllerDeps {
     runId: string,
     gh: GhRunner
   ) => Effect.Effect<PrResolution, Error>;
+  /** Optional epic/root scope: traversal is restricted to this subtree. */
+  readonly rootId?: string;
   /** Clock seam — bounded idle-wait between merge polls. */
   readonly sleep: (ms: number) => Effect.Effect<void, never>;
+  /** Ready-ticket ordering strategy at the selection call site. */
+  readonly strategy: TicketSelectionStrategy;
   /** Launch a child run (create-new-pr or update-existing-pr). */
   readonly submitRun: (
     input: SubmitRunInput
@@ -175,7 +182,7 @@ export function runLoopController(
       Effect.mapError((error) => new Error(error.message))
     );
 
-    yield* deps.emit({ type: "loop.start", strategy: "bfs" });
+    yield* deps.emit({ type: "loop.start", strategy: deps.strategy });
     const snapshot = yield* serializeTicketGraph(graph);
     yield* deps.emit({ type: "loop.graph.snapshot", snapshot });
 
@@ -203,14 +210,27 @@ export function runLoopController(
 interface DrainState {
   readonly blocked: ReadonlySet<string>;
   readonly passed: ReadonlySet<string>;
+  /** Selection scope/order carried so traversal honours the configured strategy. */
+  readonly selection: SelectionOptions;
   readonly tasks: readonly BacklogTaskRecord[];
+}
+
+/** The selection knobs forwarded to selectNextTicket on every drain step. */
+interface SelectionOptions {
+  readonly rootId?: string;
+  readonly strategy: TicketSelectionStrategy;
 }
 
 function drain(
   deps: ControllerDeps,
   tasks: readonly BacklogTaskRecord[]
 ): Effect.Effect<LoopSummary, Error> {
-  return drainStep(deps, { passed: new Set(), blocked: new Set(), tasks });
+  return drainStep(deps, {
+    passed: new Set(),
+    blocked: new Set(),
+    selection: { rootId: deps.rootId, strategy: deps.strategy },
+    tasks,
+  });
 }
 
 function drainStep(
@@ -230,6 +250,7 @@ function drainStep(
       return yield* drainStep(deps, {
         passed: withId(state.passed, next.id),
         blocked: state.blocked,
+        selection: state.selection,
         tasks: [...refreshed],
       });
     }
@@ -237,6 +258,7 @@ function drainStep(
     return yield* drainStep(deps, {
       passed: state.passed,
       blocked: withId(state.blocked, next.id),
+      selection: state.selection,
       tasks: state.tasks,
     });
   });
@@ -318,7 +340,10 @@ function selectReadyChain(
   graph: TicketGraph,
   state: DrainState
 ): BacklogTaskRecord | undefined {
-  const candidate = selectNextTicket(graph, { strategy: "bfs" });
+  const candidate = selectNextTicket(graph, {
+    rootId: state.selection.rootId,
+    strategy: state.selection.strategy,
+  });
   if (candidate === undefined) {
     return;
   }

@@ -1,6 +1,7 @@
 import { Cause, Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
+import type { TicketSelectionStrategy } from "../tickets/ticket-selection";
 import type {
   ControllerDeps,
   LoopControllerEvent,
@@ -57,6 +58,8 @@ interface ScriptedDepsConfig {
   readonly maxRemediationAttempts?: number;
   /** Argo terminal phase per submit, keyed by call index; defaults Succeeded. */
   readonly phases?: readonly ("Succeeded" | "Failed" | "Error")[];
+  readonly rootId?: string;
+  readonly strategy?: TicketSelectionStrategy;
   readonly tasks: readonly BacklogTaskRecord[];
 }
 
@@ -115,6 +118,8 @@ function buildDeps(config: ScriptedDepsConfig): {
     sleep: () => Effect.void,
     maxRemediationAttempts: config.maxRemediationAttempts ?? 2,
     maxMergePolls: config.maxMergePolls ?? 5,
+    rootId: config.rootId,
+    strategy: config.strategy ?? "bfs",
   };
 
   return {
@@ -309,6 +314,41 @@ describe("runLoopController — AC3 classification outcomes", () => {
     const order = recorder.submits.map((s) => s.ticketId);
     expect(order).toEqual(["A"]);
     expect(transitions(recorder.events)).not.toContain("B:running");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Part B — configurable selection strategy threads to the selection call site.
+// ---------------------------------------------------------------------------
+
+describe("runLoopController — configurable strategy", () => {
+  it("emits the configured strategy in loop.start", async () => {
+    const { deps, recorder } = buildDeps({
+      tasks: [task("A")],
+      classifyResponses: ["merged"],
+      strategy: "priority",
+    });
+    await Effect.runPromise(runLoopController(deps));
+    const start = recorder.events[0];
+    expect(start?.type).toBe("loop.start");
+    if (start?.type === "loop.start") {
+      expect(start.strategy).toBe("priority");
+    }
+  });
+
+  it("orders independent ready tickets by the priority strategy", async () => {
+    // Two independent tickets; the low-priority one sorts first by id under bfs
+    // but the priority strategy must surface the high-priority ticket first.
+    const high: BacklogTaskRecord = { ...task("Z"), priority: "high" };
+    const low: BacklogTaskRecord = { ...task("A"), priority: "low" };
+    const { deps, recorder } = buildDeps({
+      tasks: [low, high],
+      classifyResponses: ["merged", "merged"],
+      strategy: "priority",
+    });
+    await Effect.runPromise(runLoopController(deps));
+    const order = recorder.submits.map((s) => s.ticketId);
+    expect(order).toEqual(["Z", "A"]);
   });
 });
 
