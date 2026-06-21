@@ -14,6 +14,8 @@ jobs:
       issues: write
       pull-requests: write
       id-token: write
+    outputs:
+      version: ${{ steps.released-version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -55,9 +57,19 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           GIT_TERMINAL_PROMPT: "0"
 
+      # @semantic-release/npm bumps package.json in the workspace before publish,
+      # so this is the exact version just released — unlike `npm view`, which
+      # races the registry's read-after-write propagation and can return the
+      # previous version. Stays "0.0.0-development" when no release happened.
+      - name: Capture released version
+        id: released-version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
   runner-image:
     name: Publish runner image
     needs: release
+    # Only build an image when a real release happened (skip no-op pushes).
+    if: needs.release.outputs.version != '0.0.0-development'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -65,14 +77,6 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-
-      - name: Resolve released package version
-        id: pipeline-package
-        run: echo "version=$(npm view @oisincoveney/pipeline version)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -88,7 +92,7 @@ jobs:
           file: ./Dockerfile
           push: true
           build-args: |
-            PIPELINE_PACKAGE_VERSION=${{ steps.pipeline-package.outputs.version }}
+            PIPELINE_PACKAGE_VERSION=${{ needs.release.outputs.version }}
           tags: |
             ghcr.io/oisin-ee/pipeline-runner:${{ github.sha }}
             ghcr.io/oisin-ee/pipeline-runner:latest
