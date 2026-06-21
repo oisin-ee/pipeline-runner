@@ -130,25 +130,21 @@ function executeOpenPr(
   });
 }
 
+// `checkout -B <headBranch>` resets the branch to the current workspace HEAD,
+// then commits + force-with-lease push. In update-existing-pr mode this APPENDS
+// fix-commits to the PR branch only because the run's workspace was checked out
+// from that branch's head (the loop controller sets repository.sha = PR head sha
+// before submitting a remediation run). A pre-checkout `git fetch` would be
+// discarded by `checkout -B` and cannot make the fetched ref the base, so it is
+// intentionally absent — basing is owned by the workspace, not this builtin.
 function prepareHeadBranch(
   git: OpenPullRequestGitClient,
   prCtx: OpenPrContext
 ): Effect.Effect<void, unknown> {
-  return fetchExistingBranchIfUpdate(git, prCtx).pipe(
-    Effect.flatMap(() => checkoutOrCreateHeadBranch(git, prCtx.headBranch)),
+  return checkoutOrCreateHeadBranch(git, prCtx.headBranch).pipe(
     Effect.flatMap(() => stageAndCommitChanges(git, prCtx)),
     Effect.asVoid
   );
-}
-
-function fetchExistingBranchIfUpdate(
-  git: OpenPullRequestGitClient,
-  prCtx: OpenPrContext
-): Effect.Effect<void, unknown> {
-  if (prCtx.mode !== "update-existing-pr") {
-    return Effect.void;
-  }
-  return git.raw(["fetch", "origin", prCtx.headBranch]).pipe(Effect.asVoid);
 }
 
 function checkoutOrCreateHeadBranch(

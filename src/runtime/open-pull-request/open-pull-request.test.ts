@@ -330,8 +330,9 @@ describe("open-pull-request builtin", () => {
     expect(result.evidence[0]).toContain("open-pull-request failed");
   });
 
-  // AC2: update-existing-pr mode — fetches before checkout, skips gh pr create
-  it("update-existing-pr mode: fetches existing head branch before checkout and skips pr create", async () => {
+  // AC2: update-existing-pr mode — appends fix-commits to the provided PR branch
+  // (workspace is already that branch) and updates the existing PR, no gh pr create
+  it("update-existing-pr mode: pushes to provided head branch and skips pr create", async () => {
     const context = contextForOpenPr(
       "Fix CI",
       "moka/run/run-x",
@@ -371,15 +372,19 @@ describe("open-pull-request builtin", () => {
     const result = await runWithLayers(context, gitLayer, executorLayer);
 
     expect(result.exitCode).toBe(0);
-    // fetch before checkout
+    // no fetch: basing is owned by the workspace (controller sets repository.sha
+    // to the PR head), not this builtin; `checkout -B` would discard a fetch
     const fetchCall = gitCalls.find((args) => args[0] === "fetch");
-    expect(fetchCall).toBeDefined();
-    expect(fetchCall).toContain("moka/run/run-x");
+    expect(fetchCall).toBeUndefined();
     // checkout uses the provided head branch
     const checkoutCall = gitCalls.find(
       (args) => args[0] === "checkout" && args[1] === "-B"
     );
     expect(checkoutCall).toContain("moka/run/run-x");
+    // push targets the provided PR branch (append fix-commits)
+    const pushCall = gitCalls.find((args) => args[0] === "push");
+    expect(pushCall).toBeDefined();
+    expect(pushCall?.join(" ")).toContain("moka/run/run-x");
     // no gh pr create
     const createCall = calls.find(
       (c) => c.args.includes("create") && c.args.includes("pr")
