@@ -308,10 +308,7 @@ function httpStatusFromError(error: unknown): number | undefined {
   );
 }
 
-function unwrapEffect<T>(response: {
-  data?: T;
-  error?: unknown;
-}): Effect.Effect<T, unknown> {
+function unwrapEffect<T>(response: ResultTuple<T>): Effect.Effect<T, unknown> {
   return Effect.try({ catch: (error) => error, try: () => unwrap(response) });
 }
 
@@ -612,18 +609,104 @@ function describeMessageError(
   return `${error.name}${detail}`;
 }
 
-function unwrap<T>(response: { data?: T; error?: unknown }): T {
-  if (response.error) {
+interface ResultTuple<T> {
+  data?: T;
+  error?: unknown;
+  request?: Request;
+  response?: Response;
+}
+
+function unwrap<T>(result: ResultTuple<T>): T {
+  if (result.error) {
+    throw new Error(resultErrorMessage(result));
+  }
+  if (result.data === undefined) {
     throw new Error(
-      typeof response.error === "string"
-        ? response.error
-        : JSON.stringify(response.error)
+      `opencode response contained no data${httpContext(result)}`
     );
   }
-  if (response.data === undefined) {
-    throw new Error("opencode response contained no data");
+  return result.data;
+}
+
+/**
+ * Build the richest available message for a failed opencode result tuple. The
+ * runner reads the result-tuple path (not throwOnError), so the SDK leaves
+ * `error` as the raw parsed body — which for a 5xx/timeout is an empty `{}` that
+ * stringifies to nothing useful. Walk an ordered precedence (body message →
+ * raw string → non-empty JSON body → HTTP status line) so a gateway timeout
+ * surfaces as "POST …/prompt → 504 Gateway Timeout" instead of "{}". Mirrors the
+ * SDK's own error-interceptor describe().
+ */
+function resultErrorMessage<T>(result: ResultTuple<T>): string {
+  const detail = errorDetail(result.error);
+  if (detail) {
+    return `${detail}${httpContext(result)}`;
   }
-  return response.data;
+  return httpStatusLine(result) ?? "opencode error with empty response body";
+}
+
+// Ordered precedence for the human-readable detail of a failed result body.
+function errorDetail(error: unknown): string | undefined {
+  return bodyMessage(error) ?? nonEmptyString(error) ?? nonEmptyJson(error);
+}
+
+function bodyMessage(error: unknown): string | undefined {
+  if (!isRecord(error)) {
+    return;
+  }
+  return (
+    stringField(error.data, "message") ??
+    stringField(error, "message") ??
+    stringField(error, "name")
+  );
+}
+
+function nonEmptyString(error: unknown): string | undefined {
+  return typeof error === "string" && error.length > 0 ? error : undefined;
+}
+
+function nonEmptyJson(error: unknown): string | undefined {
+  if (error === undefined) {
+    return;
+  }
+  const json = JSON.stringify(error);
+  return json && json !== "{}" ? json : undefined;
+}
+
+function httpContext<T>(result: ResultTuple<T>): string {
+  const status = httpStatusLine(result);
+  return status ? ` (${status})` : "";
+}
+
+/*
+ * Status CODE + target only — deliberately NOT statusText. statusText like
+ * "Gateway Timeout" would feed the transient-retry classifier's message regex
+ * (`timed?out`) and silently reclassify a post-generation 5xx as a retryable
+ * pre-acceptance transport failure, re-running an 11-minute turn. The numeric
+ * code is enough to diagnose; classification stays structural.
+ */
+function httpStatusLine<T>(result: ResultTuple<T>): string | undefined {
+  const status = result.response?.status;
+  const { request } = result;
+  if (!(request?.method || request?.url || status)) {
+    return;
+  }
+  return `${requestTarget(request)}${statusSuffix(status)}`;
+}
+
+function requestTarget(request: Request | undefined): string {
+  return `${request?.method ?? "?"} ${request?.url ?? "?"}`;
+}
+
+function statusSuffix(status: number | undefined): string {
+  return status ? ` → HTTP ${status}` : "";
+}
+
+function stringField(value: unknown, field: string): string | undefined {
+  if (isRecord(value) && typeof value[field] === "string" && value[field]) {
+    return value[field];
+  }
+  return;
 }
 
 function errorMessage(error: unknown): string {

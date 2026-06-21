@@ -107,12 +107,17 @@ function opencodePlan(
   };
 }
 
+// Shared executor wiring: every test runs against the same "/repo" directory and
+// a fresh session registry. Spread into createOpencodeExecutor({ client, ... }).
+function executorDefaults() {
+  return { directory: "/repo", registry: createOpencodeSessionRegistry() };
+}
+
 describe("opencode session executor", () => {
   it("returns the final assistant text as JSONL stdout the parser understands", async () => {
     const execute = createOpencodeExecutor({
       client: fakeClient(),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
@@ -164,8 +169,7 @@ describe("opencode session executor", () => {
     const recordPrompts: RecordedPrompt[] = [];
     const execute = createOpencodeExecutor({
       client: fakeClient({ recordPrompts }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     await execute(opencodePlan({ variant: "high" }), {});
@@ -221,8 +225,7 @@ describe("opencode session executor", () => {
           },
         ],
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     await execute(opencodePlan(), { onOutput });
@@ -246,8 +249,7 @@ describe("opencode session executor", () => {
         },
         promptParts: [],
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
@@ -262,8 +264,7 @@ describe("opencode session executor", () => {
         promptInfoError: { data: {}, name: "MessageOutputLengthError" },
         promptParts: [],
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
@@ -281,14 +282,57 @@ describe("opencode session executor", () => {
     };
     const execute = createOpencodeExecutor({
       client: throwingClient,
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
 
     expect(result.exitCode).toBe(70);
     expect(result.stderr).toContain("boom");
+  });
+
+  it("surfaces the HTTP status when the prompt fails with an empty error body", async () => {
+    // The opencode server returns a 504 with an empty body on a long
+    // generation; the result-tuple `error` is `{}`, which used to stringify
+    // to "opencode session failed: {}" and hide the cause. The status code is
+    // surfaced, but statusText ("Gateway Timeout") is NOT — it would trip the
+    // transient-retry classifier and re-run the turn — so the prompt is issued
+    // exactly once (no reclassification to a retryable transport failure).
+    const recordPrompts: FakeClientOptions["recordPrompts"] = [];
+    const emptyError504Client: OpencodeRuntimeClient = {
+      event: { subscribe: () => Promise.resolve({ stream: emptyStream() }) },
+      session: {
+        create: () =>
+          Promise.resolve({ data: { id: "ses_test" }, error: undefined }),
+        prompt: (args) => {
+          recordPrompts.push(args);
+          return Promise.resolve({
+            data: undefined,
+            error: {},
+            request: new Request("http://opencode/session/ses_test/prompt", {
+              method: "POST",
+            }),
+            response: new Response(null, {
+              status: 504,
+              statusText: "Gateway Timeout",
+            }),
+          });
+        },
+      },
+    };
+    const execute = createOpencodeExecutor({
+      client: emptyError504Client,
+      ...executorDefaults(),
+    });
+
+    const result = await execute(opencodePlan(), {});
+
+    expect(result.exitCode).toBe(70);
+    expect(result.stderr).toContain("HTTP 504");
+    expect(result.stderr).toContain("POST");
+    expect(result.stderr).not.toContain("session failed: {}");
+    // Classification unchanged: a post-generation 5xx is not retried.
+    expect(recordPrompts).toHaveLength(1);
   });
 
   it("retries a transient prompt transport failure then succeeds (exit 0)", async () => {
@@ -299,8 +343,7 @@ describe("opencode session executor", () => {
         promptErrors: [new Error("fetch failed")],
         recordPrompts,
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {
@@ -327,8 +370,7 @@ describe("opencode session executor", () => {
         promptErrors: [Object.assign(new Error("overloaded"), { status: 529 })],
         recordPrompts,
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
@@ -368,8 +410,7 @@ describe("opencode session executor", () => {
         ],
         recordPrompts,
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
@@ -387,8 +428,7 @@ describe("opencode session executor", () => {
         promptErrors: [new Error("schema contract invalid")],
         recordPrompts,
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
@@ -405,8 +445,7 @@ describe("opencode session executor", () => {
         promptParts: [],
         recordPrompts,
       }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     const result = await execute(opencodePlan(), {});
@@ -418,8 +457,7 @@ describe("opencode session executor", () => {
   it("rejects non-opencode plans", async () => {
     const execute = createOpencodeExecutor({
       client: fakeClient(),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     await expect(
@@ -433,8 +471,7 @@ describe("opencode prompt body shaping", () => {
     const recordPrompts: RecordedPrompt[] = [];
     const execute = createOpencodeExecutor({
       client: fakeClient({ recordPrompts }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     await execute(
@@ -460,8 +497,7 @@ describe("opencode prompt body shaping", () => {
     const recordPrompts: RecordedPrompt[] = [];
     const execute = createOpencodeExecutor({
       client: fakeClient({ recordPrompts }),
-      directory: "/repo",
-      registry: createOpencodeSessionRegistry(),
+      ...executorDefaults(),
     });
 
     await execute(opencodePlan({ model: "baremodel" }), {});
