@@ -245,7 +245,7 @@ function startTicketEffect(
       selectNextTicket(loaded.graph, selectionOptions)
     );
 
-    const task = ticketRunTask(selected);
+    const { task, ticketId } = ticketRunTask(selected);
     const descriptionParts = [task];
     const runFlags = yield* ticketStartRunFlagsEffect(flags);
     const resolution = yield* Effect.try({
@@ -281,16 +281,40 @@ function startTicketEffect(
           flags: runFlags,
           resolution,
           task,
+          ticketId,
         });
       },
     });
   });
 }
 
-function ticketRunTask(ticket: BacklogTaskRecord): string {
+interface TicketRunDescriptor {
+  readonly task: string;
+  readonly ticketId: string;
+}
+
+const BACKLOG_STATUS_DIRECTIVE = `\
+## Backlog ticket management
+
+Your first action must be to set this ticket to "In Progress":
+  backlog task edit <TICKET_ID> --status "In Progress" --plain
+
+Your final action on completion must be to set this ticket to "Done" and update \
+its acceptance criteria through the backlog tools:
+  backlog task edit <TICKET_ID> --status "Done" --plain
+
+Use backlog tools on your working branch. Do not hand-edit the task markdown file.`;
+
+function ticketRunTask(ticket: BacklogTaskRecord): TicketRunDescriptor {
   const title = formatNextTicket(ticket);
   const description = ticket.description?.trim();
-  return description ? `${title}\n\n${description}` : title;
+  const body = description ? `${title}\n\n${description}` : title;
+  const directive = BACKLOG_STATUS_DIRECTIVE.replaceAll(
+    "<TICKET_ID>",
+    ticket.id
+  );
+  const task = `${body}\n\n${directive}`;
+  return { task, ticketId: ticket.id };
 }
 
 function ticketStartRunFlagsEffect(

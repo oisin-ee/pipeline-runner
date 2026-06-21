@@ -11,6 +11,7 @@ export interface RunCommandCall {
   readonly flags: RunResolverFlags;
   readonly resolution: RunResolution;
   readonly task: string;
+  readonly ticketId?: string;
 }
 
 export type RunCommand = (call: RunCommandCall) => Promise<void> | void;

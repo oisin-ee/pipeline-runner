@@ -5,7 +5,10 @@ import {
 } from "@kubernetes/client-node";
 import { Context, Effect, Layer } from "effect";
 import { execa } from "execa";
+import type { WorkflowPhase, WorkflowReadApi } from "../../loop/argo-poll";
+import { classifyArgoPhase, extractArgoRawPhase } from "../../loop/argo-poll";
 
+export type { WorkflowReadApi } from "../../loop/argo-poll";
 export type CoreApi = Pick<CoreV1Api, "createNamespacedConfigMap">;
 export type WorkflowApi = Pick<
   CustomObjectsApi,
@@ -16,6 +19,7 @@ export interface KubernetesArgoIoDependencies {
   coreApi?: CoreApi;
   kubeConfig?: KubeConfig;
   workflowApi?: WorkflowApi;
+  workflowReadApi?: WorkflowReadApi;
 }
 
 interface KubernetesArgoClientOptions {
@@ -52,6 +56,12 @@ export class KubernetesArgoService extends Context.Tag("KubernetesArgoService")<
       readonly namespace: string;
       readonly options: KubernetesArgoClientOptions;
     }) => Effect.Effect<unknown, unknown>;
+    readonly getWorkflowPhase: (input: {
+      readonly dependencies: KubernetesArgoIoDependencies;
+      readonly name: string;
+      readonly namespace: string;
+      readonly options: KubernetesArgoClientOptions;
+    }) => Effect.Effect<WorkflowPhase, unknown>;
     readonly kubectl: (
       args: readonly string[],
       options: KubectlOptions
@@ -90,6 +100,26 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
           catch: (error) => error,
         })
       )
+    ),
+  getWorkflowPhase: ({ dependencies, name, namespace, options }) =>
+    Effect.try({
+      try: () => readApiClient(options, dependencies),
+      catch: (error) => error,
+    }).pipe(
+      Effect.flatMap((workflowReadApi) =>
+        Effect.tryPromise({
+          try: () =>
+            workflowReadApi.getNamespacedCustomObject({
+              group: "argoproj.io",
+              name,
+              namespace,
+              plural: "workflows",
+              version: "v1alpha1",
+            }),
+          catch: (error) => error,
+        })
+      ),
+      Effect.map((resource) => classifyArgoPhase(extractArgoRawPhase(resource)))
     ),
   kubectl: (args, options) =>
     Effect.tryPromise({
@@ -158,6 +188,18 @@ function buildApiClients(
     workflowApi:
       dependencies.workflowApi ?? kubeConfig.makeApiClient(CustomObjectsApi),
   };
+}
+
+function readApiClient(
+  options: KubernetesArgoClientOptions,
+  dependencies: KubernetesArgoIoDependencies
+): WorkflowReadApi {
+  if (dependencies.workflowReadApi) {
+    return dependencies.workflowReadApi;
+  }
+  return resolveKubeConfig(options, dependencies).makeApiClient(
+    CustomObjectsApi
+  );
 }
 
 function kubectlArgs(

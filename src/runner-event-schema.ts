@@ -1,5 +1,10 @@
 import { z } from "zod";
 import type { RunnerEventRecord } from "./runner-command-contract";
+import { loopStateSchema, ticketGraphDtoSchema } from "./tickets/ticket-graph-dto";
+
+// Re-export loopState as part of the runner event contract — single source of truth.
+export { loopStateSchema } from "./tickets/ticket-graph-dto";
+export type { LoopState } from "./tickets/ticket-graph-dto";
 
 /*
  * Zod schemas for runner event records — the items that the runner POSTs to
@@ -177,6 +182,48 @@ const finalResultEventSchema = runnerEventEnvelopeSchema.extend({
   type: z.literal("workflow.finish"),
 });
 
+/* ---------- loop.* detail schemas ---------- */
+
+const loopStartDetailsSchema = z.object({
+  root: z.string().min(1).optional(),
+  strategy: z.string().min(1),
+});
+
+// Reuse ticketGraphDtoSchema from the DTO module so the wire shape has one owner.
+const loopGraphSnapshotDetailsSchema = ticketGraphDtoSchema;
+
+const loopNodeTransitionDetailsSchema = z.object({
+  loopState: loopStateSchema,
+  ticketId: z.string().min(1),
+});
+
+const loopFinishDetailsSchema = z.object({
+  blocked: z.number().int().nonnegative(),
+  passed: z.number().int().nonnegative(),
+});
+
+/* ---------- loop.* event record variants ---------- */
+
+const loopStartEventSchema = runnerEventEnvelopeSchema.extend({
+  loopStart: loopStartDetailsSchema,
+  type: z.literal("loop.start"),
+});
+
+const loopGraphSnapshotEventSchema = runnerEventEnvelopeSchema.extend({
+  loopGraphSnapshot: loopGraphSnapshotDetailsSchema,
+  type: z.literal("loop.graph.snapshot"),
+});
+
+const loopNodeTransitionEventSchema = runnerEventEnvelopeSchema.extend({
+  loopNodeTransition: loopNodeTransitionDetailsSchema,
+  type: z.literal("loop.node.transition"),
+});
+
+const loopFinishEventSchema = runnerEventEnvelopeSchema.extend({
+  loopFinish: loopFinishDetailsSchema,
+  type: z.literal("loop.finish"),
+});
+
 /**
  * Zod schema for a single runner event record — one item in the events array
  * that the runner POSTs to /api/pipeline/runner-events.
@@ -190,6 +237,10 @@ export const runnerEventRecordSchema = z.union([
   artifactEventSchema,
   logEventSchema,
   finalResultEventSchema,
+  loopStartEventSchema,
+  loopGraphSnapshotEventSchema,
+  loopNodeTransitionEventSchema,
+  loopFinishEventSchema,
 ]);
 
 /**

@@ -1,0 +1,132 @@
+import { describe, expect, it } from "vitest";
+import {
+  loopStateSchema,
+  runnerEventRecordSchema,
+} from "./runner-event-schema";
+
+const ENVELOPE = {
+  at: "2026-06-21T00:00:00.000Z",
+  runId: "run-123",
+  sequence: 1,
+};
+
+describe("loop.* event schemas — AC1: round-trip through runnerEventRecordSchema", () => {
+  it("loop.start round-trips with strategy and optional root", () => {
+    const event = {
+      ...ENVELOPE,
+      loopStart: { strategy: "topological" },
+      type: "loop.start",
+    };
+    const parsed = runnerEventRecordSchema.parse(event);
+    expect(parsed.type).toBe("loop.start");
+    expect((parsed as typeof event).loopStart.strategy).toBe("topological");
+  });
+
+  it("loop.start accepts an optional root field", () => {
+    const event = {
+      ...ENVELOPE,
+      loopStart: { root: "PIPE-1", strategy: "topological" },
+      type: "loop.start",
+    };
+    const parsed = runnerEventRecordSchema.parse(event);
+    expect((parsed as typeof event).loopStart.root).toBe("PIPE-1");
+  });
+
+  it("loop.graph.snapshot round-trips a ticket-graph wire DTO", () => {
+    const event = {
+      ...ENVELOPE,
+      loopGraphSnapshot: {
+        batches: [["A"], ["B"]],
+        dangling: [],
+        edges: [{ from: "A", to: "B" }],
+        nodes: [
+          {
+            id: "A",
+            loopState: "queued",
+            status: "To Do",
+            title: "Task A",
+          },
+          {
+            id: "B",
+            loopState: "running",
+            priority: "high",
+            status: "In Progress",
+            title: "Task B",
+          },
+        ],
+      },
+      type: "loop.graph.snapshot",
+    };
+    const parsed = runnerEventRecordSchema.parse(event);
+    expect(parsed.type).toBe("loop.graph.snapshot");
+    const snap = (parsed as typeof event).loopGraphSnapshot;
+    expect(snap.batches).toStrictEqual([["A"], ["B"]]);
+    expect(snap.edges).toStrictEqual([{ from: "A", to: "B" }]);
+    expect(snap.nodes[0].loopState).toBe("queued");
+    expect(snap.nodes[1].loopState).toBe("running");
+  });
+
+  it("loop.node.transition round-trips ticketId and loopState", () => {
+    const event = {
+      ...ENVELOPE,
+      loopNodeTransition: { loopState: "passed", ticketId: "PIPE-5" },
+      type: "loop.node.transition",
+    };
+    const parsed = runnerEventRecordSchema.parse(event);
+    expect(parsed.type).toBe("loop.node.transition");
+    expect((parsed as typeof event).loopNodeTransition.loopState).toBe("passed");
+    expect((parsed as typeof event).loopNodeTransition.ticketId).toBe("PIPE-5");
+  });
+
+  it("loop.finish round-trips passed/blocked counts", () => {
+    const event = {
+      ...ENVELOPE,
+      loopFinish: { blocked: 2, passed: 7 },
+      type: "loop.finish",
+    };
+    const parsed = runnerEventRecordSchema.parse(event);
+    expect(parsed.type).toBe("loop.finish");
+    expect((parsed as typeof event).loopFinish.passed).toBe(7);
+    expect((parsed as typeof event).loopFinish.blocked).toBe(2);
+  });
+
+  it("rejects loop.node.transition with invalid loopState", () => {
+    const event = {
+      ...ENVELOPE,
+      loopNodeTransition: { loopState: "UNKNOWN", ticketId: "T1" },
+      type: "loop.node.transition",
+    };
+    expect(() => runnerEventRecordSchema.parse(event)).toThrow();
+  });
+});
+
+describe("loopState — AC3: single exported source of truth", () => {
+  it("loopStateSchema is re-exported from runner-event-schema", () => {
+    // If the import resolves and parses, the schema is the same object exported
+    // from the DTO module and re-exported here — one canonical owner.
+    expect(loopStateSchema.parse("queued")).toBe("queued");
+    expect(loopStateSchema.parse("blocked")).toBe("blocked");
+    expect(() => loopStateSchema.parse("done")).toThrow();
+  });
+
+  it("loop.graph.snapshot rejects an invalid loopState in a node", () => {
+    const event = {
+      ...ENVELOPE,
+      loopGraphSnapshot: {
+        batches: [],
+        dangling: [],
+        edges: [],
+        nodes: [
+          {
+            id: "A",
+            loopState: "NOT_A_STATE",
+            status: "To Do",
+            title: "A",
+          },
+        ],
+      },
+      type: "loop.graph.snapshot",
+    };
+    expect(() => runnerEventRecordSchema.parse(event)).toThrow();
+  });
+});
