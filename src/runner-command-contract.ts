@@ -317,6 +317,44 @@ interface RunnerEventEnvelope {
   type: string;
 }
 
+/** Lifecycle of a single ticket node in the cloud loop controller. */
+export type LoopState = "queued" | "running" | "merging" | "passed" | "blocked";
+
+export interface LoopStartDetails {
+  readonly root?: string;
+  readonly strategy: string;
+}
+
+export interface LoopGraphSnapshotNodeDetails {
+  readonly id: string;
+  readonly loopState: LoopState;
+  readonly priority?: "high" | "medium" | "low";
+  readonly status: "To Do" | "In Progress" | "Done";
+  readonly title: string;
+}
+
+export interface LoopGraphSnapshotEdgeDetails {
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface LoopGraphSnapshotDetails {
+  readonly batches: readonly (readonly string[])[];
+  readonly dangling: readonly string[];
+  readonly edges: readonly LoopGraphSnapshotEdgeDetails[];
+  readonly nodes: readonly LoopGraphSnapshotNodeDetails[];
+}
+
+export interface LoopNodeTransitionDetails {
+  readonly loopState: LoopState;
+  readonly ticketId: string;
+}
+
+export interface LoopFinishDetails {
+  readonly blocked: number;
+  readonly passed: number;
+}
+
 export type RunnerEventRecord =
   | (RunnerEventEnvelope & {
       type: "workflow.planned" | "workflow.start";
@@ -355,6 +393,22 @@ export type RunnerEventRecord =
   | (RunnerEventEnvelope & {
       finalResult: RunnerFinalResultDetails;
       type: "workflow.finish";
+    })
+  | (RunnerEventEnvelope & {
+      loopStart: LoopStartDetails;
+      type: "loop.start";
+    })
+  | (RunnerEventEnvelope & {
+      loopGraphSnapshot: LoopGraphSnapshotDetails;
+      type: "loop.graph.snapshot";
+    })
+  | (RunnerEventEnvelope & {
+      loopNodeTransition: LoopNodeTransitionDetails;
+      type: "loop.node.transition";
+    })
+  | (RunnerEventEnvelope & {
+      loopFinish: LoopFinishDetails;
+      type: "loop.finish";
     });
 
 type RunnerEventRecordBase = Pick<
