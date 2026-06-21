@@ -20,6 +20,11 @@ export type PrResolution =
 export interface GhRunner {
   /** Run a `gh …` command and parse the JSON response. */
   json: (args: string[]) => Effect.Effect<unknown, Error>;
+  /**
+   * Run a `gh …` command that does not emit JSON (e.g. `pr merge`) and return
+   * its combined stdout text. Mutating commands route through here.
+   */
+  text: (args: string[]) => Effect.Effect<string, Error>;
 }
 
 // ---------------------------------------------------------------------------

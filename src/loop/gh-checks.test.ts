@@ -21,6 +21,8 @@ function stubGhRunner(responses: Record<string, unknown>): GhRunner {
       }
       return Effect.fail(new Error(`unexpected gh call: ${key}`));
     },
+    text: (args: string[]) =>
+      Effect.fail(new Error(`unexpected gh text call: ${args.join(" ")}`)),
   };
 }
 
@@ -65,6 +67,7 @@ describe("resolvePrForRun", () => {
   it("surfaces gh execution errors as an Effect-level error", async () => {
     const gh: GhRunner = {
       json: () => Effect.fail(new Error("gh: not authenticated")),
+      text: () => Effect.fail(new Error("gh: not authenticated")),
     };
 
     const either = await Effect.runPromise(
