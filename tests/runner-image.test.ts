@@ -80,7 +80,7 @@ const SHA_IMAGE_TAG = [
 const LATEST_IMAGE_TAG = "ghcr.io/oisin-ee/pipeline-runner:latest";
 const PIPELINE_PACKAGE_DEFAULT_RE = /ARG\s+PIPELINE_PACKAGE_VERSION=latest/;
 const PIPELINE_PACKAGE_BUILD_ARG_RE =
-  /PIPELINE_PACKAGE_VERSION=\$\{\{ steps\.pipeline-package\.outputs\.version \}\}/;
+  /PIPELINE_PACKAGE_VERSION=\$\{\{ needs\.release\.outputs\.version \}\}/;
 
 function readProjectFile(path: string): string {
   return readFileSync(join(root, path), "utf8");
@@ -224,14 +224,16 @@ describe("runner container image packaging", () => {
 });
 
 describe("runner image npm release dependency", () => {
-  it("builds the runner image after the npm release and installs the released package version", () => {
+  it("builds the runner image with the release-output version, never querying the registry", () => {
     const jobs = workflowJobs();
     const imageJobs = imagePublishingJobs();
     const imagePublishing = serialize(imageJobs);
 
     expect(jobs["runner-image"]?.needs).toBe("release");
-    expect(imagePublishing).toMatch(NPM_PACKAGE_VERSION_RESOLUTION_RE);
+    // Version comes from the release job output (semantic-release's own version),
+    // not a registry lookup that races npm's read-after-write propagation.
     expect(imagePublishing).toMatch(PIPELINE_PACKAGE_BUILD_ARG_RE);
+    expect(imagePublishing).not.toMatch(NPM_PACKAGE_VERSION_RESOLUTION_RE);
     expect(imagePublishing).not.toMatch(LOCAL_IMAGE_PACKAGE_RE);
     expect(imagePublishing).not.toMatch(IMPERATIVE_PACKAGE_RESOLUTION_RE);
   });
