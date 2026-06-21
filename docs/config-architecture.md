@@ -164,9 +164,9 @@ Project-authored skill and rule paths resolve from the project root and must
 exist for runtime use. If default skill files are missing, run `moka init` to
 install them before executing workflows.
 
-Default agent hooks are copied by `moka init` and `moka install-hooks` from the
-private `oisin-ee/agent-hooks` repository. That source repository has one
-canonical host-level layout:
+Default agent hooks are copied by `moka init` from the private
+`oisin-ee/agent-hooks` repository. That source repository has one canonical
+host-level layout:
 
 ```text
 claude-code/
@@ -215,7 +215,7 @@ OpenCode host resources are generated from the same profile registry:
 - `.opencode/skills/*/SKILL.md` is installed by `skills add`; Moka only
   generates agents, commands, plugins, and project config.
 - Additional manually authored OpenCode hook plugins can be copied from
-  `oisin-ee/agent-hooks/opencode/` by `moka install-hooks`.
+  `oisin-ee/agent-hooks/opencode/` by `moka init`.
 - `.opencode/plugins/pipeline-goal-context.ts` projects package-owned
   continuation context into OpenCode compaction.
 - `.opencode/opencode.json` contains the gateway MCP config, enables LSP, and
@@ -455,8 +455,8 @@ rather than re-emitting it into every project.
 
 ## Troubleshooting
 
-- Missing host resources: run `moka install-commands`; `moka run` loads the
-  installed package config.
+- Missing host resources: run `moka init`; `moka run` loads the installed
+  package config.
 - Capability error: reduce the profile grants or choose a runner whose declared
   capabilities include the requested tools, filesystem, network, output, rules,
   skills, or MCP access.

@@ -443,21 +443,16 @@ describe("loadPipelineConfig", () => {
     // Dependency/toolchain bootstrap is repo-owned and required: the default
     // first setup step runs the repo's declared bootstrap (.moka/bootstrap.sh or
     // a "moka:setup" script) and fails loudly otherwise — moka never guesses it.
-    // moka's own runtime provisioning (init + install-commands) stays.
+    // moka's own runtime provisioning is a single `moka init --force` step.
     const setup = config.runner_command.environment.setup;
-    expect(setup).toHaveLength(3);
+    expect(setup).toHaveLength(2);
     expect(setup[0].command).toBe("sh");
     expect(setup[0].args[0]).toBe("-c");
     expect(setup[0].args[1]).toContain(".moka/bootstrap.sh");
     expect(setup[0].args[1]).toContain("moka:setup");
     expect(setup[0].required).toBe(true);
     expect(setup[1]).toEqual({
-      args: ["init"],
-      command: "moka",
-      required: true,
-    });
-    expect(setup[2]).toEqual({
-      args: ["install-commands"],
+      args: ["init", "--force"],
       command: "moka",
       required: true,
     });

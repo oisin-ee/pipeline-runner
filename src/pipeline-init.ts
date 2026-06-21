@@ -27,7 +27,10 @@ const SKILL_INSTALL_AGENT_ARGS = [
 ];
 
 export interface PipelineInitOptions {
+  check?: boolean;
   cwd?: string;
+  dryRun?: boolean;
+  force?: boolean;
   hookInstaller?: PipelineHookInstaller;
   rulesInstaller?: PipelineRulesInstaller;
   skillInstaller?: PipelineSkillInstaller;
@@ -37,9 +40,10 @@ export interface PipelineInitResult {
   files: string[];
 }
 
-export interface RefreshAgentHarnessesOptions extends PipelineInitOptions {}
-
-export interface RefreshAgentHarnessesResult extends PipelineInitResult {}
+export interface PipelineInitFormatMode {
+  check?: boolean;
+  dryRun?: boolean;
+}
 
 async function installDefaultSkills(cwd: string): Promise<void> {
   try {
@@ -63,14 +67,6 @@ async function installDefaultSkills(cwd: string): Promise<void> {
   }
 }
 
-function installDefaultHooks(): Promise<InstallHooksResult> {
-  // moka owns the per-machine harness: init/refresh (re)write it on every run, so
-  // force past the "manually edited" guard the same way the command install does
-  // (installCommands force:true below). Without this, a pre-baked or version-skewed
-  // ~/.claude/settings.json makes the runner's `moka init` setup step exit 1.
-  return installHooks({ force: true });
-}
-
 function hookInstallerFiles(
   result: Pick<InstallHooksResult, "items"> | { files: string[] }
 ): string[] {
@@ -83,17 +79,23 @@ export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const skillInstaller = options.skillInstaller ?? installDefaultSkills;
-  const hookInstaller = options.hookInstaller ?? installDefaultHooks;
-  const rulesInstaller =
-    options.rulesInstaller ?? ((_target) => installRules({}));
-  await skillInstaller(cwd);
-  const result = await installCommands({
-    cwd,
-    force: true,
-    host: "all",
-  });
+  const { check, dryRun, force } = options;
+  // --force is caller-controlled: a bare `moka init` refuses to clobber manually
+  // edited harness files, while the runner DAG passes --force so a pre-baked or
+  // version-skewed ~/.claude/settings.json is refreshed instead of failing setup.
+  const installerFlags = { check, dryRun, force };
+  // Skills come from `npx skills add` (network, externally managed); they are not
+  // part of the generated harness, so --check/--dry-run skip them entirely.
+  if (!(check || dryRun)) {
+    const skillInstaller = options.skillInstaller ?? installDefaultSkills;
+    await skillInstaller(cwd);
+  }
+  const result = await installCommands({ cwd, host: "all", ...installerFlags });
+  const hookInstaller =
+    options.hookInstaller ?? (() => installHooks(installerFlags));
   const hooks = await hookInstaller(cwd);
+  const rulesInstaller =
+    options.rulesInstaller ?? (() => installRules(installerFlags));
   const rulesResult = await rulesInstaller(cwd);
   return {
     files: [
@@ -104,26 +106,45 @@ export async function initPipelineProject(
   };
 }
 
-export function refreshAgentHarnesses(
-  options: RefreshAgentHarnessesOptions = {}
-): Promise<RefreshAgentHarnessesResult> {
-  return initPipelineProject(options);
+const INIT_RESULT_COPY = {
+  install: {
+    headline: "Initialized package-owned pipeline support:",
+    fileVerb: "generated",
+    footer: "no repo-local pipeline config files were created",
+  },
+  check: {
+    headline: "Verified package-owned pipeline support is current:",
+    fileVerb: "current",
+    footer: "harness verified; no changes written",
+  },
+  dryRun: {
+    headline: "Planned package-owned pipeline support:",
+    fileVerb: "would generate",
+    footer: "dry run; no changes written",
+  },
+} as const;
+
+function initResultMode(
+  mode: PipelineInitFormatMode
+): keyof typeof INIT_RESULT_COPY {
+  if (mode.check) {
+    return "check";
+  }
+  if (mode.dryRun) {
+    return "dryRun";
+  }
+  return "install";
 }
 
-export function formatPipelineInitResult(result: PipelineInitResult): string {
-  return [
-    "Initialized package-owned pipeline support:",
-    "installed the per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); global instruction files generated via rulesync from oisin-ee/rules; inherited by every repo with no per-repo copy",
-    ...result.files.map((path) => `generated ${path}`),
-    "no repo-local pipeline config files were created",
-  ].join("\n");
-}
-
-export function formatRefreshAgentHarnessesResult(
-  result: RefreshAgentHarnessesResult
+export function formatPipelineInitResult(
+  result: PipelineInitResult,
+  mode: PipelineInitFormatMode = {}
 ): string {
+  const copy = INIT_RESULT_COPY[initResultMode(mode)];
   return [
-    formatPipelineInitResult(result),
-    "global harness refreshed; no repo commit (per-machine install)",
+    copy.headline,
+    "per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); global instruction files generated via rulesync from oisin-ee/rules; inherited by every repo with no per-repo copy",
+    ...result.files.map((path) => `${copy.fileVerb} ${path}`),
+    copy.footer,
   ].join("\n");
 }

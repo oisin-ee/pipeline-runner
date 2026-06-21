@@ -17,13 +17,6 @@ import {
 import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { formatConfigLintWarning, lintPipelineConfig } from "../config/lint";
 import {
-  type CommandHostSelection,
-  formatInstallCommandsResult,
-  installCommands,
-  parseCommandHost,
-} from "../install-commands";
-import { formatInstallHooksResult, installHooks } from "../install-hooks";
-import {
   configureGatewayHosts,
   type GatewayHostScope,
   type GatewayHostSelection,
@@ -35,9 +28,7 @@ import {
 } from "../mcp/gateway";
 import {
   formatPipelineInitResult,
-  formatRefreshAgentHarnessesResult,
   initPipelineProject,
-  refreshAgentHarnesses,
 } from "../pipeline-init";
 import { runPipelineFromConfig } from "../pipeline-runtime";
 import {
@@ -430,14 +421,7 @@ function scheduledEntrypointId(
   return entrypoint && "schedule" in entrypoint ? id : null;
 }
 
-interface InstallCommandFlags {
-  check?: boolean;
-  dryRun?: boolean;
-  force?: boolean;
-  host?: CommandHostSelection;
-}
-
-interface InstallHookFlags {
+interface InitFlags {
   check?: boolean;
   dryRun?: boolean;
   force?: boolean;
@@ -685,7 +669,7 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
     .description("Rewrite host MCP config to the singleton pipeline gateway")
     .addOption(
       new Option("--host <host>", "host config to update")
-        .choices(["all", "opencode", "claude-code", "codex"])
+        .choices(["all", "opencode"])
         .default("all")
         .argParser(parseGatewayHost)
     )
@@ -764,60 +748,22 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
   program
     .command("init")
     .description(
-      "Initialize package-owned pipeline support without repo-local config (global per-machine install: ~/.claude, ~/.config/opencode, ~/.codex)"
+      "Install or refresh package-owned pipeline support: per-machine harness (skills + slash-command adapters + agent hooks + global instruction files) installed globally to ~/.claude, ~/.config/opencode, ~/.codex with no repo-local config"
     )
-    .action(async () => {
-      const result = await initPipelineProject({
-        cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-      });
-      console.log(formatPipelineInitResult(result));
-    });
-
-  program
-    .command("refresh-harnesses")
-    .description(
-      "Force-refresh generated agent harnesses (global per-machine install: ~/.claude, ~/.config/opencode, ~/.codex)"
-    )
-    .action(async () => {
-      const result = await refreshAgentHarnesses({
-        cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-      });
-      console.log(formatRefreshAgentHarnessesResult(result));
-    });
-
-  program
-    .command("install-commands")
-    .description(
-      "Install generated slash-command adapters into per-machine host dirs (~/.claude, ~/.config/opencode, ~/.codex)"
-    )
-    .addOption(
-      new Option("--host <host>", "host command set to install")
-        .choices(["all", "opencode", "claude-code", "codex"])
-        .default("all")
-        .argParser(parseCommandHost)
-    )
+    .option("--check", "verify the generated harness is current; fail if stale")
     .option("--dry-run", "show planned changes without writing files")
-    .option("--check", "fail if generated command files are missing or stale")
-    .option("--force", "overwrite manually edited command files")
-    .action(async (flags: InstallCommandFlags) => {
-      const result = await installCommands({
+    .option("--force", "overwrite manually edited harness files")
+    .action(async (flags: InitFlags) => {
+      const result = await initPipelineProject({
         ...flags,
         cwd: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
       });
-      console.log(formatInstallCommandsResult(result));
-    });
-
-  program
-    .command("install-hooks")
-    .description(
-      "Install agent hooks from oisin-ee/agent-hooks into per-machine host dirs (~/.claude, ~/.config/opencode, ~/.codex)"
-    )
-    .option("--dry-run", "show planned changes without writing files")
-    .option("--check", "fail if installed hook files are missing or stale")
-    .option("--force", "overwrite manually edited hook files")
-    .action(async (flags: InstallHookFlags) => {
-      const result = await installHooks({ ...flags });
-      console.log(formatInstallHooksResult(result));
+      console.log(
+        formatPipelineInitResult(result, {
+          check: flags.check,
+          dryRun: flags.dryRun,
+        })
+      );
     });
 
   const codexAuthCommand = program

@@ -83,12 +83,12 @@ runner_command:
       # Set up package-owned pipeline support + the opencode model registration
       # (.opencode/opencode.json, which declares the gpt-5.5-* reasoning selectors)
       # on every run, so opencode-backed agents in the pod resolve their models
-      # instead of failing with "Model not found". Both commands are idempotent
-      # and write no repo-local pipeline config.
+      # instead of failing with "Model not found". `moka init` installs the full
+      # per-machine harness (skills + commands + hooks + rules); --force refreshes
+      # a pre-baked/version-skewed settings.json instead of refusing it. Idempotent,
+      # writes no repo-local pipeline config.
       - command: moka
-        args: [init]
-      - command: moka
-        args: [install-commands]
+        args: [init, --force]
 scheduler:
   commands:
     quick:

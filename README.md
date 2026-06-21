@@ -43,10 +43,12 @@ Initialize package-owned pipeline support:
 moka init
 ```
 
-`moka init` installs the package's default skills, generated host command
-surfaces, the singleton `pipeline-gateway` MCP entry, and copied hook files from
-the private `oisin-ee/agent-hooks` repository. OpenCode is the package default
-runtime. The command does not create repo-local `.pipeline` config files.
+`moka init` installs or refreshes the whole per-machine harness in one step:
+the package's default skills, generated host command surfaces, the singleton
+`pipeline-gateway` MCP entry, copied hook files from the private
+`oisin-ee/agent-hooks` repository, and global instruction files. OpenCode is the
+package default runtime. The command does not create repo-local `.pipeline`
+config files.
 
 The default MCP gateway can run locally or point at the hosted Momokaya gateway.
 Set `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to the full HTTP `Authorization` header
@@ -56,16 +58,17 @@ value before starting OpenCode when using a protected gateway:
 export PIPELINE_MCP_GATEWAY_AUTHORIZATION="Basic $(printf '%s' 'user:password' | base64)"
 ```
 
-Check or refresh generated host files after package upgrades:
+Verify the generated harness (commands, hooks, rules) is current after package
+upgrades or edits to `oisin-ee/agent-hooks`, without writing anything:
 
 ```shell
-moka install-commands --host all --check
+moka init --check
 ```
 
-Check or refresh copied agent hooks after editing `oisin-ee/agent-hooks`:
+Refresh it, overwriting any locally edited harness files:
 
 ```shell
-moka install-hooks --check
+moka init --force
 ```
 
 Check local prerequisites and config health:
@@ -103,10 +106,10 @@ Canonical commands:
 - `moka stop <run-id> [node-id]`: abort a run or one active node.
 - `moka export <run-id> --sanitize`: print a portable evidence bundle.
 - `moka doctor`: check local prerequisites and config health.
-- `moka init`: install package-owned host resources for a repository.
-- `moka install-hooks`: copy manually authored hooks from `oisin-ee/agent-hooks`.
-- `moka refresh-harnesses`: force-refresh the per-machine (global) agent
-  harnesses. The harness is always installed globally; there is no `--scope`.
+- `moka init`: install or refresh the whole per-machine harness (skills,
+  command surfaces, hooks, rules). `--check` verifies without writing,
+  `--dry-run` previews, `--force` overwrites locally edited files. The harness
+  is always installed globally; there is no `--scope`.
 
 ```shell
 moka run "Implement PIPE-123 user-facing behavior"
@@ -118,7 +121,7 @@ moka run --effort normal "Implement a standard fix"
 moka run --target remote --effort thorough "Submit a full hosted graph run"
 moka run --read-only "Inspect the repository without edits"
 moka run --target remote --command -- opencode run "fix this bug"
-moka refresh-harnesses
+moka init --force
 ```
 
 Flag defaults and choices:

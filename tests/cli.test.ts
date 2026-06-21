@@ -1305,7 +1305,7 @@ describe("execute", () => {
         await runCli([
           "node",
           "/repo/node_modules/.bin/oisin-pipeline",
-          "install-hooks",
+          "init",
         ]);
 
         expect(readFileSync(join(dir, ".claude/hooks/check.sh"), "utf8")).toBe(
@@ -1317,9 +1317,7 @@ describe("execute", () => {
         expect(
           readFileSync(join(dir, ".opencode/plugins/agent-hooks.ts"), "utf8")
         ).toContain("AgentHooks");
-        expect(output()).toContain(
-          "create claude-code: .claude/hooks/check.sh"
-        );
+        expect(output()).toContain("generated .claude/hooks/check.sh");
         expect(mockExeca).toHaveBeenCalledWith(
           "gh",
           [
@@ -1344,7 +1342,7 @@ describe("execute", () => {
         runCli([
           "node",
           "/repo/node_modules/.bin/oisin-pipeline",
-          "install-hooks",
+          "init",
           "--help",
         ])
       ).rejects.toThrow("outputHelp");
@@ -2008,7 +2006,7 @@ workflows:
     }
   });
 
-  it("keeps refresh-harnesses reachable without config", async () => {
+  it("installs the global harness, then verifies it with init --check, without git", async () => {
     const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-bootstrap-refresh-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
@@ -2043,17 +2041,22 @@ workflows:
         return Promise.resolve({ exitCode: 0, stderr: "", stdout: "true\n" });
       }) as any);
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "refresh-harnesses",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(
         existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))
       ).toBe(true);
-      // Global harness refresh does not make any git calls.
+
+      // The just-installed harness is current, so init --check passes (no throw).
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--check",
+      ]);
+
+      // Global harness install/verify does not make any git calls.
       expect(mockExeca).not.toHaveBeenCalledWith(
         "git",
         expect.anything(),

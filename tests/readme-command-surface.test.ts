@@ -21,7 +21,6 @@ const CANONICAL_COMMANDS = [
   "moka export",
   "moka doctor",
   "moka init",
-  "moka refresh-harnesses",
 ] as const;
 
 const MOKA_TICKET_COMMANDS = [

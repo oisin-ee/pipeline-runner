@@ -8,7 +8,7 @@ Install generated resources during setup, then check drift with:
 
 ```sh
 moka init
-moka install-commands --host all --check
+moka init --check
 ```
 
 ## Host Mappings

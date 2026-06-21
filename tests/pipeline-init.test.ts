@@ -16,7 +16,6 @@ import type { PipelineRulesInstaller } from "../src/pipeline-init";
 import {
   formatPipelineInitResult,
   initPipelineProject,
-  refreshAgentHarnesses,
 } from "../src/pipeline-init";
 
 // Mock only installHooks so the default hook-install path is exercised offline
@@ -228,38 +227,88 @@ describe("initPipelineProject (global scope)", () => {
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
   });
 
-  it("force-installs hooks so a pre-baked/version-skewed settings.json is refreshed, not refused", async () => {
+  it("does not force the hook install by default, so manual edits are not clobbered", async () => {
     vi.mocked(installHooks).mockClear();
 
-    // Default hookInstaller path (no hookInstaller injected): exercises
-    // installDefaultHooks, which must force past the "manually edited" guard the
-    // same way command install does — otherwise the runner's `moka init` setup
-    // step exits 1 on the image's pre-baked ~/.claude/settings.json.
+    // Default hookInstaller path (no hookInstaller injected). A bare `moka init`
+    // refuses to overwrite manually edited harness files; --force is opt-in.
     await initPipelineProject({
       cwd: dir,
       rulesInstaller: noopRulesInstaller,
       skillInstaller: installMockSkills,
     });
 
-    expect(installHooks).toHaveBeenCalledWith({ force: true });
+    expect(installHooks).toHaveBeenCalledWith({
+      check: undefined,
+      dryRun: undefined,
+      force: undefined,
+    });
   });
 
-  it("refreshes the global harness without staging or committing", async () => {
-    const result = await refreshAgentHarnesses({
+  it("forwards --force to the hook install so a version-skewed settings.json is refreshed", async () => {
+    vi.mocked(installHooks).mockClear();
+
+    // The runner DAG runs `moka init --force` so the image's pre-baked
+    // ~/.claude/settings.json is refreshed instead of failing the "manually
+    // edited" guard during pod setup.
+    await initPipelineProject({
+      cwd: dir,
+      force: true,
+      rulesInstaller: noopRulesInstaller,
+      skillInstaller: installMockSkills,
+    });
+
+    expect(installHooks).toHaveBeenCalledWith({
+      check: undefined,
+      dryRun: undefined,
+      force: true,
+    });
+  });
+
+  it("skips the network skill install when verifying with --check", async () => {
+    // Populate the harness first so the real installCommands --check pass finds
+    // current files instead of throwing "missing".
+    await initPipelineProject({
       cwd: dir,
       hookInstaller: installMockHooks,
       rulesInstaller: noopRulesInstaller,
       skillInstaller: installMockSkills,
     });
 
-    expect(result.files).toContain(".opencode/commands/moka-execute.md");
-    expect(
-      existsSync(
-        join(home, ".config", "opencode", "commands", "moka-execute.md")
-      )
-    ).toBe(true);
-    expect(existsSync(join(dir, ".opencode"))).toBe(false);
-    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    const skillInstaller = vi.fn(() => Promise.resolve());
+    await initPipelineProject({
+      check: true,
+      cwd: dir,
+      hookInstaller: installMockHooks,
+      rulesInstaller: noopRulesInstaller,
+      skillInstaller,
+    });
+
+    expect(skillInstaller).not.toHaveBeenCalled();
+  });
+
+  it("formats --check as a verify, not an install", async () => {
+    await initPipelineProject({
+      cwd: dir,
+      hookInstaller: installMockHooks,
+      rulesInstaller: noopRulesInstaller,
+      skillInstaller: installMockSkills,
+    });
+
+    const result = await initPipelineProject({
+      check: true,
+      cwd: dir,
+      hookInstaller: installMockHooks,
+      rulesInstaller: noopRulesInstaller,
+      skillInstaller: installMockSkills,
+    });
+    const output = formatPipelineInitResult(result, { check: true });
+
+    expect(output).toContain(
+      "Verified package-owned pipeline support is current:"
+    );
+    expect(output).toContain("harness verified; no changes written");
+    expect(output).not.toContain("Initialized");
   });
 
   it("writes into the per-machine host dirs, not the repo", async () => {

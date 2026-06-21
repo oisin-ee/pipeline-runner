@@ -94,7 +94,7 @@ contains only `pipeline-gateway`.
 OpenCode receives that gateway through `.opencode/opencode.json` alongside the
 package-owned runtime projection: `lsp: true`, pinned plugin entries, generated
 agents, projected skills, explicit permissions, and local TypeScript plugins.
-`moka init` and `moka install-commands` merge this OpenCode project config:
+`moka init` merges this OpenCode project config:
 existing repo-local plugin entries are preserved while missing package defaults
 such as `oc-codex-multi-auth` are appended. Existing `mcp.pipeline-gateway`
 settings are also preserved; use `moka mcp gateway configure-host` when the
@@ -116,8 +116,8 @@ Qdrant, Fallow, Serena, or Backlog declarations. Use
 health, required `tools/list` prefixes, local ToolHive availability for local
 mode, and legacy direct MCP entries. Use `moka init` to install generated
 OpenCode and Claude Code host surfaces with the singleton `pipeline-gateway`
-remote entry. Use `moka install-commands --host all` to refresh generated host
-files after package upgrades, and use
+remote entry, and `moka init --check` to verify generated host files are current
+after package upgrades. Use
 `moka mcp gateway configure-host` as an explicit migration or repair command
 when existing host MCP config must be rewritten with a backup. The hosted gateway
 requires `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to be set in the OpenCode

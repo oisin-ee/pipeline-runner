@@ -89,7 +89,7 @@ async function defaultRulesyncRunner(
     const cause = error instanceof Error ? `: ${error.message}` : "";
     throw new Error(
       `Failed to generate global rules from ${DEFAULT_RULES_INSTALL_SOURCE}${cause}. ` +
-        "If this is a private repository, authenticate GitHub access with `gh auth login` and rerun `moka refresh-harnesses`."
+        "If this is a private repository, authenticate GitHub access with `gh auth login` and rerun `moka init`."
     );
   }
 }
