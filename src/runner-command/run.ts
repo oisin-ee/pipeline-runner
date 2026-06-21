@@ -180,6 +180,19 @@ function runRunnerCommandEffect(
       { phase: "git.workspace.prepare", status: "finish" },
       "git.workspace.prepare finish"
     );
+    logger.info(
+      { phase: "opencode.accounts.prepare", status: "start" },
+      "opencode.accounts.prepare start"
+    );
+    const accountsPrep = yield* io.prepareOpencodeAccounts();
+    logger.info(
+      {
+        copied: accountsPrep.copied,
+        phase: "opencode.accounts.prepare",
+        status: "finish",
+      },
+      "opencode.accounts.prepare finish"
+    );
     logger.info({ phase: "config.load", status: "start" }, "config.load start");
     const baseConfig = yield* attemptSync(() =>
       loadPipelineConfig(worktreePath, {

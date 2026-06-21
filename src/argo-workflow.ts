@@ -5,6 +5,7 @@ import {
   compileArgoExecutionGraph,
 } from "./argo-graph";
 import type { WorkflowExecutionPlan } from "./planning/compile";
+import { OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR } from "./run-state/opencode-accounts";
 import { DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH } from "./runner-command/task-descriptor";
 
 const ARGO_WORKFLOW_API_VERSION = "argoproj.io/v1alpha1";
@@ -500,16 +501,17 @@ function runnerWorkflowStorage(
         secretName: options.opencodeOpenaiAccountsSecret.name,
       },
     });
-    // The codex-multi-auth plugin reads both ChatGPT accounts from this global
-    // opencode path; without it the runner falls back to the single inline
-    // account in auth.json and a transient provider error reads as "all accounts
-    // failed". Read-only mirrors the auth.json mount — the run is far shorter
-    // than the token lifetime, so no in-pod refresh write is needed.
+    // Stage the codex-multi-auth accounts secret read-only; the runner copies it
+    // to the writable plugin path at startup (opencode.accounts.prepare). The
+    // plugin rotates the OAuth refresh token on every refresh and persists it by
+    // atomically rewriting the accounts file — a read-only secret mounted at the
+    // plugin path makes that rename fail, so the stale token is replayed and the
+    // provider returns 401 ("Token refresh failed"). A writable copy lets the
+    // plugin persist rotated tokens for the pod's lifetime.
     volumeMounts.push({
-      mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
+      mountPath: OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR,
       name: "opencode-openai-accounts",
       readOnly: true,
-      subPath: "accounts.json",
     });
   }
 

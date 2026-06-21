@@ -1669,7 +1669,7 @@ describe("compileArgoExecutionGraph", () => {
     expect(err.message).toContain("node-xyz");
   });
 
-  it("mounts the codex multi-account store at the plugin's global opencode path", () => {
+  it("stages the codex multi-account secret read-only for the runner to copy writable", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,
       opencodeAuthSecretName: "opencode-auth-secret",
@@ -1682,14 +1682,23 @@ describe("compileArgoExecutionGraph", () => {
     );
     const allVolumes = manifest.spec.volumes ?? [];
 
+    // Staged at a dedicated read-only dir (NOT subPath-mounted at the plugin's
+    // own accounts path) so the runner can copy it to a writable file the plugin
+    // can rewrite when it rotates tokens.
     expect(allMounts).toContainEqual(
       expect.objectContaining({
-        mountPath: "/root/.opencode/oc-codex-multi-auth-accounts.json",
+        mountPath: "/etc/pipeline/opencode-openai-accounts",
         name: "opencode-openai-accounts",
         readOnly: true,
-        subPath: "accounts.json",
       })
     );
+    expect(
+      allMounts.some(
+        (mount) =>
+          mount.name === "opencode-openai-accounts" &&
+          mount.mountPath.endsWith("oc-codex-multi-auth-accounts.json")
+      )
+    ).toBe(false);
     expect(allVolumes).toContainEqual(
       expect.objectContaining({
         name: "opencode-openai-accounts",

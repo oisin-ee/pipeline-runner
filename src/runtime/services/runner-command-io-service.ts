@@ -9,6 +9,7 @@ import {
   prepareRunnerGitWorkspace,
   promoteFinalRef,
 } from "../../run-state/git-refs";
+import { prepareOpencodeAccounts } from "../../run-state/opencode-accounts";
 import type { parseRunnerCommandPayload } from "../../runner-command-contract";
 import { resolveRunnerEventSinkAuthToken } from "../../runner-command-contract";
 import { createRunnerEventSink } from "../../runner-event-sink";
@@ -74,6 +75,10 @@ export class RunnerCommandIoService extends Context.Tag(
     readonly mergeDependencyRefs: (
       options: Parameters<typeof mergeDependencyRefs>[0]
     ) => Effect.Effect<void, unknown>;
+    readonly prepareOpencodeAccounts: () => Effect.Effect<
+      ReturnType<typeof prepareOpencodeAccounts>,
+      unknown
+    >;
     readonly prepareRunnerGitWorkspace: (
       payload: Parameters<typeof prepareRunnerGitWorkspace>[0],
       options: Parameters<typeof prepareRunnerGitWorkspace>[1]
@@ -117,6 +122,11 @@ export const RunnerCommandIoServiceLive = Layer.succeed(
     mergeDependencyRefs: (options) =>
       Effect.tryPromise({
         try: () => mergeDependencyRefs(options),
+        catch: (error) => error,
+      }),
+    prepareOpencodeAccounts: () =>
+      Effect.try({
+        try: () => prepareOpencodeAccounts(),
         catch: (error) => error,
       }),
     prepareRunnerGitWorkspace: (payload, options) =>
