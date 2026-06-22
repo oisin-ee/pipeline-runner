@@ -42,6 +42,12 @@ const RUNNER_RETRY_STRATEGY = {
 } as const;
 const RUNNER_OPENCODE_ENV = [
   { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
+  // Per-attempt agent wall-clock budget. A stalled opencode session (zero output,
+  // never completes) hangs until the pod activeDeadlineSeconds kills the node;
+  // bounding the attempt makes it time out as an infra failure so the node's
+  // model fallback advances to the next model. Well under the pod deadline so a
+  // fallback chain still fits before the pod dies.
+  { name: "PIPELINE_AGENT_TIMEOUT_MS", value: "1200000" },
 ] as const;
 
 // Runner containers run the agent plus memory-heavy gate commands (tsc, jest,
@@ -66,11 +72,13 @@ const DEFAULT_RUNNER_RESOURCES = {
 // that hangs (e.g. a child process blocked on an interactive prompt) stays
 // Running forever and is never retried — one such node sat 7h46m. activeDeadline
 // Seconds is Argo's native guard: when a pod exceeds it Argo fails the node,
-// which then matches the retry expression and is retried. 3600s is a deliberate
-// hang ceiling, NOT a perf target — observed nodes finish well under 15m, so an
-// hour is generous headroom for a slow agent/gate while bounding a true hang to
-// at most limit×deadline instead of unbounded. Applies to every runner pod.
-const DEFAULT_RUNNER_DEADLINE_SECONDS = 3600;
+// which then matches the retry expression and is retried. This is a deliberate
+// hang ceiling, NOT a perf target. It is the OUTER bound: each agent attempt is
+// bounded first by PIPELINE_AGENT_TIMEOUT_MS (a stalled model times out and the
+// node falls back to the next model), so this must comfortably exceed one full
+// model-fallback chain (≈3 attempts) for a single node before the pod is killed.
+// Applies to every runner pod.
+const DEFAULT_RUNNER_DEADLINE_SECONDS = 5400;
 
 const kubernetesNameSchema = z.string().min(1);
 const labelValueSchema = z.string().min(1);

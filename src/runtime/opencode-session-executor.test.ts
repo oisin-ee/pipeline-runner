@@ -291,6 +291,28 @@ describe("opencode session executor", () => {
     expect(result.stderr).toContain("boom");
   });
 
+  it("times out a stalled session as infra exit 70 so the node can fall back", async () => {
+    // A model that streams nothing and never completes the prompt; without a
+    // per-attempt budget this would hang until the pod's activeDeadlineSeconds.
+    const stalledClient: OpencodeRuntimeClient = {
+      event: { subscribe: () => Promise.resolve({ stream: emptyStream() }) },
+      session: {
+        create: () =>
+          Promise.resolve({ data: { id: "ses_test" }, error: undefined }),
+        prompt: () => new Promise(() => undefined),
+      },
+    };
+    const execute = createOpencodeExecutor({
+      client: stalledClient,
+      ...executorDefaults(),
+    });
+
+    const result = await execute(opencodePlan({ timeoutMs: 80 }), {});
+
+    expect(result.exitCode).toBe(70);
+    expect(result.stderr).toContain("timed out");
+  });
+
   it("surfaces the HTTP status when the prompt fails with an empty error body", async () => {
     // The opencode server returns a 504 with an empty body on a long
     // generation; the result-tuple `error` is `{}`, which used to stringify

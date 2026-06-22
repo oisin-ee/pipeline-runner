@@ -157,7 +157,7 @@ describe("runner Argo Workflow manifest", () => {
               "name": "pipeline",
             },
             {
-              "activeDeadlineSeconds": 3600,
+              "activeDeadlineSeconds": 5400,
               "container": {
                 "args": [
                   "runner-lifecycle",
@@ -175,6 +175,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
                     "value": "0",
+                  },
+                  {
+                    "name": "PIPELINE_AGENT_TIMEOUT_MS",
+                    "value": "1200000",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -234,7 +238,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
-              "activeDeadlineSeconds": 3600,
+              "activeDeadlineSeconds": 5400,
               "container": {
                 "args": [
                   "runner-command",
@@ -250,6 +254,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
                     "value": "0",
+                  },
+                  {
+                    "name": "PIPELINE_AGENT_TIMEOUT_MS",
+                    "value": "1200000",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -315,7 +323,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
-              "activeDeadlineSeconds": 3600,
+              "activeDeadlineSeconds": 5400,
               "container": {
                 "args": [
                   "runner-command",
@@ -331,6 +339,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
                     "value": "0",
+                  },
+                  {
+                    "name": "PIPELINE_AGENT_TIMEOUT_MS",
+                    "value": "1200000",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -396,7 +408,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
-              "activeDeadlineSeconds": 3600,
+              "activeDeadlineSeconds": 5400,
               "container": {
                 "args": [
                   "runner-command",
@@ -412,6 +424,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
                     "value": "0",
+                  },
+                  {
+                    "name": "PIPELINE_AGENT_TIMEOUT_MS",
+                    "value": "1200000",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -477,7 +493,7 @@ describe("runner Argo Workflow manifest", () => {
               },
             },
             {
-              "activeDeadlineSeconds": 3600,
+              "activeDeadlineSeconds": 5400,
               "container": {
                 "args": [
                   "runner-finalize",
@@ -495,6 +511,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
                     "value": "0",
+                  },
+                  {
+                    "name": "PIPELINE_AGENT_TIMEOUT_MS",
+                    "value": "1200000",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -698,6 +718,8 @@ describe("runner Argo Workflow manifest", () => {
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
+                - name: PIPELINE_AGENT_TIMEOUT_MS
+                  value: "1200000"
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -730,7 +752,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: github-auth
                   readOnly: true
                   subPath: hosts.yml
-            activeDeadlineSeconds: 3600
+            activeDeadlineSeconds: 5400
             name: workflow-start
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -749,6 +771,8 @@ describe("runner Argo Workflow manifest", () => {
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
+                - name: PIPELINE_AGENT_TIMEOUT_MS
+                  value: "1200000"
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -785,7 +809,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-one.json
-            activeDeadlineSeconds: 3600
+            activeDeadlineSeconds: 5400
             name: task-one
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -804,6 +828,8 @@ describe("runner Argo Workflow manifest", () => {
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
+                - name: PIPELINE_AGENT_TIMEOUT_MS
+                  value: "1200000"
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -840,7 +866,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-two.json
-            activeDeadlineSeconds: 3600
+            activeDeadlineSeconds: 5400
             name: task-two
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -859,6 +885,8 @@ describe("runner Argo Workflow manifest", () => {
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
+                - name: PIPELINE_AGENT_TIMEOUT_MS
+                  value: "1200000"
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -895,7 +923,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-three.json
-            activeDeadlineSeconds: 3600
+            activeDeadlineSeconds: 5400
             name: task-three
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
@@ -916,6 +944,8 @@ describe("runner Argo Workflow manifest", () => {
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
+                - name: PIPELINE_AGENT_TIMEOUT_MS
+                  value: "1200000"
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -948,7 +978,7 @@ describe("runner Argo Workflow manifest", () => {
                   name: github-auth
                   readOnly: true
                   subPath: hosts.yml
-            activeDeadlineSeconds: 3600
+            activeDeadlineSeconds: 5400
             name: pipeline-finalizer
         ttlStrategy:
           secondsAfterCompletion: 3600
@@ -1141,7 +1171,7 @@ describe("runner Argo Workflow manifest", () => {
       const template = manifest.spec.templates.find(
         (candidate) => candidate.name === templateName
       );
-      expect(template?.activeDeadlineSeconds).toBe(3600);
+      expect(template?.activeDeadlineSeconds).toBe(5400);
     }
   });
 
