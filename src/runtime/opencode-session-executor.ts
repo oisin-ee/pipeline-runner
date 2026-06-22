@@ -112,20 +112,13 @@ function boundByAgentTimeout(plan: RunnerLaunchPlan) {
     effect: Effect.Effect<A, unknown, R>
   ): Effect.Effect<A, unknown, R> => {
     const timeoutMs = plan.timeoutMs;
-    process.stderr.write(
-      `[agent-timeout] wired nodeId=${plan.nodeId} timeoutMs=${String(timeoutMs)}\n`
-    );
     if (!timeoutMs || timeoutMs <= 0) {
       return effect;
     }
     return Effect.timeoutFail(Effect.disconnect(effect), {
       duration: Duration.millis(timeoutMs),
-      onTimeout: () => {
-        process.stderr.write(
-          `[agent-timeout] FIRED nodeId=${plan.nodeId} after ${timeoutMs}ms\n`
-        );
-        return new Error(`agent session timed out after ${timeoutMs}ms`);
-      },
+      onTimeout: () =>
+        new Error(`agent session timed out after ${timeoutMs}ms`),
     });
   };
 }
