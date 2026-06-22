@@ -128,3 +128,45 @@ The package-owned MCP inventory exposed through the ecosystem manifest includes
 Backlog, GitHub, and Neon. Repo-scoped backends must bind to
 `PIPELINE_TARGET_PATH` or the current workspace path supplied by the gateway
 configuration.
+
+## Browser automation backend (Steel)
+
+The `Playwright` backend's tools (`playwright_browser_*`) are served by a
+self-hosted **Steel Browser** (Chromium) pool, not a browser launched inside the
+MCP pod. Microsoft's `@playwright/mcp` connects to Steel over CDP, so the tool
+surface is unchanged — agents keep calling the same `playwright_browser_*` tools
+through `pipeline-gateway`.
+
+Topology (infra repo, `k8s/charts/pipeline-mcp-gateway`):
+
+- A StatefulSet of N backend pods (`playwright.backendReplicas`, default 3). Each
+  pod is `mcp` (`@playwright/mcp`) + a private `steel` sidecar (its own Chrome on
+  `localhost:3000`) + an `auth-seed` native sidecar. One pod = one isolated,
+  verify-bot-authenticated browser.
+- Auth: the seed runs a real headless Zitadel login and POSTs the session into
+  the pod's Steel (`POST /v1/sessions`); the pod stays NotReady until the first
+  seed lands (fail-closed — an unauthenticated browser is never served) and
+  re-seeds every ~3 days, inside the oauth2-proxy 7-day cookie window.
+
+Usage:
+
+- **One authenticated browser (default).** Call `playwright_browser_*` through
+  `pipeline-gateway` (`https://pipeline-mcp.momokaya.ee/mcp/`). You get a single,
+  pre-authenticated browser. After a gateway backend restart the vMCP client
+  session can drop — reconnect the MCP client (do not bounce pods).
+- **N concurrent isolated browsers.** The single gateway/proxy endpoint does
+  **not** auto-distribute sessions across the pool — toolhive pins every session
+  to one backend pod (Redis session storage and scaling proxy replicas do not
+  change this). To use the pool concurrently, address the backend pods directly:
+  each pod's `@playwright/mcp` listens on port `8931` and is a full
+  `playwright_browser_*` endpoint (`http://<pod-ip-or-headless-dns>:8931/mcp`).
+  Proven: 3 concurrent per-pod sessions, each on a distinct authenticated
+  browser.
+- Scale the pool with `playwright.backendReplicas`.
+
+Operational notes: Steel runs as root in-pod (its bundled nginx requires it,
+otherwise `nginx [emerg] chown(/var/lib/nginx/body) Operation not permitted`);
+health is `GET /v1/health`; on ARM nodes set `SKIP_FINGERPRINT_INJECTION=true`;
+CDP over a service-DNS host needs `--cdp-header "Host: localhost"` (Chrome's
+anti-DNS-rebinding check), but the in-pod `localhost:3000` path needs no header.
+See infra `INFRA-074`.
