@@ -90,21 +90,24 @@ function executeOpencodeSession(
     const drive = yield* driveSession(deps, plan, options);
     return successResult(plan, drive);
   }).pipe(
-    withAgentTimeout(plan),
+    boundByAgentTimeout(plan),
     Effect.catchAll((error) => Effect.succeed(failureResult(plan, error)))
   );
 }
 
 /*
- * Bound each agent attempt by a wall-clock budget (plan.timeoutMs, from
- * actor.timeout_ms / PIPELINE_AGENT_TIMEOUT_MS). A stalled opencode session —
- * one that streams nothing and never completes — would otherwise hang until the
- * pod's activeDeadlineSeconds kills the whole node (observed: a model producing
- * zero output for ~60 min). Timing out as a failure routes through
- * failureResult -> EXIT_INFRA, so the agent node's model fallback advances to the
- * next model instead of burning the node on one stuck model.
+ * Bound each attempt by a wall-clock budget (plan.timeoutMs, from
+ * actor.timeout_ms / PIPELINE_AGENT_TIMEOUT_MS). A stalled opencode session
+ * never streams a completion; without a budget it runs until the pod's
+ * activeDeadlineSeconds kills the whole node. Effect.disconnect is required:
+ * driveSession's `ensuring(stopStream)` finalizer awaits the SSE stream closing,
+ * which also hangs on a stalled session, so a plain timeout would interrupt and
+ * then block on that finalizer forever. disconnect detaches the interruption so
+ * the finalizer is torn down in the background and the timeout returns at once.
+ * The timeout failure routes through failureResult -> EXIT_INFRA, so the agent
+ * node's model fallback advances to the next model.
  */
-function withAgentTimeout(plan: RunnerLaunchPlan) {
+function boundByAgentTimeout(plan: RunnerLaunchPlan) {
   return <A, R>(
     effect: Effect.Effect<A, unknown, R>
   ): Effect.Effect<A, unknown, R> => {
@@ -112,7 +115,7 @@ function withAgentTimeout(plan: RunnerLaunchPlan) {
     if (!timeoutMs || timeoutMs <= 0) {
       return effect;
     }
-    return Effect.timeoutFail(effect, {
+    return Effect.timeoutFail(Effect.disconnect(effect), {
       duration: Duration.millis(timeoutMs),
       onTimeout: () =>
         new Error(`agent session timed out after ${timeoutMs}ms`),

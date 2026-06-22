@@ -313,6 +313,33 @@ describe("opencode session executor", () => {
     expect(result.stderr).toContain("timed out");
   });
 
+  it("times out even when the stop-stream finalizer hangs (Effect.disconnect)", async () => {
+    // The production failure: both the prompt AND the event stream are stuck, so
+    // the ensuring(stopStream) finalizer hangs on interruption. Without
+    // Effect.disconnect the timeout would interrupt and then block on that
+    // finalizer forever; with it the attempt returns within the budget.
+    const hangingClient: OpencodeRuntimeClient = {
+      event: { subscribe: () => Promise.resolve({ stream: hangingStream() }) },
+      session: {
+        create: () =>
+          Promise.resolve({ data: { id: "ses_test" }, error: undefined }),
+        prompt: () => new Promise(() => undefined),
+      },
+    };
+    const execute = createOpencodeExecutor({
+      client: hangingClient,
+      ...executorDefaults(),
+    });
+
+    // onOutput set so the executor subscribes the (hanging) event stream.
+    const result = await execute(opencodePlan({ timeoutMs: 80 }), {
+      onOutput: () => undefined,
+    });
+
+    expect(result.exitCode).toBe(70);
+    expect(result.stderr).toContain("timed out");
+  });
+
   it("surfaces the HTTP status when the prompt fails with an empty error body", async () => {
     // The opencode server returns a 504 with an empty body on a long
     // generation; the result-tuple `error` is `{}`, which used to stringify
@@ -534,4 +561,10 @@ async function* emptyStream(): AsyncGenerator<Event> {
   for (const event of none) {
     yield event;
   }
+}
+
+// Never yields and never returns: next() and return() both stay pending, so the
+// executor's stop-stream finalizer hangs — the case Effect.disconnect must clear.
+async function* hangingStream(): AsyncGenerator<Event> {
+  await new Promise<void>(() => undefined);
 }
