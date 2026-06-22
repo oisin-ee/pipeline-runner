@@ -152,7 +152,7 @@ receive explicit grants:
 - `output`: text, JSON, JSONL, or JSON Schema output.
 
 Default skills resolve from project-installed skill files created by
-`moka init` via `npx --yes skills add oisin-ee/skills`:
+`moka init` via `npx --yes skills add oisin-ee/agent/skills`:
 
 ```yaml
 skills:
@@ -164,14 +164,13 @@ Project-authored skill and rule paths resolve from the project root and must
 exist for runtime use. If default skill files are missing, run `moka init` to
 install them before executing workflows.
 
-Default agent hooks are copied by `moka init` from the private
-`oisin-ee/agent-hooks` repository. That source repository has one canonical
-host-level layout:
+Default agent hooks are copied by `moka init` from private `oisin-ee/agent`.
+That source repository has one canonical hook layout:
 
 ```text
-claude-code/
-codex/
-opencode/
+hooks/claude-code/
+hooks/codex/
+hooks/opencode/
 ```
 
 Moka overlays those folders onto `.claude`, `.codex`, and `.opencode` for
@@ -215,7 +214,7 @@ OpenCode host resources are generated from the same profile registry:
 - `.opencode/skills/*/SKILL.md` is installed by `skills add`; Moka only
   generates agents, commands, plugins, and project config.
 - Additional manually authored OpenCode hook plugins can be copied from
-  `oisin-ee/agent-hooks/opencode/` by `moka init`.
+  `oisin-ee/agent/hooks/opencode/` by `moka init`.
 - `.opencode/plugins/pipeline-goal-context.ts` projects package-owned
   continuation context into OpenCode compaction.
 - `.opencode/opencode.json` contains the gateway MCP config, enables LSP, and

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
+import { AGENT_ASSET_SOURCE, AGENT_HOOKS_DIR } from "./agent-assets";
 import { resolveHarnessTarget } from "./install-commands/shared";
 import {
   applyJsonEdit,
@@ -11,7 +12,7 @@ import {
   parseJsonRecord,
 } from "./json-config-merge";
 
-const DEFAULT_HOOK_INSTALL_SOURCE = "oisin-ee/agent-hooks";
+const DEFAULT_HOOK_INSTALL_SOURCE = AGENT_ASSET_SOURCE;
 
 const HOOK_HOSTS = ["claude-code", "codex", "opencode"] as const;
 const MANIFEST_FILE = ".moka-agent-hooks.json";
@@ -155,8 +156,8 @@ async function cloneHookRepository(targetDir: string): Promise<void> {
 async function withHookSource<T>(
   useSource: (source: string) => Promise<T>
 ): Promise<T> {
-  const parent = await mkdtemp(join(tmpdir(), "moka-agent-hooks-"));
-  const source = join(parent, "agent-hooks");
+  const parent = await mkdtemp(join(tmpdir(), "moka-agent-"));
+  const source = join(parent, "agent");
   try {
     await cloneHookRepository(source);
     return await useSource(source);
@@ -185,7 +186,7 @@ async function listFiles(root: string): Promise<string[]> {
 async function sourceHookFiles(source: string): Promise<SourceHookFile[]> {
   const byHost = await Promise.all(
     HOOK_HOSTS.map(async (host) => {
-      const hostRoot = join(source, host);
+      const hostRoot = join(source, AGENT_HOOKS_DIR, host);
       const files = await listFiles(hostRoot);
       return files.map((file): SourceHookFile => {
         const relativePath = relative(hostRoot, file).replaceAll("\\", "/");

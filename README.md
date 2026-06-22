@@ -45,10 +45,10 @@ moka init
 
 `moka init` installs or refreshes the whole per-machine harness in one step:
 the package's default skills, generated host command surfaces, the singleton
-`pipeline-gateway` MCP entry, copied hook files from the private
-`oisin-ee/agent-hooks` repository, and global instruction files. OpenCode is the
-package default runtime. The command does not create repo-local `.pipeline`
-config files.
+`pipeline-gateway` MCP entry, copied hook files from private
+`oisin-ee/agent/hooks`, and global instruction files from `oisin-ee/agent/rules`.
+OpenCode is the package default runtime. The command does not create repo-local
+`.pipeline` config files.
 
 The default MCP gateway can run locally or point at the hosted Momokaya gateway.
 Set `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to the full HTTP `Authorization` header
@@ -59,7 +59,7 @@ export PIPELINE_MCP_GATEWAY_AUTHORIZATION="Basic $(printf '%s' 'user:password' |
 ```
 
 Verify the generated harness (commands, hooks, rules) is current after package
-upgrades or edits to `oisin-ee/agent-hooks`, without writing anything:
+upgrades or edits to `oisin-ee/agent`, without writing anything:
 
 ```shell
 moka init --check

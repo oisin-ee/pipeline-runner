@@ -19,17 +19,19 @@ import {
 } from "../src/pipeline-init";
 
 // Mock only installHooks so the default hook-install path is exercised offline
-// (the real one clones oisin-ee/agent-hooks). Tests that inject their own
+// (the real one clones oisin-ee/agent). Tests that inject their own
 // hookInstaller bypass this entirely.
-vi.mock("../src/install-hooks", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/install-hooks")>();
-  const result: Awaited<ReturnType<typeof actual.installHooks>> = {
+vi.mock("../src/install-hooks", () => {
+  const result: {
+    items: Array<{ action: "update"; host: "claude-code"; path: string }>;
+    source: "oisin-ee/agent";
+  } = {
     items: [
       { action: "update", host: "claude-code", path: ".claude/settings.json" },
     ],
-    source: "oisin-ee/agent-hooks",
+    source: "oisin-ee/agent",
   };
-  return { ...actual, installHooks: vi.fn(() => Promise.resolve(result)) };
+  return { installHooks: vi.fn(() => Promise.resolve(result)) };
 });
 
 const DEFAULT_INIT_SKILLS = [
@@ -228,7 +230,7 @@ describe("initPipelineProject (global scope)", () => {
   });
 
   it("does not force the hook install by default, so manual edits are not clobbered", async () => {
-    vi.mocked(installHooks).mockClear();
+    vi.clearAllMocks();
 
     // Default hookInstaller path (no hookInstaller injected). A bare `moka init`
     // refuses to overwrite manually edited harness files; --force is opt-in.
@@ -246,7 +248,7 @@ describe("initPipelineProject (global scope)", () => {
   });
 
   it("forwards --force to the hook install so a version-skewed settings.json is refreshed", async () => {
-    vi.mocked(installHooks).mockClear();
+    vi.clearAllMocks();
 
     // The runner DAG runs `moka init --force` so the image's pre-baked
     // ~/.claude/settings.json is refreshed instead of failing the "manually

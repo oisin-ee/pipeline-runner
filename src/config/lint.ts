@@ -128,7 +128,7 @@ function missingFileReferenceWarning(
 function missingFileReferenceMessage(path: string, value: string): string {
   const base = `${path} references missing file '${value}'`;
   if (path.startsWith("skills.") && value.startsWith(".agents/skills/")) {
-    return `${base}. Run \`moka init\` to install project-local skills with \`npx --yes skills add oisin-ee/skills\`.`;
+    return `${base}. Run \`moka init\` to install project-local skills with \`npx --yes skills add oisin-ee/agent/skills\`.`;
   }
   return base;
 }

@@ -9,8 +9,9 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
+import { AGENT_ASSET_SOURCE, AGENT_RULES_DIR } from "./agent-assets";
 
-const DEFAULT_RULES_INSTALL_SOURCE = "oisin-ee/rules";
+const DEFAULT_RULES_INSTALL_SOURCE = AGENT_ASSET_SOURCE;
 const RULESYNC_PACKAGE = "rulesync@8.30.1";
 
 const RULESYNC_TARGETS = [
@@ -65,8 +66,8 @@ async function withRulesSource<T>(
   if (sourceOverride !== undefined) {
     return useSource(sourceOverride);
   }
-  const parent = await mkdtemp(join(tmpdir(), "moka-rules-"));
-  const source = join(parent, "rules");
+  const parent = await mkdtemp(join(tmpdir(), "moka-agent-rules-"));
+  const source = join(parent, "agent");
   try {
     await cloneRulesRepository(source);
     return await useSource(source);
@@ -95,7 +96,7 @@ async function defaultRulesyncRunner(
 }
 
 async function buildRootRule(source: string): Promise<void> {
-  const rulesDir = join(source, "rules");
+  const rulesDir = join(source, AGENT_RULES_DIR);
   let entries: string[] = [];
   try {
     const dirents = await readdir(rulesDir, { withFileTypes: true });

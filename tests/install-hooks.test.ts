@@ -31,19 +31,23 @@ function installMockHookRepo(
 ): void {
   writeFixture(
     target,
-    "claude-code/hooks/check.sh",
+    "hooks/claude-code/hooks/check.sh",
     "#!/bin/sh\necho claude\n"
   );
-  writeFixture(target, "codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
+  writeFixture(target, "hooks/codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
   if (options.includeOpenCodeHook ?? true) {
     writeFixture(
       target,
-      "opencode/plugins/agent-hooks.ts",
+      "hooks/opencode/plugin/agent-hooks.ts",
       "export const AgentHooks = async () => ({})\n"
     );
   }
   if (options.claudeSettings !== undefined) {
-    writeFixture(target, "claude-code/settings.json", options.claudeSettings);
+    writeFixture(
+      target,
+      "hooks/claude-code/settings.json",
+      options.claudeSettings
+    );
   }
   writeFixture(target, "README.md", "not installed\n");
 }
@@ -96,7 +100,7 @@ describe("installHooks", () => {
       [
         "repo",
         "clone",
-        "oisin-ee/agent-hooks",
+        "oisin-ee/agent",
         expect.any(String),
         "--",
         "--depth=1",
@@ -106,7 +110,7 @@ describe("installHooks", () => {
     expect(result.items.map((item) => `${item.action}:${item.path}`)).toEqual([
       "create:.claude/hooks/check.sh",
       "create:.codex/hooks/check.sh",
-      "create:.opencode/plugins/agent-hooks.ts",
+      "create:.opencode/plugin/agent-hooks.ts",
     ]);
     expect(readFileSync(join(home, ".claude/hooks/check.sh"), "utf8")).toBe(
       "#!/bin/sh\necho claude\n"
@@ -115,10 +119,7 @@ describe("installHooks", () => {
       "#!/bin/sh\necho codex\n"
     );
     expect(
-      readFileSync(
-        join(home, ".config/opencode/plugins/agent-hooks.ts"),
-        "utf8"
-      )
+      readFileSync(join(home, ".config/opencode/plugin/agent-hooks.ts"), "utf8")
     ).toContain("AgentHooks");
     expect(existsSync(join(home, "README.md"))).toBe(false);
   });
@@ -156,7 +157,7 @@ describe("installHooks", () => {
   it("fails --check when installed hook files drift", async () => {
     await installHooks({});
     writeFileSync(
-      join(home, ".config/opencode/plugins/agent-hooks.ts"),
+      join(home, ".config/opencode/plugin/agent-hooks.ts"),
       "drift\n"
     );
 
@@ -213,11 +214,11 @@ describe("installHooks", () => {
     expect(result.items).toContainEqual(
       expect.objectContaining({
         action: "delete",
-        path: ".opencode/plugins/agent-hooks.ts",
+        path: ".opencode/plugin/agent-hooks.ts",
       })
     );
     expect(
-      existsSync(join(home, ".config/opencode/plugins/agent-hooks.ts"))
+      existsSync(join(home, ".config/opencode/plugin/agent-hooks.ts"))
     ).toBe(false);
     expect(
       existsSync(join(home, ".config/opencode/.moka-agent-hooks.json"))

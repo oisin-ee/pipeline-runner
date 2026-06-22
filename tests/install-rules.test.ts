@@ -182,7 +182,7 @@ describe("installRules", () => {
       sourceOverride: sourceDir,
     });
 
-    expect(result.source).toBe("oisin-ee/rules");
+    expect(result.source).toBe("oisin-ee/agent");
   });
 
   it("works with an empty rules/ directory producing a root-only file", async () => {
@@ -248,7 +248,7 @@ describe("formatInstallRulesResult", () => {
         { action: "generate", path: "/home/.claude/CLAUDE.md" },
         { action: "skip", path: "/home/.codex/AGENTS.md" },
       ],
-      source: "oisin-ee/rules",
+      source: "oisin-ee/agent",
     };
     const output = formatInstallRulesResult(result);
     expect(output).toBe(

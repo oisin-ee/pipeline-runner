@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { AGENT_SKILL_SOURCE } from "./agent-assets";
 import { installCommands } from "./install-commands";
 import { type InstallHooksResult, installHooks } from "./install-hooks";
 import { installRules } from "./install-rules";
@@ -12,7 +13,7 @@ export type PipelineRulesInstaller = (
   cwd: string
 ) => Promise<{ items: { path: string }[] }>;
 
-const DEFAULT_SKILL_INSTALL_SOURCE = "oisin-ee/skills";
+const DEFAULT_SKILL_INSTALL_SOURCE = AGENT_SKILL_SOURCE;
 const SKILL_INSTALL_AGENT_ARGS = [
   "--agent",
   "opencode",
@@ -143,7 +144,7 @@ export function formatPipelineInitResult(
   const copy = INIT_RESULT_COPY[initResultMode(mode)];
   return [
     copy.headline,
-    "per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); global instruction files generated via rulesync from oisin-ee/rules; inherited by every repo with no per-repo copy",
+    "per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); global instruction files generated via rulesync from oisin-ee/agent/rules; inherited by every repo with no per-repo copy",
     ...result.files.map((path) => `${copy.fileVerb} ${path}`),
     copy.footer,
   ].join("\n");

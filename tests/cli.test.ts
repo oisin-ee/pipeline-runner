@@ -291,6 +291,31 @@ function restoreEnv(key: string, value: string | undefined): void {
   process.env[key] = value;
 }
 
+const HOST_CONFIG_ENV_KEYS = [
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "OPENCODE_CONFIG_DIR",
+  "GEMINI_CONFIG_DIR",
+];
+
+function redirectHostConfig(root: string): Record<string, string | undefined> {
+  const saved: Record<string, string | undefined> = {};
+  for (const key of HOST_CONFIG_ENV_KEYS) {
+    saved[key] = process.env[key];
+  }
+  process.env.CLAUDE_CONFIG_DIR = join(root, ".claude");
+  process.env.CODEX_HOME = join(root, ".codex");
+  process.env.OPENCODE_CONFIG_DIR = join(root, ".opencode");
+  process.env.GEMINI_CONFIG_DIR = join(root, ".gemini");
+  return saved;
+}
+
+function restoreHostConfig(saved: Record<string, string | undefined>): void {
+  for (const [key, value] of Object.entries(saved)) {
+    restoreEnv(key, value);
+  }
+}
+
 type ConsoleSpy = ReturnType<typeof vi.spyOn>;
 type RunCli = typeof import("../src/index")["runCli"];
 
@@ -589,7 +614,7 @@ beforeEach(() => {
     ) {
       installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
     }
-    installMockHookRepoIfRequested(command, args);
+    installMockAgentRepoIfRequested(command, args);
     return Promise.resolve({
       exitCode: 0,
       stderr: "",
@@ -625,27 +650,32 @@ function installMockSkills(args: string[], cwd = process.cwd()): void {
   writeMockSkills(skills, cwd, agents, args.includes("--copy"));
 }
 
-function isHookRepoClone(args: string[]): boolean {
-  return args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent-hooks";
+function isAgentRepoClone(args: string[]): boolean {
+  return args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent";
 }
 
-function installMockHookRepoIfRequested(
+function installMockAgentRepoIfRequested(
   command: string,
   args: string[] | undefined
 ): void {
-  if (command === "gh" && Array.isArray(args) && isHookRepoClone(args)) {
-    installMockHookRepo(args[3]);
+  if (command === "gh" && Array.isArray(args) && isAgentRepoClone(args)) {
+    installMockAgentRepo(args[3]);
   }
 }
 
-function installMockHookRepo(target: string): void {
-  writeFileAt(target, "claude-code/hooks/check.sh", "#!/bin/sh\necho claude\n");
-  writeFileAt(target, "codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
+function installMockAgentRepo(target: string): void {
   writeFileAt(
     target,
-    "opencode/plugins/agent-hooks.ts",
+    "hooks/claude-code/hooks/check.sh",
+    "#!/bin/sh\necho claude\n"
+  );
+  writeFileAt(target, "hooks/codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
+  writeFileAt(
+    target,
+    "hooks/opencode/plugin/agent-hooks.ts",
     "export const AgentHooks = async () => ({})\n"
   );
+  writeFileAt(target, "rules/00-test.md", "# Test Rule\n");
 }
 
 function writeFileAt(root: string, path: string, content: string): void {
@@ -1187,7 +1217,7 @@ describe("execute", () => {
           "--yes",
           "skills",
           "add",
-          "oisin-ee/skills",
+          "oisin-ee/agent/skills",
           "--agent",
           "opencode",
           "--agent",
@@ -1298,7 +1328,7 @@ describe("execute", () => {
     });
   });
 
-  it("installs agent hooks from the fixed private hook repository", async () => {
+  it("installs agent hooks from the consolidated private agent repository", async () => {
     await withCliTempDir(
       "pipeline-cli-hooks-",
       async ({ dir, output, runCli }) => {
@@ -1315,7 +1345,7 @@ describe("execute", () => {
           "#!/bin/sh\necho codex\n"
         );
         expect(
-          readFileSync(join(dir, ".opencode/plugins/agent-hooks.ts"), "utf8")
+          readFileSync(join(dir, ".opencode/plugin/agent-hooks.ts"), "utf8")
         ).toContain("AgentHooks");
         expect(output()).toContain("generated .claude/hooks/check.sh");
         expect(mockExeca).toHaveBeenCalledWith(
@@ -1323,7 +1353,7 @@ describe("execute", () => {
           [
             "repo",
             "clone",
-            "oisin-ee/agent-hooks",
+            "oisin-ee/agent",
             expect.any(String),
             "--",
             "--depth=1",
@@ -1977,6 +2007,7 @@ workflows:
       join(tmpdir(), "pipeline-cli-bootstrap-doctor-")
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const savedHostEnv = redirectHostConfig(initDir);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
@@ -2001,6 +2032,7 @@ workflows:
       } else {
         process.env.PIPELINE_TARGET_PATH = originalTargetPath;
       }
+      restoreHostConfig(savedHostEnv);
       rmSync(initDir, { recursive: true, force: true });
       rmSync(doctorDir, { recursive: true, force: true });
     }
@@ -2037,7 +2069,7 @@ workflows:
             (options as { cwd?: string } | undefined)?.cwd
           );
         }
-        installMockHookRepoIfRequested(command, args);
+        installMockAgentRepoIfRequested(command, args);
         return Promise.resolve({ exitCode: 0, stderr: "", stdout: "true\n" });
       }) as any);
 
@@ -2742,6 +2774,7 @@ profiles:
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
     const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+    const savedHostEnv = redirectHostConfig(dir);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
@@ -2800,6 +2833,7 @@ profiles:
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
       restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", originalGatewayToken);
+      restoreHostConfig(savedHostEnv);
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -2811,6 +2845,7 @@ profiles:
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
     const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
     const originalFetch = global.fetch;
+    const savedHostEnv = redirectHostConfig(dir);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
@@ -2838,6 +2873,7 @@ profiles:
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
       restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", originalGatewayToken);
+      restoreHostConfig(savedHostEnv);
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -2950,6 +2986,7 @@ profiles:
     const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-start-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const savedHostEnv = redirectHostConfig(dir);
 
     try {
       mockToolHiveWorkloads(COMPLETE_TOOLHIVE_WORKLOADS);
@@ -2995,6 +3032,7 @@ profiles:
       );
     } finally {
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      restoreHostConfig(savedHostEnv);
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -3005,6 +3043,7 @@ profiles:
       join(tmpdir(), "pipeline-cli-gateway-start-missing-")
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const savedHostEnv = redirectHostConfig(dir);
 
     try {
       mockToolHiveWorkloads(["oisin-pipeline-qdrant"]);
@@ -3029,6 +3068,7 @@ profiles:
       ).toBe(false);
     } finally {
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      restoreHostConfig(savedHostEnv);
       rmSync(dir, { recursive: true, force: true });
     }
   });
