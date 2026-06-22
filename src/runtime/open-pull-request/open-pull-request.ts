@@ -20,6 +20,7 @@ interface OpenPrContext {
   committer: RuntimeContext["config"]["runner_command"]["git"]["committer"];
   headBranch: string;
   label: string;
+  mode: "create-new-pr" | "update-existing-pr";
   runId: string;
   task: string;
 }
@@ -61,12 +62,15 @@ function resolveOpenPrContext(
 ): Effect.Effect<OpenPrContext, unknown> {
   return Effect.gen(function* () {
     const baseBranch = yield* resolveDefaultBranch(git, context);
-    const headBranch = resolveHeadBranch(context.runId);
+    const headBranch =
+      context.config.delivery?.pull_request?.head_branch ??
+      resolveHeadBranch(context.runId);
     return {
       baseBranch,
       committer: context.config.runner_command.git.committer,
       headBranch,
       label: context.config.delivery?.pull_request?.label ?? "preview",
+      mode: context.config.delivery?.pull_request?.mode ?? "create-new-pr",
       runId: context.runId ?? "local",
       task: context.task,
     };
@@ -126,6 +130,13 @@ function executeOpenPr(
   });
 }
 
+// `checkout -B <headBranch>` resets the branch to the current workspace HEAD,
+// then commits + force-with-lease push. In update-existing-pr mode this APPENDS
+// fix-commits to the PR branch only because the run's workspace was checked out
+// from that branch's head (the loop controller sets repository.sha = PR head sha
+// before submitting a remediation run). A pre-checkout `git fetch` would be
+// discarded by `checkout -B` and cannot make the fetched ref the base, so it is
+// intentionally absent — basing is owned by the workspace, not this builtin.
 function prepareHeadBranch(
   git: OpenPullRequestGitClient,
   prCtx: OpenPrContext
@@ -200,6 +211,9 @@ function submitPullRequest(
   prCtx: OpenPrContext,
   context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, never, CommandExecutor> {
+  if (prCtx.mode === "update-existing-pr") {
+    return handleExistingPr(prCtx.headBranch, prCtx.label, context);
+  }
   return Effect.gen(function* () {
     const executor = yield* CommandExecutor;
     const title = extractPrTitle(prCtx.task);

@@ -127,7 +127,11 @@ function buildRecordingCommandExecutor(
 // Context factory
 // ---------------------------------------------------------------------------
 
-function contextForOpenPr(task = "Fix bug\n\nMore detail"): RuntimeContext {
+function contextForOpenPr(
+  task = "Fix bug\n\nMore detail",
+  headBranch?: string,
+  mode?: "create-new-pr" | "update-existing-pr"
+): RuntimeContext {
   const config = parsePipelineConfigParts({
     runners: `
 version: 1
@@ -159,9 +163,23 @@ workflows:
         builtin: open-pull-request
 `,
   });
+  const configWithDelivery: typeof config =
+    headBranch !== undefined || mode !== undefined
+      ? {
+          ...config,
+          delivery: {
+            pull_request: {
+              enabled: true,
+              head_branch: headBranch,
+              label: "preview",
+              mode: mode ?? "create-new-pr",
+            },
+          },
+        }
+      : config;
   return {
     agentInvocations: [],
-    config,
+    config: configWithDelivery,
     executor: () => ({ exitCode: 0, stdout: "" }),
     gates: [],
     hookFailures: [],
@@ -310,5 +328,90 @@ describe("open-pull-request builtin", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.evidence[0]).toContain("open-pull-request failed");
+  });
+
+  // AC2: update-existing-pr mode — appends fix-commits to the provided PR branch
+  // (workspace is already that branch) and updates the existing PR, no gh pr create
+  it("update-existing-pr mode: pushes to provided head branch and skips pr create", async () => {
+    const context = contextForOpenPr(
+      "Fix CI",
+      "moka/run/run-x",
+      "update-existing-pr"
+    );
+    const { calls, layer: executorLayer } = buildRecordingCommandExecutor();
+
+    const gitCalls: string[][] = [];
+    const gitLayer = Layer.succeed(OpenPullRequestGitService, {
+      create: (_baseDir) =>
+        Effect.succeed({
+          raw: (args: string[]) => {
+            gitCalls.push([...args]);
+            const cmd = args.join(" ");
+            if (cmd === "symbolic-ref --short refs/remotes/origin/HEAD") {
+              return Effect.succeed("origin/main");
+            }
+            if (cmd === "status --porcelain") {
+              return Effect.succeed("");
+            }
+            if (
+              args[0] === "fetch" ||
+              args[0] === "checkout" ||
+              args[0] === "config" ||
+              args[0] === "push"
+            ) {
+              return Effect.succeed("");
+            }
+            if (cmd === "add -A") {
+              return Effect.succeed("");
+            }
+            return Effect.fail(new Error(`unexpected git command: ${cmd}`));
+          },
+        }),
+    });
+
+    const result = await runWithLayers(context, gitLayer, executorLayer);
+
+    expect(result.exitCode).toBe(0);
+    // no fetch: basing is owned by the workspace (controller sets repository.sha
+    // to the PR head), not this builtin; `checkout -B` would discard a fetch
+    const fetchCall = gitCalls.find((args) => args[0] === "fetch");
+    expect(fetchCall).toBeUndefined();
+    // checkout uses the provided head branch
+    const checkoutCall = gitCalls.find(
+      (args) => args[0] === "checkout" && args[1] === "-B"
+    );
+    expect(checkoutCall).toContain("moka/run/run-x");
+    // push targets the provided PR branch (append fix-commits)
+    const pushCall = gitCalls.find((args) => args[0] === "push");
+    expect(pushCall).toBeDefined();
+    expect(pushCall?.join(" ")).toContain("moka/run/run-x");
+    // no gh pr create
+    const createCall = calls.find(
+      (c) => c.args.includes("create") && c.args.includes("pr")
+    );
+    expect(createCall).toBeUndefined();
+    // gh pr edit called directly
+    const editCall = calls.find(
+      (c) => c.args.includes("edit") && c.args.includes("pr")
+    );
+    expect(editCall).toBeDefined();
+    expect(result.evidence[0]).toContain("updated");
+  });
+
+  // AC3: fresh-PR path unchanged when mode absent — existing test coverage already proves this;
+  // adding explicit assertion that create IS called when no mode set
+  it("create-new-pr mode (explicit): calls gh pr create and not edit directly", async () => {
+    const context = contextForOpenPr("Add feature", undefined, "create-new-pr");
+    const { calls, layer: executorLayer } = buildRecordingCommandExecutor();
+    const gitLayer = buildFakeGitLayer();
+
+    const result = await runWithLayers(context, gitLayer, executorLayer);
+
+    expect(result.exitCode).toBe(0);
+    const createCall = calls.find(
+      (c) => c.args.includes("create") && c.args.includes("pr")
+    );
+    expect(createCall).toBeDefined();
+    expect(result.evidence[0]).toContain("opened");
   });
 });

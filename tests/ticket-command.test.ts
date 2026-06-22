@@ -19,7 +19,20 @@ const tempDirs: string[] = [];
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
 const NO_READY_TICKETS_PATTERN = /no ready tickets/i;
 const REMOTE_READ_ONLY_PATTERN = /--read-only.*--target remote/i;
-const SELECTED_START_TASK = "PIPE-84.2 - Graph\n\nGraph description.";
+const BACKLOG_TOOL_PATTERN = /backlog/i;
+const BACKLOG_DIRECTIVE_84_2 = [
+  "## Backlog ticket management",
+  "",
+  'Your first action must be to set this ticket to "In Progress":',
+  '  backlog task edit PIPE-84.2 --status "In Progress" --plain',
+  "",
+  'Your final action on completion must be to set this ticket to "Done" and update ' +
+    "its acceptance criteria through the backlog tools:",
+  '  backlog task edit PIPE-84.2 --status "Done" --plain',
+  "",
+  "Use backlog tools on your working branch. Do not hand-edit the task markdown file.",
+].join("\n");
+const SELECTED_START_TASK = `PIPE-84.2 - Graph\n\nGraph description.\n\n${BACKLOG_DIRECTIVE_84_2}`;
 const SELECTED_START_TITLE = "PIPE-84.2 - Graph";
 let logSpy: ReturnType<typeof vi.spyOn> | undefined;
 
@@ -389,6 +402,47 @@ describe("moka ticket read-only commands", () => {
         target: "local",
       });
       expect(fileSnapshot(taskFiles)).toEqual(before);
+    });
+
+    it("threads ticketId as a typed field on the RunCommandCall", async () => {
+      const { root } = makeBacklogFixture();
+      const backlogCalls: BacklogCall[] = [];
+      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+
+      await parseTicketCommandWithOptions(
+        root,
+        ["start", "--root", "PIPE-84"],
+        {
+          backlogLayer: recordingBacklogLayer(backlogCalls),
+          runCommand,
+        }
+      );
+
+      const runCall = runCommand.mock.calls[0]?.[0];
+      expect(runCall?.ticketId).toBe("PIPE-84.2");
+    });
+
+    it("includes a backlog status/AC update directive in the agent instruction", async () => {
+      const { root } = makeBacklogFixture();
+      const backlogCalls: BacklogCall[] = [];
+      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+
+      await parseTicketCommandWithOptions(
+        root,
+        ["start", "--root", "PIPE-84"],
+        {
+          backlogLayer: recordingBacklogLayer(backlogCalls),
+          runCommand,
+        }
+      );
+
+      const runCall = runCommand.mock.calls[0]?.[0];
+      const instruction = runCall?.task ?? "";
+      // must contain the status-update directive language
+      expect(instruction).toContain("In Progress");
+      expect(instruction).toContain("Done");
+      // must reference backlog tooling (not prose-embedded id)
+      expect(instruction).toMatch(BACKLOG_TOOL_PATTERN);
     });
 
     it("reports no ready tickets without claiming, dispatching, or mutating files", async () => {

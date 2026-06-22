@@ -215,7 +215,7 @@ function readFakeGitCalls(logPath: string): Array<{
 function payloadWithRemote(url: string): RunnerCommandPayload {
   return {
     contractVersion: "1",
-    delivery: { pullRequest: false },
+    delivery: { mode: "create-new-pr", pullRequest: false },
     events: {
       authHeader: "Authorization",
       authTokenFile: "/etc/pipeline/event-auth/token",

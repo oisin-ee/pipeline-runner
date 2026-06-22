@@ -842,7 +842,11 @@ const deliverySchema = z
     pull_request: z
       .object({
         enabled: z.boolean().default(false),
+        head_branch: z.string().min(1).optional(),
         label: z.string().min(1).default("preview"),
+        mode: z
+          .enum(["create-new-pr", "update-existing-pr"])
+          .default("create-new-pr"),
       })
       .strict()
       .optional(),
