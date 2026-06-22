@@ -48,7 +48,13 @@ const RUNNER_OPENCODE_ENV = [
   // model fallback advances to the next model. Well under the pod deadline so a
   // fallback chain still fits before the pod dies.
   { name: "PIPELINE_AGENT_TIMEOUT_MS", value: "1200000" },
-] as const;
+  // Disable opencode-go/qwen3.7-max: the provider stream-errors immediately then
+  // hangs the prompt instead of returning an error, so the model fallback (which
+  // keys on a returned EXIT_INFRA) never engages and the node sits until the pod
+  // deadline. Filter it out of selection so an agent node uses the next model
+  // (openai/gpt-5.5) directly. Remove once the opencode-go provider is fixed.
+  { name: "PIPELINE_DISABLED_MODELS", value: "opencode-go/qwen3.7-max" },
+];
 
 // Runner containers run the agent plus memory-heavy gate commands (tsc, jest,
 // fallow) over the target repo. The 12Gi limit clears the heaviest known gate

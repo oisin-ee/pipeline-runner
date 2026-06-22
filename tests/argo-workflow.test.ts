@@ -180,6 +180,10 @@ describe("runner Argo Workflow manifest", () => {
                     "name": "PIPELINE_AGENT_TIMEOUT_MS",
                     "value": "1200000",
                   },
+                  {
+                    "name": "PIPELINE_DISABLED_MODELS",
+                    "value": "opencode-go/qwen3.7-max",
+                  },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
                 "imagePullPolicy": "Always",
@@ -258,6 +262,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "PIPELINE_AGENT_TIMEOUT_MS",
                     "value": "1200000",
+                  },
+                  {
+                    "name": "PIPELINE_DISABLED_MODELS",
+                    "value": "opencode-go/qwen3.7-max",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -344,6 +352,10 @@ describe("runner Argo Workflow manifest", () => {
                     "name": "PIPELINE_AGENT_TIMEOUT_MS",
                     "value": "1200000",
                   },
+                  {
+                    "name": "PIPELINE_DISABLED_MODELS",
+                    "value": "opencode-go/qwen3.7-max",
+                  },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
                 "imagePullPolicy": "Always",
@@ -428,6 +440,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "PIPELINE_AGENT_TIMEOUT_MS",
                     "value": "1200000",
+                  },
+                  {
+                    "name": "PIPELINE_DISABLED_MODELS",
+                    "value": "opencode-go/qwen3.7-max",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -515,6 +531,10 @@ describe("runner Argo Workflow manifest", () => {
                   {
                     "name": "PIPELINE_AGENT_TIMEOUT_MS",
                     "value": "1200000",
+                  },
+                  {
+                    "name": "PIPELINE_DISABLED_MODELS",
+                    "value": "opencode-go/qwen3.7-max",
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -720,6 +740,8 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "1200000"
+                - name: PIPELINE_DISABLED_MODELS
+                  value: opencode-go/qwen3.7-max
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -773,6 +795,8 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "1200000"
+                - name: PIPELINE_DISABLED_MODELS
+                  value: opencode-go/qwen3.7-max
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -830,6 +854,8 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "1200000"
+                - name: PIPELINE_DISABLED_MODELS
+                  value: opencode-go/qwen3.7-max
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -887,6 +913,8 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "1200000"
+                - name: PIPELINE_DISABLED_MODELS
+                  value: opencode-go/qwen3.7-max
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -946,6 +974,8 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "1200000"
+                - name: PIPELINE_DISABLED_MODELS
+                  value: opencode-go/qwen3.7-max
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
