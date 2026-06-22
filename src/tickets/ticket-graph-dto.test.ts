@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { BacklogTaskRecord } from "./backlog-task-store";
 import { buildTicketGraphEffect } from "./ticket-graph";
 import {
+  type LoopState,
   loopStateSchema,
   serializeTicketGraph,
   ticketGraphDtoSchema,
-  type LoopState,
 } from "./ticket-graph-dto";
 
 // Minimal task factory — only the fields ticket-graph cares about.
@@ -67,11 +67,7 @@ describe("loopStateSchema", () => {
 describe("serializeTicketGraph", () => {
   it("AC2: 3-node chain yields correct nodes/edges/batches/dangling", () => {
     // A -> B -> C (A must complete before B, B before C)
-    const tasks = [
-      makeTask("A"),
-      makeTask("B", ["A"]),
-      makeTask("C", ["B"]),
-    ];
+    const tasks = [makeTask("A"), makeTask("B", ["A"]), makeTask("C", ["B"])];
     const graph = buildGraph(tasks);
     const dto = Effect.runSync(serializeTicketGraph(graph));
 
@@ -122,7 +118,10 @@ describe("serializeTicketGraph", () => {
   });
 
   it("node fields include id, title, status, priority, loopState", () => {
-    const task = makeTask("T1", [], { priority: "high", status: "In Progress" });
+    const task = makeTask("T1", [], {
+      priority: "high",
+      status: "In Progress",
+    });
     const graph = buildGraph([task]);
     const dto = Effect.runSync(serializeTicketGraph(graph));
 

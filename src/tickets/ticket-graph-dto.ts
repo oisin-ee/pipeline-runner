@@ -82,7 +82,7 @@ export function serializeTicketGraph(
       (task): TicketGraphDtoNode => ({
         id: task.id,
         loopState: "queued",
-        ...(task.priority !== undefined ? { priority: task.priority } : {}),
+        ...(task.priority === undefined ? {} : { priority: task.priority }),
         status: task.status,
         title: task.title,
       })

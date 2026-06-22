@@ -1,10 +1,9 @@
 import { z } from "zod";
 import type { RunnerEventRecord } from "./runner-command-contract";
-import { loopStateSchema, ticketGraphDtoSchema } from "./tickets/ticket-graph-dto";
-
-// Re-export loopState as part of the runner event contract — single source of truth.
-export { loopStateSchema } from "./tickets/ticket-graph-dto";
-export type { LoopState } from "./tickets/ticket-graph-dto";
+import {
+  loopStateSchema,
+  ticketGraphDtoSchema,
+} from "./tickets/ticket-graph-dto";
 
 /*
  * Zod schemas for runner event records — the items that the runner POSTs to

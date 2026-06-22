@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  loopStateSchema,
-  runnerEventRecordSchema,
-} from "./runner-event-schema";
+import { runnerEventRecordSchema } from "./runner-event-schema";
+import { loopStateSchema } from "./tickets/ticket-graph-dto";
 
 const ENVELOPE = {
   at: "2026-06-21T00:00:00.000Z",
@@ -74,7 +72,9 @@ describe("loop.* event schemas — AC1: round-trip through runnerEventRecordSche
     };
     const parsed = runnerEventRecordSchema.parse(event);
     expect(parsed.type).toBe("loop.node.transition");
-    expect((parsed as typeof event).loopNodeTransition.loopState).toBe("passed");
+    expect((parsed as typeof event).loopNodeTransition.loopState).toBe(
+      "passed"
+    );
     expect((parsed as typeof event).loopNodeTransition.ticketId).toBe("PIPE-5");
   });
 
@@ -101,9 +101,9 @@ describe("loop.* event schemas — AC1: round-trip through runnerEventRecordSche
 });
 
 describe("loopState — AC3: single exported source of truth", () => {
-  it("loopStateSchema is re-exported from runner-event-schema", () => {
-    // If the import resolves and parses, the schema is the same object exported
-    // from the DTO module and re-exported here — one canonical owner.
+  it("loopStateSchema has one canonical owner in ticket-graph-dto", () => {
+    // The loop event schemas and this test both import loopStateSchema from the
+    // DTO module — one canonical owner, no duplicate enum.
     expect(loopStateSchema.parse("queued")).toBe("queued");
     expect(loopStateSchema.parse("blocked")).toBe("blocked");
     expect(() => loopStateSchema.parse("done")).toThrow();
