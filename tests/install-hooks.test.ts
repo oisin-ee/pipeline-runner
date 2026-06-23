@@ -38,6 +38,11 @@ function installMockHookRepo(
   if (options.includeOpenCodeHook ?? true) {
     writeFixture(
       target,
+      "hooks/opencode/opencode.json",
+      '{"plugin":["@prevalentware/opencode-goal-plugin"]}\n'
+    );
+    writeFixture(
+      target,
       "hooks/opencode/plugin/agent-hooks.ts",
       "export const AgentHooks = async () => ({})\n"
     );
@@ -121,7 +126,44 @@ describe("installHooks", () => {
     expect(
       readFileSync(join(home, ".config/opencode/plugin/agent-hooks.ts"), "utf8")
     ).toContain("AgentHooks");
+    expect(existsSync(join(home, ".config/opencode/opencode.json"))).toBe(
+      false
+    );
     expect(existsSync(join(home, "README.md"))).toBe(false);
+  });
+
+  it("does not delete OpenCode config from old hook manifests", async () => {
+    const opencodeConfigPath = join(home, ".config/opencode/opencode.json");
+    const oldManifestPath = join(
+      home,
+      ".config/opencode/.moka-agent-hooks.json"
+    );
+    const commandOwnedConfig = '{"plugin":["@pipeline/owned"]}\n';
+    mkdirSync(dirname(opencodeConfigPath), { recursive: true });
+    writeFileSync(opencodeConfigPath, commandOwnedConfig);
+    writeFileSync(
+      oldManifestPath,
+      `${JSON.stringify(
+        {
+          files: {
+            ".opencode/opencode.json": { hash: "old-hook-hash" },
+          },
+          repository: "oisin-ee/agent",
+          version: 1,
+        },
+        null,
+        2
+      )}\n`
+    );
+
+    const result = await installHooks({ force: true });
+
+    expect(readFileSync(opencodeConfigPath, "utf8")).toBe(commandOwnedConfig);
+    expect(result.items.map((item) => item.path)).not.toContain(
+      ".opencode/opencode.json"
+    );
+    const manifest = JSON.parse(readFileSync(oldManifestPath, "utf8"));
+    expect(manifest.files[".opencode/opencode.json"]).toBeUndefined();
   });
 
   it("is idempotent and --check passes after install", async () => {

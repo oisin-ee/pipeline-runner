@@ -25,6 +25,8 @@ const HOST_TARGET_ROOT: Record<HookHost, string> = {
   opencode: ".opencode",
 };
 
+const NON_HOOK_OWNED_TARGETS = new Set([".opencode/opencode.json"]);
+
 export type HookInstallAction =
   | "conflict"
   | "create"
@@ -188,16 +190,20 @@ async function sourceHookFiles(source: string): Promise<SourceHookFile[]> {
     HOOK_HOSTS.map(async (host) => {
       const hostRoot = join(source, AGENT_HOOKS_DIR, host);
       const files = await listFiles(hostRoot);
-      return files.map((file): SourceHookFile => {
+      return files.flatMap((file): SourceHookFile[] => {
         const relativePath = relative(hostRoot, file).replaceAll("\\", "/");
         const content = readFileSync(file);
         const path = `${HOST_TARGET_ROOT[host]}/${relativePath}`;
-        return {
-          content,
-          hash: targetIdentityHash(path, content),
-          host,
-          path,
-        };
+        return isHookOwnedTarget(path)
+          ? [
+              {
+                content,
+                hash: targetIdentityHash(path, content),
+                host,
+                path,
+              },
+            ]
+          : [];
       });
     })
   );
@@ -210,6 +216,10 @@ function manifestPath(host: HookHost): string {
 
 function emptyManifest(): HookManifest {
   return { files: {}, repository: DEFAULT_HOOK_INSTALL_SOURCE, version: 1 };
+}
+
+function isHookOwnedTarget(path: string): boolean {
+  return !NON_HOOK_OWNED_TARGETS.has(path);
 }
 
 function readManifest(host: HookHost): HookManifest {
@@ -286,22 +296,35 @@ function planObsoleteFiles(
   const obsolete: PlannedObsoleteHookFile[] = [];
   for (const [host, manifest] of manifests) {
     for (const [path, entry] of Object.entries(manifest.files)) {
-      if (desiredPaths.has(path)) {
-        continue;
+      const planned = planObsoleteFile(host, path, entry, force, desiredPaths);
+      if (planned) {
+        obsolete.push(planned);
       }
-      const target = targetPath(path);
-      if (!existsSync(target)) {
-        continue;
-      }
-      const currentHash = hashContent(readFileSync(target));
-      obsolete.push({
-        action: force || currentHash === entry.hash ? "delete" : "conflict",
-        host,
-        path,
-      });
     }
   }
   return obsolete.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function planObsoleteFile(
+  host: HookHost,
+  path: string,
+  entry: ManifestEntry,
+  force: boolean,
+  desiredPaths: Set<string>
+): PlannedObsoleteHookFile | undefined {
+  if (desiredPaths.has(path) || !isHookOwnedTarget(path)) {
+    return;
+  }
+  const target = targetPath(path);
+  if (!existsSync(target)) {
+    return;
+  }
+  const currentHash = hashContent(readFileSync(target));
+  return {
+    action: force || currentHash === entry.hash ? "delete" : "conflict",
+    host,
+    path,
+  };
 }
 
 async function writePlannedFile(file: PlannedHookFile): Promise<void> {
@@ -433,10 +456,4 @@ export function installHooks(
     }
     return { items, source: DEFAULT_HOOK_INSTALL_SOURCE };
   });
-}
-
-export function formatInstallHooksResult(result: InstallHooksResult): string {
-  return result.items
-    .map((item) => `${item.action} ${item.host}: ${item.path}`)
-    .join("\n");
 }
