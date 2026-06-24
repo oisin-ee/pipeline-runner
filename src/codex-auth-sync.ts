@@ -9,6 +9,11 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { type ParseError, parse } from "jsonc-parser";
+import {
+  applyOpencodeBrokerProvider,
+  type BrokerCredentials,
+  resolveBrokerCredentials,
+} from "./broker-auth";
 import { mergeOpenCodeProjectConfig } from "./opencode-project-config";
 
 const CODEX_MULTI_AUTH_PLUGIN = "oc-codex-multi-auth@6.3.2";
@@ -26,6 +31,11 @@ export interface CodexAuthSyncItem {
 }
 
 export interface SyncLocalCodexAuthOptions {
+  /**
+   * Test override: resolved broker credentials. When omitted, resolved from the
+   * environment. Pass `null` to force legacy multi-auth mode regardless of env.
+   */
+  broker?: BrokerCredentials | null;
   check?: boolean;
   dryRun?: boolean;
   globalConfigPath?: string;
@@ -40,15 +50,25 @@ export interface SyncLocalCodexAuthResult {
 export function syncLocalCodexAuth(
   options: SyncLocalCodexAuthOptions
 ): SyncLocalCodexAuthResult {
-  const items = [
-    syncGlobalPluginConfig(
-      options.globalConfigPath ?? GLOBAL_CODEX_AUTH_CONFIG_PATH,
-      options
-    ),
-    ...discoverGitRepositories(options.root).map((repo) =>
-      syncProjectOpenCodeConfig(repo, options)
-    ),
-  ];
+  const broker =
+    options.broker === undefined ? resolveBrokerCredentials() : options.broker;
+  // Broker mode: codex/opencode authenticate through the central broker, so the
+  // per-project multi-auth account pool (and its global perProjectAccounts
+  // config) no longer exists. Point each repo's opencode openai provider at the
+  // broker baseURL instead of declaring the multi-auth plugin.
+  const items = broker
+    ? discoverGitRepositories(options.root).map((repo) =>
+        syncProjectBrokerConfig(repo, broker, options)
+      )
+    : [
+        syncGlobalPluginConfig(
+          options.globalConfigPath ?? GLOBAL_CODEX_AUTH_CONFIG_PATH,
+          options
+        ),
+        ...discoverGitRepositories(options.root).map((repo) =>
+          syncProjectOpenCodeConfig(repo, options)
+        ),
+      ];
   const hasRequiredChanges = items.some(
     (item) => item.action === "create" || item.action === "update"
   );
@@ -100,6 +120,20 @@ function syncProjectOpenCodeConfig(
     return { action: "error", message: formatParseErrors(merged.errors), path };
   }
   return writeIfChanged(path, currentText, merged.content, options);
+}
+
+function syncProjectBrokerConfig(
+  repo: string,
+  broker: BrokerCredentials,
+  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
+): CodexAuthSyncItem {
+  const path = join(repo, ".opencode/opencode.json");
+  const currentText = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  const result = applyOpencodeBrokerProvider(currentText, broker);
+  if ("error" in result) {
+    return { action: "error", message: result.error, path };
+  }
+  return writeIfChanged(path, currentText, result.content, options);
 }
 
 function writeIfChanged(

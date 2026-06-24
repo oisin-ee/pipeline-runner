@@ -1085,6 +1085,49 @@ describe("runner Argo Workflow manifest", () => {
     });
   });
 
+  it("injects BROKER_URL + BROKER_API_KEY (from secret) into every runner container when broker auth is set", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      brokerAuth: {
+        secretKey: "api-key",
+        secretName: "broker-api-key",
+        url: "https://cliproxy.momokaya.ee",
+      },
+      plan: plan(),
+    });
+
+    const runnerTemplates = manifest.spec.templates.filter(
+      (template) => template.container !== undefined
+    );
+    expect(runnerTemplates.length).toBeGreaterThan(0);
+    for (const template of runnerTemplates) {
+      const env = template.container?.env ?? [];
+      expect(env).toContainEqual({
+        name: "BROKER_URL",
+        value: "https://cliproxy.momokaya.ee",
+      });
+      expect(env).toContainEqual({
+        name: "BROKER_API_KEY",
+        valueFrom: {
+          secretKeyRef: { key: "api-key", name: "broker-api-key" },
+        },
+      });
+    }
+  });
+
+  it("omits broker env when broker auth is not configured (legacy mode)", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      plan: plan(),
+    });
+
+    for (const template of manifest.spec.templates) {
+      const names = (template.container?.env ?? []).map((entry) => entry.name);
+      expect(names).not.toContain("BROKER_API_KEY");
+      expect(names).not.toContain("BROKER_URL");
+    }
+  });
+
   it("compiles planner dependencies into Argo DAG task dependencies", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,

@@ -158,17 +158,35 @@ const argoWorkflowRetryStrategySchema = z
   })
   .strict();
 
+// A container env var is EITHER a literal value OR sourced from a secret key
+// (the broker api-key lives in a Secret and must not be inlined into the
+// Workflow manifest).
+const argoWorkflowEnvVarSchema = z.union([
+  z.object({ name: z.string().min(1), value: z.string() }).strict(),
+  z
+    .object({
+      name: z.string().min(1),
+      valueFrom: z
+        .object({
+          secretKeyRef: z
+            .object({
+              key: z.string().min(1),
+              name: kubernetesNameSchema,
+            })
+            .strict(),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+
 const argoWorkflowTemplateSchema = z
   .object({
     container: z
       .object({
         args: z.array(z.string().min(1)).min(1),
         command: z.array(z.string().min(1)).min(1).optional(),
-        env: z
-          .array(
-            z.object({ name: z.string().min(1), value: z.string() }).strict()
-          )
-          .optional(),
+        env: z.array(argoWorkflowEnvVarSchema).optional(),
         image: z.string().min(1),
         imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]),
         name: z.string().min(1).optional(),
@@ -296,6 +314,18 @@ const buildRunnerArgoWorkflowOptionsSchema = z
       .default({}),
     name: z.string().min(1).optional(),
     namespace: kubernetesNameSchema,
+    // CLIProxyAPI broker auth for codex + opencode. When set, every runner
+    // container gets BROKER_URL (literal) + BROKER_API_KEY (from the named
+    // secret key); the runner then writes the broker provider config and skips
+    // the bespoke multi-auth pool (see run-state/opencode-accounts.ts).
+    brokerAuth: z
+      .object({
+        secretKey: z.string().min(1).default("api-key"),
+        secretName: kubernetesNameSchema,
+        url: z.string().min(1).default("https://cliproxy.momokaya.ee"),
+      })
+      .strict()
+      .optional(),
     opencodeAuthSecretName: kubernetesNameSchema.optional(),
     opencodeOpenaiAccountsSecret: z
       .object({
@@ -574,6 +604,32 @@ function runnerWorkflowStorage(
   };
 }
 
+/**
+ * The runner container env: the static opencode/agent tuning plus, when broker
+ * auth is configured, BROKER_URL (literal) and BROKER_API_KEY (sourced from the
+ * broker secret key, never inlined into the manifest).
+ */
+function runnerContainerEnv(
+  options: ParsedBuildRunnerArgoWorkflowOptions
+): z.infer<typeof argoWorkflowEnvVarSchema>[] {
+  if (!options.brokerAuth) {
+    return [...RUNNER_OPENCODE_ENV];
+  }
+  return [
+    ...RUNNER_OPENCODE_ENV,
+    { name: "BROKER_URL", value: options.brokerAuth.url },
+    {
+      name: "BROKER_API_KEY",
+      valueFrom: {
+        secretKeyRef: {
+          key: options.brokerAuth.secretKey,
+          name: options.brokerAuth.secretName,
+        },
+      },
+    },
+  ];
+}
+
 function runnerLifecycleTemplate(
   options: ParsedBuildRunnerArgoWorkflowOptions,
   volumeMounts: z.infer<typeof argoWorkflowVolumeMountSchema>[]
@@ -590,7 +646,7 @@ function runnerLifecycleTemplate(
         RUNNER_WORKFLOW_SCHEDULE_PATH,
       ],
       command: ["moka"],
-      env: [...RUNNER_OPENCODE_ENV],
+      env: runnerContainerEnv(options),
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",
@@ -624,7 +680,7 @@ function runnerCommandTemplate(
         RUNNER_WORKFLOW_SCHEDULE_PATH,
       ],
       command: ["moka"],
-      env: [...RUNNER_OPENCODE_ENV],
+      env: runnerContainerEnv(options),
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",
@@ -653,7 +709,7 @@ function runnerFinalizerTemplate(
         "{{workflow.status}}",
       ],
       command: ["moka"],
-      env: [...RUNNER_OPENCODE_ENV],
+      env: runnerContainerEnv(options),
       image: options.image,
       imagePullPolicy: options.imagePullPolicy,
       name: "runner",

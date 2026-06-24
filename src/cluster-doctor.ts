@@ -104,16 +104,24 @@ export function defaultClusterDoctorNamespace(): string {
   return DEFAULT_NAMESPACE;
 }
 
-function clusterResources(): typeof DEFAULT_RESOURCES {
+function clusterResources(): typeof DEFAULT_RESOURCES & {
+  brokerAuthSecretName?: string;
+} {
   const configured = loadMokaGlobalConfig()?.momokaya.submit;
   return configured
     ? {
         ...DEFAULT_RESOURCES,
+        // In broker mode the OpenCode auth secret is no longer required; the
+        // runner authenticates through the broker secret instead. Fall back to
+        // the default name only when neither auth mode is configured.
+        brokerAuthSecretName: configured.brokerAuth?.secretName,
         eventAuthSecretName: configured.eventAuthSecretName,
         gitCredentialsSecretName: configured.gitCredentialsSecretName,
         githubAuthSecretName: configured.githubAuthSecretName,
         imagePullSecretName: configured.imagePullSecretName,
-        opencodeAuthSecretName: configured.opencodeAuthSecretName,
+        opencodeAuthSecretName:
+          configured.opencodeAuthSecretName ??
+          DEFAULT_RESOURCES.opencodeAuthSecretName,
         serviceAccountName: configured.serviceAccountName,
       }
     : DEFAULT_RESOURCES;
@@ -122,18 +130,26 @@ function clusterResources(): typeof DEFAULT_RESOURCES {
 function secretChecks(
   namespace: string,
   kubectlOptions: KubectlOptions,
-  resources: typeof DEFAULT_RESOURCES
+  resources: typeof DEFAULT_RESOURCES & { brokerAuthSecretName?: string }
 ): Effect.Effect<DoctorCheck, never, KubernetesArgoService>[] {
+  // Broker mode validates the broker secret instead of the bespoke opencode
+  // auth secret; legacy mode validates the opencode auth secret.
+  const authSecretCheck: [string, string] = resources.brokerAuthSecretName
+    ? [
+        resources.brokerAuthSecretName,
+        `Secret ${resources.brokerAuthSecretName} missing in ${namespace}; expected broker api-key mount by name.`,
+      ]
+    : [
+        resources.opencodeAuthSecretName,
+        `Secret ${resources.opencodeAuthSecretName} missing in ${namespace}; expected OpenCode auth mount by name.`,
+      ];
   return [
     [resources.eventAuthSecretName, eventAuthMissingDetail(namespace)],
     [
       resources.imagePullSecretName,
       `Secret ${resources.imagePullSecretName} missing in ${namespace}; expected imagePullSecret for ghcr.io/oisin-ee/pipeline-runner.`,
     ],
-    [
-      resources.opencodeAuthSecretName,
-      `Secret ${resources.opencodeAuthSecretName} missing in ${namespace}; expected OpenCode auth mount by name.`,
-    ],
+    authSecretCheck,
     [
       resources.gitCredentialsSecretName,
       `Secret ${resources.gitCredentialsSecretName} missing in ${namespace}; expected runner git credentials mount by name.`,

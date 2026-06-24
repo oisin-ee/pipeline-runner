@@ -10,6 +10,7 @@ import {
   buildRunnerArgoWorkflowManifest,
   runnerArgoWorkflowManifestSchema,
 } from "./argo-workflow";
+import { brokerAuthOptionSchema } from "./broker-auth";
 import type { PipelineConfig } from "./config";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import {
@@ -62,6 +63,7 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1),
+    brokerAuth: brokerAuthOptionSchema.optional(),
     opencodeAuthSecretName: z.string().min(1).optional(),
     opencodeOpenaiAccountsSecretName: z.string().min(1).optional(),
     payloadJson: z.string().min(1),
@@ -182,6 +184,7 @@ function submitRunnerArgoWorkflowEffect(
     labels,
     name: options.name,
     namespace: options.namespace,
+    brokerAuth: options.brokerAuth,
     opencodeAuthSecretName: options.opencodeAuthSecretName,
     opencodeOpenaiAccountsSecret: options.opencodeOpenaiAccountsSecretName
       ? { name: options.opencodeOpenaiAccountsSecretName }

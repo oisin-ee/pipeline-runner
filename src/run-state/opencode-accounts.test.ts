@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+// dirname + mkdirSync + writeFileSync are used by the broker-mode test below.
 import { afterEach, describe, expect, it } from "vitest";
 import { prepareOpencodeCredentials } from "./opencode-accounts";
 
@@ -80,6 +81,7 @@ describe("prepareOpencodeCredentials", () => {
     );
 
     const result = prepareOpencodeCredentials({
+      broker: null,
       files: [
         { destPath: accountsDest, stagedPath: accountsStaged },
         { destPath: authDest, stagedPath: authStaged },
@@ -119,6 +121,7 @@ describe("prepareOpencodeCredentials", () => {
     stage(authStaged, '{"openai":{"type":"oauth"}}\n');
 
     const result = prepareOpencodeCredentials({
+      broker: null,
       files: [
         {
           destPath: join(fixture, "home", ".opencode", "accounts.json"),
@@ -134,6 +137,7 @@ describe("prepareOpencodeCredentials", () => {
   it("is a no-op when no staged secret is mounted (local dev, tests)", () => {
     const fixture = tempDir();
     const result = prepareOpencodeCredentials({
+      broker: null,
       files: [
         {
           destPath: join(fixture, ".opencode", "accounts.json"),
@@ -143,5 +147,93 @@ describe("prepareOpencodeCredentials", () => {
     });
 
     expect(result.copied).toEqual([]);
+  });
+
+  it("broker mode: writes broker auth + codex provider + opencode baseURL and skips pool staging", () => {
+    const fixture = tempDir();
+    const accountsStaged = join(fixture, "staged-accounts", "accounts.json");
+    stage(accountsStaged, JSON.stringify({ accounts: [], activeIndex: 0 }));
+    const codexConfigPath = join(fixture, "home", ".codex", "config.toml");
+    const opencodeAuthPath = join(
+      fixture,
+      "home",
+      ".local",
+      "share",
+      "opencode",
+      "auth.json"
+    );
+    const opencodeConfigPath = join(
+      fixture,
+      "home",
+      ".config",
+      "opencode",
+      "opencode.json"
+    );
+    // Seed an existing codex config + opencode config carrying the legacy
+    // multi-auth plugin, to prove broker mode injects the provider and drops it.
+    mkdirSync(dirname(codexConfigPath), { recursive: true });
+    writeFileSync(
+      codexConfigPath,
+      ['model = "gpt-5.5"', "", "[features]", "hooks = true", ""].join("\n")
+    );
+    mkdirSync(dirname(opencodeConfigPath), { recursive: true });
+    writeFileSync(
+      opencodeConfigPath,
+      `${JSON.stringify(
+        {
+          model: "openai/gpt-5.5-medium",
+          plugin: [
+            "@prevalentware/opencode-goal-plugin",
+            "oc-codex-multi-auth@6.3.2",
+          ],
+        },
+        null,
+        2
+      )}\n`
+    );
+
+    const result = prepareOpencodeCredentials({
+      broker: { apiKey: "sk-maa-test", baseUrl: "https://broker.test" },
+      brokerPaths: { codexConfigPath, opencodeAuthPath, opencodeConfigPath },
+      // A staged pool is present, but broker mode must NOT copy it.
+      files: [
+        {
+          destPath: join(fixture, "home", ".opencode", ACCOUNTS_DEST_NAME),
+          stagedPath: accountsStaged,
+        },
+      ],
+    });
+
+    expect(result.copied).toEqual([]);
+    expect(result.hostOpenaiTokenSynced).toBe(false);
+    expect(result.brokerConfigured.sort()).toEqual(
+      ["auth.json", "config.toml", "opencode.json"].sort()
+    );
+
+    // opencode auth.json: broker api-key.
+    expect(JSON.parse(readFileSync(opencodeAuthPath, "utf8"))).toEqual({
+      openai: { key: "sk-maa-test", type: "api" },
+    });
+
+    // codex config.toml: broker provider injected, existing config preserved.
+    const codexConfig = readFileSync(codexConfigPath, "utf8");
+    expect(codexConfig).toContain('model = "gpt-5.5"');
+    expect(codexConfig).toContain('model_provider = "broker"');
+    expect(codexConfig).toContain("[model_providers.broker]");
+    expect(codexConfig).toContain('base_url = "https://broker.test/v1"');
+    expect(codexConfig).toContain('env_key = "BROKER_API_KEY"');
+    expect(codexConfig).toContain('wire_api = "responses"');
+
+    // opencode config: openai baseURL set, multi-auth plugin dropped, other
+    // plugin + model preserved.
+    const opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf8"));
+    expect(opencodeConfig.provider.openai.options.baseURL).toBe(
+      "https://broker.test/v1"
+    );
+    expect(opencodeConfig.provider.openai.options.store).toBe(false);
+    expect(opencodeConfig.plugin).toEqual([
+      "@prevalentware/opencode-goal-plugin",
+    ]);
+    expect(opencodeConfig.model).toBe("openai/gpt-5.5-medium");
   });
 });

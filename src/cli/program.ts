@@ -931,6 +931,7 @@ function buildLoopSubmitInput(
     githubAuthSecretName: momokaya?.submit.githubAuthSecretName,
     kubeconfigPath: momokaya?.kubernetes.kubeconfig,
     namespace: momokaya?.kubernetes.namespace,
+    brokerAuth: momokaya?.submit.brokerAuth,
     opencodeAuthSecretName: momokaya?.submit.opencodeAuthSecretName,
     opencodeOpenaiAccountsSecretName:
       momokaya?.submit.opencodeOpenaiAccountsSecretName,

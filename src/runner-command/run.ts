@@ -187,6 +187,7 @@ function runRunnerCommandEffect(
     const credentialsPrep = yield* io.prepareOpencodeCredentials();
     logger.info(
       {
+        brokerConfigured: credentialsPrep.brokerConfigured,
         copied: credentialsPrep.copied,
         hostOpenaiTokenSynced: credentialsPrep.hostOpenaiTokenSynced,
         phase: "opencode.credentials.prepare",

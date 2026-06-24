@@ -47,7 +47,11 @@ describe("syncLocalCodexAuth", () => {
       )
     );
 
-    const result = syncLocalCodexAuth({ globalConfigPath, root: dir });
+    const result = syncLocalCodexAuth({
+      broker: null,
+      globalConfigPath,
+      root: dir,
+    });
 
     expect(result.items.map((item) => [item.action, item.path])).toEqual([
       ["update", globalConfigPath],
@@ -88,7 +92,7 @@ describe("syncLocalCodexAuth", () => {
       ].join("\n")
     );
 
-    syncLocalCodexAuth({ globalConfigPath, root: dir });
+    syncLocalCodexAuth({ broker: null, globalConfigPath, root: dir });
 
     expect(existsSync(join(missing, ".opencode/opencode.json"))).toBe(true);
     expect(
@@ -112,6 +116,7 @@ describe("syncLocalCodexAuth", () => {
     const repo = gitRepo("app");
 
     const result = syncLocalCodexAuth({
+      broker: null,
       check: true,
       globalConfigPath,
       root: dir,
@@ -121,6 +126,44 @@ describe("syncLocalCodexAuth", () => {
     expect(result.items.every((item) => item.action === "create")).toBe(true);
     expect(existsSync(globalConfigPath)).toBe(false);
     expect(existsSync(join(repo, ".opencode/opencode.json"))).toBe(false);
+  });
+
+  it("broker mode: sets opencode openai baseURL per repo and never declares the multi-auth plugin", () => {
+    const globalConfigPath = join(
+      dir,
+      "home/.opencode/openai-codex-auth-config.json"
+    );
+    const repo = gitRepo("app");
+    mkdirSync(join(repo, ".opencode"), { recursive: true });
+    writeFileSync(
+      join(repo, ".opencode/opencode.json"),
+      JSON.stringify(
+        { model: "openai/gpt-5.5-medium", plugin: ["local-plugin"] },
+        null,
+        2
+      )
+    );
+
+    const result = syncLocalCodexAuth({
+      broker: { apiKey: "sk-maa-test", baseUrl: "https://broker.test" },
+      globalConfigPath,
+      root: dir,
+    });
+
+    // No global multi-auth pool config is touched in broker mode.
+    expect(result.items.map((item) => item.path)).toEqual([
+      join(repo, ".opencode/opencode.json"),
+    ]);
+    expect(existsSync(globalConfigPath)).toBe(false);
+
+    const projectConfig = JSON.parse(
+      readFileSync(join(repo, ".opencode/opencode.json"), "utf8")
+    );
+    expect(projectConfig.provider.openai.options.baseURL).toBe(
+      "https://broker.test/v1"
+    );
+    expect(projectConfig.plugin).toEqual(["local-plugin"]);
+    expect(JSON.stringify(projectConfig)).not.toContain("oc-codex-multi-auth");
   });
 
   function gitRepo(name: string): string {

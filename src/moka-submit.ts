@@ -8,6 +8,7 @@ import {
   buildCommandScheduleYaml,
   submitRunnerArgoWorkflow,
 } from "./argo-submit";
+import { type BrokerAuthOption, brokerAuthOptionSchema } from "./broker-auth";
 import type { HookEvent, PipelineConfig } from "./config";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import {
@@ -130,6 +131,7 @@ const mokaSubmitBaseOptionsSchema = z
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
+    brokerAuth: brokerAuthOptionSchema.optional(),
     opencodeAuthSecretName: z.string().min(1).optional(),
     opencodeOpenaiAccountsSecretName: z.string().min(1).optional(),
     repository: runnerRepositoryContextSchema.optional(),
@@ -228,6 +230,7 @@ interface SubmitMokaDependencies {
 }
 
 interface MokaWorkflowSubmitOptions {
+  brokerAuth?: BrokerAuthOption;
   config: PipelineConfig;
   eventAuthSecretKey?: string;
   eventAuthSecretName?: string;
@@ -600,6 +603,7 @@ function workflowSubmitOptions(
     kubeconfigPath: options.kubeconfigPath,
     name: options.name,
     namespace: requireSubmitOption(options.namespace, "namespace"),
+    brokerAuth: options.brokerAuth,
     opencodeAuthSecretName: options.opencodeAuthSecretName,
     opencodeOpenaiAccountsSecretName: options.opencodeOpenaiAccountsSecretName,
     serviceAccountName: options.serviceAccountName,

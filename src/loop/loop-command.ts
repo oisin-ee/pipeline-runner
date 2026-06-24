@@ -52,6 +52,7 @@ export interface LoopCommandSeams {
 }
 
 export interface LoopSubmitInput {
+  readonly brokerAuth?: MokaSubmitInput["brokerAuth"];
   readonly config: MokaSubmitInput["config"];
   readonly eventUrl?: string;
   readonly flags: LoopFlags;
@@ -201,6 +202,7 @@ function loopControllerSubmitInput(input: LoopSubmitInput): MokaSubmitInput {
     image: input.image,
     kubeconfigPath: input.kubeconfigPath,
     namespace: input.namespace,
+    brokerAuth: input.brokerAuth,
     opencodeAuthSecretName: input.opencodeAuthSecretName,
     opencodeOpenaiAccountsSecretName: input.opencodeOpenaiAccountsSecretName,
     serviceAccountName: input.serviceAccountName,
