@@ -1,10 +1,18 @@
 import { writeFileSync } from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runRunnerCommand } from "../src/runner-command/run";
 import {
   cleanupRunnerCommandFixtures,
   writeRunnerCommandFixture,
 } from "./runner-command-fixture";
+
+// The runner authenticates through the central broker; credential prep writes
+// broker config to $HOME. These tests cover startup validation + parsing, not
+// credential materialization, so stub it to a no-op (broker config is proven in
+// run-state/opencode-accounts.test.ts).
+vi.mock("../src/run-state/opencode-accounts", () => ({
+  prepareOpencodeCredentials: () => ({ brokerConfigured: [] }),
+}));
 
 afterEach(() => {
   cleanupRunnerCommandFixtures();
