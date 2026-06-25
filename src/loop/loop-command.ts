@@ -61,8 +61,6 @@ export interface LoopSubmitInput {
   readonly image?: string;
   readonly kubeconfigPath?: string;
   readonly namespace?: string;
-  readonly opencodeAuthSecretName?: string;
-  readonly opencodeOpenaiAccountsSecretName?: string;
   readonly serviceAccountName?: string;
   readonly worktreePath: string;
 }
@@ -203,8 +201,6 @@ function loopControllerSubmitInput(input: LoopSubmitInput): MokaSubmitInput {
     kubeconfigPath: input.kubeconfigPath,
     namespace: input.namespace,
     brokerAuth: input.brokerAuth,
-    opencodeAuthSecretName: input.opencodeAuthSecretName,
-    opencodeOpenaiAccountsSecretName: input.opencodeOpenaiAccountsSecretName,
     serviceAccountName: input.serviceAccountName,
     task: `moka loop (${input.flags.strategy})`,
     type: "command",

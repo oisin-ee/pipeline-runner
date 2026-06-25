@@ -188,8 +188,6 @@ function runRunnerCommandEffect(
     logger.info(
       {
         brokerConfigured: credentialsPrep.brokerConfigured,
-        copied: credentialsPrep.copied,
-        hostOpenaiTokenSynced: credentialsPrep.hostOpenaiTokenSynced,
         phase: "opencode.credentials.prepare",
         status: "finish",
       },

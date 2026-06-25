@@ -778,12 +778,12 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
 
   const codexAuthCommand = program
     .command("codex-auth")
-    .description("Manage local Codex multi-auth integration");
+    .description("Manage local Codex broker auth integration");
 
   codexAuthCommand
     .command("sync-local")
     .description(
-      "Use one local oc-codex account pool and declare the plugin in dev repos"
+      "Point local dev repos' opencode openai provider at the central CLIProxyAPI broker"
     )
     .option("--root <path>", "directory containing repositories to sync")
     .option("--dry-run", "show planned changes without writing files")
@@ -932,9 +932,6 @@ function buildLoopSubmitInput(
     kubeconfigPath: momokaya?.kubernetes.kubeconfig,
     namespace: momokaya?.kubernetes.namespace,
     brokerAuth: momokaya?.submit.brokerAuth,
-    opencodeAuthSecretName: momokaya?.submit.opencodeAuthSecretName,
-    opencodeOpenaiAccountsSecretName:
-      momokaya?.submit.opencodeOpenaiAccountsSecretName,
     serviceAccountName: momokaya?.submit.serviceAccountName,
     worktreePath: cwd,
   };

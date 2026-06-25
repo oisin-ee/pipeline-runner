@@ -13,9 +13,9 @@ export const MOKA_GLOBAL_CONFIG_PATH = ".config/moka/config.yaml";
 
 const mokaSubmitGlobalConfigSchema = z
   .object({
-    // CLIProxyAPI broker auth for the runner's codex + opencode. When set, the
-    // runner authenticates through the broker and skips the bespoke multi-auth
-    // pool; opencodeAuth/opencodeOpenaiAccounts secret mounts become optional.
+    // CLIProxyAPI broker auth for the runner's codex + opencode. The runner
+    // authenticates through the broker; the broker owns OAuth refresh / rotation
+    // / failover, so there is no bespoke per-tool auth mount.
     brokerAuth: brokerAuthOptionSchema.optional(),
     eventAuthSecretKey: z.string().min(1),
     eventAuthSecretName: z.string().min(1),
@@ -23,8 +23,6 @@ const mokaSubmitGlobalConfigSchema = z
     gitCredentialsSecretName: z.string().min(1),
     githubAuthSecretName: z.string().min(1),
     imagePullSecretName: z.string().min(1),
-    opencodeAuthSecretName: z.string().min(1).optional(),
-    opencodeOpenaiAccountsSecretName: z.string().min(1).optional(),
     serviceAccountName: z.string().min(1),
   })
   .strict();

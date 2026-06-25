@@ -206,9 +206,6 @@ if (config.skills.inspect.source_root !== "package") {
     expect(guide).toContain('moka submit "Implement PIPE-54"');
     expect(guide).toContain("--kubeconfig <path>");
     expect(guide).toContain("ServiceAccount");
-    expect(guide).toContain(
-      "opencodeAuthSecretName: <opencode-auth-secret-name>"
-    );
     expect(guide).toContain("eventAuthSecretName: <event-auth-secret-name>");
     expect(guide).toContain("eventAuthSecretKey: <event-auth-secret-key>");
     expect(guide).toContain(

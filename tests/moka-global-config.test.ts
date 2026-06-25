@@ -17,7 +17,6 @@ momokaya:
     gitCredentialsSecretName: git-credentials-secret
     githubAuthSecretName: github-auth-secret
     imagePullSecretName: image-pull-secret
-    opencodeAuthSecretName: opencode-auth-secret
     serviceAccountName: runner-service-account
 `;
 

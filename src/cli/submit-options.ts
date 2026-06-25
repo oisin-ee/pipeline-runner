@@ -118,9 +118,6 @@ function mokaCommonSubmitOptions(input: {
     name: input.flags.name,
     namespace: input.flags.namespace ?? momokaya?.kubernetes.namespace,
     brokerAuth: momokaya?.submit.brokerAuth,
-    opencodeAuthSecretName: momokaya?.submit.opencodeAuthSecretName,
-    opencodeOpenaiAccountsSecretName:
-      momokaya?.submit.opencodeOpenaiAccountsSecretName,
     serviceAccountName:
       input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
     worktreePath: input.cwd,

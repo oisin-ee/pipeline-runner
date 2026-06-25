@@ -296,6 +296,9 @@ const HOST_CONFIG_ENV_KEYS = [
   "CODEX_HOME",
   "OPENCODE_CONFIG_DIR",
   "GEMINI_CONFIG_DIR",
+  // Sandbox HOME so loadMokaGlobalConfig() reads from the temp dir, not the
+  // developer's real ~/.config/moka/config.yaml.
+  "HOME",
 ];
 
 function redirectHostConfig(root: string): Record<string, string | undefined> {
@@ -307,6 +310,7 @@ function redirectHostConfig(root: string): Record<string, string | undefined> {
   process.env.CODEX_HOME = join(root, ".codex");
   process.env.OPENCODE_CONFIG_DIR = join(root, ".opencode");
   process.env.GEMINI_CONFIG_DIR = join(root, ".gemini");
+  process.env.HOME = root;
   return saved;
 }
 
@@ -481,6 +485,9 @@ async function withCliTempDir(
     "CODEX_HOME",
     "OPENCODE_CONFIG_DIR",
     "GEMINI_CONFIG_DIR",
+    // Sandbox HOME so loadMokaGlobalConfig() (used by cluster-doctor) reads from
+    // the temp dir rather than the developer's real ~/.config/moka/config.yaml.
+    "HOME",
   ];
   try {
     writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
@@ -493,6 +500,7 @@ async function withCliTempDir(
     process.env.CODEX_HOME = join(dir, ".codex");
     process.env.OPENCODE_CONFIG_DIR = join(dir, ".opencode");
     process.env.GEMINI_CONFIG_DIR = join(dir, ".gemini");
+    process.env.HOME = dir;
     await withCliTarget(dir, (fixture) => run({ ...fixture, dir }));
   } finally {
     for (const [key, value] of Object.entries(savedHostEnv)) {
@@ -2566,11 +2574,15 @@ profiles:
     const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-cluster-doctor-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const originalHome = process.env.HOME;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
       writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
       process.env.PIPELINE_TARGET_PATH = dir;
+      // Sandbox HOME so loadMokaGlobalConfig() reads from the temp dir (absent →
+      // DEFAULT_RESOURCES), not the developer's real ~/.config/moka/config.yaml.
+      process.env.HOME = dir;
       mockExeca.mockImplementation(clusterDoctorExecaResult);
 
       await expect(
@@ -2617,6 +2629,7 @@ profiles:
     } finally {
       log.mockRestore();
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      restoreEnv("HOME", originalHome);
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -2627,10 +2640,12 @@ profiles:
       join(tmpdir(), "pipeline-cli-cluster-doctor-forbidden-")
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+    const originalHome = process.env.HOME;
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     try {
       writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
+      process.env.HOME = dir;
       process.env.PIPELINE_TARGET_PATH = dir;
       mockExeca.mockImplementation(((command: string, args: string[]) => {
         if (command !== "kubectl") {
@@ -2682,6 +2697,7 @@ profiles:
     } finally {
       log.mockRestore();
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+      restoreEnv("HOME", originalHome);
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -2711,7 +2727,6 @@ profiles:
           "    gitCredentialsSecretName: git-credentials-secret",
           "    githubAuthSecretName: github-auth-secret",
           "    imagePullSecretName: image-pull-secret",
-          "    opencodeAuthSecretName: opencode-auth-secret",
           "    serviceAccountName: configured-runner",
           "",
         ].join("\n")

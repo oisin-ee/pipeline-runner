@@ -6,21 +6,12 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { type ParseError, parse } from "jsonc-parser";
 import {
   applyOpencodeBrokerProvider,
   type BrokerCredentials,
   resolveBrokerCredentials,
 } from "./broker-auth";
-import { mergeOpenCodeProjectConfig } from "./opencode-project-config";
-
-const CODEX_MULTI_AUTH_PLUGIN = "oc-codex-multi-auth@6.3.2";
-const GLOBAL_CODEX_AUTH_CONFIG_PATH = join(
-  homedir(),
-  ".opencode/openai-codex-auth-config.json"
-);
 
 export type CodexAuthSyncAction = "create" | "error" | "unchanged" | "update";
 
@@ -33,12 +24,11 @@ export interface CodexAuthSyncItem {
 export interface SyncLocalCodexAuthOptions {
   /**
    * Test override: resolved broker credentials. When omitted, resolved from the
-   * environment. Pass `null` to force legacy multi-auth mode regardless of env.
+   * environment.
    */
-  broker?: BrokerCredentials | null;
+  broker?: BrokerCredentials;
   check?: boolean;
   dryRun?: boolean;
-  globalConfigPath?: string;
   root: string;
 }
 
@@ -47,28 +37,34 @@ export interface SyncLocalCodexAuthResult {
   ok: boolean;
 }
 
+/**
+ * Point each local dev repo's opencode openai provider at the central
+ * CLIProxyAPI broker. codex + opencode authenticate through the broker
+ * (which owns OAuth refresh / rotation / failover), so there is no per-project
+ * multi-auth account pool to declare. Requires BROKER_API_KEY in the env (or an
+ * explicit `broker` override).
+ */
 export function syncLocalCodexAuth(
   options: SyncLocalCodexAuthOptions
 ): SyncLocalCodexAuthResult {
   const broker =
     options.broker === undefined ? resolveBrokerCredentials() : options.broker;
-  // Broker mode: codex/opencode authenticate through the central broker, so the
-  // per-project multi-auth account pool (and its global perProjectAccounts
-  // config) no longer exists. Point each repo's opencode openai provider at the
-  // broker baseURL instead of declaring the multi-auth plugin.
-  const items = broker
-    ? discoverGitRepositories(options.root).map((repo) =>
-        syncProjectBrokerConfig(repo, broker, options)
-      )
-    : [
-        syncGlobalPluginConfig(
-          options.globalConfigPath ?? GLOBAL_CODEX_AUTH_CONFIG_PATH,
-          options
-        ),
-        ...discoverGitRepositories(options.root).map((repo) =>
-          syncProjectOpenCodeConfig(repo, options)
-        ),
-      ];
+  if (!broker) {
+    return {
+      items: [
+        {
+          action: "error",
+          message:
+            "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
+          path: options.root,
+        },
+      ],
+      ok: false,
+    };
+  }
+  const items = discoverGitRepositories(options.root).map((repo) =>
+    syncProjectBrokerConfig(repo, broker, options)
+  );
   const hasRequiredChanges = items.some(
     (item) => item.action === "create" || item.action === "update"
   );
@@ -88,38 +84,6 @@ export function formatCodexAuthSyncResult(
     lines.push("codex-auth sync-local check failed");
   }
   return lines.join("\n");
-}
-
-function syncGlobalPluginConfig(
-  path: string,
-  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
-): CodexAuthSyncItem {
-  const currentText = existsSync(path) ? readFileSync(path, "utf8") : undefined;
-  const parsed = parseJsonObject(currentText ?? "{}");
-  if (!parsed.ok) {
-    return { action: "error", message: formatParseErrors(parsed.errors), path };
-  }
-  const nextText = `${JSON.stringify(
-    { ...parsed.value, perProjectAccounts: false },
-    null,
-    2
-  )}\n`;
-  return writeIfChanged(path, currentText, nextText, options);
-}
-
-function syncProjectOpenCodeConfig(
-  repo: string,
-  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
-): CodexAuthSyncItem {
-  const path = join(repo, ".opencode/opencode.json");
-  const currentText = existsSync(path) ? readFileSync(path, "utf8") : undefined;
-  const merged = mergeOpenCodeProjectConfig(currentText, {
-    plugin: [CODEX_MULTI_AUTH_PLUGIN],
-  });
-  if (!merged.ok) {
-    return { action: "error", message: formatParseErrors(merged.errors), path };
-  }
-  return writeIfChanged(path, currentText, merged.content, options);
 }
 
 function syncProjectBrokerConfig(
@@ -166,30 +130,4 @@ function isDirectory(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-function parseJsonObject(
-  content: string
-):
-  | { ok: true; value: Record<string, unknown> }
-  | { errors: ParseError[]; ok: false } {
-  const errors: ParseError[] = [];
-  const value = parse(content, errors, {
-    allowTrailingComma: true,
-    disallowComments: false,
-  });
-  if (errors.length > 0 || !isRecord(value)) {
-    return { errors, ok: false };
-  }
-  return { ok: true, value };
-}
-
-function formatParseErrors(errors: ParseError[]): string {
-  return errors.length > 0
-    ? `invalid JSONC (${errors.length} parse error${errors.length === 1 ? "" : "s"})`
-    : "expected a JSON object";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

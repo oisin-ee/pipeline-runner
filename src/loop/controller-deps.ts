@@ -63,8 +63,6 @@ export interface LoopControllerContext {
   readonly maxMergePolls: number;
   readonly maxRemediationAttempts: number;
   readonly namespace: string;
-  readonly opencodeAuthSecretName?: string;
-  readonly opencodeOpenaiAccountsSecretName?: string;
   readonly project: string;
   readonly rootId?: string;
   /** This loop run's id — the envelope/sequence key for emitted loop.* events. */
@@ -242,9 +240,6 @@ function defaultSubmitRun(
           githubAuthSecretName: context.githubAuthSecretName,
           mode: "full",
           namespace: context.namespace,
-          opencodeAuthSecretName: context.opencodeAuthSecretName,
-          opencodeOpenaiAccountsSecretName:
-            context.opencodeOpenaiAccountsSecretName,
           repository: submitRepository(context, request),
           run: { id: request.runId, project: context.project },
           serviceAccountName: context.serviceAccountName,

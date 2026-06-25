@@ -9,13 +9,13 @@ import {
 
 const DEFAULT_NAMESPACE = "momokaya-pipeline";
 const DEFAULT_RESOURCES = {
+  brokerAuthSecretName: "broker-api-key",
   eventAuthSecretName: "pipeline-runner-event-auth",
   eventAuthExternalSecretName: "pipeline-runner-event-auth",
   externalSecretRemoteRef: "agent-runtime/pipeline-runner/event-auth",
   gitCredentialsSecretName: "oisin-bot-git-credentials",
   githubAuthSecretName: "oisin-bot-github-auth",
   imagePullSecretName: "ghcr-pull-secret",
-  opencodeAuthSecretName: "opencode-auth-1",
   serviceAccountName: "pipeline-runner",
 };
 const FORBIDDEN_RE = /forbidden/i;
@@ -111,17 +111,15 @@ function clusterResources(): typeof DEFAULT_RESOURCES & {
   return configured
     ? {
         ...DEFAULT_RESOURCES,
-        // In broker mode the OpenCode auth secret is no longer required; the
-        // runner authenticates through the broker secret instead. Fall back to
-        // the default name only when neither auth mode is configured.
-        brokerAuthSecretName: configured.brokerAuth?.secretName,
+        // codex + opencode authenticate through the central broker secret; the
+        // runner has no bespoke per-tool auth mount.
+        brokerAuthSecretName:
+          configured.brokerAuth?.secretName ??
+          DEFAULT_RESOURCES.brokerAuthSecretName,
         eventAuthSecretName: configured.eventAuthSecretName,
         gitCredentialsSecretName: configured.gitCredentialsSecretName,
         githubAuthSecretName: configured.githubAuthSecretName,
         imagePullSecretName: configured.imagePullSecretName,
-        opencodeAuthSecretName:
-          configured.opencodeAuthSecretName ??
-          DEFAULT_RESOURCES.opencodeAuthSecretName,
         serviceAccountName: configured.serviceAccountName,
       }
     : DEFAULT_RESOURCES;
@@ -130,19 +128,14 @@ function clusterResources(): typeof DEFAULT_RESOURCES & {
 function secretChecks(
   namespace: string,
   kubectlOptions: KubectlOptions,
-  resources: typeof DEFAULT_RESOURCES & { brokerAuthSecretName?: string }
+  resources: typeof DEFAULT_RESOURCES
 ): Effect.Effect<DoctorCheck, never, KubernetesArgoService>[] {
-  // Broker mode validates the broker secret instead of the bespoke opencode
-  // auth secret; legacy mode validates the opencode auth secret.
-  const authSecretCheck: [string, string] = resources.brokerAuthSecretName
-    ? [
-        resources.brokerAuthSecretName,
-        `Secret ${resources.brokerAuthSecretName} missing in ${namespace}; expected broker api-key mount by name.`,
-      ]
-    : [
-        resources.opencodeAuthSecretName,
-        `Secret ${resources.opencodeAuthSecretName} missing in ${namespace}; expected OpenCode auth mount by name.`,
-      ];
+  // codex + opencode authenticate through the central broker; validate the
+  // broker api-key secret is present.
+  const authSecretCheck: [string, string] = [
+    resources.brokerAuthSecretName,
+    `Secret ${resources.brokerAuthSecretName} missing in ${namespace}; expected broker api-key mount by name.`,
+  ];
   return [
     [resources.eventAuthSecretName, eventAuthMissingDetail(namespace)],
     [

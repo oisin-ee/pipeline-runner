@@ -132,8 +132,6 @@ const mokaSubmitBaseOptionsSchema = z
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
     brokerAuth: brokerAuthOptionSchema.optional(),
-    opencodeAuthSecretName: z.string().min(1).optional(),
-    opencodeOpenaiAccountsSecretName: z.string().min(1).optional(),
     repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema.optional(),
     serviceAccountName: z.string().min(1).optional(),
@@ -243,8 +241,6 @@ interface MokaWorkflowSubmitOptions {
   kubeconfigPath?: string;
   name?: string;
   namespace: string;
-  opencodeAuthSecretName?: string;
-  opencodeOpenaiAccountsSecretName?: string;
   payloadJson: string;
   scheduleYaml: string;
   serviceAccountName?: string;
@@ -604,8 +600,6 @@ function workflowSubmitOptions(
     name: options.name,
     namespace: requireSubmitOption(options.namespace, "namespace"),
     brokerAuth: options.brokerAuth,
-    opencodeAuthSecretName: options.opencodeAuthSecretName,
-    opencodeOpenaiAccountsSecretName: options.opencodeOpenaiAccountsSecretName,
     serviceAccountName: options.serviceAccountName,
   };
 }

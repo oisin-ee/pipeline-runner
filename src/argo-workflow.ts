@@ -5,10 +5,6 @@ import {
   compileArgoExecutionGraph,
 } from "./argo-graph";
 import type { WorkflowExecutionPlan } from "./planning/compile";
-import {
-  OPENCODE_AUTH_STAGING_DIR,
-  OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR,
-} from "./run-state/opencode-accounts";
 import { DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH } from "./runner-command/task-descriptor";
 
 const ARGO_WORKFLOW_API_VERSION = "argoproj.io/v1alpha1";
@@ -314,23 +310,16 @@ const buildRunnerArgoWorkflowOptionsSchema = z
       .default({}),
     name: z.string().min(1).optional(),
     namespace: kubernetesNameSchema,
-    // CLIProxyAPI broker auth for codex + opencode. When set, every runner
-    // container gets BROKER_URL (literal) + BROKER_API_KEY (from the named
-    // secret key); the runner then writes the broker provider config and skips
-    // the bespoke multi-auth pool (see run-state/opencode-accounts.ts).
+    // CLIProxyAPI broker auth for codex + opencode. Every runner container gets
+    // BROKER_URL (literal) + BROKER_API_KEY (from the named secret key); the
+    // runner then writes the broker provider config (see
+    // run-state/opencode-accounts.ts). The broker owns OAuth refresh / rotation
+    // / failover, so there is no bespoke auth mount.
     brokerAuth: z
       .object({
         secretKey: z.string().min(1).default("api-key"),
         secretName: kubernetesNameSchema,
         url: z.string().min(1).default("https://cliproxy.momokaya.ee"),
-      })
-      .strict()
-      .optional(),
-    opencodeAuthSecretName: kubernetesNameSchema.optional(),
-    opencodeOpenaiAccountsSecret: z
-      .object({
-        key: z.string().min(1).optional(),
-        name: kubernetesNameSchema,
       })
       .strict()
       .optional(),
@@ -516,53 +505,6 @@ function runnerWorkflowStorage(
     volumeMounts.push({
       mountPath: "/etc/pipeline/event-auth",
       name: "runner-event-auth",
-      readOnly: true,
-    });
-  }
-
-  if (options.opencodeAuthSecretName) {
-    volumes.push({
-      name: "opencode-auth",
-      secret: {
-        defaultMode: 0o400,
-        items: [{ key: "auth.json", path: "auth.json" }],
-        secretName: options.opencodeAuthSecretName,
-      },
-    });
-    // Stage read-only; the runner copies it to the writable
-    // ~/.local/share/opencode/auth.json at startup (opencode.credentials.prepare).
-    // The codex-multi-auth plugin backfills the active account's FRESH openai
-    // token into this file — opencode then sends that token. A read-only mount at
-    // the live path makes the backfill fail, so opencode keeps sending the stale
-    // mounted token and the provider returns 401 ("Token refresh failed").
-    volumeMounts.push({
-      mountPath: OPENCODE_AUTH_STAGING_DIR,
-      name: "opencode-auth",
-      readOnly: true,
-    });
-  }
-
-  if (options.opencodeOpenaiAccountsSecret) {
-    const accountsKey =
-      options.opencodeOpenaiAccountsSecret.key ?? "accounts.json";
-    volumes.push({
-      name: "opencode-openai-accounts",
-      secret: {
-        defaultMode: 0o400,
-        items: [{ key: accountsKey, path: "accounts.json" }],
-        secretName: options.opencodeOpenaiAccountsSecret.name,
-      },
-    });
-    // Stage the codex-multi-auth accounts secret read-only; the runner copies it
-    // to the writable plugin path at startup (opencode.accounts.prepare). The
-    // plugin rotates the OAuth refresh token on every refresh and persists it by
-    // atomically rewriting the accounts file — a read-only secret mounted at the
-    // plugin path makes that rename fail, so the stale token is replayed and the
-    // provider returns 401 ("Token refresh failed"). A writable copy lets the
-    // plugin persist rotated tokens for the pod's lifetime.
-    volumeMounts.push({
-      mountPath: OPENCODE_OPENAI_ACCOUNTS_STAGING_DIR,
-      name: "opencode-openai-accounts",
       readOnly: true,
     });
   }

@@ -32,8 +32,6 @@ export interface LoopControllerEntrypointOptions {
 interface ControllerSecretEnv {
   readonly gitCredentialsSecretName: string;
   readonly githubAuthSecretName?: string;
-  readonly opencodeAuthSecretName?: string;
-  readonly opencodeOpenaiAccountsSecretName?: string;
   readonly serviceAccountName?: string;
 }
 
@@ -80,9 +78,6 @@ function buildContext(input: {
     maxRemediationAttempts:
       input.flags.maxRemediationAttempts ?? DEFAULT_MAX_REMEDIATION_ATTEMPTS,
     namespace: requireEnv(process.env, "PIPELINE_NAMESPACE"),
-    opencodeAuthSecretName: input.secrets.opencodeAuthSecretName,
-    opencodeOpenaiAccountsSecretName:
-      input.secrets.opencodeOpenaiAccountsSecretName,
     project: payload.run.project,
     rootId: input.flags.rootId,
     runId: payload.run.id,
@@ -103,9 +98,6 @@ function requireSecretEnv(env: NodeJS.ProcessEnv): ControllerSecretEnv {
       "PIPELINE_GIT_CREDENTIALS_SECRET"
     ),
     githubAuthSecretName: env.PIPELINE_GITHUB_AUTH_SECRET,
-    opencodeAuthSecretName: env.PIPELINE_OPENCODE_AUTH_SECRET,
-    opencodeOpenaiAccountsSecretName:
-      env.PIPELINE_OPENCODE_OPENAI_ACCOUNTS_SECRET,
     serviceAccountName: env.PIPELINE_SERVICE_ACCOUNT,
   };
 }

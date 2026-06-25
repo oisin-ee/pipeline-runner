@@ -105,7 +105,6 @@ const MANAGED_AUTH = {
   eventAuthSecretName: "event-auth-secret",
   gitCredentialsSecretName: "git-credentials-secret",
   githubAuthSecretName: "github-auth-secret",
-  opencodeAuthSecretName: "opencode-auth-secret",
 };
 
 const MANAGED_EVENT_AUTH_TOKEN_FILE =
@@ -406,7 +405,6 @@ describe("submitMoka", () => {
         eventAuthSecretName: "event-auth-secret",
         gitCredentialsSecretName: "flux-style-git-auth",
         namespace: EXPLICIT_NAMESPACE,
-        opencodeAuthSecretName: "opencode-auth-secret",
         type: "command",
         worktreePath: PROJECT_ROOT,
       },
@@ -433,7 +431,6 @@ describe("submitMoka", () => {
           eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
           eventAuthSecretName: "event-auth-secret",
           githubAuthSecretName: "github-auth-secret",
-          opencodeAuthSecretName: "opencode-auth-secret",
           namespace: EXPLICIT_NAMESPACE,
           type: "command",
           worktreePath: PROJECT_ROOT,
@@ -491,7 +488,6 @@ describe("submitMoka", () => {
         imagePullSecretName: "console-pull-secret",
         mode: "quick",
         namespace: "console-runners",
-        opencodeAuthSecretName: "console-opencode-auth",
         repository: {
           baseBranch: "main",
           sha: "fedcba9876543210fedcba9876543210fedcba98",
@@ -528,7 +524,6 @@ describe("submitMoka", () => {
       githubAuthSecretName: "console-github-auth",
       imagePullSecretName: "console-pull-secret",
       namespace: "console-runners",
-      opencodeAuthSecretName: "console-opencode-auth",
       scheduleYaml,
     });
     const payload = JSON.parse(calls[0].payloadJson);
