@@ -1,9 +1,10 @@
 ---
 id: PIPE-90.8
 title: llm-judge gate kind module (evidence-anchored)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:47'
+updated_date: '2026-06-26 16:56'
 labels: []
 dependencies:
   - PIPE-90.2
