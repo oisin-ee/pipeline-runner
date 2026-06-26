@@ -76,6 +76,30 @@ export interface UnmetCriterion {
   reason: string;
 }
 
+/**
+ * One acceptance criterion's evidence within a completion claim. `criterion` is
+ * the {@link AcceptanceCriterion} `id` the evidence addresses; `evidence` holds
+ * the references/values the agent asserts satisfy it (same shape as
+ * {@link UnmetCriterion.evidence}).
+ */
+export interface CriterionEvidence {
+  criterion: string;
+  evidence: string[];
+}
+
+/**
+ * The structured argument an agent submits to `moka ticket complete` (PIPE-90,
+ * orchestrator-design). The completion adjudicator (deterministic ->
+ * structured-claim -> llm-judge residue) checks this claim against the ticket's
+ * acceptance criteria and either marks the ticket Done or returns a structured
+ * refusal ({@link UnmetCriterion}[]). Acceptance criteria and their adjudicating
+ * tests are read-only to the agent (PIPE-90.12); this claim is the only
+ * completion input the agent authors.
+ */
+export interface CompletionClaim {
+  criteria: readonly CriterionEvidence[];
+}
+
 export interface RuntimeGateResult {
   evidence: string[];
   gateId: string;
