@@ -24,7 +24,7 @@ export interface TicketGraph {
   readonly tasksById: ReadonlyMap<string, BacklogTaskRecord>;
 }
 
-class TicketGraphError extends Data.TaggedError("TicketGraphError")<{
+export class TicketGraphError extends Data.TaggedError("TicketGraphError")<{
   readonly message: string;
 }> {}
 

@@ -62,7 +62,9 @@ export interface BacklogTaskStore {
   readonly tasksById: ReadonlyMap<string, BacklogTaskRecord>;
 }
 
-class BacklogTaskStoreError extends Data.TaggedError("BacklogTaskStoreError")<{
+export class BacklogTaskStoreError extends Data.TaggedError(
+  "BacklogTaskStoreError"
+)<{
   readonly message: string;
   readonly path?: string;
 }> {}
