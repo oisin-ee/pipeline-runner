@@ -41,6 +41,9 @@ function tempConsumerApp(): string {
           module: "NodeNext",
           moduleResolution: "NodeNext",
           noEmit: true,
+          // effect@4 beta declarations currently fail lib checking via
+          // node_modules/effect/dist/internal/schema/schema.d.ts (`SchemaErrorTypeId`).
+          // This fixture validates our exported subpaths, not upstream package internals.
           skipLibCheck: true,
           strict: true,
           target: "ES2022",
