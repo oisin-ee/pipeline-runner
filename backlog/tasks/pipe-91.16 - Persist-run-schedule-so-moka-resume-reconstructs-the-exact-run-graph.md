@@ -1,9 +1,10 @@
 ---
 id: PIPE-91.16
 title: Persist run schedule so moka resume reconstructs the exact run graph
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 22:38'
+updated_date: '2026-06-26 23:01'
 labels: []
 dependencies: []
 parent_task_id: PIPE-91

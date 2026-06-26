@@ -3,9 +3,10 @@ id: PIPE-91.15
 title: >-
   Wire next-node/submit-result resolveDurableStore to Postgres (stepping
   persistence)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 22:38'
+updated_date: '2026-06-26 22:45'
 labels: []
 dependencies: []
 parent_task_id: PIPE-91
