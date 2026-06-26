@@ -1,10 +1,10 @@
 ---
 id: PIPE-90.1
 title: Structured gate-refusal contract
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:24'
-updated_date: '2026-06-26 14:26'
+updated_date: '2026-06-26 15:48'
 labels: []
 dependencies: []
 references:

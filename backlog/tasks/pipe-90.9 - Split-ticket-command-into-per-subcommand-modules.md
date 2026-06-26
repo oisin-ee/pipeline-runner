@@ -1,9 +1,10 @@
 ---
 id: PIPE-90.9
 title: Split ticket-command into per-subcommand modules
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:47'
+updated_date: '2026-06-26 15:48'
 labels: []
 dependencies: []
 references:
