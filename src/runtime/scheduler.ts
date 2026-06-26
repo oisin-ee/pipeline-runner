@@ -270,15 +270,47 @@ function settledNodeIds(
   return ids;
 }
 
-function readyNodeIds(context: WorkflowSchedulerState): string[] {
-  const settled = settledNodeIds(context);
-  const blocked = new Set(context.blocked ?? []);
-  return orderedNodes(context.nodes)
-    .filter((node) => !(settled.has(node.id) || blocked.has(node.id)))
+/**
+ * PIPE-91.6: the readiness computation extracted as a pure exported function so
+ * both the scheduler loop and the `moka next node` stepping command reuse it
+ * without duplication. The scheduler's internal {@link readyNodeIds} delegates
+ * here; callers outside the scheduler (e.g. the stepping command) pass only the
+ * fields they have — `running` and `blocked` default to empty when absent.
+ */
+export interface NodeReadinessInput {
+  readonly blocked?: string[];
+  readonly completed?: RuntimeNodeResult[];
+  readonly nodes: WorkflowScheduleNode[];
+  readonly running?: string[];
+  readonly shouldContinueAfterNodeResult?: (
+    result: RuntimeNodeResult
+  ) => boolean;
+}
+
+export function computeReadyNodeIds(input: NodeReadinessInput): string[] {
+  const completedIds = new Set((input.completed ?? []).map((r) => r.nodeId));
+  const runningIds = new Set(input.running ?? []);
+  const blockedIds = new Set(input.blocked ?? []);
+  const settled = new Set([...completedIds, ...runningIds]);
+  return orderedNodes(input.nodes)
+    .filter((node) => !(settled.has(node.id) || blockedIds.has(node.id)))
     .filter((node) =>
-      node.needs.every((need) => dependencyPassed(need, context))
+      node.needs.every((needId) => {
+        const result = (input.completed ?? []).find((r) => r.nodeId === needId);
+        if (result === undefined) {
+          return false;
+        }
+        return (
+          input.shouldContinueAfterNodeResult?.(result) ??
+          result.status !== "failed"
+        );
+      })
     )
     .map((node) => node.id);
+}
+
+function readyNodeIds(context: WorkflowSchedulerState): string[] {
+  return computeReadyNodeIds(context);
 }
 
 function workflowNodeCapacity(context: WorkflowSchedulerState): number {
@@ -385,19 +417,6 @@ function categoryRunCounts(
     }
   }
   return counts;
-}
-
-function dependencyPassed(
-  nodeId: string,
-  context: WorkflowSchedulerState
-): boolean {
-  const result = (context.completed ?? []).find(
-    (item) => item.nodeId === nodeId
-  );
-  return result
-    ? (context.shouldContinueAfterNodeResult?.(result) ??
-        result.status !== "failed")
-    : false;
 }
 
 function isBlockingFailure(

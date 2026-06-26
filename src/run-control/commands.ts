@@ -10,6 +10,7 @@ import type {
   MokaRunManifest,
   MokaRunStatus,
 } from "./contracts";
+import { registerNextNodeSubcommand } from "./next-node";
 import {
   listRunsEffect,
   readRunEffect,
@@ -141,6 +142,13 @@ export function registerRunControlCommands(program: Command): void {
         )
       );
     });
+
+  // PIPE-91.6: `moka next node <run-id> --schedule-file <path>` — emit the
+  // next ready node envelope from a persisted run without executing it.
+  const nextCommand = program
+    .command("next")
+    .description("Advance a persisted durable run one step");
+  registerNextNodeSubcommand(nextCommand);
 }
 
 function printRunsEffect(workspaceRoot: string): Effect.Effect<void, unknown> {
