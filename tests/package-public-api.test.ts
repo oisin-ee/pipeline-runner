@@ -41,6 +41,7 @@ function tempConsumerApp(): string {
           module: "NodeNext",
           moduleResolution: "NodeNext",
           noEmit: true,
+          skipLibCheck: true,
           strict: true,
           target: "ES2022",
         },
