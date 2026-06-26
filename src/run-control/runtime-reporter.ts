@@ -7,12 +7,8 @@ import type {
   PipelineRuntimeOptions,
 } from "../pipeline-runtime";
 import type { MokaNodeStatus, MokaRunStatus } from "./contracts";
+import { fileRunControlStore, type RunControlStore } from "./run-control-store";
 import { withRunStateLock } from "./run-state-lock";
-import {
-  updateNodeSessionEffect,
-  updateNodeStatusEffect,
-  updateRunStatusEffect,
-} from "./store";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
 
@@ -20,6 +16,15 @@ export interface CreateRunStoreRuntimeReporterInput {
   now?: () => Date;
   reporter?: PipelineRuntimeOptions["reporter"];
   runId: string;
+  /**
+   * The run-control store the run-state writes go through. The program
+   * entrypoint resolves it via the `db.url` seam and threads it here; when
+   * omitted it defaults to the filesystem store for `workspaceRoot`, keeping the
+   * `.pipeline/runs` behaviour byte-identical. Observability artifacts
+   * (runtime-events.jsonl, node stdout) are filesystem-only by design and always
+   * use `workspaceRoot`.
+   */
+  store?: RunControlStore;
   workspaceRoot: string;
 }
 
@@ -50,6 +55,7 @@ function createRunStoreRuntimeReporterRuntime(
   input: CreateRunStoreRuntimeReporterInput
 ): RunStoreRuntimeReporter {
   const now = input.now ?? (() => new Date());
+  const store = input.store ?? fileRunControlStore(input.workspaceRoot);
   const observedNodeStatuses = new Map<string, MokaNodeStatus>();
   const activeHookPreviousStatuses = new Map<string, MokaNodeStatus>();
   let writeChain: Promise<void> = Promise.resolve();
@@ -66,6 +72,7 @@ function createRunStoreRuntimeReporterRuntime(
     // write chain that flush() rethrows.
     const persisted = persistRuntimeEventEffect(
       input,
+      store,
       event,
       projection,
       now
@@ -114,6 +121,7 @@ interface RuntimeEventProjection {
 
 function persistRuntimeEventEffect(
   input: CreateRunStoreRuntimeReporterInput,
+  store: RunControlStore,
   event: PipelineRuntimeEvent,
   projection: RuntimeEventProjection,
   now: () => Date
@@ -122,30 +130,27 @@ function persistRuntimeEventEffect(
     yield* appendRuntimeEventEffect(input, event);
 
     if (projection.run) {
-      yield* updateRunStatusEffect({
+      yield* store.updateRunStatus({
         at: timestamp(now),
         runId: input.runId,
         status: projection.run,
-        workspaceRoot: input.workspaceRoot,
       });
     }
 
     if (projection.node) {
-      yield* updateNodeStatusEffect({
+      yield* store.updateNodeStatus({
         at: timestamp(now),
         nodeId: projection.node.nodeId,
         runId: input.runId,
         status: projection.node.status,
-        workspaceRoot: input.workspaceRoot,
       });
     }
 
     if (projection.session) {
-      yield* updateNodeSessionEffect({
+      yield* store.updateNodeSession({
         nodeId: projection.session.nodeId,
         runId: input.runId,
         sessionId: projection.session.sessionId,
-        workspaceRoot: input.workspaceRoot,
       });
     }
 

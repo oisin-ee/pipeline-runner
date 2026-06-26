@@ -54,12 +54,11 @@ import { flattenNodes } from "../planning/graph";
 import { registerRunControlCommands } from "../run-control/commands";
 import type { RunEffort, RunMode, RunTarget } from "../run-control/contracts";
 import { startDetachedRunController } from "../run-control/detach";
-import { createRunStoreRuntimeReporter } from "../run-control/runtime-reporter";
 import {
-  createRun,
-  runControlStatusPaths,
-  updateRunController,
-} from "../run-control/store";
+  type RunControlStore,
+  withRunControlStoreScoped,
+} from "../run-control/run-control-store";
+import { createRunStoreRuntimeReporter } from "../run-control/runtime-reporter";
 import { createRunControlSupervisor } from "../run-control/supervisor";
 import {
   createOrchestratorLaunchPlan,
@@ -248,11 +247,30 @@ async function runConfiguredPipeline(rawInputs: RunInputs): Promise<void> {
 async function runAndPrintPipeline(
   inputs: RunInputs & { config: PipelineConfig }
 ): Promise<void> {
+  // Resolve the run-control store once via the db.url seam and keep it alive for
+  // the whole run (the writer reporters fire callbacks throughout); the scope
+  // releases the Postgres connection after the final flush. With db.url absent
+  // this is byte-identical to the prior direct filesystem store calls.
+  await Effect.runPromise(
+    withRunControlStoreScoped(inputs.worktreePath, (store) =>
+      Effect.tryPromise({
+        catch: (error) => error,
+        try: () => runAndPrintPipelineWithStore(inputs, store),
+      })
+    )
+  );
+}
+
+async function runAndPrintPipelineWithStore(
+  inputs: RunInputs & { config: PipelineConfig },
+  store: RunControlStore
+): Promise<void> {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
   const terminalReporter = createTerminalRuntimeReporter();
   const runStoreReporter = await createRunStoreReporter(
     inputs,
-    terminalReporter
+    terminalReporter,
+    store
   );
   if (inputs.supervised) {
     console.log(formatSupervisedRunFollowUp(requireRunId(inputs.runId)));
@@ -294,19 +312,22 @@ async function createLocalRunStoreRuntimeReporter(
   inputs: RunInputs & { config: PipelineConfig },
   reporter: NonNullable<
     Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]
-  >
+  >,
+  store: RunControlStore
 ) {
   const runId = requireRunId(inputs.runId);
-  await createRun({
-    ...resolvedRunControlOptions(inputs.runControl),
-    nodeIds: plannedRunStoreNodeIds(inputs),
-    runId,
-    workspaceRoot: inputs.worktreePath,
-  });
+  await Effect.runPromise(
+    store.createRun({
+      ...resolvedRunControlOptions(inputs.runControl),
+      nodeIds: plannedRunStoreNodeIds(inputs),
+      runId,
+    })
+  );
 
   return createRunStoreRuntimeReporter({
     reporter,
     runId,
+    store,
     workspaceRoot: inputs.worktreePath,
   });
 }
@@ -315,7 +336,8 @@ function createRunStoreReporter(
   inputs: RunInputs & { config: PipelineConfig },
   reporter: NonNullable<
     Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]
-  >
+  >,
+  store: RunControlStore
 ) {
   if (inputs.runStoreMode === "reuse") {
     const runId = requireRunId(inputs.runId);
@@ -323,6 +345,7 @@ function createRunStoreReporter(
       const supervisor = createRunControlSupervisor({
         reporter,
         runId,
+        store,
         workspaceRoot: inputs.worktreePath,
       });
       supervisor.start();
@@ -334,11 +357,12 @@ function createRunStoreReporter(
     return createRunStoreRuntimeReporter({
       reporter,
       runId,
+      store,
       workspaceRoot: inputs.worktreePath,
     });
   }
 
-  return createLocalRunStoreRuntimeReporter(inputs, reporter);
+  return createLocalRunStoreRuntimeReporter(inputs, reporter, store);
 }
 
 function requireRunId(runId: string | undefined): string {
@@ -975,41 +999,52 @@ async function runDetachedResolvedTask(
     worktreePath,
   });
 
-  await createRun({
-    ...resolvedRunControlOptions(runControl),
-    nodeIds: plannedRunStoreNodeIds({
-      config: prepared.config,
-      entrypoint: prepared.entrypoint,
-      runId,
-      runControl,
-      schedule: prepared.schedule,
-      task,
-      workflow: prepared.workflow,
-      worktreePath,
-    }),
-    runId,
-    workspaceRoot: worktreePath,
-  });
+  // Resolve the run-control store once via the db.url seam: createRun seeds the
+  // manifest and updateRunController records the detached controller, both
+  // through the store; the scope releases the Postgres connection afterwards.
+  await Effect.runPromise(
+    withRunControlStoreScoped(worktreePath, (store) =>
+      Effect.gen(function* () {
+        yield* store.createRun({
+          ...resolvedRunControlOptions(runControl),
+          nodeIds: plannedRunStoreNodeIds({
+            config: prepared.config,
+            entrypoint: prepared.entrypoint,
+            runId,
+            runControl,
+            schedule: prepared.schedule,
+            task,
+            workflow: prepared.workflow,
+            worktreePath,
+          }),
+          runId,
+        });
 
-  const launch = await startDetachedRunController({
-    entrypoint: prepared.entrypoint,
-    runId,
-    schedule: prepared.schedule,
-    task,
-    workflow: prepared.workflow,
-    workspaceRoot: worktreePath,
-  });
-  await updateRunController({
-    controller: {
-      argv: launch.argv,
-      cwd: worktreePath,
-      paths: runControlStatusPaths({ runId, workspaceRoot: worktreePath }),
-      pid: launch.pid,
-      startedAt: launch.startedAt,
-    },
-    runId,
-    workspaceRoot: worktreePath,
-  });
+        const launch = yield* Effect.tryPromise({
+          catch: (error) => error,
+          try: () =>
+            startDetachedRunController({
+              entrypoint: prepared.entrypoint,
+              runId,
+              schedule: prepared.schedule,
+              task,
+              workflow: prepared.workflow,
+              workspaceRoot: worktreePath,
+            }),
+        });
+        yield* store.updateRunController({
+          controller: {
+            argv: launch.argv,
+            cwd: worktreePath,
+            paths: store.statusPaths({ runId }),
+            pid: launch.pid,
+            startedAt: launch.startedAt,
+          },
+          runId,
+        });
+      })
+    )
+  );
   console.log(formatDetachedRunFollowUp(runId));
 }
 

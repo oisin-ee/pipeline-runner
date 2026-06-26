@@ -10,8 +10,8 @@ import {
   type MokaNodeStatus,
   parseRunControlStaleDetection,
 } from "./contracts";
+import { fileRunControlStore, type RunControlStore } from "./run-control-store";
 import { createRunStoreRuntimeReporter } from "./runtime-reporter";
-import { recordEventEffect, updateNodeStatusEffect } from "./store";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -22,6 +22,13 @@ export interface CreateRunControlSupervisorInput {
   now?: () => Date;
   reporter?: PipelineRuntimeOptions["reporter"];
   runId: string;
+  /**
+   * The run-control store the supervisor's heartbeat/stall writes go through,
+   * also threaded into the bridge reporter. The program entrypoint resolves it
+   * via the `db.url` seam; when omitted it defaults to the filesystem store for
+   * `workspaceRoot`, keeping `.pipeline/runs` behaviour byte-identical.
+   */
+  store?: RunControlStore;
   workspaceRoot: string;
 }
 
@@ -76,10 +83,12 @@ function createRunControlSupervisorRuntime(
     nodeStaleAfterMs:
       input.nodeStaleAfterMs ?? DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS,
   });
+  const store = input.store ?? fileRunControlStore(input.workspaceRoot);
   const bridge = createRunStoreRuntimeReporter({
     now,
     reporter: input.reporter,
     runId: input.runId,
+    store,
     workspaceRoot: input.workspaceRoot,
   });
   const nodeActivity = new Map<string, NodeActivity>();
@@ -110,14 +119,13 @@ function createRunControlSupervisorRuntime(
       }
       const at = timestamp(now);
       yield* enqueueControlWriteEffect(
-        recordEventEffect({
+        store.recordEvent({
           event: {
             at,
             heartbeatIntervalMs: staleDetection.heartbeatIntervalMs,
             type: "run.heartbeat",
           },
           runId: input.runId,
-          workspaceRoot: input.workspaceRoot,
         })
       );
     });
@@ -161,12 +169,11 @@ function createRunControlSupervisorRuntime(
       activity.staleTimer = undefined;
       const at = timestamp(now);
       yield* enqueueControlWriteEffect(
-        updateNodeStatusEffect({
+        store.updateNodeStatus({
           at,
           nodeId,
           runId: input.runId,
           status: "stalled",
-          workspaceRoot: input.workspaceRoot,
         })
       );
     });
@@ -193,12 +200,11 @@ function createRunControlSupervisorRuntime(
       if (wasStalled) {
         const at = timestamp(now);
         yield* enqueueControlWriteEffect(
-          updateNodeStatusEffect({
+          store.updateNodeStatus({
             at,
             nodeId,
             runId: input.runId,
             status: "running",
-            workspaceRoot: input.workspaceRoot,
           })
         );
       }

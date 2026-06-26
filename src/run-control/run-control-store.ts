@@ -1,4 +1,5 @@
 import { Effect, type Scope } from "effect";
+import { loadMokaDbUrl } from "../moka-global-config";
 import type { MokaRunManifest } from "./contracts";
 import { postgresRunControlStore } from "./postgres/postgres-run-control-store";
 import {
@@ -149,5 +150,27 @@ export function resolveRunControlStore(
   return Effect.acquireRelease(
     Effect.sync(() => postgresRunControlStore(dbUrl)),
     (store) => Effect.promise(() => store.close())
+  );
+}
+
+/**
+ * PIPE-91.14: the single store-lifecycle wrapper shared by every run-control
+ * entrypoint (read commands AND live-run writers). It is the only owner of the
+ * `db.url` substrate switch: it reads `db.url` once via {@link loadMokaDbUrl},
+ * resolves the store through {@link resolveRunControlStore}, runs `use` against
+ * it inside an `Effect.scoped` boundary, and releases the Postgres connection on
+ * scope exit — exactly as `acquireRunJournal` does for the durable journal.
+ * Writers (supervisor, runtime reporter, detached/local run setup) wrap their
+ * whole run inside this so the resolved store stays alive across the run and is
+ * closed exactly once afterwards, with no per-writer `db.url` branching.
+ */
+export function withRunControlStoreScoped<A>(
+  workspaceRoot: string,
+  use: (store: RunControlStore) => Effect.Effect<A, unknown>
+): Effect.Effect<A, unknown> {
+  return Effect.scoped(
+    resolveRunControlStore(loadMokaDbUrl(), workspaceRoot).pipe(
+      Effect.flatMap(use)
+    )
   );
 }

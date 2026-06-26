@@ -15,7 +15,7 @@ import type {
 import { registerNextNodeSubcommand } from "./next-node";
 import {
   type RunControlStore,
-  resolveRunControlStore,
+  withRunControlStoreScoped,
 } from "./run-control-store";
 import { registerSubmitResultSubcommand } from "./submit-result";
 
@@ -240,12 +240,7 @@ function withRunControlStore<A>(
   ) => Effect.Effect<A, unknown>
 ): Effect.Effect<A, unknown> {
   const root = workspaceRoot();
-  const dbUrl = loadMokaDbUrl();
-  return Effect.scoped(
-    resolveRunControlStore(dbUrl, root).pipe(
-      Effect.flatMap((store) => use(store, root))
-    )
-  );
+  return withRunControlStoreScoped(root, (store) => use(store, root));
 }
 
 function printRunsEffect(
