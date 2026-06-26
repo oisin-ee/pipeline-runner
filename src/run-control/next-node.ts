@@ -94,8 +94,13 @@ export function buildNextNodeEnvelope(
  * return `inMemoryDurableRunStore()` until PIPE-91.4 delivers the Postgres impl;
  * the selection is wired so 91.4 can substitute `postgresStore(dbUrl)` here
  * without touching any other call site.
+ *
+ * Exported so PIPE-91.7 (`submit-result`) reuses the same seam without
+ * duplicating the selection logic.
  */
-function resolveDurableStore(dbUrl: string | undefined): DurableRunStore {
+export function resolveDurableStore(
+  dbUrl: string | undefined
+): DurableRunStore {
   if (dbUrl !== undefined) {
     // PIPE-91.4: swap to postgresStore(dbUrl) here when that lane lands.
     return inMemoryDurableRunStore();

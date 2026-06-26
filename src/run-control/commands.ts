@@ -17,6 +17,7 @@ import {
   updateNodeStatusEffect,
   updateRunStatusEffect,
 } from "./store";
+import { registerSubmitResultSubcommand } from "./submit-result";
 
 interface StatusFlags {
   json?: boolean;
@@ -149,6 +150,13 @@ export function registerRunControlCommands(program: Command): void {
     .command("next")
     .description("Advance a persisted durable run one step");
   registerNextNodeSubcommand(nextCommand);
+
+  // PIPE-91.7: `moka submit result <run-id> <node-id> --json <payload>` —
+  // persist a node's terminal result into the durable run store.
+  const submitCommand = program
+    .command("submit")
+    .description("Submit node results to a persisted durable run");
+  registerSubmitResultSubcommand(submitCommand);
 }
 
 function printRunsEffect(workspaceRoot: string): Effect.Effect<void, unknown> {
