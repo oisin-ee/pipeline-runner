@@ -28,7 +28,7 @@ Run focused tests and real command-line checks against a temporary repo to prove
 - [ ] #1 bun test tests/opencode-project-config.test.ts tests/install-commands.test.ts passes.
 - [ ] #2 bun run build passes.
 - [ ] #3 A real temp-repo pipe init or built CLI init preserves pre-existing OpenCode plugin and MCP entries.
-- [ ] #4 When opencode is installed, opencode debug config for the temp repo shows oc-codex-multi-auth and pipeline-gateway in the resolved config.
+- [ ] #4 When opencode is installed, opencode debug config for the temp repo shows pipeline-gateway and current package plugins, with oc-codex-multi-auth absent.
 - [ ] #5 If opencode is unavailable, the verification notes say that CLI-resolved config verification was not run.
 <!-- AC:END -->
 

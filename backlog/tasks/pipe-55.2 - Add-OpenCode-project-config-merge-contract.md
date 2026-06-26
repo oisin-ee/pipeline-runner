@@ -28,7 +28,7 @@ Introduce a pure OpenCode project config merge module that preserves existing pr
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Adds jsonc-parser as the JSONC parsing/editing dependency and updates the lockfile through the project package manager.
-- [ ] #2 A pure merge function preserves existing plugin entries and appends missing package defaults, including oc-codex-multi-auth.
+- [ ] #2 A pure merge function preserves existing plugin entries and appends missing package defaults without adding oc-codex-multi-auth.
 - [ ] #3 The merge function preserves an existing mcp.pipeline-gateway object exactly when present.
 - [ ] #4 The merge function creates package mcp.pipeline-gateway only when absent.
 - [ ] #5 The merge function defaults lsp to true only when lsp is absent.

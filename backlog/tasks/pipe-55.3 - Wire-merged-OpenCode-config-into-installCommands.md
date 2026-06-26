@@ -23,16 +23,16 @@ ordinal: 175000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Use the OpenCode config merge contract when installing .opencode/opencode.json so package defaults are added without destroying existing repo-local auth plugin or gateway settings.
+Use the OpenCode config merge contract when installing .opencode/opencode.json so package defaults are added without destroying existing repo-local plugin or gateway settings.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 installCommands routes only .opencode/opencode.json through the merge helper when an existing file is present.
-- [ ] #2 pipe init updates stale package plugin projection and adds oc-codex-multi-auth without dropping user plugin entries.
+- [ ] #2 pipe init updates stale package plugin projection without adding oc-codex-multi-auth or dropping user plugin entries.
 - [ ] #3 Existing project mcp.pipeline-gateway values survive pipe init unchanged.
 - [ ] #4 pipe mcp gateway configure-host remains the explicit rewrite path for gateway repair and still creates backups.
-- [ ] #5 The tracked/generated .opencode/opencode.json includes the current package defaults including oc-codex-multi-auth.
+- [ ] #5 The tracked/generated .opencode/opencode.json includes current package defaults and excludes oc-codex-multi-auth.
 <!-- AC:END -->
 
 ## Implementation Plan

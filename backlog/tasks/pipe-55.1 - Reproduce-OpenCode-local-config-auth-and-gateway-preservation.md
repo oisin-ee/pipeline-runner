@@ -25,7 +25,7 @@ Create the deterministic bug feedback loop for repo-local OpenCode config. The f
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 A failing regression test demonstrates that existing repo-local plugin entries are dropped or stale before the fix.
-- [ ] #2 The test asserts oc-codex-multi-auth is present after installation.
+- [ ] #2 The test asserts current package plugin defaults are present after installation and oc-codex-multi-auth is absent.
 - [ ] #3 The test asserts an existing repo-local mcp.pipeline-gateway object is preserved by installCommands or initPipelineProject and is not rewritten except by the explicit gateway configure-host command.
 - [ ] #4 The test seam uses installCommands or initPipelineProject directly; it must not mock the merge result.
 <!-- AC:END -->

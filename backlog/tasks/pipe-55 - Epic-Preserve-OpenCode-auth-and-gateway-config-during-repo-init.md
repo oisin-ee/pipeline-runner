@@ -21,7 +21,7 @@ ordinal: 172000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Fix the repo-local OpenCode config path so pipe init preserves existing auth plugin and pipeline-gateway MCP configuration while still projecting package-owned defaults. Root cause: pipe init forces generated .opencode/opencode.json as a whole file, which can overwrite repo-local plugin and MCP entries and leave stale package defaults such as missing oc-codex-multi-auth.
+Fix the repo-local OpenCode config path so pipe init preserves existing plugin and pipeline-gateway MCP configuration while still projecting package-owned defaults. Root cause: pipe init forces generated .opencode/opencode.json as a whole file, which can overwrite repo-local plugin and MCP entries and leave stale package defaults. Broker auth is the current OpenCode auth path; oc-codex-multi-auth must not be reintroduced as a package default.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

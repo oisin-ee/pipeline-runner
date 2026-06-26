@@ -19,7 +19,6 @@ const projection = {
   plugin: [
     "@devtheops/opencode-plugin-otel@1.1.0",
     "@prevalentware/opencode-goal-plugin",
-    "oc-codex-multi-auth",
   ],
 };
 
@@ -46,7 +45,6 @@ describe("mergeOpenCodeProjectConfig", () => {
       ["tuple-plugin", { enabled: true }],
       "@devtheops/opencode-plugin-otel@1.1.0",
       "@prevalentware/opencode-goal-plugin",
-      "oc-codex-multi-auth",
     ]);
   });
 
@@ -74,7 +72,7 @@ describe("mergeOpenCodeProjectConfig", () => {
 
   it("adds gateway, schema, and lsp only when missing", () => {
     const result = mergeOpenCodeProjectConfig(
-      '{\n  // user config\n  "lsp": false,\n  "plugin": ["oc-codex-multi-auth"],\n}\n',
+      '{\n  // user config\n  "lsp": false,\n  "plugin": ["local-auth-plugin"],\n}\n',
       projection
     );
 
@@ -89,14 +87,14 @@ describe("mergeOpenCodeProjectConfig", () => {
       projection.mcp["pipeline-gateway"]
     );
     expect(
-      merged.plugin.filter((item: string) => item === "oc-codex-multi-auth")
+      merged.plugin.filter((item: string) => item === "local-auth-plugin")
     ).toHaveLength(1);
   });
 
   it("replaces a same-name plugin entry when the projected entry is pinned", () => {
     const result = mergeOpenCodeProjectConfig(
-      JSON.stringify({ plugin: ["oc-codex-multi-auth"] }, null, 2),
-      { plugin: ["oc-codex-multi-auth@6.3.2"] }
+      JSON.stringify({ plugin: ["@devtheops/opencode-plugin-otel"] }, null, 2),
+      { plugin: ["@devtheops/opencode-plugin-otel@1.1.0"] }
     );
 
     expect(result.ok).toBe(true);
@@ -104,7 +102,7 @@ describe("mergeOpenCodeProjectConfig", () => {
       return;
     }
     expect(JSON.parse(result.content).plugin).toEqual([
-      "oc-codex-multi-auth@6.3.2",
+      "@devtheops/opencode-plugin-otel@1.1.0",
     ]);
   });
 

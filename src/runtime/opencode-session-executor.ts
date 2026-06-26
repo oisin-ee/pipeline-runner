@@ -86,13 +86,26 @@ function executeOpencodeSession(
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions
 ): Effect.Effect<AgentResult, never, OpencodeSdkService> {
+  const activity: SessionActivity = { last: Date.now() };
   return Effect.gen(function* () {
-    const drive = yield* driveSession(deps, plan, options);
+    const drive = yield* driveSession(deps, plan, options, activity);
     return successResult(plan, drive);
   }).pipe(
+    boundByIdle(deps, plan, options, activity),
     boundByAgentTimeout(plan),
     Effect.catchAll((error) => Effect.succeed(failureResult(plan, error)))
   );
+}
+
+/**
+ * Last-progress marker shared between the event pump (which bumps it on every
+ * observed SSE event) and the idle watchdog (which fails the session when the
+ * gap since the last event exceeds the idle budget). A plain mutable cell, not a
+ * Ref: the pump runs in its own detached runtime fiber and we want the hot loop
+ * to do a bare assignment, not an Effect.
+ */
+interface SessionActivity {
+  last: number;
 }
 
 /*
@@ -123,6 +136,115 @@ function boundByAgentTimeout(plan: RunnerLaunchPlan) {
   };
 }
 
+/*
+ * Inactivity guard, complementary to the wall-clock boundByAgentTimeout. An
+ * opencode `serve` session can strand mid-turn emitting no SSE `data` events
+ * (upstream opencode bug class); the wall-clock only catches that after the full
+ * budget. The idle watchdog races the session against a timer that resets on
+ * every observed event (see pumpEvents) and fails as soon as the gap exceeds
+ * plan.idleTimeoutMs, so a stall surfaces in ~idle budget instead of ~15min.
+ * The failure routes through failureResult -> EXIT_INFRA, so the node falls back
+ * / argo reschedules. Disabled when no event stream is attached (no progress
+ * signal), when the budget is unset/non-positive, or when it is not shorter than
+ * the wall-clock (which would already win). Effect.disconnect mirrors
+ * boundByAgentTimeout: the ensuring(stopStream) finalizer hangs on a stalled
+ * session, so the loser's interruption is detached to return at once.
+ */
+function boundByIdle(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions,
+  activity: SessionActivity
+) {
+  return <A, R>(
+    effect: Effect.Effect<A, unknown, R>
+  ): Effect.Effect<A, unknown, R | OpencodeSdkService> => {
+    const idleMs = plan.idleTimeoutMs;
+    if (!idleMs || idleMs <= 0 || !options.onOutput) {
+      return effect;
+    }
+    if (plan.timeoutMs && idleMs >= plan.timeoutMs) {
+      return effect;
+    }
+    // raceFirst, not race: the watchdog only ever FAILS (idle), and Effect.race
+    // returns the first SUCCESS — it would ignore the watchdog's failure and
+    // wait for the (never-succeeding) stalled session. raceFirst settles on the
+    // first side to complete by success or failure.
+    return Effect.raceFirst(
+      Effect.disconnect(effect),
+      idleWatchdog(deps, plan, options, activity, idleMs)
+    );
+  };
+}
+
+function idleWatchdog(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions,
+  activity: SessionActivity,
+  idleMs: number
+): Effect.Effect<never, Error, OpencodeSdkService> {
+  const loop: Effect.Effect<never, Error, OpencodeSdkService> = Effect.suspend(
+    () => {
+      const remaining = idleMs - (Date.now() - activity.last);
+      if (remaining <= 0) {
+        return onIdleTimeout(deps, plan, options, idleMs);
+      }
+      return Effect.sleep(Duration.millis(remaining)).pipe(
+        Effect.zipRight(loop)
+      );
+    }
+  );
+  return loop;
+}
+
+function onIdleTimeout(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions,
+  idleMs: number
+): Effect.Effect<never, Error, OpencodeSdkService> {
+  return Effect.sync(() => {
+    options.onOutput?.({
+      chunk: `opencode session idle for ${idleMs}ms (no progress); aborting\n`,
+      nodeId: plan.nodeId,
+      stream: "stderr",
+    });
+  }).pipe(
+    Effect.zipRight(abortBestEffort(deps, plan)),
+    Effect.zipRight(
+      Effect.fail(new Error(`agent session idle for ${idleMs}ms (no progress)`))
+    )
+  );
+}
+
+/*
+ * Release the stranded opencode session via the SDK's native session.abort so
+ * the server stops the wedged turn rather than leaking it. Best-effort: bounded
+ * and error-swallowed so a hung/failed abort can never delay returning the
+ * EXIT_INFRA result. No-op when the session id has not been resolved yet.
+ */
+function abortBestEffort(
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan
+): Effect.Effect<void, never, OpencodeSdkService> {
+  const sessionId = deps.registry.sessions.get(plan.nodeId);
+  if (!sessionId) {
+    return Effect.void;
+  }
+  return Effect.gen(function* () {
+    const sdk = yield* OpencodeSdkService;
+    yield* sdk.abortSession(deps.client, {
+      directory: sessionDirectory(deps, plan),
+      sessionID: sessionId,
+    });
+  }).pipe(
+    Effect.timeout(Duration.millis(5000)),
+    Effect.asVoid,
+    Effect.catchAll(() => Effect.void)
+  );
+}
+
 function validateOpencodePlan(
   plan: RunnerLaunchPlan
 ): Effect.Effect<void, Error> {
@@ -146,12 +268,19 @@ function sessionDirectory(
 function driveSession(
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions
+  options: RunnerExecutionOptions,
+  activity: SessionActivity
 ): Effect.Effect<SessionDriveResult, unknown, OpencodeSdkService> {
   return Effect.gen(function* () {
     const sessionId = yield* resolveSessionId(deps, plan, options);
     recordSession(deps, plan.nodeId, sessionId);
-    const stream = yield* streamEventsToOutput(deps, sessionId, plan, options);
+    const stream = yield* streamEventsToOutput(
+      deps,
+      sessionId,
+      plan,
+      options,
+      activity
+    );
     return yield* promptSessionResult(deps, plan, sessionId, options).pipe(
       Effect.ensuring(stopStream(stream))
     );
@@ -412,7 +541,8 @@ function streamEventsToOutput(
   deps: OpencodeExecutorDeps,
   sessionId: string,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions
+  options: RunnerExecutionOptions,
+  activity: SessionActivity
 ): Effect.Effect<EventStreamHandle, unknown, OpencodeSdkService> {
   if (!options.onOutput) {
     return Effect.succeed({ stop: () => Promise.resolve() });
@@ -421,8 +551,11 @@ function streamEventsToOutput(
     const sdk = yield* OpencodeSdkService;
     const subscription = yield* sdk.subscribeEvents(deps.client);
     const iterator = subscription.stream;
+    // Restart the idle clock at stream attach so createSession latency before
+    // the first event does not count against the idle budget.
+    activity.last = Date.now();
     const pump = Effect.runPromise(
-      pumpEvents(iterator, sessionId, plan, options)
+      pumpEvents(iterator, sessionId, plan, options, activity)
     );
     return { stop: () => stopIterator(iterator, pump) };
   });
@@ -432,7 +565,8 @@ function pumpEvents(
   iterator: AsyncIterator<Event>,
   sessionId: string,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions
+  options: RunnerExecutionOptions,
+  activity: SessionActivity
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     let done = false;
@@ -440,6 +574,10 @@ function pumpEvents(
       const next = yield* readNextEvent(iterator);
       done = next.done === true;
       if (!done) {
+        // Every observed event is progress — including reasoning/tool-progress
+        // deltas that forwardEvent ignores — so the idle watchdog only fires on
+        // genuine silence.
+        activity.last = Date.now();
         forwardEvent(next.value, sessionId, plan, options);
       }
     }

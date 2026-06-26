@@ -13,6 +13,7 @@ export type OpencodeServerSpawn = (args: SpawnArgs) => Promise<{
 }>;
 type CreateSessionArgs = Parameters<OpencodeClient["session"]["create"]>[0];
 type PromptSessionArgs = Parameters<OpencodeClient["session"]["prompt"]>[0];
+type AbortSessionArgs = Parameters<OpencodeClient["session"]["abort"]>[0];
 type CreateSessionResponse = Awaited<
   ReturnType<OpencodeClient["session"]["create"]>
 >;
@@ -38,6 +39,9 @@ export interface OpencodeRuntimeClient {
     // results stay `unknown` and small test doubles satisfy it without casts.
     create: (args: CreateSessionArgs) => Promise<unknown>;
     prompt: (args: PromptSessionArgs) => Promise<unknown>;
+    // Optional so minimal test doubles need not stub it; the idle watchdog
+    // aborts best-effort and treats a missing method as a no-op.
+    abort?: (args: AbortSessionArgs) => Promise<unknown>;
   };
 }
 
@@ -56,6 +60,10 @@ export class OpencodeSdkService extends Context.Tag("OpencodeSdkService")<
       client: OpencodeRuntimeClient,
       args: PromptSessionArgs
     ) => Effect.Effect<PromptSessionResponse, unknown>;
+    readonly abortSession: (
+      client: OpencodeRuntimeClient,
+      args: AbortSessionArgs
+    ) => Effect.Effect<unknown, unknown>;
     readonly spawnServer: (
       args: SpawnArgs,
       spawn?: OpencodeServerSpawn
@@ -85,6 +93,11 @@ export const OpencodeSdkServiceLive = Layer.succeed(OpencodeSdkService, {
     Effect.tryPromise({
       catch: (error) => error,
       try: () => spawn(args),
+    }),
+  abortSession: (client, args) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: () => client.session.abort?.(args) ?? Promise.resolve(undefined),
     }),
   subscribeEvents: (client) =>
     Effect.tryPromise({
