@@ -14,6 +14,7 @@ import type {
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
+  UnmetCriterion,
   VerdictGateSpec,
 } from "./contracts";
 
@@ -32,6 +33,14 @@ describe("runtime contracts", () => {
       reason: string;
     }>();
     expectTypeOf<RuntimeGateResult["passed"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<RuntimeGateResult["unmet"]>().toEqualTypeOf<
+      UnmetCriterion[] | undefined
+    >();
+    expectTypeOf<UnmetCriterion>().toEqualTypeOf<{
+      criterion: string;
+      evidence: string[];
+      reason: string;
+    }>();
     expectTypeOf<RuntimeNodeResult["status"]>().toEqualTypeOf<
       "failed" | "passed"
     >();

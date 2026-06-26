@@ -1523,6 +1523,27 @@ workflows:
         "missing acceptance criterion 'AC3'",
       ])
     );
+    // Structured refusal (PIPE-90.1): the failed gate carries one actionable
+    // unmet entry per criterion, not just the flat evidence strings.
+    expect(result.gates[0].unmet).toEqual(
+      expect.arrayContaining([
+        {
+          criterion: "AC2",
+          evidence: ["reported verdict 'FAIL'"],
+          reason: "acceptance criterion 'AC2' verdict 'FAIL'",
+        },
+        {
+          criterion: "EXTRA",
+          evidence: ["id 'EXTRA' not in task acceptance context"],
+          reason: "extra acceptance criterion 'EXTRA'",
+        },
+        {
+          criterion: "AC3",
+          evidence: ["criterion 'AC3' absent from acceptance report"],
+          reason: "missing acceptance criterion 'AC3'",
+        },
+      ])
+    );
   });
 
   it("remediates implementation-role nodes when downstream coverage fails", async () => {

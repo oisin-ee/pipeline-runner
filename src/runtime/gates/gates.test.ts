@@ -9,7 +9,7 @@ import type {
 } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import {
-  acceptanceCoverageEvidence,
+  acceptanceUnmetCriteria,
   evaluateChangedFilesGate,
   evaluateNodeGates,
 } from "./gates";
@@ -81,27 +81,63 @@ function directGateRuntimeContext(
 }
 
 describe("runtime gates", () => {
-  it("reports missing, duplicate, extra, failing, and unevidenced acceptance coverage", () => {
+  it("reports structured unmet criteria for missing, duplicate, extra, failing, and unevidenced acceptance coverage", () => {
+    const expected: AcceptanceCriterion[] = [
+      { id: "A", text: "Alpha" },
+      { id: "B", text: "Beta" },
+    ];
+
+    const unmet = acceptanceUnmetCriteria(expected, [
+      { evidence: ["ok"], id: "A", verdict: "PASS" },
+      { evidence: ["again"], id: "A", verdict: "PASS" },
+      { evidence: [], id: "C", verdict: "PASS" },
+      { evidence: ["no"], id: "B", verdict: "FAIL" },
+      { verdict: "PASS" },
+    ]);
+
+    // A FAILED gate populates unmet[] with one actionable entry per unmet
+    // criterion: which criterion, why, and the deterministic proof.
+    expect(unmet).toEqual([
+      {
+        criterion: "C",
+        evidence: ["id 'C' not in task acceptance context"],
+        reason: "extra acceptance criterion 'C'",
+      },
+      {
+        criterion: "C",
+        evidence: ["verdict 'PASS' reported without supporting evidence"],
+        reason: "acceptance criterion 'C' has no evidence",
+      },
+      {
+        criterion: "B",
+        evidence: ["reported verdict 'FAIL'"],
+        reason: "acceptance criterion 'B' verdict 'FAIL'",
+      },
+      {
+        criterion: "",
+        evidence: ["acceptance entry has no id field"],
+        reason: "acceptance entry missing id",
+      },
+      {
+        criterion: "A",
+        evidence: ["criterion 'A' reported 2 times"],
+        reason: "duplicate acceptance criterion 'A'",
+      },
+    ]);
+  });
+
+  it("returns an empty unmet list when every acceptance criterion passes with evidence", () => {
     const expected: AcceptanceCriterion[] = [
       { id: "A", text: "Alpha" },
       { id: "B", text: "Beta" },
     ];
 
     expect(
-      acceptanceCoverageEvidence(expected, [
+      acceptanceUnmetCriteria(expected, [
         { evidence: ["ok"], id: "A", verdict: "PASS" },
-        { evidence: ["again"], id: "A", verdict: "PASS" },
-        { evidence: [], id: "C", verdict: "PASS" },
-        { evidence: ["no"], id: "B", verdict: "FAIL" },
-        { verdict: "PASS" },
+        { evidence: ["fine"], id: "B", verdict: "PASS" },
       ])
-    ).toEqual([
-      "extra acceptance criterion 'C'",
-      "acceptance criterion 'C' has no evidence",
-      "acceptance criterion 'B' verdict 'FAIL'",
-      "acceptance entry missing id",
-      "duplicate acceptance criterion 'A'",
-    ]);
+    ).toEqual([]);
   });
 
   it("evaluates changed-file allow, deny, required, and untracked policies", () => {

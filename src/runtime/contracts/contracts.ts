@@ -63,6 +63,19 @@ export interface RuntimeFailure {
   reason: string;
 }
 
+/**
+ * One unmet acceptance criterion in a structured gate refusal (PIPE-90.1,
+ * orchestrator-design decision #6 — OPA deny-set shape). Each entry is
+ * actionable: `criterion` names WHICH acceptance criterion failed, `reason` is
+ * the human/agent-readable summary, and `evidence` anchors it to deterministic
+ * proof. The keystone shared contract every PIPE-90 downstream ticket consumes.
+ */
+export interface UnmetCriterion {
+  criterion: string;
+  evidence: string[];
+  reason: string;
+}
+
 export interface RuntimeGateResult {
   evidence: string[];
   gateId: string;
@@ -70,6 +83,13 @@ export interface RuntimeGateResult {
   nodeId: string;
   passed: boolean;
   reason?: string;
+  /**
+   * Structured refusal: the criteria a failing gate could not satisfy. A
+   * passing gate leaves this empty; binary gates that only know a single
+   * pass/fail omit it entirely (consumers treat absent as empty). Only
+   * multi-criterion gates (acceptance) populate it today.
+   */
+  unmet?: UnmetCriterion[];
 }
 
 export interface RuntimeNodeResult {

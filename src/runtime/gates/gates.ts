@@ -21,6 +21,7 @@ import type {
   NodeAttemptResult,
   RuntimeContext,
   RuntimeGateResult,
+  UnmetCriterion,
   VerdictGateSpec,
 } from "../contracts";
 import { emitGateFinish, emitGateStart, runtimeSystemId } from "../events";
@@ -543,15 +544,18 @@ function evaluateAcceptanceGate(
     };
   }
   const entries = acceptanceEntries(parsed.value, gate.acceptance_key);
-  const evidence = acceptanceCoverageEvidence(expected, entries);
-  const passed = evidence.length === 0;
+  const unmet = acceptanceUnmetCriteria(expected, entries);
+  const passed = unmet.length === 0;
   return {
-    evidence: passed ? ["acceptance coverage passed"] : evidence,
+    evidence: passed
+      ? ["acceptance coverage passed"]
+      : unmet.map((item) => item.reason),
     gateId,
     kind: gate.kind,
     nodeId,
     passed,
     reason: passed ? undefined : "acceptance coverage failed",
+    unmet,
   };
 }
 
@@ -575,53 +579,100 @@ function acceptanceEntries(
     : [];
 }
 
-// fallow-ignore-next-line unused-export
-export function acceptanceCoverageEvidence(
+/**
+ * Structured refusal producer (PIPE-90.1): the single source of truth for which
+ * acceptance criteria a node failed to satisfy. Each {@link UnmetCriterion}
+ * names the criterion, a human-readable reason, and deterministic proof. The
+ * acceptance gate's flat `evidence` field is the `reason` projection of this,
+ * so refusal text and ordering stay in lockstep with the structured form.
+ */
+export function acceptanceUnmetCriteria(
   expected: AcceptanceCriterion[],
   entries: Record<string, unknown>[]
-): string[] {
-  const evidence: string[] = [];
+): UnmetCriterion[] {
+  const unmet: UnmetCriterion[] = [];
   const expectedIds = new Set(expected.map((criterion) => criterion.id));
   const seen = new Map<string, number>();
   for (const entry of entries) {
-    const id = typeof entry.id === "string" ? entry.id : "";
-    if (!id) {
-      evidence.push("acceptance entry missing id");
-      continue;
-    }
-    seen.set(id, (seen.get(id) ?? 0) + 1);
-    if (!expectedIds.has(id)) {
-      evidence.push(`extra acceptance criterion '${id}'`);
-    }
-    const verdict = entry.verdict;
-    if (verdict !== "PASS") {
-      evidence.push(
-        `acceptance criterion '${id}' verdict '${String(verdict)}'`
-      );
-    }
-    const itemEvidence = entry.evidence;
-    if (
-      verdict === "PASS" &&
-      (!Array.isArray(itemEvidence) ||
-        itemEvidence.filter((item) => typeof item === "string" && item.trim())
-          .length === 0)
-    ) {
-      evidence.push(`acceptance criterion '${id}' has no evidence`);
-    }
+    unmet.push(...entryUnmetCriteria(entry, expectedIds, seen));
   }
   for (const id of expectedIds) {
-    const count = seen.get(id) ?? 0;
-    if (count === 0) {
-      evidence.push(`missing acceptance criterion '${id}'`);
-    }
-    if (count > 1) {
-      evidence.push(`duplicate acceptance criterion '${id}'`);
-    }
+    unmet.push(...coverageCountUnmetCriteria(id, seen.get(id) ?? 0));
   }
-  return evidence;
+  return unmet;
 }
 
-// fallow-ignore-next-line unused-export
+function entryUnmetCriteria(
+  entry: Record<string, unknown>,
+  expectedIds: Set<string>,
+  seen: Map<string, number>
+): UnmetCriterion[] {
+  const id = typeof entry.id === "string" ? entry.id : "";
+  if (!id) {
+    return [
+      {
+        criterion: "",
+        evidence: ["acceptance entry has no id field"],
+        reason: "acceptance entry missing id",
+      },
+    ];
+  }
+  seen.set(id, (seen.get(id) ?? 0) + 1);
+  const unmet: UnmetCriterion[] = [];
+  if (!expectedIds.has(id)) {
+    unmet.push({
+      criterion: id,
+      evidence: [`id '${id}' not in task acceptance context`],
+      reason: `extra acceptance criterion '${id}'`,
+    });
+  }
+  const verdict = entry.verdict;
+  if (verdict !== "PASS") {
+    unmet.push({
+      criterion: id,
+      evidence: [`reported verdict '${String(verdict)}'`],
+      reason: `acceptance criterion '${id}' verdict '${String(verdict)}'`,
+    });
+  }
+  if (verdict === "PASS" && !hasNonEmptyEvidence(entry.evidence)) {
+    unmet.push({
+      criterion: id,
+      evidence: ["verdict 'PASS' reported without supporting evidence"],
+      reason: `acceptance criterion '${id}' has no evidence`,
+    });
+  }
+  return unmet;
+}
+
+function coverageCountUnmetCriteria(
+  id: string,
+  count: number
+): UnmetCriterion[] {
+  const unmet: UnmetCriterion[] = [];
+  if (count === 0) {
+    unmet.push({
+      criterion: id,
+      evidence: [`criterion '${id}' absent from acceptance report`],
+      reason: `missing acceptance criterion '${id}'`,
+    });
+  }
+  if (count > 1) {
+    unmet.push({
+      criterion: id,
+      evidence: [`criterion '${id}' reported ${count} times`],
+      reason: `duplicate acceptance criterion '${id}'`,
+    });
+  }
+  return unmet;
+}
+
+function hasNonEmptyEvidence(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.filter((item) => typeof item === "string" && item.trim()).length > 0
+  );
+}
+
 export function evaluateChangedFilesGate(
   gate: ChangedFilesGateSpec,
   gateId: string,
