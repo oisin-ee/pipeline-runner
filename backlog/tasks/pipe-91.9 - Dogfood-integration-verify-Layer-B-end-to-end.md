@@ -1,10 +1,10 @@
 ---
 id: PIPE-91.9
 title: Dogfood + integration verify Layer B end-to-end
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:22'
-updated_date: '2026-06-26 18:39'
+updated_date: '2026-06-26 23:13'
 labels: []
 dependencies:
   - PIPE-91.5

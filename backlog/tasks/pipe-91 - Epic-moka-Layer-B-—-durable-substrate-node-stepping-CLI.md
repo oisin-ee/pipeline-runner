@@ -1,10 +1,10 @@
 ---
 id: PIPE-91
 title: 'Epic: moka Layer B — durable substrate + node-stepping CLI'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:20'
-updated_date: '2026-06-26 18:37'
+updated_date: '2026-06-26 23:13'
 labels:
   - epic
 dependencies: []
