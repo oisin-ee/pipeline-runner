@@ -1,9 +1,10 @@
 ---
 id: PIPE-90.6
 title: Extract existing gate kinds into kind modules
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:47'
+updated_date: '2026-06-26 16:46'
 labels: []
 dependencies:
   - PIPE-90.2

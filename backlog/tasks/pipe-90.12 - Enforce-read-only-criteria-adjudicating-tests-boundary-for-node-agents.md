@@ -1,9 +1,10 @@
 ---
 id: PIPE-90.12
 title: Enforce read-only criteria + adjudicating-tests boundary for node agents
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 15:13'
+updated_date: '2026-06-26 16:46'
 labels:
   - security
 dependencies:
