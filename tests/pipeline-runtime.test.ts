@@ -1558,7 +1558,7 @@ workflows:
     );
   });
 
-  it("remediates implementation-role nodes when downstream coverage fails", async () => {
+  it("coverage remediation remediates upstream implementation nodes when downstream coverage fails", async () => {
     const project = tempProject();
     const config = baseConfig(`
   remediate-flow:
@@ -1648,7 +1648,7 @@ workflows:
     });
   });
 
-  it("remediates via a later ancestor when an earlier one makes no change", async () => {
+  it("no-change ancestor remediation continues to a later implementation ancestor", async () => {
     // Regression: a coverage failure caused by production code can only be fixed
     // by the code-writer ancestor; a test-writer ancestor that legitimately makes
     // no change must not short-circuit the remediation loop and starve the
@@ -1735,7 +1735,7 @@ workflows:
     });
   });
 
-  it("remediates a code-writer nested inside a parallel fan-out", async () => {
+  it("parallel-child ancestor remediation reaches a code-writer nested inside a fan-out", async () => {
     // Regression: the implementation-ancestor walk follows `needs` edges and only
     // collects top-level graph nodes. A parallel fan-out's code-writer lives in
     // `children` (not a top-level node, not reachable via `needs`), so a
@@ -1825,7 +1825,7 @@ workflows:
     });
   });
 
-  it("includes builtin gate command failures in coverage remediation prompts", async () => {
+  it("builtin coverage remediation includes gate command failures in prompts", async () => {
     const project = tempProject();
     process.env.PIPELINE_TYPECHECK_COMMAND = "node -e process.exit(1)";
     mockExeca
@@ -1883,7 +1883,7 @@ workflows:
     );
   });
 
-  it("remediates implementation-role nodes when downstream mechanical nodes fail", async () => {
+  it("mechanical remediation remediates upstream implementation nodes when downstream mechanical nodes fail", async () => {
     const project = tempProject();
     process.env.PIPELINE_LINT_COMMAND = "node -e process.exit(1)";
     mockExeca
@@ -1941,7 +1941,7 @@ workflows:
     });
   });
 
-  it("remediates upstream implementation nodes for isolated scheduled mechanical tasks", async () => {
+  it("mechanical remediation remediates upstream implementation nodes for isolated scheduled tasks", async () => {
     const project = tempProject();
     process.env.PIPELINE_LINT_COMMAND = "node -e process.exit(1)";
     mockExeca
@@ -2405,7 +2405,7 @@ workflows:
     );
   });
 
-  it("remediates writable nodes when their changed-file gate fails", async () => {
+  it("self-remediation of a writable node preserves changed-file gate feedback", async () => {
     const project = tempProject();
     execFileSync("git", ["init"], { cwd: project, stdio: "ignore" });
     const config = baseConfig(`
