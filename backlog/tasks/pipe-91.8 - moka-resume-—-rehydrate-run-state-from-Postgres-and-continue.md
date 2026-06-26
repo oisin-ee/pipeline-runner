@@ -1,10 +1,10 @@
 ---
 id: PIPE-91.8
 title: moka resume — rehydrate run state from Postgres and continue
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:22'
-updated_date: '2026-06-26 18:38'
+updated_date: '2026-06-26 21:21'
 labels: []
 dependencies:
   - PIPE-91.4
