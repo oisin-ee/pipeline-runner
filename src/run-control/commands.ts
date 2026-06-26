@@ -5,6 +5,7 @@ import { join, relative, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Command } from "commander";
 import { Effect } from "effect";
+import { loadMokaDbUrl } from "../moka-global-config";
 import type {
   MokaNodeStatus,
   MokaRunManifest,
@@ -12,11 +13,9 @@ import type {
 } from "./contracts";
 import { registerNextNodeSubcommand } from "./next-node";
 import {
-  listRunsEffect,
-  readRunEffect,
-  updateNodeStatusEffect,
-  updateRunStatusEffect,
-} from "./store";
+  type RunControlStore,
+  resolveRunControlStore,
+} from "./run-control-store";
 import { registerSubmitResultSubcommand } from "./submit-result";
 
 interface StatusFlags {
@@ -69,7 +68,9 @@ export function registerRunControlCommands(program: Command): void {
     .command("runs")
     .description("List known Moka runs, newest first")
     .action(async () => {
-      await Effect.runPromise(printRunsEffect(workspaceRoot()));
+      await Effect.runPromise(
+        withRunControlStore((store, root) => printRunsEffect(store, root))
+      );
     });
 
   program
@@ -80,7 +81,9 @@ export function registerRunControlCommands(program: Command): void {
     .option("--json", "print machine-readable run status")
     .action(async (runId: string | undefined, flags: StatusFlags) => {
       await Effect.runPromise(
-        printStatusEffect({ flags, runId, workspaceRoot: workspaceRoot() })
+        withRunControlStore((store, root) =>
+          printStatusEffect({ flags, runId, store, workspaceRoot: root })
+        )
       );
     });
 
@@ -96,12 +99,15 @@ export function registerRunControlCommands(program: Command): void {
     .action(
       async (runId: string, nodeId: string | undefined, flags: LogsFlags) => {
         await Effect.runPromise(
-          printLogsEffect({
-            flags,
-            nodeId,
-            runId,
-            workspaceRoot: workspaceRoot(),
-          })
+          withRunControlStore((store, root) =>
+            printLogsEffect({
+              flags,
+              nodeId,
+              runId,
+              store,
+              workspaceRoot: root,
+            })
+          )
         );
       }
     );
@@ -113,11 +119,13 @@ export function registerRunControlCommands(program: Command): void {
     .argument("[node-id]", "node id to stop without aborting sibling work")
     .action(async (runId: string, nodeId?: string) => {
       await Effect.runPromise(
-        stopRunOrNodeEffect({
-          nodeId,
-          runId,
-          workspaceRoot: workspaceRoot(),
-        }).pipe(Effect.flatMap(logEffect))
+        withRunControlStore((store) =>
+          stopRunOrNodeEffect({
+            nodeId,
+            runId,
+            store,
+          }).pipe(Effect.flatMap(logEffect))
+        )
       );
     });
 
@@ -134,12 +142,15 @@ export function registerRunControlCommands(program: Command): void {
         throw new Error("Run exports must be requested with --sanitize.");
       }
       await Effect.runPromise(
-        exportSanitizedRunBundleEffect({
-          runId,
-          workspaceRoot: workspaceRoot(),
-        }).pipe(
-          Effect.map((bundle) => JSON.stringify(bundle)),
-          Effect.flatMap(logEffect)
+        withRunControlStore((store, root) =>
+          exportSanitizedRunBundleEffect({
+            runId,
+            store,
+            workspaceRoot: root,
+          }).pipe(
+            Effect.map((bundle) => JSON.stringify(bundle)),
+            Effect.flatMap(logEffect)
+          )
         )
       );
     });
@@ -151,16 +162,40 @@ export function registerRunControlCommands(program: Command): void {
     .description("Advance a persisted durable run one step");
   registerNextNodeSubcommand(nextCommand);
 
-  // PIPE-91.7: `moka submit result <run-id> <node-id> --json <payload>` —
-  // persist a node's terminal result into the durable run store.
-  const submitCommand = program
-    .command("submit")
-    .description("Submit node results to a persisted durable run");
-  registerSubmitResultSubcommand(submitCommand);
+  // PIPE-91.7: `moka submit-result <run-id> <node-id> --json <payload>` —
+  // persist a node's terminal result into the durable run store. A distinct
+  // top-level command; `moka submit` already exists for job submission.
+  registerSubmitResultSubcommand(program);
 }
 
-function printRunsEffect(workspaceRoot: string): Effect.Effect<void, unknown> {
-  return listRunsNewestFirstEffect(workspaceRoot).pipe(
+/**
+ * PIPE-91.12: resolve the run-control store (Postgres when `db.url` is set, else
+ * the filesystem default) once per command invocation and run the command's
+ * effect against it inside a scope, so the Postgres connection is released on
+ * completion. With `db.url` absent this is byte-identical to the prior direct
+ * filesystem store calls. The workspace root is computed once and threaded so
+ * the store and the filesystem-only artifact reads share a single root.
+ */
+function withRunControlStore<A>(
+  use: (
+    store: RunControlStore,
+    workspaceRoot: string
+  ) => Effect.Effect<A, unknown>
+): Effect.Effect<A, unknown> {
+  const root = workspaceRoot();
+  const dbUrl = loadMokaDbUrl();
+  return Effect.scoped(
+    resolveRunControlStore(dbUrl, root).pipe(
+      Effect.flatMap((store) => use(store, root))
+    )
+  );
+}
+
+function printRunsEffect(
+  store: RunControlStore,
+  workspaceRoot: string
+): Effect.Effect<void, unknown> {
+  return listRunsNewestFirstEffect(store, workspaceRoot).pipe(
     Effect.map(formatRuns),
     Effect.flatMap(logEffect)
   );
@@ -169,11 +204,13 @@ function printRunsEffect(workspaceRoot: string): Effect.Effect<void, unknown> {
 export function printStatusEffect(input: {
   flags: StatusFlags;
   runId?: string;
+  store: RunControlStore;
   workspaceRoot: string;
 }): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     for (;;) {
       const run = yield* resolveStatusRunEffect(
+        input.store,
         input.workspaceRoot,
         input.runId
       );
@@ -192,10 +229,11 @@ export function printLogsEffect(input: {
   flags: LogsFlags;
   nodeId?: string;
   runId: string;
+  store: RunControlStore;
   workspaceRoot: string;
 }): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const run = yield* requireRunEffect(input.workspaceRoot, input.runId);
+    const run = yield* requireRunEffect(input.store, input.runId);
     let artifacts = yield* readArtifactsEffect(
       input.workspaceRoot,
       run,
@@ -216,10 +254,7 @@ export function printLogsEffect(input: {
 
     for (;;) {
       yield* delayEffect(WATCH_INTERVAL_MS);
-      const latestRun = yield* requireRunEffect(
-        input.workspaceRoot,
-        input.runId
-      );
+      const latestRun = yield* requireRunEffect(input.store, input.runId);
       artifacts = yield* readArtifactsEffect(
         input.workspaceRoot,
         latestRun,
@@ -245,41 +280,38 @@ export function printLogsEffect(input: {
 export function stopRunOrNodeEffect(input: {
   nodeId?: string;
   runId: string;
-  workspaceRoot: string;
+  store: RunControlStore;
 }): Effect.Effect<string, unknown> {
   return Effect.gen(function* () {
-    const run = yield* requireRunEffect(input.workspaceRoot, input.runId);
+    const run = yield* requireRunEffect(input.store, input.runId);
     const at = new Date().toISOString();
 
     if (input.nodeId) {
       const nodeId = yield* requireKnownNodeEffect(run, input.nodeId);
-      yield* updateNodeStatusEffect({
+      yield* input.store.updateNodeStatus({
         at,
         nodeId,
         runId: run.runId,
         status: "aborted",
-        workspaceRoot: input.workspaceRoot,
       });
       return `Run ${run.runId} node ${nodeId} aborted.`;
     }
 
     yield* stopControllerProcessEffect(run);
-    yield* updateRunStatusEffect({
+    yield* input.store.updateRunStatus({
       at,
       runId: run.runId,
       status: "aborted",
-      workspaceRoot: input.workspaceRoot,
     });
     for (const [nodeId, status] of Object.entries(run.nodes)) {
       if (!ACTIVE_NODE_STATUSES.has(status)) {
         continue;
       }
-      yield* updateNodeStatusEffect({
+      yield* input.store.updateNodeStatus({
         at,
         nodeId,
         runId: run.runId,
         status: "aborted",
-        workspaceRoot: input.workspaceRoot,
       });
     }
     return `Run ${run.runId} aborted.`;
@@ -288,6 +320,7 @@ export function stopRunOrNodeEffect(input: {
 
 export function exportSanitizedRunBundleEffect(input: {
   runId: string;
+  store: RunControlStore;
   workspaceRoot: string;
 }): Effect.Effect<
   {
@@ -303,7 +336,7 @@ export function exportSanitizedRunBundleEffect(input: {
   unknown
 > {
   return Effect.gen(function* () {
-    const run = yield* requireRunEffect(input.workspaceRoot, input.runId);
+    const run = yield* requireRunEffect(input.store, input.runId);
     const artifacts = (yield* readArtifactsEffect(
       input.workspaceRoot,
       run
@@ -323,10 +356,11 @@ export function exportSanitizedRunBundleEffect(input: {
 }
 
 export function listRunsNewestFirstEffect(
+  store: RunControlStore,
   workspaceRoot: string
 ): Effect.Effect<MokaRunManifest[], unknown> {
   return Effect.gen(function* () {
-    const runs = yield* listRunsEffect({ workspaceRoot });
+    const runs = yield* store.listRuns();
     const records = yield* Effect.forEach(runs, (run) =>
       runSortTimeEffect(workspaceRoot, run.runId).pipe(
         Effect.map((sortTime) => ({ run, sortTime }))
@@ -369,15 +403,16 @@ function runSortTimeEffect(
 }
 
 function resolveStatusRunEffect(
+  store: RunControlStore,
   workspaceRoot: string,
   runId: string | undefined
 ): Effect.Effect<MokaRunManifest, unknown> {
   return Effect.gen(function* () {
     if (runId) {
-      return yield* requireRunEffect(workspaceRoot, runId);
+      return yield* requireRunEffect(store, runId);
     }
 
-    const runs = yield* listRunsNewestFirstEffect(workspaceRoot);
+    const runs = yield* listRunsNewestFirstEffect(store, workspaceRoot);
     const activeRuns = runs.filter(isRunActive);
     if (activeRuns.length === 1) {
       return activeRuns[0];
@@ -399,11 +434,11 @@ function resolveStatusRunEffect(
 }
 
 function requireRunEffect(
-  workspaceRoot: string,
+  store: RunControlStore,
   runId: string
 ): Effect.Effect<MokaRunManifest, unknown> {
   return Effect.gen(function* () {
-    const run = yield* readRunEffect({ runId, workspaceRoot });
+    const run = yield* store.readRun({ runId });
     if (!run) {
       return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
     }

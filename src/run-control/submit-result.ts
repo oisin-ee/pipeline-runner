@@ -42,14 +42,15 @@ export function recordSubmitResult(input: SubmitResultInput): void {
 }
 
 /**
- * PIPE-91.7: register `moka submit result <run-id> <node-id> --json <payload>`
- * under the `submit` command group. `--json` carries the `RuntimeNodeResult` as
- * a JSON string; `(runId, nodeId)` are the positional routing keys — mirroring
+ * PIPE-91.7: register `moka submit-result <run-id> <node-id> --json <payload>`.
+ * A distinct top-level command (NOT a `submit` group — `moka submit` already
+ * exists for job submission). `--json` carries the `RuntimeNodeResult` as a JSON
+ * string; `(runId, nodeId)` are the positional routing keys — mirroring
  * `moka next node <run-id> --schedule-file <path>` (PIPE-91.6).
  */
-export function registerSubmitResultSubcommand(submitCommand: Command): void {
-  submitCommand
-    .command("result")
+export function registerSubmitResultSubcommand(program: Command): void {
+  program
+    .command("submit-result")
     .description("Persist a node's terminal result into the durable run store")
     .argument("<run-id>", "the run id to persist the result under")
     .argument("<node-id>", "the node id whose result is being submitted")

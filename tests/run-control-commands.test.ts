@@ -33,6 +33,7 @@ vi.mock("../src/pipeline-runtime", () => ({
 }));
 
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
+const ORIGINAL_HOME = process.env.HOME;
 const PROMPT_SESSION_SECRET = "PROMPT_SESSION_BODY_TICKET_6_SECRET";
 const MULTIPLE_ACTIVE_RUNS_RE = /multiple active runs/i;
 const RUN_ID_TIMESTAMP_RE = /run-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/;
@@ -52,12 +53,18 @@ describe("moka run-control CLI commands", () => {
 
   beforeEach(() => {
     workspaceRoot = mkdtempSync(join(tmpdir(), "moka-run-control-cli-"));
+    // Hermetic db.url resolution: point HOME at the (config-less) temp workspace
+    // so loadMokaDbUrl never reads the dev machine's real ~/.config/moka, keeping
+    // these run-control command tests on the filesystem store regardless of local
+    // config state.
+    process.env.HOME = workspaceRoot;
     runtimeState.runtimeCalls.length = 0;
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     restoreEnv("PIPELINE_TARGET_PATH", ORIGINAL_PIPELINE_TARGET_PATH);
+    restoreEnv("HOME", ORIGINAL_HOME);
     rmSync(workspaceRoot, { force: true, recursive: true });
   });
 

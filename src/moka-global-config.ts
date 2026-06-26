@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { brokerAuthOptionSchema } from "./broker-auth";
 import { PipelineConfigError } from "./config";
+import { configIssuesFromZodError, validationError } from "./config/schemas";
 import {
   ConfigIoService,
   runConfigIoSync,
@@ -72,6 +73,56 @@ export type MokaGlobalConfig = z.infer<typeof mokaGlobalConfigSchema>;
 
 export function mokaGlobalConfigPath(homeDir = homedir()): string {
   return join(homeDir, MOKA_GLOBAL_CONFIG_PATH);
+}
+
+// PIPE-91.12: a NARROW read of just the durable-substrate toggle
+// (`momokaya.db.url`) for the run-control store cutover. Non-strict by design so
+// the unrelated `momokaya.submit` / `momokaya.kubernetes` sections are ignored,
+// NOT validated — a run-control read command must never crash on a field such as
+// `submit.brokerAuth`, which has nothing to do with run-control persistence. A
+// `db` section that IS present is still validated, so a malformed `db.url`
+// surfaces rather than being mistaken for "absent".
+const mokaDbUrlReadSchema = z.object({
+  momokaya: z.object({ db: mokaDbGlobalConfigSchema.optional() }).optional(),
+});
+
+/**
+ * Resolve the durable-substrate `db.url` toggle for run-control store selection.
+ *
+ * Returns the configured Postgres url, or `undefined` for the defined default
+ * (filesystem store) when the global config is absent or carries no `db.url`.
+ * The whole `momokaya` schema is deliberately NOT validated — only the `db`
+ * section is — so an unrelated invalid/missing field never breaks run-control
+ * reads. A genuine load fault (corrupt YAML, a malformed `db.url`) is surfaced
+ * to stderr and falls back to the filesystem store rather than crashing the
+ * command; this is the presence-toggle's resilience, not silent error-swallowing
+ * (the fault is always logged).
+ */
+export function loadMokaDbUrl(): string | undefined {
+  const configPath = mokaGlobalConfigPath();
+  const program = Effect.gen(function* () {
+    const configIo = yield* ConfigIoService;
+    const source = yield* configIo.readOptionalText(configPath);
+    if (source === null) {
+      return;
+    }
+    const yaml = yield* configIo.parseYaml(source, configPath);
+    const parsed = mokaDbUrlReadSchema.safeParse(yaml);
+    if (!parsed.success) {
+      return yield* Effect.fail(
+        validationError(configIssuesFromZodError(parsed.error))
+      );
+    }
+    return parsed.data.momokaya?.db?.url;
+  });
+  try {
+    return runConfigIoSync(program);
+  } catch (error) {
+    process.stderr.write(
+      `run-control: ignoring unreadable ${configPath} for db.url resolution: ${error instanceof Error ? error.message : String(error)}\n`
+    );
+    return;
+  }
 }
 
 export function loadMokaGlobalConfig(): MokaGlobalConfig | null {

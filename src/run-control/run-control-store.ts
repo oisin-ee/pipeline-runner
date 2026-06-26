@@ -1,5 +1,6 @@
-import type { Effect } from "effect";
+import { Effect, type Scope } from "effect";
 import type { MokaRunManifest } from "./contracts";
+import { postgresRunControlStore } from "./postgres/postgres-run-control-store";
 import {
   type CreateRunInput,
   createRunEffect,
@@ -122,4 +123,31 @@ export function fileRunControlStore(workspaceRoot: string): RunControlStore {
     updateRunStatus: (input) => updateRunStatusEffect(withRoot(input)),
     writeNodeArtifact: (input) => writeNodeArtifactEffect(withRoot(input)),
   };
+}
+
+/**
+ * PIPE-91.12: the single store-selection point. `db.url` presence is the
+ * durable-substrate switch (mirroring the PIPE-91.5 journal cutover): set →
+ * the Postgres store from PIPE-91.11; absent → the filesystem default, which is
+ * byte-identical to today's `.pipeline/runs` layout. Selection is the only
+ * place the substrate is chosen, so the run-control command surface and the
+ * scheduler stay storage-agnostic behind the PIPE-91.10 seam.
+ *
+ * The Postgres store owns a connection pool, so it is acquired as a scoped
+ * resource and released (`close`) on scope exit — every consumer that resolves
+ * the store inside an `Effect.scoped` boundary releases its connection exactly
+ * once, exactly as `acquireRunJournal` does for the durable journal. The
+ * filesystem store holds no resources, so it is returned directly.
+ */
+export function resolveRunControlStore(
+  dbUrl: string | undefined,
+  workspaceRoot: string
+): Effect.Effect<RunControlStore, never, Scope.Scope> {
+  if (dbUrl === undefined) {
+    return Effect.succeed(fileRunControlStore(workspaceRoot));
+  }
+  return Effect.acquireRelease(
+    Effect.sync(() => postgresRunControlStore(dbUrl)),
+    (store) => Effect.promise(() => store.close())
+  );
 }
