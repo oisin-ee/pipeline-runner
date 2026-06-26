@@ -9,6 +9,11 @@ import { join } from "node:path";
 import { Data } from "effect";
 import { execa } from "execa";
 import type { PipelineConfig, RunnerType } from "./config";
+import {
+  createProtectedPathGuard,
+  type ProtectedPathGuard,
+  type ProtectedPathViolation,
+} from "./runtime/protected-paths/protected-paths";
 
 export type Harness = "opencode";
 export type AgentRole =
@@ -93,6 +98,12 @@ export interface RunnerLaunchPlan {
   nodeId: string;
   outputFormat: string;
   profileId?: string;
+  /**
+   * PIPE-90.12: glob patterns (from the profile's `filesystem.protected`) the
+   * executing agent must not modify. Snapshotted before launch and reverted
+   * afterwards by {@link runLaunchPlan}.
+   */
+  protectedPaths?: readonly string[];
   runnerId: string;
   timeoutMs?: number;
   type: RunnerType;
@@ -330,16 +341,14 @@ export function createOrchestratorLaunchPlan(
   );
 }
 
-function createActorLaunchPlan(
-  config: PipelineConfig,
-  input: RunnerLaunchInput,
+// Resolve the actor's requested output format and reject it up front when the
+// selected runner cannot produce it, so the launch plan never carries an
+// unsupported contract.
+function resolveOutputFormat(
   actor: ActorConfig | undefined,
+  runner: PipelineConfig["runners"][string],
   runnerId: string
-): RunnerLaunchPlan {
-  const runner = config.runners[runnerId];
-  if (!runner) {
-    throw new RunnerCapabilityError(`runner '${runnerId}' is not declared`);
-  }
+): string {
   const outputFormat =
     actor && "output" in actor ? (actor.output?.format ?? "text") : "text";
   if (
@@ -350,35 +359,56 @@ function createActorLaunchPlan(
       `runner '${runnerId}' does not support output format '${outputFormat}'`
     );
   }
+  return outputFormat;
+}
 
+// Render the argv for a `command`-type runner, failing fast when it omits the
+// command it is required to declare.
+function commandRunnerArgs(
+  runner: PipelineConfig["runners"][string],
+  runnerId: string,
+  input: RunnerLaunchInput
+): string[] {
+  if (!runner.command) {
+    throw new RunnerCapabilityError(
+      `command runner '${runnerId}' must declare command`
+    );
+  }
+  return renderArgv(runner.args ?? [], input.prompt, input.worktreePath);
+}
+
+function createActorLaunchPlan(
+  config: PipelineConfig,
+  input: RunnerLaunchInput,
+  actor: ActorConfig | undefined,
+  runnerId: string
+): RunnerLaunchPlan {
+  const runner = config.runners[runnerId];
+  if (!runner) {
+    throw new RunnerCapabilityError(`runner '${runnerId}' is not declared`);
+  }
   const command = runner.command ?? runner.type;
-  const timeoutMs = actor?.timeout_ms ?? agentTimeoutMsFromEnv();
-  const idleTimeoutMs = agentIdleTimeoutMsFromEnv();
   const env: Record<string, string | undefined> = {};
   const { model, variant } = resolveLaunchModel(input, actor, runner);
   const base = {
     cwd: input.worktreePath,
     env,
-    idleTimeoutMs,
+    idleTimeoutMs: agentIdleTimeoutMsFromEnv(),
     model,
     nodeId: input.nodeId,
-    outputFormat,
+    outputFormat: resolveOutputFormat(actor, runner, runnerId),
     profileId: input.profileId,
+    ...protectedPathsField(actor),
     runnerId,
-    timeoutMs,
+    timeoutMs: actor?.timeout_ms ?? agentTimeoutMsFromEnv(),
     type: runner.type,
     variant,
   };
 
   if (runner.type === "command") {
-    if (!runner.command) {
-      throw new RunnerCapabilityError(
-        `command runner '${runnerId}' must declare command`
-      );
-    }
     return {
       ...base,
-      args: renderArgv(runner.args ?? [], input.prompt, input.worktreePath),
+      args: commandRunnerArgs(runner, runnerId, input),
       command,
     };
   }
@@ -433,6 +463,16 @@ function resolveLaunchModel(
   return { model, variant: resolveVariant(effort, model) };
 }
 
+// PIPE-90.12: lift the profile's protected glob set onto the launch plan so the
+// runtime integrity guard can enforce it. Returns an empty object when the
+// profile declares none, keeping it absent from the plan.
+function protectedPathsField(actor: ActorConfig | undefined): {
+  protectedPaths?: readonly string[];
+} {
+  const protectedPaths = actor?.filesystem?.protected;
+  return protectedPaths && protectedPaths.length > 0 ? { protectedPaths } : {};
+}
+
 function skillArgsFor(): string[] {
   return [];
 }
@@ -447,6 +487,11 @@ export async function runLaunchPlan(
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions = {}
 ): Promise<AgentResult> {
+  // Snapshot the protected set BEFORE the untrusted agent runs. This closes the
+  // `--dangerously-skip-permissions` hole for the CLI/runner transport: even
+  // with tool permissions bypassed, any write/delete/redirect to a protected
+  // file is reverted and surfaced after the subprocess returns.
+  const guard = createProtectedPathGuard(plan.cwd, plan.protectedPaths);
   let result: AgentResult;
   try {
     const subprocess = execa(plan.command, plan.args, {
@@ -480,13 +525,40 @@ export async function runLaunchPlan(
     };
   }
   const cleanupError = cleanupOpencodeRuntimeDir(plan);
-  if (!cleanupError) {
-    return result;
+  return finalizeLaunchResult(result, guard, cleanupError);
+}
+
+// PIPE-90.12: a protected-path tampering attempt is a genuine task failure
+// (reward-hacking), not an infra fault — exit 1 so Argo does not reschedule.
+const PROTECTED_PATH_VIOLATION_EXIT_CODE = 1;
+
+function finalizeLaunchResult(
+  result: AgentResult,
+  guard: ProtectedPathGuard,
+  cleanupError: string | undefined
+): AgentResult {
+  const violations = guard.verifyAndRestore();
+  const violationMessage = protectedPathViolationMessage(violations);
+  const stderr = [result.stderr, violationMessage, cleanupError]
+    .filter(Boolean)
+    .join("\n");
+  const exitCode =
+    violations.length > 0 && result.exitCode === 0
+      ? PROTECTED_PATH_VIOLATION_EXIT_CODE
+      : result.exitCode;
+  return { ...result, exitCode, stderr };
+}
+
+function protectedPathViolationMessage(
+  violations: readonly ProtectedPathViolation[]
+): string {
+  if (violations.length === 0) {
+    return "";
   }
-  return {
-    ...result,
-    stderr: [result.stderr, cleanupError].filter(Boolean).join("\n"),
-  };
+  const detail = violations
+    .map((violation) => `${violation.path} (${violation.kind})`)
+    .join(", ");
+  return `Protected-path violation: the agent modified read-only acceptance criteria or adjudicating tests (${detail}); the changes were reverted and the node failed.`;
 }
 
 function streamSubprocessOutput(

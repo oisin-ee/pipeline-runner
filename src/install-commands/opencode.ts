@@ -12,6 +12,7 @@ import { mergeOpenCodeProjectConfig } from "../opencode-project-config";
 import { resolvePackageAssetPath } from "../package-assets";
 import { compileWorkflowPlan } from "../planning/compile";
 import { opencodeAgentName } from "../runtime/opencode-agent-name";
+import { protectedPermissionOverlay } from "../runtime/protected-paths/protected-paths";
 import {
   RepoIoService,
   runRepoIoSync,
@@ -320,6 +321,8 @@ const OPENCODE_PERMISSION_TOOLS = [
   "write",
 ] as const;
 
+const PROTECTED_FILE_TOOLS = ["edit", "write"] as const;
+
 function opencodePermission(
   actor: ActorConfig,
   options: OpencodePermissionOptions = {}
@@ -327,11 +330,35 @@ function opencodePermission(
   const allowed = new Set(actor.tools ?? []);
   return {
     ...opencodeToolPermissions(allowed),
+    ...opencodeProtectedFilePermissions(allowed, actor.filesystem?.protected),
     external_directory: "deny",
     lsp: "allow",
     skill: opencodeSkillPermission(actor.skills ?? []),
     task: opencodeTaskPermission(allowed, options.allowedTaskAgents ?? []),
   };
+}
+
+/**
+ * PIPE-90.12: overlay per-path `deny` rules for the profile's protected set onto
+ * the file-mutating tools so an allowed `edit`/`write` still cannot touch the
+ * ticket's acceptance criteria or adjudicating tests. opencode evaluates rules
+ * last-match-wins, so `"*": "allow"` precedes the protected denies. Tools the
+ * profile never granted stay fully denied by {@link opencodeToolPermissions}.
+ */
+function opencodeProtectedFilePermissions(
+  allowed: Set<string>,
+  protectedPaths: readonly string[] | undefined
+): Record<string, Record<string, string>> {
+  if (!protectedPaths || protectedPaths.length === 0) {
+    return {};
+  }
+  const overlay = protectedPermissionOverlay(protectedPaths);
+  return Object.fromEntries(
+    PROTECTED_FILE_TOOLS.filter((tool) => allowed.has(tool)).map((tool) => [
+      tool,
+      { "*": "allow", ...overlay },
+    ])
+  );
 }
 
 function opencodeToolPermissions(
@@ -381,7 +408,6 @@ function toolPermission(allowed: Set<string>, tool: string): string {
  * once in the global opencode config (via `moka gateway configure-host
  * --scope global`) and inherited, so it is not embedded per project.
  */
-// fallow-ignore-next-line unused-export
 export function shouldEmbedProjectGateway(config: PipelineConfig): boolean {
   return (
     config.mcp_gateway !== undefined &&

@@ -290,6 +290,11 @@ const filesystemSchema = z
     allow: z.array(z.string()).optional(),
     deny: z.array(z.string()).optional(),
     mode: z.enum(FILESYSTEM_MODES),
+    // PIPE-90.12: glob patterns the executing node agent must not author or
+    // weaken (its ticket's acceptance criteria + the adjudicating tests). Read
+    // at runtime by the runner integrity guard and the opencode permission
+    // generator; unlike allow/deny (read-scoping), these are integrity-enforced.
+    protected: z.array(z.string()).optional(),
   })
   .strict();
 
