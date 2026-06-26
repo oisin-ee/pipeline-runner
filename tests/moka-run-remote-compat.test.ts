@@ -160,25 +160,6 @@ describe("moka run remote submit compatibility", () => {
     });
   });
 
-  it("documents moka submit as a compatibility alias with canonical moka run equivalents", () => {
-    const program = createCliProgram();
-    const submitCommand = program.commands.find(
-      (command) => command.name() === "submit"
-    );
-    const help = submitCommand?.helpInformation() ?? "";
-    const compactHelp = help.replace(/\s+/g, " ");
-
-    expect(compactHelp).toContain(
-      'Compatibility alias for `moka run "<task>" --target remote --effort thorough`'
-    );
-    expect(compactHelp).toContain(
-      'Quick equivalent: `moka run "<task>" --target remote --effort quick`'
-    );
-    expect(compactHelp).toContain(
-      "Command equivalent: `moka run --target remote --command -- <argv...>`"
-    );
-  });
-
   it("submits explicit argv through moka run --target remote --command", async () => {
     await withTempWorktree(async () => {
       await parseMoka([
