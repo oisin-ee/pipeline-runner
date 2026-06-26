@@ -7,6 +7,12 @@ import {
 import { loadMokaDbUrl } from "./moka-global-config";
 import { findPlannedNode } from "./planned-node";
 import type { PlannedWorkflowNode } from "./planning/compile";
+import {
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+} from "./planning/generate";
+import type { MokaRunManifest } from "./run-control/contracts";
+import { resolveRunControlStore } from "./run-control/run-control-store";
 import type { RetryReason } from "./runtime/actor-ids";
 import { executeAgentNode } from "./runtime/agent-node";
 import { executeBuiltin } from "./runtime/builtins";
@@ -123,10 +129,61 @@ export function resumeRun(
 ): Promise<PipelineRuntimeResult> {
   const { dbUrl, ...runtimeOptions } = options;
   return Effect.runPromise(
-    withOpencodeRuntime(runtimeOptions, (resolved) =>
-      resumeRunWithContext(createRuntimeContext(resolved), dbUrl)
+    Effect.scoped(
+      resolveResumeRuntimeOptions(runtimeOptions, dbUrl).pipe(
+        Effect.flatMap((resolved) =>
+          withOpencodeRuntime(resolved, (inner) =>
+            resumeRunWithContext(createRuntimeContext(inner), dbUrl)
+          )
+        )
+      )
     )
   );
+}
+
+// PIPE-91.16: rebuild the run's ORIGINAL graph on resume. The schedule artifact
+// the run was started with is persisted on the run-control manifest at createRun;
+// here we read it back by runId and reconstruct the identical plan from it
+// (parse + compile against package config), overriding the runtime config and
+// workflow id BEFORE the context (and any opencode lease) is built from them.
+// Without a persisted schedule (a package-workflow run) or a durable store the
+// options pass through unchanged, preserving today's behaviour.
+function resolveResumeRuntimeOptions(
+  options: Omit<ResumeRunOptions, "dbUrl">,
+  dbUrl: string | undefined
+): Effect.Effect<PipelineRuntimeOptions, unknown, Scope.Scope> {
+  if (dbUrl === undefined) {
+    return Effect.succeed(options);
+  }
+  const worktreePath = options.worktreePath ?? process.cwd();
+  return resolveRunControlStore(dbUrl, worktreePath).pipe(
+    Effect.flatMap((store) => store.readRun({ runId: options.runId })),
+    Effect.map((manifest) =>
+      applyPersistedSchedule(options, manifest, worktreePath)
+    )
+  );
+}
+
+function applyPersistedSchedule(
+  options: PipelineRuntimeOptions,
+  manifest: MokaRunManifest | undefined,
+  worktreePath: string
+): PipelineRuntimeOptions {
+  const schedule = manifest?.schedule;
+  if (!schedule) {
+    return options;
+  }
+  const baseConfig = options.config ?? loadPipelineConfig(worktreePath);
+  const compiled = compileScheduleArtifact(
+    baseConfig,
+    parseScheduleArtifact(schedule, "persisted schedule"),
+    worktreePath
+  );
+  return {
+    ...options,
+    config: compiled.config,
+    workflowId: compiled.workflowId,
+  };
 }
 
 export function runScheduledWorkflowTask(

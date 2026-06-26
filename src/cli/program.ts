@@ -168,6 +168,9 @@ interface RunInputs {
   runId?: string;
   runStoreMode?: RunStoreMode;
   schedule?: string;
+  // PIPE-91.16: serialized schedule artifact (schedule.yaml content) for the run.
+  // Persisted at createRun so `moka resume` rebuilds this exact graph.
+  scheduleArtifact?: string;
   supervised?: boolean;
   supervisor?: boolean;
   task: string;
@@ -188,17 +191,16 @@ async function runConfiguredPipeline(rawInputs: RunInputs): Promise<void> {
     allowMissingLintFileReferences: true,
   });
   if (inputs.schedule) {
+    const scheduleYaml = readFileSync(inputs.schedule, "utf8");
     const compiled = compileScheduleArtifact(
       config,
-      parseScheduleArtifact(
-        readFileSync(inputs.schedule, "utf8"),
-        inputs.schedule
-      ),
+      parseScheduleArtifact(scheduleYaml, inputs.schedule),
       inputs.worktreePath
     );
     await runAndPrintPipeline({
       ...inputs,
       config: compiled.config,
+      scheduleArtifact: scheduleYaml,
       workflow: compiled.workflowId,
     });
     return;
@@ -225,17 +227,19 @@ async function runConfiguredPipeline(rawInputs: RunInputs): Promise<void> {
       worktreePath: inputs.worktreePath,
     });
     console.log(`Schedule generated: ${result.path}`);
+    const scheduleYaml = readFileSync(
+      resolve(inputs.worktreePath, result.path),
+      "utf8"
+    );
     const compiled = compileScheduleArtifact(
       config,
-      parseScheduleArtifact(
-        readFileSync(resolve(inputs.worktreePath, result.path), "utf8"),
-        result.path
-      ),
+      parseScheduleArtifact(scheduleYaml, result.path),
       inputs.worktreePath
     );
     await runAndPrintPipeline({
       ...inputs,
       config: compiled.config,
+      scheduleArtifact: scheduleYaml,
       workflow: compiled.workflowId,
     });
     return;
@@ -321,6 +325,7 @@ async function createLocalRunStoreRuntimeReporter(
       ...resolvedRunControlOptions(inputs.runControl),
       nodeIds: plannedRunStoreNodeIds(inputs),
       runId,
+      ...(inputs.scheduleArtifact ? { schedule: inputs.scheduleArtifact } : {}),
     })
   );
 
@@ -1011,6 +1016,9 @@ async function runDetachedResolvedTask(
             worktreePath,
           }),
           runId,
+          ...(prepared.scheduleArtifact
+            ? { schedule: prepared.scheduleArtifact }
+            : {}),
         });
 
         const launch = yield* Effect.tryPromise({
@@ -1053,6 +1061,8 @@ interface PreparedDetachedRun {
   config: PipelineConfig;
   entrypoint?: string;
   schedule?: string;
+  // PIPE-91.16: serialized schedule artifact persisted at createRun for resume.
+  scheduleArtifact?: string;
   workflow?: string;
 }
 
@@ -1061,12 +1071,18 @@ async function prepareDetachedRun(
 ): Promise<PreparedDetachedRun> {
   if (input.execution.schedule) {
     const schedule = resolve(input.execution.schedule);
+    const scheduleYaml = readFileSync(schedule, "utf8");
     const compiled = compileScheduleArtifact(
       input.config,
-      parseScheduleArtifact(readFileSync(schedule, "utf8"), schedule),
+      parseScheduleArtifact(scheduleYaml, schedule),
       input.worktreePath
     );
-    return { config: compiled.config, schedule, workflow: compiled.workflowId };
+    return {
+      config: compiled.config,
+      schedule,
+      scheduleArtifact: scheduleYaml,
+      workflow: compiled.workflowId,
+    };
   }
 
   const scheduledEntrypoint = scheduledEntrypointId(
@@ -1091,12 +1107,18 @@ async function prepareDetachedRun(
   });
   console.log(`Schedule generated: ${result.path}`);
   const schedule = resolve(input.worktreePath, result.path);
+  const scheduleYaml = readFileSync(schedule, "utf8");
   const compiled = compileScheduleArtifact(
     input.config,
-    parseScheduleArtifact(readFileSync(schedule, "utf8"), result.path),
+    parseScheduleArtifact(scheduleYaml, result.path),
     input.worktreePath
   );
-  return { config: compiled.config, schedule, workflow: compiled.workflowId };
+  return {
+    config: compiled.config,
+    schedule,
+    scheduleArtifact: scheduleYaml,
+    workflow: compiled.workflowId,
+  };
 }
 
 function remoteSubmitFlags(execution: RemoteSubmitExecution): MokaSubmitFlags {

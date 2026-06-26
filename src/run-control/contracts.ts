@@ -126,6 +126,11 @@ export const mokaRunManifestSchema = z
     mode: runModeSchema,
     nodes: z.record(nonEmptyStringSchema, mokaNodeStatusSchema),
     runId: nonEmptyStringSchema,
+    // PIPE-91.16: the serialized schedule artifact (schedule.yaml) the run was
+    // started with. Persisted once at createRun so `moka resume` reconstructs the
+    // run's exact graph from it instead of recompiling the package default
+    // workflow. Optional: runs started from a package workflow carry no schedule.
+    schedule: nonEmptyStringSchema.optional(),
     staleDetection: runControlStaleDetectionSchema.optional(),
     status: mokaRunStatusSchema,
     target: runTargetSchema,
