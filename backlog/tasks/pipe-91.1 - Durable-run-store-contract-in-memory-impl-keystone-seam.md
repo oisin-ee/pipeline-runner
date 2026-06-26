@@ -1,9 +1,10 @@
 ---
 id: PIPE-91.1
 title: Durable run-store contract + in-memory impl (keystone seam)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:20'
+updated_date: '2026-06-26 19:14'
 labels: []
 dependencies: []
 references:

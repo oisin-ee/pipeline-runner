@@ -3,10 +3,10 @@ id: PIPE-91.3
 title: >-
   Global db.url durability setting — presence enables, remove pipeline.yaml
   durability block
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:21'
-updated_date: '2026-06-26 18:41'
+updated_date: '2026-06-26 19:14'
 labels: []
 dependencies: []
 references:

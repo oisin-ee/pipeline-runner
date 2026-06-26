@@ -1,9 +1,10 @@
 ---
 id: PIPE-91.10
 title: Run-control store contract + filesystem-backed default (keystone seam)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 18:39'
+updated_date: '2026-06-26 19:14'
 labels: []
 dependencies: []
 references:
