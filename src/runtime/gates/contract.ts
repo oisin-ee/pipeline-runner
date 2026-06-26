@@ -7,6 +7,7 @@ import type {
   NodeAttemptResult,
   RuntimeContext,
   RuntimeGateResult,
+  UnmetCriterion,
 } from "../contracts";
 
 /**
@@ -57,6 +58,20 @@ export type GateFailureHook = (
   node: PlannedWorkflowNode,
   result: RuntimeGateResult
 ) => Promise<void> | void;
+
+/**
+ * The adjudicator's terminal output (PIPE-90.10): the composed verdict of the
+ * layered completion gate (deterministic -> structured-claim -> llm-judge). A
+ * passing verdict carries an empty `unmet`; a refusal carries every distinct
+ * failing {@link UnmetCriterion} aggregated across all layers (deduped by
+ * criterion id), so `passed === (unmet.length === 0)` always holds. Defined on
+ * the gate contract surface so PIPE-90.11 can consume it without depending on
+ * the adjudicator's internals.
+ */
+export interface GateVerdict {
+  readonly passed: boolean;
+  readonly unmet: UnmetCriterion[];
+}
 
 /**
  * Descriptor that pairs a gate kind with its uniform evaluator. The registry
