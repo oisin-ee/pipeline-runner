@@ -1,9 +1,10 @@
 ---
 id: PIPE-91.12
 title: Cut run-control store over to Postgres (manifests/events/node-status)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 18:39'
+updated_date: '2026-06-26 21:05'
 labels: []
 dependencies:
   - PIPE-91.10
