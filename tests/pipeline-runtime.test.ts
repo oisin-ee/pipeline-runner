@@ -27,6 +27,7 @@ vi.mock("execa", () => ({
 }));
 
 vi.mock("../src/moka-global-config", () => ({
+  loadMokaDbUrl: vi.fn(() => undefined),
   loadMokaGlobalConfig: vi.fn(() => null),
 }));
 interface GitMock {
