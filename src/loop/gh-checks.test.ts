@@ -70,11 +70,11 @@ describe("resolvePrForRun", () => {
       text: () => Effect.fail(new Error("gh: not authenticated")),
     };
 
-    const either = await Effect.runPromise(
-      Effect.either(resolvePrForRun("run-abc", gh))
+    const result = await Effect.runPromise(
+      Effect.result(resolvePrForRun("run-abc", gh))
     );
 
-    expect(either._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 });
 

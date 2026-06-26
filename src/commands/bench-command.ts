@@ -7,7 +7,7 @@ import {
   renderEvalReport,
 } from "../bench/eval-report";
 
-class BenchCommandService extends Context.Tag("BenchCommandService")<
+class BenchCommandService extends Context.Service<
   BenchCommandService,
   {
     readonly readResults: (
@@ -15,7 +15,7 @@ class BenchCommandService extends Context.Tag("BenchCommandService")<
     ) => Effect.Effect<EvalRunResult[], unknown>;
     readonly writeReport: (report: string) => Effect.Effect<void, unknown>;
   }
->() {}
+>()("BenchCommandService") {}
 
 const BenchCommandServiceLive = Layer.succeed(BenchCommandService, {
   readResults: (path) =>

@@ -108,7 +108,7 @@ function createRunControlSupervisorRuntime(
   ): Effect.Effect<void> =>
     Effect.sync(() => {
       controlWriteChain = controlWriteChain.then(() =>
-        Effect.runPromise(bridge.flushEffect().pipe(Effect.zipRight(write)))
+        Effect.runPromise(bridge.flushEffect().pipe(Effect.andThen(write)))
       );
     });
 

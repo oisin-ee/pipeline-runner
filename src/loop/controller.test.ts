@@ -364,7 +364,7 @@ describe("runLoopController — AC4 cyclic backlog", () => {
     const exit = await Effect.runPromiseExit(runLoopController(deps));
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {
-      const failure = Cause.failureOption(exit.cause);
+      const failure = Cause.findErrorOption(exit.cause);
       expect(Option.isSome(failure)).toBe(true);
       const error = Option.getOrThrow(failure);
       // The cycle is surfaced in the error message (A -> B -> A or similar).

@@ -4,9 +4,7 @@ import { buildRepoMapContext } from "../../context/repo-map";
 import type { RunnerExecutionOptions, RunnerLaunchPlan } from "../../runner";
 import type { RuntimeContext } from "../contracts";
 
-export class AgentNodeRuntimeService extends Context.Tag(
-  "AgentNodeRuntimeService"
-)<
+export class AgentNodeRuntimeService extends Context.Service<
   AgentNodeRuntimeService,
   {
     readonly buildRepoMap: typeof buildRepoMapContext;
@@ -20,7 +18,7 @@ export class AgentNodeRuntimeService extends Context.Tag(
     >;
     readonly readText: (path: string) => Effect.Effect<string>;
   }
->() {}
+>()("AgentNodeRuntimeService") {}
 
 export const AgentNodeRuntimeServiceLive = Layer.succeed(
   AgentNodeRuntimeService,

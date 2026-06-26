@@ -5,7 +5,7 @@ import {
 } from "../command-executor";
 import type { CommandExecutionOptions, NodeAttemptResult } from "../contracts";
 
-export class CommandExecutor extends Context.Tag("CommandExecutor")<
+export class CommandExecutor extends Context.Service<
   CommandExecutor,
   {
     readonly execute: (
@@ -14,7 +14,7 @@ export class CommandExecutor extends Context.Tag("CommandExecutor")<
       options?: CommandExecutionOptions
     ) => Effect.Effect<NodeAttemptResult, unknown>;
   }
->() {}
+>()("CommandExecutor") {}
 
 export const CommandExecutorLive = Layer.succeed(CommandExecutor, {
   execute: (command, context, options) =>

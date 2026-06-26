@@ -1,5 +1,5 @@
 import type { AssistantMessage, Event, Part } from "@opencode-ai/sdk/v2";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Fiber } from "effect";
 import type {
   AgentResult,
   RunnerExecutionOptions,
@@ -93,7 +93,7 @@ function executeOpencodeSession(
   }).pipe(
     boundByIdle(deps, plan, options, activity),
     boundByAgentTimeout(plan),
-    Effect.catchAll((error) => Effect.succeed(failureResult(plan, error)))
+    Effect.catch((error) => Effect.succeed(failureResult(plan, error)))
   );
 }
 
@@ -112,11 +112,9 @@ interface SessionActivity {
  * Bound each attempt by a wall-clock budget (plan.timeoutMs, from
  * actor.timeout_ms / PIPELINE_AGENT_TIMEOUT_MS). A stalled opencode session
  * never streams a completion; without a budget it runs until the pod's
- * activeDeadlineSeconds kills the whole node. Effect.disconnect is required:
- * driveSession's `ensuring(stopStream)` finalizer awaits the SSE stream closing,
- * which also hangs on a stalled session, so a plain timeout would interrupt and
- * then block on that finalizer forever. disconnect detaches the interruption so
- * the finalizer is torn down in the background and the timeout returns at once.
+ * activeDeadlineSeconds kills the whole node. Race the session against an
+ * explicit timer failure so timeout is decided by first completion rather than
+ * success-only racing.
  * The timeout failure routes through failureResult -> EXIT_INFRA, so the agent
  * node's model fallback advances to the next model.
  */
@@ -128,11 +126,10 @@ function boundByAgentTimeout(plan: RunnerLaunchPlan) {
     if (!timeoutMs || timeoutMs <= 0) {
       return effect;
     }
-    return Effect.timeoutFail(Effect.disconnect(effect), {
-      duration: Duration.millis(timeoutMs),
-      onTimeout: () =>
-        new Error(`agent session timed out after ${timeoutMs}ms`),
-    });
+    return raceDetached(
+      effect,
+      timeoutFailure(timeoutMs, `agent session timed out after ${timeoutMs}ms`)
+    );
   };
 }
 
@@ -146,9 +143,7 @@ function boundByAgentTimeout(plan: RunnerLaunchPlan) {
  * The failure routes through failureResult -> EXIT_INFRA, so the node falls back
  * / argo reschedules. Disabled when no event stream is attached (no progress
  * signal), when the budget is unset/non-positive, or when it is not shorter than
- * the wall-clock (which would already win). Effect.disconnect mirrors
- * boundByAgentTimeout: the ensuring(stopStream) finalizer hangs on a stalled
- * session, so the loser's interruption is detached to return at once.
+ * the wall-clock (which would already win).
  */
 function boundByIdle(
   deps: OpencodeExecutorDeps,
@@ -170,11 +165,29 @@ function boundByIdle(
     // returns the first SUCCESS — it would ignore the watchdog's failure and
     // wait for the (never-succeeding) stalled session. raceFirst settles on the
     // first side to complete by success or failure.
-    return Effect.raceFirst(
-      Effect.disconnect(effect),
+    return raceDetached(
+      effect,
       idleWatchdog(deps, plan, options, activity, idleMs)
     );
   };
+}
+
+function raceDetached<A, E, R, A2, E2, R2>(
+  effect: Effect.Effect<A, E, R>,
+  other: Effect.Effect<A2, E2, R2>
+): Effect.Effect<A | A2, E | E2, R | R2> {
+  return Effect.forkDetach(effect, { startImmediately: true }).pipe(
+    Effect.flatMap((fiber) => Effect.raceFirst(Fiber.join(fiber), other))
+  );
+}
+
+function timeoutFailure(
+  milliseconds: number,
+  message: string
+): Effect.Effect<never, Error> {
+  return Effect.sleep(Duration.millis(milliseconds)).pipe(
+    Effect.andThen(Effect.fail(new Error(message)))
+  );
 }
 
 function idleWatchdog(
@@ -191,7 +204,7 @@ function idleWatchdog(
         return onIdleTimeout(deps, plan, options, idleMs);
       }
       return Effect.sleep(Duration.millis(remaining)).pipe(
-        Effect.zipRight(loop)
+        Effect.andThen(loop)
       );
     }
   );
@@ -211,8 +224,8 @@ function onIdleTimeout(
       stream: "stderr",
     });
   }).pipe(
-    Effect.zipRight(abortBestEffort(deps, plan)),
-    Effect.zipRight(
+    Effect.andThen(abortBestEffort(deps, plan)),
+    Effect.andThen(
       Effect.fail(new Error(`agent session idle for ${idleMs}ms (no progress)`))
     )
   );
@@ -241,7 +254,7 @@ function abortBestEffort(
   }).pipe(
     Effect.timeout(Duration.millis(5000)),
     Effect.asVoid,
-    Effect.catchAll(() => Effect.void)
+    Effect.catch(() => Effect.void)
   );
 }
 
@@ -333,7 +346,7 @@ function promptRequest(
 function stopStream(stream: EventStreamHandle): Effect.Effect<void> {
   return Effect.tryPromise(() => stream.stop()).pipe(
     Effect.asVoid,
-    Effect.catchAll(() => Effect.void)
+    Effect.catch(() => Effect.void)
   );
 }
 
@@ -398,7 +411,7 @@ function retryTransientTransport<A>(
   attempt = 0
 ): Effect.Effect<A, unknown, OpencodeSdkService> {
   return make().pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       attempt < MAX_TRANSIENT_RETRIES && isTransientTransportError(error)
         ? scheduleTransientRetry(make, ctx, attempt, error)
         : Effect.fail(error)
@@ -415,8 +428,8 @@ function scheduleTransientRetry<A>(
   const nextAttempt = attempt + 1;
   const delay = Duration.millis(TRANSIENT_RETRY_BASE_MS * 2 ** attempt);
   return emitTransientRetry(ctx, error, nextAttempt, delay).pipe(
-    Effect.zipRight(Effect.sleep(delay)),
-    Effect.zipRight(retryTransientTransport(make, ctx, nextAttempt))
+    Effect.andThen(Effect.sleep(delay)),
+    Effect.andThen(retryTransientTransport(make, ctx, nextAttempt))
   );
 }
 
@@ -581,7 +594,7 @@ function pumpEvents(
         forwardEvent(next.value, sessionId, plan, options);
       }
     }
-  }).pipe(Effect.catchAll((error) => reportStreamDrop(error, plan, options)));
+  }).pipe(Effect.catch((error) => reportStreamDrop(error, plan, options)));
 }
 
 function readNextEvent(
@@ -621,7 +634,7 @@ function stopIteratorEffect(
   return Effect.gen(function* () {
     yield* requestIteratorReturn(iterator);
     yield* Effect.tryPromise(() => pump).pipe(
-      Effect.catchAll(() => Effect.void)
+      Effect.catch(() => Effect.void)
     );
   });
 }
@@ -638,7 +651,7 @@ function requestIteratorReturn(
     try: () => returnIterator.call(iterator, undefined),
   }).pipe(
     Effect.asVoid,
-    Effect.catchAll(() => Effect.void)
+    Effect.catch(() => Effect.void)
   );
 }
 

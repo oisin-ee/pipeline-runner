@@ -12,10 +12,10 @@ import {
  * layer delegates to the synchronous porcelain helpers in parallel-worktrees;
  * the Effect-native parallel-node runtime composes `createChild`/`gc` through
  * this injectable seam instead of calling the helpers directly. This is the
- * canonical service shape for the Effect conversion: a `Context.Tag` whose Live
+ * canonical service shape for the Effect conversion: a `Context.Service` whose Live
  * `Layer` wraps the underlying IO, provided once at the runPromise boundary.
  */
-export class WorktreeService extends Context.Tag("WorktreeService")<
+export class WorktreeService extends Context.Service<
   WorktreeService,
   {
     readonly createChild: (
@@ -23,7 +23,7 @@ export class WorktreeService extends Context.Tag("WorktreeService")<
     ) => Effect.Effect<WorktreeLease>;
     readonly gc: (repoRoot: string) => Effect.Effect<WorktreeState[]>;
   }
->() {}
+>()("WorktreeService") {}
 
 export const WorktreeServiceLive = Layer.succeed(WorktreeService, {
   createChild: (opts) => Effect.sync(() => createChildWorktree(opts)),

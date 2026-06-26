@@ -32,7 +32,7 @@ type EntrypointRunner = (
   opts: EntrypointCommandFlags
 ) => Promise<void>;
 
-class EntrypointCommandService extends Context.Tag("EntrypointCommandService")<
+class EntrypointCommandService extends Context.Service<
   EntrypointCommandService,
   {
     readonly runEntrypoint: (
@@ -41,7 +41,7 @@ class EntrypointCommandService extends Context.Tag("EntrypointCommandService")<
       opts: EntrypointCommandFlags
     ) => Effect.Effect<void, unknown>;
   }
->() {}
+>()("EntrypointCommandService") {}
 
 const createEntrypointCommandServiceLive = (runEntrypoint: EntrypointRunner) =>
   Layer.succeed(EntrypointCommandService, {

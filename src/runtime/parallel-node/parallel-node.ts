@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Semaphore } from "effect";
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type {
@@ -22,7 +22,7 @@ export interface ParallelNodeRuntime {
   markNodeReady: (context: RuntimeContext, nodeId: string) => void;
 }
 
-type CategorySemaphores = Map<string, Effect.Semaphore>;
+type CategorySemaphores = Map<string, Semaphore.Semaphore>;
 
 // The fan-out abort controller signals running children (via context.signal) and
 // lets queued ones short-circuit when fail-fast trips.
@@ -176,7 +176,7 @@ function makeCategorySemaphores(
   return Effect.gen(function* () {
     const caps: CategorySemaphores = new Map();
     for (const [category, permits] of Object.entries(fanOut.by_category)) {
-      caps.set(category, yield* Effect.makeSemaphore(permits));
+      caps.set(category, yield* Semaphore.make(permits));
     }
     return caps;
   });

@@ -44,7 +44,7 @@ export interface GoalLoopResult {
 }
 
 // fallow-ignore-next-line unused-export
-export class GoalLoopService extends Context.Tag("GoalLoopService")<
+export class GoalLoopService extends Context.Service<
   GoalLoopService,
   {
     readonly runContinuation: (
@@ -58,7 +58,7 @@ export class GoalLoopService extends Context.Tag("GoalLoopService")<
       state: PipelineGoalState
     ) => Effect.Effect<string | undefined, unknown>;
   }
->() {}
+>()("GoalLoopService") {}
 
 // fallow-ignore-next-line unused-export
 export const GoalLoopServiceLive = Layer.succeed(GoalLoopService, {

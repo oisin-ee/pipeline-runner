@@ -98,9 +98,9 @@ function drainMergeProgram(
       integrationBranch,
       baseSha
     );
-    const setupResult = yield* Effect.either(setup);
-    if (setupResult._tag === "Left") {
-      return drainMergeSetupErrorResult(report, setupResult.left);
+    const setupResult = yield* Effect.result(setup);
+    if (setupResult._tag === "Failure") {
+      return drainMergeSetupErrorResult(report, setupResult.failure);
     }
     yield* Effect.forEach(
       mergeable,
@@ -214,7 +214,7 @@ function checkoutDrainMergeIntegrationBranch(
 ): Effect.Effect<void, unknown> {
   return git.raw(["rev-parse", "--verify", integrationBranch]).pipe(
     Effect.flatMap(() => git.raw(["checkout", integrationBranch])),
-    Effect.catchAll(() =>
+    Effect.catch(() =>
       git.raw(["checkout", "-b", integrationBranch, baseSha])
     ),
     Effect.asVoid
@@ -235,7 +235,7 @@ function mergeDrainMergeChild(
 ): Effect.Effect<void, never> {
   return drainMergeChild(git, child.output.branch).pipe(
     Effect.tap(() => Effect.sync(() => recordDrainMergeSuccess(report, child))),
-    Effect.catchAll(() => recordDrainMergeConflict(git, report, child))
+    Effect.catch(() => recordDrainMergeConflict(git, report, child))
   );
 }
 
@@ -300,13 +300,13 @@ function drainMergeConflictFiles(
 ): Effect.Effect<string[], never> {
   return git.raw(["diff", "--name-only", "--diff-filter=U"]).pipe(
     Effect.map((output) => output.split(LINE_RE).filter(Boolean)),
-    Effect.catchAll(() => Effect.succeed([]))
+    Effect.catch(() => Effect.succeed([]))
   );
 }
 
 function abortDrainMerge(git: DrainMergeGitClient): Effect.Effect<void, never> {
   return git.raw(["merge", "--abort"]).pipe(
-    Effect.catchAll(() => Effect.void),
+    Effect.catch(() => Effect.void),
     Effect.asVoid
   );
 }

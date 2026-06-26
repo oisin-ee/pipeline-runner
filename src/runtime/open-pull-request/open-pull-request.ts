@@ -48,11 +48,11 @@ export function openPullRequestProgram(
   return Effect.gen(function* () {
     const gitService = yield* OpenPullRequestGitService;
     const git = yield* gitService.create(context.worktreePath);
-    const prCtx = yield* Effect.either(resolveOpenPrContext(git, context));
-    if (prCtx._tag === "Left") {
-      return openPrFailure(errorMessage(prCtx.left));
+    const prCtx = yield* Effect.result(resolveOpenPrContext(git, context));
+    if (prCtx._tag === "Failure") {
+      return openPrFailure(errorMessage(prCtx.failure));
     }
-    return yield* executeOpenPr(git, prCtx.right, context);
+    return yield* executeOpenPr(git, prCtx.success, context);
   });
 }
 
@@ -83,7 +83,7 @@ function resolveDefaultBranch(
 ): Effect.Effect<string, unknown> {
   return git.raw(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).pipe(
     Effect.map((ref) => stripOriginPrefix(ref.trim())),
-    Effect.catchAll(() => resolveCurrentBranch(git, context))
+    Effect.catch(() => resolveCurrentBranch(git, context))
   );
 }
 
@@ -97,7 +97,7 @@ function resolveCurrentBranch(
 ): Effect.Effect<string, never> {
   return git.raw(["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
     Effect.map((ref) => ref.trim()),
-    Effect.catchAll(() => Effect.succeed(fallbackBranch(context)))
+    Effect.catch(() => Effect.succeed(fallbackBranch(context)))
   );
 }
 
@@ -116,15 +116,15 @@ function executeOpenPr(
   context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, never, CommandExecutor> {
   return Effect.gen(function* () {
-    const prepareResult = yield* Effect.either(prepareHeadBranch(git, prCtx));
-    if (prepareResult._tag === "Left") {
-      return openPrFailure(errorMessage(prepareResult.left));
+    const prepareResult = yield* Effect.result(prepareHeadBranch(git, prCtx));
+    if (prepareResult._tag === "Failure") {
+      return openPrFailure(errorMessage(prepareResult.failure));
     }
-    const pushResult = yield* Effect.either(
+    const pushResult = yield* Effect.result(
       pushHeadBranch(git, prCtx.headBranch)
     );
-    if (pushResult._tag === "Left") {
-      return openPrFailure(errorMessage(pushResult.left));
+    if (pushResult._tag === "Failure") {
+      return openPrFailure(errorMessage(pushResult.failure));
     }
     return yield* submitPullRequest(prCtx, context);
   });
@@ -244,7 +244,7 @@ function runGhPrCreate(
   return executor
     .execute(buildGhPrCreateArgs(prCtx, title), context)
     .pipe(
-      Effect.catchAll((e) => Effect.succeed(openPrFailure(errorMessage(e))))
+      Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e))))
     );
 }
 
@@ -274,7 +274,7 @@ function runGhPrEdit(
   return executor
     .execute(buildGhPrEditArgs(headBranch, label), context)
     .pipe(
-      Effect.catchAll((e) => Effect.succeed(openPrFailure(errorMessage(e))))
+      Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e))))
     );
 }
 

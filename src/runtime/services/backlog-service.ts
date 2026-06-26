@@ -32,7 +32,7 @@ function toBacklogCommandError(error: unknown): BacklogCommandError {
 }
 
 // fallow-ignore-next-line unused-export
-export class BacklogService extends Context.Tag("BacklogService")<
+export class BacklogService extends Context.Service<
   BacklogService,
   {
     readonly run: (
@@ -40,7 +40,7 @@ export class BacklogService extends Context.Tag("BacklogService")<
       cwd: string
     ) => Effect.Effect<string, BacklogCommandError>;
   }
->() {}
+>()("BacklogService") {}
 
 // fallow-ignore-next-line unused-export
 export const BacklogServiceLive = Layer.succeed(BacklogService, {

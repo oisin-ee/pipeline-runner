@@ -37,7 +37,7 @@ export interface KubectlResult {
   stdout: string;
 }
 
-export class KubernetesArgoService extends Context.Tag("KubernetesArgoService")<
+export class KubernetesArgoService extends Context.Service<
   KubernetesArgoService,
   {
     readonly createConfigMap: (input: {
@@ -67,7 +67,7 @@ export class KubernetesArgoService extends Context.Tag("KubernetesArgoService")<
       options: KubectlOptions
     ) => Effect.Effect<KubectlResult>;
   }
->() {}
+>()("KubernetesArgoService") {}
 
 export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
   createConfigMap: ({ body, dependencies, namespace, options }) =>
@@ -137,7 +137,7 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
         stderr: result.stderr,
         stdout: result.stdout,
       })),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed({
           ok: false,
           stderr: kubectlErrorStderr(error),

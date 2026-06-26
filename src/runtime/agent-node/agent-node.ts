@@ -344,7 +344,7 @@ function runHandoffFinalizerEffect(
     // must degrade to a minimal handoff, never hard-fail the node (matches the
     // pre-Effect behaviour; the conversion had dropped this recovery).
   }).pipe(
-    Effect.catchAll(() => Effect.succeed(synthesizeMinimalHandoff(rawOutput)))
+    Effect.catch(() => Effect.succeed(synthesizeMinimalHandoff(rawOutput)))
   );
 }
 
@@ -753,7 +753,7 @@ function repoMapSectionEffect(
         }),
     });
     return result.context;
-  }).pipe(Effect.catchAll(() => Effect.succeed("")));
+  }).pipe(Effect.catch(() => Effect.succeed("")));
 }
 
 function renderAgentPromptEffect(
@@ -1017,7 +1017,7 @@ function renderPathReferenceEffect(
     // natively, so reference them without inlining instead of failing the node.
     // readText surfaces a missing file as a defect (Effect.sync), so catch the
     // whole cause, not just the typed failure channel.
-    Effect.catchAllCause(() =>
+    Effect.catchCause(() =>
       Effect.succeed(
         [
           `## ${id}`,

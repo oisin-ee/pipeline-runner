@@ -75,7 +75,7 @@ export function serializeTicketGraph(
 ): Effect.Effect<TicketGraphDto, never> {
   return Effect.gen(function* () {
     const batches = yield* sequenceTicketBatchesEffect(graph).pipe(
-      Effect.catchAll(() => Effect.succeed(EMPTY_BATCHES))
+      Effect.catch(() => Effect.succeed(EMPTY_BATCHES))
     );
 
     const nodes: TicketGraphDtoNode[] = [...graph.tasksById.values()].map(

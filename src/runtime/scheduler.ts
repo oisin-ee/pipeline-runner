@@ -70,7 +70,7 @@ interface SchedulerContext {
   completions: Queue.Queue<NodeOutcome>;
   failure?: RuntimeFailure;
   input: WorkflowSchedulerInput;
-  running: Map<string, Fiber.RuntimeFiber<void>>;
+  running: Map<string, Fiber.Fiber<void>>;
   state: ActiveSchedulerState;
 }
 
@@ -160,7 +160,7 @@ function launchReady(ctx: SchedulerContext): Effect.Effect<void> {
     for (const nodeId of selectLaunchableNodes(ctx.state, capacity)) {
       ctx.input.markNodeReady(nodeId);
       ctx.state.running = [...ctx.state.running, nodeId];
-      const fiber = yield* Effect.fork(runNodeFiber(ctx, nodeId));
+      const fiber = yield* Effect.forkChild(runNodeFiber(ctx, nodeId));
       ctx.running.set(nodeId, fiber);
     }
   });
@@ -241,7 +241,7 @@ function schedulerProgram(
     const ctx: SchedulerContext = {
       completions: yield* Queue.unbounded<NodeOutcome>(),
       input,
-      running: new Map<string, Fiber.RuntimeFiber<void>>(),
+      running: new Map<string, Fiber.Fiber<void>>(),
       state: initialSchedulerState(input),
     };
     while (true) {

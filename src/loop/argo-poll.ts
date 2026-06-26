@@ -229,10 +229,10 @@ function pollLoop(state: PollLoopState): Effect.Effect<TerminalPhase, unknown> {
       }
       // Non-terminal: sleep then poll again with a fresh error count.
       return Effect.sleep(Duration.millis(state.pollIntervalMs)).pipe(
-        Effect.zipRight(pollLoop({ ...state, errorCount: 0 }))
+        Effect.andThen(pollLoop({ ...state, errorCount: 0 }))
       );
     }),
-    Effect.catchAll((error) => handlePollError(state, error))
+    Effect.catch((error) => handlePollError(state, error))
   );
 }
 
@@ -251,6 +251,6 @@ function handlePollError(
     RETRY_BASE_DELAY_MS * 2 ** (nextErrorCount - 1)
   );
   return Effect.sleep(delay).pipe(
-    Effect.zipRight(pollLoop({ ...state, errorCount: nextErrorCount }))
+    Effect.andThen(pollLoop({ ...state, errorCount: nextErrorCount }))
   );
 }

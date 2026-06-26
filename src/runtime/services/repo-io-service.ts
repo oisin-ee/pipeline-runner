@@ -15,7 +15,7 @@ function initializeParser(): Promise<void> {
   return parserInitPromise;
 }
 
-export class RepoIoService extends Context.Tag("RepoIoService")<
+export class RepoIoService extends Context.Service<
   RepoIoService,
   {
     readonly createParser: () => Effect.Effect<Parser, unknown>;
@@ -25,7 +25,7 @@ export class RepoIoService extends Context.Tag("RepoIoService")<
     readonly readDir: (path: string) => Effect.Effect<Dirent[], unknown>;
     readonly readText: (path: string) => Effect.Effect<string, unknown>;
   }
->() {}
+>()("RepoIoService") {}
 
 export const RepoIoServiceLive = Layer.succeed(RepoIoService, {
   createParser: () =>
@@ -70,7 +70,7 @@ export function runRepoIoSync<A, E>(
   if (exit._tag === "Success") {
     return exit.value;
   }
-  const originalError = Option.getOrUndefined(Cause.failureOption(exit.cause));
+  const originalError = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
   if (originalError) {
     throw originalError;
   }

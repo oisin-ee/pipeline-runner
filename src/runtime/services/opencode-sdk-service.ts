@@ -45,7 +45,7 @@ export interface OpencodeRuntimeClient {
   };
 }
 
-export class OpencodeSdkService extends Context.Tag("OpencodeSdkService")<
+export class OpencodeSdkService extends Context.Service<
   OpencodeSdkService,
   {
     readonly createClient: (opts: {
@@ -75,7 +75,7 @@ export class OpencodeSdkService extends Context.Tag("OpencodeSdkService")<
       client: OpencodeRuntimeClient
     ) => Effect.Effect<EventSubscription, unknown>;
   }
->() {}
+>()("OpencodeSdkService") {}
 
 export const OpencodeSdkServiceLive = Layer.succeed(OpencodeSdkService, {
   createClient: (opts) => Effect.try(() => createOpencodeClient(opts)),

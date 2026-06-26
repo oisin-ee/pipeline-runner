@@ -819,7 +819,7 @@ function nodeAttemptCycleOrError(
   attempt: number,
   last: NodeAttemptResult
 ): Effect.Effect<NodeAttemptCycleResult | { error: unknown }> {
-  return Effect.catchAll(
+  return Effect.catch(
     executeNodeAttemptCycle(node, context, attempt, last),
     (error) => Effect.succeed({ error })
   );
@@ -1561,7 +1561,7 @@ function waitForAbort(signal?: AbortSignal): Effect.Effect<void> {
   if (!signal) {
     return Effect.never;
   }
-  return Effect.async<void>((resume) => {
+  return Effect.callback<void>((resume) => {
     const onAbort = (): void => resume(Effect.void);
     signal.addEventListener("abort", onAbort, { once: true });
     return Effect.sync(() => signal.removeEventListener("abort", onAbort));

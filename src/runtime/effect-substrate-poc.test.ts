@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Schedule } from "effect";
+import { Effect, Schedule, Semaphore } from "effect";
 
 /**
  * PIPE-83.8: de-risking PoC for the chosen runtime substrate (Effect, per the
@@ -19,7 +19,7 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
   it.live("enforces a per-category concurrency cap with a Semaphore", () =>
     Effect.gen(function* () {
       // token_budget.fan_out_width.by_category.green = 2
-      const greenCap = yield* Effect.makeSemaphore(2);
+      const greenCap = yield* Semaphore.make(2);
       let active = 0;
       let maxActive = 0;
       const candidate = greenCap.withPermits(1)(
@@ -50,7 +50,7 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
           ? Effect.fail("transient" as const)
           : Effect.succeed(attempts);
       });
-      const policy = Schedule.intersect(
+      const policy = Schedule.both(
         Schedule.exponential("1 millis"),
         Schedule.recurs(5)
       ).pipe(Schedule.jittered);
@@ -64,7 +64,7 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
     Effect.gen(function* () {
       const failing = Effect.fail({ _tag: "OverBudget" as const });
       const recovered = yield* failing.pipe(
-        Effect.catchAll((error) => Effect.succeed(error._tag))
+        Effect.catch((error) => Effect.succeed(error._tag))
       );
       expect(recovered).toBe("OverBudget");
     })

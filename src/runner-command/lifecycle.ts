@@ -71,7 +71,7 @@ function runRunnerLifecycleEffect(
     yield* flushAndReport(sink, stderr);
     return failure ? EXIT_FAIL : EXIT_PASS;
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => lifecycleErrorExitCode(error, stderr))
     )
   );

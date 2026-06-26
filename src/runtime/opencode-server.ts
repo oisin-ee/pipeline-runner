@@ -110,7 +110,7 @@ function spawnOwnedServer(
       options.spawn
     );
     return ownedHandle(client, server, options.directory);
-  }).pipe(Effect.catchAll((error) => Effect.fail(startupError(error))));
+  }).pipe(Effect.catch((error) => Effect.fail(startupError(error))));
 }
 
 function startupError(error: unknown): OpencodeServerStartupError {

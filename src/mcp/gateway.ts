@@ -375,7 +375,7 @@ function checkGatewayRequiredTools(
           passed: false,
         };
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         detail: error instanceof Error ? error.message : String(error),
         name: "gateway-required-tools",
@@ -590,7 +590,7 @@ function checkThv(
     yield* service.runToolHiveVersion(cwd);
     return { detail: "available", name: "toolhive", passed: true };
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         detail: error.message || "not available",
         name: "toolhive",
@@ -628,7 +628,7 @@ function checkGatewayHealth(
       passed,
     };
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         detail: error instanceof Error ? error.message : String(error),
         name: "gateway-health",

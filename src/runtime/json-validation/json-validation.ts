@@ -75,7 +75,7 @@ function validateJsonSchemaSourceEffect(
   schemaPath: string,
   worktreePath: string
 ): Effect.Effect<JsonSchemaValidationResult, never, FileSystemService> {
-  return Effect.catchAll(
+  return Effect.catch(
     Effect.gen(function* () {
       const schemaSource = yield* readJsonSchemaSourceEffect(
         schemaPath,

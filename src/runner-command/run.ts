@@ -355,7 +355,7 @@ function runRunnerCommandEffect(
     yield* flushAndReport(sink, logger);
     return nodeProcessExitCode(result);
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => runnerCommandErrorExitCode(error, runtime.logger))
     )
   );
@@ -565,15 +565,15 @@ function flushAndReport(
   return Effect.gen(function* () {
     const io = yield* RunnerCommandIoService;
     logger.info({ phase: "event.flush", status: "start" }, "event.flush start");
-    const result = yield* Effect.either(io.flushSink(sink));
-    if (result._tag === "Right") {
+    const result = yield* Effect.result(io.flushSink(sink));
+    if (result._tag === "Success") {
       logger.info(
         { phase: "event.flush", status: "finish" },
         "event.flush finish"
       );
       return;
     }
-    const error = result.left;
+    const error = result.failure;
     const message = error instanceof Error ? error.message : String(error);
     logger.error(
       { error: message, phase: "event.flush" },

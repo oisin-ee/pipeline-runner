@@ -10,9 +10,7 @@ export type OpenOpencodeRuntimeServer = (opts: {
   worktreePath: string;
 }) => Promise<OpencodeServerHandle>;
 
-export class OpencodeRuntimeServerService extends Context.Tag(
-  "OpencodeRuntimeServerService"
-)<
+export class OpencodeRuntimeServerService extends Context.Service<
   OpencodeRuntimeServerService,
   {
     readonly open: (input: {
@@ -21,7 +19,7 @@ export class OpencodeRuntimeServerService extends Context.Tag(
       worktreePath: string;
     }) => Effect.Effect<OpencodeServerHandle, unknown>;
   }
->() {}
+>()("OpencodeRuntimeServerService") {}
 
 export const OpencodeRuntimeServerServiceLive = Layer.succeed(
   OpencodeRuntimeServerService,

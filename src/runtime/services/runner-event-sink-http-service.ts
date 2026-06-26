@@ -100,16 +100,14 @@ function postBatch(
   });
 }
 
-export class RunnerEventSinkHttpService extends Context.Tag(
-  "RunnerEventSinkHttpService"
-)<
+export class RunnerEventSinkHttpService extends Context.Service<
   RunnerEventSinkHttpService,
   {
     readonly postBatch: (
       request: RunnerEventSinkPostBatchRequest
     ) => Effect.Effect<void, Error>;
   }
->() {}
+>()("RunnerEventSinkHttpService") {}
 
 export const RunnerEventSinkHttpServiceLive = Layer.succeed(
   RunnerEventSinkHttpService,

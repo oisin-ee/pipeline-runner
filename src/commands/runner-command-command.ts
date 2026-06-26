@@ -17,7 +17,7 @@ interface RunnerFinalizeOptions extends RunnerCommandOptions {
   argoStatus: string;
 }
 
-class RunnerCommandService extends Context.Tag("RunnerCommandService")<
+class RunnerCommandService extends Context.Service<
   RunnerCommandService,
   {
     readonly finalize: (
@@ -30,7 +30,7 @@ class RunnerCommandService extends Context.Tag("RunnerCommandService")<
       options: RunnerCommandOptions
     ) => Effect.Effect<number, unknown>;
   }
->() {}
+>()("RunnerCommandService") {}
 
 const RunnerCommandServiceLive = Layer.succeed(RunnerCommandService, {
   finalize: (options) =>

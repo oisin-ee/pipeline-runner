@@ -5,16 +5,14 @@ export interface OpenPullRequestGitClient {
   readonly raw: (args: string[]) => Effect.Effect<string, unknown>;
 }
 
-export class OpenPullRequestGitService extends Context.Tag(
-  "OpenPullRequestGitService"
-)<
+export class OpenPullRequestGitService extends Context.Service<
   OpenPullRequestGitService,
   {
     readonly create: (
       baseDir: string
     ) => Effect.Effect<OpenPullRequestGitClient>;
   }
->() {}
+>()("OpenPullRequestGitService") {}
 
 /*
  * The open-pull-request builtin pushes a real PR head branch over the same

@@ -481,7 +481,7 @@ function readRunDirectoryEntriesEffect(
         .filter((entry) => entry.isDirectory())
         .sort((left, right) => left.name.localeCompare(right.name))
     ),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       isNotFound(error) ? Effect.succeed([]) : Effect.fail(error)
     )
   );
@@ -494,7 +494,7 @@ function readOptionalFileEffect(
     catch: (error) => error,
     try: () => readFile(path, "utf8"),
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       isNotFound(error) ? Effect.succeed(undefined) : Effect.fail(error)
     )
   );
@@ -509,7 +509,7 @@ function ensureRunExistsEffect(
     try: () => stat(manifestPath),
   }).pipe(
     Effect.asVoid,
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       isNotFound(error)
         ? Effect.fail(new Error(`Run ${runId} does not exist.`))
         : Effect.fail(error)

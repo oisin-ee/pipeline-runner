@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Context, Effect, Layer } from "effect";
 
-export class RunJournalFileService extends Context.Tag("RunJournalFileService")<
+export class RunJournalFileService extends Context.Service<
   RunJournalFileService,
   {
     readonly appendLine: (
@@ -13,7 +13,7 @@ export class RunJournalFileService extends Context.Tag("RunJournalFileService")<
       path: string
     ) => Effect.Effect<string | undefined, unknown>;
   }
->() {}
+>()("RunJournalFileService") {}
 
 export const RunJournalFileServiceLive = Layer.succeed(RunJournalFileService, {
   appendLine: (path, line) =>

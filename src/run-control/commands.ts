@@ -448,7 +448,7 @@ function runSortTimeEffect(
       ),
   }).pipe(
     Effect.map((manifest) => manifest.mtimeMs),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       isNotFound(error) ? Effect.succeed(0) : Effect.fail(error)
     )
   );
@@ -723,7 +723,7 @@ function readDirectoryEntriesEffect(
     catch: (error) => error,
     try: () => readdir(current, { withFileTypes: true }),
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       isNotFound(error) ? Effect.succeed([]) : Effect.fail(error)
     )
   );

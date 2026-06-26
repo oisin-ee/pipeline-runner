@@ -106,7 +106,7 @@ function activeDockerHost(cwd: string): Effect.Effect<string | undefined> {
       const host = contexts[0]?.Endpoints?.docker?.Host;
       return typeof host === "string" && host.length > 0 ? host : undefined;
     },
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 }
 
 function toolhiveEnv(cwd: string): Effect.Effect<NodeJS.ProcessEnv> {
@@ -130,7 +130,7 @@ function fetchGateway(
   });
 }
 
-export class McpGatewayService extends Context.Tag("McpGatewayService")<
+export class McpGatewayService extends Context.Service<
   McpGatewayService,
   {
     readonly callGatewayRpc: (
@@ -161,7 +161,7 @@ export class McpGatewayService extends Context.Tag("McpGatewayService")<
       cwd: string
     ) => Effect.Effect<void, PipelineMcpGatewayError>;
   }
->() {}
+>()("McpGatewayService") {}
 
 export const McpGatewayServiceLive = Layer.succeed(McpGatewayService, {
   callGatewayRpc: (url, body, authorization) =>

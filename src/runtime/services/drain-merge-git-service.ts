@@ -5,12 +5,12 @@ export interface DrainMergeGitClient {
   readonly raw: (args: string[]) => Effect.Effect<string, unknown>;
 }
 
-export class DrainMergeGitService extends Context.Tag("DrainMergeGitService")<
+export class DrainMergeGitService extends Context.Service<
   DrainMergeGitService,
   {
     readonly create: (baseDir: string) => Effect.Effect<DrainMergeGitClient>;
   }
->() {}
+>()("DrainMergeGitService") {}
 
 export const DrainMergeGitServiceLive = Layer.succeed(DrainMergeGitService, {
   create: (baseDir) =>

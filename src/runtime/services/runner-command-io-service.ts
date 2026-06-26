@@ -50,11 +50,11 @@ function flushRunnerCommandSink(
 ): Effect.Effect<void, never, RunnerCommandIoService> {
   return Effect.gen(function* () {
     const io = yield* RunnerCommandIoService;
-    const result = yield* Effect.either(io.flushSink(sink));
-    if (result._tag === "Right") {
+    const result = yield* Effect.result(io.flushSink(sink));
+    if (result._tag === "Success") {
       return;
     }
-    reportError(errorMessage(result.left));
+    reportError(errorMessage(result.failure));
   });
 }
 
@@ -62,9 +62,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export class RunnerCommandIoService extends Context.Tag(
-  "RunnerCommandIoService"
-)<
+export class RunnerCommandIoService extends Context.Service<
   RunnerCommandIoService,
   {
     readonly commitAndPushNodeRef: (
@@ -99,7 +97,7 @@ export class RunnerCommandIoService extends Context.Tag(
       options: { cwd: string; env: Record<string, string | undefined> }
     ) => Effect.Effect<Awaited<ReturnType<typeof execa>>, unknown>;
   }
->() {}
+>()("RunnerCommandIoService") {}
 
 export const RunnerCommandIoServiceLive = Layer.succeed(
   RunnerCommandIoService,

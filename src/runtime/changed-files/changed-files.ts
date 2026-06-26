@@ -26,7 +26,7 @@ function snapshotChangedFilesEffect(
     const git = yield* GitPorcelainService;
     const stdout = yield* git
       .statusPorcelain(worktreePath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
+      .pipe(Effect.catch(() => Effect.succeed("")));
     const files = new Set(parsePorcelainStatus(stdout));
     return changedFilesSnapshot(worktreePath, files);
   });

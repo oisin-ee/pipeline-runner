@@ -313,11 +313,10 @@ describe("opencode session executor", () => {
     expect(result.stderr).toContain("timed out");
   });
 
-  it("times out even when the stop-stream finalizer hangs (Effect.disconnect)", async () => {
+  it("times out even when the stop-stream finalizer hangs", async () => {
     // The production failure: both the prompt AND the event stream are stuck, so
-    // the ensuring(stopStream) finalizer hangs on interruption. Without
-    // Effect.disconnect the timeout would interrupt and then block on that
-    // finalizer forever; with it the attempt returns within the budget.
+    // the ensuring(stopStream) finalizer hangs on interruption. The attempt must
+    // still return within the budget instead of waiting on that finalizer.
     const hangingClient: OpencodeRuntimeClient = {
       event: { subscribe: () => Promise.resolve({ stream: hangingStream() }) },
       session: {
@@ -720,7 +719,7 @@ async function* emptyStream(): AsyncGenerator<Event> {
 }
 
 // Never yields and never returns: next() and return() both stay pending, so the
-// executor's stop-stream finalizer hangs — the case Effect.disconnect must clear.
+// executor's stop-stream finalizer hangs.
 async function* hangingStream(): AsyncGenerator<Event> {
   await new Promise<void>(() => undefined);
 }

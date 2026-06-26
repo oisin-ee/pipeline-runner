@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Cause, Context, Effect, Layer, Option } from "effect";
 
-export class FileSystemService extends Context.Tag("FileSystemService")<
+export class FileSystemService extends Context.Service<
   FileSystemService,
   {
     readonly exists: (path: string) => Effect.Effect<boolean>;
@@ -11,7 +11,7 @@ export class FileSystemService extends Context.Tag("FileSystemService")<
       contents: string
     ) => Effect.Effect<void, unknown>;
   }
->() {}
+>()("FileSystemService") {}
 
 export const FileSystemServiceLive = Layer.succeed(FileSystemService, {
   exists: (path) => Effect.sync(() => existsSync(path)),
@@ -36,7 +36,7 @@ export function runFileSystemSync<A, E>(
     case "Success":
       return exit.value;
     case "Failure": {
-      const failure = Cause.failureOption(exit.cause);
+      const failure = Cause.findErrorOption(exit.cause);
       if (Option.isSome(failure)) {
         throw failure.value;
       }

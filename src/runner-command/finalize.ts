@@ -93,7 +93,7 @@ function runRunnerFinalizeEffect(
     yield* flushAndReport(sink, stderr);
     return lifecycle.result.outcome === "PASS" ? EXIT_PASS : EXIT_FAIL;
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => finalizeErrorExitCode(error, stderr))
     )
   );

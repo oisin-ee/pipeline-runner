@@ -180,7 +180,7 @@ function runHook(
 ): Effect.Effect<RuntimeFailure | undefined> {
   return runHookEffect(input, event, failure).pipe(
     Effect.map((result) => result ?? undefined),
-    Effect.catchAll((error) => Effect.succeed(hookRuntimeFailure(error)))
+    Effect.catch((error) => Effect.succeed(hookRuntimeFailure(error)))
   );
 }
 
@@ -191,7 +191,7 @@ function runHookError(
 ): Effect.Effect<RuntimeFailure | undefined> {
   return runHookEffect(input, event, failure).pipe(
     Effect.as(undefined),
-    Effect.catchAll((error) => Effect.succeed(hookRuntimeFailure(error)))
+    Effect.catch((error) => Effect.succeed(hookRuntimeFailure(error)))
   );
 }
 

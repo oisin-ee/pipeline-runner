@@ -251,8 +251,8 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
     );
     const secrets = tokenReader("super-secret");
 
-    const either = await Effect.runPromise(
-      Effect.either(
+    const result = await Effect.runPromise(
+      Effect.result(
         mergeForClassification({
           classification: "infra-down",
           gh,
@@ -262,10 +262,10 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
       )
     );
 
-    // Surfaced as a value, not a thrown/Left error.
-    expect(either._tag).toBe("Right");
-    if (either._tag === "Right" && either.right?._tag === "blocked") {
-      expect(either.right.reason).toBe("not-mergeable");
+    // Surfaced as a value, not a thrown failure.
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success" && result.success?._tag === "blocked") {
+      expect(result.success.reason).toBe("not-mergeable");
     }
   });
 });

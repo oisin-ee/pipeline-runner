@@ -4,7 +4,7 @@ import { Context, Effect, Layer } from "effect";
 
 const execGit = promisify(execFile);
 
-export class GitPorcelainService extends Context.Tag("GitPorcelainService")<
+export class GitPorcelainService extends Context.Service<
   GitPorcelainService,
   {
     readonly run: (
@@ -14,7 +14,7 @@ export class GitPorcelainService extends Context.Tag("GitPorcelainService")<
     ) => Effect.Effect<string, unknown>;
     readonly statusPorcelain: (cwd: string) => Effect.Effect<string, unknown>;
   }
->() {}
+>()("GitPorcelainService") {}
 
 export const GitPorcelainServiceLive = Layer.succeed(GitPorcelainService, {
   run: (cwd, args, env) =>

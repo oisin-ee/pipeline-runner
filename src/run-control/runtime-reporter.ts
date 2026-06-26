@@ -76,7 +76,7 @@ function createRunStoreRuntimeReporterRuntime(
       event,
       projection,
       now
-    ).pipe(Effect.catchAll((error) => warnPersistSkipped(input, event, error)));
+    ).pipe(Effect.catch((error) => warnPersistSkipped(input, event, error)));
     writeChain = writeChain.then(() =>
       // Serialize against the builtin run-state hide window: persistence writes
       // under .pipeline/runs/<id>/, which a concurrent lint/fallow builtin

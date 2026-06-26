@@ -113,7 +113,7 @@ function pathExistsEffect(path: string): Effect.Effect<boolean, unknown> {
 function waitForControllerSpawnEffect(
   child: ReturnType<typeof spawn>
 ): Effect.Effect<void, unknown> {
-  return Effect.async<void, unknown>((resume) => {
+  return Effect.callback<void, unknown>((resume) => {
     const onSpawn = (): void => resume(Effect.void);
     const onError = (error: unknown): void => resume(Effect.fail(error));
     child.once("spawn", onSpawn);

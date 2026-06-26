@@ -140,7 +140,7 @@ export function enableAutoMerge(
   const args = ["pr", "merge", String(pr.number), "--auto", "--squash"];
   return gh.text(args).pipe(
     Effect.map((): MergePending => ({ _tag: "pending", pr: pr.number })),
-    Effect.catchAll((error) => Effect.succeed(toBlocked(pr, error)))
+    Effect.catch((error) => Effect.succeed(toBlocked(pr, error)))
   );
 }
 
@@ -169,7 +169,7 @@ export function adminMerge(
   // listing, or an args log.
   return gh.text(args, { secretEnv: { GH_TOKEN: token.reveal() } }).pipe(
     Effect.map((): Merged => ({ _tag: "merged", pr: pr.number })),
-    Effect.catchAll((error) => Effect.succeed(toBlocked(pr, error)))
+    Effect.catch((error) => Effect.succeed(toBlocked(pr, error)))
   );
 }
 

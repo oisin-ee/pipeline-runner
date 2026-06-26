@@ -23,7 +23,7 @@ function parseYamlSource(source: string, sourcePath: string) {
   return document.toJS();
 }
 
-export class ConfigIoService extends Context.Tag("ConfigIoService")<
+export class ConfigIoService extends Context.Service<
   ConfigIoService,
   {
     readonly parseYaml: (
@@ -33,7 +33,7 @@ export class ConfigIoService extends Context.Tag("ConfigIoService")<
     readonly readOptionalText: (path: string) => Effect.Effect<string | null>;
     readonly readText: (path: string | URL) => Effect.Effect<string>;
   }
->() {}
+>()("ConfigIoService") {}
 
 const ConfigIoServiceLive = Layer.succeed(ConfigIoService, {
   parseYaml: (source, sourcePath) =>
@@ -71,7 +71,7 @@ export function runConfigIoSync<A, E>(
   if (exit._tag === "Success") {
     return exit.value;
   }
-  const failure = Cause.failureOption(exit.cause);
+  const failure = Cause.findErrorOption(exit.cause);
   if (Option.isSome(failure)) {
     throw failure.value;
   }
