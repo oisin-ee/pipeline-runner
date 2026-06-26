@@ -1848,7 +1848,7 @@ workflows:
       const commandSummaries = topLevelCommandSummaries(help);
 
       expect(commandSummaries.get("run") ?? "").toMatch(PRIMARY_COMMAND_RE);
-      for (const aliasCommand of ["quick", "execute", "inspect", "submit"]) {
+      for (const aliasCommand of ["quick", "execute", "inspect"]) {
         expect(commandSummaries.get(aliasCommand) ?? "").toMatch(
           ALIAS_OR_PRESET_RE
         );

@@ -829,14 +829,7 @@ export function createCliProgram(options: CliProgramOptions = {}): Command {
   addMokaSubmitOptions(
     program
       .command("submit")
-      .description(
-        [
-          "Submit work to Momokaya as an Argo Workflow.",
-          'Compatibility alias for `moka run "<task>" --target remote --effort thorough`.',
-          'Quick equivalent: `moka run "<task>" --target remote --effort quick`.',
-          "Command equivalent: `moka run --target remote --command -- <argv...>`.",
-        ].join("\n")
-      )
+      .description("Submit work to Momokaya as an Argo Workflow.")
       .argument(
         "[input...]",
         "task description, or command argv with --command"
