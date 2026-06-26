@@ -3,9 +3,10 @@ id: PIPE-91.14
 title: >-
   Route run-control writers through the durable store seam
   (supervisor/reporter/createRun)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 21:29'
+updated_date: '2026-06-26 21:54'
 labels: []
 dependencies: []
 parent_task_id: PIPE-91
