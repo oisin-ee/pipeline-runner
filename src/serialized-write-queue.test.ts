@@ -24,7 +24,7 @@ describe("serialized write queue", () => {
       await firstWrite.promise;
       order.push("first:end");
     });
-    queue.enqueue(async () => {
+    queue.enqueue(() => {
       order.push("second");
     });
 
@@ -63,18 +63,18 @@ describe("serialized write queue", () => {
     const failure = new Error("write failed");
     const order: string[] = [];
 
-    queue.enqueue(async () => {
+    queue.enqueue(() => {
       order.push("first");
       throw failure;
     });
-    queue.enqueue(async () => {
+    queue.enqueue(() => {
       order.push("second");
     });
 
     await expect(queue.flush()).rejects.toBe(failure);
     expect(order).toEqual(["first", "second"]);
 
-    queue.enqueue(async () => {
+    queue.enqueue(() => {
       order.push("third");
     });
 
