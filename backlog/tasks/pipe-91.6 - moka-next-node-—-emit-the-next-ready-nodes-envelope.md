@@ -1,9 +1,10 @@
 ---
 id: PIPE-91.6
 title: moka next node — emit the next ready node's envelope
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:21'
+updated_date: '2026-06-26 19:59'
 labels: []
 dependencies:
   - PIPE-91.2
