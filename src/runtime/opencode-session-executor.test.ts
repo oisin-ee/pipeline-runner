@@ -294,14 +294,7 @@ describe("opencode session executor", () => {
   it("times out a stalled session as infra exit 70 so the node can fall back", async () => {
     // A model that streams nothing and never completes the prompt; without a
     // per-attempt budget this would hang until the pod's activeDeadlineSeconds.
-    const stalledClient: OpencodeRuntimeClient = {
-      event: { subscribe: () => Promise.resolve({ stream: emptyStream() }) },
-      session: {
-        create: () =>
-          Promise.resolve({ data: { id: "ses_test" }, error: undefined }),
-        prompt: () => new Promise(() => undefined),
-      },
-    };
+    const stalledClient = stalledSessionClient(emptyStream());
     const execute = createOpencodeExecutor({
       client: stalledClient,
       ...executorDefaults(),
@@ -317,14 +310,7 @@ describe("opencode session executor", () => {
     // The production failure: both the prompt AND the event stream are stuck, so
     // the ensuring(stopStream) finalizer hangs on interruption. The attempt must
     // still return within the budget instead of waiting on that finalizer.
-    const hangingClient: OpencodeRuntimeClient = {
-      event: { subscribe: () => Promise.resolve({ stream: hangingStream() }) },
-      session: {
-        create: () =>
-          Promise.resolve({ data: { id: "ses_test" }, error: undefined }),
-        prompt: () => new Promise(() => undefined),
-      },
-    };
+    const hangingClient = stalledSessionClient(hangingStream());
     const execute = createOpencodeExecutor({
       client: hangingClient,
       ...executorDefaults(),
@@ -337,6 +323,36 @@ describe("opencode session executor", () => {
 
     expect(result.exitCode).toBe(70);
     expect(result.stderr).toContain("timed out");
+  });
+
+  it("interrupts timed-out session work in the background", async () => {
+    let streamReturn: () => void = () => {
+      // replaced below
+    };
+    const streamReturned = new Promise<"returned">((resolve) => {
+      streamReturn = () => resolve("returned");
+    });
+    const hangingClient = stalledSessionClient(
+      returnObservableHangingStream(streamReturn)
+    );
+    const execute = createOpencodeExecutor({
+      client: hangingClient,
+      ...executorDefaults(),
+    });
+
+    const result = await execute(opencodePlan({ timeoutMs: 80 }), {
+      onOutput: () => undefined,
+    });
+    const returned = await Promise.race([
+      streamReturned,
+      new Promise<"not-returned">((resolve) =>
+        setTimeout(() => resolve("not-returned"), 200)
+      ),
+    ]);
+
+    expect(result.exitCode).toBe(70);
+    expect(result.stderr).toContain("timed out");
+    expect(returned).toBe("returned");
   });
 
   it("surfaces the HTTP status when the prompt fails with an empty error body", async () => {
@@ -722,4 +738,37 @@ async function* emptyStream(): AsyncGenerator<Event> {
 // executor's stop-stream finalizer hangs.
 async function* hangingStream(): AsyncGenerator<Event> {
   await new Promise<void>(() => undefined);
+}
+
+function stalledSessionClient(
+  stream: AsyncIterableIterator<Event>
+): OpencodeRuntimeClient {
+  return {
+    event: { subscribe: () => Promise.resolve({ stream }) },
+    session: {
+      create: () =>
+        Promise.resolve({ data: { id: "ses_test" }, error: undefined }),
+      prompt: () => new Promise(() => undefined),
+    },
+  };
+}
+
+function returnObservableHangingStream(
+  onReturn: () => void
+): AsyncIterableIterator<Event> {
+  let releaseNext: ((value: IteratorResult<Event>) => void) | undefined;
+  return {
+    next: () =>
+      new Promise<IteratorResult<Event>>((resolve) => {
+        releaseNext = resolve;
+      }),
+    return: () => {
+      onReturn();
+      releaseNext?.({ done: true, value: undefined });
+      return Promise.resolve({ done: true, value: undefined });
+    },
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+  };
 }

@@ -177,8 +177,21 @@ function raceDetached<A, E, R, A2, E2, R2>(
   other: Effect.Effect<A2, E2, R2>
 ): Effect.Effect<A | A2, E | E2, R | R2> {
   return Effect.forkDetach(effect, { startImmediately: true }).pipe(
-    Effect.flatMap((fiber) => Effect.raceFirst(Fiber.join(fiber), other))
+    Effect.flatMap((fiber) =>
+      Effect.raceFirst(
+        Fiber.join(fiber),
+        other.pipe(Effect.onExit(() => interruptInBackground(fiber)))
+      )
+    )
   );
+}
+
+function interruptInBackground<A, E>(
+  fiber: Fiber.Fiber<A, E>
+): Effect.Effect<void> {
+  return Effect.forkDetach(Fiber.interrupt(fiber), {
+    startImmediately: true,
+  }).pipe(Effect.asVoid);
 }
 
 function timeoutFailure(
