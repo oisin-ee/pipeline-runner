@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, type Scope } from "effect";
 import {
   loadPipelineConfig,
   type PipelineConfig,
@@ -29,6 +29,7 @@ import type {
   RuntimeNodeResult,
   RuntimeStructuredOutput,
 } from "./runtime/contracts";
+import { postgresDurableRunStore } from "./runtime/durable-store/postgres/postgres-store";
 import {
   emitNodeFinish,
   emitNodeOutputRecorded,
@@ -192,28 +193,51 @@ function opencodeSessionReporter(
   };
 }
 
-// PIPE-91.3: db.url presence is the durable-substrate switch.
-// db.url set   → Postgres-bound path; PIPE-91.4 fills this branch with postgresRunJournal.
-// db.url absent → in-memory scheduler, byte-identical to today's default.
-function resolveRunJournal(
-  context: RuntimeContext,
+// PIPE-91.5: db.url presence is the durable-substrate switch, and the one place
+// the switch is made. Acquire the run's journal as a scoped resource:
+//   db.url set + runId → Postgres store hydrated for THIS run's runId; its
+//     terminal node results persist and the run resumes from them. The store
+//     owns a connection pool, so it is released (close()) on scope exit — the
+//     run never leaks connections. close() flushes pending write-through first,
+//     surfacing any persistence failure rather than swallowing it.
+//   db.url absent (or no runId) → no journal: the scheduler runs purely
+//     in-memory, byte-identical to today's default.
+// The journal feeds the existing LocalScheduler.resolveJournal seam (PIPE-91.1),
+// so scheduler.ts is untouched and the scheduler stays synchronous.
+export function acquireRunJournal(
+  runId: string | undefined,
   dbUrl: string | undefined
-): RunJournal | undefined {
-  if (!context.runId) {
-    return;
+): Effect.Effect<RunJournal | undefined, unknown, Scope.Scope> {
+  if (runId === undefined || dbUrl === undefined) {
+    return Effect.succeed(undefined);
   }
-  if (dbUrl !== undefined) {
-    // PIPE-91.4: return postgresRunJournal(dbUrl, context.runId).
-    return;
-  }
-  return;
+  return Effect.acquireRelease(
+    Effect.tryPromise(() => postgresDurableRunStore(dbUrl, runId)),
+    (store) => Effect.promise(() => store.close())
+  ).pipe(Effect.map((store) => store.toRunJournal(runId)));
 }
 
 function runPipelineWithContext(
   context: RuntimeContext,
   dbUrl: string | undefined
 ): Effect.Effect<PipelineRuntimeResult, unknown> {
-  const scheduler: PipelineScheduler = new LocalScheduler({
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const journal = yield* acquireRunJournal(context.runId, dbUrl);
+      const scheduler = buildPipelineScheduler(context, journal);
+      const result = yield* Effect.tryPromise(() =>
+        scheduler.runWorkflow(context.plan, context)
+      );
+      return finishRuntime(context, result);
+    })
+  );
+}
+
+function buildPipelineScheduler(
+  context: RuntimeContext,
+  journal: RunJournal | undefined
+): PipelineScheduler {
+  return new LocalScheduler({
     buildResult: (outcome, nodes, failure) =>
       workflowRuntimeResult(context, outcome, nodes, failure),
     emitWorkflowPlanned: (nextContext) => emitWorkflowPlanned(nextContext),
@@ -223,19 +247,13 @@ function runPipelineWithContext(
     isCancelled: (nextContext) => isCancelled(nextContext),
     markNodeReady: (nodeId, nextContext) =>
       recordNodeEvent(nextContext, nodeId, { at: now(), type: "READY" }),
-    resolveJournal: (nextContext) => resolveRunJournal(nextContext, dbUrl),
+    resolveJournal: () => journal,
     runWorkflowHook: (event, failure, nextContext) =>
       Effect.runPromise(dispatchHooksEffect(nextContext, event, failure)),
     shouldContinueAfterNodeResult: (result, nextContext) =>
       shouldContinueAfterNodeResult(result, nextContext),
     skipNode: (nodeId, reason, nextContext) =>
       recordSkippedNodeState(nextContext, nodeId, reason, now()),
-  });
-  return Effect.gen(function* () {
-    const result = yield* Effect.tryPromise(() =>
-      scheduler.runWorkflow(context.plan, context)
-    );
-    return finishRuntime(context, result);
   });
 }
 

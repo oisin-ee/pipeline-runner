@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import pino from "pino";
@@ -69,10 +70,19 @@ function makeBucket(
 }
 
 async function hydrate(
-  db: DurableDb
+  db: DurableDb,
+  runId: string | undefined
 ): Promise<Map<string, Map<string, DurableNodeRecord>>> {
   const mirror = new Map<string, Map<string, DurableNodeRecord>>();
-  const rows = await db.select().from(durableNodeRecord);
+  const query = db.select().from(durableNodeRecord);
+  // PIPE-91.5: scope hydration to a single run when the cutover resolves one
+  // run via toRunJournal(runId). On the shared cluster Postgres this loads only
+  // that run's records instead of the whole table. Omitting runId (the 91.6/91.7
+  // step CLIs) keeps the full-table hydrate for cross-run reads.
+  const rows =
+    runId === undefined
+      ? await query
+      : await query.where(eq(durableNodeRecord.runId, runId));
   for (const row of rows) {
     makeBucket(mirror, row.runId).set(row.nodeId, {
       criteria: row.criteria,
@@ -116,12 +126,18 @@ async function persist(
     });
 }
 
+/**
+ * Construct the Postgres-backed store. Pass `runId` to hydrate only that run's
+ * records (the PIPE-91.5 cutover, which resolves a single run); omit it for the
+ * full-table hydrate the cross-run step CLIs need.
+ */
 export async function postgresDurableRunStore(
-  dbUrl: string
+  dbUrl: string,
+  runId?: string
 ): Promise<PostgresDurableRunStore> {
   const client = openClient(dbUrl);
   const db = drizzle(client);
-  const mirror = await hydrate(db);
+  const mirror = await hydrate(db, runId);
 
   // Serialized write-through: ordering is preserved (last write wins, mirroring
   // the in-memory overwrite), every write is attempted, and failures are logged
