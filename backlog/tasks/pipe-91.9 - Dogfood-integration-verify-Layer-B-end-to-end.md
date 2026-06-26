@@ -4,12 +4,14 @@ title: Dogfood + integration verify Layer B end-to-end
 status: To Do
 assignee: []
 created_date: '2026-06-26 17:22'
+updated_date: '2026-06-26 18:39'
 labels: []
 dependencies:
   - PIPE-91.5
   - PIPE-91.6
   - PIPE-91.7
   - PIPE-91.8
+  - PIPE-91.12
 references:
   - docs/moka-orchestrator-design.md
 parent_task_id: PIPE-91
@@ -21,7 +23,8 @@ ordinal: 283000
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Workflow: verify (verification, no production code)
-Scope: end-to-end proof of Layer B on real work, via the PUBLISHED package path per the project verification rule (push -> CI version bump -> global package install -> real moka commands), NOT local builds: (a) start a run with db.url set, kill it, 'moka resume' to completion from Postgres; (b) step a run node-by-node via 'moka next node' + submit-result across SEPARATE process invocations. Confirms moka owns the cross-invocation loop on the durable substrate and the debug plug round-trips through the node-execution protocol.
+Scope: end-to-end proof of Layer B on real work, via the PUBLISHED package path per the project verification rule (push -> CI version bump -> global package install -> real moka commands), NOT local builds: (a) start a run with db.url set, kill it, 'moka resume' to completion from Postgres; (b) step a run node-by-node via 'moka next node' + submit-result across SEPARATE process invocations; (c) confirm BOTH stores are durable — the run-journal terminal results AND the run-control manifest/events/node-status survive process death and rehydrate from Postgres. Confirms moka owns the cross-invocation loop on the durable substrate and the debug plug round-trips through the node-execution protocol.
+SHARED CLUSTER DB (locked decision, 2026-06-26): verification runs against the REAL cluster Postgres via db.url — no testcontainer/tunnel. ASSUMES a cluster test DB + credentials exist (epic open question). RISK — shared-state contention: dogfood runs share the cluster DB with other work, so each verification run uses a unique runId namespace (generated prefix or dedicated test schema) to stay isolated on (runId,nodeId).
 Escalation: report Met/Unmet criteria with evidence/blocker.
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -29,7 +32,10 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 <!-- AC:BEGIN -->
 - [ ] #1 Kill + resume completes a real run from Postgres with no node re-run -- Evidence: recorded transcript of the resumed run + node statuses before/after
 - [ ] #2 Node-by-node stepping drives a run to terminal via the CLI across invocations -- Evidence: recorded next-node/submit-result transcript across separate processes
+- [ ] #3 Both stores survive process death: run-journal terminal results AND run-control manifest/events/node-status rehydrate from the cluster Postgres, the dogfood run using a unique runId namespace so it stays isolated on the shared DB -- Evidence: recorded transcript showing run-control status + journal results read back from Postgres after kill, under a dedicated runId prefix
 <!-- AC:END -->
+
+
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
