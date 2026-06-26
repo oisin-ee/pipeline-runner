@@ -62,7 +62,11 @@ import {
   type RuntimeRemediationDependencies,
   remediateFailedNode,
 } from "./runtime/remediation/remediation";
-import { decideNodeRetry, nodeRetryPolicy } from "./runtime/retry";
+import {
+  decideNodeRetry,
+  type NodeRetryDecision,
+  nodeRetryPolicy,
+} from "./runtime/retry";
 import type { RunJournal } from "./runtime/run-journal";
 
 /**
@@ -419,10 +423,18 @@ function dispatchHooksEffect(
 }
 
 const runtimeRemediationDependencies: RuntimeRemediationDependencies = {
-  executeNode,
+  executeNode: executeReadyNode,
   isCancelled,
   snapshotChangedFiles: snapshotChangedFilesEffect,
 };
+
+function executeReadyNode(
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Effect.Effect<RuntimeNodeResult, unknown> {
+  recordNodeEvent(context, node.id, { at: now(), type: "READY" });
+  return executeNode(node, context);
+}
 
 function plannedNodeById(
   context: RuntimeContext,
@@ -879,10 +891,30 @@ function continueAfterRetryCandidate(
       return passed;
     }
     if (remediationRequestsRetry(remediation)) {
+      recordRemediationRetryingNodeEvent(context, node.id, attempt, retry);
       return "retry";
     }
     return yield* scheduleNodeRetry(node, context, retryPolicy, retry, attempt);
   });
+}
+
+function recordRemediationRetryingNodeEvent(
+  context: RuntimeContext,
+  nodeId: string,
+  attempt: number,
+  retry: NodeAttemptRetry
+): void {
+  const retryDecision: NodeRetryDecision = {
+    attempt,
+    delayMs: 0,
+    evidence: retry.evidence,
+    exhausted: false,
+    gate: retry.gate,
+    reason: retry.reason,
+    retryReason: retry.retryReason,
+    scheduled: true,
+  };
+  recordRetryingNodeEvent(context, nodeId, attempt, retry, retryDecision);
 }
 
 function remediationPassedResult(

@@ -1,9 +1,10 @@
 ---
 id: PIPE-92.3
 title: Pin remediation behaviour before extraction
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 22:05'
+updated_date: '2026-06-26 23:26'
 labels: []
 dependencies: []
 references:
@@ -28,13 +29,19 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Focused remediation proof covers self-remediation of a writable node and preserves changed-file gate feedback -- Evidence: test output names the focused case
-- [ ] #2 Focused remediation proof covers coverage/mechanical failures remediating upstream implementation nodes, including no-change ancestor and parallel-child ancestor regressions -- Evidence: test output names the focused cases
-- [ ] #3 Tests use public runtime seams and do not reach into private pipeline-runtime helpers -- Evidence: source inspection
+- [x] #1 Focused remediation proof covers self-remediation of a writable node and preserves changed-file gate feedback -- Evidence: test output names the focused case
+- [x] #2 Focused remediation proof covers coverage/mechanical failures remediating upstream implementation nodes, including no-change ancestor and parallel-child ancestor regressions -- Evidence: test output names the focused cases
+- [x] #3 Tests use public runtime seams and do not reach into private pipeline-runtime helpers -- Evidence: source inspection
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented in commit 49fa907. Renamed existing public-seam remediation tests so -t remediation selects self-remediation, coverage/upstream remediation, no-change ancestor, parallel-child ancestor, builtin prompt, mechanical prompt, and isolated mechanical remediation proof. Proof: bun run test tests/pipeline-runtime.test.ts -t remediation --reporter verbose passed 7 focused cases; tests use runPipelineFromConfig/runScheduledWorkflowTask public seams.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run the feature-implementation workflow in order: research + library-first-development -> inspect existing patterns -> Build Contract -> failing/targeted tests -> implementation -> quality-gate/critique -> verify
-- [ ] #2 Proof commands recorded: bun run test tests/pipeline-runtime.test.ts -- -t remediation && bun run typecheck && bun run check
+- [x] #1 Run the feature-implementation workflow in order: research + library-first-development -> inspect existing patterns -> Build Contract -> failing/targeted tests -> implementation -> quality-gate/critique -> verify
+- [x] #2 Proof commands recorded: bun run test tests/pipeline-runtime.test.ts -- -t remediation && bun run typecheck && bun run check
 <!-- DOD:END -->

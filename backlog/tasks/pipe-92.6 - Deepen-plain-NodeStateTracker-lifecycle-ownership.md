@@ -1,9 +1,10 @@
 ---
 id: PIPE-92.6
 title: Deepen plain NodeStateTracker lifecycle ownership
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 22:06'
+updated_date: '2026-06-26 23:26'
 labels: []
 dependencies:
   - PIPE-92.5
@@ -38,10 +39,10 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 NodeStateTracker owns node status transitions through declarative transition data, not scattered status mutation rules -- Evidence: source inspection and focused tracker tests
-- [ ] #2 Legal sequences for pass, fail, retry, remediation pass, cancel, and skip remain accepted -- Evidence: runtime-node-state-tracker and focused pipeline-runtime tests pass
-- [ ] #3 Illegal transitions identified by PIPE-92.5 are rejected or surfaced through the agreed error/diagnostic path -- Evidence: negative tracker tests
-- [ ] #4 xstate remains absent from package metadata, lockfile, runtime, and tests -- Evidence: runtime-actor-contract-boundary test output
+- [x] #1 NodeStateTracker owns node status transitions through declarative transition data, not scattered status mutation rules -- Evidence: source inspection and focused tracker tests
+- [x] #2 Legal sequences for pass, fail, retry, remediation pass, cancel, and skip remain accepted -- Evidence: runtime-node-state-tracker and focused pipeline-runtime tests pass
+- [x] #3 Illegal transitions identified by PIPE-92.5 are rejected or surfaced through the agreed error/diagnostic path -- Evidence: negative tracker tests
+- [x] #4 xstate remains absent from package metadata, lockfile, runtime, and tests -- Evidence: runtime-actor-contract-boundary test output
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -59,8 +60,14 @@ Use the `docs/runtime-actor-model.md` `Node Execution Event Contract` table as t
 - `SUCCESS_HOOKS_STARTED` remains a declared but currently unproduced event unless a separate producer ticket adds it.
 <!-- SECTION:NOTES:END -->
 
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented after PIPE-92.5. NodeStateTracker now uses declarative nodeExecutionTransitions with allowedFrom/statusAfter/apply data and rejects illegal transitions before mutation. Enforcement exposed and fixed public runtime event-source gaps: remediation synthetic nodes now receive READY and remediation-triggered retries record RETRYING before the next attempt. Proof: bun run test tests/runtime-node-state-tracker.test.ts tests/runtime-actor-contract-boundary.test.ts tests/pipeline-runtime.test.ts passed 76 tests; bun run typecheck passed; bun run check exited 0; bun x ultracite check on touched files passed.
+<!-- SECTION:FINAL_SUMMARY:END -->
+
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run the feature-implementation workflow in order: research + library-first-development -> inspect existing patterns -> Build Contract -> targeted tests -> implementation -> quality-gate/critique -> verify
-- [ ] #2 Proof commands recorded: bun run test tests/runtime-node-state-tracker.test.ts tests/runtime-actor-contract-boundary.test.ts tests/pipeline-runtime.test.ts && bun run typecheck && bun run check
+- [x] #1 Run the feature-implementation workflow in order: research + library-first-development -> inspect existing patterns -> Build Contract -> targeted tests -> implementation -> quality-gate/critique -> verify
+- [x] #2 Proof commands recorded: bun run test tests/runtime-node-state-tracker.test.ts tests/runtime-actor-contract-boundary.test.ts tests/pipeline-runtime.test.ts && bun run typecheck && bun run check
 <!-- DOD:END -->
