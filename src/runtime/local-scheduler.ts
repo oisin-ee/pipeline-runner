@@ -49,7 +49,10 @@ export interface LocalSchedulerOptions {
   skipNode: (nodeId: string, reason: string, context: RuntimeContext) => void;
 }
 
-class LocalSchedulerOptionsService extends Context.Service<LocalSchedulerOptionsService, LocalSchedulerOptions>()("LocalSchedulerOptionsService") {}
+class LocalSchedulerOptionsService extends Context.Service<
+  LocalSchedulerOptionsService,
+  LocalSchedulerOptions
+>()("LocalSchedulerOptionsService") {}
 
 function localSchedulerOptionsLive(options: LocalSchedulerOptions) {
   return Layer.succeed(LocalSchedulerOptionsService, options);

@@ -646,9 +646,7 @@ function stopIteratorEffect(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     yield* requestIteratorReturn(iterator);
-    yield* Effect.tryPromise(() => pump).pipe(
-      Effect.catch(() => Effect.void)
-    );
+    yield* Effect.tryPromise(() => pump).pipe(Effect.catch(() => Effect.void));
   });
 }
 

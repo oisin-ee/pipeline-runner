@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { Effect, Schedule, Semaphore } from "effect";
+import { describe, expect, it } from "vitest";
 
 /**
  * PIPE-83.8: de-risking PoC for the chosen runtime substrate (Effect, per the
@@ -40,8 +40,7 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
         );
         expect(maxActive).toBeLessThanOrEqual(2);
       })
-    )
-  );
+    ));
 
   it("retries a transient failure with exponential jittered backoff", () =>
     runEffect(
@@ -61,8 +60,7 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
         const result = yield* Effect.retry(flaky, policy);
         expect(result).toBe(3);
       })
-    )
-  );
+    ));
 
   it("propagates a typed error channel and recovers it", () =>
     runEffect(
@@ -73,8 +71,7 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
         );
         expect(recovered).toBe("OverBudget");
       })
-    )
-  );
+    ));
 });
 
 function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {

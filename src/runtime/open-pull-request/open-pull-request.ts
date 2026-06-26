@@ -243,9 +243,7 @@ function runGhPrCreate(
 ): Effect.Effect<NodeAttemptResult, never> {
   return executor
     .execute(buildGhPrCreateArgs(prCtx, title), context)
-    .pipe(
-      Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e))))
-    );
+    .pipe(Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e)))));
 }
 
 function handleExistingPr(
@@ -273,9 +271,7 @@ function runGhPrEdit(
 ): Effect.Effect<NodeAttemptResult, never> {
   return executor
     .execute(buildGhPrEditArgs(headBranch, label), context)
-    .pipe(
-      Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e))))
-    );
+    .pipe(Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e)))));
 }
 
 function extractPrTitle(task: string): string {

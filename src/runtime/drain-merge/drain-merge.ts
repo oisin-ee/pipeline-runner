@@ -214,9 +214,7 @@ function checkoutDrainMergeIntegrationBranch(
 ): Effect.Effect<void, unknown> {
   return git.raw(["rev-parse", "--verify", integrationBranch]).pipe(
     Effect.flatMap(() => git.raw(["checkout", integrationBranch])),
-    Effect.catch(() =>
-      git.raw(["checkout", "-b", integrationBranch, baseSha])
-    ),
+    Effect.catch(() => git.raw(["checkout", "-b", integrationBranch, baseSha])),
     Effect.asVoid
   );
 }

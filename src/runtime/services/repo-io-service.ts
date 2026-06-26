@@ -70,7 +70,9 @@ export function runRepoIoSync<A, E>(
   if (exit._tag === "Success") {
     return exit.value;
   }
-  const originalError = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
+  const originalError = Option.getOrUndefined(
+    Cause.findErrorOption(exit.cause)
+  );
   if (originalError) {
     throw originalError;
   }
