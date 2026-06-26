@@ -4,7 +4,7 @@ import {
   type PipelineConfig,
   type PipelineConfigError,
 } from "./config";
-import { loadMokaGlobalConfig } from "./moka-global-config";
+import { loadMokaDbUrl } from "./moka-global-config";
 import { findPlannedNode } from "./planned-node";
 import type { PlannedWorkflowNode } from "./planning/compile";
 import type { RetryReason } from "./runtime/actor-ids";
@@ -93,7 +93,7 @@ export type {
 export function runPipelineFromConfig(
   options: PipelineRuntimeOptions
 ): Promise<PipelineRuntimeResult> {
-  const dbUrl = loadMokaGlobalConfig()?.momokaya?.db?.url;
+  const dbUrl = loadMokaDbUrl();
   return Effect.runPromise(
     withOpencodeRuntime(options, (resolved) =>
       runPipelineWithContext(createRuntimeContext(resolved), dbUrl)
