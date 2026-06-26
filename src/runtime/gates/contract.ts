@@ -57,3 +57,51 @@ export type GateFailureHook = (
   node: PlannedWorkflowNode,
   result: RuntimeGateResult
 ) => Promise<void> | void;
+
+/**
+ * Descriptor that pairs a gate kind with its uniform evaluator. The registry
+ * reduces an array of these into `Record<GateKind, GateEvaluator>`.
+ * Later kinds (structured-claim, llm-judge) add a new descriptor + one entry
+ * in the registry object — no other files change.
+ */
+export interface GateKindModule {
+  readonly evaluate: GateEvaluator;
+  readonly kind: GateKind;
+}
+
+/**
+ * User-defined type guard: narrows a gate to its variant for a generic kind
+ * `K`. A bare `gate.kind === kind` comparison does not narrow the discriminated
+ * union when `kind` is a type parameter, so this guard carries the narrowing
+ * without a type assertion.
+ */
+function hasKind<K extends GateKind>(
+  gate: GateSpec,
+  kind: K
+): gate is Extract<GateSpec, { kind: K }> {
+  return gate.kind === kind;
+}
+
+/**
+ * Binds one gate kind to its narrowly-typed evaluator and adapts it to the
+ * uniform {@link GateEvaluator} shape. The {@link hasKind} guard narrows the
+ * input gate to the kind's variant; it also fails loud if a module is ever
+ * wired to the wrong key, surfacing the bug instead of silently evaluating the
+ * wrong gate.
+ */
+export function forKind<K extends GateKind>(
+  kind: K,
+  evaluate: (
+    gate: Extract<GateSpec, { kind: K }>,
+    input: GateEvaluationInput
+  ) => ReturnType<GateEvaluator>
+): GateEvaluator {
+  return (input) => {
+    if (!hasKind(input.gate, kind)) {
+      throw new Error(
+        `gate registry mismatch: handler '${kind}' received '${input.gate.kind}'`
+      );
+    }
+    return evaluate(input.gate, input);
+  };
+}

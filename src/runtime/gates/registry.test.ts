@@ -9,7 +9,7 @@ import type {
 } from "../contracts";
 import type { GateEvaluationInput, GateKind } from "./contract";
 import { baseGateRuntimeFields, gateNodeStateStore } from "./gate-test-context";
-import { evaluateChangedFilesGate } from "./gates";
+import { evaluateChangedFilesGate } from "./kinds/changed-files/changed-files";
 import { evaluateGate, gateRegistry } from "./registry";
 
 const EXPECTED_KINDS: GateKind[] = [

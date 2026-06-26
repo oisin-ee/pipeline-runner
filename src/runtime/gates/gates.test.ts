@@ -9,7 +9,8 @@ import type {
 } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { baseGateRuntimeFields, gateNodeStateStore } from "./gate-test-context";
-import { acceptanceUnmetCriteria, evaluateChangedFilesGate } from "./gates";
+import { acceptanceUnmetCriteria } from "./kinds/acceptance/acceptance";
+import { evaluateChangedFilesGate } from "./kinds/changed-files/changed-files";
 import { evaluateNodeGates } from "./orchestrator";
 
 function changedFilesContext(
