@@ -1,10 +1,10 @@
 ---
 id: PIPE-91.4
 title: Postgres durable-store impl + migrations
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:21'
-updated_date: '2026-06-26 18:41'
+updated_date: '2026-06-26 20:17'
 labels: []
 dependencies:
   - PIPE-91.1

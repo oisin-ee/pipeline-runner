@@ -1,9 +1,10 @@
 ---
 id: PIPE-91.7
 title: submit-result — feed a RuntimeNodeResult back into the run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:21'
+updated_date: '2026-06-26 20:17'
 labels: []
 dependencies:
   - PIPE-91.2
