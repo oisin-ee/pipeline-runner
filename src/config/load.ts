@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { z } from "zod";
 import {
+  ConfigIoService,
   parseConfigYamlAs,
   runConfigIoSync,
 } from "../runtime/services/config-io-service";
@@ -13,14 +14,63 @@ import {
   RUNNERS_CONFIG_PATH,
 } from "./defaults";
 import {
+  configIssuesFromZodError,
   type PipelineConfig,
   type PipelineConfigParts,
   type PipelineConfigValidationOptions,
   pipelineFileSchema,
   profilesFileSchema,
   runnersFileSchema,
+  validationError,
 } from "./schemas";
 import { validatePipelineConfig } from "./validate";
+
+// PIPE-91.3: structured deprecation diagnostic surfaced when a pipeline.yaml
+// still sets the removed durability block. Never swallowed — see detectLegacyPipelineFields.
+interface PipelineDeprecationDiagnostic {
+  field: string;
+  guidance: string;
+}
+
+type PlainObject = Record<string, unknown>;
+
+function isPlainObject(value: unknown): value is PlainObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Returns a diagnostic for each pipeline.yaml key that has been removed.
+// Must run against the raw parsed YAML object BEFORE strict schema validation.
+function detectLegacyPipelineFields(
+  raw: unknown
+): PipelineDeprecationDiagnostic[] {
+  if (!isPlainObject(raw)) {
+    return [];
+  }
+  const diagnostics: PipelineDeprecationDiagnostic[] = [];
+  if ("durability" in raw) {
+    diagnostics.push({
+      field: "durability",
+      guidance:
+        "Set momokaya.db.url in ~/.config/moka/config.yaml to enable the durable Postgres substrate.",
+    });
+  }
+  return diagnostics;
+}
+
+// Strips legacy fields from the raw YAML object so the strict schema parse succeeds.
+function stripLegacyPipelineFields(
+  raw: unknown,
+  deprecations: PipelineDeprecationDiagnostic[]
+): unknown {
+  if (deprecations.length === 0 || !isPlainObject(raw)) {
+    return raw;
+  }
+  const stripped: PlainObject = { ...raw };
+  for (const { field } of deprecations) {
+    delete stripped[field];
+  }
+  return stripped;
+}
 
 export function loadPipelineConfig(
   projectRoot: string,
@@ -68,14 +118,6 @@ export function parsePipelineConfigYaml(
       runners: RUNNERS_CONFIG_PATH,
     }
   );
-}
-
-// PIPE-83.10: spread the optional durability block only when present, kept as a
-// helper so the assembly in parsePipelineConfigParts stays within complexity.
-function durabilityField(
-  durability: PipelineConfig["durability"]
-): Pick<Partial<PipelineConfig>, "durability"> {
-  return durability ? { durability } : {};
 }
 
 // PIPE-83: thread the opt-in architecture-hardening blocks from pipeline.yaml
@@ -126,6 +168,7 @@ function parsePipelineConfigPartsEffect(
   options: PipelineConfigValidationOptions
 ) {
   return Effect.gen(function* () {
+    const configIo = yield* ConfigIoService;
     const runners = yield* parseConfigYamlAs(
       sources.runners,
       sourcePaths.runners,
@@ -136,15 +179,32 @@ function parsePipelineConfigPartsEffect(
       sourcePaths.profiles,
       profilesFileSchema
     );
-    const pipeline = yield* parseConfigYamlAs(
+    // PIPE-91.3: parse raw YAML first to detect and strip deprecated fields
+    // before strict schema validation, then emit structured deprecation diagnostics.
+    const rawPipelineObj = yield* configIo.parseYaml(
       sources.pipeline,
-      sourcePaths.pipeline,
-      pipelineFileSchema
+      sourcePaths.pipeline
     );
+    const pipelineDeprecations = detectLegacyPipelineFields(rawPipelineObj);
+    for (const diag of pipelineDeprecations) {
+      console.warn(
+        `[pipeline] '${diag.field}' is no longer supported and has been ignored. ${diag.guidance}`
+      );
+    }
+    const strippedPipelineObj = stripLegacyPipelineFields(
+      rawPipelineObj,
+      pipelineDeprecations
+    );
+    const pipelineParsed = pipelineFileSchema.safeParse(strippedPipelineObj);
+    if (!pipelineParsed.success) {
+      return yield* Effect.fail(
+        validationError(configIssuesFromZodError(pipelineParsed.error))
+      );
+    }
+    const pipeline = pipelineParsed.data;
     return validatePipelineConfig(
       {
         default_workflow: pipeline.default_workflow,
-        ...durabilityField(pipeline.durability),
         ...pipe83Fields(pipeline),
         entrypoints: pipeline.entrypoints,
         hooks: pipeline.hooks,

@@ -1,10 +1,10 @@
-import { join } from "node:path";
 import { Effect } from "effect";
 import {
   loadPipelineConfig,
   type PipelineConfig,
   type PipelineConfigError,
 } from "./config";
+import { loadMokaGlobalConfig } from "./moka-global-config";
 import { findPlannedNode } from "./planned-node";
 import type { PlannedWorkflowNode } from "./planning/compile";
 import type { RetryReason } from "./runtime/actor-ids";
@@ -57,7 +57,7 @@ import {
 } from "./runtime/opencode-runtime";
 import { executeParallelNode } from "./runtime/parallel-node";
 import { decideNodeRetry, nodeRetryPolicy } from "./runtime/retry";
-import { fileRunJournal, type RunJournal } from "./runtime/run-journal";
+import type { RunJournal } from "./runtime/run-journal";
 
 /**
  * Top layer of the runtime-options stack (PIPE-74 B3). Extends
@@ -92,9 +92,10 @@ export type {
 export function runPipelineFromConfig(
   options: PipelineRuntimeOptions
 ): Promise<PipelineRuntimeResult> {
+  const dbUrl = loadMokaGlobalConfig()?.momokaya?.db?.url;
   return Effect.runPromise(
     withOpencodeRuntime(options, (resolved) =>
-      runPipelineWithContext(createRuntimeContext(resolved))
+      runPipelineWithContext(createRuntimeContext(resolved), dbUrl)
     )
   );
 }
@@ -191,23 +192,26 @@ function opencodeSessionReporter(
   };
 }
 
-function runJournalPath(context: RuntimeContext, dir: string): string {
-  const base = context.worktreePath ?? process.cwd();
-  return join(base, dir, `${context.runId}.jsonl`);
-}
-
-// PIPE-83.10: build the run's durable journal when durability is enabled and
-// the run has an id; otherwise undefined → the scheduler runs purely in-memory.
-function resolveRunJournal(context: RuntimeContext): RunJournal | undefined {
-  const durability = context.config.durability;
-  if (!(durability?.enabled && context.runId)) {
+// PIPE-91.3: db.url presence is the durable-substrate switch.
+// db.url set   → Postgres-bound path; PIPE-91.4 fills this branch with postgresRunJournal.
+// db.url absent → in-memory scheduler, byte-identical to today's default.
+function resolveRunJournal(
+  context: RuntimeContext,
+  dbUrl: string | undefined
+): RunJournal | undefined {
+  if (!context.runId) {
     return;
   }
-  return fileRunJournal(runJournalPath(context, durability.dir));
+  if (dbUrl !== undefined) {
+    // PIPE-91.4: return postgresRunJournal(dbUrl, context.runId).
+    return;
+  }
+  return;
 }
 
 function runPipelineWithContext(
-  context: RuntimeContext
+  context: RuntimeContext,
+  dbUrl: string | undefined
 ): Effect.Effect<PipelineRuntimeResult, unknown> {
   const scheduler: PipelineScheduler = new LocalScheduler({
     buildResult: (outcome, nodes, failure) =>
@@ -219,7 +223,7 @@ function runPipelineWithContext(
     isCancelled: (nextContext) => isCancelled(nextContext),
     markNodeReady: (nodeId, nextContext) =>
       recordNodeEvent(nextContext, nodeId, { at: now(), type: "READY" }),
-    resolveJournal: (nextContext) => resolveRunJournal(nextContext),
+    resolveJournal: (nextContext) => resolveRunJournal(nextContext, dbUrl),
     runWorkflowHook: (event, failure, nextContext) =>
       Effect.runPromise(dispatchHooksEffect(nextContext, event, failure)),
     shouldContinueAfterNodeResult: (result, nextContext) =>

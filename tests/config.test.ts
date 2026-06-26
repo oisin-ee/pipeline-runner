@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Ajv from "ajv";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import {
   DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST,
@@ -1401,6 +1401,43 @@ workflows:
     expect(error.message).toContain("rules.test-first.path");
     // Skill bodies are install-managed, so a missing one is not a config defect.
     expect(error.message).not.toContain("skills.repo-research.path");
+  });
+
+  describe("PIPE-91.3: legacy durability block deprecation", () => {
+    it("emits a structured deprecation diagnostic and parses successfully when durability block is present", () => {
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      try {
+        const config = parseParts({
+          pipeline: `${VALID_PIPELINE_YAML}\ndurability:\n  enabled: true\n  dir: .pipeline/journal\n`,
+        });
+
+        // Deprecation diagnostic must name the removed field and the replacement.
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining("durability")
+        );
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("db.url"));
+        // The returned config must NOT carry the durability block.
+        expect(config).not.toHaveProperty("durability");
+        // The rest of the config must be valid.
+        expect(config.default_workflow).toBe("default");
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("parses cleanly and emits no warning when no durability block is present", () => {
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      try {
+        parseParts({ pipeline: VALID_PIPELINE_YAML });
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
   });
 });
 

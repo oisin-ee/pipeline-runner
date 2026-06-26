@@ -814,17 +814,6 @@ const parallelWorktreesSchema = z
   .object({ enabled: z.boolean().default(false) })
   .strict();
 
-// PIPE-83.10: opt-in durable crash-resume. When enabled, the scheduler journals
-// each terminal node result to an append-only JSONL log under `dir` keyed by
-// run id; a killed run resumes from the last passed node without re-running (or
-// re-spending tokens on) finished work. Default OFF → pure in-memory behaviour.
-const durabilitySchema = z
-  .object({
-    dir: z.string().min(1).default(".pipeline/journal"),
-    enabled: z.boolean().default(false),
-  })
-  .strict();
-
 // PIPE-83.7: opt-in best-of-N candidate generation. When enabled, a deterministic
 // schedule pass expands each matching agent node (by category-in-id) into a
 // kind:parallel of N candidate children. Default OFF / n=1 so schedules are
@@ -863,7 +852,6 @@ export const pipelineFileSchema = z
     default_workflow: z.string(),
     context_handoff: contextHandoffSchema.optional(),
     delivery: deliverySchema.optional(),
-    durability: durabilitySchema.optional(),
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     orchestrator: orchestratorSchema.optional(),
@@ -909,7 +897,6 @@ const configSchemaBase = z
     task_context: taskContextResolverSchema.optional(),
     context_handoff: contextHandoffSchema.optional(),
     delivery: deliverySchema.optional(),
-    durability: durabilitySchema.optional(),
     parallel_worktrees: parallelWorktreesSchema.optional(),
     repo_map: repoMapSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),

@@ -12,6 +12,10 @@ import { execa } from "execa";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parsePipelineConfigParts } from "../src/config";
 import {
+  loadMokaGlobalConfig,
+  type MokaGlobalConfig,
+} from "../src/moka-global-config";
+import {
   type PipelineRuntimeEvent,
   runPipelineFromConfig,
   runScheduledWorkflowTask,
@@ -20,6 +24,10 @@ import type { RunnerLaunchPlan } from "../src/runner";
 
 vi.mock("execa", () => ({
   execa: vi.fn(),
+}));
+
+vi.mock("../src/moka-global-config", () => ({
+  loadMokaGlobalConfig: vi.fn(() => null),
 }));
 interface GitMock {
   client: {
@@ -85,7 +93,10 @@ const originalPipelineTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
 const CANCEL_PATTERN = /cancel/i;
 const LINE_SPLIT_RE = /\r?\n/;
 
+const mockLoadMokaGlobalConfig = vi.mocked(loadMokaGlobalConfig);
+
 beforeEach(() => {
+  mockLoadMokaGlobalConfig.mockReturnValue(null);
   gitMock.client.add.mockResolvedValue(undefined);
   gitMock.client.addConfig.mockResolvedValue(undefined);
   gitMock.client.commit.mockResolvedValue(undefined);
@@ -3502,5 +3513,57 @@ workflows:
         }),
       ])
     );
+  });
+
+  describe("PIPE-91.3: db.url presence selects journal store", () => {
+    it("runs in-memory when global config has no db.url (absent = in-memory)", async () => {
+      mockLoadMokaGlobalConfig.mockReturnValue(null);
+      const project = tempProject();
+
+      const result = await runPipelineFromConfig({
+        config: baseConfig(),
+        executor: () => ({ exitCode: 0, stdout: "ok" }),
+        task: "db-absent",
+        worktreePath: project,
+      });
+
+      expect(result.outcome).toBe("PASS");
+    });
+
+    it("routes through the Postgres-bound seam when db.url is set (PIPE-91.4 fills)", async () => {
+      const globalConfig: MokaGlobalConfig = {
+        momokaya: {
+          db: { url: "postgres://localhost:5432/pipeline" },
+          kubernetes: { namespace: "test" },
+          submit: {
+            brokerAuth: {
+              secretKey: "api-key",
+              secretName: "s",
+              url: "https://cliproxy.momokaya.ee",
+            },
+            eventAuthSecretKey: "k",
+            eventAuthSecretName: "s",
+            eventUrl: "https://example.test/events",
+            gitCredentialsSecretName: "g",
+            githubAuthSecretName: "g",
+            imagePullSecretName: "i",
+            serviceAccountName: "sa",
+          },
+        },
+      };
+      mockLoadMokaGlobalConfig.mockReturnValue(globalConfig);
+      const project = tempProject();
+
+      // Both branches currently yield in-memory (undefined journal); the explicit
+      // branch structure is the seam PIPE-91.4 fills with postgresRunJournal.
+      const result = await runPipelineFromConfig({
+        config: baseConfig(),
+        executor: () => ({ exitCode: 0, stdout: "ok" }),
+        task: "db-present",
+        worktreePath: project,
+      });
+
+      expect(result.outcome).toBe("PASS");
+    });
   });
 });

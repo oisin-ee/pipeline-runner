@@ -11,6 +11,28 @@ import {
 
 export const MOKA_GLOBAL_CONFIG_PATH = ".config/moka/config.yaml";
 
+// PIPE-91.3: global durable-substrate switch. Presence of db.url enables the
+// Postgres journal; absence keeps the in-memory scheduler (default, back-compat).
+const mokaDbGlobalConfigSchema = z
+  .object({
+    url: z
+      .string()
+      .url()
+      .refine(
+        (value) => {
+          try {
+            return ["postgresql:", "postgres:"].includes(
+              new URL(value).protocol
+            );
+          } catch {
+            return false;
+          }
+        },
+        { message: "db.url must use postgresql or postgres protocol" }
+      ),
+  })
+  .strict();
+
 const mokaSubmitGlobalConfigSchema = z
   .object({
     // CLIProxyAPI broker auth for the runner's codex + opencode. The runner
@@ -38,6 +60,7 @@ export const mokaGlobalConfigSchema = z
   .object({
     momokaya: z
       .object({
+        db: mokaDbGlobalConfigSchema.optional(),
         kubernetes: mokaKubernetesGlobalConfigSchema,
         submit: mokaSubmitGlobalConfigSchema,
       })

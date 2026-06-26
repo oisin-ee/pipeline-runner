@@ -11,10 +11,6 @@ context_handoff:
 # seeded by the node's task + handoff artifacts, within token_budget.
 repo_map:
   enabled: true
-# durability: journal each terminal node result so a killed run resumes from the
-# last passed node without re-running (or re-spending tokens on) finished work.
-durability:
-  enabled: true
 # parallel_worktrees: opt-in git-worktree isolation for parallel child nodes —
 # each parallel child runs on its own branch with its own per-worktree opencode
 # server so concurrent edits and sessions can't collide. OFF by default; enable
