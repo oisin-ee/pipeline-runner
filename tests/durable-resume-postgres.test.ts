@@ -1,16 +1,14 @@
-import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
-import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { acquireRunJournal } from "../src/pipeline-runtime";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
-import { migratePostgresDurableStore } from "../src/runtime/durable-store/postgres/postgres-store";
 import type { RunJournal } from "../src/runtime/run-journal";
 import {
   runWorkflowScheduler,
   type WorkflowScheduleNode,
   type WorkflowSchedulerInput,
 } from "../src/runtime/scheduler";
+import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 
 // PIPE-91.5: kill/resume integration test for the journal cutover against the
 // REAL cluster Postgres (no testcontainer, no tunnel). Set MOKA_PG_TEST_URL to
@@ -108,25 +106,7 @@ describe("acquireRunJournal selection (no infra)", () => {
 
 describePg("durable run-journal cutover (live cluster PG)", () => {
   const dbUrl = PG_URL;
-  // Namespace every runId under a unique per-suite prefix so concurrent workers
-  // and prior runs never collide, and cleanup is a single prefix-scoped delete.
-  const suitePrefix = `pgcutover-${randomUUID()}`;
-  let admin: postgres.Sql;
-
-  function runId(label: string): string {
-    return `${suitePrefix}:${label}:${randomUUID()}`;
-  }
-
-  beforeAll(async () => {
-    await migratePostgresDurableStore(dbUrl);
-    admin = postgres(dbUrl, { max: 1 });
-  });
-
-  afterAll(async () => {
-    await admin`delete from moka_durable_node_record where run_id like ${`${suitePrefix}%`}`;
-    await admin`delete from moka_durable_run where run_id like ${`${suitePrefix}%`}`;
-    await admin.end();
-  });
+  const { runId } = setupLivePgDurableSuite(dbUrl, "pgcutover");
 
   it("resumes a killed run from Postgres without re-running the finished node (AC1)", async () => {
     const id = runId("kill-resume");

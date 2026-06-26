@@ -101,6 +101,34 @@ export function runPipelineFromConfig(
   );
 }
 
+/**
+ * PIPE-91.8: cross-invocation resume. Continue an EXISTING `runId` through the
+ * identical scheduler path that {@link runPipelineFromConfig} drives, seeded from
+ * the durable Postgres journal (PIPE-91.5): already-passed nodes are replayed
+ * from the store and never re-run; only unfinished nodes execute under the
+ * default spawn-and-run executor. The durable substrate `dbUrl` is supplied by
+ * the caller (the run-control CLI resolves it via `loadMokaDbUrl`) so this
+ * entrypoint stays a pure function of its inputs and is testable against the real
+ * cluster Postgres. Resume requires both a durable store and persisted state for
+ * the run; a run with neither is not resumable and {@link requireResumableRun}
+ * rejects it.
+ */
+export interface ResumeRunOptions extends PipelineRuntimeOptions {
+  dbUrl: string | undefined;
+  runId: string;
+}
+
+export function resumeRun(
+  options: ResumeRunOptions
+): Promise<PipelineRuntimeResult> {
+  const { dbUrl, ...runtimeOptions } = options;
+  return Effect.runPromise(
+    withOpencodeRuntime(runtimeOptions, (resolved) =>
+      resumeRunWithContext(createRuntimeContext(resolved), dbUrl)
+    )
+  );
+}
+
 export function runScheduledWorkflowTask(
   options: ScheduledWorkflowTaskRuntimeOptions
 ): Promise<RuntimeNodeResult> {
@@ -231,6 +259,49 @@ function runPipelineWithContext(
       return finishRuntime(context, result);
     })
   );
+}
+
+// PIPE-91.8: the resume twin of runPipelineWithContext. It acquires the same
+// scoped runId journal and drives the same scheduler, but FIRST asserts the run
+// is resumable: a missing journal (no db.url) or an empty resume seed (unknown
+// runId, or a run with no persisted node results) is rejected with a clear error
+// rather than silently starting a brand-new run under that id.
+function resumeRunWithContext(
+  context: RuntimeContext,
+  dbUrl: string | undefined
+): Effect.Effect<PipelineRuntimeResult, unknown> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const journal = yield* acquireRunJournal(context.runId, dbUrl);
+      yield* requireResumableRun(context.runId, journal);
+      const scheduler = buildPipelineScheduler(context, journal);
+      const result = yield* Effect.tryPromise(() =>
+        scheduler.runWorkflow(context.plan, context)
+      );
+      return finishRuntime(context, result);
+    })
+  );
+}
+
+function requireResumableRun(
+  runId: string | undefined,
+  journal: RunJournal | undefined
+): Effect.Effect<void, Error> {
+  if (journal === undefined) {
+    return Effect.fail(
+      new Error(
+        `Cannot resume run '${runId ?? "<unknown>"}': no durable store is configured (set momokaya.db.url).`
+      )
+    );
+  }
+  if (journal.resumeCompleted().length === 0) {
+    return Effect.fail(
+      new Error(
+        `Cannot resume run '${runId}': no persisted node results were found in the durable store.`
+      )
+    );
+  }
+  return Effect.void;
 }
 
 function buildPipelineScheduler(

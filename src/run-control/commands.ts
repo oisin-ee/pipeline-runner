@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { Command } from "commander";
 import { Effect } from "effect";
 import { loadMokaDbUrl } from "../moka-global-config";
+import { resumeRun } from "../pipeline-runtime";
 import type {
   MokaNodeStatus,
   MokaRunManifest,
@@ -166,6 +167,62 @@ export function registerRunControlCommands(program: Command): void {
   // persist a node's terminal result into the durable run store. A distinct
   // top-level command; `moka submit` already exists for job submission.
   registerSubmitResultSubcommand(program);
+
+  // PIPE-91.8: `moka resume <run-id> <description...>` — rehydrate a persisted
+  // run's state from the durable Postgres store and CONTINUE it with the default
+  // spawn-and-run executor. Already-passed nodes replay from the journal and are
+  // never re-run (the PIPE-91.5 resumeCompleted seed). The task description and
+  // workflow selection are re-supplied because they are not persisted in the
+  // durable node store; the run id is the durable key.
+  registerResumeSubcommand(program);
+}
+
+interface ResumeFlags {
+  entrypoint?: string;
+  workflow?: string;
+}
+
+function registerResumeSubcommand(program: Command): void {
+  program
+    .command("resume")
+    .description(
+      "Rehydrate a persisted run from the durable store and continue it"
+    )
+    .argument("<run-id>", "the persisted run id to resume")
+    .argument("<description...>", "task description for the remaining nodes")
+    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
+    .option("--workflow <workflow>", "workflow id from package config")
+    .action(
+      async (runId: string, descriptionParts: string[], flags: ResumeFlags) => {
+        await resumeRunFromCli(runId, descriptionParts.join(" "), flags);
+      }
+    );
+}
+
+async function resumeRunFromCli(
+  runId: string,
+  task: string,
+  flags: ResumeFlags
+): Promise<void> {
+  try {
+    const result = await resumeRun({
+      dbUrl: loadMokaDbUrl(),
+      ...(flags.entrypoint ? { entrypoint: flags.entrypoint } : {}),
+      runId,
+      task,
+      worktreePath: workspaceRoot(),
+      ...(flags.workflow ? { workflow: flags.workflow } : {}),
+    });
+    console.log(`Resumed run ${runId}: ${result.outcome}.`);
+    if (result.outcome !== "PASS") {
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    process.stderr.write(
+      `Failed to resume run ${runId}: ${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  }
 }
 
 /**
