@@ -1,9 +1,10 @@
 ---
 id: PIPE-90
 title: moka ticket completion gate (Layer A)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:24'
+updated_date: '2026-06-26 17:30'
 labels:
   - epic
 dependencies: []

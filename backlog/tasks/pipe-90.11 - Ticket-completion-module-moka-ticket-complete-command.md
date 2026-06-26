@@ -1,9 +1,10 @@
 ---
 id: PIPE-90.11
 title: Ticket completion module + moka ticket complete command
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:48'
+updated_date: '2026-06-26 17:30'
 labels: []
 dependencies:
   - PIPE-90.10
