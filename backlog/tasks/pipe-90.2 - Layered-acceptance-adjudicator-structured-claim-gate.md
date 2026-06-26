@@ -1,10 +1,10 @@
 ---
 id: PIPE-90.2
 title: Gate registry seam (switch to data-driven dispatch)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:26'
-updated_date: '2026-06-26 14:46'
+updated_date: '2026-06-26 16:17'
 labels: []
 dependencies:
   - PIPE-90.1
