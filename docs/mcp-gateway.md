@@ -96,12 +96,12 @@ package-owned runtime projection: `lsp: true`, pinned plugin entries, generated
 agents, projected skills, explicit permissions, and local TypeScript plugins.
 `moka init` merges this OpenCode project config:
 existing repo-local plugin entries are preserved while missing package defaults
-such as `oc-codex-multi-auth` are appended. Existing `mcp.pipeline-gateway`
-settings are also preserved; use `moka mcp gateway configure-host` when the
-host MCP config must be deliberately rewritten. Restart OpenCode after config
-changes because it loads config at startup. These resources give OpenCode richer
-runtime assistance without changing MCP ownership: upstream servers still live
-behind the gateway.
+such as telemetry and goal-context plugins are appended. Existing
+`mcp.pipeline-gateway` settings are also preserved; use
+`moka mcp gateway configure-host` when the host MCP config must be deliberately
+rewritten. Restart OpenCode after config changes because it loads config at
+startup. These resources give OpenCode richer runtime assistance without
+changing MCP ownership: upstream servers still live behind the gateway.
 
 ## Candidate Gateway Implementations
 

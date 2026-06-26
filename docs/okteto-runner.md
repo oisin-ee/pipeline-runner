@@ -35,7 +35,7 @@ Deployment.
 Required namespace secrets and credentials in `momokaya-pipeline`:
 
 - `ghcr-pull-secret` for pulling the private runner image.
-- `opencode-auth-1` with `auth.json`, mounted at `/root/.local/share/opencode/auth.json`.
+- `broker-api-key` with `api-key`, exposed as `BROKER_API_KEY`.
 - `oisin-bot-git-credentials` with `username`, `password`, `identity`, and `known_hosts`, mounted at `/etc/pipeline/git-credentials`.
 - `oisin-bot-github-auth` with `hosts.yml`, mounted at `/root/.config/gh/hosts.yml`.
 

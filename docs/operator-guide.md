@@ -224,7 +224,10 @@ momokaya:
     gitCredentialsSecretName: <git-credentials-secret-name>
     githubAuthSecretName: <github-auth-secret-name>
     imagePullSecretName: <image-pull-secret-name>
-    opencodeAuthSecretName: <opencode-auth-secret-name>
+    brokerAuth:
+      secretName: <broker-api-key-secret-name>
+      secretKey: api-key
+      url: https://cliproxy.momokaya.ee
     serviceAccountName: <runner-service-account-name>
 ```
 
@@ -309,8 +312,8 @@ Secret volume at the path configured in `events.authTokenFile`.
 Expected namespace resources:
 
 - The ServiceAccount named by `submit.serviceAccountName` with the required RBAC
-- The OpenCode auth Secret named by `submit.opencodeAuthSecretName` with key
-  `auth.json`
+- The broker API key Secret named by `submit.brokerAuth.secretName` with the key
+  named by `submit.brokerAuth.secretKey`
 - The event auth Secret named by `submit.eventAuthSecretName` with the key named
   by `submit.eventAuthSecretKey`
 - The git credentials Secret named by `submit.gitCredentialsSecretName` using
@@ -467,8 +470,8 @@ moka mcp gateway local-start
 
 `moka init` writes generated command surfaces and merges the singleton gateway
 server into project host config. For OpenCode, existing repo-local plugin entries
-are preserved while missing package defaults such as `oc-codex-multi-auth` are
-appended, and an existing `mcp.pipeline-gateway` entry is preserved. Use
+are preserved while missing package defaults such as telemetry and goal-context
+plugins are appended, and an existing `mcp.pipeline-gateway` entry is preserved. Use
 `moka mcp gateway configure-host` as an explicit migration or repair command
 when direct upstream MCP entries need to be removed from existing host config
 with a backup. The hosted gateway requires `PIPELINE_MCP_GATEWAY_AUTHORIZATION`
