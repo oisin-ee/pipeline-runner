@@ -1,9 +1,10 @@
 ---
 id: PIPE-90.10
 title: Layered acceptance adjudicator module
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 14:48'
+updated_date: '2026-06-26 17:13'
 labels: []
 dependencies:
   - PIPE-90.7
