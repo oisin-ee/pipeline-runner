@@ -8,11 +8,9 @@ import type {
   RuntimeContext,
 } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
-import {
-  acceptanceUnmetCriteria,
-  evaluateChangedFilesGate,
-  evaluateNodeGates,
-} from "./gates";
+import { baseGateRuntimeFields, gateNodeStateStore } from "./gate-test-context";
+import { acceptanceUnmetCriteria, evaluateChangedFilesGate } from "./gates";
+import { evaluateNodeGates } from "./orchestrator";
 
 function changedFilesContext(
   files: string[]
@@ -32,7 +30,7 @@ function directGateRuntimeContext(
   reporterEvents: PipelineRuntimeEvent[]
 ): RuntimeContext {
   return {
-    agentInvocations: [],
+    ...baseGateRuntimeFields(),
     config: {
       default_workflow: "direct-gates",
       hooks: { functions: {}, on: {} },
@@ -41,29 +39,7 @@ function directGateRuntimeContext(
       version: 1,
       workflows: { "direct-gates": { nodes: [] } },
     } as unknown as RuntimeContext["config"],
-    executor: async () => ({ exitCode: 0, stdout: "" }),
-    gates: [],
-    hookFailures: [],
-    hookPolicy: {
-      allowCommandHooks: true,
-      allowUntrustedCommandHooks: true,
-      env: {},
-      envPassthrough: [],
-      outputLimitBytes: 1024,
-      timeoutMs: 1000,
-    },
-    hookResults: new Map(),
-    nodeStateStore: new NodeStateStore({
-      nodeSnapshots: new Map([
-        [
-          node.id,
-          {
-            files: new Set(["README.md"]),
-            fingerprints: new Map(),
-          },
-        ],
-      ]),
-    }),
+    nodeStateStore: gateNodeStateStore(node.id, ["README.md"]),
     observability: (event) => observability.push(event),
     plan: {
       execution: { failFast: true },
