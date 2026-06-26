@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { registerCompleteSubcommand } from "./ticket/complete";
 import { registerCreateSubcommand } from "./ticket/create";
 import { registerGraphCheckSubcommand } from "./ticket/graph-check";
 import { registerNextSubcommand } from "./ticket/next";
@@ -19,6 +20,7 @@ const SUBCOMMAND_REGISTRARS: readonly SubcommandRegistrar[] = [
   registerNextSubcommand,
   registerStartSubcommand,
   registerCreateSubcommand,
+  registerCompleteSubcommand,
 ];
 
 export function registerTicketCommand(
