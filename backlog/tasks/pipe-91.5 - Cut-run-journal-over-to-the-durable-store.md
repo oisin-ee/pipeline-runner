@@ -1,10 +1,10 @@
 ---
 id: PIPE-91.5
 title: Cut run-journal over to the durable store
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 17:21'
-updated_date: '2026-06-26 18:38'
+updated_date: '2026-06-26 20:34'
 labels: []
 dependencies:
   - PIPE-91.1

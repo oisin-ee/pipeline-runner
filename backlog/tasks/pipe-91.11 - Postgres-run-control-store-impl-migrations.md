@@ -1,9 +1,10 @@
 ---
 id: PIPE-91.11
 title: Postgres run-control store impl + migrations
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-26 18:39'
+updated_date: '2026-06-26 20:34'
 labels: []
 dependencies:
   - PIPE-91.10
