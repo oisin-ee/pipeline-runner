@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import pino from "pino";
 import postgres from "postgres";
+import { createSerializedWriteQueue } from "../../../serialized-write-queue";
 import type { RunJournal } from "../../run-journal";
 import type { DurableNodeRecord, DurableRunStore } from "../durable-store";
 import { durableNodeRecord, durableRun } from "./schema";
@@ -142,7 +143,7 @@ export async function postgresDurableRunStore(
   // Serialized write-through: ordering is preserved (last write wins, mirroring
   // the in-memory overwrite), every write is attempted, and failures are logged
   // and collected so `flush` can surface them instead of swallowing them.
-  let writeChain: Promise<void> = Promise.resolve();
+  const writes = createSerializedWriteQueue();
   const writeErrors: unknown[] = [];
 
   function enqueueWrite(
@@ -150,7 +151,7 @@ export async function postgresDurableRunStore(
     nodeId: string,
     record: DurableNodeRecord
   ): void {
-    writeChain = writeChain.then(async () => {
+    writes.enqueue(async () => {
       try {
         await persist(db, runId, nodeId, record);
       } catch (error) {
@@ -174,7 +175,7 @@ export async function postgresDurableRunStore(
   }
 
   async function flush(): Promise<void> {
-    await writeChain;
+    await writes.flush();
     const failure = writeErrors[0];
     if (failure !== undefined) {
       throw failure instanceof Error ? failure : new Error(String(failure));

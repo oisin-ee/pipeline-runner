@@ -6,6 +6,7 @@ import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
 } from "../pipeline-runtime";
+import { createSerializedWriteQueue } from "../serialized-write-queue";
 import type { MokaNodeStatus, MokaRunStatus } from "./contracts";
 import { fileRunControlStore, type RunControlStore } from "./run-control-store";
 import { withRunStateLock } from "./run-state-lock";
@@ -58,7 +59,7 @@ function createRunStoreRuntimeReporterRuntime(
   const store = input.store ?? fileRunControlStore(input.workspaceRoot);
   const observedNodeStatuses = new Map<string, MokaNodeStatus>();
   const activeHookPreviousStatuses = new Map<string, MokaNodeStatus>();
-  let writeChain: Promise<void> = Promise.resolve();
+  const writes = createSerializedWriteQueue();
 
   const enqueue = (event: PipelineRuntimeEvent): void => {
     const projection = projectRuntimeEvent(event, {
@@ -77,7 +78,7 @@ function createRunStoreRuntimeReporterRuntime(
       projection,
       now
     ).pipe(Effect.catchAll((error) => warnPersistSkipped(input, event, error)));
-    writeChain = writeChain.then(() =>
+    writes.enqueue(() =>
       // Serialize against the builtin run-state hide window: persistence writes
       // under .pipeline/runs/<id>/, which a concurrent lint/fallow builtin
       // temporarily relocates. The lock keeps the two mutually exclusive so a
@@ -89,7 +90,7 @@ function createRunStoreRuntimeReporterRuntime(
   const flushEffect = (): Effect.Effect<void, unknown> =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => writeChain,
+      try: () => writes.flush(),
     });
 
   return {

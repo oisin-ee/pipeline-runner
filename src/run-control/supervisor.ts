@@ -4,6 +4,7 @@ import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
 } from "../pipeline-runtime";
+import { createSerializedWriteQueue } from "../serialized-write-queue";
 import {
   DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS,
   DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS,
@@ -92,22 +93,22 @@ function createRunControlSupervisorRuntime(
     workspaceRoot: input.workspaceRoot,
   });
   const nodeActivity = new Map<string, NodeActivity>();
-  let controlWriteChain: Promise<void> = Promise.resolve();
+  const controlWrites = createSerializedWriteQueue();
   let heartbeatTimer: TimerHandle | undefined;
   let runActive = false;
   let stopped = false;
 
-  const controlWriteChainEffect = (): Effect.Effect<void, unknown> =>
+  const flushControlWritesEffect = (): Effect.Effect<void, unknown> =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => controlWriteChain,
+      try: () => controlWrites.flush(),
     });
 
   const enqueueControlWriteEffect = (
     write: Effect.Effect<void, unknown>
   ): Effect.Effect<void> =>
     Effect.sync(() => {
-      controlWriteChain = controlWriteChain.then(() =>
+      controlWrites.enqueue(() =>
         Effect.runPromise(bridge.flushEffect().pipe(Effect.zipRight(write)))
       );
     });
@@ -271,13 +272,13 @@ function createRunControlSupervisorRuntime(
       }
       yield* clearAllNodesEffect();
       yield* bridge.flushEffect();
-      yield* controlWriteChainEffect();
+      yield* flushControlWritesEffect();
     });
 
   const flushEffect = (): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
       yield* bridge.flushEffect();
-      yield* controlWriteChainEffect();
+      yield* flushControlWritesEffect();
     });
 
   return {
