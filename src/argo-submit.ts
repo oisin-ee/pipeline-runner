@@ -63,7 +63,7 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1),
-    brokerAuth: brokerAuthOptionSchema.optional(),
+    brokerAuth: brokerAuthOptionSchema,
     payloadJson: z.string().min(1),
     scheduleYaml: z.string().min(1),
     serviceAccountName: z.string().min(1).optional(),

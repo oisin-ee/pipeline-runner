@@ -102,6 +102,7 @@ function mokaCommonSubmitOptions(input: {
 }): MokaSubmitCommonOptions {
   const momokaya = input.globalConfig?.momokaya;
   return {
+    brokerAuth: resolveMokaBrokerAuth(input.globalConfig),
     config: input.config,
     delivery: { pullRequest: input.flags.openPr === true },
     eventUrl: input.eventUrl,
@@ -117,11 +118,20 @@ function mokaCommonSubmitOptions(input: {
     kubeconfigPath: input.flags.kubeconfig ?? momokaya?.kubernetes.kubeconfig,
     name: input.flags.name,
     namespace: input.flags.namespace ?? momokaya?.kubernetes.namespace,
-    brokerAuth: momokaya?.submit.brokerAuth,
     serviceAccountName:
       input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
     worktreePath: input.cwd,
   };
+}
+
+function resolveMokaBrokerAuth(
+  globalConfig: MokaGlobalConfig | null | undefined
+): MokaSubmitCommonOptions["brokerAuth"] {
+  const brokerAuth = globalConfig?.momokaya.submit.brokerAuth;
+  if (!brokerAuth) {
+    throw new Error("momokaya.submit.brokerAuth is required for remote submit");
+  }
+  return brokerAuth;
 }
 
 function submitMokaCommandInput(

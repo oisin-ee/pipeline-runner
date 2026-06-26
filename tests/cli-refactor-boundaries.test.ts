@@ -14,6 +14,26 @@ import {
 } from "../src/cli/submit-options";
 import { loadPackagePipelineConfig } from "../src/config";
 
+const GLOBAL_CONFIG = {
+  momokaya: {
+    kubernetes: { namespace: "test-runners" },
+    submit: {
+      brokerAuth: {
+        secretKey: "api-key",
+        secretName: "broker-api-key",
+        url: "https://cliproxy.momokaya.ee",
+      },
+      eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
+      eventAuthSecretName: "event-auth-secret",
+      eventUrl: "https://console.example/api/pipeline/runner-events",
+      gitCredentialsSecretName: "git-credentials-secret",
+      githubAuthSecretName: "github-auth-secret",
+      imagePullSecretName: "image-pull-secret",
+      serviceAccountName: "runner",
+    },
+  },
+};
+
 describe("PIPE-65 CLI refactor boundaries", () => {
   it("exposes runtime formatting helpers from src/cli/format", () => {
     expect(formatRuntimeProgressMessage).toEqual(expect.any(Function));
@@ -34,6 +54,7 @@ describe("PIPE-65 CLI refactor boundaries", () => {
       config,
       cwd: "/repo",
       flags: { openPr: true },
+      globalConfig: GLOBAL_CONFIG,
       input: ["do a thing"],
     });
     expect(withPr.delivery).toEqual({ pullRequest: true });
@@ -42,6 +63,7 @@ describe("PIPE-65 CLI refactor boundaries", () => {
       config,
       cwd: "/repo",
       flags: {},
+      globalConfig: GLOBAL_CONFIG,
       input: ["do a thing"],
     });
     expect(withoutPr.delivery).toEqual({ pullRequest: false });

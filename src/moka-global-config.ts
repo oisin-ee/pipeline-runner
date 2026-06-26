@@ -16,7 +16,7 @@ const mokaSubmitGlobalConfigSchema = z
     // CLIProxyAPI broker auth for the runner's codex + opencode. The runner
     // authenticates through the broker; the broker owns OAuth refresh / rotation
     // / failover, so there is no bespoke per-tool auth mount.
-    brokerAuth: brokerAuthOptionSchema.optional(),
+    brokerAuth: brokerAuthOptionSchema,
     eventAuthSecretKey: z.string().min(1),
     eventAuthSecretName: z.string().min(1),
     eventUrl: z.string().url(),

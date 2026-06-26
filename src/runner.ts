@@ -88,6 +88,7 @@ export interface RunnerLaunchPlan {
   command: string;
   cwd: string;
   env: Record<string, string | undefined>;
+  idleTimeoutMs?: number;
   model?: string;
   nodeId: string;
   outputFormat: string;
@@ -352,11 +353,13 @@ function createActorLaunchPlan(
 
   const command = runner.command ?? runner.type;
   const timeoutMs = actor?.timeout_ms ?? agentTimeoutMsFromEnv();
+  const idleTimeoutMs = agentIdleTimeoutMsFromEnv();
   const env: Record<string, string | undefined> = {};
   const { model, variant } = resolveLaunchModel(input, actor, runner);
   const base = {
     cwd: input.worktreePath,
     env,
+    idleTimeoutMs,
     model,
     nodeId: input.nodeId,
     outputFormat,
@@ -401,9 +404,9 @@ function createActorLaunchPlan(
 
 /**
  * Reasoning effort applies as the opencode model variant, but only the GPT-5
- * family (openai provider, via oc-codex-multi-auth) defines variants. For any
- * other selected fallback model, omit the variant so opencode does not reject
- * an unknown variant.
+ * family (openai provider through broker auth) defines variants. For any other
+ * selected fallback model, omit the variant so opencode does not reject an
+ * unknown variant.
  */
 function resolveVariant(
   effort: ReasoningEffort | undefined,
@@ -525,6 +528,20 @@ function agentTimeoutMsFromEnv(): number | undefined {
   const raw = process.env.PIPELINE_AGENT_TIMEOUT_MS;
   if (!raw) {
     return;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+// Default-on idle (inactivity) budget for opencode sessions. Unset env keeps the
+// 180s default; an explicit `0` (or invalid) disables the idle watchdog and
+// leaves only the wall-clock PIPELINE_AGENT_TIMEOUT_MS backstop.
+const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 180_000;
+
+function agentIdleTimeoutMsFromEnv(): number | undefined {
+  const raw = process.env.PIPELINE_AGENT_IDLE_TIMEOUT_MS;
+  if (raw === undefined) {
+    return DEFAULT_AGENT_IDLE_TIMEOUT_MS;
   }
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;

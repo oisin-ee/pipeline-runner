@@ -115,12 +115,14 @@ describe("Okteto runner recipe", () => {
       ])
     );
 
-    // All four runner secrets + their mount paths.
-    expect(manifestYaml).toContain("opencode-auth-1");
+    // Runner secrets + their auth/env and mount paths.
+    expect(manifestYaml).toContain("broker-api-key");
+    expect(manifestYaml).toContain("BROKER_API_KEY");
     expect(manifestYaml).toContain("oisin-bot-git-credentials");
     expect(manifestYaml).toContain("oisin-bot-github-auth");
     expect(manifestYaml).toContain("ghcr-pull-secret");
-    expect(manifestYaml).toContain("/root/.local/share/opencode/auth.json");
+    expect(manifestYaml).not.toContain("opencode-auth-1");
+    expect(manifestYaml).not.toContain("/root/.local/share/opencode/auth.json");
     expect(manifestYaml).toContain("/etc/pipeline/git-credentials");
     expect(manifestYaml).toContain("/root/.config/gh/hosts.yml");
     expect(manifestYaml).toContain("/workspace/oisin-pipeline");

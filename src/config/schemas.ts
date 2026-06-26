@@ -5,8 +5,8 @@ export const ID_RE = /^[a-z][a-z0-9-]*$/;
 
 // Reasoning effort is carried as data on the role (node/profile/runner) and
 // applied at runtime as the opencode model variant for the selected model,
-// rather than baked into synthetic per-effort model ids. Mirrors the variant
-// levels the oc-codex-multi-auth plugin exposes for the GPT-5 family.
+// rather than baked into synthetic per-effort model ids. Mirrors the OpenCode
+// GPT-5 reasoning variant levels registered for broker-backed OpenAI models.
 const reasoningEffortSchema = z.enum([
   "none",
   "low",

@@ -41,8 +41,8 @@ export interface SyncLocalCodexAuthResult {
  * Point each local dev repo's opencode openai provider at the central
  * CLIProxyAPI broker. codex + opencode authenticate through the broker
  * (which owns OAuth refresh / rotation / failover), so there is no per-project
- * multi-auth account pool to declare. Requires BROKER_API_KEY in the env (or an
- * explicit `broker` override).
+ * account pool to declare. Requires BROKER_API_KEY in the env (or an explicit
+ * `broker` override).
  */
 export function syncLocalCodexAuth(
   options: SyncLocalCodexAuthOptions

@@ -59,9 +59,10 @@ export const brokerAuthOptionSchema = z
 export type BrokerAuthOption = z.input<typeof brokerAuthOptionSchema>;
 
 /**
- * Resolve broker credentials from the environment, or `undefined` when the
- * runner is not broker-authenticated (local dev, non-broker fallback). The
- * `BROKER_URL` env is optional and defaults to the production broker origin.
+ * Resolve broker credentials from the environment, or `undefined` when a
+ * non-runner caller has not supplied broker auth. Remote runner manifests always
+ * inject BROKER_API_KEY. The `BROKER_URL` env is optional and defaults to the
+ * production broker origin.
  */
 export function resolveBrokerCredentials(
   env: NodeJS.ProcessEnv = process.env

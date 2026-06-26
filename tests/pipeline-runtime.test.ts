@@ -1147,6 +1147,29 @@ workflows:
     });
   });
 
+  it("skips output gates on an infra exit and preserves EXIT_INFRA so the node stays retryable", async () => {
+    const { config, project } = structuredVerdictSchemaProject({
+      repairEnabled: false,
+    });
+
+    // The agent timed out / stalled: infra exit (70) with empty output. The
+    // json_schema gate must NOT run on that empty output (which would launder the
+    // retryable infra exit into a terminal gate failure).
+    const result = await runPipelineFromConfig({
+      config,
+      executor: () => ({ exitCode: 70, stdout: "" }),
+      task: "schema",
+      workflowId: "structured-flow",
+      worktreePath: project,
+    });
+
+    const node = result.nodes.find((entry) => entry.nodeId === "structured");
+    expect(node).toMatchObject({ exitCode: 70, status: "failed" });
+    expect(
+      result.gates.find((gate) => gate.kind === "json_schema")
+    ).toBeUndefined();
+  });
+
   it("validates package standard implementation output without repo-local schema files", async () => {
     const project = tempProject();
     const config = baseConfig(`

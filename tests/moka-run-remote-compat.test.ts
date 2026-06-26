@@ -13,7 +13,25 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/moka-global-config", () => ({
-  loadMokaGlobalConfig: vi.fn(() => null),
+  loadMokaGlobalConfig: vi.fn(() => ({
+    momokaya: {
+      kubernetes: { namespace: "test-runners" },
+      submit: {
+        brokerAuth: {
+          secretKey: "api-key",
+          secretName: "broker-api-key",
+          url: "https://cliproxy.momokaya.ee",
+        },
+        eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
+        eventAuthSecretName: "event-auth-secret",
+        eventUrl: "https://console.example/api/pipeline/runner-events",
+        gitCredentialsSecretName: "git-credentials-secret",
+        githubAuthSecretName: "github-auth-secret",
+        imagePullSecretName: "image-pull-secret",
+        serviceAccountName: "runner",
+      },
+    },
+  })),
 }));
 
 vi.mock("../src/moka-submit", () => ({

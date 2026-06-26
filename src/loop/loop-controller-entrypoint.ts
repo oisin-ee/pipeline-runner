@@ -30,6 +30,8 @@ export interface LoopControllerEntrypointOptions {
 
 /** Pod-provided submission secret names the controller needs to spawn children. */
 interface ControllerSecretEnv {
+  readonly brokerSecretKey: string;
+  readonly brokerSecretName: string;
   readonly gitCredentialsSecretName: string;
   readonly githubAuthSecretName?: string;
   readonly serviceAccountName?: string;
@@ -66,6 +68,11 @@ function buildContext(input: {
   const { payload } = input;
   return {
     baseBranch: payload.repository.baseBranch,
+    brokerAuth: {
+      secretKey: input.secrets.brokerSecretKey,
+      secretName: input.secrets.brokerSecretName,
+      url: requireEnv(process.env, "BROKER_URL"),
+    },
     config: input.config,
     eventAuthHeader: payload.events.authHeader,
     eventAuthToken: resolveRunnerEventSinkAuthToken({
@@ -93,6 +100,8 @@ const DEFAULT_MAX_REMEDIATION_ATTEMPTS = 2;
 
 function requireSecretEnv(env: NodeJS.ProcessEnv): ControllerSecretEnv {
   return {
+    brokerSecretKey: requireEnv(env, "PIPELINE_BROKER_SECRET_KEY"),
+    brokerSecretName: requireEnv(env, "PIPELINE_BROKER_SECRET_NAME"),
     gitCredentialsSecretName: requireEnv(
       env,
       "PIPELINE_GIT_CREDENTIALS_SECRET"

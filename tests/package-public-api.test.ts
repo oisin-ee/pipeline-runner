@@ -322,6 +322,9 @@ const hookPolicy: MokaSubmitHookPolicyInput = mokaSubmitHookPolicySchema.parse({
   allowCommandHooks: false,
 });
 const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
+  brokerAuth: {
+    secretName: "broker-api-key",
+  },
   eventSink: {
     url: "https://console.example/api/pipeline/runner-events",
   },
@@ -360,7 +363,7 @@ const mokaSubmitTypedInput: MokaSubmitInput = {
 const mokaSubmitRawOptions: MokaSubmitOptionsInput = mokaSubmitInput;
 const mokaSubmitResult: MokaSubmitResult = mokaSubmitOutput;
 const mokaGlobalConfig: MokaGlobalConfig = parseMokaGlobalConfig(
-  ${JSON.stringify("momokaya:\n  kubernetes:\n    kubeconfig: /tmp/cluster.kubeconfig\n    namespace: pipeline-namespace\n  submit:\n    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY\n    eventAuthSecretName: event-auth-secret\n    eventUrl: https://console.example.test/api/pipeline/runner-events\n    gitCredentialsSecretName: git-credentials-secret\n    githubAuthSecretName: github-auth-secret\n    imagePullSecretName: image-pull-secret\n    serviceAccountName: runner-service-account\n")},
+  ${JSON.stringify("momokaya:\n  kubernetes:\n    kubeconfig: /tmp/cluster.kubeconfig\n    namespace: pipeline-namespace\n  submit:\n    brokerAuth:\n      secretName: broker-api-key\n    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY\n    eventAuthSecretName: event-auth-secret\n    eventUrl: https://console.example.test/api/pipeline/runner-events\n    gitCredentialsSecretName: git-credentials-secret\n    githubAuthSecretName: github-auth-secret\n    imagePullSecretName: image-pull-secret\n    serviceAccountName: runner-service-account\n")},
   "/tmp/config.yaml"
 );
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
@@ -395,6 +398,9 @@ const parsedPayload: RunnerCommandPayload = parseRunnerCommandPayload(
 );
 runnerCommandPayloadSchema.parse(parsedPayload);
 const runnerManifest: ArgoWorkflowManifest = buildRunnerArgoWorkflowManifest({
+  brokerAuth: {
+    secretName: "broker-api-key",
+  },
   generateName: "pipeline-runner-smoke-",
   namespace: "pipeline-namespace",
   plan,

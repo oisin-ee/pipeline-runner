@@ -923,7 +923,14 @@ function buildLoopSubmitInput(
   const globalConfig = loadMokaGlobalConfig();
   const momokaya: MokaGlobalConfig["momokaya"] | undefined =
     globalConfig?.momokaya;
+  const brokerAuth = momokaya?.submit.brokerAuth;
+  if (!brokerAuth) {
+    throw new Error(
+      "momokaya.submit.brokerAuth is required for moka loop submit"
+    );
+  }
   return {
+    brokerAuth,
     config,
     eventUrl: momokaya?.submit.eventUrl,
     flags: parseLoopFlags(options),
@@ -931,7 +938,6 @@ function buildLoopSubmitInput(
     githubAuthSecretName: momokaya?.submit.githubAuthSecretName,
     kubeconfigPath: momokaya?.kubernetes.kubeconfig,
     namespace: momokaya?.kubernetes.namespace,
-    brokerAuth: momokaya?.submit.brokerAuth,
     serviceAccountName: momokaya?.submit.serviceAccountName,
     worktreePath: cwd,
   };

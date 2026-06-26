@@ -3,9 +3,9 @@
 # This is the dev-loop twin of the production Argo runner pod built by
 # `buildRunnerArgoWorkflowManifest` in src/argo-workflow.ts. Keep this manifest
 # in PARITY with that builder — same image (RUNNER_WORKFLOW_IMAGE), service
-# account (RUNNER_WORKFLOW_SERVICE_ACCOUNT), CODEX_AUTH_PER_PROJECT_ACCOUNTS env,
-# and the opencode-auth / git-credentials / github-auth secret mounts — so that
-# "dev pod == prod runner pod" (the original PIPE-62 intent) holds.
+# account (RUNNER_WORKFLOW_SERVICE_ACCOUNT), broker env, and the git-credentials
+# / github-auth secret mounts — so that "dev pod == prod runner pod" (the
+# original PIPE-62 intent) holds.
 #
 # This is NOT a helm chart: oisin-pipeline has no env matrix to template, so a
 # single plain kubectl-appliable Deployment is enough. `mise run dev` applies it
@@ -49,11 +49,18 @@ spec:
           env:
             - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
               value: "0"
+            - name: BROKER_URL
+              value: https://cliproxy.momokaya.ee
+            - name: PIPELINE_BROKER_SECRET_NAME
+              value: broker-api-key
+            - name: PIPELINE_BROKER_SECRET_KEY
+              value: api-key
+            - name: BROKER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: broker-api-key
+                  key: api-key
           volumeMounts:
-            - mountPath: /root/.local/share/opencode/auth.json
-              name: opencode-auth
-              readOnly: true
-              subPath: auth.json
             - mountPath: /etc/pipeline/git-credentials
               name: runner-git-credentials
               readOnly: true
@@ -62,13 +69,6 @@ spec:
               readOnly: true
               subPath: hosts.yml
       volumes:
-        - name: opencode-auth
-          secret:
-            secretName: opencode-auth-1
-            defaultMode: 0400
-            items:
-              - key: auth.json
-                path: auth.json
         - name: runner-git-credentials
           secret:
             secretName: oisin-bot-git-credentials

@@ -23,6 +23,11 @@ function context(
 ): LoopControllerContext {
   return {
     baseBranch: "main",
+    brokerAuth: {
+      secretKey: "api-key",
+      secretName: "broker-api-key",
+      url: "https://cliproxy.momokaya.ee",
+    },
     config: UNUSED_CONFIG,
     eventAuthToken: "loop-token",
     eventUrl: "https://console.example/api/pipeline/runner-events",

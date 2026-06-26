@@ -54,6 +54,11 @@ function submitInput(
   overrides: Partial<LoopSubmitInput> = {}
 ): LoopSubmitInput {
   return {
+    brokerAuth: {
+      secretKey: "api-key",
+      secretName: "broker-api-key",
+      url: "https://cliproxy.momokaya.ee",
+    },
     config: UNUSED_CONFIG,
     eventUrl: "https://console/api/pipeline/runner-events",
     flags,

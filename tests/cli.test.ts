@@ -2721,6 +2721,8 @@ profiles:
           `    kubeconfig: ${configuredKubeconfig}`,
           "    namespace: configured-ns",
           "  submit:",
+          "    brokerAuth:",
+          "      secretName: broker-api-key",
           "    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY",
           "    eventAuthSecretName: event-auth-secret",
           "    eventUrl: https://console.example.test/api/pipeline/runner-events",

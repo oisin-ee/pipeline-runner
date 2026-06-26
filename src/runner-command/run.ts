@@ -20,6 +20,7 @@ import {
 } from "../runner-command-contract";
 import { createRunnerEventSink } from "../runner-event-sink";
 import type { RuntimeNodeResult } from "../runtime/contracts";
+import { EXIT_INFRA } from "../runtime/exit-codes";
 import {
   RunnerCommandIoService,
   RunnerCommandIoServiceLive,
@@ -59,6 +60,19 @@ const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
+
+/**
+ * Map a finished node result to the runner process exit code. A passed node is
+ * 0; an infra-classed failure (agent timeout/idle/provider, EXIT_INFRA) exits 70
+ * so argo's retryStrategy reschedules a fresh pod; any other failure stays 1
+ * (a genuine task failure argo must not retry).
+ */
+export function nodeProcessExitCode(result: RuntimeNodeResult): number {
+  if (result.status === "passed") {
+    return EXIT_PASS;
+  }
+  return result.exitCode === EXIT_INFRA ? EXIT_INFRA : EXIT_FAIL;
+}
 
 export function runRunnerCommand(
   rawOptions: Partial<RunnerCommandOptions> = {}
@@ -180,19 +194,7 @@ function runRunnerCommandEffect(
       { phase: "git.workspace.prepare", status: "finish" },
       "git.workspace.prepare finish"
     );
-    logger.info(
-      { phase: "opencode.credentials.prepare", status: "start" },
-      "opencode.credentials.prepare start"
-    );
-    const credentialsPrep = yield* io.prepareOpencodeCredentials();
-    logger.info(
-      {
-        brokerConfigured: credentialsPrep.brokerConfigured,
-        phase: "opencode.credentials.prepare",
-        status: "finish",
-      },
-      "opencode.credentials.prepare finish"
-    );
+    yield* prepareOpencodeCredentialsPhase(logger);
     logger.info({ phase: "config.load", status: "start" }, "config.load start");
     const baseConfig = yield* attemptSync(() =>
       loadPipelineConfig(worktreePath, {
@@ -351,7 +353,7 @@ function runRunnerCommandEffect(
       }
     );
     yield* flushAndReport(sink, logger);
-    return result.status === "passed" ? EXIT_PASS : EXIT_FAIL;
+    return nodeProcessExitCode(result);
   }).pipe(
     Effect.catchAll((error) =>
       Effect.sync(() => runnerCommandErrorExitCode(error, runtime.logger))
@@ -383,6 +385,33 @@ function runSetupCommands(
   return Effect.forEach(commands.entries(), ([index, command]) =>
     runSetupCommand(command, index, options)
   ).pipe(Effect.asVoid);
+}
+
+function prepareOpencodeCredentialsPhase(
+  logger: pino.Logger,
+  reason?: "after-setup"
+): Effect.Effect<void, unknown, RunnerCommandIoService> {
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
+    logger.info(
+      {
+        phase: "opencode.credentials.prepare",
+        ...(reason ? { reason } : {}),
+        status: "start",
+      },
+      "opencode.credentials.prepare start"
+    );
+    const credentialsPrep = yield* io.prepareOpencodeCredentials();
+    logger.info(
+      {
+        brokerConfigured: credentialsPrep.brokerConfigured,
+        phase: "opencode.credentials.prepare",
+        ...(reason ? { reason } : {}),
+        status: "finish",
+      },
+      "opencode.credentials.prepare finish"
+    );
+  });
 }
 
 function runSetupCommand(

@@ -327,6 +327,11 @@ describe("LocalScheduler and Argo workflow parity", () => {
       parityRuntimeContext(plan, config)
     );
     const argoManifest = buildRunnerArgoWorkflowManifest({
+      brokerAuth: {
+        secretKey: "api-key",
+        secretName: "broker-api-key",
+        url: "https://cliproxy.momokaya.ee",
+      },
       generateName: "pipeline-parity-",
       namespace: "workflow-namespace",
       payloadConfigMapName: "pipeline-payload-parity",

@@ -44,6 +44,12 @@ const RUNNER_OPENCODE_ENV = [
   // model fallback advances to the next model. Well under the pod deadline so a
   // fallback chain still fits before the pod dies.
   { name: "PIPELINE_AGENT_TIMEOUT_MS", value: "600000" },
+  // Per-attempt inactivity budget. An opencode session can strand mid-turn
+  // emitting no SSE events while the wall-clock above keeps ticking; the idle
+  // watchdog fails such a stall as an infra error in ~180s (well under the
+  // wall-clock) so the node retries on a fresh pod instead of burning the full
+  // budget. Set to 0 to disable and rely on the wall-clock alone.
+  { name: "PIPELINE_AGENT_IDLE_TIMEOUT_MS", value: "180000" },
   // Disable opencode-go/qwen3.7-max: the provider stream-errors immediately then
   // hangs the prompt instead of returning an error, so the model fallback (which
   // keys on a returned EXIT_INFRA) never engages and the node sits until the pod
@@ -321,8 +327,7 @@ const buildRunnerArgoWorkflowOptionsSchema = z
         secretName: kubernetesNameSchema,
         url: z.string().min(1).default("https://cliproxy.momokaya.ee"),
       })
-      .strict()
-      .optional(),
+      .strict(),
     payloadConfigMapKey: z.string().min(1).default("payload.json"),
     payloadConfigMapName: kubernetesNameSchema,
     resources: argoWorkflowResourceRequirementsSchema.optional(),
@@ -547,19 +552,24 @@ function runnerWorkflowStorage(
 }
 
 /**
- * The runner container env: the static opencode/agent tuning plus, when broker
- * auth is configured, BROKER_URL (literal) and BROKER_API_KEY (sourced from the
- * broker secret key, never inlined into the manifest).
+ * The runner container env: static opencode/agent tuning plus BROKER_URL
+ * (literal) and BROKER_API_KEY (sourced from the broker secret key, never
+ * inlined into the manifest).
  */
 function runnerContainerEnv(
   options: ParsedBuildRunnerArgoWorkflowOptions
 ): z.infer<typeof argoWorkflowEnvVarSchema>[] {
-  if (!options.brokerAuth) {
-    return [...RUNNER_OPENCODE_ENV];
-  }
   return [
     ...RUNNER_OPENCODE_ENV,
     { name: "BROKER_URL", value: options.brokerAuth.url },
+    {
+      name: "PIPELINE_BROKER_SECRET_NAME",
+      value: options.brokerAuth.secretName,
+    },
+    {
+      name: "PIPELINE_BROKER_SECRET_KEY",
+      value: options.brokerAuth.secretKey,
+    },
     {
       name: "BROKER_API_KEY",
       valueFrom: {

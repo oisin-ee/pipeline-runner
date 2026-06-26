@@ -157,11 +157,9 @@ describe("installCommands", () => {
     expect(opencode.plugin).toEqual([
       "@devtheops/opencode-plugin-otel@1.1.0",
       "@prevalentware/opencode-goal-plugin",
-      "oc-codex-multi-auth@6.3.2",
     ]);
-    // moka no longer registers synthetic per-effort model selectors. Real base
-    // models + reasoning-effort variants are owned by the oc-codex-multi-auth
-    // plugin, so the generated project config carries no provider block.
+    // Broker credential preparation owns OpenCode provider auth. Generated
+    // package defaults only project non-auth plugins and gateway config.
     expect(opencode.provider).toBeUndefined();
     const codexConfig = readFileSync(join(dir, ".codex/config.toml"), "utf8");
     expect(codexConfig).toContain("[features]");
@@ -356,7 +354,6 @@ describe("installCommands", () => {
       "repo-local-auth-plugin",
       "@devtheops/opencode-plugin-otel@1.1.0",
       "@prevalentware/opencode-goal-plugin",
-      "oc-codex-multi-auth@6.3.2",
     ]);
   });
 

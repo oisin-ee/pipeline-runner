@@ -52,7 +52,7 @@ export interface LoopCommandSeams {
 }
 
 export interface LoopSubmitInput {
-  readonly brokerAuth?: MokaSubmitInput["brokerAuth"];
+  readonly brokerAuth: MokaSubmitInput["brokerAuth"];
   readonly config: MokaSubmitInput["config"];
   readonly eventUrl?: string;
   readonly flags: LoopFlags;

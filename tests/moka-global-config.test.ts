@@ -11,6 +11,8 @@ momokaya:
     kubeconfig: /path/to/cluster.kubeconfig
     namespace: pipeline-namespace
   submit:
+    brokerAuth:
+      secretName: broker-api-key
     eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY
     eventAuthSecretName: event-auth-secret
     eventUrl: https://console.example.test/api/pipeline/runner-events
@@ -39,6 +41,11 @@ describe("moka global config", () => {
       namespace: "pipeline-namespace",
     });
     expect(config.momokaya.submit).toMatchObject({
+      brokerAuth: {
+        secretKey: "api-key",
+        secretName: "broker-api-key",
+        url: "https://cliproxy.momokaya.ee",
+      },
       eventUrl: "https://console.example.test/api/pipeline/runner-events",
       serviceAccountName: "runner-service-account",
     });

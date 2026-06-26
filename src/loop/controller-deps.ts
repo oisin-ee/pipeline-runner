@@ -51,6 +51,7 @@ type OpenPr = Extract<PrResolution, { found: true }>;
 export interface LoopControllerContext {
   /** Base repository the child runs target — sha/headBranch overridden per submit. */
   readonly baseBranch: string;
+  readonly brokerAuth: MokaSubmitInput["brokerAuth"];
   readonly config: PipelineConfig;
   /** Event sink auth header (defaults to Authorization). */
   readonly eventAuthHeader?: string;
@@ -233,6 +234,7 @@ function defaultSubmitRun(
       catch: submitError,
       try: () =>
         submit({
+          brokerAuth: context.brokerAuth,
           config: context.config,
           delivery: { mode: request.deliveryMode, pullRequest: true },
           eventUrl: context.eventUrl,

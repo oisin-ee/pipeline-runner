@@ -16,6 +16,11 @@ const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {
 const PAYLOAD_CONFIG_MAP_RE = /^pipeline-payload-/;
 const SCHEDULE_CONFIG_MAP_RE = /^pipeline-schedule-/;
 const TASK_DESCRIPTOR_CONFIG_MAP_RE = /^pipeline-task-descriptors-/;
+const BROKER_AUTH = {
+  secretKey: "api-key",
+  secretName: "broker-api-key",
+  url: "https://cliproxy.momokaya.ee",
+};
 
 afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });
@@ -80,6 +85,7 @@ describe("submitRunnerArgoWorkflow", () => {
 
     const result = await submitRunnerArgoWorkflow(
       {
+        brokerAuth: BROKER_AUTH,
         config: DEFAULT_CONFIG,
         eventAuthSecretKey: "token",
         eventAuthSecretName: "pipeline-runner-event-auth",
@@ -174,6 +180,7 @@ describe("submitRunnerArgoWorkflow", () => {
 
     await submitRunnerArgoWorkflow(
       {
+        brokerAuth: BROKER_AUTH,
         config: DEFAULT_CONFIG,
         eventAuthSecretKey: "token",
         eventAuthSecretName: "pipeline-runner-event-auth",
@@ -232,6 +239,7 @@ describe("submitRunnerArgoWorkflow", () => {
 
     await submitRunnerArgoWorkflow(
       {
+        brokerAuth: BROKER_AUTH,
         config: DEFAULT_CONFIG,
         generateName: "pipeline-run-",
         namespace,
@@ -396,6 +404,7 @@ workflows:
     const createdConfigMaps: Array<{ data?: Record<string, string> }> = [];
     await submitRunnerArgoWorkflow(
       {
+        brokerAuth: BROKER_AUTH,
         config,
         generateName: "moka-full-",
         namespace,

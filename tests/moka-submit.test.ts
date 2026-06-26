@@ -101,6 +101,11 @@ function submittedRepositoryUrl(calls: CapturedSubmitOptions[]): string {
 }
 
 const MANAGED_AUTH = {
+  brokerAuth: {
+    secretKey: "api-key",
+    secretName: "broker-api-key",
+    url: "https://cliproxy.momokaya.ee",
+  },
   eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
   eventAuthSecretName: "event-auth-secret",
   gitCredentialsSecretName: "git-credentials-secret",
@@ -291,6 +296,7 @@ describe("submitMoka", () => {
 
   it("rejects submit input without an event destination", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
+      brokerAuth: MANAGED_AUTH.brokerAuth,
       commandArgv: ["opencode", "run", "fix"],
       type: "command",
     });
@@ -398,6 +404,7 @@ describe("submitMoka", () => {
 
     await submitMoka(
       {
+        brokerAuth: MANAGED_AUTH.brokerAuth,
         commandArgv: ["opencode", "run", "fix"],
         config: CONFIG,
         eventUrl: "https://console.example/api/pipeline/runner-events",
@@ -425,6 +432,7 @@ describe("submitMoka", () => {
     await expect(
       submitMoka(
         {
+          brokerAuth: MANAGED_AUTH.brokerAuth,
           commandArgv: ["opencode", "run", "fix"],
           config: CONFIG,
           eventUrl: "https://console.example/api/pipeline/runner-events",
@@ -460,6 +468,7 @@ describe("submitMoka", () => {
 
     await submitMoka(
       {
+        brokerAuth: MANAGED_AUTH.brokerAuth,
         config: CONFIG,
         delivery: { pullRequest: true },
         eventAuthSecretKey: "CONSOLE_EVENT_TOKEN",
@@ -587,6 +596,7 @@ describe("submitMoka", () => {
 
     await submitMoka(
       {
+        brokerAuth: MANAGED_AUTH.brokerAuth,
         config: runtimeConfig(),
         eventSink: EXPLICIT_EVENT_SINK,
         hooks: {
@@ -676,6 +686,7 @@ describe("submitMoka", () => {
 
     await submitMoka(
       {
+        brokerAuth: MANAGED_AUTH.brokerAuth,
         config: runtimeConfig(),
         eventSink: EXPLICIT_EVENT_SINK,
         hooks: {
@@ -767,6 +778,7 @@ workflows:
 
     await submitMoka(
       {
+        brokerAuth: MANAGED_AUTH.brokerAuth,
         commandArgv: ["true"],
         config,
         eventSink: EXPLICIT_EVENT_SINK,
@@ -839,6 +851,7 @@ workflows:
 
     expect(() =>
       submitMoka({
+        brokerAuth: MANAGED_AUTH.brokerAuth,
         commandArgv: ["true"],
         config: conflictingConfig,
         eventSink: EXPLICIT_EVENT_SINK,
@@ -856,6 +869,7 @@ workflows:
 
   it("rejects submit input that mixes legacy events with eventSink", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
+      brokerAuth: MANAGED_AUTH.brokerAuth,
       commandArgv: ["true"],
       eventSink: {
         authTokenFile: "/var/run/pipeline/events/token",
@@ -876,6 +890,7 @@ workflows:
 
   it("rejects unsupported direct hook events", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
+      brokerAuth: MANAGED_AUTH.brokerAuth,
       commandArgv: ["true"],
       eventSink: EXPLICIT_EVENT_SINK,
       hooks: {
@@ -893,6 +908,7 @@ workflows:
 
   it("rejects invalid public submit inputs with the exported Zod schema", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
+      brokerAuth: MANAGED_AUTH.brokerAuth,
       mode: "full",
       eventSink: EXPLICIT_EVENT_SINK,
       repository: {

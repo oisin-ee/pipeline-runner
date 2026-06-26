@@ -44,6 +44,11 @@ function plan() {
 }
 
 const BASE_OPTIONS = {
+  brokerAuth: {
+    secretKey: "api-key",
+    secretName: "broker-api-key",
+    url: "https://cliproxy.momokaya.ee",
+  },
   generateName: "pipeline-run-",
   namespace: "workflow-namespace",
   payloadConfigMapName: "pipeline-payload-run-1",
@@ -180,8 +185,33 @@ describe("runner Argo Workflow manifest", () => {
                     "value": "600000",
                   },
                   {
+                    "name": "PIPELINE_AGENT_IDLE_TIMEOUT_MS",
+                    "value": "180000",
+                  },
+                  {
                     "name": "PIPELINE_DISABLED_MODELS",
                     "value": "opencode-go/qwen3.7-max",
+                  },
+                  {
+                    "name": "BROKER_URL",
+                    "value": "https://cliproxy.momokaya.ee",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_NAME",
+                    "value": "broker-api-key",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_KEY",
+                    "value": "api-key",
+                  },
+                  {
+                    "name": "BROKER_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "broker-api-key",
+                      },
+                    },
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -258,8 +288,33 @@ describe("runner Argo Workflow manifest", () => {
                     "value": "600000",
                   },
                   {
+                    "name": "PIPELINE_AGENT_IDLE_TIMEOUT_MS",
+                    "value": "180000",
+                  },
+                  {
                     "name": "PIPELINE_DISABLED_MODELS",
                     "value": "opencode-go/qwen3.7-max",
+                  },
+                  {
+                    "name": "BROKER_URL",
+                    "value": "https://cliproxy.momokaya.ee",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_NAME",
+                    "value": "broker-api-key",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_KEY",
+                    "value": "api-key",
+                  },
+                  {
+                    "name": "BROKER_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "broker-api-key",
+                      },
+                    },
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -342,8 +397,33 @@ describe("runner Argo Workflow manifest", () => {
                     "value": "600000",
                   },
                   {
+                    "name": "PIPELINE_AGENT_IDLE_TIMEOUT_MS",
+                    "value": "180000",
+                  },
+                  {
                     "name": "PIPELINE_DISABLED_MODELS",
                     "value": "opencode-go/qwen3.7-max",
+                  },
+                  {
+                    "name": "BROKER_URL",
+                    "value": "https://cliproxy.momokaya.ee",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_NAME",
+                    "value": "broker-api-key",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_KEY",
+                    "value": "api-key",
+                  },
+                  {
+                    "name": "BROKER_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "broker-api-key",
+                      },
+                    },
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -426,8 +506,33 @@ describe("runner Argo Workflow manifest", () => {
                     "value": "600000",
                   },
                   {
+                    "name": "PIPELINE_AGENT_IDLE_TIMEOUT_MS",
+                    "value": "180000",
+                  },
+                  {
                     "name": "PIPELINE_DISABLED_MODELS",
                     "value": "opencode-go/qwen3.7-max",
+                  },
+                  {
+                    "name": "BROKER_URL",
+                    "value": "https://cliproxy.momokaya.ee",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_NAME",
+                    "value": "broker-api-key",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_KEY",
+                    "value": "api-key",
+                  },
+                  {
+                    "name": "BROKER_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "broker-api-key",
+                      },
+                    },
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -512,8 +617,33 @@ describe("runner Argo Workflow manifest", () => {
                     "value": "600000",
                   },
                   {
+                    "name": "PIPELINE_AGENT_IDLE_TIMEOUT_MS",
+                    "value": "180000",
+                  },
+                  {
                     "name": "PIPELINE_DISABLED_MODELS",
                     "value": "opencode-go/qwen3.7-max",
+                  },
+                  {
+                    "name": "BROKER_URL",
+                    "value": "https://cliproxy.momokaya.ee",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_NAME",
+                    "value": "broker-api-key",
+                  },
+                  {
+                    "name": "PIPELINE_BROKER_SECRET_KEY",
+                    "value": "api-key",
+                  },
+                  {
+                    "name": "BROKER_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "broker-api-key",
+                      },
+                    },
                   },
                 ],
                 "image": "ghcr.io/oisin-ee/pipeline-runner:latest",
@@ -701,8 +831,21 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "600000"
+                - name: PIPELINE_AGENT_IDLE_TIMEOUT_MS
+                  value: "180000"
                 - name: PIPELINE_DISABLED_MODELS
                   value: opencode-go/qwen3.7-max
+                - name: BROKER_URL
+                  value: https://cliproxy.momokaya.ee
+                - name: PIPELINE_BROKER_SECRET_NAME
+                  value: broker-api-key
+                - name: PIPELINE_BROKER_SECRET_KEY
+                  value: api-key
+                - name: BROKER_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: api-key
+                      name: broker-api-key
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -753,8 +896,21 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "600000"
+                - name: PIPELINE_AGENT_IDLE_TIMEOUT_MS
+                  value: "180000"
                 - name: PIPELINE_DISABLED_MODELS
                   value: opencode-go/qwen3.7-max
+                - name: BROKER_URL
+                  value: https://cliproxy.momokaya.ee
+                - name: PIPELINE_BROKER_SECRET_NAME
+                  value: broker-api-key
+                - name: PIPELINE_BROKER_SECRET_KEY
+                  value: api-key
+                - name: BROKER_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: api-key
+                      name: broker-api-key
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -809,8 +965,21 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "600000"
+                - name: PIPELINE_AGENT_IDLE_TIMEOUT_MS
+                  value: "180000"
                 - name: PIPELINE_DISABLED_MODELS
                   value: opencode-go/qwen3.7-max
+                - name: BROKER_URL
+                  value: https://cliproxy.momokaya.ee
+                - name: PIPELINE_BROKER_SECRET_NAME
+                  value: broker-api-key
+                - name: PIPELINE_BROKER_SECRET_KEY
+                  value: api-key
+                - name: BROKER_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: api-key
+                      name: broker-api-key
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -865,8 +1034,21 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "600000"
+                - name: PIPELINE_AGENT_IDLE_TIMEOUT_MS
+                  value: "180000"
                 - name: PIPELINE_DISABLED_MODELS
                   value: opencode-go/qwen3.7-max
+                - name: BROKER_URL
+                  value: https://cliproxy.momokaya.ee
+                - name: PIPELINE_BROKER_SECRET_NAME
+                  value: broker-api-key
+                - name: PIPELINE_BROKER_SECRET_KEY
+                  value: api-key
+                - name: BROKER_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: api-key
+                      name: broker-api-key
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -923,8 +1105,21 @@ describe("runner Argo Workflow manifest", () => {
                   value: "0"
                 - name: PIPELINE_AGENT_TIMEOUT_MS
                   value: "600000"
+                - name: PIPELINE_AGENT_IDLE_TIMEOUT_MS
+                  value: "180000"
                 - name: PIPELINE_DISABLED_MODELS
                   value: opencode-go/qwen3.7-max
+                - name: BROKER_URL
+                  value: https://cliproxy.momokaya.ee
+                - name: PIPELINE_BROKER_SECRET_NAME
+                  value: broker-api-key
+                - name: PIPELINE_BROKER_SECRET_KEY
+                  value: api-key
+                - name: BROKER_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: api-key
+                      name: broker-api-key
               image: ghcr.io/oisin-ee/pipeline-runner:latest
               imagePullPolicy: Always
               name: runner
@@ -1046,6 +1241,14 @@ describe("runner Argo Workflow manifest", () => {
         value: "https://cliproxy.momokaya.ee",
       });
       expect(env).toContainEqual({
+        name: "PIPELINE_BROKER_SECRET_NAME",
+        value: "broker-api-key",
+      });
+      expect(env).toContainEqual({
+        name: "PIPELINE_BROKER_SECRET_KEY",
+        value: "api-key",
+      });
+      expect(env).toContainEqual({
         name: "BROKER_API_KEY",
         valueFrom: {
           secretKeyRef: { key: "api-key", name: "broker-api-key" },
@@ -1054,17 +1257,18 @@ describe("runner Argo Workflow manifest", () => {
     }
   });
 
-  it("omits broker env when broker auth is not configured (legacy mode)", () => {
-    const manifest = buildRunnerArgoWorkflowManifest({
-      ...BASE_OPTIONS,
-      plan: plan(),
-    });
+  it("rejects remote runner manifests without broker auth", () => {
+    const { brokerAuth, ...optionsWithoutBrokerAuth } = BASE_OPTIONS;
+    expect(brokerAuth.secretName).toBe("broker-api-key");
 
-    for (const template of manifest.spec.templates) {
-      const names = (template.container?.env ?? []).map((entry) => entry.name);
-      expect(names).not.toContain("BROKER_API_KEY");
-      expect(names).not.toContain("BROKER_URL");
-    }
+    expect(() =>
+      Reflect.apply(buildRunnerArgoWorkflowManifest, undefined, [
+        {
+          ...optionsWithoutBrokerAuth,
+          plan: plan(),
+        },
+      ])
+    ).toThrow(z.ZodError);
   });
 
   it("compiles planner dependencies into Argo DAG task dependencies", () => {

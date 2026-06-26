@@ -38,6 +38,7 @@ import {
   emitWorkflowStarted,
   runtimeNodeActorDescriptor,
 } from "./runtime/events";
+import { EXIT_INFRA } from "./runtime/exit-codes";
 import { evaluateNodeGates } from "./runtime/gates";
 import { dispatchHooks } from "./runtime/hooks";
 import { parseJsonObject } from "./runtime/json-validation";
@@ -945,7 +946,8 @@ function finishFailedNode(
       node.id,
       retry.attempt,
       retry.evidence,
-      last.output
+      last.output,
+      last.exitCode === EXIT_INFRA ? EXIT_INFRA : 1
     );
     recordNodeEvent(context, node.id, {
       at: now(),
@@ -1641,6 +1643,19 @@ function finishNodeAttemptAfterGates(
   last: NodeAttemptResult
 ): Effect.Effect<NodeAttemptCycleResult, unknown> {
   return Effect.gen(function* () {
+    // An infra failure (agent timeout/idle/provider) carries empty, unreliable
+    // output. Running output gates on it only yields a misleading gate failure
+    // and launders the retry-eligible EXIT_INFRA into a terminal gate failure.
+    // Skip gates and let the infra exit propagate so the node retries.
+    if (last.exitCode === EXIT_INFRA) {
+      return yield* finishNodeAttemptWithGate(
+        node,
+        context,
+        attempt,
+        last,
+        undefined
+      );
+    }
     const gateResults = yield* evaluateGatesForAttempt(node, context, last);
     const cancelledAfterGates = cancelledNodeResult(
       context,
@@ -1865,12 +1880,13 @@ function nodeFailure(
   nodeId: string,
   attempts: number,
   evidence: string[],
-  output: string
+  output: string,
+  exitCode = 1
 ): RuntimeNodeResult {
   return {
     attempts,
     evidence,
-    exitCode: 1,
+    exitCode,
     nodeId,
     output,
     status: "failed",

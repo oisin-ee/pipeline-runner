@@ -131,7 +131,7 @@ const mokaSubmitBaseOptionsSchema = z
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
-    brokerAuth: brokerAuthOptionSchema.optional(),
+    brokerAuth: brokerAuthOptionSchema,
     repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema.optional(),
     serviceAccountName: z.string().min(1).optional(),
@@ -228,7 +228,7 @@ interface SubmitMokaDependencies {
 }
 
 interface MokaWorkflowSubmitOptions {
-  brokerAuth?: BrokerAuthOption;
+  brokerAuth: BrokerAuthOption;
   config: PipelineConfig;
   eventAuthSecretKey?: string;
   eventAuthSecretName?: string;
