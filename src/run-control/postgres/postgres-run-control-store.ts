@@ -334,6 +334,7 @@ function buildBaseManifest(input: CreateRunRequest): MokaRunManifest {
     mode: parseRunMode(input.mode),
     nodes,
     runId: input.runId,
+    ...(input.schedule ? { schedule: input.schedule } : {}),
     staleDetection: parseRunControlStaleDetection(
       input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION
     ),

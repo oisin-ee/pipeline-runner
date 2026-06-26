@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
-import { Effect } from "effect";
+import { Effect, type Scope } from "effect";
 import { loadPipelineConfig } from "../config/load";
-import { loadMokaGlobalConfig } from "../moka-global-config";
+import { loadMokaDbUrl } from "../moka-global-config";
 import {
   compileScheduleArtifact,
   parseScheduleArtifact,
@@ -10,6 +10,7 @@ import {
 import type { AcceptanceCriterion } from "../runtime/contracts/contracts";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import { inMemoryDurableRunStore } from "../runtime/durable-store/durable-store";
+import { postgresDurableRunStore } from "../runtime/durable-store/postgres/postgres-store";
 import type { NextNodeEnvelope } from "../runtime/node-protocol/node-protocol";
 import type { WorkflowScheduleNode } from "../runtime/scheduler";
 import { computeReadyNodeIds } from "../runtime/scheduler";
@@ -89,23 +90,30 @@ export function buildNextNodeEnvelope(
 }
 
 /**
- * PIPE-91.6: resolve the {@link DurableRunStore} for this invocation using the
- * same `db.url`-presence selection as `pipeline-runtime.ts`. Both branches
- * return `inMemoryDurableRunStore()` until PIPE-91.4 delivers the Postgres impl;
- * the selection is wired so 91.4 can substitute `postgresStore(dbUrl)` here
- * without touching any other call site.
+ * PIPE-91.15: resolve the {@link DurableRunStore} for this invocation as a
+ * scoped resource, mirroring `pipeline-runtime.ts`'s `acquireRunJournal`
+ * lifecycle. When `db.url` is set, acquire the Postgres-backed store
+ * ({@link postgresDurableRunStore}, scoped to `runId`) and release it — flushing
+ * pending write-through persistence then closing the connection pool — when the
+ * scope exits. When `db.url` is absent, yield the zero-infra in-memory store
+ * (nothing to release). Returning a scoped Effect is what guarantees
+ * `submit-result` awaits its write and closes the client before the process
+ * exits; without that flush the record is lost (the PIPE-91.15 dogfood failure).
  *
- * Exported so PIPE-91.7 (`submit-result`) reuses the same seam without
- * duplicating the selection logic.
+ * Exported so `submit-result` (PIPE-91.7) reuses the same selection + lifecycle
+ * seam without duplicating it.
  */
 export function resolveDurableStore(
-  dbUrl: string | undefined
-): DurableRunStore {
-  if (dbUrl !== undefined) {
-    // PIPE-91.4: swap to postgresStore(dbUrl) here when that lane lands.
-    return inMemoryDurableRunStore();
+  dbUrl: string | undefined,
+  runId?: string
+): Effect.Effect<DurableRunStore, unknown, Scope.Scope> {
+  if (dbUrl === undefined) {
+    return Effect.succeed(inMemoryDurableRunStore());
   }
-  return inMemoryDurableRunStore();
+  return Effect.acquireRelease(
+    Effect.tryPromise(() => postgresDurableRunStore(dbUrl, runId)),
+    (store) => Effect.promise(() => store.close())
+  );
 }
 
 /**
@@ -135,6 +143,13 @@ function printNextNodeEnvelopeEffect(
   runId: string,
   scheduleFile: string
 ): Effect.Effect<void, unknown> {
+  return Effect.scoped(printNextNodeEnvelopeScoped(runId, scheduleFile));
+}
+
+function printNextNodeEnvelopeScoped(
+  runId: string,
+  scheduleFile: string
+): Effect.Effect<void, unknown, Scope.Scope> {
   return Effect.gen(function* () {
     const scheduleRaw = yield* Effect.tryPromise({
       catch: (error) => error,
@@ -167,8 +182,8 @@ function printNextNodeEnvelopeEffect(
         },
       ])
     );
-    const dbUrl = loadMokaGlobalConfig()?.momokaya?.db?.url;
-    const store = resolveDurableStore(dbUrl);
+    const dbUrl = loadMokaDbUrl();
+    const store = yield* resolveDurableStore(dbUrl, runId);
     const envelope = buildNextNodeEnvelope({
       nodeMetadata,
       nodes,

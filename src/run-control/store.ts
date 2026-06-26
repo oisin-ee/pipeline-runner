@@ -43,6 +43,9 @@ export interface CreateRunInput extends StoreContext {
   mode: RunMode;
   nodeIds: string[];
   runId: string;
+  // PIPE-91.16: serialized schedule artifact persisted so `moka resume`
+  // reconstructs the run's exact graph from it. Absent for package-workflow runs.
+  schedule?: string;
   staleDetection?: RunControlStaleDetection;
   target: RunTarget;
 }
@@ -384,6 +387,7 @@ function createRunManifest(input: CreateRunInput): {
     mode: parseRunMode(input.mode),
     nodes,
     runId,
+    ...(input.schedule ? { schedule: input.schedule } : {}),
     staleDetection: parseRunControlStaleDetection(
       input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION
     ),

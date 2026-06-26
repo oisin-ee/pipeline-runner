@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { Effect } from "effect";
-import { loadMokaGlobalConfig } from "../moka-global-config";
+import { loadMokaDbUrl } from "../moka-global-config";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import { parseSubmitResult } from "../runtime/node-protocol/node-protocol";
 import { resolveDurableStore } from "./next-node";
@@ -68,15 +68,21 @@ function submitResultEffect(
   nodeId: string,
   resultJson: string
 ): Effect.Effect<void, unknown> {
-  return Effect.try({
-    catch: (error) => error,
-    try: () => {
-      const dbUrl = loadMokaGlobalConfig()?.momokaya?.db?.url;
-      const store = resolveDurableStore(dbUrl);
-      recordSubmitResult({ nodeId, resultJson, runId, store });
+  // Scoped so the store's release runs before the process exits: for the
+  // Postgres branch that flushes the enqueued write-through and closes the
+  // connection pool, persisting the record durably. Without that flush the
+  // write is lost at process exit (the PIPE-91.15 dogfood failure).
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const dbUrl = loadMokaDbUrl();
+      const store = yield* resolveDurableStore(dbUrl, runId);
+      yield* Effect.try({
+        catch: (error) => error,
+        try: () => recordSubmitResult({ nodeId, resultJson, runId, store }),
+      });
       process.stdout.write(
         `Recorded result for run ${runId} node ${nodeId}.\n`
       );
-    },
-  });
+    })
+  );
 }
