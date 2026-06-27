@@ -6,9 +6,14 @@ import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
 } from "../pipeline-runtime";
-import type { MokaNodeStatus, MokaRunStatus } from "./contracts";
+import { createSerializedWriteQueue } from "../serialized-write-queue";
 import { fileRunControlStore, type RunControlStore } from "./run-control-store";
 import { withRunStateLock } from "./run-state-lock";
+import {
+  createRuntimeEventProjectionState,
+  projectRuntimeEvent,
+  type RuntimeEventStoreWriteIntent,
+} from "./runtime-event-projection";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
 
@@ -56,15 +61,12 @@ function createRunStoreRuntimeReporterRuntime(
 ): RunStoreRuntimeReporter {
   const now = input.now ?? (() => new Date());
   const store = input.store ?? fileRunControlStore(input.workspaceRoot);
-  const observedNodeStatuses = new Map<string, MokaNodeStatus>();
-  const activeHookPreviousStatuses = new Map<string, MokaNodeStatus>();
-  let writeChain: Promise<void> = Promise.resolve();
+  let projectionState = createRuntimeEventProjectionState();
+  const writes = createSerializedWriteQueue();
 
   const enqueue = (event: PipelineRuntimeEvent): void => {
-    const projection = projectRuntimeEvent(event, {
-      activeHookPreviousStatuses,
-      observedNodeStatuses,
-    });
+    const projection = projectRuntimeEvent(event, projectionState);
+    projectionState = projection.state;
     // Run-control persistence is observability and must never abort the pipeline
     // run: a single event that cannot be recorded (e.g. a session reported by an
     // internal sub-invocation such as the `<node>:handoff` finalizer, which is
@@ -74,10 +76,10 @@ function createRunStoreRuntimeReporterRuntime(
       input,
       store,
       event,
-      projection,
+      projection.writes,
       now
     ).pipe(Effect.catch((error) => warnPersistSkipped(input, event, error)));
-    writeChain = writeChain.then(() =>
+    writes.enqueue(() =>
       // Serialize against the builtin run-state hide window: persistence writes
       // under .pipeline/runs/<id>/, which a concurrent lint/fallow builtin
       // temporarily relocates. The lock keeps the two mutually exclusive so a
@@ -89,7 +91,7 @@ function createRunStoreRuntimeReporterRuntime(
   const flushEffect = (): Effect.Effect<void, unknown> =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => writeChain,
+      try: () => writes.flush(),
     });
 
   return {
@@ -102,56 +104,18 @@ function createRunStoreRuntimeReporterRuntime(
   };
 }
 
-interface ProjectionState {
-  activeHookPreviousStatuses: Map<string, MokaNodeStatus>;
-  observedNodeStatuses: Map<string, MokaNodeStatus>;
-}
-
-interface RuntimeEventProjection {
-  node?: {
-    nodeId: string;
-    status: MokaNodeStatus;
-  };
-  run?: MokaRunStatus;
-  session?: {
-    nodeId: string;
-    sessionId: string;
-  };
-}
-
 function persistRuntimeEventEffect(
   input: CreateRunStoreRuntimeReporterInput,
   store: RunControlStore,
   event: PipelineRuntimeEvent,
-  projection: RuntimeEventProjection,
+  writeIntents: RuntimeEventStoreWriteIntent[],
   now: () => Date
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     yield* appendRuntimeEventEffect(input, event);
 
-    if (projection.run) {
-      yield* store.updateRunStatus({
-        at: timestamp(now),
-        runId: input.runId,
-        status: projection.run,
-      });
-    }
-
-    if (projection.node) {
-      yield* store.updateNodeStatus({
-        at: timestamp(now),
-        nodeId: projection.node.nodeId,
-        runId: input.runId,
-        status: projection.node.status,
-      });
-    }
-
-    if (projection.session) {
-      yield* store.updateNodeSession({
-        nodeId: projection.session.nodeId,
-        runId: input.runId,
-        sessionId: projection.session.sessionId,
-      });
+    for (const writeIntent of writeIntents) {
+      yield* persistStoreWriteIntentEffect(input, store, writeIntent, now);
     }
 
     if (event.type === "node.output.recorded") {
@@ -160,155 +124,35 @@ function persistRuntimeEventEffect(
   });
 }
 
-function projectRuntimeEvent(
-  event: PipelineRuntimeEvent,
-  state: ProjectionState
-): RuntimeEventProjection {
-  const projection =
-    projectRunStatus(event) ??
-    projectNodeStatus(event, state) ??
-    projectNodeSession(event);
-
-  if (projection?.node) {
-    state.observedNodeStatuses.set(
-      projection.node.nodeId,
-      projection.node.status
-    );
-  }
-
-  return projection ?? {};
-}
-
-function projectNodeSession(
-  event: PipelineRuntimeEvent
-): RuntimeEventProjection | null {
-  if (event.type !== "node.session") {
-    return null;
-  }
-
-  return {
-    session: {
-      nodeId: event.nodeId,
-      sessionId: event.sessionId,
-    },
-  };
-}
-
-function projectRunStatus(
-  event: PipelineRuntimeEvent
-): RuntimeEventProjection | null {
-  switch (event.type) {
-    case "workflow.start":
-      return { run: "starting" };
-    case "workflow.finish":
-      return { run: workflowOutcomeStatus(event.outcome) };
+function persistStoreWriteIntentEffect(
+  input: CreateRunStoreRuntimeReporterInput,
+  store: RunControlStore,
+  writeIntent: RuntimeEventStoreWriteIntent,
+  now: () => Date
+): Effect.Effect<void, unknown> {
+  switch (writeIntent.type) {
+    case "node.session":
+      return store.updateNodeSession({
+        nodeId: writeIntent.nodeId,
+        runId: input.runId,
+        sessionId: writeIntent.sessionId,
+      });
+    case "node.status":
+      return store.updateNodeStatus({
+        at: timestamp(now),
+        nodeId: writeIntent.nodeId,
+        runId: input.runId,
+        status: writeIntent.status,
+      });
+    case "run.status":
+      return store.updateRunStatus({
+        at: timestamp(now),
+        runId: input.runId,
+        status: writeIntent.status,
+      });
     default:
-      return null;
+      return assertNever(writeIntent);
   }
-}
-
-function projectNodeStatus(
-  event: PipelineRuntimeEvent,
-  state: ProjectionState
-): RuntimeEventProjection | null {
-  switch (event.type) {
-    case "node.start":
-      return nodeProjection(event.nodeId, "running");
-    case "node.finish":
-      return nodeProjection(event.nodeId, runtimeNodeStatus(event.status));
-    case "agent.start":
-      return nodeProjection(event.nodeId, "running");
-    case "agent.finish":
-      return nodeProjection(event.nodeId, agentFinishStatus(event.exitCode));
-    case "gate.start":
-      return nodeProjection(event.nodeId, "running");
-    case "gate.finish":
-      return nodeProjection(event.nodeId, event.passed ? "running" : "blocked");
-    case "hook.start":
-      return projectHookStart(event, state);
-    case "hook.finish":
-      return projectHookFinish(event, state);
-    default:
-      return null;
-  }
-}
-
-function projectHookStart(
-  event: Extract<PipelineRuntimeEvent, { type: "hook.start" }>,
-  state: ProjectionState
-): RuntimeEventProjection | null {
-  if (!event.nodeId) {
-    return null;
-  }
-
-  const previous = state.observedNodeStatuses.get(event.nodeId);
-  if (previous) {
-    state.activeHookPreviousStatuses.set(event.hookId, previous);
-  }
-
-  return nodeProjection(event.nodeId, "running");
-}
-
-function projectHookFinish(
-  event: Extract<PipelineRuntimeEvent, { type: "hook.finish" }>,
-  state: ProjectionState
-): RuntimeEventProjection | null {
-  if (!event.nodeId) {
-    return null;
-  }
-
-  const previousStatus = state.activeHookPreviousStatuses.get(event.hookId);
-  state.activeHookPreviousStatuses.delete(event.hookId);
-
-  if (!event.passed && event.required) {
-    return nodeProjection(event.nodeId, "blocked");
-  }
-
-  return nodeProjection(event.nodeId, previousStatus ?? "running");
-}
-
-function nodeProjection(
-  nodeId: string,
-  status: MokaNodeStatus
-): RuntimeEventProjection {
-  return {
-    node: {
-      nodeId,
-      status,
-    },
-  };
-}
-
-function workflowOutcomeStatus(
-  outcome: Extract<PipelineRuntimeEvent, { type: "workflow.finish" }>["outcome"]
-): MokaRunStatus {
-  switch (outcome) {
-    case "PASS":
-      return "passed";
-    case "FAIL":
-      return "failed";
-    case "CANCELLED":
-      return "aborted";
-    default:
-      return assertNever(outcome);
-  }
-}
-
-function runtimeNodeStatus(
-  status: Extract<PipelineRuntimeEvent, { type: "node.finish" }>["status"]
-): MokaNodeStatus {
-  switch (status) {
-    case "failed":
-      return "failed";
-    case "passed":
-      return "passed";
-    default:
-      return assertNever(status);
-  }
-}
-
-function agentFinishStatus(exitCode: number): MokaNodeStatus {
-  return exitCode === 0 ? "running" : "failed";
 }
 
 function appendRuntimeEventEffect(
