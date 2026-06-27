@@ -154,6 +154,7 @@ profiles:
     runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
+    timeout_ms: 900000
     instructions: { inline: "Add focused failing tests for the requested behavior only. Do not change production code. Only edit files matching test paths such as **/*.test.*, **/*.spec.*, **/*_test.*, **/__tests__/**, test/**, or tests/**. NEVER silence lint, type, complexity, or dead-code findings with suppression comments (no // fallow-ignore, // biome-ignore, eslint-disable, oxlint-disable, @ts-ignore, or @ts-expect-error); fix the underlying cause — if a gate flags your test, restructure the test (e.g. move restricted imports into shared support/fixture helpers) rather than suppressing it. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
     skills: [test]
     mcp_servers: [pipeline-gateway]
@@ -168,6 +169,7 @@ profiles:
     runner: opencode
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
+    timeout_ms: 900000
     instructions: { inline: "Implement the smallest production change that satisfies the failing tests. NEVER silence lint, type, complexity, or dead-code findings with suppression comments (no // fallow-ignore, // biome-ignore, eslint-disable, oxlint-disable, @ts-ignore, or @ts-expect-error); fix the underlying cause — reduce complexity by extracting helpers, remove genuinely dead code, and migrate off deprecated APIs rather than suppressing the warning. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
     skills: [trace, test, fix, library-first-development]
     mcp_servers: [pipeline-gateway]

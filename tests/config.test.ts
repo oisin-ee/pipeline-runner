@@ -198,8 +198,12 @@ function makeProject(
 
 function writeProjectFile(root: string, path: string, content: string): void {
   const fullPath = join(root, path);
-  mkdirSync(dirname(fullPath), { recursive: true });
+  ensureParentDirectory(fullPath);
   writeFileSync(fullPath, content);
+}
+
+function ensureParentDirectory(path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
 }
 
 function parseParts(parts: Partial<PipelineConfigParts>) {
@@ -232,6 +236,37 @@ function captureConfigError(action: () => unknown): PipelineConfigError {
   throw new Error("Expected PipelineConfigError");
 }
 
+function captureGatewayBackendConfigError(backendsYaml: string) {
+  return captureConfigError(() =>
+    parseParts({
+      profiles: profilesWithGatewayBackends(backendsYaml),
+    })
+  );
+}
+
+function defaultWorkflowPipeline(
+  nodesYaml: string,
+  extraWorkflowsYaml = ""
+): string {
+  return `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+${nodesYaml}${extraWorkflowsYaml}
+`;
+}
+
+function activePackageProfilesYaml(): string {
+  return readFileSync(join(process.cwd(), ".pipeline/profiles.yaml"), "utf8")
+    .split(LINE_RE)
+    .filter((line) => line.trim() !== "skills: [execute, quick, inspect]")
+    .join("\n");
+}
+
 const DEFAULT_PACKAGE_SKILLS = [
   "critique",
   "doubt",
@@ -260,6 +295,25 @@ function writeDefaultPackageSkills(root: string): void {
       `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n`
     );
   }
+}
+
+function makePackageDefaultProject(input: {
+  config?: { content: string; path: string };
+  prefix: string;
+}): string {
+  const project = mkdtempSync(join(tmpdir(), input.prefix));
+  tempDirs.push(project);
+  if (input.config) {
+    writeProjectFile(project, input.config.path, input.config.content);
+  } else {
+    writeProjectFile(project, ".pipeline/pipeline.yaml", VALID_PIPELINE_YAML);
+  }
+  writeDefaultPackageSkills(project);
+  return project;
+}
+
+function loadPackageDefaults(project: string) {
+  return loadPipelineConfig(project);
 }
 
 function expectedPackageScheduledEntrypoints(): Record<string, unknown> {
@@ -414,6 +468,8 @@ describe("loadPipelineConfig", () => {
     );
     expect(config.profiles["moka-researcher"].timeout_ms).toBe(900_000);
     expect(config.profiles["moka-schedule-planner"].timeout_ms).toBe(300_000);
+    expect(config.profiles["moka-test-writer"].timeout_ms).toBe(900_000);
+    expect(config.profiles["moka-code-writer"].timeout_ms).toBe(900_000);
     expect(config.profiles["moka-researcher"].instructions.inline).toContain(
       "do not perform open-ended repository exploration"
     );
@@ -594,24 +650,21 @@ profiles:`
   });
 
   it("loads package-owned defaults when repo-local config files are incomplete", () => {
-    const project = mkdtempSync(join(tmpdir(), "pipeline-config-missing-"));
-    tempDirs.push(project);
-    writeProjectFile(project, ".pipeline/pipeline.yaml", VALID_PIPELINE_YAML);
-    writeDefaultPackageSkills(project);
-
-    const config = loadPipelineConfig(project);
+    const config = loadPackageDefaults(
+      makePackageDefaultProject({ prefix: "pipeline-config-missing-" })
+    );
 
     expect(config.default_workflow).toBe("inspect");
     expect(config.profiles["moka-researcher"]).toBeDefined();
   });
 
   it("loads package-owned defaults when legacy repo-local config.toml exists", () => {
-    const project = mkdtempSync(join(tmpdir(), "pipeline-config-legacy-"));
-    tempDirs.push(project);
-    writeProjectFile(project, ".pipeline/config.toml", "[phases]\n");
-    writeDefaultPackageSkills(project);
-
-    const config = loadPipelineConfig(project);
+    const config = loadPackageDefaults(
+      makePackageDefaultProject({
+        config: { content: "[phases]\n", path: ".pipeline/config.toml" },
+        prefix: "pipeline-config-legacy-",
+      })
+    );
 
     expect(config.default_workflow).toBe("inspect");
     expect(config.profiles["moka-researcher"]).toBeDefined();
@@ -1069,16 +1122,12 @@ workflows:
   });
 
   it("rejects unknown gateway backend keys", () => {
-    const error = captureConfigError(() =>
-      parseParts({
-        profiles: profilesWithGatewayBackends(`  backends:
+    const error = captureGatewayBackendConfigError(`  backends:
     serena:
       locality: repo-local
       workspace_path_source: cwd
       tool_prefixes: [serena]
-      clone_url: https://github.com/example/repo.git`),
-      })
-    );
+      clone_url: https://github.com/example/repo.git`);
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("Unrecognized key");
@@ -1086,15 +1135,11 @@ workflows:
   });
 
   it("rejects invalid repo-local gateway backend locality", () => {
-    const error = captureConfigError(() =>
-      parseParts({
-        profiles: profilesWithGatewayBackends(`  backends:
+    const error = captureGatewayBackendConfigError(`  backends:
     serena:
       locality: workspace-clone
       workspace_path_source: cwd
-      tool_prefixes: [serena]`),
-      })
-    );
+      tool_prefixes: [serena]`);
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("Invalid option");
@@ -1103,14 +1148,10 @@ workflows:
   });
 
   it("rejects repo-local gateway backends without an active workspace source", () => {
-    const error = captureConfigError(() =>
-      parseParts({
-        profiles: profilesWithGatewayBackends(`  backends:
+    const error = captureGatewayBackendConfigError(`  backends:
     serena:
       locality: repo-local
-      tool_prefixes: [serena]`),
-      })
-    );
+      tool_prefixes: [serena]`);
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain(
@@ -1185,23 +1226,19 @@ workflows:
   it("rejects workflow nodes", () => {
     const error = captureConfigError(() =>
       parseParts({
-        pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
+        pipeline: defaultWorkflowPipeline(
+          `
       - id: child
         kind: workflow
         workflow: subflow
-  subflow:
+`,
+          `  subflow:
     nodes:
       - id: research
         kind: agent
         profile: researcher
-`,
+`
+        ),
       })
     );
 
@@ -1275,18 +1312,11 @@ workflows:
   it("rejects parallel nodes with no children", () => {
     const error = captureConfigError(() =>
       parseParts({
-        pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
+        pipeline: defaultWorkflowPipeline(`
       - id: empty-fanout
         kind: parallel
         nodes: []
-`,
+`),
       })
     );
 
@@ -1304,17 +1334,10 @@ workflows:
   it("rejects workflow node syntax without a workflow field", () => {
     const error = captureConfigError(() =>
       parseParts({
-        pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
+        pipeline: defaultWorkflowPipeline(`
       - id: child
         kind: workflow
-`,
+`),
       })
     );
 
@@ -1532,13 +1555,7 @@ describe("execute/quick scheduler integration", () => {
   });
 
   it("keeps legacy epic-router package assets out of the active profile graph", () => {
-    const profilesYaml = readFileSync(
-      join(process.cwd(), ".pipeline/profiles.yaml"),
-      "utf8"
-    )
-      .split(LINE_RE)
-      .filter((line) => line.trim() !== "skills: [execute, quick, inspect]")
-      .join("\n");
+    const profilesYaml = activePackageProfilesYaml();
     const profilesConfig = parse(profilesYaml) as {
       profiles?: Record<string, any>;
     };
@@ -1560,13 +1577,7 @@ describe("execute/quick scheduler integration", () => {
 
 describe("opencode profile integration", () => {
   it("declares the installed critique skill and reviewer profile contract", () => {
-    const profilesYaml = readFileSync(
-      join(process.cwd(), ".pipeline/profiles.yaml"),
-      "utf8"
-    )
-      .split(LINE_RE)
-      .filter((line) => line.trim() !== "skills: [execute, quick, inspect]")
-      .join("\n");
+    const profilesYaml = activePackageProfilesYaml();
     const runnersYaml = readFileSync(
       join(process.cwd(), ".pipeline/runners.yaml"),
       "utf8"

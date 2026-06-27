@@ -1,11 +1,12 @@
 import type { AssistantMessage, Event, Part } from "@opencode-ai/sdk/v2";
-import { Duration, Effect, Fiber } from "effect";
+import { Duration, Effect } from "effect";
 import type {
   AgentResult,
   RunnerExecutionOptions,
   RunnerLaunchPlan,
 } from "../runner";
 import { isRecord } from "../safe-json";
+import { raceDetached } from "./detached-race";
 import { EXIT_AGENT_ERROR, EXIT_INFRA, EXIT_OK } from "./exit-codes";
 import { opencodeAgentName } from "./opencode-agent-name";
 import {
@@ -170,28 +171,6 @@ function boundByIdle(
       idleWatchdog(deps, plan, options, activity, idleMs)
     );
   };
-}
-
-function raceDetached<A, E, R, A2, E2, R2>(
-  effect: Effect.Effect<A, E, R>,
-  other: Effect.Effect<A2, E2, R2>
-): Effect.Effect<A | A2, E | E2, R | R2> {
-  return Effect.forkDetach(effect, { startImmediately: true }).pipe(
-    Effect.flatMap((fiber) =>
-      Effect.raceFirst(
-        Fiber.join(fiber),
-        other.pipe(Effect.onExit(() => interruptInBackground(fiber)))
-      )
-    )
-  );
-}
-
-function interruptInBackground<A, E>(
-  fiber: Fiber.Fiber<A, E>
-): Effect.Effect<void> {
-  return Effect.forkDetach(Fiber.interrupt(fiber), {
-    startImmediately: true,
-  }).pipe(Effect.asVoid);
 }
 
 function timeoutFailure(
