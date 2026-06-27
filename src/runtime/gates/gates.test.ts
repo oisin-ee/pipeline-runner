@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { PlannedWorkflowNode } from "../../planning/compile";
+import {
+  baseGateRuntimeFields,
+  gateNodeStateStore,
+} from "../../../tests/gate-test-context";
+import { parsePipelineConfigParts } from "../../config/load";
+import { compileWorkflowPlan } from "../../planning/compile";
 import type { RuntimeObservabilityEvent } from "../actor-ids";
 import type {
   AcceptanceCriterion,
@@ -8,7 +13,6 @@ import type {
   RuntimeContext,
 } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
-import { baseGateRuntimeFields, gateNodeStateStore } from "./gate-test-context";
 import { acceptanceUnmetCriteria } from "./kinds/acceptance/acceptance";
 import { evaluateChangedFilesGate } from "./kinds/changed-files/changed-files";
 import { evaluateNodeGates } from "./orchestrator";
@@ -26,29 +30,53 @@ function changedFilesContext(
 }
 
 function directGateRuntimeContext(
-  node: PlannedWorkflowNode,
   observability: RuntimeObservabilityEvent[],
   reporterEvents: PipelineRuntimeEvent[]
 ): RuntimeContext {
+  const config = parsePipelineConfigParts(
+    {
+      pipeline: `
+version: 1
+default_workflow: direct-gates
+workflows:
+  direct-gates:
+    nodes:
+      - id: node-a
+        kind: agent
+        profile: direct
+        gates:
+          - id: changed-policy
+            kind: changed_files
+            changed_files:
+              deny: ["**/*.md"]
+              require_any: ["src/**"]
+`,
+      profiles: `
+version: 1
+profiles:
+  direct:
+    runner: local
+    instructions: { inline: Direct gate test }
+`,
+      runners: `
+version: 1
+runners:
+  local:
+    type: command
+    command: node
+    capabilities: { native_subagents: false }
+`,
+    },
+    "/tmp/direct-gates-test"
+  );
+  const plan = compileWorkflowPlan(config);
+
   return {
     ...baseGateRuntimeFields(),
-    config: {
-      default_workflow: "direct-gates",
-      hooks: { functions: {}, on: {} },
-      profiles: {},
-      runners: {},
-      version: 1,
-      workflows: { "direct-gates": { nodes: [] } },
-    } as unknown as RuntimeContext["config"],
-    nodeStateStore: gateNodeStateStore(node.id, ["README.md"]),
+    config,
+    nodeStateStore: gateNodeStateStore("node-a", ["README.md"]),
     observability: (event) => observability.push(event),
-    plan: {
-      execution: { failFast: true },
-      graph: { node: () => node },
-      parallelBatches: [[node]],
-      topologicalOrder: [node],
-      workflowId: "direct-gates",
-    } as unknown as RuntimeContext["plan"],
+    plan,
     reporter: (event) => reporterEvents.push(event),
     runId: "run-direct",
     task: "exercise direct gate evaluation",
@@ -275,27 +303,13 @@ describe("runtime gates", () => {
   });
 
   it("evaluates gates directly while preserving result and observability contracts", async () => {
-    const node: PlannedWorkflowNode = {
-      dependents: [],
-      gates: [
-        {
-          changed_files: { deny: ["**/*.md"], require_any: ["src/**"] },
-          id: "changed-policy",
-          kind: "changed_files",
-        },
-      ],
-      id: "node-a",
-      index: 0,
-      kind: "agent",
-      needs: [],
-    };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const context = directGateRuntimeContext(
-      node,
-      observability,
-      reporterEvents
-    );
+    const context = directGateRuntimeContext(observability, reporterEvents);
+    const node = context.plan.topologicalOrder[0];
+    if (!node) {
+      throw new Error("direct gate test plan did not compile node-a");
+    }
 
     const results = await evaluateNodeGates(node, context, {
       evidence: [],

@@ -1,5 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+import {
+  baseGateRuntimeFields,
+  gateNodeStateStore,
+} from "../../../tests/gate-test-context";
 import { parsePipelineConfigParts } from "../../config/load";
 import { compileWorkflowPlan } from "../../planning/compile";
 import type {
@@ -10,10 +14,6 @@ import type {
 import type { LlmJudge } from "../../runtime/gates/adjudication/llm-judge";
 import type { DeterministicGate } from "../../runtime/gates/adjudicator";
 import type { GateEvaluationInput } from "../../runtime/gates/contract";
-import {
-  baseGateRuntimeFields,
-  gateNodeStateStore,
-} from "../../runtime/gates/gate-test-context";
 import {
   completeTicket,
   conservativeLayerAJudge,

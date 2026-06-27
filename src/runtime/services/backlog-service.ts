@@ -1,8 +1,7 @@
-// fallow-ignore-file unused-file
 import { Context, Data, Effect, Layer } from "effect";
 import { execa } from "execa";
+import { isRecord } from "../../safe-json";
 
-// fallow-ignore-next-line unused-export
 export class BacklogCommandError extends Data.TaggedError(
   "BacklogCommandError"
 )<{
@@ -10,18 +9,14 @@ export class BacklogCommandError extends Data.TaggedError(
   readonly stdout: string;
 }> {}
 
-// fallow-ignore-next-line unused-export
-export class BacklogParseError extends Data.TaggedError("BacklogParseError")<{
-  readonly message: string;
-}> {}
-
 function commandErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 function commandErrorStdout(error: unknown): string {
-  const stdout = (error as { stdout?: unknown }).stdout;
-  return typeof stdout === "string" ? stdout : "";
+  return isRecord(error) && typeof error.stdout === "string"
+    ? error.stdout
+    : "";
 }
 
 function toBacklogCommandError(error: unknown): BacklogCommandError {
@@ -31,7 +26,6 @@ function toBacklogCommandError(error: unknown): BacklogCommandError {
   });
 }
 
-// fallow-ignore-next-line unused-export
 export class BacklogService extends Context.Service<
   BacklogService,
   {
@@ -42,7 +36,6 @@ export class BacklogService extends Context.Service<
   }
 >()("BacklogService") {}
 
-// fallow-ignore-next-line unused-export
 export const BacklogServiceLive = Layer.succeed(BacklogService, {
   run: (args, cwd) =>
     Effect.tryPromise({

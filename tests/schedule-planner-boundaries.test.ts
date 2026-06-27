@@ -6,16 +6,6 @@ const repoRoot = join(import.meta.dirname, "..");
 
 const scheduleModuleBoundaries = [
   {
-    exports: [
-      "ScheduleArtifactError",
-      "compileScheduleArtifact",
-      "parseScheduleArtifact",
-      "scheduleArtifactPath",
-    ],
-    importPath: "../src/schedule/artifact.ts",
-    sourcePath: "src/schedule/artifact.ts",
-  },
-  {
     exports: ["generateScheduleArtifact"],
     importPath: "../src/planning/generate.ts",
     sourcePath: "src/planning/generate.ts",
@@ -102,6 +92,23 @@ describe("schedule planner module boundaries", () => {
           `${boundary.sourcePath} should export ${exportName}`
         ).toHaveProperty(exportName);
       }
+    }
+  });
+
+  it("keeps schedule artifact exports on the stable public schedule owner", async () => {
+    expect(existsSync(join(repoRoot, "src/schedule/artifact.ts"))).toBe(false);
+
+    const publicScheduleOwner = await importFromTestFile(
+      "../src/planning/generate.ts"
+    );
+
+    for (const exportName of [
+      "ScheduleArtifactError",
+      "compileScheduleArtifact",
+      "parseScheduleArtifact",
+      "scheduleArtifactPath",
+    ]) {
+      expect(publicScheduleOwner).toHaveProperty(exportName);
     }
   });
 

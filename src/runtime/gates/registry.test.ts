@@ -1,5 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+import {
+  baseGateRuntimeFields,
+  gateNodeStateStore,
+} from "../../../tests/gate-test-context";
 import { parsePipelineConfigParts } from "../../config/load";
 import { compileWorkflowPlan } from "../../planning/compile";
 import type {
@@ -8,7 +12,6 @@ import type {
   RuntimeContext,
 } from "../contracts";
 import type { GateEvaluationInput, GateKind } from "./contract";
-import { baseGateRuntimeFields, gateNodeStateStore } from "./gate-test-context";
 import { evaluateChangedFilesGate } from "./kinds/changed-files/changed-files";
 import { evaluateGate, gateRegistry } from "./registry";
 

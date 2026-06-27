@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { parsePipelineConfigParts } from "../../../../config/load";
-import { compileWorkflowPlan } from "../../../../planning/compile";
-import type { BuiltinGateSpec, RuntimeContext } from "../../../contracts";
 import {
   baseGateRuntimeFields,
   gateNodeStateStore,
-} from "../../gate-test-context";
+} from "../../../../../tests/gate-test-context";
+import { parsePipelineConfigParts } from "../../../../config/load";
+import { compileWorkflowPlan } from "../../../../planning/compile";
+import type { BuiltinGateSpec, RuntimeContext } from "../../../contracts";
 
 // Mock executeBuiltin so no actual builtins (tests, linting) are invoked.
 vi.mock("../../../builtins", () => ({

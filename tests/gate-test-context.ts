@@ -1,5 +1,5 @@
-import type { RuntimeContext } from "../contracts";
-import { NodeStateStore } from "../node-state-store";
+import type { RuntimeContext } from "../src/runtime/contracts";
+import { NodeStateStore } from "../src/runtime/node-state-store";
 
 type BaseGateRuntimeFields = Pick<
   RuntimeContext,
