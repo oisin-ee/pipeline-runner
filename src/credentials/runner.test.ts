@@ -3,12 +3,13 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { prepareOpencodeCredentials } from "./opencode-accounts";
+import { prepareOpencodeCredentials } from "./runner";
 
 const BROKER_REQUIRED_RE = /BROKER_API_KEY is required/;
 const tempDirs: string[] = [];
@@ -44,13 +45,14 @@ describe("prepareOpencodeCredentials", () => {
       "opencode",
       "opencode.json"
     );
-    // Seed an existing codex config + opencode config carrying the legacy
-    // multi-auth plugin, to prove broker mode injects the provider and drops it.
+
     mkdirSync(dirname(codexConfigPath), { recursive: true });
     writeFileSync(
       codexConfigPath,
       ['model = "gpt-5.5"', "", "[features]", "hooks = true", ""].join("\n")
     );
+    mkdirSync(dirname(opencodeAuthPath), { recursive: true });
+    writeFileSync(opencodeAuthPath, "{}\n", { mode: 0o644 });
     mkdirSync(dirname(opencodeConfigPath), { recursive: true });
     writeFileSync(
       opencodeConfigPath,
@@ -76,12 +78,11 @@ describe("prepareOpencodeCredentials", () => {
       ["auth.json", "config.toml", "opencode.json"].sort()
     );
 
-    // opencode auth.json: broker api-key.
     expect(JSON.parse(readFileSync(opencodeAuthPath, "utf8"))).toEqual({
       openai: { key: "sk-maa-test", type: "api" },
     });
+    expect(filePermissionMode(opencodeAuthPath)).toBe("600");
 
-    // codex config.toml: broker provider injected, existing config preserved.
     const codexConfig = readFileSync(codexConfigPath, "utf8");
     expect(codexConfig).toContain('model = "gpt-5.5"');
     expect(codexConfig).toContain('model_provider = "broker"');
@@ -90,8 +91,6 @@ describe("prepareOpencodeCredentials", () => {
     expect(codexConfig).toContain('env_key = "BROKER_API_KEY"');
     expect(codexConfig).toContain('wire_api = "responses"');
 
-    // opencode config: openai baseURL set, multi-auth plugin dropped, other
-    // plugin + model preserved.
     const opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf8"));
     expect(opencodeConfig.provider.openai.options.baseURL).toBe(
       "https://broker.test/v1"
@@ -115,3 +114,7 @@ describe("prepareOpencodeCredentials", () => {
     }
   });
 });
+
+function filePermissionMode(path: string): string {
+  return (statSync(path).mode % 0o1000).toString(8).padStart(3, "0");
+}

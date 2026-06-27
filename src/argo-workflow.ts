@@ -319,7 +319,7 @@ const buildRunnerArgoWorkflowOptionsSchema = z
     // CLIProxyAPI broker auth for codex + opencode. Every runner container gets
     // BROKER_URL (literal) + BROKER_API_KEY (from the named secret key); the
     // runner then writes the broker provider config (see
-    // run-state/opencode-accounts.ts). The broker owns OAuth refresh / rotation
+    // credentials/runner.ts). The broker owns OAuth refresh / rotation
     // / failover, so there is no bespoke auth mount.
     brokerAuth: z
       .object({

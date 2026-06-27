@@ -3,10 +3,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Command, Help, Option } from "commander";
 import { Effect } from "effect";
-import {
-  formatCodexAuthSyncResult,
-  syncLocalCodexAuth,
-} from "../codex-auth-sync";
 import { registerBenchCommand } from "../commands/bench-command";
 import { registerConfiguredEntrypointCommands } from "../commands/pipeline-command";
 import { registerRunnerCommandCommand } from "../commands/runner-command-command";
@@ -16,6 +12,10 @@ import {
 } from "../commands/ticket-command";
 import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { formatConfigLintWarning, lintPipelineConfig } from "../config/lint";
+import {
+  formatCodexAuthSyncResult,
+  syncLocalCodexAuth,
+} from "../credentials/local-codex-auth-sync";
 import {
   type LoopCommandOptions,
   parseLoopFlags,

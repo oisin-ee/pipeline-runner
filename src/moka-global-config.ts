@@ -2,9 +2,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { z } from "zod";
-import { brokerAuthOptionSchema } from "./broker-auth";
 import { PipelineConfigError } from "./config";
 import { configIssuesFromZodError, validationError } from "./config/schemas";
+import { brokerAuthOptionSchema } from "./credentials/broker";
 import {
   ConfigIoService,
   runConfigIoSync,

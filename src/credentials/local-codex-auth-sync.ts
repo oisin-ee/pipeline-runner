@@ -7,11 +7,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  applyOpencodeBrokerProvider,
-  type BrokerCredentials,
-  resolveBrokerCredentials,
-} from "./broker-auth";
+import type { BrokerCredentials } from "./broker";
+import { resolveBrokerCredentials } from "./broker";
+import { applyOpencodeBrokerProvider } from "./opencode-config";
 
 export type CodexAuthSyncAction = "create" | "error" | "unchanged" | "update";
 
@@ -41,27 +39,36 @@ export interface SyncLocalCodexAuthResult {
  * Point each local dev repo's opencode openai provider at the central
  * CLIProxyAPI broker. codex + opencode authenticate through the broker
  * (which owns OAuth refresh / rotation / failover), so there is no per-project
- * account pool to declare. Requires BROKER_API_KEY in the env (or an explicit
- * `broker` override).
+ * account pool to declare.
  */
 export function syncLocalCodexAuth(
   options: SyncLocalCodexAuthOptions
 ): SyncLocalCodexAuthResult {
   const broker =
     options.broker === undefined ? resolveBrokerCredentials() : options.broker;
-  if (!broker) {
-    return {
-      items: [
-        {
-          action: "error",
-          message:
-            "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
-          path: options.root,
-        },
-      ],
-      ok: false,
-    };
-  }
+  return broker
+    ? syncLocalCodexAuthWithBroker(options, broker)
+    : brokerRequiredResult(options.root);
+}
+
+function brokerRequiredResult(root: string): SyncLocalCodexAuthResult {
+  return {
+    items: [
+      {
+        action: "error",
+        message:
+          "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
+        path: root,
+      },
+    ],
+    ok: false,
+  };
+}
+
+function syncLocalCodexAuthWithBroker(
+  options: SyncLocalCodexAuthOptions,
+  broker: BrokerCredentials
+): SyncLocalCodexAuthResult {
   const items = discoverGitRepositories(options.root).map((repo) =>
     syncProjectBrokerConfig(repo, broker, options)
   );
@@ -106,15 +113,31 @@ function writeIfChanged(
   nextText: string,
   options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
 ): CodexAuthSyncItem {
-  if (currentText === nextText) {
+  const action = changedAction(currentText, nextText);
+  if (action === "unchanged") {
     return { action: "unchanged", path };
   }
-  const action = currentText === undefined ? "create" : "update";
-  if (!(options.check || options.dryRun)) {
+  if (writesEnabled(options)) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, nextText);
   }
   return { action, path };
+}
+
+function changedAction(
+  currentText: string | undefined,
+  nextText: string
+): Exclude<CodexAuthSyncAction, "error"> {
+  if (currentText === nextText) {
+    return "unchanged";
+  }
+  return currentText === undefined ? "create" : "update";
+}
+
+function writesEnabled(
+  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
+): boolean {
+  return !(options.check || options.dryRun);
 }
 
 function discoverGitRepositories(root: string): string[] {

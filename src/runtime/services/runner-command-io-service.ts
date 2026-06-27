@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { Context, Effect, Layer } from "effect";
 import { execa } from "execa";
 import type { z } from "zod";
+import { prepareOpencodeCredentials } from "../../credentials/runner";
 import { runScheduledWorkflowTask } from "../../pipeline-runtime";
 import {
   commitAndPushNodeRef,
@@ -9,7 +10,6 @@ import {
   prepareRunnerGitWorkspace,
   promoteFinalRef,
 } from "../../run-state/git-refs";
-import { prepareOpencodeCredentials } from "../../run-state/opencode-accounts";
 import type { parseRunnerCommandPayload } from "../../runner-command-contract";
 import { resolveRunnerEventSinkAuthToken } from "../../runner-command-contract";
 import { createRunnerEventSink } from "../../runner-event-sink";

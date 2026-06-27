@@ -47,8 +47,8 @@ vi.mock("execa", () => ({
 // The runner authenticates through the central broker; credential prep writes
 // broker config to $HOME. These tests cover hook policy + logging, not
 // credential materialization, so stub it to a no-op (broker config is proven in
-// run-state/opencode-accounts.test.ts).
-vi.mock("../src/run-state/opencode-accounts", () => ({
+// credentials/runner.test.ts).
+vi.mock("../src/credentials/runner", () => ({
   prepareOpencodeCredentials: () => ({ brokerConfigured: [] }),
 }));
 

@@ -10,8 +10,8 @@ import {
   buildRunnerArgoWorkflowManifest,
   runnerArgoWorkflowManifestSchema,
 } from "./argo-workflow";
-import { brokerAuthOptionSchema } from "./broker-auth";
 import type { PipelineConfig } from "./config";
+import { brokerAuthOptionSchema } from "./credentials/broker";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import {
   type CompiledScheduleArtifact,

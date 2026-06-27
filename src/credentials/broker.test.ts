@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyCodexBrokerProvider,
-  applyOpencodeBrokerProvider,
   type BrokerCredentials,
   brokerV1Url,
-  renderOpencodeBrokerAuthJson,
   resolveBrokerCredentials,
-} from "./broker-auth";
+} from "./broker";
+import { applyCodexBrokerProvider } from "./codex-config";
+import {
+  applyOpencodeBrokerProvider,
+  renderOpencodeBrokerAuthJson,
+} from "./opencode-config";
 
 const CREDS: BrokerCredentials = {
   apiKey: "sk-maa-test",
@@ -109,7 +111,6 @@ describe("applyOpencodeBrokerProvider", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.plugin).toEqual(["keep-me"]);
     expect(parsed.model).toBe("openai/gpt-5.5-medium");
-    // existing openai option preserved, broker options merged in.
     expect(parsed.provider.openai.options).toEqual({
       baseURL: "https://broker.test/v1",
       include: ["reasoning.encrypted_content"],

@@ -8,8 +8,11 @@ import {
   buildCommandScheduleYaml,
   submitRunnerArgoWorkflow,
 } from "./argo-submit";
-import { type BrokerAuthOption, brokerAuthOptionSchema } from "./broker-auth";
 import type { HookEvent, PipelineConfig } from "./config";
+import {
+  type BrokerAuthOption,
+  brokerAuthOptionSchema,
+} from "./credentials/broker";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import {
   compileScheduleArtifact,

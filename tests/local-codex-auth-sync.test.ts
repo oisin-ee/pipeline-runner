@@ -9,7 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { syncLocalCodexAuth } from "../src/codex-auth-sync";
+import {
+  formatCodexAuthSyncResult,
+  syncLocalCodexAuth,
+} from "../src/credentials/local-codex-auth-sync";
 
 const BROKER_REQUIRED_RE = /BROKER_API_KEY is required/;
 
@@ -84,6 +87,21 @@ describe("syncLocalCodexAuth", () => {
     expect(result.ok).toBe(false);
     expect(result.items.every((item) => item.action === "create")).toBe(true);
     expect(existsSync(join(repo, ".opencode/opencode.json"))).toBe(false);
+  });
+
+  it("reports sync actions without exposing the broker api-key", () => {
+    gitRepo("app");
+
+    const result = syncLocalCodexAuth({
+      broker: {
+        apiKey: "sk-maa-secret",
+        baseUrl: "https://broker.test",
+      },
+      check: true,
+      root: dir,
+    });
+
+    expect(formatCodexAuthSyncResult(result)).not.toContain("sk-maa-secret");
   });
 
   it("fails when BROKER_API_KEY is absent (no bespoke multi-auth path remains)", () => {
