@@ -1,7 +1,7 @@
 ---
 id: PIPE-45.12
 title: Split gates and hooks by kind and policy
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-27 14:03'
 labels: []
@@ -32,12 +32,12 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Hook and gate policies are separated by kind/owner -- Evidence: source inspection.
-- [ ] #2 Gate/hook tests pass with no added suppressions -- Evidence: focused tests and check output.
-- [ ] #3 No silent error handling or broad fallback defaults are introduced -- Evidence: quality-gate review.
+- [x] #1 Hook and gate policies are separated by kind/owner -- Evidence: source inspection in `tests/pipe-45-12-hook-gate-boundaries.test.ts`; hook owners split under `src/runtime/hooks/`, gate kind registry remains in `src/runtime/gates/registry.ts`.
+- [x] #2 Gate/hook tests pass with no added suppressions -- Evidence: `bun run test src/runtime/hooks/hooks.test.ts tests/gates.test.ts tests/install-hooks.test.ts`; combined focused proof also passed 9 files / 104 tests.
+- [x] #3 No silent error handling or broad fallback defaults are introduced -- Evidence: quality-gate review plus `bun run typecheck`, `bun run check`, and `pnpm exec fallow audit --changed-since HEAD --production`.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run feature-implementation workflow in order and record proof.
+- [x] #1 Run feature-implementation workflow in order and record proof.
 <!-- DOD:END -->

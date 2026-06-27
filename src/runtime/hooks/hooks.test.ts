@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { PlannedWorkflowNode } from "../../planning/compile";
+import { parsePipelineConfigParts } from "../../config";
+import type {
+  PlannedWorkflowNode,
+  WorkflowExecutionPlan,
+} from "../../planning/compile";
+import { createDependencyGraph } from "../../planning/graph";
 import type { RuntimeObservabilityEvent } from "../actor-ids";
 import type {
-  HookBinding,
-  HookFunctionSpec,
   PipelineRuntimeEvent,
   RuntimeContext,
   RuntimeFailure,
 } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
-import { dispatchHooks, hookBindingMatchesContext, hookEnv } from "./hooks";
+import { dispatchHooks } from "./hooks";
 
 const originalPath = process.env.PATH;
 const originalToken = process.env.PIPELINE_TOKEN;
@@ -30,35 +33,50 @@ afterEach(() => {
 function directHookRuntimeContext(
   node: PlannedWorkflowNode,
   observability: RuntimeObservabilityEvent[],
-  reporterEvents: PipelineRuntimeEvent[]
+  reporterEvents: PipelineRuntimeEvent[],
+  override?: Partial<RuntimeContext>
 ): RuntimeContext {
+  const config = parsePipelineConfigParts({
+    pipeline: `
+version: 1
+default_workflow: direct-hooks
+hooks:
+  functions:
+    disabled:
+      command: ["disabled-hook"]
+      kind: command
+      trusted: true
+  on:
+    node.finish:
+      - failure: fail
+        function: disabled
+        id: disabled
+workflows:
+  direct-hooks:
+    nodes: []
+`,
+    profiles: `
+version: 1
+profiles: {}
+`,
+    runners: `
+version: 1
+runners: {}
+`,
+  });
+  const plan: WorkflowExecutionPlan = {
+    execution: { failFast: true },
+    graph: createDependencyGraph([node], {
+      dependenciesOf: (plannedNode) => plannedNode.needs,
+      valueOf: (plannedNode) => plannedNode,
+    }),
+    parallelBatches: [[node]],
+    topologicalOrder: [node],
+    workflowId: "direct-hooks",
+  };
   return {
     agentInvocations: [],
-    config: {
-      default_workflow: "direct-hooks",
-      hooks: {
-        functions: {
-          disabled: {
-            command: ["disabled-hook"],
-            kind: "command",
-            trusted: true,
-          },
-        },
-        on: {
-          "node.finish": [
-            {
-              failure: "fail",
-              function: "disabled",
-              id: "disabled",
-            },
-          ],
-        },
-      },
-      profiles: {},
-      runners: {},
-      version: 1,
-      workflows: { "direct-hooks": { nodes: [] } },
-    } as unknown as RuntimeContext["config"],
+    config,
     executor: async () => ({ exitCode: 0, stdout: "" }),
     gates: [],
     hookFailures: [],
@@ -73,80 +91,26 @@ function directHookRuntimeContext(
     hookResults: new Map(),
     nodeStateStore: new NodeStateStore(),
     observability: (event) => observability.push(event),
-    plan: {
-      execution: { failFast: true },
-      graph: { node: () => node },
-      parallelBatches: [[node]],
-      topologicalOrder: [node],
-      workflowId: "direct-hooks",
-    } as unknown as RuntimeContext["plan"],
+    plan,
     reporter: (event) => reporterEvents.push(event),
     runId: "run-direct",
     task: "exercise direct hook invocation",
     workflowId: "direct-hooks",
     worktreePath: process.cwd(),
+    ...override,
   };
 }
 
+function reporterHookEvents(
+  events: PipelineRuntimeEvent[]
+): Extract<PipelineRuntimeEvent, { hookId: string }>[] {
+  return events.filter(
+    (event): event is Extract<PipelineRuntimeEvent, { hookId: string }> =>
+      "hookId" in event
+  );
+}
+
 describe("runtime hooks", () => {
-  it("matches hook bindings by workflow, node, and gate filters", () => {
-    const binding: HookBinding = {
-      failure: "ignore",
-      function: "announce",
-      id: "announce",
-      where: {
-        gate: "quality",
-        node: "node-a",
-        workflow: "default",
-      },
-    };
-
-    expect(
-      hookBindingMatchesContext(binding, "default", "node-a", "quality")
-    ).toBe(true);
-    expect(
-      hookBindingMatchesContext(binding, "other", "node-a", "quality")
-    ).toBe(false);
-    expect(
-      hookBindingMatchesContext(binding, "default", "node-b", "quality")
-    ).toBe(false);
-    expect(
-      hookBindingMatchesContext(binding, "default", "node-a", "other")
-    ).toBe(false);
-  });
-
-  it("builds command hook env from passthrough and explicit values", () => {
-    process.env.PATH = "/bin";
-    process.env.PIPELINE_TOKEN = "secret";
-    const hook: Extract<HookFunctionSpec, { kind: "command" }> = {
-      command: ["hook-bin"],
-      env: {
-        passthrough: ["PIPELINE_TOKEN"],
-        set: { LOCAL_ONLY: "1" },
-      },
-      kind: "command",
-      protocol: { input: "file", result: "file" },
-      trusted: true,
-    };
-    const context = {
-      hookPolicy: {
-        allowCommandHooks: true,
-        allowUntrustedCommandHooks: true,
-        env: { GLOBAL_ONLY: "1" },
-        envPassthrough: ["PATH"],
-        outputLimitBytes: 1024,
-        timeoutMs: 1000,
-      },
-    } as Pick<RuntimeContext, "hookPolicy">;
-
-    expect(hookEnv(hook, context)).toEqual({
-      GLOBAL_ONLY: "1",
-      LOCAL_ONLY: "1",
-      PATH: "/bin",
-      PIPELINE_TOKEN: "secret",
-    });
-  });
-
   it("dispatches hooks directly while preserving failure and observability contracts", async () => {
     const node: PlannedWorkflowNode = {
       dependents: [],
@@ -226,6 +190,127 @@ describe("runtime hooks", () => {
       }),
     ]);
     expect(JSON.stringify(observability)).not.toContain("snapshot");
+  });
+
+  it("matches hook bindings by workflow, node, and gate filters during dispatch", async () => {
+    const node: PlannedWorkflowNode = {
+      dependents: [],
+      id: "node-a",
+      index: 0,
+      kind: "agent",
+      needs: [],
+    };
+    const observability: RuntimeObservabilityEvent[] = [];
+    const reporterEvents: PipelineRuntimeEvent[] = [];
+    const context = directHookRuntimeContext(
+      node,
+      observability,
+      reporterEvents
+    );
+    context.config.hooks.on["node.finish"] = [
+      {
+        failure: "fail",
+        function: "disabled",
+        id: "other-node",
+        where: { gate: "quality", node: "node-b", workflow: "direct-hooks" },
+      },
+      {
+        failure: "fail",
+        function: "disabled",
+        id: "matching",
+        where: { gate: "quality", node: "node-a", workflow: "direct-hooks" },
+      },
+    ];
+
+    const failure = await dispatchHooks(
+      context,
+      "node.finish",
+      undefined,
+      node,
+      "quality"
+    );
+
+    expect(failure).toMatchObject({ gate: "matching" });
+    expect(
+      reporterHookEvents(reporterEvents).map((event) => event.hookId)
+    ).toEqual(["matching", "matching"]);
+  });
+
+  it("builds command hook env from passthrough and explicit values during dispatch", async () => {
+    process.env.PATH = "/bin";
+    process.env.PIPELINE_TOKEN = "secret";
+    const node: PlannedWorkflowNode = {
+      dependents: [],
+      id: "node-a",
+      index: 0,
+      kind: "agent",
+      needs: [],
+    };
+    const observability: RuntimeObservabilityEvent[] = [];
+    const reporterEvents: PipelineRuntimeEvent[] = [];
+    const context = directHookRuntimeContext(
+      node,
+      observability,
+      reporterEvents,
+      {
+        hookPolicy: {
+          allowCommandHooks: true,
+          allowUntrustedCommandHooks: true,
+          env: { GLOBAL_ONLY: "1" },
+          envPassthrough: ["PATH"],
+          outputLimitBytes: 4096,
+          timeoutMs: 1000,
+        },
+      }
+    );
+    context.config.hooks.functions.env = {
+      command: [
+        process.execPath,
+        "-e",
+        [
+          "const { writeFileSync } = require('node:fs');",
+          "writeFileSync(process.env.PIPELINE_HOOK_RESULT, JSON.stringify({",
+          "status: 'pass',",
+          "outputs: {",
+          "GLOBAL_ONLY: process.env.GLOBAL_ONLY,",
+          "LOCAL_ONLY: process.env.LOCAL_ONLY,",
+          "PATH: process.env.PATH,",
+          "PIPELINE_TOKEN: process.env.PIPELINE_TOKEN,",
+          "},",
+          "}));",
+        ].join("\n"),
+      ],
+      env: {
+        passthrough: ["PIPELINE_TOKEN"],
+        set: { LOCAL_ONLY: "1" },
+      },
+      kind: "command",
+      protocol: { input: "file", result: "file" },
+      trusted: true,
+    };
+    context.config.hooks.on["node.finish"] = [
+      {
+        failure: "fail",
+        function: "env",
+        id: "env",
+        result: { save_as: "env" },
+      },
+    ];
+
+    const failure = await dispatchHooks(
+      context,
+      "node.finish",
+      undefined,
+      node
+    );
+
+    expect(failure).toBeNull();
+    expect(context.hookResults.get("env")?.outputs).toEqual({
+      GLOBAL_ONLY: "1",
+      LOCAL_ONLY: "1",
+      PATH: "/bin",
+      PIPELINE_TOKEN: "secret",
+    });
   });
 
   it("emits skipped hook observability when cancellation prevents invocation", async () => {
