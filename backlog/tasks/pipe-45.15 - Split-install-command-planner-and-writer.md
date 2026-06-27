@@ -1,7 +1,7 @@
 ---
 id: PIPE-45.15
 title: Split install command planner and writer
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-27 14:03'
 labels: []
@@ -31,12 +31,12 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Install planning and filesystem writing are separate owners -- Evidence: source inspection.
-- [ ] #2 Host-specific generated command output remains stable -- Evidence: install command tests pass.
-- [ ] #3 No generated files are hand-edited -- Evidence: diff review.
+- [x] #1 Install planning and filesystem writing are separate owners -- Evidence: `src/install-commands/{host-selection,planner,result-format,writer}.ts`; owner assertion in `tests/install-commands.test.ts`.
+- [x] #2 Host-specific generated command output remains stable -- Evidence: `bun run test tests/install-commands.test.ts tests/pipeline-init.test.ts tests/install-hooks.test.ts`.
+- [x] #3 No generated files are hand-edited -- Evidence: diff review touched only source/tests/Backlog; `bun run check`; `pnpm exec fallow audit --changed-since HEAD --production`.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run feature-implementation workflow in order and record proof.
+- [x] #1 Run feature-implementation workflow in order and record proof.
 <!-- DOD:END -->
