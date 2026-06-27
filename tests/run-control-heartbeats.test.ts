@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +6,8 @@ import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
 } from "../src/pipeline-runtime";
-import { createRun, readRun } from "../src/run-control/store";
+import { createRun, readRun } from "./run-control-file-store-helpers";
+import { readJson, readJsonl, runPath } from "./run-control-test-helpers";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
 
@@ -49,27 +50,10 @@ async function loadContracts(): Promise<RunControlContractsModule> {
   )) as RunControlContractsModule;
 }
 
-function runPath(workspaceRoot: string, runId: string, ...parts: string[]) {
-  return join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
-}
-
-function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function readJsonl(path: string): Record<string, unknown>[] {
-  if (!existsSync(path)) {
-    return [];
-  }
-
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
-}
-
 function readRunControlEvents(workspaceRoot: string, runId: string) {
-  return readJsonl(runPath(workspaceRoot, runId, "events.jsonl"));
+  return readJsonl(runPath(workspaceRoot, runId, "events.jsonl")).filter(
+    isRecord
+  );
 }
 
 function heartbeatEvents(workspaceRoot: string, runId: string) {
@@ -82,11 +66,14 @@ function positiveNamedDefault(value: unknown): number {
   if (typeof value !== "number") {
     throw new Error("Expected run-control default to be exported as a number.");
   }
-  const numberValue = value as number;
-  if (!(Number.isInteger(numberValue) && numberValue > 0)) {
+  if (!(Number.isInteger(value) && value > 0)) {
     throw new Error("Expected run-control default to be a positive integer.");
   }
-  return numberValue;
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 describe("run-control heartbeats and stale detection", () => {

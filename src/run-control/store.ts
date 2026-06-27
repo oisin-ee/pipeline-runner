@@ -1,127 +1,52 @@
-// fallow-ignore-file unused-export complexity code-duplication
-import type { Dirent } from "node:fs";
-import {
-  appendFile,
-  mkdir,
-  readdir,
-  readFile,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { join } from "node:path";
 import { Effect } from "effect";
 import {
-  DEFAULT_RUN_CONTROL_STALE_DETECTION,
-  type MokaNodeStatus,
   type MokaRunControlEvent,
-  type MokaRunController,
-  type MokaRunEvent,
   type MokaRunManifest,
-  type MokaRunStatus,
   parseMokaNodeStatus,
   parseMokaRunController,
   parseMokaRunEvent,
   parseMokaRunManifest,
   parseMokaRunStatus,
-  parseRunControlStaleDetection,
-  parseRunEffort,
-  parseRunMode,
-  parseRunTarget,
-  type RunControlStaleDetection,
-  type RunEffort,
-  type RunMode,
-  type RunTarget,
 } from "./contracts";
+import { isNotFound } from "./file-errors";
+import { logicalSegmentEffect } from "./logical-segment";
+import {
+  appendFileUtf8Effect,
+  ensureRunExistsEffect,
+  mkdirEffect,
+  readDirectoryEntriesEffect,
+  readFileUtf8Effect,
+  readOptionalFileEffect,
+  writeFileUtf8Effect,
+  writeJsonEffect,
+} from "./store-fs-effects";
+import {
+  createRunManifest,
+  parseRunStatusFile,
+  replayEvents,
+  statusFromManifest,
+} from "./store-manifest";
+import {
+  nonEmptyStringEffect,
+  normalizeWorkspaceRelative,
+  RUNS_DIRECTORY,
+  runPaths,
+} from "./store-paths";
+import type {
+  CreateRunInput,
+  NodeArtifactReference,
+  ReadRunInput,
+  RecordEventInput,
+  RunStatusFile,
+  StoreContext,
+  UpdateNodeSessionInput,
+  UpdateNodeStatusInput,
+  UpdateRunControllerInput,
+  UpdateRunStatusInput,
+  WriteNodeArtifactInput,
+} from "./store-types";
 import { ensurePipelineWorkspaceIgnore } from "./workspace";
-
-interface StoreContext {
-  workspaceRoot: string;
-}
-
-export interface CreateRunInput extends StoreContext {
-  effort: RunEffort;
-  mode: RunMode;
-  nodeIds: string[];
-  runId: string;
-  // PIPE-91.16: serialized schedule artifact persisted so `moka resume`
-  // reconstructs the run's exact graph from it. Absent for package-workflow runs.
-  schedule?: string;
-  staleDetection?: RunControlStaleDetection;
-  target: RunTarget;
-}
-
-export interface ReadRunInput extends StoreContext {
-  runId: string;
-}
-
-export interface RunControlStatusPaths {
-  events: string;
-  manifest: string;
-  status: string;
-}
-
-export interface RecordEventInput extends StoreContext {
-  event: MokaRunControlEvent;
-  runId: string;
-}
-
-export interface UpdateRunControllerInput extends StoreContext {
-  controller: MokaRunController;
-  runId: string;
-}
-
-export interface UpdateRunStatusInput extends StoreContext {
-  at: string;
-  runId: string;
-  status: MokaRunStatus;
-}
-
-export interface UpdateNodeStatusInput extends StoreContext {
-  at: string;
-  nodeId: string;
-  runId: string;
-  status: MokaNodeStatus;
-}
-
-export interface UpdateNodeSessionInput extends StoreContext {
-  nodeId: string;
-  runId: string;
-  sessionId: string;
-}
-
-export interface WriteNodeArtifactInput extends StoreContext {
-  content: string;
-  contentType?: string;
-  name: string;
-  nodeId: string;
-  runId: string;
-}
-
-export interface NodeArtifactReference {
-  path: string;
-}
-
-interface RunStatusFile {
-  nodes: Record<string, RunStatusNode>;
-  status: MokaRunStatus;
-}
-
-type RunStatusNode =
-  | MokaNodeStatus
-  | {
-      sessionId?: string;
-      status: MokaNodeStatus;
-    };
-
-const RUNS_DIRECTORY = ".pipeline/runs";
-const MANIFEST_FILE = "manifest.json";
-const STATUS_FILE = "status.json";
-const EVENTS_FILE = "events.jsonl";
-const NODES_DIRECTORY = "nodes";
-
-export function createRun(input: CreateRunInput): Promise<MokaRunManifest> {
-  return Effect.runPromise(createRunEffect(input));
-}
 
 export function createRunEffect(
   input: CreateRunInput
@@ -138,10 +63,9 @@ export function createRunEffect(
     yield* mkdirEffect(paths.runsRoot, { recursive: true });
     yield* mkdirEffect(paths.runRoot, { recursive: true });
     yield* mkdirEffect(paths.nodesRoot, { recursive: true });
-
-    for (const nodeId of nodeIds) {
-      yield* mkdirEffect(join(paths.nodesRoot, nodeId), { recursive: true });
-    }
+    yield* Effect.forEach(nodeIds, (nodeId) =>
+      mkdirEffect(join(paths.nodesRoot, nodeId), { recursive: true })
+    );
 
     yield* writeJsonEffect(paths.manifest, manifest);
     yield* writeJsonEffect(paths.status, statusFromManifest(manifest));
@@ -149,12 +73,6 @@ export function createRunEffect(
 
     return manifest;
   });
-}
-
-export function updateRunController(
-  input: UpdateRunControllerInput
-): Promise<MokaRunManifest> {
-  return Effect.runPromise(updateRunControllerEffect(input));
 }
 
 export function updateRunControllerEffect(
@@ -174,16 +92,6 @@ export function updateRunControllerEffect(
     yield* writeJsonEffect(paths.manifest, updated);
     return updated;
   });
-}
-
-export function runControlStatusPaths(
-  input: ReadRunInput
-): RunControlStatusPaths {
-  return runStatusPaths(parseLogicalSegment("runId", input.runId));
-}
-
-export function recordEvent(input: RecordEventInput): Promise<void> {
-  return Effect.runPromise(recordEventEffect(input));
 }
 
 export function recordEventEffect(
@@ -213,10 +121,6 @@ export function recordEventEffect(
   });
 }
 
-export function updateRunStatus(input: UpdateRunStatusInput): Promise<void> {
-  return Effect.runPromise(updateRunStatusEffect(input));
-}
-
 export function updateRunStatusEffect(
   input: UpdateRunStatusInput
 ): Effect.Effect<void, unknown> {
@@ -231,29 +135,19 @@ export function updateRunStatusEffect(
   });
 }
 
-export function updateNodeStatus(input: UpdateNodeStatusInput): Promise<void> {
-  return Effect.runPromise(updateNodeStatusEffect(input));
-}
-
 export function updateNodeStatusEffect(
   input: UpdateNodeStatusInput
 ): Effect.Effect<void, unknown> {
   return recordEventEffect({
     event: {
       at: input.at,
-      nodeId: parseLogicalSegment("nodeId", input.nodeId),
+      nodeId: input.nodeId,
       status: parseMokaNodeStatus(input.status),
       type: "node.status",
     },
     runId: input.runId,
     workspaceRoot: input.workspaceRoot,
   });
-}
-
-export function updateNodeSession(
-  input: UpdateNodeSessionInput
-): Promise<void> {
-  return Effect.runPromise(updateNodeSessionEffect(input));
 }
 
 export function updateNodeSessionEffect(
@@ -290,12 +184,6 @@ export function updateNodeSessionEffect(
   });
 }
 
-export function writeNodeArtifact(
-  input: WriteNodeArtifactInput
-): Promise<NodeArtifactReference> {
-  return Effect.runPromise(writeNodeArtifactEffect(input));
-}
-
 export function writeNodeArtifactEffect(
   input: WriteNodeArtifactInput
 ): Effect.Effect<NodeArtifactReference, unknown> {
@@ -317,12 +205,6 @@ export function writeNodeArtifactEffect(
   });
 }
 
-export function readRun(
-  input: ReadRunInput
-): Promise<MokaRunManifest | undefined> {
-  return Effect.runPromise(readRunEffect(input));
-}
-
 export function readRunEffect(
   input: ReadRunInput
 ): Effect.Effect<MokaRunManifest | undefined, unknown> {
@@ -335,121 +217,43 @@ export function readRunEffect(
       return;
     }
 
-    const manifest = yield* Effect.sync(() =>
-      parseMokaRunManifest(JSON.parse(manifestJson))
-    );
+    const manifest = yield* parseManifestJsonEffect(manifestJson);
     const events = yield* readEventsEffect(paths.events);
 
     return replayEvents(manifest, events);
   });
 }
 
-export function listRuns(input: StoreContext): Promise<MokaRunManifest[]> {
-  return Effect.runPromise(listRunsEffect(input));
-}
-
 export function listRunsEffect(
   input: StoreContext
 ): Effect.Effect<MokaRunManifest[], unknown> {
   return Effect.gen(function* () {
-    const runsRoot = join(input.workspaceRoot, RUNS_DIRECTORY);
-    const entries = yield* readRunDirectoryEntriesEffect(runsRoot);
-    const runs: Array<MokaRunManifest | undefined> = [];
-
-    for (const entry of entries) {
-      runs.push(
-        yield* readRunEffect({
-          runId: entry.name,
-          workspaceRoot: input.workspaceRoot,
-        })
-      );
-    }
+    const entries = yield* readRunDirectoryEntriesEffect(input.workspaceRoot);
+    const runs = yield* Effect.forEach(entries, (entry) =>
+      readRunEffect({
+        runId: entry.name,
+        workspaceRoot: input.workspaceRoot,
+      })
+    );
 
     return runs.filter((run): run is MokaRunManifest => run !== undefined);
   });
 }
 
-function createRunManifest(input: CreateRunInput): {
-  manifest: MokaRunManifest;
-  nodeIds: string[];
-  runId: string;
-} {
-  const runId = parseLogicalSegment("runId", input.runId);
-  const nodeIds = input.nodeIds.map((nodeId) =>
-    parseLogicalSegment("nodeId", nodeId)
-  );
-  const nodes = Object.fromEntries(
-    nodeIds.map((nodeId) => [nodeId, "queued" as const])
-  );
-  const manifest = parseMokaRunManifest({
-    effort: parseRunEffort(input.effort),
-    events: [],
-    mode: parseRunMode(input.mode),
-    nodes,
-    runId,
-    ...(input.schedule ? { schedule: input.schedule } : {}),
-    staleDetection: parseRunControlStaleDetection(
-      input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION
+function readRunDirectoryEntriesEffect(
+  workspaceRoot: string
+): Effect.Effect<Array<{ name: string }>, unknown> {
+  return readDirectoryEntriesEffect(join(workspaceRoot, RUNS_DIRECTORY)).pipe(
+    Effect.map((entries) =>
+      entries
+        .filter((entry) => entry.isDirectory())
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((entry) => ({ name: entry.name }))
     ),
-    status: "queued",
-    target: parseRunTarget(input.target),
-  });
-
-  return { manifest, nodeIds, runId };
-}
-
-function runPaths(workspaceRoot: string, runId: string) {
-  const runsRoot = join(workspaceRoot, RUNS_DIRECTORY);
-  const runRoot = join(runsRoot, runId);
-
-  return {
-    events: join(runRoot, EVENTS_FILE),
-    manifest: join(runRoot, MANIFEST_FILE),
-    nodesRoot: join(runRoot, NODES_DIRECTORY),
-    runRoot,
-    runsRoot,
-    status: join(runRoot, STATUS_FILE),
-  };
-}
-
-function runStatusPaths(runId: string): RunControlStatusPaths {
-  const runRoot = `${RUNS_DIRECTORY}/${runId}`;
-  return {
-    events: `${runRoot}/${EVENTS_FILE}`,
-    manifest: `${runRoot}/${MANIFEST_FILE}`,
-    status: `${runRoot}/${STATUS_FILE}`,
-  };
-}
-
-function replayEvents(
-  manifest: MokaRunManifest,
-  events: MokaRunControlEvent[]
-): MokaRunManifest {
-  const statusEvents = events.filter(
-    (event): event is MokaRunEvent => event.type !== "run.heartbeat"
+    Effect.catch((error) =>
+      isNotFound(error) ? Effect.succeed([]) : Effect.fail(error)
+    )
   );
-  const rebuilt: MokaRunManifest = {
-    ...manifest,
-    events: statusEvents,
-    nodes: { ...manifest.nodes },
-  };
-
-  for (const event of events) {
-    switch (event.type) {
-      case "run.heartbeat":
-        break;
-      case "run.status":
-        rebuilt.status = event.status;
-        break;
-      case "node.status":
-        rebuilt.nodes[event.nodeId] = event.status;
-        break;
-      default:
-        assertNever(event);
-    }
-  }
-
-  return parseMokaRunManifest(rebuilt);
 }
 
 function readEventsEffect(
@@ -473,63 +277,18 @@ function readEventsEffect(
   });
 }
 
-function readRunDirectoryEntriesEffect(
-  runsRoot: string
-): Effect.Effect<Dirent[], unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => readdir(runsRoot, { withFileTypes: true }),
-  }).pipe(
-    Effect.map((entries) =>
-      entries
-        .filter((entry) => entry.isDirectory())
-        .sort((left, right) => left.name.localeCompare(right.name))
-    ),
-    Effect.catch((error) =>
-      isNotFound(error) ? Effect.succeed([]) : Effect.fail(error)
-    )
-  );
-}
-
-function readOptionalFileEffect(
-  path: string
-): Effect.Effect<string | undefined, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => readFile(path, "utf8"),
-  }).pipe(
-    Effect.catch((error) =>
-      isNotFound(error) ? Effect.succeed(undefined) : Effect.fail(error)
-    )
-  );
-}
-
-function ensureRunExistsEffect(
-  manifestPath: string,
-  runId: string
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => stat(manifestPath),
-  }).pipe(
-    Effect.asVoid,
-    Effect.catch((error) =>
-      isNotFound(error)
-        ? Effect.fail(new Error(`Run ${runId} does not exist.`))
-        : Effect.fail(error)
-    )
-  );
-}
-
 function readManifestEffect(
   path: string
 ): Effect.Effect<MokaRunManifest, unknown> {
-  return Effect.gen(function* () {
-    const manifestJson = yield* readFileUtf8Effect(path);
-    return yield* Effect.try({
-      catch: (error) => error,
-      try: () => parseMokaRunManifest(JSON.parse(manifestJson)),
-    });
+  return readFileUtf8Effect(path).pipe(Effect.flatMap(parseManifestJsonEffect));
+}
+
+function parseManifestJsonEffect(
+  manifestJson: string
+): Effect.Effect<MokaRunManifest, unknown> {
+  return Effect.try({
+    catch: (error) => error,
+    try: () => parseMokaRunManifest(JSON.parse(manifestJson)),
   });
 }
 
@@ -545,149 +304,7 @@ function readStatusEffect(
 
     return yield* Effect.try({
       catch: (error) => error,
-      try: () => JSON.parse(statusJson) as RunStatusFile,
+      try: () => parseRunStatusFile(JSON.parse(statusJson)),
     });
   });
-}
-
-function writeJsonEffect(
-  path: string,
-  value: unknown
-): Effect.Effect<void, unknown> {
-  return writeFileUtf8Effect(path, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function readFileUtf8Effect(path: string): Effect.Effect<string, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => readFile(path, "utf8"),
-  });
-}
-
-function writeFileUtf8Effect(
-  path: string,
-  content: string
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => writeFile(path, content, "utf8"),
-  });
-}
-
-function appendFileUtf8Effect(
-  path: string,
-  content: string
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => appendFile(path, content, "utf8"),
-  });
-}
-
-function mkdirEffect(
-  path: string,
-  options: Parameters<typeof mkdir>[1]
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => mkdir(path, options),
-  }).pipe(Effect.asVoid);
-}
-
-function logicalSegmentEffect(
-  label: string,
-  value: string
-): Effect.Effect<string, unknown> {
-  return Effect.try({
-    catch: (error) => error,
-    try: () => parseLogicalSegment(label, value),
-  });
-}
-
-function nonEmptyStringEffect(
-  label: string,
-  value: string
-): Effect.Effect<string, unknown> {
-  return Effect.try({
-    catch: (error) => error,
-    try: () => parseNonEmptyString(label, value),
-  });
-}
-
-function statusFromManifest(
-  manifest: MokaRunManifest,
-  existing?: RunStatusFile
-): RunStatusFile {
-  return {
-    nodes: Object.fromEntries(
-      Object.entries(manifest.nodes).map(([nodeId, status]) => [
-        nodeId,
-        statusNodeWithMetadata(status, existing?.nodes[nodeId]),
-      ])
-    ),
-    status: manifest.status,
-  };
-}
-
-function statusNodeWithMetadata(
-  status: MokaNodeStatus,
-  existing: RunStatusNode | undefined
-): RunStatusNode {
-  const sessionId = existingSessionId(existing);
-
-  return sessionId ? { sessionId, status } : status;
-}
-
-function existingSessionId(
-  node: RunStatusNode | undefined
-): string | undefined {
-  if (typeof node !== "object" || node === null) {
-    return;
-  }
-  return typeof node.sessionId === "string" && node.sessionId.length > 0
-    ? node.sessionId
-    : undefined;
-}
-
-function parseLogicalSegment(label: string, value: string): string {
-  if (
-    value.length === 0 ||
-    isAbsolute(value) ||
-    value.includes("/") ||
-    value.includes("\\") ||
-    value === "." ||
-    value === ".."
-  ) {
-    throw new Error(`${label} must be a non-empty logical identifier.`);
-  }
-
-  return value;
-}
-
-function parseNonEmptyString(label: string, value: string): string {
-  if (value.length === 0) {
-    throw new Error(`${label} must be a non-empty string.`);
-  }
-
-  return value;
-}
-
-function normalizeWorkspaceRelative(
-  workspaceRoot: string,
-  path: string
-): string {
-  return relative(workspaceRoot, path).split(sep).join("/");
-}
-
-function isNotFound(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled run-control event: ${JSON.stringify(value)}`);
 }

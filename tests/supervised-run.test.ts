@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,8 +7,17 @@ import type {
   PipelineRuntimeOptions,
   PipelineRuntimeResult,
 } from "../src/pipeline-runtime";
-import type { MokaRunManifest } from "../src/run-control/contracts";
-import { readRun } from "../src/run-control/store";
+import {
+  type MokaRunManifest,
+  parseMokaRunManifest,
+} from "../src/run-control/contracts";
+import { readRun } from "./run-control-file-store-helpers";
+import {
+  readJson,
+  readJsonl,
+  restoreEnv,
+  runMokaCliInTarget,
+} from "./run-control-test-helpers";
 
 interface RuntimeObservation {
   eventsFileExistedBeforeRuntimeStart: boolean;
@@ -17,12 +26,6 @@ interface RuntimeObservation {
   manifestExistedBeforeRuntimeStart: boolean;
   outputBeforeRuntimeStart: string;
   runId: string;
-}
-
-interface CliCapture {
-  stderr: string;
-  stdout: string;
-  thrown?: unknown;
 }
 
 const mockState = vi.hoisted(() => ({
@@ -34,8 +37,9 @@ const mockState = vi.hoisted(() => ({
 vi.mock("../src/planning/generate", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/planning/generate")>();
-  const fs = await import("node:fs");
-  const path = await import("node:path");
+  const { writeMockScheduleArtifact } = await import(
+    "./run-control-test-helpers"
+  );
 
   return {
     ...actual,
@@ -46,28 +50,11 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
         task: string;
         worktreePath: string;
       }) => {
-        const schedulePath = `.pipeline/runs/${input.runId}/schedule.yaml`;
-        const fullPath = path.join(input.worktreePath, schedulePath);
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        fs.writeFileSync(
-          fullPath,
-          [
-            "version: 1",
-            "kind: pipeline-schedule",
-            `schedule_id: ${input.runId}`,
-            `source_entrypoint: ${input.entrypointId}`,
-            `task: ${input.task}`,
-            "generated_at: 2026-06-17T00:00:00.000Z",
-            "root_workflow: supervised-root",
-            "workflows:",
-            "  supervised-root:",
-            "    nodes:",
-            "      - id: writer",
-            "        kind: command",
-            "        command: [node, -e, \"console.log('writer')\"]",
-            "",
-          ].join("\n")
-        );
+        const schedulePath = writeMockScheduleArtifact(input, {
+          command: "console.log('writer')",
+          nodeId: "writer",
+          rootWorkflowId: "supervised-root",
+        });
         return Promise.resolve({ path: schedulePath });
       }
     ),
@@ -90,7 +77,7 @@ vi.mock("../src/pipeline-runtime", () => ({
     ].join("\n");
     const manifestExistedBeforeRuntimeStart = existsSync(manifestPath);
     const manifestBeforeRuntime = manifestExistedBeforeRuntimeStart
-      ? (JSON.parse(readFileSync(manifestPath, "utf8")) as MokaRunManifest)
+      ? parseMokaRunManifest(readJson(manifestPath))
       : undefined;
 
     mockState.runtimeCalls.push({
@@ -275,45 +262,13 @@ describe("foreground supervised moka run", () => {
   });
 });
 
-async function runMokaInTarget(
-  workspaceRoot: string,
-  args: string[]
-): Promise<CliCapture> {
-  const { createCliProgram } = await import("../src/cli/program");
-  const log = vi.spyOn(console, "log").mockImplementation((...messages) => {
-    mockState.stdout.push(`${messages.map(String).join(" ")}\n`);
+function runMokaInTarget(workspaceRoot: string, args: string[]) {
+  return runMokaCliInTarget({
+    args,
+    buffers: mockState,
+    originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
+    workspaceRoot,
   });
-  const error = vi.spyOn(console, "error").mockImplementation((...messages) => {
-    mockState.stderr.push(`${messages.map(String).join(" ")}\n`);
-  });
-  let thrown: unknown;
-
-  try {
-    process.env.PIPELINE_TARGET_PATH = workspaceRoot;
-    const program = createCliProgram();
-    program.configureOutput({
-      writeErr: (value) => mockState.stderr.push(value),
-      writeOut: (value) => mockState.stdout.push(value),
-    });
-    await program.parseAsync(
-      ["node", "/repo/node_modules/.bin/moka", ...args],
-      {
-        from: "node",
-      }
-    );
-  } catch (err) {
-    thrown = err;
-  } finally {
-    log.mockRestore();
-    error.mockRestore();
-    restoreEnv("PIPELINE_TARGET_PATH", ORIGINAL_PIPELINE_TARGET_PATH);
-  }
-
-  return {
-    stderr: mockState.stderr.join(""),
-    stdout: mockState.stdout.join(""),
-    thrown,
-  };
 }
 
 function supervisedFailureEvents(): PipelineRuntimeEvent[] {
@@ -419,21 +374,6 @@ function supervisedPassResult(): PipelineRuntimeResult {
   };
 }
 
-function readJsonl(path: string): unknown[] {
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as unknown);
-}
-
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
-}
-
-function restoreEnv(key: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[key];
-    return;
-  }
-  process.env[key] = value;
 }

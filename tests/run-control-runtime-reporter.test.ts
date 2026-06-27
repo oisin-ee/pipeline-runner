@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,7 +7,8 @@ import type {
   PipelineRuntimeOptions,
 } from "../src/pipeline-runtime";
 import type { MokaRunEvent } from "../src/run-control/contracts";
-import { createRun, readRun } from "../src/run-control/store";
+import { createRun, readRun } from "./run-control-file-store-helpers";
+import { readJson, readJsonl, runPath } from "./run-control-test-helpers";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
 
@@ -37,24 +32,6 @@ async function loadRuntimeReporter(): Promise<RunStoreRuntimeReporterModule> {
   return (await import(
     RUNTIME_REPORTER_MODULE_PATH
   )) as RunStoreRuntimeReporterModule;
-}
-
-function runPath(workspaceRoot: string, runId: string, ...parts: string[]) {
-  return join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
-}
-
-function readJsonl(path: string): unknown[] {
-  if (!existsSync(path)) {
-    return [];
-  }
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as unknown);
-}
-
-function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, "utf8"));
 }
 
 function sequentialClock(): () => Date {
@@ -186,7 +163,9 @@ describe("run-control runtime reporter bridge", () => {
   });
 
   it("documents the hazard: a direct run-state write during a hide window fails", async () => {
-    const { updateRunStatus } = await import("../src/run-control/store");
+    const { updateRunStatus } = await import(
+      "./run-control-file-store-helpers"
+    );
     const runId = "run-hide-hazard";
     await createRun({
       effort: "normal",

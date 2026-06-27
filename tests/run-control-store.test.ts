@@ -10,6 +10,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MokaNodeStatus,
+  MokaRunController,
   MokaRunEvent,
   MokaRunManifest,
   MokaRunStatus,
@@ -17,6 +18,18 @@ import type {
   RunMode,
   RunTarget,
 } from "../src/run-control/contracts";
+import {
+  createRun,
+  listRuns,
+  readRun,
+  recordEvent,
+  updateNodeSession,
+  updateNodeStatus,
+  updateRunController,
+  updateRunStatus,
+  writeNodeArtifact,
+} from "./run-control-file-store-helpers";
+import { readJson, runPath } from "./run-control-test-helpers";
 
 type Awaitable<T> = Promise<T> | T;
 
@@ -41,6 +54,13 @@ interface RunControlStoreModule {
   recordEvent: (
     input: StoreContext & { event: MokaRunEvent; runId: string }
   ) => Awaitable<void>;
+  updateNodeSession: (
+    input: StoreContext & {
+      nodeId: string;
+      runId: string;
+      sessionId: string;
+    }
+  ) => Awaitable<void>;
   updateNodeStatus: (
     input: StoreContext & {
       at: string;
@@ -49,6 +69,9 @@ interface RunControlStoreModule {
       status: MokaNodeStatus;
     }
   ) => Awaitable<void>;
+  updateRunController: (
+    input: StoreContext & { controller: MokaRunController; runId: string }
+  ) => Awaitable<MokaRunManifest>;
   updateRunStatus: (
     input: StoreContext & {
       at: string;
@@ -67,20 +90,22 @@ interface RunControlStoreModule {
   ) => Awaitable<{ path: string }>;
 }
 
-const RUN_STORE_MODULE_PATH = "../src/run-control/store";
+const runStore: RunControlStoreModule = {
+  createRun,
+  listRuns,
+  readRun,
+  recordEvent,
+  updateNodeSession,
+  updateNodeStatus,
+  updateRunController,
+  updateRunStatus,
+  writeNodeArtifact,
+};
 const WRITER_NODE_ARTIFACT_PATH =
   /^\.pipeline\/runs\/run-layout\/nodes\/writer\//;
 
-async function loadRunStore(): Promise<RunControlStoreModule> {
-  return (await import(RUN_STORE_MODULE_PATH)) as RunControlStoreModule;
-}
-
-function runPath(workspaceRoot: string, runId: string, ...parts: string[]) {
-  return join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
-}
-
-function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, "utf8"));
+function loadRunStore(): RunControlStoreModule {
+  return runStore;
 }
 
 function normalizeRelativePath(workspaceRoot: string, path: string): string {
@@ -100,7 +125,7 @@ describe("file-backed run-control store", () => {
   });
 
   it("creates the run file layout and writes node artifacts from logical identifiers", async () => {
-    const store = await loadRunStore();
+    const store = loadRunStore();
     const runId = "run-layout";
 
     await store.createRun({
@@ -165,7 +190,7 @@ describe("file-backed run-control store", () => {
   });
 
   it("appends recorded events as JSONL in the order they are received", async () => {
-    const store = await loadRunStore();
+    const store = loadRunStore();
     const runId = "run-events";
     await store.createRun({
       effort: "normal",
@@ -221,7 +246,7 @@ describe("file-backed run-control store", () => {
   });
 
   it("reads rebuilt run state and deterministic run lists after a fresh module load", async () => {
-    const store = await loadRunStore();
+    const store = loadRunStore();
 
     await store.createRun({
       effort: "quick",
@@ -306,7 +331,7 @@ describe("file-backed run-control store", () => {
     });
 
     vi.resetModules();
-    const restartedStore = await loadRunStore();
+    const restartedStore = loadRunStore();
 
     const restartedRun = await restartedStore.readRun({
       runId: "run-a",

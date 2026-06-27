@@ -19,7 +19,12 @@ import {
   updateNodeStatus,
   updateRunStatus,
   writeNodeArtifact,
-} from "../src/run-control/store";
+} from "./run-control-file-store-helpers";
+import {
+  type CliCapture,
+  restoreEnv,
+  runMokaCliInTarget,
+} from "./run-control-test-helpers";
 
 const runtimeState = vi.hoisted(() => ({
   runtimeCalls: [] as unknown[],
@@ -37,12 +42,6 @@ const ORIGINAL_HOME = process.env.HOME;
 const PROMPT_SESSION_SECRET = "PROMPT_SESSION_BODY_TICKET_6_SECRET";
 const MULTIPLE_ACTIVE_RUNS_RE = /multiple active runs/i;
 const RUN_ID_TIMESTAMP_RE = /run-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/;
-
-interface CliCapture {
-  stderr: string;
-  stdout: string;
-  thrown?: unknown;
-}
 
 interface FileSnapshot {
   [relativePath: string]: string;
@@ -327,43 +326,16 @@ describe("moka run-control CLI commands", () => {
   });
 });
 
-async function runMokaInTarget(
+function runMokaInTarget(
   workspaceRoot: string,
   args: string[]
 ): Promise<CliCapture> {
-  const { createCliProgram } = await import("../src/cli/program");
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  const log = vi.spyOn(console, "log").mockImplementation((...messages) => {
-    stdout.push(`${messages.map(String).join(" ")}\n`);
+  return runMokaCliInTarget({
+    args,
+    buffers: { stderr: [], stdout: [] },
+    originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
+    workspaceRoot,
   });
-  const error = vi.spyOn(console, "error").mockImplementation((...messages) => {
-    stderr.push(`${messages.map(String).join(" ")}\n`);
-  });
-  let thrown: unknown;
-
-  try {
-    process.env.PIPELINE_TARGET_PATH = workspaceRoot;
-    const program = createCliProgram();
-    program.configureOutput({
-      writeErr: (value) => stderr.push(value),
-      writeOut: (value) => stdout.push(value),
-    });
-    await program.parseAsync(
-      ["node", "/repo/node_modules/.bin/moka", ...args],
-      {
-        from: "node",
-      }
-    );
-  } catch (err) {
-    thrown = err;
-  } finally {
-    log.mockRestore();
-    error.mockRestore();
-    restoreEnv("PIPELINE_TARGET_PATH", ORIGINAL_PIPELINE_TARGET_PATH);
-  }
-
-  return { stderr: stderr.join(""), stdout: stdout.join(""), thrown };
 }
 
 async function seedRun(
@@ -455,12 +427,4 @@ function snapshotFiles(root: string, current: string): FileSnapshot {
     );
   }
   return snapshot;
-}
-
-function restoreEnv(key: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[key];
-    return;
-  }
-  process.env[key] = value;
 }

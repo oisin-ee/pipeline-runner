@@ -29,7 +29,10 @@ import type {
   UpdateRunStatusRequest,
   WriteNodeArtifactRequest,
 } from "../run-control-store";
-import type { NodeArtifactReference, RunControlStatusPaths } from "../store";
+import type {
+  NodeArtifactReference,
+  RunControlStatusPaths,
+} from "../store-types";
 import {
   runControlEvent,
   runControlNodeArtifact,
