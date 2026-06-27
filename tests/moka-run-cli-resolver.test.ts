@@ -336,7 +336,7 @@ describe("moka run CLI flag resolver wiring", () => {
     });
   });
 
-  it("keeps top-level compatibility aliases wired to canonical local run presets", async () => {
+  it("keeps top-level entrypoint commands wired to canonical local run presets", async () => {
     await withCliTarget(async ({ parseMoka }) => {
       await parseMoka(["quick", "Fix", "small"]);
       await parseMoka(["execute", "Ship", "feature"]);
@@ -371,7 +371,7 @@ describe("moka run CLI flag resolver wiring", () => {
     });
   });
 
-  it("keeps moka submit wired as a remote compatibility alias", async () => {
+  it("keeps moka submit wired to remote graph submission", async () => {
     await withCliTarget(async ({ parseMoka }) => {
       await parseMoka(["submit", "--quick", "Ship", "remote"]);
 

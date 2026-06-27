@@ -13,10 +13,9 @@ import { formatConfigError } from "./pipeline-runtime";
 export { runDoctor } from "./cli/doctor";
 export {
   createCliProgram,
-  execute,
-  quick,
   runCli,
 } from "./cli/program";
+export { execute, quick } from "./cli/run-service";
 
 const PATH_SEPARATOR_RE = /[\\/]/;
 

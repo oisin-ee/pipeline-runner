@@ -27,9 +27,9 @@ const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const DESCRIPTION_RE = /description/i;
 const FAILURE_DETAILS_RE =
   /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
-const ALIAS_OR_PRESET_RE = /\b(?:alias|preset|compatibility)\b/i;
 const COMMAND_CONTINUATION_RE = /^ {20,}\S/;
 const COMMAND_SUMMARY_RE = /^ {2}([a-z][\w-]*)(?:\s|$)(.*)$/;
+const NON_CANONICAL_ENTRYPOINT_RE = /\b(?:alias|preset|compatibility)\b/i;
 const PRIMARY_COMMAND_RE = /\bprimary\b/i;
 
 const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
@@ -1593,7 +1593,7 @@ describe("execute", () => {
     expect(finalOutput).toContain("repo report");
   });
 
-  it("passes entrypoint aliases through the CLI runner", async () => {
+  it("passes entrypoint ids through the CLI runner", async () => {
     const { execute } = await import("../src/index");
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const error = vi
@@ -1841,16 +1841,16 @@ workflows:
     }
   });
 
-  it("makes moka run primary and labels compatibility commands in CLI help", async () => {
+  it("makes moka run primary and lists package entrypoint commands after it", async () => {
     await withCliTempDir("pipeline-cli-entrypoint-help-", async () => {
       const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
       const commandSummaries = topLevelCommandSummaries(help);
 
       expect(commandSummaries.get("run") ?? "").toMatch(PRIMARY_COMMAND_RE);
-      for (const aliasCommand of ["quick", "execute", "inspect"]) {
-        expect(commandSummaries.get(aliasCommand) ?? "").toMatch(
-          ALIAS_OR_PRESET_RE
+      for (const entrypointCommand of ["quick", "execute", "inspect"]) {
+        expect(commandSummaries.get(entrypointCommand) ?? "").not.toMatch(
+          NON_CANONICAL_ENTRYPOINT_RE
         );
       }
       const commandOrder = [...commandSummaries.keys()];

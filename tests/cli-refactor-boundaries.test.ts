@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
@@ -13,6 +15,17 @@ import {
   parseImagePullPolicy,
 } from "../src/cli/submit-options";
 import { loadPackagePipelineConfig } from "../src/config";
+
+const ROOT = process.cwd();
+const CLI_APP_SERVICE_FILES = [
+  "src/cli/bootstrap-commands.ts",
+  "src/cli/loop-commands.ts",
+  "src/cli/mcp-gateway-commands.ts",
+  "src/cli/plan-commands.ts",
+  "src/cli/run-commands.ts",
+  "src/cli/run-service.ts",
+];
+const PROGRAM_MAX_LINES = 520;
 
 const GLOBAL_CONFIG = {
   momokaya: {
@@ -33,6 +46,23 @@ const GLOBAL_CONFIG = {
     },
   },
 };
+
+describe("PIPE-45.9 CLI app service boundaries", () => {
+  it("keeps src/cli/program.ts thin and moves app services to owned modules", () => {
+    const missingOwners = CLI_APP_SERVICE_FILES.filter(
+      (path) => !existsSync(join(ROOT, path))
+    );
+    const programText = readFileSync(join(ROOT, "src/cli/program.ts"), "utf8");
+    const programLines = programText.split("\n").length;
+
+    expect(missingOwners).toEqual([]);
+    expect(programLines).toBeLessThanOrEqual(PROGRAM_MAX_LINES);
+    expect(programText).not.toContain("../mcp/gateway-reconcile");
+    expect(programText).not.toContain("../pipeline-init");
+    expect(programText).not.toContain("../credentials/local-codex-auth-sync");
+    expect(programText).not.toContain("../loop/loop-command");
+  });
+});
 
 describe("PIPE-65 CLI refactor boundaries", () => {
   it("exposes runtime formatting helpers from src/cli/format", () => {

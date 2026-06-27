@@ -1,7 +1,7 @@
 ---
 id: PIPE-45.9
 title: Extract CLI app services
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-27 14:03'
 labels: []
@@ -14,7 +14,16 @@ references:
   - src/cli/program.ts
 modified_files:
   - src/cli/program.ts
+  - src/cli/bootstrap-commands.ts
+  - src/cli/loop-commands.ts
+  - src/cli/mcp-gateway-commands.ts
+  - src/cli/plan-commands.ts
+  - src/cli/run-commands.ts
+  - src/cli/run-service.ts
+  - src/index.ts
+  - tests/cli-refactor-boundaries.test.ts
   - tests/cli.test.ts
+  - tests/moka-run-cli-resolver.test.ts
 parent_task_id: PIPE-45
 priority: high
 ordinal: 304000
@@ -33,12 +42,24 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/cli/program.ts is thin command registration, not mixed runtime/MCP/init service logic -- Evidence: source inspection and line-count output.
-- [ ] #2 CLI command behaviour remains stable -- Evidence: focused CLI tests pass.
-- [ ] #3 No new command framework or parser is introduced -- Evidence: package.json/source diff.
+- [x] #1 src/cli/program.ts is thin command registration, not mixed runtime/MCP/init service logic -- Evidence: `wc -l src/cli/program.ts ...` reports `src/cli/program.ts` at 154 lines; boundary test asserts run/MCP/init/auth/loop internals are absent from `program.ts`.
+- [x] #2 CLI command behaviour remains stable -- Evidence: `bun run test tests/cli-refactor-boundaries.test.ts tests/cli.test.ts tests/moka-run-cli-resolver.test.ts tests/moka-run-remote-compat.test.ts tests/moka-doctor-readiness.test.ts tests/supervised-run.test.ts tests/detached-run.test.ts` passed, 82 tests.
+- [x] #3 No new command framework or parser is introduced -- Evidence: `package.json` unchanged; installed Commander 14.0.3 remains the CLI framework.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run feature-implementation workflow in order and record proof.
+- [x] #1 Run feature-implementation workflow in order and record proof.
 <!-- DOD:END -->
+
+## Evidence
+
+- RED: `bun run test tests/cli-refactor-boundaries.test.ts` initially failed because the CLI service owner files did not exist and `program.ts` exceeded the boundary limit.
+- GREEN/focused: `bun run test tests/cli-refactor-boundaries.test.ts tests/cli.test.ts tests/moka-run-cli-resolver.test.ts tests/moka-run-remote-compat.test.ts tests/moka-doctor-readiness.test.ts tests/supervised-run.test.ts tests/detached-run.test.ts` passed, 82 tests.
+- Static: `bun run typecheck` passed.
+- Static: `bun run check` passed.
+- Static: `pnpm exec fallow audit --changed-since HEAD --production` passed with no issues in 11 changed files.
+- Build: `bun run build` passed.
+- Security: `pnpm audit --audit-level high` passed; only low/moderate advisories reported.
+- Full suite: `bun run test` passed, 148 files, 1097 tests, 41 skipped.
+- Diff: `git diff --check` passed.
