@@ -10,10 +10,65 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 const tempDirs: string[] = [];
 const MISSING_CONFIG_AFFORDANCE_RE =
   /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/i;
+const packageExportSchema = z
+  .object({
+    import: z.string(),
+    types: z.string(),
+  })
+  .strict();
+const packageJsonSchema = z
+  .object({
+    bin: z.record(z.string(), z.string()),
+    exports: z.record(z.string(), packageExportSchema),
+  })
+  .passthrough();
+const EXPECTED_PUBLIC_EXPORTS = {
+  ".": { import: "./dist/index.js", types: "./dist/index.d.ts" },
+  "./argo-submit": {
+    import: "./dist/argo-submit.js",
+    types: "./dist/argo-submit.d.ts",
+  },
+  "./argo-workflow": {
+    import: "./dist/argo-workflow.js",
+    types: "./dist/argo-workflow.d.ts",
+  },
+  "./config": { import: "./dist/config.js", types: "./dist/config.d.ts" },
+  "./events": {
+    import: "./dist/runner-event-schema.js",
+    types: "./dist/runner-event-schema.d.ts",
+  },
+  "./hooks": { import: "./dist/hooks.js", types: "./dist/hooks.d.ts" },
+  "./moka-global-config": {
+    import: "./dist/moka-global-config.js",
+    types: "./dist/moka-global-config.d.ts",
+  },
+  "./moka-submit": {
+    import: "./dist/moka-submit.js",
+    types: "./dist/moka-submit.d.ts",
+  },
+  "./planner": {
+    import: "./dist/planning/compile.js",
+    types: "./dist/planning/compile.d.ts",
+  },
+  "./runner": { import: "./dist/runner.js", types: "./dist/runner.d.ts" },
+  "./runner-command-contract": {
+    import: "./dist/runner-command-contract.js",
+    types: "./dist/runner-command-contract.d.ts",
+  },
+  "./runtime": {
+    import: "./dist/pipeline-runtime.js",
+    types: "./dist/pipeline-runtime.d.ts",
+  },
+  "./schedule": {
+    import: "./dist/planning/generate.js",
+    types: "./dist/planning/generate.d.ts",
+  },
+} as const;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -120,6 +175,15 @@ function packJson(output: string): string {
 }
 
 describe("package public app-facing API", () => {
+  it("pins the package export map and CLI bin surface before structural cleanup", () => {
+    const packageJson = packageJsonSchema.parse(
+      JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"))
+    );
+
+    expect(packageJson.bin).toEqual({ moka: "dist/index.js" });
+    expect(packageJson.exports).toEqual(EXPECTED_PUBLIC_EXPORTS);
+  });
+
   it("does not pack install-managed skills but packs package-owned defaults", () => {
     const output = runChecked("npm", ["pack", "--dry-run", "--json"], {
       cwd: process.cwd(),
