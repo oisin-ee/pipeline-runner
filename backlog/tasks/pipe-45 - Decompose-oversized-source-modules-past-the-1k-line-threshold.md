@@ -1,7 +1,7 @@
 ---
 id: PIPE-45
 title: 'Current structural cleanup: shrink god files and restore ownership boundaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-04 14:40'
 updated_date: '2026-06-27 14:09'
@@ -41,11 +41,11 @@ Non-goals: no dependency-cruiser-style architecture tooling as the cleanup strat
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Current public package exports, bin, CLI command surface, and config compatibility are guarded before structural edits -- Evidence: focused public API/dist contract tests pass.
-- [ ] #2 All current oversized/mixed-owner modules are split by a single ownership boundary or have a recorded structural justification -- Evidence: line-count/fallow output after child tickets.
-- [ ] #3 Library-first choices are preserved: Zod for schemas, Effect for runtime substrate, graphlib/graphology for graph domains, execa for subprocesses, official SDKs for OpenCode/Kubernetes, existing parsers for YAML/JSONC/globs -- Evidence: child tickets record reuse decisions and no replacement deps are added.
-- [ ] #4 Auth/credentials and workflow graph semantics each have one owning module family instead of being mixed through unrelated CLI/runtime/MCP files -- Evidence: import graph/source inspection in relevant child tickets.
-- [ ] #5 Dead surface is deleted only after public-contract and static-analysis evidence prove it is private/dead -- Evidence: knip/fallow/rg evidence recorded on deletion ticket.
-- [ ] #6 Final cleanup passes typecheck, lint/check, focused tests, and review -- Evidence: command output and Code Rubric recorded on final ticket.
+- [x] #2 All current oversized/mixed-owner modules are split by a single ownership boundary or have a recorded structural justification -- Evidence: child tickets PIPE-45.2 through PIPE-45.17 record each owner split; final line counts are `pipeline-runtime.ts` 103, `cli/program.ts` 154, `config/schemas.ts` 766, `runtime/agent-node/agent-node.ts` 213, `runtime/hooks/hooks.ts` 90, `moka-submit.ts` 237, `remote/submit/event-boundary.ts` 224, `remote/submit/compilation.ts` 218, `remote/submit/io.ts` 142, `remote/submit/argo-submission.ts` 113, `remote/submit/service.ts` 50, `remote/submit/hook-events.ts` 13, `argo-workflow.ts` 150, `install-commands.ts` 49, `runner.ts` 399, `run-control/commands.ts` 133, `run-control/store.ts` 310. Structural justification: `src/runtime/node-execution.ts` remains 1043 LOC as the single node-attempt lifecycle orchestrator after agent execution, command execution, builtins, parallel execution, gates, hooks, retry policy, remediation, state tracking, events, changed-file snapshots, and runtime result construction were moved to named owners; splitting the remaining control loop now would create shallow sequencer fragments instead of a deeper module.
+- [x] #3 Library-first choices are preserved: Zod for schemas, Effect for runtime substrate, graphlib/graphology for graph domains, execa for subprocesses, official SDKs for OpenCode/Kubernetes, existing parsers for YAML/JSONC/globs -- Evidence: child tickets record reuse decisions; no replacement parser/graph/auth/process libraries were added. PIPE-45.17 removed unused `rulesync` package dependency while preserving the pinned official CLI invocation.
+- [x] #4 Auth/credentials and workflow graph semantics each have one owning module family instead of being mixed through unrelated CLI/runtime/MCP files -- Evidence: PIPE-45.3 owns graph semantics under planning modules; PIPE-45.8 owns credentials/auth; PIPE-45.12-.15 record hook/gate, submit, Argo, and install ownership splits.
+- [x] #5 Dead surface is deleted only after public-contract and static-analysis evidence prove it is private/dead -- Evidence: PIPE-45.17 records knip/fallow/rg evidence; `src/runtime/index.ts`, `src/schedule/artifact.ts`, production-located gate test support, unused `BacklogParseError`, stale fallow suppressions, and the unused `rulesync` dependency were removed without hiding analyzer residuals.
+- [x] #6 Final cleanup passes typecheck, lint/check, focused tests, and review -- Evidence: PIPE-45.18 records full final verification: `bun run typecheck`, `bun run check`, `bun run test`, `bun run build`, `pnpm exec fallow audit --changed-since HEAD --production`, and `pnpm dlx knip --reporter compact --no-progress`.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -54,12 +54,12 @@ Non-goals: no dependency-cruiser-style architecture tooling as the cleanup strat
 Progress (2026-06-27):
 - AC#1 met by PIPE-45.1: public export map/bin guard added in tests/package-public-api.test.ts and focused public API/dist tests passed.
 - DoD#1/DoD#2 met for graph creation: child tickets PIPE-45.1 through PIPE-45.18 created with workflow route, AC/DoD, refs/likely files, and dependency edges; backlog sequence list --plain run and inspected.
-- Remaining parent AC#2-#6 stay open until structural, deletion, performance, and final-review tickets complete.
+- PIPE-45.12-.18 completed on 2026-06-27. Final verification and residual static-analysis inventory are recorded on PIPE-45.18.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [x] #1 Every child ticket carries one global-rules workflow route, concrete acceptance evidence, Definition of Done, likely files, and dependency edges.
 - [x] #2 backlog sequence list --plain is run after graph creation and after dependency edits; sequence collisions are corrected.
-- [ ] #3 Each completed code slice is verified with focused proof plus typecheck/check where relevant before commit.
+- [x] #3 Each completed code slice is verified with focused proof plus typecheck/check where relevant before commit.
 <!-- DOD:END -->

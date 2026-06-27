@@ -1,14 +1,17 @@
 import { submitRunnerArgoWorkflow } from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
 import type { BrokerAuthOption } from "../../credentials/broker";
+import type {
+  MokaSubmitOutput,
+  ParsedMokaBaseOptions,
+} from "../../moka-submit";
 import { buildRunnerCommandPayload } from "../../runner-command-contract";
 import { workflowSubmitResultSchema } from "../../workflow-submit-contract";
 import type { CompiledMokaSubmitPlan } from "./compilation";
-import type { MokaSubmitOutput, ParsedMokaBaseOptions } from "./contract";
 import { runnerEvents } from "./event-boundary";
 import type { MokaSubmissionContext } from "./io";
 
-export interface MokaWorkflowSubmitOptions {
+interface MokaWorkflowSubmitOptions {
   brokerAuth: BrokerAuthOption;
   config: PipelineConfig;
   eventAuthSecretKey?: string;

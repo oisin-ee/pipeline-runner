@@ -2,13 +2,13 @@ import { readFileSync } from "node:fs";
 import parseGitUrl from "git-url-parse";
 import { simpleGit } from "simple-git";
 import { normalizeRunnerRepositoryForSubmit } from "../../git-remote-url";
+import type { ParsedMokaBaseOptions } from "../../moka-submit";
 import type {
   RunnerRepositoryContext,
   RunnerRunIdentity,
 } from "../../runner-command-contract";
-import type { ParsedMokaBaseOptions } from "./contract";
 
-export interface MokaGitContext {
+interface MokaGitContext {
   baseBranch: string;
   project: string;
   sha: string;

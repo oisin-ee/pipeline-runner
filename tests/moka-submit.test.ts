@@ -137,8 +137,8 @@ const REMOTE_SUBMIT_ROOT = join(
 const REMOTE_SUBMIT_MODULES = [
   "argo-submission.ts",
   "compilation.ts",
-  "contract.ts",
   "event-boundary.ts",
+  "hook-events.ts",
   "io.ts",
   "service.ts",
 ] as const;
@@ -194,10 +194,6 @@ describe("submitMoka", () => {
       join(import.meta.dirname, "..", "src", "moka-submit.ts"),
       "utf8"
     );
-    const contractSource = readFileSync(
-      join(REMOTE_SUBMIT_ROOT, "contract.ts"),
-      "utf8"
-    );
     const compilationSource = readFileSync(
       join(REMOTE_SUBMIT_ROOT, "compilation.ts"),
       "utf8"
@@ -215,7 +211,7 @@ describe("submitMoka", () => {
     expect(publicSource).not.toContain("simple-git");
     expect(publicSource).not.toContain("buildRunnerCommandPayload");
     expect(publicSource).not.toContain("eventAuthSecretKey is required");
-    expect(contractSource).toContain("mokaSubmitOptionsSchema");
+    expect(publicSource).toContain("mokaSubmitOptionsSchema");
     expect(compilationSource).toContain("compileMokaSubmitPlan");
     expect(eventBoundarySource).toContain("runnerEvents");
     expect(eventBoundarySource).toContain("configWithSubmitHooks");

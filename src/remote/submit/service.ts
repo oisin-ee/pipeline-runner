@@ -1,4 +1,9 @@
 import { randomBytes } from "node:crypto";
+import type {
+  MokaSubmitOutput,
+  ParsedMokaSubmitOptions,
+  ParsedMokaWithRun,
+} from "../../moka-submit";
 import {
   type MokaWorkflowSubmit,
   submitCompiledMokaWorkflow,
@@ -7,11 +12,6 @@ import {
   compileMokaSubmitPlan,
   type MokaSubmitCompilationDependencies,
 } from "./compilation";
-import type {
-  MokaSubmitOutput,
-  ParsedMokaSubmitOptions,
-  ParsedMokaWithRun,
-} from "./contract";
 import { type MokaSubmitIoDependencies, resolveSubmissionContext } from "./io";
 
 export interface SubmitMokaDependencies

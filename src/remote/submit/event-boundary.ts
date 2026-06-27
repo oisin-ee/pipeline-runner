@@ -1,11 +1,11 @@
 import type { HookEvent, PipelineConfig } from "../../config";
+import type {
+  MokaSubmitDirectHook,
+  MokaSubmitDirectHooks,
+  ParsedMokaBaseOptions,
+} from "../../moka-submit";
 import type { RunnerCommandPayload } from "../../runner-command-contract";
-import {
-  MOKA_SUBMIT_HOOK_EVENTS,
-  type MokaSubmitDirectHook,
-  type MokaSubmitDirectHooks,
-  type ParsedMokaBaseOptions,
-} from "./contract";
+import { MOKA_SUBMIT_HOOK_EVENTS } from "./hook-events";
 
 type HookFunctionConfig = PipelineConfig["hooks"]["functions"][string];
 type CommandHookFunctionConfig = Extract<

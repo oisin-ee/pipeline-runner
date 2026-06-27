@@ -1,6 +1,11 @@
 import { resolve } from "node:path";
 import { buildCommandScheduleYaml } from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
+import type {
+  ParsedMokaCommandOptions,
+  ParsedMokaGraphOptions,
+  ParsedMokaSubmitOptions,
+} from "../../moka-submit";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
@@ -12,11 +17,6 @@ import type {
   RunnerRepositoryContext,
   RunnerTask,
 } from "../../runner-command-contract";
-import type {
-  ParsedMokaCommandOptions,
-  ParsedMokaGraphOptions,
-  ParsedMokaSubmitOptions,
-} from "./contract";
 import { readScheduleFile } from "./io";
 
 export interface MokaSubmitCompilationDependencies {
