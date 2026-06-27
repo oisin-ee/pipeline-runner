@@ -1,6 +1,7 @@
 import type { RetryReason } from "./actor-ids";
 import type {
   NodeExecutionState,
+  NodeStatus,
   RuntimeFailure,
   RuntimeGateResult,
   RuntimeNodeResult,
@@ -78,88 +79,210 @@ type NodeExecutionEventHandler<T extends NodeExecutionEvent["type"]> = (
   event: Extract<NodeExecutionEvent, { type: T }>
 ) => NodeExecutionState;
 
-type NodeExecutionEventHandlers = {
-  [K in NodeExecutionEvent["type"]]: NodeExecutionEventHandler<K>;
+type NodeExecutionEventType = NodeExecutionEvent["type"];
+
+interface NodeExecutionTransition<T extends NodeExecutionEventType> {
+  allowedFrom: readonly NodeStatus[];
+  apply: NodeExecutionEventHandler<T>;
+  statusAfter: NodeStatus;
+}
+
+interface RuntimeNodeExecutionTransition {
+  allowedFrom: readonly NodeStatus[];
+  apply: (
+    state: NodeExecutionState,
+    event: NodeExecutionEvent
+  ) => NodeExecutionState;
+  statusAfter: NodeStatus;
+}
+
+type NodeExecutionTransitions = {
+  [K in NodeExecutionEventType]: RuntimeNodeExecutionTransition;
 };
 
 const unchangedNodeState = (state: NodeExecutionState): NodeExecutionState =>
   state;
 
-const nodeExecutionEventHandlers: NodeExecutionEventHandlers = {
-  CANCELLED: (state, event) => ({
-    ...state,
-    failure: event.failure,
-    finishedAt: event.at,
-    status: "cancelled",
+const nodeExecutionTransitions: NodeExecutionTransitions = {
+  CANCELLED: defineNodeExecutionTransition("CANCELLED", {
+    allowedFrom: ["running", "gating"],
+    apply: (state, event) => ({
+      ...state,
+      failure: event.failure,
+      finishedAt: event.at,
+    }),
+    statusAfter: "cancelled",
   }),
-  FAILED: (state, event) => ({
-    ...stateFromResult(state, event.result, event.at, "failed"),
-    failure: event.failure,
+  FAILED: defineNodeExecutionTransition("FAILED", {
+    allowedFrom: ["running", "gating"],
+    apply: (state, event) => ({
+      ...stateFromResult(state, event.result, event.at),
+      failure: event.failure,
+    }),
+    statusAfter: "failed",
   }),
-  GATES_FINISHED: (state, event) => ({ ...state, gates: event.gates }),
-  GATES_STARTED: (state) => ({ ...state, status: "gating" }),
-  OUTPUT_RECORDED: unchangedNodeState,
-  PASSED: (state, event) =>
-    stateFromResult(state, event.result, event.at, "passed"),
-  READY: (state, event) => ({
-    ...state,
-    startedAt: state.startedAt ?? event.at,
-    status: state.status === "pending" ? "ready" : state.status,
+  GATES_FINISHED: defineNodeExecutionTransition("GATES_FINISHED", {
+    allowedFrom: ["gating"],
+    apply: (state, event) => ({ ...state, gates: event.gates }),
+    statusAfter: "gating",
   }),
-  RETRYING: (state, event) => ({
-    ...state,
-    attempts: event.attempt,
-    evidence: event.evidence,
-    retry: event.retry,
-    status: "running",
+  GATES_STARTED: defineNodeExecutionTransition("GATES_STARTED", {
+    allowedFrom: ["running"],
+    apply: unchangedNodeState,
+    statusAfter: "gating",
   }),
-  RUNNER_FINISHED: (state, event) => ({
-    ...state,
-    evidence: event.evidence,
-    exitCode: event.exitCode,
-    output: event.output,
-    status: "running",
+  OUTPUT_RECORDED: defineNodeExecutionTransition("OUTPUT_RECORDED", {
+    allowedFrom: ["running"],
+    apply: unchangedNodeState,
+    statusAfter: "running",
   }),
-  RUNNER_STARTED: unchangedNodeState,
-  SKIPPED: (state, event) => ({
-    ...state,
-    failure: {
-      evidence: [event.reason],
-      gate: state.id,
-      nodeId: state.id,
-      reason: event.reason,
-    },
-    finishedAt: event.at,
-    status: "skipped",
+  PASSED: defineNodeExecutionTransition("PASSED", {
+    allowedFrom: ["running", "gating"],
+    apply: (state, event) => stateFromResult(state, event.result, event.at),
+    statusAfter: "passed",
   }),
-  SNAPSHOT_AFTER_FINISHED: unchangedNodeState,
-  SNAPSHOT_BEFORE_FINISHED: unchangedNodeState,
-  STARTED: (state, event) => ({
-    ...state,
-    attempts: event.attempt,
-    startedAt: state.startedAt ?? event.at,
-    status: "running",
+  READY: defineNodeExecutionTransition("READY", {
+    allowedFrom: ["pending"],
+    apply: (state, event) => ({
+      ...state,
+      startedAt: state.startedAt ?? event.at,
+    }),
+    statusAfter: "ready",
   }),
-  START_HOOKS_FINISHED: unchangedNodeState,
-  SUCCESS_HOOKS_STARTED: unchangedNodeState,
+  RETRYING: defineNodeExecutionTransition("RETRYING", {
+    allowedFrom: ["running", "gating"],
+    apply: (state, event) => ({
+      ...state,
+      attempts: event.attempt,
+      evidence: event.evidence,
+      retry: event.retry,
+    }),
+    statusAfter: "running",
+  }),
+  RUNNER_FINISHED: defineNodeExecutionTransition("RUNNER_FINISHED", {
+    allowedFrom: ["running"],
+    apply: (state, event) => ({
+      ...state,
+      evidence: event.evidence,
+      exitCode: event.exitCode,
+      output: event.output,
+    }),
+    statusAfter: "running",
+  }),
+  RUNNER_STARTED: defineNodeExecutionTransition("RUNNER_STARTED", {
+    allowedFrom: ["running"],
+    apply: unchangedNodeState,
+    statusAfter: "running",
+  }),
+  SKIPPED: defineNodeExecutionTransition("SKIPPED", {
+    allowedFrom: ["pending", "ready"],
+    apply: (state, event) => ({
+      ...state,
+      failure: {
+        evidence: [event.reason],
+        gate: state.id,
+        nodeId: state.id,
+        reason: event.reason,
+      },
+      finishedAt: event.at,
+    }),
+    statusAfter: "skipped",
+  }),
+  SNAPSHOT_AFTER_FINISHED: defineNodeExecutionTransition(
+    "SNAPSHOT_AFTER_FINISHED",
+    {
+      allowedFrom: ["running"],
+      apply: unchangedNodeState,
+      statusAfter: "running",
+    }
+  ),
+  SNAPSHOT_BEFORE_FINISHED: defineNodeExecutionTransition(
+    "SNAPSHOT_BEFORE_FINISHED",
+    {
+      allowedFrom: ["running"],
+      apply: unchangedNodeState,
+      statusAfter: "running",
+    }
+  ),
+  STARTED: defineNodeExecutionTransition("STARTED", {
+    allowedFrom: ["ready", "running"],
+    apply: (state, event) => ({
+      ...state,
+      attempts: event.attempt,
+      startedAt: state.startedAt ?? event.at,
+    }),
+    statusAfter: "running",
+  }),
+  START_HOOKS_FINISHED: defineNodeExecutionTransition("START_HOOKS_FINISHED", {
+    allowedFrom: ["running"],
+    apply: unchangedNodeState,
+    statusAfter: "running",
+  }),
+  SUCCESS_HOOKS_STARTED: defineNodeExecutionTransition(
+    "SUCCESS_HOOKS_STARTED",
+    {
+      allowedFrom: ["gating"],
+      apply: unchangedNodeState,
+      statusAfter: "gating",
+    }
+  ),
 };
 
 function applyNodeExecutionEvent(
   state: NodeExecutionState,
   event: NodeExecutionEvent
 ): NodeExecutionState {
-  const handler = nodeExecutionEventHandlers[event.type] as (
-    state: NodeExecutionState,
-    event: NodeExecutionEvent
-  ) => NodeExecutionState;
-  return handler(state, event);
+  const transition = nodeExecutionTransitions[event.type];
+  assertNodeExecutionTransitionAllowed(state, event, transition);
+  return {
+    ...transition.apply(state, event),
+    status: transition.statusAfter,
+  };
+}
+
+function defineNodeExecutionTransition<T extends NodeExecutionEventType>(
+  type: T,
+  transition: NodeExecutionTransition<T>
+): RuntimeNodeExecutionTransition {
+  return {
+    allowedFrom: transition.allowedFrom,
+    apply: (state, event) => {
+      if (!isNodeExecutionEventType(event, type)) {
+        throw new Error(
+          `NodeExecutionEvent handler ${type} received ${event.type}`
+        );
+      }
+      return transition.apply(state, event);
+    },
+    statusAfter: transition.statusAfter,
+  };
+}
+
+function isNodeExecutionEventType<T extends NodeExecutionEventType>(
+  event: NodeExecutionEvent,
+  type: T
+): event is Extract<NodeExecutionEvent, { type: T }> {
+  return event.type === type;
+}
+
+function assertNodeExecutionTransitionAllowed(
+  state: NodeExecutionState,
+  event: NodeExecutionEvent,
+  transition: RuntimeNodeExecutionTransition
+): void {
+  if (transition.allowedFrom.includes(state.status)) {
+    return;
+  }
+
+  throw new Error(
+    `Illegal NodeExecutionEvent ${event.type} from node status ${state.status}; allowed from: ${transition.allowedFrom.join(", ")}`
+  );
 }
 
 function stateFromResult(
   state: NodeExecutionState,
   result: RuntimeNodeResult,
-  at: string,
-  status: "failed" | "passed"
+  at: string
 ): NodeExecutionState {
   return {
     ...state,
@@ -168,6 +291,5 @@ function stateFromResult(
     exitCode: result.exitCode,
     finishedAt: at,
     output: result.output,
-    status,
   };
 }

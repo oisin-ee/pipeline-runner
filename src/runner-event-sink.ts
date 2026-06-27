@@ -64,6 +64,9 @@ export function createRunnerEventSink(
   const fetchImpl = resolveFetch(options.fetch);
   assertAuthToken(options.authToken);
   const queue: RunnerEventRecord[] = [];
+  // PIPE-92.1: intentionally not replaced by the serialized write queue. The
+  // sink owns batch mutation/retry semantics: failed flushes leave records queued
+  // for a later retry, while background scheduled failures are swallowed.
   let flushChain: Promise<void> = Promise.resolve();
   let nextSequence = 1;
   let scheduledFlush = false;

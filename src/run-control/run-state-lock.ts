@@ -11,6 +11,10 @@
  * "Run <id> does not exist". This lock makes the hide window and run-state
  * persistence mutually exclusive without serializing any unrelated parallel
  * work: only the run-state critical sections contend for it.
+ *
+ * PIPE-92.1: intentionally not replaced by the serialized write queue. This is
+ * a lock with manual acquire/release for critical sections that can span
+ * filesystem rename/restore boundaries; it is not a FIFO write/flush queue.
  */
 let chain: Promise<void> = Promise.resolve();
 
