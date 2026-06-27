@@ -5,11 +5,8 @@ import { selectNodeModelCandidates } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
 import { resolveFileReference } from "../../path-refs";
 import type { PlannedWorkflowNode } from "../../planning/compile";
-import {
-  type AgentResult,
-  createRunnerLaunchPlan,
-  type RunnerLaunchPlan,
-} from "../../runner";
+import type { AgentResult, RunnerLaunchPlan } from "../../runner";
+import { createRunnerLaunchPlan } from "../../runner";
 import {
   normalizeRunnerOutput,
   runnerTextCandidates,

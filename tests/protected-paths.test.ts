@@ -15,11 +15,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { parsePipelineConfigParts } from "../src/config.ts";
 import { opencodeAdapter } from "../src/install-commands/opencode.ts";
-import {
-  createRunnerLaunchPlan,
-  type RunnerLaunchPlan,
-  runLaunchPlan,
-} from "../src/runner.ts";
+import type { RunnerLaunchPlan } from "../src/runner";
+import { createRunnerLaunchPlan } from "../src/runner";
+import { runLaunchPlan } from "../src/runner/subprocess";
 import { createProtectedPathGuard } from "../src/runtime/protected-paths/protected-paths.ts";
 import { RepoIoServiceLive } from "../src/runtime/services/repo-io-service.ts";
 import { loadBacklogTaskStoreEffect } from "../src/tickets/backlog-task-store.ts";

@@ -1,12 +1,9 @@
 import type { Command } from "commander";
 import { Effect } from "effect";
 import { loadPipelineConfig } from "../../config";
-import {
-  type AgentResult,
-  createRunnerLaunchPlan,
-  type RunnerLaunchPlan,
-  runLaunchPlan,
-} from "../../runner";
+import type { AgentResult, RunnerLaunchPlan } from "../../runner";
+import { createRunnerLaunchPlan } from "../../runner";
+import { runLaunchPlan } from "../../runner/subprocess";
 import { normalizeRunnerOutput } from "../../runner-output";
 import {
   type BacklogService,

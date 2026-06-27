@@ -1,7 +1,8 @@
 // fallow-ignore-file unused-file
 import { Effect } from "effect";
 import type { PipelineConfig } from "../../config";
-import { createRunnerLaunchPlan, type RunnerLaunchPlan } from "../../runner";
+import type { RunnerLaunchPlan } from "../../runner";
+import { createRunnerLaunchPlan } from "../../runner";
 import {
   goalStateCompletionEvidence,
   goalStateFailureSignature,

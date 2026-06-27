@@ -6,7 +6,7 @@ import {
   type PlannedWorkflowNode,
   type WorkflowExecutionPlan,
 } from "../../planning/compile";
-import { runLaunchPlan } from "../../runner";
+import { runLaunchPlan } from "../../runner/subprocess";
 import type { PipelineRuntimeOptions, RuntimeContext } from "../contracts";
 import { createPublicRuntimeObservabilityEmitter } from "../events";
 import { initialNodeStateStore } from "../node-state-store";

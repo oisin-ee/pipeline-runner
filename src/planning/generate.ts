@@ -9,13 +9,13 @@ import {
   workflowSchema,
 } from "../config";
 import { ensurePipelineWorkspaceIgnore } from "../run-control/workspace";
-import {
-  type AgentResult,
-  createRunnerLaunchPlan,
-  type RunnerExecutionOptions,
-  type RunnerLaunchPlan,
-  runLaunchPlan,
+import type {
+  AgentResult,
+  RunnerExecutionOptions,
+  RunnerLaunchPlan,
 } from "../runner";
+import { createRunnerLaunchPlan } from "../runner";
+import { runLaunchPlan } from "../runner/subprocess";
 import { normalizeRunnerOutput } from "../runner-output";
 import { loadBacklogPlanningContext } from "../schedule/backlog-context";
 import { baselineScheduleArtifact } from "../schedule/baseline";

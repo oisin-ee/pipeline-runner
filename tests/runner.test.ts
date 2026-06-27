@@ -10,9 +10,8 @@ import { parsePipelineConfigParts } from "../src/config.ts";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
-  runLaunchPlan,
-  spawnAgent,
-} from "../src/runner.ts";
+} from "../src/runner";
+import { runLaunchPlan } from "../src/runner/subprocess";
 import { normalizeRunnerOutput } from "../src/runner-output.ts";
 import { opencodeSdkRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 
@@ -56,90 +55,6 @@ function parseTestConfig(parts: {
 }) {
   return parsePipelineConfigParts(parts);
 }
-
-describe("spawnAgent — opencode harness", () => {
-  it("invokes opencode run --format json --dir <worktree> <prompt> (no contextFile)", async () => {
-    mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
-
-    await spawnAgent("opencode", "verifier", "verify things", null, "/tmp/wt");
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "opencode",
-      [
-        "run",
-        "--format",
-        "json",
-        "--dangerously-skip-permissions",
-        "--dir",
-        "/tmp/wt",
-        "verify things",
-      ],
-      expect.not.objectContaining({ timeout: expect.any(Number) })
-    );
-    expect(mockExeca.mock.calls[0][2]).toEqual(
-      expect.objectContaining({ cwd: "/tmp/wt" })
-    );
-  });
-
-  it("appends --file <contextFile> when provided", async () => {
-    mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
-
-    await spawnAgent(
-      "opencode",
-      "verifier",
-      "verify things",
-      "/tmp/ctx.md",
-      "/tmp/wt"
-    );
-
-    expect(mockExeca).toHaveBeenCalledWith(
-      "opencode",
-      [
-        "run",
-        "--format",
-        "json",
-        "--dangerously-skip-permissions",
-        "--dir",
-        "/tmp/wt",
-        "verify things",
-        "--file",
-        "/tmp/ctx.md",
-      ],
-      expect.not.objectContaining({ timeout: expect.any(Number) })
-    );
-    expect(mockExeca.mock.calls[0][2]).toEqual(
-      expect.objectContaining({ cwd: "/tmp/wt" })
-    );
-  });
-
-  it("adds git info excludes before opencode runs", async () => {
-    mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
-    const { mkdirSync, readFileSync, rmSync, writeFileSync } = await import(
-      "node:fs"
-    );
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = await import("node:fs").then(({ mkdtempSync }) =>
-      mkdtempSync(join(tmpdir(), "runner-opencode-"))
-    );
-
-    try {
-      mkdirSync(join(dir, ".git", "info"), { recursive: true });
-      writeFileSync(join(dir, ".git", "info", "exclude"), "# existing\n");
-
-      await spawnAgent("opencode", "verifier", "verify things", null, dir);
-
-      const exclude = readFileSync(join(dir, ".git", "info", "exclude"), {
-        encoding: "utf8",
-      });
-      expect(exclude).toContain("node_modules/");
-      expect(exclude).toContain(".opencode/node_modules/");
-      expect(exclude).toContain(".mastra/");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
 
 describe("createRunnerLaunchPlan", () => {
   const CONFIG = parseTestConfig({
@@ -207,6 +122,41 @@ workflows:
     expect(plan.args.join(" ")).toContain(
       profileId === "command-agent" ? "/tmp/wt" : "do work"
     );
+  });
+
+  it("adds git info excludes before opencode launch plans run", async () => {
+    mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
+    const { mkdirSync, readFileSync, rmSync, writeFileSync } = await import(
+      "node:fs"
+    );
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await import("node:fs").then(({ mkdtempSync }) =>
+      mkdtempSync(join(tmpdir(), "runner-opencode-"))
+    );
+
+    try {
+      mkdirSync(join(dir, ".git", "info"), { recursive: true });
+      writeFileSync(join(dir, ".git", "info", "exclude"), "# existing\n");
+
+      await runLaunchPlan(
+        createRunnerLaunchPlan(CONFIG, {
+          profileId: "opencode-agent",
+          nodeId: "node",
+          prompt: "verify things",
+          worktreePath: dir,
+        })
+      );
+
+      const exclude = readFileSync(join(dir, ".git", "info", "exclude"), {
+        encoding: "utf8",
+      });
+      expect(exclude).toContain("node_modules/");
+      expect(exclude).toContain(".opencode/node_modules/");
+      expect(exclude).toContain(".mastra/");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("uses a profile timeout for native runner launch plans", () => {
