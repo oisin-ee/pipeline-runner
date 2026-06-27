@@ -1,7 +1,7 @@
 ---
 id: PIPE-45.13
 title: Split remote submit service
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-27 14:03'
 labels: []
@@ -31,12 +31,12 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Submit contract, compilation, IO, and event/auth handling have separate owners -- Evidence: source inspection.
-- [ ] #2 Public ./moka-submit contract remains compatible -- Evidence: package API/dist tests and moka-submit tests pass.
-- [ ] #3 Security-sensitive auth data remains boundary-validated and not logged -- Evidence: security/quality review.
+- [x] #1 Submit contract, compilation, IO, and event/auth handling have separate owners -- Evidence: `src/remote/submit/{contract,event-boundary,io,compilation,argo-submission,service}.ts`; source-boundary assertion in `tests/moka-submit.test.ts`.
+- [x] #2 Public ./moka-submit contract remains compatible -- Evidence: `bun run test tests/moka-submit.test.ts tests/package-public-api.test.ts tests/dist-contract.test.ts tests/moka-run-remote-compat.test.ts`.
+- [x] #3 Security-sensitive auth data remains boundary-validated and not logged -- Evidence: `mokaSubmitOptionsSchema` validates event auth fields in `src/remote/submit/contract.ts`; event token path projection stays in `src/remote/submit/event-boundary.ts`; `bun run typecheck`, `bun run check`, and `pnpm exec fallow audit --changed-since HEAD --production`.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run feature-implementation workflow plus security lens for auth/event boundaries; record proof.
+- [x] #1 Run feature-implementation workflow plus security lens for auth/event boundaries; record proof.
 <!-- DOD:END -->

@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -121,6 +127,21 @@ const EXPLICIT_EVENT_SINK = {
   url: "https://console.example/api/pipeline/runner-events",
 };
 const EVENT_TRANSPORT_CONFLICT_RE = /Choose either eventSink or events/u;
+const REMOTE_SUBMIT_ROOT = join(
+  import.meta.dirname,
+  "..",
+  "src",
+  "remote",
+  "submit"
+);
+const REMOTE_SUBMIT_MODULES = [
+  "argo-submission.ts",
+  "compilation.ts",
+  "contract.ts",
+  "event-boundary.ts",
+  "io.ts",
+  "service.ts",
+] as const;
 
 function runtimeConfig() {
   return parsePipelineConfigParts({
@@ -164,6 +185,44 @@ function executor(_plan: RunnerLaunchPlan) {
 }
 
 describe("submitMoka", () => {
+  it("keeps submit contract, compilation, IO, event/auth, and Argo submission in separate owners", () => {
+    for (const fileName of REMOTE_SUBMIT_MODULES) {
+      expect(existsSync(join(REMOTE_SUBMIT_ROOT, fileName))).toBe(true);
+    }
+
+    const publicSource = readFileSync(
+      join(import.meta.dirname, "..", "src", "moka-submit.ts"),
+      "utf8"
+    );
+    const contractSource = readFileSync(
+      join(REMOTE_SUBMIT_ROOT, "contract.ts"),
+      "utf8"
+    );
+    const compilationSource = readFileSync(
+      join(REMOTE_SUBMIT_ROOT, "compilation.ts"),
+      "utf8"
+    );
+    const eventBoundarySource = readFileSync(
+      join(REMOTE_SUBMIT_ROOT, "event-boundary.ts"),
+      "utf8"
+    );
+    const ioSource = readFileSync(join(REMOTE_SUBMIT_ROOT, "io.ts"), "utf8");
+    const argoSubmissionSource = readFileSync(
+      join(REMOTE_SUBMIT_ROOT, "argo-submission.ts"),
+      "utf8"
+    );
+
+    expect(publicSource).not.toContain("simple-git");
+    expect(publicSource).not.toContain("buildRunnerCommandPayload");
+    expect(publicSource).not.toContain("eventAuthSecretKey is required");
+    expect(contractSource).toContain("mokaSubmitOptionsSchema");
+    expect(compilationSource).toContain("compileMokaSubmitPlan");
+    expect(eventBoundarySource).toContain("runnerEvents");
+    expect(eventBoundarySource).toContain("configWithSubmitHooks");
+    expect(ioSource).toContain("resolveSubmissionContext");
+    expect(argoSubmissionSource).toContain("submitRunnerArgoWorkflow");
+  });
+
   it("submits a full graph by generating an execute schedule", async () => {
     const generatedSchedulePath = ".pipeline/runs/run-1/schedule.yaml";
     const calls: CapturedSubmitOptions[] = [];
