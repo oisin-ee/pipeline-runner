@@ -1,6 +1,5 @@
 import { flattenNodes } from "../../planning/graph";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
-import { isRecord } from "../../safe-json";
 import {
   type RuntimeActorDescriptor,
   type RuntimeObservabilityEmitter,
@@ -21,6 +20,83 @@ import {
   parseRuntimeOutput,
   validateJsonSchemaSource,
 } from "../json-validation";
+
+type RuntimeObservabilityType = RuntimeObservabilityEvent["type"];
+type RuntimeActorObservabilityEvent = Extract<
+  RuntimeObservabilityEvent,
+  { type: `runtime.actor.${string}` }
+>;
+type RuntimeGateObservabilityEvent = Extract<
+  RuntimeObservabilityEvent,
+  { type: `runtime.gate.${string}` }
+>;
+type RuntimeHookObservabilityEvent = Extract<
+  RuntimeObservabilityEvent,
+  { type: `runtime.hook.${string}` }
+>;
+type RuntimeNodeObservabilityEvent = Extract<
+  RuntimeObservabilityEvent,
+  { type: `runtime.node.${string}` }
+>;
+type RuntimeRetryObservabilityEvent = Extract<
+  RuntimeObservabilityEvent,
+  { type: `runtime.retry.${string}` }
+>;
+type RuntimeStateObservabilityEvent = Extract<
+  RuntimeObservabilityEvent,
+  { type: `runtime.state.${string}` }
+>;
+type RuntimePrimaryObservabilityEvent =
+  | RuntimeActorObservabilityEvent
+  | RuntimeHookObservabilityEvent
+  | RuntimeStateObservabilityEvent;
+type RuntimeSecondaryObservabilityEvent = Exclude<
+  RuntimeObservabilityEvent,
+  RuntimePrimaryObservabilityEvent
+>;
+type RuntimeGateTerminalObservabilityEvent = Exclude<
+  RuntimeGateObservabilityEvent,
+  Extract<
+    RuntimeGateObservabilityEvent,
+    { type: "runtime.gate.finished" | "runtime.gate.started" }
+  >
+>;
+type RuntimeHookTerminalObservabilityEvent = Exclude<
+  RuntimeHookObservabilityEvent,
+  Extract<
+    RuntimeHookObservabilityEvent,
+    { type: "runtime.hook.finished" | "runtime.hook.started" }
+  >
+>;
+type PlannedRuntimeNode = RuntimeContext["plan"]["topologicalOrder"][number];
+type RuntimeNodeProfile =
+  | RuntimeContext["config"]["profiles"][string]
+  | undefined;
+type StructuredOutputFormat = RuntimeStructuredOutput["format"];
+
+interface RuntimeNodeRunnerFields {
+  profile?: string;
+  runnerId?: string;
+}
+
+const warningRuntimeObservabilityTypes: ReadonlySet<RuntimeObservabilityType> =
+  new Set([
+    "runtime.gate.cancelled",
+    "runtime.gate.failed",
+    "runtime.hook.failed",
+    "runtime.hook.timedOut",
+    "runtime.retry.exhausted",
+  ]);
+const primaryRuntimeObservabilityPrefixes = [
+  "runtime.actor.",
+  "runtime.hook.",
+  "runtime.state.",
+];
+const structuredOutputFormats: ReadonlySet<string> = new Set([
+  "json",
+  "json_schema",
+  "jsonl",
+]);
 
 export function createPublicRuntimeObservabilityEmitter(
   reporter: (event: PipelineRuntimeEvent) => void,
@@ -50,73 +126,215 @@ function runtimeObservabilityEventToPipelineEvent(
 function runtimeObservabilityLevel(
   event: RuntimeObservabilityEvent
 ): PipelineRuntimeObservabilityLevel {
-  switch (event.type) {
-    case "runtime.gate.cancelled":
-    case "runtime.gate.failed":
-    case "runtime.hook.failed":
-    case "runtime.hook.timedOut":
-    case "runtime.retry.exhausted":
-      return "warn";
-    default:
-      return "info";
-  }
+  return warningRuntimeObservabilityTypes.has(event.type) ? "warn" : "info";
 }
 
 function runtimeObservabilityNodeId(
   event: RuntimeObservabilityEvent
 ): string | undefined {
-  switch (event.type) {
-    case "runtime.gate.cancelled":
-    case "runtime.gate.failed":
-    case "runtime.gate.finished":
-    case "runtime.gate.started":
-    case "runtime.hook.failed":
-    case "runtime.hook.finished":
-    case "runtime.hook.skipped":
-    case "runtime.hook.started":
-    case "runtime.hook.timedOut":
-    case "runtime.node.finished":
-    case "runtime.node.started":
-    case "runtime.retry.exhausted":
-    case "runtime.retry.scheduled":
-      return event.nodeId;
-    default:
-      return;
-  }
+  return "nodeId" in event ? event.nodeId : undefined;
 }
 
 function runtimeObservabilitySummary(event: RuntimeObservabilityEvent): string {
+  return isRuntimePrimaryObservabilityEvent(event)
+    ? runtimePrimaryObservabilitySummary(event)
+    : runtimeSecondaryObservabilitySummary(event);
+}
+
+function isRuntimePrimaryObservabilityEvent(
+  event: RuntimeObservabilityEvent
+): event is RuntimePrimaryObservabilityEvent {
+  return primaryRuntimeObservabilityPrefixes.some((prefix) =>
+    event.type.startsWith(prefix)
+  );
+}
+
+function runtimePrimaryObservabilitySummary(
+  event: RuntimePrimaryObservabilityEvent
+): string {
+  if (isRuntimeActorObservabilityEvent(event)) {
+    return runtimeActorObservabilitySummary(event);
+  }
+  if (isRuntimeHookObservabilityEvent(event)) {
+    return runtimeHookObservabilitySummary(event);
+  }
+  if (isRuntimeStateObservabilityEvent(event)) {
+    return runtimeStateObservabilitySummary(event);
+  }
+  return assertNeverRuntimeObservabilityEvent(event);
+}
+
+function runtimeSecondaryObservabilitySummary(
+  event: RuntimeSecondaryObservabilityEvent
+): string {
+  if (isRuntimeGateObservabilityEvent(event)) {
+    return runtimeGateObservabilitySummary(event);
+  }
+  if (isRuntimeNodeObservabilityEvent(event)) {
+    return runtimeNodeObservabilitySummary(event);
+  }
+  if (isRuntimeRetryObservabilityEvent(event)) {
+    return runtimeRetryObservabilitySummary(event);
+  }
+  return assertNeverRuntimeObservabilityEvent(event);
+}
+
+function isRuntimeActorObservabilityEvent(
+  event: RuntimeObservabilityEvent
+): event is RuntimeActorObservabilityEvent {
+  return event.type.startsWith("runtime.actor.");
+}
+
+function isRuntimeGateObservabilityEvent(
+  event: RuntimeObservabilityEvent
+): event is RuntimeGateObservabilityEvent {
+  return event.type.startsWith("runtime.gate.");
+}
+
+function isRuntimeHookObservabilityEvent(
+  event: RuntimeObservabilityEvent
+): event is RuntimeHookObservabilityEvent {
+  return event.type.startsWith("runtime.hook.");
+}
+
+function isRuntimeNodeObservabilityEvent(
+  event: RuntimeObservabilityEvent
+): event is RuntimeNodeObservabilityEvent {
+  return event.type.startsWith("runtime.node.");
+}
+
+function isRuntimeRetryObservabilityEvent(
+  event: RuntimeObservabilityEvent
+): event is RuntimeRetryObservabilityEvent {
+  return event.type.startsWith("runtime.retry.");
+}
+
+function isRuntimeStateObservabilityEvent(
+  event: RuntimeObservabilityEvent
+): event is RuntimeStateObservabilityEvent {
+  return event.type.startsWith("runtime.state.");
+}
+
+function runtimeActorObservabilitySummary(
+  event: RuntimeActorObservabilityEvent
+): string {
   switch (event.type) {
     case "runtime.actor.event":
       return `${event.actor.kind} actor ${event.actor.id} received ${event.eventType}`;
     case "runtime.actor.snapshot":
       return `${event.actor.kind} actor ${event.actor.id} snapshot recorded`;
-    case "runtime.gate.cancelled":
-      return `gate ${event.gateId} cancelled for node ${event.nodeId}: ${event.reason}`;
-    case "runtime.gate.failed":
-      return `gate ${event.gateId} failed for node ${event.nodeId}: ${event.reason}`;
-    case "runtime.gate.finished":
-      return `gate ${event.gateId} ${event.passed ? "passed" : "failed"} for node ${event.nodeId}${event.reason ? `: ${event.reason}` : ""}`;
-    case "runtime.gate.started":
-      return `gate ${event.gateId} started for node ${event.nodeId}`;
+    default:
+      return assertNeverRuntimeObservabilityEvent(event);
+  }
+}
+
+function runtimeGateObservabilitySummary(
+  event: RuntimeGateObservabilityEvent
+): string {
+  if (event.type === "runtime.gate.started") {
+    return `gate ${event.gateId} started for node ${event.nodeId}`;
+  }
+  if (event.type === "runtime.gate.finished") {
+    return `gate ${event.gateId} ${gateOutcome(event)} for node ${event.nodeId}${gateReasonClause(event)}`;
+  }
+  return runtimeGateTerminalObservabilitySummary(event);
+}
+
+function runtimeGateTerminalObservabilitySummary(
+  event: RuntimeGateTerminalObservabilityEvent
+): string {
+  return `gate ${event.gateId} ${gateTerminalOutcome(event)} for node ${event.nodeId}: ${event.reason}`;
+}
+
+function gateOutcome(event: { passed: boolean }): string {
+  return event.passed ? "passed" : "failed";
+}
+
+function gateReasonClause(event: { reason?: string }): string {
+  return event.reason ? `: ${event.reason}` : "";
+}
+
+function gateTerminalOutcome(
+  event: RuntimeGateTerminalObservabilityEvent
+): "cancelled" | "failed" {
+  return event.type === "runtime.gate.cancelled" ? "cancelled" : "failed";
+}
+
+function runtimeHookObservabilitySummary(
+  event: RuntimeHookObservabilityEvent
+): string {
+  if (event.type === "runtime.hook.started") {
+    return `hook ${event.hookId} started${hookNodeClause(event)}`;
+  }
+  if (event.type === "runtime.hook.finished") {
+    return `hook ${event.hookId} ${hookOutcome(event)}${hookNodeClause(event)}${hookReasonClause(event)}`;
+  }
+  return runtimeHookTerminalObservabilitySummary(event);
+}
+
+function runtimeHookTerminalObservabilitySummary(
+  event: RuntimeHookTerminalObservabilityEvent
+): string {
+  return `hook ${event.hookId} ${hookTerminalOutcome(event)}${hookNodeClause(event)}: ${event.reason}`;
+}
+
+function hookNodeClause(event: { nodeId?: string }): string {
+  return event.nodeId ? ` for node ${event.nodeId}` : "";
+}
+
+function hookOutcome(event: { passed: boolean }): string {
+  return event.passed ? "passed" : "failed";
+}
+
+function hookReasonClause(event: { reason?: string }): string {
+  return event.reason ? `: ${event.reason}` : "";
+}
+
+function hookTerminalOutcome(
+  event: RuntimeHookTerminalObservabilityEvent
+): "failed" | "skipped" | "timed out" {
+  switch (event.type) {
     case "runtime.hook.failed":
-      return `hook ${event.hookId} failed${event.nodeId ? ` for node ${event.nodeId}` : ""}: ${event.reason}`;
-    case "runtime.hook.finished":
-      return `hook ${event.hookId} ${event.passed ? "passed" : "failed"}${event.nodeId ? ` for node ${event.nodeId}` : ""}${event.reason ? `: ${event.reason}` : ""}`;
+      return "failed";
     case "runtime.hook.skipped":
-      return `hook ${event.hookId} skipped${event.nodeId ? ` for node ${event.nodeId}` : ""}: ${event.reason}`;
-    case "runtime.hook.started":
-      return `hook ${event.hookId} started${event.nodeId ? ` for node ${event.nodeId}` : ""}`;
+      return "skipped";
     case "runtime.hook.timedOut":
-      return `hook ${event.hookId} timed out${event.nodeId ? ` for node ${event.nodeId}` : ""}: ${event.reason}`;
+      return "timed out";
+    default:
+      return assertNeverRuntimeObservabilityEvent(event);
+  }
+}
+
+function runtimeNodeObservabilitySummary(
+  event: RuntimeNodeObservabilityEvent
+): string {
+  switch (event.type) {
     case "runtime.node.finished":
       return `node ${event.nodeId} finished with status ${event.status}`;
     case "runtime.node.started":
       return `node ${event.nodeId} started`;
+    default:
+      return assertNeverRuntimeObservabilityEvent(event);
+  }
+}
+
+function runtimeRetryObservabilitySummary(
+  event: RuntimeRetryObservabilityEvent
+): string {
+  switch (event.type) {
     case "runtime.retry.exhausted":
       return `node ${event.nodeId} retry exhausted after attempt ${event.attempt} (${event.reason})`;
     case "runtime.retry.scheduled":
       return `node ${event.nodeId} retry scheduled for attempt ${event.attempt} (${event.reason})`;
+    default:
+      return assertNeverRuntimeObservabilityEvent(event);
+  }
+}
+
+function runtimeStateObservabilitySummary(
+  event: RuntimeStateObservabilityEvent
+): string {
+  switch (event.type) {
     case "runtime.state.enter":
       return `${event.actor.kind} actor ${event.actor.id} entered ${event.state}`;
     case "runtime.state.exit":
@@ -251,16 +469,7 @@ export function emitGateFinish(
   gate: GateSpec,
   result: RuntimeGateResult
 ): void {
-  if (gate.kind === "artifact") {
-    emit(context, {
-      nodeId: result.nodeId,
-      passed: result.passed,
-      path: gate.path ?? "",
-      required: gate.required !== false,
-      type: "artifact.check.finish",
-      ...(result.reason ? { reason: result.reason } : {}),
-    });
-  }
+  emitArtifactGateFinish(context, gate, result);
   emit(context, {
     evidence: result.evidence,
     gateId: result.gateId,
@@ -268,24 +477,45 @@ export function emitGateFinish(
     nodeId: result.nodeId,
     passed: result.passed,
     type: "gate.finish",
-    ...(result.reason ? { reason: result.reason } : {}),
+    ...gateResultReasonFields(result),
   });
+}
+
+function emitArtifactGateFinish(
+  context: RuntimeContext,
+  gate: GateSpec,
+  result: RuntimeGateResult
+): void {
+  if (gate.kind !== "artifact") {
+    return;
+  }
+  emit(context, {
+    nodeId: result.nodeId,
+    passed: result.passed,
+    path: gate.path ?? "",
+    required: gate.required !== false,
+    type: "artifact.check.finish",
+    ...gateResultReasonFields(result),
+  });
+}
+
+function gateResultReasonFields(
+  result: RuntimeGateResult
+): Pick<Extract<PipelineRuntimeEvent, { type: "gate.finish" }>, "reason"> {
+  return result.reason ? { reason: result.reason } : {};
 }
 
 export function emitNodeStart(
   context: RuntimeContext,
-  node: RuntimeContext["plan"]["topologicalOrder"][number],
+  node: PlannedRuntimeNode,
   attempt: number
 ): void {
-  const profile = node.profile
-    ? context.config.profiles[node.profile]
-    : undefined;
+  const profile = runtimeNodeProfile(context, node);
   emit(context, {
     attempt,
     nodeId: node.id,
     type: "node.start",
-    ...(node.profile ? { profile: node.profile } : {}),
-    ...(profile?.runner ? { runnerId: profile.runner } : {}),
+    ...runtimeNodeRunnerFields(node, profile),
   });
   context.observability?.({
     actor: runtimeNodeActorDescriptor(context, node.id),
@@ -299,18 +529,13 @@ export function emitNodeFinish(
   context: RuntimeContext,
   result: RuntimeNodeResult
 ): void {
-  const node = context.plan.topologicalOrder.find(
-    (item) => item.id === result.nodeId
-  );
-  const profile = node?.profile
-    ? context.config.profiles[node.profile]
-    : undefined;
+  const node = runtimeNodeById(context, result.nodeId);
+  const profile = runtimeNodeProfile(context, node);
   emit(context, {
     attempt: result.attempts,
     exitCode: result.exitCode,
     nodeId: result.nodeId,
-    ...(node?.profile ? { profile: node.profile } : {}),
-    ...(profile?.runner ? { runnerId: profile.runner } : {}),
+    ...runtimeNodeRunnerFields(node, profile),
     status: result.status,
     type: "node.finish",
   });
@@ -325,42 +550,118 @@ export function emitNodeFinish(
 
 export function emitNodeOutputRecorded(
   context: RuntimeContext,
-  node: RuntimeContext["plan"]["topologicalOrder"][number],
+  node: PlannedRuntimeNode,
   attempt: number,
   output: string
 ): void {
-  const profile = node.profile
-    ? context.config.profiles[node.profile]
-    : undefined;
-  const format = profile?.output?.format ? profile.output.format : "text";
+  const profile = runtimeNodeProfile(context, node);
+  const format = runtimeNodeOutputFormat(profile);
   const parsed = parseRuntimeOutput(format, output);
-  const event: Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }> =
-    {
-      attempt,
-      format,
-      nodeId: node.id,
-      output: parsed.output,
-      type: "node.output.recorded",
-    };
-  if (node.profile) {
-    event.profile = node.profile;
-  }
-  if (profile?.output?.schema_path) {
-    event.schemaPath = profile.output.schema_path;
-  }
-  if (parsed.error) {
-    event.parseError = parsed.error;
-  }
-  recordStructuredOutput(context, {
+  const event = nodeOutputRecordedEvent({
     attempt,
     format,
+    node,
+    parsed,
+    profile,
+  });
+  recordStructuredOutput(context, {
+    attempt: event.attempt,
+    format: event.format,
     nodeId: node.id,
-    output: parsed.output,
-    parseError: parsed.error,
+    output: event.output,
+    parseError: event.parseError,
     profileId: node.profile,
-    schemaPath: profile?.output?.schema_path,
+    schemaPath: event.schemaPath,
   });
   emit(context, event);
+}
+
+function runtimeNodeById(
+  context: RuntimeContext,
+  nodeId: string
+): PlannedRuntimeNode | undefined {
+  return context.plan.topologicalOrder.find((item) => item.id === nodeId);
+}
+
+function runtimeNodeProfile(
+  context: RuntimeContext,
+  node?: PlannedRuntimeNode
+): RuntimeNodeProfile {
+  return node?.profile ? context.config.profiles[node.profile] : undefined;
+}
+
+function runtimeNodeRunnerFields(
+  node?: PlannedRuntimeNode,
+  profile?: RuntimeNodeProfile
+): RuntimeNodeRunnerFields {
+  return {
+    ...runtimeNodeProfileField(node),
+    ...runtimeNodeRunnerIdField(profile),
+  };
+}
+
+function runtimeNodeProfileField(
+  node?: PlannedRuntimeNode
+): Pick<RuntimeNodeRunnerFields, "profile"> {
+  return node?.profile ? { profile: node.profile } : {};
+}
+
+function runtimeNodeRunnerIdField(
+  profile?: RuntimeNodeProfile
+): Pick<RuntimeNodeRunnerFields, "runnerId"> {
+  return profile?.runner ? { runnerId: profile.runner } : {};
+}
+
+function runtimeNodeOutputFormat(profile: RuntimeNodeProfile): string {
+  return profile?.output?.format ?? "text";
+}
+
+function nodeOutputRecordedEvent(input: {
+  attempt: number;
+  format: string;
+  node: PlannedRuntimeNode;
+  parsed: ReturnType<typeof parseRuntimeOutput>;
+  profile: RuntimeNodeProfile;
+}): Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }> {
+  return {
+    attempt: input.attempt,
+    format: input.format,
+    nodeId: input.node.id,
+    output: input.parsed.output,
+    type: "node.output.recorded",
+    ...nodeOutputProfileField(input.node),
+    ...nodeOutputSchemaField(input.profile),
+    ...nodeOutputParseErrorField(input.parsed),
+  };
+}
+
+function nodeOutputProfileField(
+  node: PlannedRuntimeNode
+): Pick<
+  Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>,
+  "profile"
+> {
+  return node.profile ? { profile: node.profile } : {};
+}
+
+function nodeOutputSchemaField(
+  profile: RuntimeNodeProfile
+): Pick<
+  Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>,
+  "schemaPath"
+> {
+  return profile?.output?.schema_path
+    ? { schemaPath: profile.output.schema_path }
+    : {};
+}
+
+function nodeOutputParseErrorField(
+  parsed: ReturnType<typeof parseRuntimeOutput>
+): Pick<
+  Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>,
+  "parseError"
+> {
+  return parsed.error ? { parseError: parsed.error } : {};
 }
 
 function recordStructuredOutput(
@@ -375,29 +676,52 @@ function recordStructuredOutput(
     schemaPath?: string;
   }
 ): void {
-  if (
-    output.format !== "json" &&
-    output.format !== "json_schema" &&
-    output.format !== "jsonl"
-  ) {
+  if (!isStructuredOutputFormat(output.format)) {
     return;
   }
   const validation = structuredOutputValidation(context, output);
-  const nodeId = context.parentParallelNodeId
-    ? `${context.parentParallelNodeId}.${output.nodeId}`
-    : output.nodeId;
   context.nodeStateStore.recordStructuredOutput({
     attempt: output.attempt,
     format: output.format,
-    nodeId,
+    nodeId: structuredOutputNodeId(context, output.nodeId),
     output: output.output,
-    ...(context.parentParallelNodeId
-      ? { parentParallelNodeId: context.parentParallelNodeId }
-      : {}),
-    ...(output.profileId ? { profileId: output.profileId } : {}),
-    ...(output.schemaPath ? { schemaPath: output.schemaPath } : {}),
+    ...structuredOutputParentFields(context),
+    ...structuredOutputProfileFields(output),
     validation,
   });
+}
+
+function isStructuredOutputFormat(
+  format: string
+): format is StructuredOutputFormat {
+  return structuredOutputFormats.has(format);
+}
+
+function structuredOutputNodeId(
+  context: RuntimeContext,
+  nodeId: string
+): string {
+  return context.parentParallelNodeId
+    ? `${context.parentParallelNodeId}.${nodeId}`
+    : nodeId;
+}
+
+function structuredOutputParentFields(
+  context: RuntimeContext
+): Pick<RuntimeStructuredOutput, "parentParallelNodeId"> {
+  return context.parentParallelNodeId
+    ? { parentParallelNodeId: context.parentParallelNodeId }
+    : {};
+}
+
+function structuredOutputProfileFields(output: {
+  profileId?: string;
+  schemaPath?: string;
+}): Pick<RuntimeStructuredOutput, "profileId" | "schemaPath"> {
+  return {
+    ...(output.profileId ? { profileId: output.profileId } : {}),
+    ...(output.schemaPath ? { schemaPath: output.schemaPath } : {}),
+  };
 }
 
 function structuredOutputValidation(
@@ -416,16 +740,27 @@ function structuredOutputValidation(
       status: "invalid",
     };
   }
-  if (!output.schemaPath) {
-    return {
-      evidence: ["structured output has no schema"],
-      passed: true,
-      status: "not_applicable",
-    };
-  }
+  return output.schemaPath
+    ? structuredOutputSchemaValidation(
+        context,
+        output.output,
+        output.schemaPath
+      )
+    : {
+        evidence: ["structured output has no schema"],
+        passed: true,
+        status: "not_applicable",
+      };
+}
+
+function structuredOutputSchemaValidation(
+  context: RuntimeContext,
+  output: unknown,
+  schemaPath: string
+): RuntimeStructuredOutput["validation"] {
   const validation = validateJsonSchemaSource(
-    JSON.stringify(output.output),
-    output.schemaPath,
+    JSON.stringify(output),
+    schemaPath,
     context.worktreePath
   );
   return {
@@ -478,45 +813,64 @@ export function childReporter(
   };
 }
 
-export function prefixChildRuntimeEvent(
+function prefixChildRuntimeEvent(
   parentNodeId: string,
   event: PipelineRuntimeEvent
 ): PipelineRuntimeEvent {
-  const prefixed = { ...event } as Record<string, unknown>;
-  prefixed.parentNodeId = parentNodeId;
-  if (typeof prefixed.nodeId === "string") {
-    prefixed.nodeId = `${parentNodeId}.${prefixed.nodeId}`;
-  }
-  if (Array.isArray(prefixed.nodeIds)) {
-    prefixed.nodeIds = prefixed.nodeIds.map((id) =>
-      typeof id === "string" ? `${parentNodeId}.${id}` : id
-    );
-  }
-  if (Array.isArray(prefixed.nodes)) {
-    prefixed.nodes = prefixed.nodes.map((child) =>
-      isRecord(child) && typeof child.id === "string"
-        ? { ...child, id: `${parentNodeId}.${child.id}` }
-        : child
-    );
-  }
-  if (Array.isArray(prefixed.edges)) {
-    prefixed.edges = prefixed.edges.map((edge) =>
-      isRecord(edge)
-        ? {
-            ...edge,
-            source:
-              typeof edge.source === "string"
-                ? `${parentNodeId}.${edge.source}`
-                : edge.source,
-            target:
-              typeof edge.target === "string"
-                ? `${parentNodeId}.${edge.target}`
-                : edge.target,
-          }
-        : edge
-    );
-  }
-  return prefixed as PipelineRuntimeEvent;
+  return prefixWorkflowGraphEvent(
+    parentNodeId,
+    prefixNodeIdsEvent(parentNodeId, prefixNodeIdEvent(parentNodeId, event))
+  );
+}
+
+function prefixNodeIdEvent(
+  parentNodeId: string,
+  event: PipelineRuntimeEvent
+): PipelineRuntimeEvent {
+  return "nodeId" in event && typeof event.nodeId === "string"
+    ? {
+        ...event,
+        nodeId: prefixedChildNodeId(parentNodeId, event.nodeId),
+        parentNodeId,
+      }
+    : { ...event, parentNodeId };
+}
+
+function prefixNodeIdsEvent(
+  parentNodeId: string,
+  event: PipelineRuntimeEvent
+): PipelineRuntimeEvent {
+  return event.type === "workflow.start"
+    ? {
+        ...event,
+        nodeIds: event.nodeIds.map((nodeId) =>
+          prefixedChildNodeId(parentNodeId, nodeId)
+        ),
+      }
+    : event;
+}
+
+function prefixWorkflowGraphEvent(
+  parentNodeId: string,
+  event: PipelineRuntimeEvent
+): PipelineRuntimeEvent {
+  return event.type === "workflow.planned"
+    ? {
+        ...event,
+        edges: event.edges.map((edge) => ({
+          source: prefixedChildNodeId(parentNodeId, edge.source),
+          target: prefixedChildNodeId(parentNodeId, edge.target),
+        })),
+        nodes: event.nodes.map((node) => ({
+          ...node,
+          id: prefixedChildNodeId(parentNodeId, node.id),
+        })),
+      }
+    : event;
+}
+
+function prefixedChildNodeId(parentNodeId: string, nodeId: string): string {
+  return `${parentNodeId}.${nodeId}`;
 }
 
 function now(): string {

@@ -4,10 +4,10 @@ import { compileWorkflowPlan } from "../../planning/compile";
 import type { PipelineRuntimeEvent, RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import {
+  childReporter,
   createPublicRuntimeObservabilityEmitter,
   emitNodeOutputRecorded,
   emitWorkflowPlanned,
-  prefixChildRuntimeEvent,
   runtimeNodeActorDescriptor,
 } from "./events";
 
@@ -125,7 +125,13 @@ describe("runtime events", () => {
   });
 
   it("prefixes nested child events consistently", () => {
-    const prefixed = prefixChildRuntimeEvent("parent", {
+    const events: PipelineRuntimeEvent[] = [];
+    const reporter = childReporter(
+      runtimeContextForEvents((event) => events.push(event)),
+      "parent"
+    );
+
+    reporter?.({
       edges: [{ source: "a", target: "b" }],
       nodes: [
         { id: "a", kind: "agent", needs: [] },
@@ -135,16 +141,18 @@ describe("runtime events", () => {
       workflowId: "child",
     });
 
-    expect(prefixed).toEqual({
-      edges: [{ source: "parent.a", target: "parent.b" }],
-      nodes: [
-        { id: "parent.a", kind: "agent", needs: [] },
-        { id: "parent.b", kind: "command", needs: ["a"] },
-      ],
-      parentNodeId: "parent",
-      type: "workflow.planned",
-      workflowId: "child",
-    });
+    expect(events).toEqual([
+      {
+        edges: [{ source: "parent.a", target: "parent.b" }],
+        nodes: [
+          { id: "parent.a", kind: "agent", needs: [] },
+          { id: "parent.b", kind: "command", needs: ["a"] },
+        ],
+        parentNodeId: "parent",
+        type: "workflow.planned",
+        workflowId: "child",
+      },
+    ]);
   });
 
   it("maps runtime observability events to public reporter events", () => {
