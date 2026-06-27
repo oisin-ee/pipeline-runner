@@ -1,87 +1,28 @@
 import { Data } from "effect";
 import { z } from "zod";
+import {
+  BUILTIN_GATES,
+  DEFAULT_RUNNER_COMMAND_GIT_COMMITTER,
+  FILESYSTEM_MODES,
+  type GATE_KINDS,
+  type HOOK_EVENTS,
+  type MCP_GATEWAY_BACKEND_LOCALITIES,
+  type MCP_GATEWAY_WORKSPACE_PATH_SOURCES,
+  NETWORK_MODES,
+  type NODE_KINDS,
+  OUTPUT_FORMATS,
+  REASONING_EFFORTS,
+  RETRY_REASONS,
+  RUNNER_TYPES,
+  SCHEDULE_BASELINES,
+  SCHEDULE_STRATEGIES,
+  SCHEDULING_ROLES,
+  TOOL_NAMES,
+} from "./schema/catalog";
+import { mcpGatewaySchema, mcpServerSchema } from "./schema/mcp";
+import { validateConfigReferences } from "./schema/reference-validation";
 
-export const ID_RE = /^[a-z][a-z0-9-]*$/;
-
-// Reasoning effort is carried as data on the role (node/profile/runner) and
-// applied at runtime as the opencode model variant for the selected model,
-// rather than baked into synthetic per-effort model ids. Mirrors the OpenCode
-// GPT-5 reasoning variant levels registered for broker-backed OpenAI models.
-const reasoningEffortSchema = z.enum([
-  "none",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-]);
-
-const RUNNER_TYPES = ["opencode", "command"] as const;
-const NODE_KINDS = [
-  "agent",
-  "command",
-  "builtin",
-  "group",
-  "parallel",
-] as const;
-export const HOOK_EVENTS = [
-  "workflow.start",
-  "workflow.success",
-  "workflow.failure",
-  "workflow.complete",
-  "node.start",
-  "node.success",
-  "node.error",
-  "node.finish",
-  "gate.failure",
-] as const;
-const TOOL_NAMES = [
-  "read",
-  "list",
-  "grep",
-  "glob",
-  "bash",
-  "edit",
-  "write",
-  "task",
-] as const;
-const FILESYSTEM_MODES = ["read-only", "workspace-write"] as const;
-const NETWORK_MODES = ["inherit", "disabled"] as const;
-const OUTPUT_FORMATS = ["text", "json", "jsonl", "json_schema"] as const;
-const GATE_KINDS = [
-  "acceptance",
-  "artifact",
-  "builtin",
-  "changed_files",
-  "command",
-  "json_schema",
-  "verdict",
-] as const;
-const BUILTIN_GATES = [
-  "duplication",
-  "fallow",
-  "lint",
-  "semgrep",
-  "test",
-  "typecheck",
-] as const;
-const RETRY_REASONS = ["exit_nonzero", "gate_failure", "timeout"] as const;
-const SCHEDULE_BASELINES = ["execute", "quick"] as const;
-const SCHEDULE_STRATEGIES = ["planner"] as const;
-const SCHEDULING_ROLES = ["coverage", "implementation"] as const;
-const MCP_GATEWAY_BACKEND_LOCALITIES = [
-  "repo-local",
-  "repo-scoped-remote",
-  "shared-remote",
-] as const;
-const MCP_GATEWAY_WORKSPACE_PATH_SOURCES = [
-  "PIPELINE_TARGET_PATH",
-  "cwd",
-] as const;
-export const PIPELINE_GATEWAY_SERVER_ID = "pipeline-gateway";
-const DEFAULT_RUNNER_COMMAND_GIT_COMMITTER = {
-  email: "git@oisin.ee",
-  name: "oisin-bot",
-} as const;
+const reasoningEffortSchema = z.enum(REASONING_EFFORTS);
 
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
@@ -141,140 +82,6 @@ const pathRefSchema = z
   .object({
     path: z.string().min(1),
     source_root: z.enum(["package", "project"]).default("project"),
-  })
-  .strict();
-
-const mcpServerSchema = z
-  .object({
-    args: z.array(z.string()).optional(),
-    bearer_token_env_var: z.string().min(1).optional(),
-    command: z.string().min(1).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-    headers: z.record(z.string(), z.string()).optional(),
-    url: z
-      .string()
-      .url()
-      .refine(
-        (value) => ["http:", "https:"].includes(new URL(value).protocol),
-        {
-          message: "MCP server url must use http or https",
-        }
-      )
-      .optional(),
-  })
-  .strict()
-  .superRefine((server, ctx) => {
-    const hasCommand = Boolean(server.command);
-    const hasUrl = Boolean(server.url);
-    if (hasCommand === hasUrl) {
-      ctx.addIssue({
-        code: "custom",
-        message: "MCP server must declare exactly one of command or url",
-        path: hasCommand ? ["url"] : ["command"],
-      });
-    }
-    if (hasUrl && server.args) {
-      ctx.addIssue({
-        code: "custom",
-        message: "args are only valid for command MCP servers",
-        path: ["args"],
-      });
-    }
-    if (hasUrl && server.env) {
-      ctx.addIssue({
-        code: "custom",
-        message: "env is only valid for command MCP servers",
-        path: ["env"],
-      });
-    }
-    if (hasCommand && server.headers) {
-      ctx.addIssue({
-        code: "custom",
-        message: "headers are only valid for url MCP servers",
-        path: ["headers"],
-      });
-    }
-    if (hasCommand && server.bearer_token_env_var) {
-      ctx.addIssue({
-        code: "custom",
-        message: "bearer_token_env_var is only valid for url MCP servers",
-        path: ["bearer_token_env_var"],
-      });
-    }
-    if (
-      hasUrl &&
-      server.bearer_token_env_var &&
-      Object.keys(server.headers ?? {}).some(
-        (key) => key.toLowerCase() === "authorization"
-      )
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        message:
-          "headers.Authorization cannot be combined with bearer_token_env_var",
-        path: ["bearer_token_env_var"],
-      });
-    }
-  });
-
-const mcpGatewayBackendSchema = z
-  .object({
-    locality: z.enum(MCP_GATEWAY_BACKEND_LOCALITIES),
-    required: z.boolean().default(true),
-    tool_prefixes: z.array(z.string().min(1)).min(1),
-    workspace_path_source: z
-      .enum(MCP_GATEWAY_WORKSPACE_PATH_SOURCES)
-      .optional(),
-  })
-  .strict()
-  .superRefine((backend, ctx) => {
-    if (backend.locality === "repo-local") {
-      if (!backend.workspace_path_source) {
-        ctx.addIssue({
-          code: "custom",
-          message:
-            "repo-local gateway backend must declare workspace_path_source as PIPELINE_TARGET_PATH or cwd",
-          path: ["workspace_path_source"],
-        });
-      }
-      return;
-    }
-    if (backend.workspace_path_source) {
-      ctx.addIssue({
-        code: "custom",
-        message:
-          "workspace_path_source is only valid for repo-local gateway backends",
-        path: ["workspace_path_source"],
-      });
-    }
-  });
-
-const mcpGatewaySchema = z
-  .object({
-    backends: strictRecord(mcpGatewayBackendSchema).default({}),
-    default_profile: z.string().min(1).optional(),
-    // PIPE-83.11: where the singleton pipeline gateway is registered. "project"
-    // (default) embeds it in each repo's .opencode/opencode.json; "global" stops
-    // the per-project synthesis and inherits one global registration (written
-    // once via `moka gateway configure-host --scope global`).
-    host_scope: z.enum(["project", "global"]).default("project"),
-    mode: z.enum(["hosted", "local"]),
-    provider: z.literal("toolhive"),
-    authorization_env: z
-      .string()
-      .min(1)
-      .default("PIPELINE_MCP_GATEWAY_AUTHORIZATION"),
-    url: z
-      .string()
-      .url()
-      .refine(
-        (value) => ["http:", "https:"].includes(new URL(value).protocol),
-        {
-          message: "MCP gateway url must use http or https",
-        }
-      )
-      .optional(),
-    url_env: z.string().min(1).default("PIPELINE_MCP_GATEWAY_URL"),
   })
   .strict();
 
@@ -908,158 +715,6 @@ const configSchemaBase = z
 export const configSchema = configSchemaBase.superRefine(
   validateConfigReferences
 );
-
-type ConfigSchemaInput = z.infer<typeof configSchemaBase>;
-interface ConfigReferenceIssue {
-  message: string;
-  path: (number | string)[];
-}
-interface RegistryReferenceRule<TRecord> {
-  field: string;
-  message: (recordId: string, value: string) => string;
-  read: (record: TRecord) => string | undefined;
-  registry: Record<string, unknown>;
-}
-
-function validateConfigReferences(
-  config: ConfigSchemaInput,
-  ctx: z.RefinementCtx
-): void {
-  addConfigSchemaIssues(ctx, configReferenceIssues(config));
-}
-
-function configReferenceIssues(
-  config: ConfigSchemaInput
-): ConfigReferenceIssue[] {
-  return [
-    ...missingRegistryReferenceIssue({
-      message: (_field, value) => `default workflow '${value}' is not declared`,
-      path: ["default_workflow"],
-      registry: config.workflows,
-      value: config.default_workflow,
-    }),
-    ...registryReferenceIssues("entrypoints", config.entrypoints, [
-      {
-        field: "workflow",
-        message: (entrypointId, value) =>
-          `entrypoint '${entrypointId}' references missing workflow '${value}'`,
-        read: (entrypoint) =>
-          "workflow" in entrypoint ? entrypoint.workflow : undefined,
-        registry: config.workflows,
-      },
-      {
-        field: "schedule",
-        message: (entrypointId, value) =>
-          `entrypoint '${entrypointId}' references missing schedule '${value}'`,
-        read: (entrypoint) =>
-          "schedule" in entrypoint ? entrypoint.schedule : undefined,
-        registry: config.schedules,
-      },
-    ]),
-    ...registryReferenceIssues("schedules", config.schedules, [
-      {
-        field: "planner_profile",
-        message: (scheduleId, value) =>
-          `schedule '${scheduleId}' references missing planner profile '${value}'`,
-        read: (schedule) => schedule.planner_profile,
-        registry: config.profiles,
-      },
-      {
-        field: "node_catalog",
-        message: (scheduleId, value) =>
-          `schedule '${scheduleId}' references missing scheduler node catalog '${value}'`,
-        read: (schedule) => schedule.node_catalog,
-        registry: config.scheduler.node_catalogs,
-      },
-    ]),
-    ...registryReferenceIssues(
-      "scheduler.commands",
-      config.scheduler.commands,
-      [
-        {
-          field: "catalog",
-          message: (commandId, value) =>
-            `scheduler command '${commandId}' references missing node catalog '${value}'`,
-          read: (command) => command.catalog,
-          registry: config.scheduler.node_catalogs,
-        },
-        {
-          field: "schedule",
-          message: (commandId, value) =>
-            `scheduler command '${commandId}' references missing schedule '${value}'`,
-          read: (command) => command.schedule,
-          registry: config.schedules,
-        },
-      ]
-    ),
-    ...Object.entries(config.scheduler.node_catalogs).flatMap(
-      ([catalogId, catalog]) =>
-        registryReferenceIssues(
-          `scheduler.node_catalogs.${catalogId}.nodes`,
-          catalog.nodes,
-          [
-            {
-              field: "profile",
-              message: (nodeId, value) =>
-                `scheduler node '${catalogId}.${nodeId}' references missing profile '${value}'`,
-              read: (node) => node.profile,
-              registry: config.profiles,
-            },
-          ]
-        )
-    ),
-  ];
-}
-
-function registryReferenceIssues<TRecord>(
-  registryPath: string,
-  records: Record<string, TRecord>,
-  rules: RegistryReferenceRule<TRecord>[]
-): ConfigReferenceIssue[] {
-  return Object.entries(records).flatMap(([recordId, record]) =>
-    rules.flatMap((rule) =>
-      missingRegistryReferenceIssue({
-        message: (_field, value) => rule.message(recordId, value),
-        path: [registryPath, recordId, rule.field],
-        registry: rule.registry,
-        value: rule.read(record),
-      })
-    )
-  );
-}
-
-function missingRegistryReferenceIssue({
-  message,
-  path,
-  registry,
-  value,
-}: {
-  message: (field: string, value: string) => string;
-  path: (number | string)[];
-  registry: Record<string, unknown>;
-  value: string | undefined;
-}): ConfigReferenceIssue[] {
-  return value && !Object.hasOwn(registry, value)
-    ? [{ message: message(String(path.at(-1)), value), path }]
-    : [];
-}
-
-function addConfigSchemaIssues(
-  ctx: z.RefinementCtx,
-  issues: ConfigReferenceIssue[]
-): void {
-  for (const issue of issues) {
-    addConfigSchemaIssue(ctx, issue.path, issue.message);
-  }
-}
-
-function addConfigSchemaIssue(
-  ctx: z.RefinementCtx,
-  path: (number | string)[],
-  message: string
-): void {
-  ctx.addIssue({ code: "custom", path, message });
-}
 
 export type PipelineConfig = z.infer<typeof configSchema>;
 export type RunnerType = (typeof RUNNER_TYPES)[number];

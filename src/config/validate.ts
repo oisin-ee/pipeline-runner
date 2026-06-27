@@ -3,12 +3,14 @@ import { PACKAGE_ASSET_ROOT } from "../package-assets";
 import { resolveFileReference } from "../path-refs";
 import { standardOutputSchemaNameFromPath } from "../standard-output-schemas";
 import {
-  type ConfigGateSpec,
-  configIssuesFromZodError,
-  configSchema,
   HOOK_EVENTS,
   ID_RE,
   PIPELINE_GATEWAY_SERVER_ID,
+} from "./schema/catalog";
+import {
+  type ConfigGateSpec,
+  configIssuesFromZodError,
+  configSchema,
   type PipelineConfig,
   type PipelineConfigIssue,
   type PipelineConfigValidationOptions,
