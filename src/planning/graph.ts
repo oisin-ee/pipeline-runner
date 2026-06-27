@@ -11,10 +11,26 @@
  * concerns (PIPE-48 AC#4).
  */
 
+import { alg, Graph } from "@dagrejs/graphlib";
+
 export interface GraphNode {
   id: string;
   needs?: string[];
 }
+
+export interface DependencyGraphInput {
+  id: string;
+}
+
+export interface DependencyGraphBuildOptions<
+  TInput extends DependencyGraphInput,
+  TValue,
+> {
+  dependenciesOf: (node: TInput) => readonly string[] | undefined;
+  valueOf: (node: TInput, index: number) => TValue;
+}
+
+export type DependencyGraph<TNode> = Graph<undefined, TNode>;
 
 /**
  * Depth-first flatten of a node tree into a flat list (parents before
@@ -51,6 +67,177 @@ export function dependentsByNeed<TNode extends GraphNode>(
     }
   }
   return index;
+}
+
+export function createDependencyGraph<
+  TInput extends DependencyGraphInput,
+  TValue,
+>(
+  nodes: readonly TInput[],
+  options: DependencyGraphBuildOptions<TInput, TValue>
+): DependencyGraph<TValue> {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const graph = new Graph<undefined, TValue>({ directed: true });
+  addDependencyGraphNodes(graph, nodes, options);
+  addDependencyGraphEdges(graph, nodes, nodeIds, options);
+  return graph;
+}
+
+function addDependencyGraphNodes<TInput extends DependencyGraphInput, TValue>(
+  graph: DependencyGraph<TValue>,
+  nodes: readonly TInput[],
+  options: DependencyGraphBuildOptions<TInput, TValue>
+): void {
+  for (const [index, node] of nodes.entries()) {
+    graph.setNode(node.id, options.valueOf(node, index));
+  }
+}
+
+function addDependencyGraphEdges<TInput extends DependencyGraphInput, TValue>(
+  graph: DependencyGraph<TValue>,
+  nodes: readonly TInput[],
+  nodeIds: ReadonlySet<string>,
+  options: DependencyGraphBuildOptions<TInput, TValue>
+): void {
+  for (const node of nodes) {
+    for (const dependencyId of declaredDependencyIds(node, nodeIds, options)) {
+      graph.setEdge(dependencyId, node.id);
+    }
+  }
+}
+
+function declaredDependencyIds<TInput extends DependencyGraphInput, TValue>(
+  node: TInput,
+  nodeIds: ReadonlySet<string>,
+  options: DependencyGraphBuildOptions<TInput, TValue>
+): string[] {
+  return [...(options.dependenciesOf(node) ?? [])].filter((dependencyId) =>
+    nodeIds.has(dependencyId)
+  );
+}
+
+export function dependencyPredecessorIds<TNode>(
+  graph: DependencyGraph<TNode>,
+  nodeId: string
+): string[] {
+  return graph.predecessors(nodeId) ?? [];
+}
+
+export function dependencyGraphNodeIds<TNode>(
+  graph: DependencyGraph<TNode>
+): string[] {
+  return graph.nodes();
+}
+
+export function dependencyGraphHasNode<TNode>(
+  graph: DependencyGraph<TNode>,
+  nodeId: string
+): boolean {
+  return graph.hasNode(nodeId);
+}
+
+export function dependencyGraphValue<TNode>(
+  graph: DependencyGraph<TNode>,
+  nodeId: string
+): TNode | undefined {
+  if (!dependencyGraphHasNode(graph, nodeId)) {
+    return;
+  }
+  return graph.node(nodeId);
+}
+
+export function successorIds<TNode>(
+  graph: DependencyGraph<TNode>,
+  nodeId: string
+): string[] {
+  return graph.successors(nodeId) ?? [];
+}
+
+export function graphEdgeIds<TNode>(
+  graph: DependencyGraph<TNode>
+): Array<{ from: string; to: string }> {
+  return graph.edges().map((edge) => ({ from: edge.v, to: edge.w }));
+}
+
+export function descendantGraphValues<TNode>(
+  graph: DependencyGraph<TNode>,
+  rootId: string
+): TNode[] {
+  if (!graph.hasNode(rootId)) {
+    return [];
+  }
+  return alg
+    .preorder(graph, rootId)
+    .slice(1)
+    .map((id) => graph.node(id))
+    .filter((node): node is TNode => Boolean(node));
+}
+
+export function dependencyCycleIds<TNode>(
+  graph: DependencyGraph<TNode>
+): string[][] {
+  return alg.findCycles(graph);
+}
+
+export function topologicalDependencyOrder<TNode>(
+  graph: DependencyGraph<TNode>
+): string[] {
+  /*
+   * Keep @dagrejs/graphlib as the graph model, but do the topological sort
+   * with this iterative traversal. graphlib's recursive topsort can hit call
+   * stack overflow on deep generated workflow chains, while this preserves the
+   * graphlib sink/predecessor ordering the planner tests cover.
+   */
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const results: string[] = [];
+
+  for (const sink of graph.sinks()) {
+    visitForTopologicalOrder(sink, graph, visited, inStack, results);
+  }
+
+  if (visited.size !== graph.nodeCount()) {
+    throw new Error("workflow graph contains a dependency cycle");
+  }
+
+  return results;
+}
+
+export function dependencyBatches<TNode>(
+  graph: DependencyGraph<TNode>,
+  nodeIds: readonly string[] = graph.nodes(),
+  compareIds: (left: string, right: string) => number = compareStrings
+): string[][] {
+  const remaining = new Set(nodeIds);
+  const batches: string[][] = [];
+  while (remaining.size > 0) {
+    const ready = [...remaining]
+      .filter((id) =>
+        dependencyPredecessorIds(graph, id).every(
+          (dependencyId) => !remaining.has(dependencyId)
+        )
+      )
+      .sort(compareIds);
+    if (ready.length === 0) {
+      return [];
+    }
+    batches.push(ready);
+    for (const id of ready) {
+      remaining.delete(id);
+    }
+  }
+  return batches;
+}
+
+export function terminalDependencyItems<TItem>(
+  items: readonly TItem[],
+  keyOf: (item: TItem) => string,
+  dependenciesOf: (item: TItem) => readonly string[] | undefined
+): TItem[] {
+  const dependedOn = new Set(
+    items.flatMap((item) => dependenciesOf(item) ?? [])
+  );
+  return items.filter((item) => !dependedOn.has(keyOf(item)));
 }
 
 /**
@@ -156,6 +343,12 @@ interface CycleVisitState {
   state: Map<string, "done" | "visiting">;
 }
 
+interface TopologicalVisitFrame {
+  index: number;
+  nodeId: string;
+  predecessors: string[];
+}
+
 function visitForCycles(startId: string, visitState: CycleVisitState): void {
   const frames: Array<{ index: number; nodeId: string }> = [
     { index: 0, nodeId: startId },
@@ -212,4 +405,86 @@ function recordCycle(nodeId: string, visitState: CycleVisitState): void {
   }
   visitState.cycleKeys.add(key);
   visitState.cycles.push(cycle);
+}
+
+function visitForTopologicalOrder<TNode>(
+  startId: string,
+  graph: DependencyGraph<TNode>,
+  visited: Set<string>,
+  inStack: Set<string>,
+  results: string[]
+): void {
+  const frames: TopologicalVisitFrame[] = [];
+  pushTopologicalFrame(startId, graph, visited, inStack, frames);
+
+  while (frames.length > 0) {
+    visitTopologicalFrame(graph, visited, inStack, results, frames);
+  }
+}
+
+function visitTopologicalFrame<TNode>(
+  graph: DependencyGraph<TNode>,
+  visited: Set<string>,
+  inStack: Set<string>,
+  results: string[],
+  frames: TopologicalVisitFrame[]
+): void {
+  const frame = frames.at(-1);
+  if (!frame) {
+    return;
+  }
+  const predecessorId = frame.predecessors[frame.index];
+  if (!predecessorId) {
+    completeTopologicalFrame(frame, inStack, results, frames);
+    return;
+  }
+  frame.index += 1;
+  visitTopologicalPredecessor(predecessorId, graph, visited, inStack, frames);
+}
+
+function completeTopologicalFrame(
+  frame: TopologicalVisitFrame,
+  inStack: Set<string>,
+  results: string[],
+  frames: TopologicalVisitFrame[]
+): void {
+  inStack.delete(frame.nodeId);
+  results.push(frame.nodeId);
+  frames.pop();
+}
+
+function visitTopologicalPredecessor<TNode>(
+  predecessorId: string,
+  graph: DependencyGraph<TNode>,
+  visited: Set<string>,
+  inStack: Set<string>,
+  frames: TopologicalVisitFrame[]
+): void {
+  if (inStack.has(predecessorId)) {
+    throw new Error("workflow graph contains a dependency cycle");
+  }
+  if (visited.has(predecessorId)) {
+    return;
+  }
+  pushTopologicalFrame(predecessorId, graph, visited, inStack, frames);
+}
+
+function pushTopologicalFrame<TNode>(
+  nodeId: string,
+  graph: DependencyGraph<TNode>,
+  visited: Set<string>,
+  inStack: Set<string>,
+  frames: TopologicalVisitFrame[]
+): void {
+  visited.add(nodeId);
+  inStack.add(nodeId);
+  frames.push({
+    index: 0,
+    nodeId,
+    predecessors: dependencyPredecessorIds(graph, nodeId),
+  });
+}
+
+function compareStrings(left: string, right: string): number {
+  return left.localeCompare(right);
 }

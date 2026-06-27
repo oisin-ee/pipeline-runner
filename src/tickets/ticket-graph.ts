@@ -1,5 +1,13 @@
-import { alg, Graph } from "@dagrejs/graphlib";
 import { Data, Effect } from "effect";
+import {
+  createDependencyGraph,
+  type DependencyGraph,
+  dependencyBatches,
+  dependencyCycleIds,
+  dependencyGraphHasNode,
+  dependencyGraphNodeIds,
+  dependencyPredecessorIds,
+} from "../planning/graph";
 import type { BacklogTaskRecord } from "./backlog-task-store";
 import {
   compareBacklogTasks,
@@ -20,7 +28,7 @@ export interface TicketGraph {
    * visible without aborting ticket selection on real-world backlogs.
    */
   readonly danglingDependencies: readonly string[];
-  readonly dependencyGraph: Graph<undefined, BacklogTaskRecord>;
+  readonly dependencyGraph: DependencyGraph<BacklogTaskRecord>;
   readonly tasksById: ReadonlyMap<string, BacklogTaskRecord>;
 }
 
@@ -34,7 +42,7 @@ export function buildTicketGraphEffect(
   return Effect.gen(function* () {
     const graph = buildUncheckedTicketGraph(tasks);
 
-    const cycles = alg.findCycles(graph.dependencyGraph);
+    const cycles = dependencyCycleIds(graph.dependencyGraph);
     if (cycles.length > 0) {
       return yield* Effect.fail(
         new TicketGraphError({
@@ -51,7 +59,7 @@ export function buildTicketGraphEffect(
 
 export function sequenceTicketBatchesEffect(
   graph: TicketGraph,
-  ticketIds: readonly string[] = graph.dependencyGraph.nodes()
+  ticketIds: readonly string[] = dependencyGraphNodeIds(graph.dependencyGraph)
 ): Effect.Effect<string[][], TicketGraphError> {
   return Effect.gen(function* () {
     const batches = sequenceUncheckedTicketBatches(graph, ticketIds);
@@ -72,9 +80,9 @@ export function sequenceTicketBatchesEffect(
 
 export function scopedTicketIds(graph: TicketGraph, rootId?: string): string[] {
   if (!rootId) {
-    return graph.dependencyGraph.nodes().sort(compareTaskIds);
+    return dependencyGraphNodeIds(graph.dependencyGraph).sort(compareTaskIds);
   }
-  if (!graph.tasksById.has(rootId)) {
+  if (!dependencyGraphHasNode(graph.dependencyGraph, rootId)) {
     return [];
   }
   const ids = new Set<string>([rootId]);
@@ -89,7 +97,7 @@ export function scopedTicketIds(graph: TicketGraph, rootId?: string): string[] {
 }
 
 export function predecessorIds(graph: TicketGraph, id: string): string[] {
-  return [...(graph.dependencyGraph.predecessors(id) ?? [])].sort(
+  return dependencyPredecessorIds(graph.dependencyGraph, id).sort(
     compareTaskIds
   );
 }
@@ -103,7 +111,7 @@ function buildUncheckedTicketGraph(
 ): TicketGraph {
   const sortedTasks = [...tasks].sort(compareTasks);
   const tasksById = indexTasksById(sortedTasks);
-  const dependencyGraph = buildDependencyGraph(sortedTasks, tasksById);
+  const dependencyGraph = buildDependencyGraph(sortedTasks);
   const childrenByParentId = indexChildrenByParentId(sortedTasks);
   const danglingDependencies = missingDependencyMessages(
     sortedTasks,
@@ -129,46 +137,12 @@ function indexTasksById(
 }
 
 function buildDependencyGraph(
-  tasks: readonly BacklogTaskRecord[],
-  tasksById: ReadonlyMap<string, BacklogTaskRecord>
-): Graph<undefined, BacklogTaskRecord> {
-  const dependencyGraph = new Graph<undefined, BacklogTaskRecord>({
-    directed: true,
-  });
-  addDependencyNodes(dependencyGraph, tasks);
-  addDependencyEdges(dependencyGraph, tasks, tasksById);
-  return dependencyGraph;
-}
-
-function addDependencyNodes(
-  dependencyGraph: Graph<undefined, BacklogTaskRecord>,
   tasks: readonly BacklogTaskRecord[]
-): void {
-  for (const task of tasks) {
-    dependencyGraph.setNode(task.id, task);
-  }
-}
-
-function addDependencyEdges(
-  dependencyGraph: Graph<undefined, BacklogTaskRecord>,
-  tasks: readonly BacklogTaskRecord[],
-  tasksById: ReadonlyMap<string, BacklogTaskRecord>
-): void {
-  for (const task of tasks) {
-    addTaskDependencyEdges(dependencyGraph, task, tasksById);
-  }
-}
-
-function addTaskDependencyEdges(
-  dependencyGraph: Graph<undefined, BacklogTaskRecord>,
-  task: BacklogTaskRecord,
-  tasksById: ReadonlyMap<string, BacklogTaskRecord>
-): void {
-  for (const dependency of task.dependencies) {
-    if (tasksById.has(dependency)) {
-      dependencyGraph.setEdge(dependency, task.id);
-    }
-  }
+): DependencyGraph<BacklogTaskRecord> {
+  return createDependencyGraph(tasks, {
+    dependenciesOf: (task) => task.dependencies,
+    valueOf: (task) => task,
+  });
 }
 
 function missingDependencyMessages(
@@ -190,25 +164,7 @@ function sequenceUncheckedTicketBatches(
   graph: TicketGraph,
   ticketIds: readonly string[]
 ): string[][] {
-  const remaining = new Set(ticketIds);
-  const batches: string[][] = [];
-  while (remaining.size > 0) {
-    const ready = [...remaining]
-      .filter((id) =>
-        predecessorIds(graph, id).every(
-          (dependency) => !remaining.has(dependency)
-        )
-      )
-      .sort(compareTaskIds);
-    if (ready.length === 0) {
-      return [];
-    }
-    batches.push(ready);
-    for (const id of ready) {
-      remaining.delete(id);
-    }
-  }
-  return batches;
+  return dependencyBatches(graph.dependencyGraph, ticketIds, compareTaskIds);
 }
 
 function compareTasks(a: BacklogTaskRecord, b: BacklogTaskRecord): number {

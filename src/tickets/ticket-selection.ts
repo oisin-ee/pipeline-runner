@@ -90,8 +90,7 @@ function traversalIds(
 }
 
 function rootIds(graph: TicketGraph): string[] {
-  return graph.dependencyGraph
-    .nodes()
+  return scopedTicketIds(graph)
     .filter((id) => !graph.tasksById.get(id)?.parentTaskId)
     .sort(compareTaskIds);
 }

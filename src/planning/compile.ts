@@ -1,8 +1,16 @@
-import { Graph } from "@dagrejs/graphlib";
 import { Data } from "effect";
 import type { PipelineConfig, WorkflowNodeKind } from "../config";
 import { uniqueStrings } from "../strings";
-import { findDependencyCycles } from "./graph";
+import {
+  createDependencyGraph,
+  type DependencyGraph,
+  dependencyBatches,
+  dependencyGraphNodeIds,
+  dependencyGraphValue,
+  findDependencyCycles,
+  successorIds,
+  topologicalDependencyOrder,
+} from "./graph";
 
 export type WorkflowPlannerErrorCode =
   | "WORKFLOW_CYCLE"
@@ -62,7 +70,7 @@ export interface PlannedWorkflowTaskContext {
 
 export interface WorkflowExecutionPlan {
   execution: PlannedWorkflowExecution;
-  graph: Graph<undefined, PlannedWorkflowNode>;
+  graph: DependencyGraph<PlannedWorkflowNode>;
   parallelBatches: PlannedWorkflowNode[][];
   topologicalOrder: PlannedWorkflowNode[];
   workflowId: string;
@@ -97,10 +105,17 @@ export function compileWorkflowPlan(
   }
 
   const graph = createWorkflowGraph(nodes);
-  const topologicalOrder = topologicalOrderForPlan(graph).map((nodeId) =>
-    graph.node(nodeId)
+  /*
+   * PIPE-66: workflow planner toposort still keeps @dagrejs/graphlib as
+   * the graph model, but uses the iterative topological traversal owned by
+   * planning/graph.ts instead of graphlib's recursive topsort because deep
+   * generated chains can overflow the call stack.
+   */
+  const topologicalOrder = plannedNodesForIds(
+    graph,
+    topologicalDependencyOrder(graph)
   );
-  const parallelBatches = buildParallelBatches(topologicalOrder);
+  const parallelBatches = buildParallelBatches(graph, topologicalOrder);
 
   return {
     execution: workflowExecution(workflow),
@@ -260,153 +275,49 @@ function cycleIssues(
   });
 }
 
-function topologicalOrderForPlan(
-  graph: Graph<undefined, PlannedWorkflowNode>
-): string[] {
-  /*
-   * Keep @dagrejs/graphlib as the graph model, but do the topological sort
-   * with this iterative traversal. graphlib's recursive topsort can hit call
-   * stack overflow on deep generated workflow chains, while this preserves the
-   * graphlib sink/predecessor ordering the planner tests cover.
-   */
-  const visited = new Set<string>();
-  const inStack = new Set<string>();
-  const results: string[] = [];
-
-  for (const sink of graph.sinks()) {
-    visitForTopologicalOrder(sink, graph, visited, inStack, results);
-  }
-
-  if (visited.size !== graph.nodeCount()) {
-    throw new Error("workflow graph contains a dependency cycle");
-  }
-
-  return results;
-}
-
-function visitForTopologicalOrder(
-  startId: string,
-  graph: Graph<undefined, PlannedWorkflowNode>,
-  visited: Set<string>,
-  inStack: Set<string>,
-  results: string[]
-): void {
-  const frames: Array<{
-    index: number;
-    nodeId: string;
-    predecessors: string[];
-  }> = [];
-  pushTopologicalFrame(startId, graph, visited, inStack, frames);
-
-  while (frames.length > 0) {
-    const frame = frames.at(-1);
-    if (!frame) {
-      return;
-    }
-    const predecessorId = frame.predecessors[frame.index];
-    if (!predecessorId) {
-      inStack.delete(frame.nodeId);
-      results.push(frame.nodeId);
-      frames.pop();
-      continue;
-    }
-    frame.index += 1;
-    if (inStack.has(predecessorId)) {
-      throw new Error("workflow graph contains a dependency cycle");
-    }
-    if (visited.has(predecessorId)) {
-      continue;
-    }
-    pushTopologicalFrame(predecessorId, graph, visited, inStack, frames);
-  }
-}
-
-function pushTopologicalFrame(
-  nodeId: string,
-  graph: Graph<undefined, PlannedWorkflowNode>,
-  visited: Set<string>,
-  inStack: Set<string>,
-  frames: Array<{ index: number; nodeId: string; predecessors: string[] }>
-): void {
-  visited.add(nodeId);
-  inStack.add(nodeId);
-  frames.push({
-    index: 0,
-    nodeId,
-    predecessors: graph.predecessors(nodeId) ?? [],
-  });
-}
-
 function buildParallelBatches(
+  graph: DependencyGraph<PlannedWorkflowNode>,
   topologicalOrder: PlannedWorkflowNode[]
 ): PlannedWorkflowNode[][] {
-  const nodeIds = new Set(topologicalOrder.map((node) => node.id));
   const byId = new Map(topologicalOrder.map((node) => [node.id, node]));
-  const remainingNeeds = new Map(
-    topologicalOrder.map((node) => [
-      node.id,
-      uniqueExistingNeeds(node, nodeIds).length,
-    ])
-  );
-  let ready = topologicalOrder.filter(
-    (node) => (remainingNeeds.get(node.id) ?? 0) === 0
-  );
-  const batches: PlannedWorkflowNode[][] = [];
+  return dependencyBatches(
+    graph,
+    topologicalOrder.map((node) => node.id),
+    (left, right) =>
+      plannedNodeIndex(byId, left) - plannedNodeIndex(byId, right)
+  ).map((batch) => plannedNodesForIds(graph, batch));
+}
 
-  while (ready.length > 0) {
-    const batch = ready.sort((a, b) => a.index - b.index);
-    batches.push(batch);
-    ready = [];
-    for (const node of batch) {
-      for (const dependentId of node.dependents) {
-        const remaining = (remainingNeeds.get(dependentId) ?? 0) - 1;
-        remainingNeeds.set(dependentId, remaining);
-        if (remaining === 0) {
-          const dependent = byId.get(dependentId);
-          if (dependent) {
-            ready.push(dependent);
-          }
-        }
-      }
-    }
-  }
-
-  return batches;
+function plannedNodeIndex(
+  nodesById: ReadonlyMap<string, PlannedWorkflowNode>,
+  nodeId: string
+): number {
+  return nodesById.get(nodeId)?.index ?? 0;
 }
 
 function createWorkflowGraph(
-  nodes: WorkflowNode[],
-  nodeIds = new Set(nodes.map((node) => node.id))
-): Graph<undefined, PlannedWorkflowNode> {
-  const graph = new Graph<undefined, PlannedWorkflowNode>({ directed: true });
-  for (const [index, node] of nodes.entries()) {
-    graph.setNode(node.id, toPlannedNode(node, index));
-  }
-  const dependentIds = new Map<string, Set<string>>();
-  for (const node of nodes) {
-    for (const need of node.needs ?? []) {
-      if (nodeIds.has(need)) {
-        graph.setEdge(need, node.id);
-        const dependents = dependentIds.get(need) ?? new Set<string>();
-        dependents.add(node.id);
-        dependentIds.set(need, dependents);
-      }
-    }
-  }
-  for (const [nodeId, dependents] of dependentIds) {
-    const planned = graph.node(nodeId);
+  nodes: WorkflowNode[]
+): DependencyGraph<PlannedWorkflowNode> {
+  const graph = createDependencyGraph(nodes, {
+    dependenciesOf: (node) => node.needs,
+    valueOf: (node, index) => toPlannedNode(node, index),
+  });
+  for (const nodeId of dependencyGraphNodeIds(graph)) {
+    const planned = dependencyGraphValue(graph, nodeId);
     if (planned) {
-      planned.dependents = [...dependents];
+      planned.dependents = successorIds(graph, nodeId);
     }
   }
   return graph;
 }
 
-function uniqueExistingNeeds(
-  node: PlannedWorkflowNode,
-  nodeIds: Set<string>
-): string[] {
-  return uniqueStrings(node.needs.filter((need) => nodeIds.has(need)));
+function plannedNodesForIds(
+  graph: DependencyGraph<PlannedWorkflowNode>,
+  nodeIds: readonly string[]
+): PlannedWorkflowNode[] {
+  return nodeIds
+    .map((nodeId) => dependencyGraphValue(graph, nodeId))
+    .filter((node): node is PlannedWorkflowNode => Boolean(node));
 }
 
 function agentNodeCategory(node: WorkflowNode): string | undefined {

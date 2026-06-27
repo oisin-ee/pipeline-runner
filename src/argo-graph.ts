@@ -6,6 +6,7 @@ import type {
   WorkflowExecutionPlan,
 } from "./planning/compile";
 import { resolveExecutableDependencyIds } from "./planning/dependency-refs";
+import { terminalDependencyItems } from "./planning/graph";
 import { uniqueStrings } from "./strings";
 
 const argoExecutableTaskSchema = z
@@ -69,10 +70,11 @@ class ArgoGraphCompiler {
 
   compile(): ArgoExecutionGraph {
     this.compileNodes(this.plan.topologicalOrder, []);
+    const terminalTasks = this.terminalTasks();
     return {
-      terminalNodeIds: this.terminalTasks().map((task) => task.nodeId),
+      terminalNodeIds: terminalTasks.map((task) => task.nodeId),
       tasks: this.tasks,
-      terminalTaskNames: this.terminalTasks().map((task) => task.taskName),
+      terminalTaskNames: terminalTasks.map((task) => task.taskName),
       workflowId: this.plan.workflowId,
     };
   }
@@ -185,8 +187,11 @@ class ArgoGraphCompiler {
   }
 
   private terminalTasks(): ArgoExecutableTask[] {
-    const dependedOn = new Set(this.tasks.flatMap((task) => task.dependencies));
-    return this.tasks.filter((task) => !dependedOn.has(task.taskName));
+    return terminalDependencyItems(
+      this.tasks,
+      (task) => task.taskName,
+      (task) => task.dependencies
+    );
   }
 }
 

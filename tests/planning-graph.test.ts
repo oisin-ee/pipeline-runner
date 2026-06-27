@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDependencyGraph,
+  dependencyBatches,
   dependentsByNeed,
+  descendantGraphValues,
   findDependencyCycles,
   findNode,
   flattenNodes,
   type GraphNode,
   hasReachableDependent,
+  terminalDependencyItems,
+  topologicalDependencyOrder,
 } from "../src/planning/graph";
 
 interface TestNode extends GraphNode {
@@ -117,5 +122,71 @@ describe("findDependencyCycles", () => {
     const cycles = findDependencyCycles(nodes);
     expect(cycles).toHaveLength(1);
     expect([...(cycles[0] ?? [])].sort()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("graphlib-backed DAG helpers", () => {
+  it("builds dependency graphs and sequences stable topological batches", () => {
+    const graph = createDependencyGraph(
+      [
+        { id: "root", needs: ["missing"] },
+        { id: "right", needs: ["root"] },
+        { id: "left", needs: ["root"] },
+        { id: "join", needs: ["left", "right"] },
+      ],
+      {
+        dependenciesOf: (node) => node.needs,
+        valueOf: (node, index) => ({ ...node, index }),
+      }
+    );
+
+    expect(graph.hasEdge("missing", "root")).toBe(false);
+    expect(topologicalDependencyOrder(graph)).toEqual([
+      "root",
+      "left",
+      "right",
+      "join",
+    ]);
+    expect(
+      dependencyBatches(graph, graph.nodes(), (left, right) => {
+        const leftNode = graph.node(left);
+        const rightNode = graph.node(right);
+        return (leftNode?.index ?? 0) - (rightNode?.index ?? 0);
+      })
+    ).toEqual([["root"], ["right", "left"], ["join"]]);
+  });
+
+  it("returns terminal items from dependency-key data", () => {
+    const tasks = [
+      { dependencies: [], taskName: "task-a" },
+      { dependencies: ["task-a"], taskName: "task-b" },
+      { dependencies: ["task-a"], taskName: "task-c" },
+    ];
+
+    expect(
+      terminalDependencyItems(
+        tasks,
+        (task) => task.taskName,
+        (task) => task.dependencies
+      ).map((task) => task.taskName)
+    ).toEqual(["task-b", "task-c"]);
+  });
+
+  it("walks descendant graph values from a root id", () => {
+    const graph = createDependencyGraph(
+      [
+        { id: "PIPE-1" },
+        { id: "PIPE-1.1", parentId: "PIPE-1" },
+        { id: "PIPE-1.2", parentId: "PIPE-1" },
+      ],
+      {
+        dependenciesOf: (node) => (node.parentId ? [node.parentId] : []),
+        valueOf: (node) => node,
+      }
+    );
+
+    expect(
+      descendantGraphValues(graph, "PIPE-1").map((task) => task.id)
+    ).toEqual(["PIPE-1.1", "PIPE-1.2"]);
   });
 });

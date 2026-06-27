@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
+import { graphEdgeIds } from "../planning/graph";
 import { sequenceTicketBatchesEffect, type TicketGraph } from "./ticket-graph";
 
 /*
@@ -88,9 +89,7 @@ export function serializeTicketGraph(
       })
     );
 
-    const edges: TicketGraphDtoEdge[] = graph.dependencyGraph
-      .edges()
-      .map((e) => ({ from: e.v, to: e.w }));
+    const edges: TicketGraphDtoEdge[] = graphEdgeIds(graph.dependencyGraph);
 
     const dangling: string[] = [...graph.danglingDependencies];
 

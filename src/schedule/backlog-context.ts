@@ -1,11 +1,15 @@
 import { join } from "node:path";
-import { alg, Graph } from "@dagrejs/graphlib";
 import { Effect } from "effect";
 import matter from "gray-matter";
 import type {
   BacklogWorkUnit,
   SchedulePlanningContext,
 } from "../planning/generate";
+import {
+  createDependencyGraph,
+  type DependencyGraph,
+  descendantGraphValues,
+} from "../planning/graph";
 import {
   RepoIoService,
   runRepoIoSync,
@@ -69,7 +73,7 @@ function emptyPlanningContext(): BacklogPlanningAccumulator {
 function addTicketWorkUnits(
   ticketId: string,
   tasksById: Map<string, BacklogTaskFile>,
-  taskGraph: Graph<undefined, BacklogTaskFile>,
+  taskGraph: DependencyGraph<BacklogTaskFile>,
   context: BacklogPlanningAccumulator
 ): void {
   const taskFile = tasksById.get(ticketId);
@@ -109,32 +113,19 @@ function addTaskWorkUnits(
 
 function backlogTaskGraph(
   tasks: BacklogTaskFile[]
-): Graph<undefined, BacklogTaskFile> {
-  const graph = new Graph<undefined, BacklogTaskFile>();
+): DependencyGraph<BacklogTaskFile> {
   const sortedTasks = [...tasks].sort(compareBacklogTaskIds);
-  for (const task of sortedTasks) {
-    graph.setNode(task.id, task);
-  }
-  for (const task of sortedTasks) {
-    if (task.parentTaskId && graph.hasNode(task.parentTaskId)) {
-      graph.setEdge(task.parentTaskId, task.id);
-    }
-  }
-  return graph;
+  return createDependencyGraph(sortedTasks, {
+    dependenciesOf: (task) => (task.parentTaskId ? [task.parentTaskId] : []),
+    valueOf: (task) => task,
+  });
 }
 
 function descendantBacklogTasks(
   taskId: string,
-  taskGraph: Graph<undefined, BacklogTaskFile>
+  taskGraph: DependencyGraph<BacklogTaskFile>
 ): BacklogTaskFile[] {
-  if (!taskGraph.hasNode(taskId)) {
-    return [];
-  }
-  return alg
-    .preorder(taskGraph, taskId)
-    .slice(1)
-    .map((id) => taskGraph.node(id))
-    .filter((task): task is BacklogTaskFile => Boolean(task));
+  return descendantGraphValues(taskGraph, taskId);
 }
 
 function compareBacklogTaskIds(a: BacklogTaskFile, b: BacklogTaskFile): number {
