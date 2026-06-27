@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { type PipelineConfig, parsePipelineConfigParts } from "../src/config";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
+import { opencodeAgentName } from "../src/runtime/opencode-agent-name";
 
 const RUN_LIVE = process.env.PIPELINE_LIVE_RUNNERS === "1";
 const describeLive = RUN_LIVE ? describe : describe.skip;
@@ -210,6 +211,7 @@ function liveRunnerConfig(
   const { filesystem, format, harness, profileId } = spec;
   const harnessSpec = HARNESS_SPECS[harness];
   const nodeId = `run-${profileId}`;
+  writeLiveOpencodeAgent(project, profileId);
   return parsePipelineConfigParts(
     {
       pipeline: `
@@ -275,18 +277,6 @@ profiles:
       runners: `
 version: 1
 runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: true
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json, jsonl, json_schema]
   opencode:
     type: opencode
     command: opencode
@@ -410,4 +400,35 @@ function writeProjectFile(root: string, path: string, content: string): void {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
+}
+
+function writeLiveOpencodeAgent(project: string, profileId: string): void {
+  const agentName = opencodeAgentName(profileId);
+  writeProjectFile(
+    project,
+    `.opencode/agents/${agentName}.md`,
+    [
+      "---",
+      `name: ${agentName}`,
+      `description: Live smoke profile ${profileId}`,
+      "hidden: false",
+      "mode: all",
+      "permission:",
+      "  bash: allow",
+      "  edit: allow",
+      "  glob: allow",
+      "  grep: allow",
+      "  list: allow",
+      "  read: allow",
+      "  write: allow",
+      "  task: allow",
+      "  external_directory: deny",
+      "  skill:",
+      '    "*": deny',
+      "    live-skill: allow",
+      "---",
+      "Return the requested JSON object exactly; no Markdown fences.",
+      "",
+    ].join("\n")
+  );
 }
