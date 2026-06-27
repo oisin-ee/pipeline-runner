@@ -132,6 +132,73 @@ describe("runner Git refs", () => {
     }
   });
 
+  it("replaces a prior attempt's generated node ref when the same node is retried", async () => {
+    const fixture = tempDir("pipeline-git-retry-ref-");
+    const remotePath = join(fixture, "remote.git");
+    const seedPath = join(fixture, "seed");
+    const firstAttemptPath = join(fixture, "first-attempt");
+    const secondAttemptPath = join(fixture, "second-attempt");
+    const checkPath = join(fixture, "check");
+    const remoteUrl = seedRemote(fixture, remotePath, seedPath);
+    const payload = buildRunnerCommandPayload({
+      events: {
+        authHeader: "Authorization",
+        authTokenFile: "/etc/pipeline/event-auth/token",
+        url: "https://console.example/api/pipeline/runner-events",
+      },
+      repository: {
+        baseBranch: "main",
+        url: remoteUrl,
+      },
+      run: {
+        id: "run-git-retry-ref",
+        project: "project-git-retry-ref",
+      },
+      task: {
+        kind: "prompt",
+        prompt: "Verify Git retry ref state",
+      },
+      workflow: {
+        id: "workflow-git-retry-ref",
+      },
+    });
+    const retriedNodeRef =
+      "refs/heads/pipeline/runs/run-git-retry-ref/workflow-git-retry-ref/nodes/red-tests";
+
+    await prepareRunnerGitWorkspace(payload, {
+      workspacePath: firstAttemptPath,
+    });
+    writeFileSync(join(firstAttemptPath, "failed-attempt.txt"), "failed\n");
+    await commitAndPushNodeRef({
+      committer: COMMITTER,
+      nodeId: "red-tests",
+      payload,
+      worktreePath: firstAttemptPath,
+    });
+
+    await prepareRunnerGitWorkspace(payload, {
+      workspacePath: secondAttemptPath,
+    });
+    writeFileSync(join(secondAttemptPath, "passed-attempt.txt"), "passed\n");
+    await commitAndPushNodeRef({
+      committer: COMMITTER,
+      nodeId: "red-tests",
+      payload,
+      worktreePath: secondAttemptPath,
+    });
+
+    git(fixture, "clone", remoteUrl, checkPath);
+    git(checkPath, "fetch", "origin", retriedNodeRef);
+    git(checkPath, "checkout", "FETCH_HEAD");
+
+    expect(readFileSync(join(checkPath, "passed-attempt.txt"), "utf8")).toBe(
+      "passed\n"
+    );
+    expect(() =>
+      readFileSync(join(checkPath, "failed-attempt.txt"), "utf8")
+    ).toThrow();
+  });
+
   it("writes mounted username and password credentials to a writable store for runner git commands", async () => {
     const fixture = tempDir("pipeline-git-credentials-");
     const remotePath = join(fixture, "remote.git");

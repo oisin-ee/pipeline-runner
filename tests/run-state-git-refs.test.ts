@@ -88,9 +88,21 @@ describe("runner git workspace preparation", () => {
         expect.objectContaining({ args: ["remote", "get-url", "origin"] }),
       ])
     );
+    const lsRemote = calls.find((call) => call.args[0] === "ls-remote");
+    expect(lsRemote?.args).toEqual([
+      "ls-remote",
+      "--heads",
+      "origin",
+      "refs/heads/pipeline/runs/run-test/schedule-test-root/nodes/backlog-intake",
+    ]);
+    expect(lsRemote?.env.GIT_SSH_COMMAND).toContain(
+      "StrictHostKeyChecking=yes"
+    );
+    expect(lsRemote?.env.GIT_SSH_COMMAND).toContain("UserKnownHostsFile=");
     const push = calls.find((call) => call.args[0] === "push");
     expect(push?.args).toEqual([
       "push",
+      "--force-with-lease=refs/heads/pipeline/runs/run-test/schedule-test-root/nodes/backlog-intake:",
       "origin",
       "HEAD:refs/heads/pipeline/runs/run-test/schedule-test-root/nodes/backlog-intake",
     ]);

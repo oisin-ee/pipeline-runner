@@ -22,6 +22,7 @@ const WRITABLE_GIT_CREDENTIAL_STORE = resolve(
   tmpdir(),
   "pipeline-git-credentials"
 );
+const LS_REMOTE_FIELD_SEPARATOR_RE = /\s+/u;
 const SCP_LIKE_SSH_REMOTE_RE = /^[^@\s]+@[^:\s]+:.+/u;
 
 let preparedBasicAuthCredentialStore:
@@ -163,11 +164,10 @@ function commitAndPushNodeRefEffect(input: {
       input.committer
     );
     const sha = yield* headSha(input.worktreePath);
-    yield* runGit(input.worktreePath, [
-      "push",
-      "origin",
-      `HEAD:${runnerGitRefs(input.payload, input.nodeId).nodeRef}`,
-    ]);
+    yield* pushGeneratedRef(
+      input.worktreePath,
+      runnerGitRefs(input.payload, input.nodeId).nodeRef
+    );
     return sha;
   });
 }
@@ -215,13 +215,44 @@ function promoteFinalRefEffect(input: {
     });
     yield* commitChangesIfNeeded(input.worktreePath, "final", input.committer);
     const sha = yield* headSha(input.worktreePath);
-    yield* runGit(input.worktreePath, [
-      "push",
-      "origin",
-      `HEAD:${runnerGitRefs(input.payload, "final").finalRef}`,
-    ]);
+    yield* pushGeneratedRef(
+      input.worktreePath,
+      runnerGitRefs(input.payload, "final").finalRef
+    );
     return sha;
   });
+}
+
+function pushGeneratedRef(
+  worktreePath: string,
+  ref: string
+): Effect.Effect<void, unknown, GitPorcelainService> {
+  return Effect.gen(function* () {
+    const expectedSha = yield* remoteHeadSha(worktreePath, ref);
+    yield* runGit(worktreePath, [
+      "push",
+      `--force-with-lease=${ref}:${expectedSha ?? ""}`,
+      "origin",
+      `HEAD:${ref}`,
+    ]);
+  });
+}
+
+function remoteHeadSha(
+  worktreePath: string,
+  ref: string
+): Effect.Effect<string | undefined, unknown, GitPorcelainService> {
+  return Effect.map(
+    runGit(worktreePath, ["ls-remote", "--heads", "origin", ref]),
+    (stdout) => parseLsRemoteSha(stdout)
+  );
+}
+
+function parseLsRemoteSha(stdout: string): string | undefined {
+  const firstLine = stdout.trim().split("\n")[0];
+  return firstLine
+    ? firstLine.split(LS_REMOTE_FIELD_SEPARATOR_RE)[0]
+    : undefined;
 }
 
 function headSha(
@@ -522,7 +553,7 @@ function literalRemoteUrlFromGitArgs(args: string[]): string | undefined {
     return args.find((arg) => isRemoteUrl(arg));
   }
   if (args[0] === "fetch" || args[0] === "push" || args[0] === "ls-remote") {
-    const remoteArg = args[1];
+    const remoteArg = remoteArgFromGitArgs(args);
     return remoteArg && isRemoteUrl(remoteArg) ? remoteArg : undefined;
   }
   return;
@@ -530,12 +561,16 @@ function literalRemoteUrlFromGitArgs(args: string[]): string | undefined {
 
 function remoteNameFromGitArgs(args: string[]): string | undefined {
   if (args[0] === "fetch" || args[0] === "push" || args[0] === "ls-remote") {
-    const remoteArg = args[1];
+    const remoteArg = remoteArgFromGitArgs(args);
     if (remoteArg && !remoteArg.startsWith("-") && !isRemoteUrl(remoteArg)) {
       return remoteArg;
     }
   }
   return;
+}
+
+function remoteArgFromGitArgs(args: string[]): string | undefined {
+  return args.slice(1).find((arg) => !arg.startsWith("-"));
 }
 
 function gitRemoteUrl(
