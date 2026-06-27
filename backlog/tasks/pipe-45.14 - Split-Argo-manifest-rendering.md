@@ -1,7 +1,7 @@
 ---
 id: PIPE-45.14
 title: Split Argo manifest rendering
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-27 14:03'
 labels: []
@@ -32,12 +32,12 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Argo manifest rendering is pure and separated from submission/IO -- Evidence: focused renderer tests.
-- [ ] #2 Retry/resource/env/secret policies have named single owners -- Evidence: source inspection.
-- [ ] #3 Existing Argo tests pass -- Evidence: focused tests.
+- [x] #1 Argo manifest rendering is pure and separated from submission/IO -- Evidence: boundary assertion in `tests/argo-workflow.test.ts`; `src/argo-workflow.ts` composes pure model/policy/storage/templates and does not import Kubernetes IO.
+- [x] #2 Retry/resource/env/secret policies have named single owners -- Evidence: `src/remote/argo/policy.ts` owns retry/resource/env/deadline policy; `src/remote/argo/storage.ts` owns event/git/GitHub secret projection; `src/remote/argo/templates.ts` owns runner templates.
+- [x] #3 Existing Argo tests pass -- Evidence: `bun run test tests/argo-workflow.test.ts tests/argo-submit.test.ts tests/moka-submit.test.ts tests/package-public-api.test.ts` passed, 4 files / 53 tests.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run feature-implementation workflow in order and record proof.
+- [x] #1 Run feature-implementation workflow in order and record proof.
 <!-- DOD:END -->

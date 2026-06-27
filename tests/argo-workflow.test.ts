@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -68,6 +68,12 @@ const RUNNER_RETRY_STRATEGY = {
 // inter-token whitespace is matched with \s+ to tolerate the wrap.
 const RETRY_STRATEGY_FRAGMENT_PATTERN =
   /retryStrategy:\n\s+expression: lastRetry\.status == 'Error' \|\|\s+\(lastRetry\.exitCode != '0'\s+&&\s+lastRetry\.exitCode != '1'\)\n\s+limit: "3"\n\s+retryPolicy: Always/;
+const ARGO_OWNER_FILES = [
+  "src/remote/argo/model.ts",
+  "src/remote/argo/policy.ts",
+  "src/remote/argo/storage.ts",
+  "src/remote/argo/templates.ts",
+] as const;
 
 function retryStrategyForTemplate(
   manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>,
@@ -82,6 +88,33 @@ function retryStrategyForTemplate(
 }
 
 describe("runner Argo Workflow manifest", () => {
+  it("keeps rendering pure and separates Argo policy owners", () => {
+    const missingOwnerFiles = ARGO_OWNER_FILES.filter(
+      (path) => !existsSync(join(process.cwd(), path))
+    );
+    const rendererSource = readFileSync(
+      join(process.cwd(), "src/argo-workflow.ts"),
+      "utf8"
+    );
+    const policySource = readFileSync(
+      join(process.cwd(), "src/remote/argo/policy.ts"),
+      "utf8"
+    );
+    const storageSource = readFileSync(
+      join(process.cwd(), "src/remote/argo/storage.ts"),
+      "utf8"
+    );
+
+    expect(missingOwnerFiles).toEqual([]);
+    expect(rendererSource).not.toContain("@kubernetes/client-node");
+    expect(rendererSource).not.toContain("createNamespaced");
+    expect(policySource).toContain("runnerRetryStrategy");
+    expect(policySource).toContain("runnerTemplateResources");
+    expect(policySource).toContain("runnerContainerEnv");
+    expect(storageSource).toContain("appendEventAuthStorage");
+    expect(storageSource).toContain("appendGitCredentialsStorage");
+  });
+
   // AC #6: Golden full-manifest snapshot covering representative multi-node manifest
   it("matches the golden full-manifest snapshot for a representative multi-node workflow", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
