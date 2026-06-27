@@ -2,9 +2,8 @@ import { Data } from "effect";
 
 /**
  * Tagged error for the MCP (ToolHive) gateway subsystem. Lives in its own module
- * so both the gateway facade (src/mcp/gateway.ts) and the Effect service
- * (src/runtime/services/mcp-gateway-service.ts) can import it without forming a
- * circular dependency between them.
+ * so MCP command modules and the Effect service can share one error type without
+ * forming circular dependencies.
  */
 export class PipelineMcpGatewayError extends Data.TaggedError(
   "PipelineMcpGatewayError"

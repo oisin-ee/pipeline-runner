@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { PipelineConfig } from "../../config";
-import { gatewayServerForProfile } from "../../mcp/gateway";
+import { gatewayServerForProfile } from "../../mcp/gateway-config";
 import { selectNodeModelCandidates } from "../../model-resolver";
 import { resolvePackageAssetPath } from "../../package-assets";
 import { resolveFileReference } from "../../path-refs";

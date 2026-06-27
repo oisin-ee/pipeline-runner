@@ -22,16 +22,18 @@ import {
   runLoopSubmit,
 } from "../loop/loop-command";
 import { runLoopControllerEntrypoint } from "../loop/loop-controller-entrypoint";
+import { renderGatewayConfig } from "../mcp/gateway-config";
+import { runGatewayDoctor } from "../mcp/gateway-doctor";
+import {
+  localGatewayStatus,
+  reconcileGateway,
+  startLocalGateway,
+} from "../mcp/gateway-reconcile";
 import {
   configureGatewayHosts,
   type GatewayHostScope,
   type GatewayHostSelection,
-  localGatewayStatus,
-  reconcileGateway,
-  renderGatewayConfig,
-  runGatewayDoctor,
-  startLocalGateway,
-} from "../mcp/gateway";
+} from "../mcp/host-config";
 import {
   loadMokaGlobalConfig,
   type MokaGlobalConfig,

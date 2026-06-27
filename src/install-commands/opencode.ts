@@ -7,7 +7,7 @@ import {
   type OpenCodeEcosystemManifest,
   type PipelineConfig,
 } from "../config";
-import { renderOpenCodeGatewayConfig } from "../mcp/gateway";
+import { renderOpenCodeGatewayConfig } from "../mcp/host-renderers";
 import { mergeOpenCodeProjectConfig } from "../opencode-project-config";
 import { resolvePackageAssetPath } from "../package-assets";
 import { compileWorkflowPlan } from "../planning/compile";

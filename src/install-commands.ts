@@ -35,7 +35,7 @@ import { isRecord } from "./json-config-merge";
 import {
   renderClaudeGatewayUserConfig,
   renderCodexGatewayConfig,
-} from "./mcp/gateway";
+} from "./mcp/host-renderers";
 
 export type {
   CommandHostSelection,
