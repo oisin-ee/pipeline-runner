@@ -4,11 +4,7 @@ import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
 import type { RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
-import {
-  executeAgentNode,
-  inheritedOutputSections,
-  renderTaskContext,
-} from "./agent-node";
+import { executeAgentNode } from "./agent-node";
 
 const EXCEEDS_BUDGET_RE = /exceeds 50% of every available/i;
 
@@ -123,15 +119,25 @@ describe("runtime agent node", () => {
     ).toBeUndefined();
   });
 
-  it("renders canonical task context with acceptance criteria", () => {
-    expect(
-      renderTaskContext({
+  it("renders canonical task context with acceptance criteria", async () => {
+    const node = {
+      ...agentNode(),
+      taskContext: {
         acceptanceCriteria: [{ id: "A", text: "Do it" }],
         description: "Description",
         id: "PIPE-1",
         title: "Title",
-      })
-    ).toBe(
+      },
+    };
+    let prompt = "";
+    const context = agentExecutionContext(node, (plan) => {
+      prompt = promptFromPlan(plan);
+      return { exitCode: 0, stdout: opencodeText("done") };
+    });
+
+    await executeAgentNode(node, context, 1);
+
+    expect(prompt).toContain(
       [
         "Canonical task context:",
         "ID: PIPE-1",
@@ -143,34 +149,35 @@ describe("runtime agent node", () => {
     );
   });
 
-  it("renders inherited outputs that are not direct dependencies", () => {
-    const context = {
-      nodeStateStore: new NodeStateStore({
-        inheritedOutputNodeIds: new Set(["setup", "direct"]),
-        lastOutputByNode: new Map([
-          ["setup", "setup output"],
-          ["direct", "direct output"],
-        ]),
-      }),
-    } satisfies Pick<RuntimeContext, "nodeStateStore">;
+  it("renders inherited outputs that are not direct dependencies", async () => {
+    const node = {
+      ...agentNode(),
+      needs: ["direct"],
+    };
+    let prompt = "";
+    const context = agentExecutionContext(node, (plan) => {
+      prompt = promptFromPlan(plan);
+      return { exitCode: 0, stdout: opencodeText("done") };
+    });
+    context.nodeStateStore = new NodeStateStore({
+      inheritedOutputNodeIds: new Set(["setup", "direct"]),
+      lastOutputByNode: new Map([
+        ["setup", "setup output"],
+        ["direct", "direct output"],
+      ]),
+    });
 
-    expect(
-      inheritedOutputSections(
-        {
-          children: [],
-          dependents: [],
-          id: "agent",
-          index: 0,
-          kind: "agent",
-          needs: ["direct"],
-          profile: "a",
-        },
-        context
-      )
-    ).toEqual(["Inherited dependency outputs:", "## setup\nsetup output", ""]);
+    await executeAgentNode(node, context, 1);
+
+    expect(prompt).toContain(
+      "Inherited dependency outputs:\n## setup\nsetup output"
+    );
+    expect(prompt).toContain("Dependency outputs:\n## direct\ndirect output");
   });
 
-  it("renders a dependency's handoff summary in place of its raw transcript (PIPE-83.5)", () => {
+  it("renders a dependency's handoff summary in place of its raw transcript (PIPE-83.5)", async () => {
+    const node = agentNode();
+    let prompt = "";
     const store = new NodeStateStore({
       inheritedOutputNodeIds: new Set(["setup"]),
       lastOutputByNode: new Map([["setup", "RAW SETUP TRANSCRIPT"]]),
@@ -182,30 +189,33 @@ describe("runtime agent node", () => {
       summary: "set up the thing",
       testNames: [],
     });
+    const context = agentExecutionContext(node, (plan) => {
+      prompt = promptFromPlan(plan);
+      return { exitCode: 0, stdout: opencodeText("done") };
+    });
+    context.nodeStateStore = store;
 
-    const text = inheritedOutputSections(
-      {
-        children: [],
-        dependents: [],
-        id: "agent",
-        index: 0,
-        kind: "agent",
-        needs: [],
-        profile: "a",
-      } as unknown as PlannedWorkflowNode,
-      { nodeStateStore: store }
-    ).join("\n");
+    await executeAgentNode(node, context, 1);
 
-    expect(text).toContain("## setup");
-    expect(text).toContain("set up the thing");
-    expect(text).toContain("- used zod");
-    expect(text).toContain("- src/x.ts");
-    expect(text).not.toContain("RAW SETUP TRANSCRIPT");
+    expect(prompt).toContain("## setup");
+    expect(prompt).toContain("set up the thing");
+    expect(prompt).toContain("- used zod");
+    expect(prompt).toContain("- src/x.ts");
+    expect(prompt).not.toContain("RAW SETUP TRANSCRIPT");
   });
 });
 
 function opencodeText(text: string): string {
   return JSON.stringify({ part: { text, type: "text" } });
+}
+
+function promptFromPlan(plan: RunnerLaunchPlan): string {
+  const dirIndex = plan.args.indexOf("--dir");
+  const prompt = plan.args[dirIndex + 2];
+  if (dirIndex < 0 || !prompt) {
+    throw new Error("runner launch plan did not include an OpenCode prompt");
+  }
+  return prompt;
 }
 
 describe("executeAgentNode handoff derivation (PIPE-83.1)", () => {
