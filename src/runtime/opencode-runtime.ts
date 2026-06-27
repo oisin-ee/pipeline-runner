@@ -1,10 +1,11 @@
 import { Effect } from "effect";
-import type { PipelineConfig } from "../config";
+import { loadPipelineConfig, type PipelineConfig } from "../config";
 import type {
   AgentResult,
   RunnerExecutionOptions,
   RunnerLaunchPlan,
 } from "../runner";
+import type { PipelineRuntimeOptions } from "./contracts";
 import type { OpencodeServerHandle } from "./opencode-server";
 import {
   createOpencodeExecutor,
@@ -70,6 +71,75 @@ export function leaseOpencodeRuntime(input: {
       OpencodeRuntimeServerServiceLive
     )
   );
+}
+
+export function withOpencodeRuntime<T>(
+  options: PipelineRuntimeOptions,
+  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>
+): Effect.Effect<T, unknown> {
+  return Effect.gen(function* () {
+    if (options.executor) {
+      return yield* run(options);
+    }
+    const { config, worktreePath } = resolveConfigForRun(options);
+    if (configUsesOpencode(config)) {
+      return yield* runWithLeasedOpencode(options, config, worktreePath, run);
+    }
+    return yield* run({ ...options, config });
+  });
+}
+
+function resolveConfigForRun(options: PipelineRuntimeOptions): {
+  config: PipelineConfig;
+  worktreePath: string;
+} {
+  const worktreePath = options.worktreePath ?? process.cwd();
+  return {
+    config: options.config ?? loadPipelineConfig(worktreePath),
+    worktreePath,
+  };
+}
+
+function runWithLeasedOpencode<T>(
+  options: PipelineRuntimeOptions,
+  config: PipelineConfig,
+  worktreePath: string,
+  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>
+): Effect.Effect<T, unknown> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const lease = yield* Effect.acquireRelease(
+        Effect.tryPromise(() =>
+          leaseOpencodeRuntime({
+            config,
+            ...(options.reporter
+              ? { onSession: opencodeSessionReporter(options.reporter) }
+              : {}),
+            ...(options.signal ? { signal: options.signal } : {}),
+            worktreePath,
+          })
+        ),
+        (lease) => Effect.promise(() => lease.release())
+      );
+      const availableModels = yield* Effect.promise(() =>
+        lease.availableModels()
+      );
+      return yield* run({
+        ...options,
+        config,
+        executor: lease.executor,
+        ...(availableModels ? { availableModels } : {}),
+      });
+    })
+  );
+}
+
+function opencodeSessionReporter(
+  reporter: NonNullable<PipelineRuntimeOptions["reporter"]>
+): (nodeId: string, sessionId: string) => void {
+  return (nodeId, sessionId) => {
+    reporter({ nodeId, sessionId, type: "node.session" });
+  };
 }
 
 function leaseOpencodeRuntimeEffect(input: {

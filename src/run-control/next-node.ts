@@ -8,9 +8,8 @@ import {
   parseScheduleArtifact,
 } from "../planning/generate";
 import type { AcceptanceCriterion } from "../runtime/contracts/contracts";
+import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
-import { inMemoryDurableRunStore } from "../runtime/durable-store/durable-store";
-import { postgresDurableRunStore } from "../runtime/durable-store/postgres/postgres-store";
 import type { NextNodeEnvelope } from "../runtime/node-protocol/node-protocol";
 import type { WorkflowScheduleNode } from "../runtime/scheduler";
 import { computeReadyNodeIds } from "../runtime/scheduler";
@@ -87,33 +86,6 @@ export function buildNextNodeEnvelope(
     return result ? [{ nodeId: needId, output: result.output }] : [];
   });
   return { criteria, nodeId, prompt, runId: input.runId, upstreamOutputs };
-}
-
-/**
- * PIPE-91.15: resolve the {@link DurableRunStore} for this invocation as a
- * scoped resource, mirroring `pipeline-runtime.ts`'s `acquireRunJournal`
- * lifecycle. When `db.url` is set, acquire the Postgres-backed store
- * ({@link postgresDurableRunStore}, scoped to `runId`) and release it — flushing
- * pending write-through persistence then closing the connection pool — when the
- * scope exits. When `db.url` is absent, yield the zero-infra in-memory store
- * (nothing to release). Returning a scoped Effect is what guarantees
- * `submit-result` awaits its write and closes the client before the process
- * exits; without that flush the record is lost (the PIPE-91.15 dogfood failure).
- *
- * Exported so `submit-result` (PIPE-91.7) reuses the same selection + lifecycle
- * seam without duplicating it.
- */
-export function resolveDurableStore(
-  dbUrl: string | undefined,
-  runId?: string
-): Effect.Effect<DurableRunStore, unknown, Scope.Scope> {
-  if (dbUrl === undefined) {
-    return Effect.succeed(inMemoryDurableRunStore());
-  }
-  return Effect.acquireRelease(
-    Effect.tryPromise(() => postgresDurableRunStore(dbUrl, runId)),
-    (store) => Effect.promise(() => store.close())
-  );
 }
 
 /**

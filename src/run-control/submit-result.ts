@@ -1,9 +1,9 @@
 import type { Command } from "commander";
 import { Effect } from "effect";
 import { loadMokaDbUrl } from "../moka-global-config";
+import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import { parseSubmitResult } from "../runtime/node-protocol/node-protocol";
-import { resolveDurableStore } from "./next-node";
 
 /**
  * PIPE-91.7: input to {@link recordSubmitResult}. Callers provide the routing

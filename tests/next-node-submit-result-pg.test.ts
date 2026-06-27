@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildNextNodeEnvelope,
   type NodeEnvelopeMetadata,
-  resolveDurableStore,
 } from "../src/run-control/next-node";
 import { recordSubmitResult } from "../src/run-control/submit-result";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
+import { resolveDurableStore } from "../src/runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../src/runtime/durable-store/durable-store";
 import type { WorkflowScheduleNode } from "../src/runtime/scheduler";
 import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
