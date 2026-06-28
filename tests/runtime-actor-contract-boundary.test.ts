@@ -41,7 +41,7 @@ const NODE_MACHINE_IMPORT_RE =
   /from\s+["'][^"']*runtime-machines\/node-machine["']/;
 const NODE_MACHINE_ACTOR_ROUND_TRIP_RE =
   /RETRYING[\s\S]{0,800}(?:getSnapshot\(\)|nodeStates\.get)[\s\S]{0,200}\.retry|(?:getSnapshot\(\)|nodeStates\.get)[\s\S]{0,200}\.retry[\s\S]{0,800}RETRYING/;
-const BUN_LOCK_XSTATE_RE = /\bxstate\b/;
+const LOCKFILE_XSTATE_RE = /\bxstate\b/;
 const NODE_EXECUTION_EVENT_EXPORT_RE = /export\s+type\s+NodeExecutionEvent\b/;
 const NODE_STATE_STORE_FIELD_RE = /nodeStateStore\s*:\s*NodeStateStore\b/;
 const LEGACY_RUNTIME_CONTEXT_NODE_STATE_FIELDS_RE =
@@ -185,12 +185,12 @@ describe("runtime actor/retry contract module boundary", () => {
       packageJson.peerDependencies,
       packageJson.optionalDependencies,
     ].filter(Boolean);
-    const bunLock = readFileSync(join(process.cwd(), "bun.lock"), "utf8");
+    const lockfile = readFileSync(join(process.cwd(), "lock.yaml"), "utf8");
 
     expect(
       dependencySections.flatMap((section) => Object.keys(section ?? {}))
     ).not.toContain("xstate");
-    expect(bunLock).not.toMatch(BUN_LOCK_XSTATE_RE);
+    expect(lockfile).not.toMatch(LOCKFILE_XSTATE_RE);
   });
 
   it("inlines gate and hook runtime evaluation without xstate machine dependencies", () => {
