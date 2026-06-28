@@ -14,6 +14,8 @@ import type { MokaSubmissionContext } from "./io";
 interface MokaWorkflowSubmitOptions {
   brokerAuth: BrokerAuthOption;
   config: PipelineConfig;
+  // PIPE-94.4: forwarded from ParsedMokaBaseOptions → submitRunnerArgoWorkflow
+  dbAuth?: { secretKey?: string; secretName: string };
   eventAuthSecretKey?: string;
   eventAuthSecretName?: string;
   generateName?: string;
@@ -60,6 +62,7 @@ function workflowSubmitOptions(
 ): Omit<MokaWorkflowSubmitOptions, "config" | "payloadJson" | "scheduleYaml"> {
   return {
     brokerAuth: options.brokerAuth,
+    dbAuth: options.dbAuth,
     eventAuthSecretKey: options.eventAuthSecretKey,
     eventAuthSecretName: options.eventAuthSecretName,
     generateName: options.generateName,

@@ -1075,6 +1075,46 @@ workflows:
     expect(parsed.error?.issues[0]?.path).toEqual(["repository", "url"]);
   });
 
+  // PIPE-94.4: AC1 — pre-submit createRun upsert
+  it("calls upsertRunRecord with runId and scheduleYaml before Argo submission (AC1)", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+    const runRecords: Array<{
+      plan: { runId: string; scheduleYaml: string };
+      worktreePath: string | undefined;
+    }> = [];
+
+    await submitMoka(mokaCommandInput(), {
+      ...mokaCommandDependencies(calls, "run-upsert-create"),
+      upsertRunRecord: (plan, worktreePath) => {
+        runRecords.push({ plan, worktreePath });
+        return Promise.resolve();
+      },
+    });
+
+    expect(runRecords).toHaveLength(1);
+    expect(runRecords[0].plan.runId).toBe("run-upsert-create");
+    expect(runRecords[0].plan.scheduleYaml).toContain(
+      "kind: pipeline-schedule"
+    );
+    expect(runRecords[0].worktreePath).toBe(PROJECT_ROOT);
+    // Argo submission must still complete
+    expect(calls).toHaveLength(1);
+  });
+
+  // PIPE-94.4: AC2 — guard ensures Argo submission proceeds even when upsert fails
+  it("still submits Argo workflow when upsertRunRecord throws (DB unreachable, AC2)", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+
+    await submitMoka(mokaCommandInput(), {
+      ...mokaCommandDependencies(calls, "run-db-down"),
+      upsertRunRecord: () =>
+        Promise.reject(new Error("simulated DB connection refused")),
+    });
+
+    // Argo workflow submitted despite the upsert failure
+    expect(calls).toHaveLength(1);
+  });
+
   it("submits a graph schedule containing agent-kind nodes through the Argo compiler", async () => {
     /*
      * AC#4: mirror a real moka submit graph path with a schedule that contains

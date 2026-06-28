@@ -9,6 +9,19 @@ import {
 const ARGO_WORKFLOW_API_VERSION = "argoproj.io/v1alpha1";
 const ARGO_WORKFLOW_KIND = "Workflow";
 const kubernetesNameSchema = z.string().min(1);
+
+/**
+ * PIPE-94.4: submit-time secret ref for MOKA_DB_URL injection in runner pods.
+ * The single owner of the dbAuth option shape — the runner-workflow model,
+ * argo-submit, and moka-submit all reference this rather than redeclaring it.
+ * `secretKey` defaults to "db-url"; absent dbAuth → no MOKA_DB_URL env emitted.
+ */
+export const dbAuthOptionSchema = z
+  .object({
+    secretKey: z.string().min(1).default("db-url"),
+    secretName: kubernetesNameSchema,
+  })
+  .strict();
 const labelValueSchema = z.string().min(1);
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 
@@ -232,13 +245,7 @@ export const buildRunnerArgoWorkflowOptionsSchema = z
     // PIPE-94.3: durable-substrate db.url injection for runner pods.
     // When present, MOKA_DB_URL is injected via secretKeyRef so loadMokaDbUrl()
     // resolves in-cluster without a config file mount.
-    dbAuth: z
-      .object({
-        secretKey: z.string().min(1).default("db-url"),
-        secretName: kubernetesNameSchema,
-      })
-      .strict()
-      .optional(),
+    dbAuth: dbAuthOptionSchema.optional(),
     eventAuthSecretKey: z.string().min(1).optional(),
     eventAuthSecretName: kubernetesNameSchema.optional(),
     generateName: z.string().min(1).optional(),

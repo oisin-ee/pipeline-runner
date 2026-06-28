@@ -6,6 +6,10 @@ import {
   buildCommandScheduleYaml,
   submitRunnerArgoWorkflow,
 } from "../src/argo-submit";
+import {
+  type ArgoWorkflowManifest,
+  runnerArgoWorkflowManifestSchema,
+} from "../src/argo-workflow";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
 import { parseScheduleArtifact } from "../src/planning/generate";
 
@@ -310,6 +314,93 @@ describe("submitRunnerArgoWorkflow", () => {
         },
       },
     });
+  });
+
+  // PIPE-94.4: AC3 — dbAuth threads end-to-end into runner container env
+  it("injects MOKA_DB_URL secretKeyRef into runner container env when dbAuth is configured (AC3)", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        dbAuth: { secretName: "momokaya-db", secretKey: "db-url" },
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            // Parse through the manifest schema — type-safe, no casts.
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: { name: "pipeline-run-dbauth" },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
+    expect(containerTemplates.length).toBeGreaterThan(0);
+    for (const template of containerTemplates) {
+      expect(template.container?.env).toContainEqual({
+        name: "MOKA_DB_URL",
+        valueFrom: { secretKeyRef: { key: "db-url", name: "momokaya-db" } },
+      });
+    }
+  });
+
+  it("omits MOKA_DB_URL env var from runner container env when dbAuth is absent (AC3 absence)", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: { name: "pipeline-run-no-dbauth" },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    for (const template of createdWorkflows[0].spec.templates) {
+      const env = template.container?.env ?? [];
+      expect(env).not.toContainEqual(
+        expect.objectContaining({ name: "MOKA_DB_URL" })
+      );
+    }
   });
 
   it("builds valid schedule YAML for a custom argv command", () => {

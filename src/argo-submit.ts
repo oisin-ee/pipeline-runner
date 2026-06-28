@@ -18,6 +18,7 @@ import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "./planning/generate";
+import { dbAuthOptionSchema } from "./remote/argo/model";
 import { buildRunnerTaskDescriptor } from "./runner-command/task-descriptor";
 import {
   parseRunnerCommandPayload,
@@ -52,6 +53,10 @@ const configMapSchema = z
 
 const submitRunnerArgoWorkflowOptionsSchema = z
   .object({
+    brokerAuth: brokerAuthOptionSchema,
+    // PIPE-94.4: optional secret ref for MOKA_DB_URL injection in runner pods.
+    // Shared shape (single owner in remote/argo/model). Absent → no MOKA_DB_URL.
+    dbAuth: dbAuthOptionSchema.optional(),
     eventAuthSecretKey: z.string().min(1).optional(),
     eventAuthSecretName: z.string().min(1).optional(),
     generateName: z.string().min(1).optional(),
@@ -63,7 +68,6 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1),
-    brokerAuth: brokerAuthOptionSchema,
     payloadJson: z.string().min(1),
     scheduleYaml: z.string().min(1),
     serviceAccountName: z.string().min(1).optional(),
@@ -171,6 +175,8 @@ function submitRunnerArgoWorkflowEffect(
       : {};
   const workflow = buildRunnerArgoWorkflowManifest({
     annotations,
+    brokerAuth: options.brokerAuth,
+    dbAuth: options.dbAuth,
     eventAuthSecretKey: options.eventAuthSecretKey,
     eventAuthSecretName: options.eventAuthSecretName,
     generateName: options.generateName,
@@ -182,7 +188,6 @@ function submitRunnerArgoWorkflowEffect(
     labels,
     name: options.name,
     namespace: options.namespace,
-    brokerAuth: options.brokerAuth,
     payloadConfigMapName,
     plan: compiled.plan,
     scheduleConfigMapName: scheduleArtifactConfigMapName,
