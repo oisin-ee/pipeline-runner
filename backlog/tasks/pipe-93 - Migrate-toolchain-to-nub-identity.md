@@ -1,9 +1,10 @@
 ---
 id: PIPE-93
 title: Migrate toolchain to nub identity
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-28 08:56'
+updated_date: '2026-06-28 17:40'
 labels:
   - toolchain
   - nub-migration
