@@ -46,7 +46,7 @@ export function recordSubmitResult(input: SubmitResultInput): void {
  * A distinct top-level command (NOT a `submit` group — `moka submit` already
  * exists for job submission). `--json` carries the `RuntimeNodeResult` as a JSON
  * string; `(runId, nodeId)` are the positional routing keys — mirroring
- * `moka next node <run-id> --schedule-file <path>` (PIPE-91.6).
+ * `moka next node <run-id>` (PIPE-91.6).
  */
 export function registerSubmitResultSubcommand(program: Command): void {
   program

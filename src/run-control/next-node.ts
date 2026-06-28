@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
 import { Effect, type Scope } from "effect";
+import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config/load";
 import { loadMokaDbUrl } from "../moka-global-config";
 import {
@@ -13,6 +13,10 @@ import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import type { NextNodeEnvelope } from "../runtime/node-protocol/node-protocol";
 import type { WorkflowScheduleNode } from "../runtime/scheduler";
 import { computeReadyNodeIds } from "../runtime/scheduler";
+import {
+  type RunControlStore,
+  resolveRunControlStore,
+} from "./run-control-store";
 
 /**
  * Per-node envelope metadata: the prompt and read-only acceptance criteria the
@@ -33,14 +37,22 @@ export interface NodeEnvelopeMetadata {
  *   empty prompt / empty criteria (graceful degradation for generated schedules
  *   without task_context).
  * - `runId` — the persisted run to query.
- * - `store` — the durable run store; the in-memory impl is the default for the
- *   absent-db-url path; Postgres (PIPE-91.4) plugs into the same interface.
+ * - `store` — the durable run store; Postgres owns the cross-invocation state
+ *   behind the same interface used by tests.
  */
 export interface NextNodeInput {
   readonly nodeMetadata: ReadonlyMap<string, NodeEnvelopeMetadata>;
   readonly nodes: WorkflowScheduleNode[];
   readonly runId: string;
   readonly store: DurableRunStore;
+}
+
+export interface NextNodeRunStoreInput {
+  readonly config: PipelineConfig;
+  readonly durableStore: DurableRunStore;
+  readonly runControlStore: RunControlStore;
+  readonly runId: string;
+  readonly worktreePath: string;
 }
 
 /**
@@ -88,60 +100,27 @@ export function buildNextNodeEnvelope(
   return { criteria, nodeId, prompt, runId: input.runId, upstreamOutputs };
 }
 
-/**
- * PIPE-91.6: register `moka next node <run-id> --schedule-file <path>` under
- * the `next` command group. The schedule file is the YAML written by `moka run`
- * (same artifact consumed by `runner-command run`).
- */
-export function registerNextNodeSubcommand(nextCommand: Command): void {
-  nextCommand
-    .command("node")
-    .description(
-      "Emit the next ready node envelope from a persisted run without executing it"
-    )
-    .argument("<run-id>", "the run id to query")
-    .requiredOption(
-      "--schedule-file <path>",
-      "compiled schedule YAML for this run (written by moka run at schedule time)"
-    )
-    .action(async (runId: string, flags: { scheduleFile: string }) => {
-      await Effect.runPromise(
-        printNextNodeEnvelopeEffect(runId, flags.scheduleFile)
-      );
-    });
-}
-
-function printNextNodeEnvelopeEffect(
-  runId: string,
-  scheduleFile: string
-): Effect.Effect<void, unknown> {
-  return Effect.scoped(printNextNodeEnvelopeScoped(runId, scheduleFile));
-}
-
-function printNextNodeEnvelopeScoped(
-  runId: string,
-  scheduleFile: string
-): Effect.Effect<void, unknown, Scope.Scope> {
+export function buildNextNodeEnvelopeFromRunStore(
+  input: NextNodeRunStoreInput
+): Effect.Effect<NextNodeEnvelope | undefined, unknown> {
   return Effect.gen(function* () {
-    const scheduleRaw = yield* Effect.tryPromise({
-      catch: (error) => error,
-      try: () => readFile(scheduleFile, "utf8"),
-    });
-    const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-    const config = yield* Effect.try({
-      catch: (error) => error,
-      try: () => loadPipelineConfig(cwd),
-    });
+    const scheduleRaw = yield* readPersistedScheduleEffect(
+      input.runControlStore,
+      input.runId
+    );
     const compiled = yield* Effect.try({
       catch: (error) => error,
       try: () =>
         compileScheduleArtifact(
-          config,
-          parseScheduleArtifact(scheduleRaw, scheduleFile),
-          cwd
+          input.config,
+          parseScheduleArtifact(
+            scheduleRaw,
+            `persisted schedule for ${input.runId}`
+          ),
+          input.worktreePath
         ),
     });
-    const { plan } = compiled;
+    const plan = compiled.plan;
     // PlannedWorkflowNode carries all fields WorkflowScheduleNode requires and
     // TypeScript's structural typing accepts the assignment without any cast.
     const nodes: WorkflowScheduleNode[] = plan.topologicalOrder;
@@ -154,13 +133,80 @@ function printNextNodeEnvelopeScoped(
         },
       ])
     );
-    const dbUrl = loadMokaDbUrl();
-    const store = yield* resolveDurableStore(dbUrl, runId);
-    const envelope = buildNextNodeEnvelope({
+    return buildNextNodeEnvelope({
       nodeMetadata,
       nodes,
+      runId: input.runId,
+      store: input.durableStore,
+    });
+  });
+}
+
+function readPersistedScheduleEffect(
+  store: RunControlStore,
+  runId: string
+): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const manifest = yield* store.readRun({ runId });
+    if (manifest === undefined) {
+      return yield* Effect.fail(
+        new Error(`Run ${runId} does not exist in the Moka DB.`)
+      );
+    }
+    if (!manifest.schedule) {
+      return yield* Effect.fail(
+        new Error(
+          `Run ${runId} has no persisted schedule. moka next node reads schedules from the Moka DB; start the run with moka run so manifest.schedule is persisted.`
+        )
+      );
+    }
+    return manifest.schedule;
+  });
+}
+
+/**
+ * Register `moka next node <run-id>` under the `next` command group. The
+ * schedule is read from the run-control manifest in the Moka DB by run id.
+ */
+export function registerNextNodeSubcommand(nextCommand: Command): void {
+  nextCommand
+    .command("node")
+    .description(
+      "Emit the next ready node envelope from a persisted run without executing it"
+    )
+    .argument("<run-id>", "the run id to query")
+    .showHelpAfterError(
+      "Remove --schedule-file; moka next node reads schedules from the Moka DB by run id."
+    )
+    .action(async (runId: string) => {
+      await Effect.runPromise(printNextNodeEnvelopeEffect(runId));
+    });
+}
+
+function printNextNodeEnvelopeEffect(
+  runId: string
+): Effect.Effect<void, unknown> {
+  return Effect.scoped(printNextNodeEnvelopeScoped(runId));
+}
+
+function printNextNodeEnvelopeScoped(
+  runId: string
+): Effect.Effect<void, unknown, Scope.Scope> {
+  return Effect.gen(function* () {
+    const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+    const config = yield* Effect.try({
+      catch: (error) => error,
+      try: () => loadPipelineConfig(cwd),
+    });
+    const dbUrl = loadMokaDbUrl();
+    const runControlStore = yield* resolveRunControlStore(dbUrl, cwd);
+    const durableStore = yield* resolveDurableStore(dbUrl, runId);
+    const envelope = yield* buildNextNodeEnvelopeFromRunStore({
+      config,
+      durableStore,
+      runControlStore,
       runId,
-      store,
+      worktreePath: cwd,
     });
     if (envelope === undefined) {
       process.stdout.write(

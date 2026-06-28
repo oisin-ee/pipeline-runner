@@ -1,11 +1,20 @@
+import { Command } from "commander";
 import { Effect } from "effect";
 import postgres from "postgres";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   buildNextNodeEnvelope,
   type NodeEnvelopeMetadata,
+  registerNextNodeSubcommand,
 } from "../src/run-control/next-node";
-import { recordSubmitResult } from "../src/run-control/submit-result";
+import {
+  migratePostgresRunControlStore,
+  postgresRunControlStore,
+} from "../src/run-control/postgres/postgres-run-control-store";
+import {
+  recordSubmitResult,
+  registerSubmitResultSubcommand,
+} from "../src/run-control/submit-result";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
 import { resolveDurableStore } from "../src/runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../src/runtime/durable-store/durable-store";
@@ -20,6 +29,15 @@ import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
 const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/;
+
+vi.mock("../src/moka-global-config", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/moka-global-config")>();
+  return {
+    ...actual,
+    loadMokaDbUrl: () => process.env.MOKA_PG_TEST_URL,
+  };
+});
 
 // Two-node graph: plan → implement (implement depends on plan).
 const nodes: WorkflowScheduleNode[] = [
@@ -62,6 +80,81 @@ function withStore<A>(
   );
 }
 
+function scheduleYaml(): string {
+  return [
+    "kind: pipeline-schedule",
+    "version: 1",
+    "schedule_id: db-next-node",
+    "generated_at: 2026-06-27T00:00:00.000Z",
+    "source_entrypoint: quick",
+    "root_workflow: root",
+    'task: "step from db"',
+    "workflows:",
+    "  root:",
+    "    nodes:",
+    "      - id: plan",
+    "        kind: command",
+    "        command: [node, -e, \"console.log('plan')\"]",
+    "        task_context:",
+    "          description: Plan the work",
+    "      - id: implement",
+    "        kind: command",
+    "        command: [node, -e, \"console.log('implement')\"]",
+    "        needs: [plan]",
+    "        task_context:",
+    "          description: Implement",
+    "",
+  ].join("\n");
+}
+
+async function captureStdout<T>(run: () => Promise<T>): Promise<string> {
+  let stdout = "";
+  const writeSpy = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      stdout += chunk.toString();
+      return true;
+    });
+  try {
+    await run();
+    return stdout;
+  } finally {
+    writeSpy.mockRestore();
+  }
+}
+
+function nextNodeProgram(): Command {
+  const program = new Command("moka").exitOverride();
+  const nextCommand = program.command("next");
+  registerNextNodeSubcommand(nextCommand);
+  return program;
+}
+
+function submitResultProgram(): Command {
+  const program = new Command("moka").exitOverride();
+  registerSubmitResultSubcommand(program);
+  return program;
+}
+
+function runNextNodeCommand(runId: string): Promise<string> {
+  return captureStdout(() =>
+    nextNodeProgram().parseAsync(["next", "node", runId], { from: "user" })
+  );
+}
+
+async function runSubmitResultCommand(
+  runId: string,
+  nodeId: string,
+  result: RuntimeNodeResult
+): Promise<void> {
+  await captureStdout(() =>
+    submitResultProgram().parseAsync(
+      ["submit-result", runId, nodeId, "--json", JSON.stringify(result)],
+      { from: "user" }
+    )
+  );
+}
+
 describe("resolveDurableStore selection (no infra)", () => {
   it("fails fast when db.url is absent instead of selecting the in-memory store", async () => {
     await expect(
@@ -74,7 +167,37 @@ describePg(
   "next-node ⇆ submit-result cross-process stepping (live cluster PG)",
   () => {
     const dbUrl = PG_URL;
+    vi.setConfig({ hookTimeout: 90_000, testTimeout: 90_000 });
     const { runId } = setupLivePgDurableSuite(dbUrl, "pgstep");
+    const createdRunIds: string[] = [];
+    let admin: postgres.Sql | undefined;
+
+    function adminClient(): postgres.Sql {
+      if (!admin) {
+        throw new Error("Postgres admin client was not initialised.");
+      }
+      return admin;
+    }
+
+    beforeAll(async () => {
+      await migratePostgresRunControlStore(dbUrl);
+      admin = postgres(dbUrl, { max: 1 });
+    });
+
+    afterAll(async () => {
+      if (!admin) {
+        return;
+      }
+      const db = adminClient();
+      for (const id of createdRunIds) {
+        await db`delete from moka_run_control_node_artifact where run_id = ${id}`;
+        await db`delete from moka_run_control_node_session where run_id = ${id}`;
+        await db`delete from moka_run_control_event where run_id = ${id}`;
+        await db`delete from moka_run_control_run where run_id = ${id}`;
+      }
+      await db.end();
+      admin = undefined;
+    });
 
     it("submit-result persists across a process boundary so a fresh next-node advances (AC2)", async () => {
       const id = runId("step");
@@ -120,6 +243,50 @@ describePg(
       } finally {
         await admin.end();
       }
+    });
+
+    it("command actions read manifest.schedule from the DB and advance across process boundaries (AC1, AC3)", async () => {
+      const id = runId("db-schedule-step");
+      createdRunIds.push(id);
+      const store = postgresRunControlStore(dbUrl);
+      try {
+        await Effect.runPromise(
+          store.createRun({
+            effort: "normal",
+            mode: "write",
+            nodeIds: ["plan", "implement"],
+            runId: id,
+            schedule: scheduleYaml(),
+            target: "local",
+          })
+        );
+      } finally {
+        await store.close();
+      }
+
+      expect(JSON.parse(await runNextNodeCommand(id))).toMatchObject({
+        nodeId: "plan",
+        prompt: "Plan the work",
+        runId: id,
+        upstreamOutputs: [],
+      });
+
+      await runSubmitResultCommand(id, "plan", passedResult("plan"));
+
+      expect(JSON.parse(await runNextNodeCommand(id))).toMatchObject({
+        nodeId: "implement",
+        prompt: "Implement",
+        runId: id,
+        upstreamOutputs: [{ nodeId: "plan", output: "output of plan" }],
+      });
+
+      const rows = await adminClient()<{ schedule: string }[]>`
+        select manifest->>'schedule' as schedule
+        from moka_run_control_run
+        where run_id = ${id}
+      `;
+      expect(rows[0]?.schedule).toContain("kind: pipeline-schedule");
+      expect(rows[0]?.schedule).toContain("db-next-node");
     });
   }
 );
