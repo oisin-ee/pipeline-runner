@@ -480,8 +480,8 @@ describe("loadPipelineConfig", () => {
     );
     expect(config.profiles["moka-researcher"].timeout_ms).toBe(900_000);
     expect(config.profiles["moka-schedule-planner"].timeout_ms).toBe(300_000);
-    expect(config.profiles["moka-test-writer"].timeout_ms).toBe(900_000);
-    expect(config.profiles["moka-code-writer"].timeout_ms).toBe(900_000);
+    expect(config.profiles["moka-test-writer"].timeout_ms).toBe(1_800_000);
+    expect(config.profiles["moka-code-writer"].timeout_ms).toBe(1_800_000);
     expect(config.profiles["moka-researcher"].instructions.inline).toContain(
       "do not perform open-ended repository exploration"
     );
