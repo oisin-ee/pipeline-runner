@@ -83,6 +83,10 @@ const runnerCommandOptionsSchema = z
     fetch: z
       .custom<FetchLike>((value) => typeof value === "function")
       .optional(),
+    // PIPE-94.8: per-node resume override. Node ids listed here are re-executed
+    // even when the durable store already records them PASSED — the data-driven
+    // escape hatch from the default skip-already-passed resume behaviour.
+    forceRerunNodeIds: z.array(z.string().min(1)).optional(),
     payloadFile: z.string().min(1),
     resolvePersistence: z
       .custom<ResolveRunnerPersistence>((value) => typeof value === "function")
@@ -236,6 +240,27 @@ function runRunnerCommandEffect(
       { phase: "git.workspace.prepare", status: "finish" },
       "git.workspace.prepare finish"
     );
+    // PIPE-94.6/94.8: resolve the durable substrate (db.url-gated) up front so a
+    // resume re-submission can short-circuit nodes already recorded PASSED before
+    // doing any expensive work (creds, config, schedule compile, dependency merge,
+    // setup, task run). The persisted result is the source of truth; resolution
+    // never fails the runner (it returns `undefined` when no substrate exists).
+    const persistence = yield* resolveRunnerPersistenceEffect(
+      options.resolvePersistence,
+      { runId: payload.run.id, worktreePath },
+      logger
+    );
+    const skipped = yield* skipAlreadyPassedNodeEffect({
+      descriptorNodeId: descriptor.nodeId,
+      forceRerunNodeIds: options.forceRerunNodeIds ?? [],
+      logger,
+      payload,
+      persistence,
+      sink,
+    });
+    if (skipped) {
+      return EXIT_PASS;
+    }
     yield* prepareOpencodeCredentialsPhase(logger);
     logger.info({ phase: "config.load", status: "start" }, "config.load start");
     const baseConfig = yield* attemptSync(() =>
@@ -321,16 +346,11 @@ function runRunnerCommandEffect(
       },
       "setup.commands finish"
     );
-    // PIPE-94.6: resolve the durable substrate (db.url-gated) so the runner
-    // persists this node's result alongside the git node-ref + event stream. The
-    // run-control node-status writes ride the SAME projection the local run uses
+    // PIPE-94.6: the durable substrate (resolved above) persists this node's
+    // result alongside the git node-ref + event stream. The run-control
+    // node-status writes ride the SAME projection the local run uses
     // (createRunStoreRuntimeReporter wrapping the event-sink reporter), so the
     // external console stream is unchanged and status is recorded identically.
-    const persistence = yield* resolveRunnerPersistenceEffect(
-      options.resolvePersistence,
-      { runId: payload.run.id, worktreePath },
-      logger
-    );
     const recordToSink = (event: PipelineRuntimeEvent): void => {
       sink.recordRuntimeEvent(event);
     };
@@ -465,6 +485,59 @@ function resolveRunnerPersistenceEffect(
       })
     )
   );
+}
+
+/**
+ * PIPE-94.8: origin-aware resume short-circuit. A remote-origin `moka resume`
+ * re-submits the FULL DAG under the same runId (createRun is idempotent); each
+ * runner pod checks the durable store first and no-ops any node already recorded
+ * PASSED — no re-execution, no node-ref push — so re-submitting the whole graph
+ * only does the remaining work while passed nodes' git refs already exist. A node
+ * id in `forceRerunNodeIds` (the per-node override, default none) is re-executed
+ * even when passed. Returns `true` when the node was skipped (caller exits PASS);
+ * `false` to proceed with normal execution. No-op without a durable substrate.
+ */
+function skipAlreadyPassedNodeEffect(input: {
+  descriptorNodeId: string;
+  forceRerunNodeIds: string[];
+  logger: pino.Logger;
+  payload: ReturnType<typeof parseRunnerCommandPayload>;
+  persistence: RunnerDurablePersistence | undefined;
+  sink: ReturnType<typeof createRunnerEventSink>;
+}): Effect.Effect<boolean, never, RunnerCommandIoService> {
+  const { descriptorNodeId, forceRerunNodeIds, logger, payload, persistence } =
+    input;
+  if (persistence === undefined) {
+    return Effect.succeed(false);
+  }
+  if (forceRerunNodeIds.includes(descriptorNodeId)) {
+    logger.info(
+      { nodeId: descriptorNodeId, phase: "node.skip", status: "force-rerun" },
+      "node.skip overridden — forced re-run of an already-passed node"
+    );
+    return Effect.succeed(false);
+  }
+  const record = persistence.durableStore.get(payload.run.id, descriptorNodeId);
+  if (record?.result.status !== "passed") {
+    return Effect.succeed(false);
+  }
+  return Effect.gen(function* () {
+    logger.info(
+      {
+        nodeId: descriptorNodeId,
+        phase: "node.skip",
+        status: "already-passed",
+      },
+      "node.skip — node already passed in durable store, no re-execution"
+    );
+    input.sink.recordRunnerCommandPhase(
+      "task.skip",
+      `Skipping already-passed ${descriptorNodeId}`,
+      { taskId: descriptorNodeId, workflowId: payload.workflow.id }
+    );
+    yield* flushAndReport(input.sink, logger);
+    return true;
+  });
 }
 
 function defaultRunnerPersistenceResolver(
