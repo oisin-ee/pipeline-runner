@@ -124,10 +124,10 @@
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "bun run build:cli",
+    "build": "nub run build:cli",
     "check": "ultracite check",
     "fix": "ultracite fix",
-    "prepack": "bun run build:cli"
+    "prepack": "nub run build:cli"
   },
   "type": "module",
   "version": "0.0.0-development",
@@ -138,7 +138,17 @@
   "author": "",
   "license": "ISC",
   "engines": {
-    "node": ">=22.13.0",
-    "bun": ">=1.1.0"
+    "node": ">=22.13.0"
+  },
+  "packageManager": "nub@0.2.7",
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.2.7",
+      "onFail": "warn"
+    }
+  },
+  "allowBuilds": {
+    "tree-sitter-typescript": false
   }
 }

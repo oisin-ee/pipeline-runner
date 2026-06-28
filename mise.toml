@@ -1,23 +1,30 @@
 [tools]
-bun = "1.3"
+"npm:@nubjs/nub" = "0.2.7"
+
+[settings]
+# .node-version is the single Node source of truth for both nub (its runtime) and
+# mise (needed to install npm: backend tools like @nubjs/nub). Without this, mise
+# does not read .node-version and the npm: backend fails in a clean env/CI with
+# "npm may be required but was not found".
+idiomatic_version_file_enable_tools = ["node"]
 
 [tasks.test]
-run = "bun run vitest run"
+run = "nub run test"
 
 [tasks.typecheck]
-run = "bun run tsc --noEmit"
+run = "nub run typecheck"
 
 [tasks.lint]
-run = "bun run check"
+run = "nub run check"
 
 [tasks.format]
-run = "bun run fix"
+run = "nub run fix"
 
 [tasks.build]
-run = "bun run build:cli"
+run = "nub run build:cli"
 
 [tasks."pipeline:run"]
-run = "bun src/index.ts pipe"
+run = "nub src/index.ts pipe"
 
 # Interactive runner inner loop (INFRA-072.04, replaces `devspace dev --profile
 # runner`). `mise run dev` applies the runner Deployment (k8s/runner-dev) into
