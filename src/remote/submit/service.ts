@@ -7,6 +7,7 @@ import type {
   ParsedMokaWithRun,
 } from "../../moka-submit";
 import { resolveRunControlStore } from "../../run-control/run-control-store";
+import { buildRemoteRunCreateRequest } from "../../run-control/run-record";
 import {
   type MokaWorkflowSubmit,
   submitCompiledMokaWorkflow,
@@ -92,14 +93,14 @@ async function defaultUpsertRunRecord(
       Effect.scoped(
         resolveRunControlStore(dbUrl, worktreePath ?? "").pipe(
           Effect.flatMap((store) =>
-            store.createRun({
-              effort: "normal",
-              mode: "write",
-              nodeIds: [],
-              runId: plan.runId,
-              schedule: plan.scheduleYaml,
-              target: "remote",
-            })
+            store.createRun(
+              buildRemoteRunCreateRequest({
+                config: plan.config,
+                runId: plan.runId,
+                scheduleYaml: plan.scheduleYaml,
+                worktreePath,
+              })
+            )
           )
         )
       )

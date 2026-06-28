@@ -42,7 +42,7 @@ export function createRunnerLifecycleContextEffect(
       options.cwd
     );
     const config = yield* loadRunnerLifecycleConfigEffect(worktreePath);
-    const compiled = yield* compileRunnerScheduleEffect(
+    const { compiled, scheduleYaml } = yield* compileRunnerScheduleEffect(
       config,
       options.scheduleFile,
       worktreePath
@@ -57,7 +57,7 @@ export function createRunnerLifecycleContextEffect(
       worktreePath,
     });
 
-    return { compiled, context, payload, sink, worktreePath };
+    return { compiled, context, payload, scheduleYaml, sink, worktreePath };
   });
 }
 
@@ -85,25 +85,27 @@ function prepareRunnerWorktreeEffect(
   });
 }
 
+interface CompiledRunnerSchedule {
+  compiled: ReturnType<typeof compileScheduleArtifact>;
+  scheduleYaml: string;
+}
+
 function compileRunnerScheduleEffect(
   config: ReturnType<typeof loadPipelineConfig>,
   scheduleFile: string,
   worktreePath: string
-): Effect.Effect<
-  ReturnType<typeof compileScheduleArtifact>,
-  unknown,
-  RunnerCommandIoService
-> {
+): Effect.Effect<CompiledRunnerSchedule, unknown, RunnerCommandIoService> {
   return Effect.gen(function* () {
     const io = yield* RunnerCommandIoService;
-    const scheduleRaw = yield* io.readText(scheduleFile);
-    return yield* attemptSync(() =>
+    const scheduleYaml = yield* io.readText(scheduleFile);
+    const compiled = yield* attemptSync(() =>
       compileScheduleArtifact(
         config,
-        parseScheduleArtifact(scheduleRaw, scheduleFile),
+        parseScheduleArtifact(scheduleYaml, scheduleFile),
         worktreePath
       )
     );
+    return { compiled, scheduleYaml };
   });
 }
 
@@ -256,6 +258,8 @@ export interface RunnerLifecycleContext {
   compiled: ReturnType<typeof compileScheduleArtifact>;
   context: RuntimeContext;
   payload: ReturnType<typeof parseRunnerCommandPayload>;
+  /** Raw schedule YAML as read from the mounted schedule file. */
+  scheduleYaml: string;
   sink: ReturnType<typeof createRunnerEventSink>;
   worktreePath: string;
 }
