@@ -1,10 +1,10 @@
 ---
 id: PIPE-91
 title: 'Epic: moka Layer B — durable substrate + node-stepping CLI'
-status: Done
+status: To Do
 assignee: []
 created_date: '2026-06-26 17:20'
-updated_date: '2026-06-26 23:13'
+updated_date: '2026-06-28 09:03'
 labels:
   - epic
 dependencies: []
@@ -37,3 +37,16 @@ Non-goals (NOT this epic): one-shot planner + re-plan escalation (design decisio
 
 Open questions for the user (surface before build): (a) cluster test-DB provisioning — which cluster Postgres + credentials do dev + CI integration tests use, how are creds delivered to the runner, and is a dedicated test database/schema provisioned; (b) durability.enabled deprecation path — confirm the legacy pipeline.yaml durability block should warn-and-ignore (vs hard-error) on load; (c) run-state isolation mechanism — per-test runId prefix vs test-scoped schema as the contention guard on the shared DB. Design: docs/moka-orchestrator-design.md.
 <!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 No default Moka runtime path writes generated schedules, run manifests, status, events, node artifacts, or generated .pipeline/.gitignore into the working repository -- Evidence: fresh git worktree integration test asserts git status has no .pipeline runtime paths after run, next-node, submit-result, and resume
+- [ ] #2 Moka DB is the source of truth for generated schedules, manifests, events, and node results -- Evidence: Postgres integration reads manifest.schedule from moka_run_control_run and node results from moka_durable_node_record by runId
+- [ ] #3 CLI/docs no longer require .pipeline/runs/<runId>/schedule.yaml for generated runtime state -- Evidence: rg over README.md docs src tests finds no active runtime guidance requiring .pipeline/runs schedule artifacts
+<!-- AC:END -->
+
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 All PIPE-91 open child tickets are Done with per-criterion evidence
+- [ ] #2 Dispatch final proof shows a fresh repo remains free of .pipeline runtime state
+<!-- DOD:END -->
