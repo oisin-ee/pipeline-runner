@@ -57,6 +57,14 @@ export function createRunEffect(
     );
     const paths = runPaths(input.workspaceRoot, runId);
 
+    // Idempotency: if the manifest file already exists return it unchanged so
+    // both `moka submit` and `runner-lifecycle workflow.start` can safely call
+    // createRun for the same runId without resetting the event log.
+    const existingJson = yield* readOptionalFileEffect(paths.manifest);
+    if (existingJson !== undefined) {
+      return yield* parseManifestJsonEffect(existingJson);
+    }
+
     yield* Effect.sync(() =>
       ensurePipelineWorkspaceIgnore(input.workspaceRoot)
     );

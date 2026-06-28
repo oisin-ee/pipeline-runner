@@ -119,24 +119,25 @@ function createRun(
       try: () => buildBaseManifest(input),
     });
 
+    // Idempotent upsert: DO NOTHING on conflict preserves the existing row and
+    // its event log. Both `moka submit` and `runner-lifecycle workflow.start`
+    // may call createRun for the same runId; the first writer wins atomically.
     yield* dbEffect(() =>
       db
         .insert(runControlRun)
         .values({ manifest, runId: manifest.runId })
-        .onConflictDoUpdate({
-          set: { manifest },
-          target: runControlRun.runId,
-        })
-    );
-    // `createRun` resets a run, so drop any prior event log (the file store
-    // truncates `events.jsonl`).
-    yield* dbEffect(() =>
-      db
-        .delete(runControlEvent)
-        .where(eq(runControlEvent.runId, manifest.runId))
+        .onConflictDoNothing()
     );
 
-    return manifest;
+    // Read back the canonical manifest — may be the row just inserted or the
+    // pre-existing one when the insert was a no-op due to conflict.
+    const existing = yield* readRun(db, manifest.runId);
+    if (existing === undefined) {
+      return yield* Effect.fail(
+        new Error(`Run ${manifest.runId} not found after createRun upsert.`)
+      );
+    }
+    return existing;
   });
 }
 

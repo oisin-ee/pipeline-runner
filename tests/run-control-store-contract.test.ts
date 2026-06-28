@@ -357,5 +357,64 @@ for (const backend of backends) {
       );
       expect(missing).toBeUndefined();
     });
+
+    // AC1: createRun is idempotent — second call returns the same manifest and
+    // does not reset the event log accumulated between the two calls.
+    it("createRun is idempotent — second call returns the existing manifest without resetting events", async () => {
+      const id = world.runId("idempotent");
+      const create: CreateRunRequest = {
+        effort: "normal",
+        mode: "write",
+        nodeIds: ["a", "b"],
+        runId: id,
+        target: "local",
+      };
+
+      const first = await run(world.make().createRun(create));
+
+      // Record an event between the two createRun calls.
+      await run(
+        world.make().recordEvent({
+          event: {
+            at: "2026-06-28T00:00:00.000Z",
+            status: "running",
+            type: "run.status",
+          },
+          runId: id,
+        })
+      );
+
+      // Second call — must not error, must not reset the event log.
+      const second = await run(world.make().createRun(create));
+      expect(second.runId).toBe(first.runId);
+      expect(second.nodes).toEqual(first.nodes);
+      expect(second.status).toBe(first.status);
+
+      // Events appended between the two createRun calls survive.
+      const replayed = await run(world.make().readRun({ runId: id }));
+      expect(replayed?.status).toBe("running");
+    });
+
+    // AC2: createRun persists manifest.schedule when provided; readRun returns it.
+    it("createRun persists manifest.schedule; readRun returns it round-trip", async () => {
+      const id = world.runId("schedule");
+      const scheduleYaml =
+        "kind: pipeline-schedule\nversion: 1\nschedule_id: ac2-test\ngenerated_at: 2026-06-28T00:00:00.000Z\nsource_entrypoint: quick\nroot_workflow: root\ntask: test";
+
+      await run(
+        world.make().createRun({
+          effort: "normal",
+          mode: "write",
+          nodeIds: ["a"],
+          runId: id,
+          schedule: scheduleYaml,
+          target: "local",
+        })
+      );
+
+      // Fresh handle — proves durable round-trip, not in-memory state.
+      const replayed = await run(world.make().readRun({ runId: id }));
+      expect(replayed?.schedule).toBe(scheduleYaml);
+    });
   });
 }
