@@ -6,6 +6,7 @@ import pino from "pino";
 import postgres from "postgres";
 import { createSerializedWriteQueue } from "../../../serialized-write-queue";
 import type { RunJournal } from "../../run-journal";
+import { recordNodeResult } from "../../step/step-node";
 import type { DurableNodeRecord, DurableRunStore } from "../durable-store";
 import { durableNodeRecord, durableRun } from "./schema";
 
@@ -182,7 +183,7 @@ export async function postgresDurableRunStore(
     }
   }
 
-  return {
+  const runStore: PostgresDurableRunStore = {
     async close() {
       try {
         await flush();
@@ -210,20 +211,17 @@ export async function postgresDurableRunStore(
       return passedResultsForRun(runId);
     },
 
+    // The journal adapter's record path delegates to the step-node core's
+    // recordNodeResult — the single owner of the terminal-result write shape —
+    // so the local scheduler (WorkflowSchedulerInput.journal) and the stepping
+    // engines share exactly one record path (PIPE-94.7).
     toRunJournal(runId): RunJournal {
       return {
-        record: (result) => {
-          const record: DurableNodeRecord = {
-            criteria: [],
-            inputs: undefined,
-            recordedAt: new Date().toISOString(),
-            result,
-          };
-          makeBucket(mirror, runId).set(result.nodeId, record);
-          enqueueWrite(runId, result.nodeId, record);
-        },
+        record: (result) =>
+          recordNodeResult({ result, runId, store: runStore }),
         resumeCompleted: () => passedResultsForRun(runId),
       };
     },
   };
+  return runStore;
 }

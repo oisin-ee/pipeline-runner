@@ -1,5 +1,6 @@
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
 import type { RunJournal } from "../run-journal";
+import { recordNodeResult } from "../step/step-node";
 
 /**
  * PIPE-91.1: the typed record persisted for each node execution. Carries the
@@ -76,7 +77,7 @@ export function inMemoryDurableRunStore(): DurableRunStore {
       .map((rec) => rec.result);
   }
 
-  return {
+  const runStore: DurableRunStore = {
     get(runId, nodeId) {
       return store.get(runId)?.get(nodeId);
     },
@@ -92,18 +93,17 @@ export function inMemoryDurableRunStore(): DurableRunStore {
       return passedResultsForRun(runId);
     },
 
+    // The journal adapter's record path delegates to the step-node core's
+    // recordNodeResult — the single owner of the terminal-result write shape —
+    // so the local scheduler (WorkflowSchedulerInput.journal) and the stepping
+    // engines share exactly one record path (PIPE-94.7).
     toRunJournal(runId): RunJournal {
       return {
-        record: (result) => {
-          makeBucket(store, runId).set(result.nodeId, {
-            criteria: [],
-            inputs: undefined,
-            recordedAt: new Date().toISOString(),
-            result,
-          });
-        },
+        record: (result) =>
+          recordNodeResult({ result, runId, store: runStore }),
         resumeCompleted: () => passedResultsForRun(runId),
       };
     },
   };
+  return runStore;
 }

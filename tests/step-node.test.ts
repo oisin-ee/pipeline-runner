@@ -7,6 +7,7 @@ import type { NextNodeEnvelope } from "../src/runtime/node-protocol/node-protoco
 import type { WorkflowScheduleNode } from "../src/runtime/scheduler";
 import {
   buildEnvelopeForNode,
+  recordNodeResult,
   type StepNodeDeps,
   stepNode,
   stepRun,
@@ -93,6 +94,28 @@ describe("buildEnvelopeForNode", () => {
         "ghost"
       )
     ).toBeUndefined();
+  });
+});
+
+describe("toRunJournal record path — PIPE-94.7: one record owner", () => {
+  it("records a local-run result through the same path recordNodeResult writes, retrievable via store.get", () => {
+    const result = passedResult("plan", "via journal");
+
+    // Local-run path: the scheduler records terminal results through the
+    // journal adapter (WorkflowSchedulerInput.journal = store.toRunJournal).
+    const viaJournalStore = inMemoryDurableRunStore();
+    viaJournalStore.toRunJournal(RUN_ID).record(result);
+
+    // Step-node core path: recordNodeResult writes the canonical record shape.
+    const viaCoreStore = inMemoryDurableRunStore();
+    recordNodeResult({ result, runId: RUN_ID, store: viaCoreStore });
+
+    const viaJournal = viaJournalStore.get(RUN_ID, "plan");
+    const viaCore = viaCoreStore.get(RUN_ID, "plan");
+    expect(viaJournal?.criteria).toEqual(viaCore?.criteria);
+    expect(viaJournal?.inputs).toEqual(viaCore?.inputs);
+    expect(viaJournal?.result).toEqual(viaCore?.result);
+    expect(viaJournal?.result).toEqual(result);
   });
 });
 
