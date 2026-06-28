@@ -18,6 +18,8 @@ interface PathReference {
 type RuntimePathResolver = (worktreePath: string, path: string) => string;
 type McpServer = ReturnType<typeof gatewayServerForProfile>[string];
 
+const OPEN_PULL_REQUEST_BUILTIN = "open-pull-request";
+
 interface ProfileGrantDescriptor {
   label: string;
   values: (profile: AgentProfile | undefined) => string[] | undefined;
@@ -107,6 +109,7 @@ function agentPromptSections(inputs: {
     ...runtimeInstructionSections(instructions, repoMap),
     ...nodeIdentitySections(context, node),
     renderTaskContext(effectiveTaskContext(node, context)),
+    renderDeferredDeliverySection(node, context),
     renderProfileOutputContract(profile, context.worktreePath),
     renderGateOutputContract(node),
     "",
@@ -184,21 +187,24 @@ function renderDependencySection(
 }
 
 function renderGateOutputContract(node: PlannedWorkflowNode): string {
-  const gates = node.gates ?? [];
-  const hasAcceptanceGate = gates.some(
-    (gate) =>
-      gate.kind === "acceptance" &&
-      (gate.target === undefined || gate.target === "stdout")
-  );
-  if (hasAcceptanceGate) {
+  if (hasStdoutAcceptanceGate(node)) {
     return acceptanceGateOutputContract();
   }
+  const gates = node.gates ?? [];
   const hasVerdictGate = gates.some(
     (gate) =>
       gate.kind === "verdict" &&
       (gate.target === undefined || gate.target === "stdout")
   );
   return hasVerdictGate ? verdictGateOutputContract() : "";
+}
+
+function hasStdoutAcceptanceGate(node: PlannedWorkflowNode): boolean {
+  return (node.gates ?? []).some(
+    (gate) =>
+      gate.kind === "acceptance" &&
+      (gate.target === undefined || gate.target === "stdout")
+  );
 }
 
 function acceptanceGateOutputContract(): string {
@@ -210,6 +216,60 @@ function acceptanceGateOutputContract(): string {
     'Each "acceptance" entry must include "id", "verdict" ("PASS" or "FAIL"), and non-empty "evidence" (string array) for every canonical acceptance criterion id.',
     'Use top-level "verdict":"PASS" only when every required acceptance criterion passes with evidence.',
   ].join("\n");
+}
+
+function renderDeferredDeliverySection(
+  node: PlannedWorkflowNode,
+  context: Pick<RuntimeContext, "plan">
+): string {
+  if (hasStdoutAcceptanceGate(node)) {
+    return "";
+  }
+  const deliveryNodeIds = downstreamBuiltinIds(
+    node,
+    context.plan.topologicalOrder,
+    OPEN_PULL_REQUEST_BUILTIN
+  );
+  if (deliveryNodeIds.length === 0) {
+    return "";
+  }
+  return [
+    "",
+    "Deferred delivery checks:",
+    `- Downstream node(s) ${deliveryNodeIds.join(", ")} own pull-request creation after this node.`,
+    "- Do not fail this node solely because a pull request does not exist yet.",
+    "- Verify only code, tests, review evidence, and artifacts available before delivery.",
+    "- Leave PR existence/URL evidence to downstream delivery or acceptance nodes.",
+  ].join("\n");
+}
+
+function downstreamBuiltinIds(
+  node: PlannedWorkflowNode,
+  topologicalOrder: readonly PlannedWorkflowNode[],
+  builtin: string
+): string[] {
+  const nodesById = new Map(
+    topologicalOrder.map((candidate) => [candidate.id, candidate])
+  );
+  const seen = new Set<string>();
+  const pending = [...node.dependents];
+  const matches: string[] = [];
+  while (pending.length > 0) {
+    const id = pending.shift();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const candidate = nodesById.get(id);
+    if (!candidate) {
+      continue;
+    }
+    if (candidate.kind === "builtin" && candidate.builtin === builtin) {
+      matches.push(candidate.id);
+    }
+    pending.push(...candidate.dependents);
+  }
+  return matches;
 }
 
 function verdictGateOutputContract(): string {

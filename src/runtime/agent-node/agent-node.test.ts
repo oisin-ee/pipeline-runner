@@ -12,6 +12,7 @@ function agentExecutionContext(
   node: PlannedWorkflowNode,
   executor: RuntimeContext["executor"]
 ): RuntimeContext {
+  const topologicalOrder = [node];
   return {
     agentInvocations: [],
     config: {
@@ -62,7 +63,7 @@ function agentExecutionContext(
     }),
     plan: {
       graph: { node: () => node },
-      topologicalOrder: [node],
+      topologicalOrder,
       workflowId: "wf",
     } as unknown as RuntimeContext["plan"],
     task: "do the task",
@@ -81,6 +82,18 @@ function agentNode(): PlannedWorkflowNode {
     needs: [],
     profile: "moka-code-writer",
   } as unknown as PlannedWorkflowNode;
+}
+
+function openPullRequestNode(): PlannedWorkflowNode {
+  return {
+    builtin: "open-pull-request",
+    children: [],
+    dependents: [],
+    id: "open-pr",
+    index: 1,
+    kind: "builtin",
+    needs: ["writer"],
+  };
 }
 
 describe("runtime agent node", () => {
@@ -147,6 +160,55 @@ describe("runtime agent node", () => {
         "- A: Do it",
       ].join("\n")
     );
+  });
+
+  it("tells pre-delivery verifier nodes not to fail on PR absence", async () => {
+    const prNode = openPullRequestNode();
+    const node: PlannedWorkflowNode = {
+      ...agentNode(),
+      dependents: [prNode.id],
+      gates: [{ id: "verdict", kind: "verdict", target: "stdout" }],
+      profile: "moka-code-writer",
+    };
+    let prompt = "";
+    const context = agentExecutionContext(node, (plan) => {
+      prompt = promptFromPlan(plan);
+      return { exitCode: 0, stdout: opencodeText("done") };
+    });
+    context.plan = {
+      ...context.plan,
+      topologicalOrder: [node, prNode],
+    };
+
+    await executeAgentNode(node, context, 1);
+
+    expect(prompt).toContain("Deferred delivery checks:");
+    expect(prompt).toContain(
+      "Do not fail this node solely because a pull request does not exist yet."
+    );
+  });
+
+  it("keeps acceptance gate prompts responsible for downstream PR acceptance", async () => {
+    const prNode = openPullRequestNode();
+    const node: PlannedWorkflowNode = {
+      ...agentNode(),
+      dependents: [prNode.id],
+      gates: [{ id: "acceptance", kind: "acceptance", target: "stdout" }],
+      profile: "moka-code-writer",
+    };
+    let prompt = "";
+    const context = agentExecutionContext(node, (plan) => {
+      prompt = promptFromPlan(plan);
+      return { exitCode: 0, stdout: opencodeText("done") };
+    });
+    context.plan = {
+      ...context.plan,
+      topologicalOrder: [node, prNode],
+    };
+
+    await executeAgentNode(node, context, 1);
+
+    expect(prompt).not.toContain("Deferred delivery checks:");
   });
 
   it("renders inherited outputs that are not direct dependencies", async () => {
