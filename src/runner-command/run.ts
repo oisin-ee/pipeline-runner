@@ -1,8 +1,9 @@
 import { resolve } from "node:path";
-import { Effect } from "effect";
+import { Effect, type Scope } from "effect";
 import pino from "pino";
 import { z } from "zod";
 import { loadPipelineConfig, type PipelineConfig } from "../config";
+import { loadMokaDbUrl } from "../moka-global-config";
 import { findPlannedNode } from "../planned-node";
 import {
   indexPlannedNodesById,
@@ -13,18 +14,32 @@ import {
   parseScheduleArtifact,
 } from "../planning/generate";
 import {
+  type RunControlStore,
+  resolveRunControlStore,
+} from "../run-control/run-control-store";
+import {
+  createRunStoreRuntimeReporter,
+  type RunStoreRuntimeReporter,
+} from "../run-control/runtime-reporter";
+import {
   parseRunnerCommandPayload,
   RunnerCommandPayloadValidationError,
   type RunnerTask,
   resolveRunnerEventSinkAuthToken,
 } from "../runner-command-contract";
 import { createRunnerEventSink } from "../runner-event-sink";
-import type { RuntimeNodeResult } from "../runtime/contracts";
+import type {
+  PipelineRuntimeEvent,
+  RuntimeNodeResult,
+} from "../runtime/contracts";
+import { resolveDurableStore } from "../runtime/durable-store/acquisition";
+import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import { EXIT_INFRA } from "../runtime/exit-codes";
 import {
   RunnerCommandIoService,
   RunnerCommandIoServiceLive,
 } from "../runtime/services/runner-command-io-service";
+import { recordNodeResult } from "../runtime/step/step-node";
 import {
   DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH,
   readRunnerTaskDescriptorEffect,
@@ -39,6 +54,28 @@ type FetchLike = (
   init?: RequestInit
 ) => Promise<Response>;
 
+/**
+ * PIPE-94.6: the two durable stores the runner persists each node result
+ * through. `durableStore` carries the canonical `(runId, nodeId)` node record
+ * (results — drives `moka next node`/`status`/`resume`); `runControlStore`
+ * carries the event-sourced manifest the run-control surface reads for status.
+ */
+interface RunnerDurablePersistence {
+  readonly durableStore: DurableRunStore;
+  readonly runControlStore: RunControlStore;
+}
+
+/**
+ * PIPE-94.6: injectable override for durable-store resolution (mirrors PIPE-94.5
+ * `upsertRunRecord`). Returns the resolved stores, or `undefined` when no
+ * durable substrate is configured for this pod. Tests inject in-memory/file
+ * stores without touching `loadMokaDbUrl` or Postgres.
+ */
+type ResolveRunnerPersistence = (context: {
+  runId: string;
+  worktreePath: string;
+}) => Effect.Effect<RunnerDurablePersistence | undefined, unknown, Scope.Scope>;
+
 const runnerCommandOptionsSchema = z
   .object({
     cwd: z.string().min(1).optional(),
@@ -47,6 +84,9 @@ const runnerCommandOptionsSchema = z
       .custom<FetchLike>((value) => typeof value === "function")
       .optional(),
     payloadFile: z.string().min(1),
+    resolvePersistence: z
+      .custom<ResolveRunnerPersistence>((value) => typeof value === "function")
+      .optional(),
     scheduleFile: z.string().min(1),
     stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
     stdout: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
@@ -95,7 +135,9 @@ export function runRunnerCommand(
   const options = parsedOptions.data;
   return Effect.runPromise(
     Effect.provide(
-      runRunnerCommandEffect(options, { logger, stderr, stdout }),
+      Effect.scoped(
+        runRunnerCommandEffect(options, { logger, stderr, stdout })
+      ),
       RunnerCommandIoServiceLive
     )
   );
@@ -136,7 +178,7 @@ function resolveRunnerTargetNode(
 function runRunnerCommandEffect(
   options: RunnerCommandOptions,
   runtime: { logger: pino.Logger; stderr: OutputStream; stdout: OutputStream }
-): Effect.Effect<number, never, RunnerCommandIoService> {
+): Effect.Effect<number, never, RunnerCommandIoService | Scope.Scope> {
   return Effect.gen(function* () {
     const io = yield* RunnerCommandIoService;
     const logger = runtime.logger;
@@ -279,6 +321,27 @@ function runRunnerCommandEffect(
       },
       "setup.commands finish"
     );
+    // PIPE-94.6: resolve the durable substrate (db.url-gated) so the runner
+    // persists this node's result alongside the git node-ref + event stream. The
+    // run-control node-status writes ride the SAME projection the local run uses
+    // (createRunStoreRuntimeReporter wrapping the event-sink reporter), so the
+    // external console stream is unchanged and status is recorded identically.
+    const persistence = yield* resolveRunnerPersistenceEffect(
+      options.resolvePersistence,
+      { runId: payload.run.id, worktreePath },
+      logger
+    );
+    const recordToSink = (event: PipelineRuntimeEvent): void => {
+      sink.recordRuntimeEvent(event);
+    };
+    const runStoreReporter = persistence
+      ? createRunStoreRuntimeReporter({
+          reporter: recordToSink,
+          runId: payload.run.id,
+          store: persistence.runControlStore,
+          workspaceRoot: worktreePath,
+        })
+      : undefined;
     sink.recordRunnerCommandPhase(
       "task.start",
       `Starting ${descriptor.nodeId}`,
@@ -302,7 +365,7 @@ function runRunnerCommandEffect(
       config: compiled.config,
       hookPolicy: payload.hookPolicy,
       nodeId: descriptor.nodeId,
-      reporter: (event) => sink.recordRuntimeEvent(event),
+      reporter: runStoreReporter?.reporter ?? recordToSink,
       runId: payload.run.id,
       task: taskText,
       workflowId: compiled.workflowId,
@@ -353,12 +416,167 @@ function runRunnerCommandEffect(
       }
     );
     yield* flushAndReport(sink, logger);
+    // PIPE-94.6: the durable substrate is the source of truth for status/results
+    // and is ADDITIVE — a store failure is logged and never changes the exit code
+    // (the node's real pass/fail still governs Argo's retry/handling).
+    yield* persistNodeResultEffect(
+      persistence,
+      runStoreReporter,
+      { nodeId: descriptor.nodeId, result, runId: payload.run.id },
+      logger
+    );
     return nodeProcessExitCode(result);
   }).pipe(
     Effect.catch((error) =>
       Effect.sync(() => runnerCommandErrorExitCode(error, runtime.logger))
     )
   );
+}
+
+/**
+ * PIPE-94.6: resolve the durable stores for in-pod persistence.
+ *
+ * Guard contract (mirrors PIPE-94.5 lifecycle):
+ *  - injected override present → delegate (tests / custom impls);
+ *  - db.url absent → log the deliberate skip + return `undefined` (no substrate);
+ *  - store resolution fails (e.g. Postgres unreachable) → log + return
+ *    `undefined` so the node still executes and returns its real exit code.
+ * Never fails the runner.
+ */
+function resolveRunnerPersistenceEffect(
+  override: ResolveRunnerPersistence | undefined,
+  context: { runId: string; worktreePath: string },
+  logger: pino.Logger
+): Effect.Effect<RunnerDurablePersistence | undefined, never, Scope.Scope> {
+  const resolver = override ?? defaultRunnerPersistenceResolver(logger);
+  return resolver(context).pipe(
+    Effect.catch((error) =>
+      Effect.sync((): RunnerDurablePersistence | undefined => {
+        logger.error(
+          {
+            error: errorMessageOf(error),
+            phase: "durable.persist",
+            runId: context.runId,
+            status: "resolve-failed",
+          },
+          "durable.persist resolve failed — node executes without persistence"
+        );
+        return;
+      })
+    )
+  );
+}
+
+function defaultRunnerPersistenceResolver(
+  logger: pino.Logger
+): ResolveRunnerPersistence {
+  return ({ runId, worktreePath }) =>
+    Effect.gen(function* () {
+      const dbUrl = loadMokaDbUrl();
+      if (dbUrl === undefined) {
+        logger.info(
+          { phase: "durable.persist", runId, status: "skip" },
+          "durable.persist skipped — db.url not configured"
+        );
+        return;
+      }
+      const durableStore = yield* resolveDurableStore(dbUrl, runId);
+      const runControlStore = yield* resolveRunControlStore(
+        dbUrl,
+        worktreePath
+      );
+      return { durableStore, runControlStore };
+    });
+}
+
+/**
+ * PIPE-94.6: persist the terminal node result. The DurableRunStore write goes
+ * through the step-node core's canonical {@link recordNodeResult} (the SAME path
+ * `stepNode`/`submit-result` use — runner-command is now a real caller of that
+ * core, not an island). The run-control node status was already projected during
+ * execution by the wrapped reporter; flushing it here drains those writes.
+ * No-op when no durable substrate is configured.
+ */
+function persistNodeResultEffect(
+  persistence: RunnerDurablePersistence | undefined,
+  runStoreReporter: RunStoreRuntimeReporter | undefined,
+  node: { nodeId: string; result: RuntimeNodeResult; runId: string },
+  logger: pino.Logger
+): Effect.Effect<void, never> {
+  if (persistence === undefined) {
+    return Effect.void;
+  }
+  return Effect.gen(function* () {
+    logger.info(
+      { nodeId: node.nodeId, phase: "durable.persist", status: "start" },
+      "durable.persist start"
+    );
+    yield* recordDurableNodeResultEffect(
+      persistence.durableStore,
+      node,
+      logger
+    );
+    yield* flushRunStoreReporterEffect(runStoreReporter, node, logger);
+    logger.info(
+      { nodeId: node.nodeId, phase: "durable.persist", status: "finish" },
+      "durable.persist finish"
+    );
+  });
+}
+
+function recordDurableNodeResultEffect(
+  store: DurableRunStore,
+  node: { nodeId: string; result: RuntimeNodeResult; runId: string },
+  logger: pino.Logger
+): Effect.Effect<void, never> {
+  return Effect.try({
+    catch: (error) => error,
+    try: () =>
+      recordNodeResult({ result: node.result, runId: node.runId, store }),
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        logger.error(
+          {
+            error: errorMessageOf(error),
+            nodeId: node.nodeId,
+            phase: "durable.persist",
+            status: "record-failed",
+          },
+          "durable.persist record failed — exit code unchanged"
+        );
+      })
+    )
+  );
+}
+
+function flushRunStoreReporterEffect(
+  runStoreReporter: RunStoreRuntimeReporter | undefined,
+  node: { nodeId: string; runId: string },
+  logger: pino.Logger
+): Effect.Effect<void, never> {
+  if (runStoreReporter === undefined) {
+    return Effect.void;
+  }
+  return runStoreReporter.flushEffect().pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        logger.error(
+          {
+            error: errorMessageOf(error),
+            nodeId: node.nodeId,
+            phase: "node.status.persist",
+            status: "flush-failed",
+          },
+          "node.status.persist flush failed — exit code unchanged"
+        );
+      })
+    )
+  );
+}
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function attemptSync<T>(try_: () => T): Effect.Effect<T, unknown> {
