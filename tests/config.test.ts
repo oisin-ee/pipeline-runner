@@ -466,6 +466,18 @@ describe("loadPipelineConfig", () => {
     expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
       "Only edit files matching test paths"
     );
+    expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
+      "This scheduled node is already dispatched by Moka"
+    );
+    expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
+      "Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor"
+    );
+    expect(config.profiles["moka-code-writer"].instructions.inline).toContain(
+      "This scheduled node is already dispatched by Moka"
+    );
+    expect(config.profiles["moka-code-writer"].instructions.inline).toContain(
+      "Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor"
+    );
     expect(config.profiles["moka-researcher"].timeout_ms).toBe(900_000);
     expect(config.profiles["moka-schedule-planner"].timeout_ms).toBe(300_000);
     expect(config.profiles["moka-test-writer"].timeout_ms).toBe(900_000);
