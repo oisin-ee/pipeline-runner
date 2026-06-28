@@ -6,7 +6,7 @@ import { runPipelineFromConfig } from "../pipeline-runtime";
 import { compileWorkflowPlan } from "../planning/compile";
 import {
   compileScheduleArtifact,
-  generateScheduleArtifact,
+  generateScheduleArtifactInMemory,
   parseScheduleArtifact,
 } from "../planning/generate";
 import { flattenNodes } from "../planning/graph";
@@ -256,21 +256,18 @@ async function runConfiguredPipeline(rawInputs: RunInputs): Promise<void> {
       await runAndPrintPipeline({ ...inputs, config });
       return;
     }
-    const result = await generateScheduleArtifact({
+    const result = await generateScheduleArtifactInMemory({
       config,
       entrypointId: scheduledEntrypoint,
       runId: inputs.runId,
       task: inputs.task,
       worktreePath: inputs.worktreePath,
     });
-    console.log(`Schedule generated: ${result.path}`);
-    const scheduleYaml = readFileSync(
-      resolve(inputs.worktreePath, result.path),
-      "utf8"
-    );
+    console.log("Schedule generated in memory");
+    const scheduleYaml = result.yaml;
     const compiled = compileScheduleArtifact(
       config,
-      parseScheduleArtifact(scheduleYaml, result.path),
+      parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
       inputs.worktreePath
     );
     await runAndPrintPipeline({
@@ -554,24 +551,22 @@ async function prepareDetachedRun(
     };
   }
 
-  const result = await generateScheduleArtifact({
+  const result = await generateScheduleArtifactInMemory({
     config: input.config,
     entrypointId: scheduledEntrypoint,
     runId: input.runId,
     task: input.task,
     worktreePath: input.worktreePath,
   });
-  console.log(`Schedule generated: ${result.path}`);
-  const schedule = resolve(input.worktreePath, result.path);
-  const scheduleYaml = readFileSync(schedule, "utf8");
+  console.log("Schedule generated in memory");
+  const scheduleYaml = result.yaml;
   const compiled = compileScheduleArtifact(
     input.config,
-    parseScheduleArtifact(scheduleYaml, result.path),
+    parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
     input.worktreePath
   );
   return {
     config: compiled.config,
-    schedule,
     scheduleArtifact: scheduleYaml,
     workflow: compiled.workflowId,
   };

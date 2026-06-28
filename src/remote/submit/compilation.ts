@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { buildCommandScheduleYaml } from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
 import type {
@@ -8,7 +7,7 @@ import type {
 } from "../../moka-submit";
 import {
   compileScheduleArtifact,
-  generateScheduleArtifact,
+  generateScheduleArtifactInMemory,
   parseScheduleArtifact,
 } from "../../planning/generate";
 import type {
@@ -20,7 +19,7 @@ import type {
 import { readScheduleFile } from "./io";
 
 export interface MokaSubmitCompilationDependencies {
-  generateSchedule?: typeof generateScheduleArtifact;
+  generateSchedule?: typeof generateScheduleArtifactInMemory;
   readFile?: (path: string) => string;
 }
 
@@ -114,7 +113,7 @@ async function graphScheduleYaml(
   }
   const worktreePath = requireScheduleWorktreePath(options);
   const generateSchedule =
-    dependencies.generateSchedule ?? generateScheduleArtifact;
+    dependencies.generateSchedule ?? generateScheduleArtifactInMemory;
   const schedule = await generateSchedule({
     config: withPullRequestDelivery(
       options.config,
@@ -126,7 +125,7 @@ async function graphScheduleYaml(
     task,
     worktreePath,
   });
-  return readScheduleFile(dependencies, resolve(worktreePath, schedule.path));
+  return schedule.yaml;
 }
 
 function readExplicitGraphScheduleYaml(

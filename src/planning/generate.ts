@@ -93,6 +93,11 @@ export interface GenerateScheduleResult {
   path: string;
 }
 
+export interface GenerateScheduleInMemoryResult {
+  artifact: ScheduleArtifact;
+  yaml: string;
+}
+
 type Workflow = PipelineConfig["workflows"][string];
 type WorkflowNode = Workflow["nodes"][number];
 
@@ -215,6 +220,16 @@ export function compileScheduleArtifact(
 export async function generateScheduleArtifact(
   options: GenerateScheduleOptions
 ): Promise<GenerateScheduleResult> {
+  const result = await generateScheduleArtifactInMemory(options);
+  return {
+    artifact: result.artifact,
+    path: persistScheduleArtifact(options.worktreePath, result.artifact),
+  };
+}
+
+export async function generateScheduleArtifactInMemory(
+  options: GenerateScheduleOptions
+): Promise<GenerateScheduleInMemoryResult> {
   const entrypoint = options.config.entrypoints[options.entrypointId];
   if (!(entrypoint && "schedule" in entrypoint)) {
     throw new ScheduleArtifactError(
@@ -273,7 +288,7 @@ export async function generateScheduleArtifact(
   compileScheduleArtifact(options.config, artifact, options.worktreePath);
   return {
     artifact,
-    path: persistScheduleArtifact(options.worktreePath, artifact),
+    yaml: stringify(artifact),
   };
 }
 

@@ -9,10 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { stringify } from "yaml";
 import { parsePipelineConfigParts, type SchedulingRole } from "../src/config";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
+  generateScheduleArtifactInMemory,
   parseScheduleArtifact,
   pruneOutOfScopeDependencies,
   type ScheduleArtifact,
@@ -308,6 +310,155 @@ async function generateScheduleWithPrompt(options: {
 }
 
 describe("schedule artifacts", () => {
+  it("generates schedule artifact YAML in memory without creating .pipeline", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-in-memory-"));
+    const schedule = buildScheduleYaml({
+      nodes: [
+        "- id: research",
+        "  kind: agent",
+        "  profile: moka-researcher",
+        "- id: implement",
+        "  kind: agent",
+        "  profile: moka-code-writer",
+        "  needs: [research]",
+      ],
+      scheduleId: "run-in-memory",
+      task: "Generate in-memory schedule",
+    });
+
+    try {
+      const result = await generateScheduleArtifactInMemory({
+        config: config(),
+        entrypointId: "execute",
+        executor: () => ({ exitCode: 0, stdout: schedule }),
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-in-memory",
+        task: "Generate in-memory schedule",
+        worktreePath: dir,
+      });
+
+      expect(result.artifact.schedule_id).toBe("run-in-memory");
+      expect(result.yaml).toBe(stringify(result.artifact));
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+      expect(() =>
+        compileScheduleArtifact(
+          config(),
+          parseScheduleArtifact(result.yaml, "schedule.yaml"),
+          dir
+        )
+      ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs repair, task context hydration, and model fallback before returning in-memory YAML", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "pipeline-schedule-in-memory-passes-")
+    );
+    writeBacklogTask(
+      dir,
+      "PIPE-41.7",
+      "Propagate node context",
+      "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->",
+      { parentTaskId: "" }
+    );
+    const parsedConfig = config();
+    parsedConfig.schedules["execute-schedule"] = {
+      ...parsedConfig.schedules["execute-schedule"],
+      node_catalog: "execute",
+    };
+    parsedConfig.scheduler.node_catalogs.execute = {
+      nodes: {
+        "pipe-41-7-green": {
+          category: "green",
+          models: ["openai/gpt-5.1", "openai/gpt-5.1-mini"],
+          profile: "moka-code-writer",
+        },
+      },
+      required_categories: [],
+    };
+    const invalidSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-in-memory-passes
+source_entrypoint: execute
+task: PIPE-41.7
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: inspect
+        kind: command
+        command: backlog task PIPE-41.7 --plain
+`;
+    const repairedSchedule = `
+version: 1
+kind: pipeline-schedule
+schedule_id: run-in-memory-passes
+source_entrypoint: execute
+task: PIPE-41.7
+generated_at: 2026-06-03T12:00:00.000Z
+root_workflow: root
+workflows:
+  root:
+    nodes:
+      - id: pipe-41-7-green
+        kind: agent
+        profile: moka-code-writer
+        task_context:
+          id: PIPE-41.7
+      - id: verify
+        kind: agent
+        profile: moka-verifier
+        needs: [pipe-41-7-green]
+`;
+    const nodeIds: string[] = [];
+
+    try {
+      const result = await generateScheduleArtifactInMemory({
+        config: parsedConfig,
+        entrypointId: "execute",
+        executor: (plan) => {
+          nodeIds.push(plan.nodeId);
+          return {
+            exitCode: 0,
+            stdout:
+              plan.nodeId === "schedule-plan-repair"
+                ? repairedSchedule
+                : invalidSchedule,
+          };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        runId: "run-in-memory-passes",
+        task: "PIPE-41.7",
+        worktreePath: dir,
+      });
+      const parsed = parseScheduleArtifact(result.yaml, "schedule.yaml");
+
+      expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
+      expect(parsed.workflows.root.nodes[0]).toMatchObject({
+        id: "pipe-41-7-green",
+        models: ["openai/gpt-5.1", "openai/gpt-5.1-mini"],
+        task_context: {
+          acceptance_criteria: [
+            { id: "1", text: "Prompts include task context." },
+          ],
+          description: "Carry context.",
+          id: "PIPE-41.7",
+          title: "Propagate node context",
+        },
+      });
+      expect(() =>
+        compileScheduleArtifact(parsedConfig, parsed, dir)
+      ).not.toThrow();
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("prunes out-of-scope sibling dependencies from the planner context", () => {
     // Submitting one ticket whose frontmatter depends on a sibling not in the
     // run (e.g. TOVA-766.03 -> TOVA-766.01) must not leak that id to the

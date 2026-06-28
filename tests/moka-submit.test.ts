@@ -220,8 +220,13 @@ describe("submitMoka", () => {
   });
 
   it("submits a full graph by generating an execute schedule", async () => {
-    const generatedSchedulePath = ".pipeline/runs/run-1/schedule.yaml";
     const calls: CapturedSubmitOptions[] = [];
+    const scheduleYaml = buildCommandScheduleYaml({
+      command: ["true"],
+      generatedAt: new Date("2026-06-10T00:00:00.000Z"),
+      scheduleId: "run-1",
+      task: "build the feature",
+    });
 
     await submitMoka(
       {
@@ -250,17 +255,11 @@ describe("submitMoka", () => {
               version: 1,
               workflows: { root: { nodes: [] } },
             },
-            path: generatedSchedulePath,
+            yaml: scheduleYaml,
           });
         },
-        readFile: (path) => {
-          expect(path).toBe(join(PROJECT_ROOT, generatedSchedulePath));
-          return buildCommandScheduleYaml({
-            command: ["true"],
-            generatedAt: new Date("2026-06-10T00:00:00.000Z"),
-            scheduleId: "run-1",
-            task: "build the feature",
-          });
+        readFile: () => {
+          throw new Error("generated schedule should be returned in memory");
         },
         resolveGitContext: () => Promise.resolve(GIT),
         submitWorkflow: captureSubmitCall(calls),
@@ -1061,8 +1060,13 @@ workflows:
 
   it("sets delivery.pull_request.enabled on the config passed to generateSchedule when delivery.pullRequest is true", async () => {
     const capturedConfigs: (typeof CONFIG)[] = [];
-    const generatedSchedulePath = ".pipeline/runs/run-delivery/schedule.yaml";
     const calls: CapturedSubmitOptions[] = [];
+    const scheduleYaml = buildCommandScheduleYaml({
+      command: ["true"],
+      generatedAt: new Date("2026-06-18T00:00:00.000Z"),
+      scheduleId: "run-delivery",
+      task: "deliver feature",
+    });
 
     await submitMoka(
       {
@@ -1091,16 +1095,12 @@ workflows:
               version: 1,
               workflows: { root: { nodes: [] } },
             },
-            path: generatedSchedulePath,
+            yaml: scheduleYaml,
           });
         },
-        readFile: () =>
-          buildCommandScheduleYaml({
-            command: ["true"],
-            generatedAt: new Date("2026-06-18T00:00:00.000Z"),
-            scheduleId: "run-delivery",
-            task: "deliver feature",
-          }),
+        readFile: () => {
+          throw new Error("generated schedule should be returned in memory");
+        },
         resolveGitContext: () => Promise.resolve(GIT),
         submitWorkflow: captureSubmitCall(calls),
       }

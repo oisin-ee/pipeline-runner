@@ -33,8 +33,7 @@ const NON_CANONICAL_ENTRYPOINT_RE = /\b(?:alias|preset|compatibility)\b/i;
 const PRIMARY_COMMAND_RE = /\bprimary\b/i;
 
 const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
-const SCHEDULE_PATH_RE =
-  /Schedule generated: \.pipeline\/runs\/run-\d{14}\/schedule\.yaml/;
+const SCHEDULE_GENERATED_RE = /Schedule generated in memory/;
 const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/;
 const NO_REPO_COPY_RE = /clone|copy|mirror/i;
 const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/;
@@ -1646,11 +1645,10 @@ describe("execute", () => {
         ]);
 
         const stdout = output();
-        expect(stdout).toContain("Schedule generated:");
+        expect(stdout).toMatch(SCHEDULE_GENERATED_RE);
         expect(stdout).not.toContain("Run after approval:");
         expect(stdout).toMatch(SCHEDULE_RUN_WORKFLOW_RE);
         expect(execaCommands()).toContain("opencode");
-        expect(stdout).toMatch(SCHEDULE_PATH_RE);
         expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(true);
       }
     );
