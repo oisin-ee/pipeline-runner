@@ -7,45 +7,28 @@ import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
-import type { AcceptanceCriterion } from "../runtime/contracts/contracts";
 import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import type { NextNodeEnvelope } from "../runtime/node-protocol/node-protocol";
 import type { WorkflowScheduleNode } from "../runtime/scheduler";
 import { computeReadyNodeIds } from "../runtime/scheduler";
 import {
+  buildEnvelopeForNode,
+  collectStoredResults,
+  type NextNodeInput,
+} from "../runtime/step/step-node";
+import {
   type RunControlStore,
   resolveRunControlStore,
 } from "./run-control-store";
 
-/**
- * Per-node envelope metadata: the prompt and read-only acceptance criteria the
- * executing agent receives. These are read-only to the agent (decision #7 —
- * criteria are owned by the schedule, not writable by the node's executor).
- */
-export interface NodeEnvelopeMetadata {
-  readonly criteria: readonly AcceptanceCriterion[];
-  readonly prompt: string;
-}
-
-/**
- * PIPE-91.6: input to {@link buildNextNodeEnvelope}. Callers provide:
- * - `nodes` — the workflow graph. Each element must carry `id`, `index`,
- *   `needs`, and `dependents` — the shape {@link WorkflowScheduleNode} requires.
- *   `PlannedWorkflowNode` is a structural superset and therefore assignable.
- * - `nodeMetadata` — per-node prompt + criteria; missing entries default to
- *   empty prompt / empty criteria (graceful degradation for generated schedules
- *   without task_context).
- * - `runId` — the persisted run to query.
- * - `store` — the durable run store; Postgres owns the cross-invocation state
- *   behind the same interface used by tests.
- */
-export interface NextNodeInput {
-  readonly nodeMetadata: ReadonlyMap<string, NodeEnvelopeMetadata>;
-  readonly nodes: WorkflowScheduleNode[];
-  readonly runId: string;
-  readonly store: DurableRunStore;
-}
+// PIPE-94.2: the envelope-build input types now live with the shared stepping
+// core (`src/runtime/step/step-node.ts`); re-exported here so existing callers
+// keep importing them from the `next node` surface.
+export type {
+  NextNodeInput,
+  NodeEnvelopeMetadata,
+} from "../runtime/step/step-node";
 
 export interface NextNodeRunStoreInput {
   readonly config: PipelineConfig;
@@ -71,33 +54,16 @@ export interface NextNodeRunStoreInput {
 export function buildNextNodeEnvelope(
   input: NextNodeInput
 ): NextNodeEnvelope | undefined {
-  // Gather all stored results (any status) so the readiness computation knows
-  // which nodes have already run — both passed and failed are "settled".
-  const allResults = input.nodes.flatMap((n) => {
-    const rec = input.store.get(input.runId, n.id);
-    return rec ? [rec.result] : [];
-  });
-  const readyIds = computeReadyNodeIds({
-    completed: allResults,
-    nodes: input.nodes,
-  });
-  const nodeId = readyIds[0];
+  // Selection: gather all stored results (any status — both passed and failed
+  // are "settled") and pick the first ready node. Execution-core envelope
+  // assembly is delegated to the shared stepping module so the local run, the
+  // Argo runner, and this CLI all build envelopes the same way (PIPE-94.2).
+  const completed = collectStoredResults(input);
+  const nodeId = computeReadyNodeIds({ completed, nodes: input.nodes })[0];
   if (nodeId === undefined) {
     return;
   }
-  const meta = input.nodeMetadata.get(nodeId);
-  const prompt = meta?.prompt ?? "";
-  const criteria = meta?.criteria ? [...meta.criteria] : [];
-  const node = input.nodes.find((n) => n.id === nodeId);
-  // Only passed upstream outputs are useful to the next executor.
-  const passedByNodeId = new Map(
-    allResults.filter((r) => r.status === "passed").map((r) => [r.nodeId, r])
-  );
-  const upstreamOutputs = (node?.needs ?? []).flatMap((needId) => {
-    const result = passedByNodeId.get(needId);
-    return result ? [{ nodeId: needId, output: result.output }] : [];
-  });
-  return { criteria, nodeId, prompt, runId: input.runId, upstreamOutputs };
+  return buildEnvelopeForNode(input, nodeId);
 }
 
 export function buildNextNodeEnvelopeFromRunStore(

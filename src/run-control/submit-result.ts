@@ -4,6 +4,7 @@ import { loadMokaDbUrl } from "../moka-global-config";
 import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import { parseSubmitResult } from "../runtime/node-protocol/node-protocol";
+import { recordNodeResult } from "../runtime/step/step-node";
 
 /**
  * PIPE-91.7: input to {@link recordSubmitResult}. Callers provide the routing
@@ -34,10 +35,13 @@ export function recordSubmitResult(input: SubmitResultInput): void {
   const raw: unknown = JSON.parse(input.resultJson);
   const assembled = { nodeId: input.nodeId, result: raw, runId: input.runId };
   const parsed = parseSubmitResult(assembled);
-  input.store.record(parsed.runId, parsed.nodeId, {
-    criteria: [],
-    inputs: undefined,
+  // Delegate the durable write to the shared stepping core's single record path
+  // (PIPE-94.2). `parseSubmitResult` validates `result.nodeId === parsed.nodeId`,
+  // so keying on `result.nodeId` records under the same `(runId, nodeId)` pair.
+  recordNodeResult({
     result: parsed.result,
+    runId: parsed.runId,
+    store: input.store,
   });
 }
 
