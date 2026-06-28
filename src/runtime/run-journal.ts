@@ -1,9 +1,11 @@
 import { Effect } from "effect";
 import type { RuntimeNodeResult } from "./contracts";
+import type { DurableRunStore } from "./durable-store/durable-store";
 import {
   RunJournalFileService,
   RunJournalFileServiceLive,
 } from "./services/run-journal-file-service";
+import { recordNodeResult } from "./step/step-node";
 
 /**
  * PIPE-83.10: a durable record of terminal node results for a run, so a killed
@@ -58,6 +60,23 @@ function resumeCompletedEffect(
     const text = yield* files.readTextIfExists(path);
     return passedOnly(parseJournalText(text));
   });
+}
+
+/**
+ * PIPE-94.7: build the scheduler's RunJournal seam over a DurableRunStore,
+ * routing record through the step-node core's recordNodeResult (the single owner
+ * of the terminal-result write shape) and resume through the store. Both
+ * DurableRunStore impls' `toRunJournal` delegate here, so there is exactly one
+ * journal-adapter implementation rather than a copy per store.
+ */
+export function buildRunJournal(
+  store: DurableRunStore,
+  runId: string
+): RunJournal {
+  return {
+    record: (result) => recordNodeResult({ result, runId, store }),
+    resumeCompleted: () => store.resumeCompleted(runId),
+  };
 }
 
 export function fileRunJournal(path: string): RunJournal {
