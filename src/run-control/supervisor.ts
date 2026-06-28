@@ -11,7 +11,7 @@ import {
   type MokaNodeStatus,
   parseRunControlStaleDetection,
 } from "./contracts";
-import { fileRunControlStore, type RunControlStore } from "./run-control-store";
+import type { RunControlStore } from "./run-control-store";
 import { createRunStoreRuntimeReporter } from "./runtime-reporter";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
@@ -26,10 +26,9 @@ export interface CreateRunControlSupervisorInput {
   /**
    * The run-control store the supervisor's heartbeat/stall writes go through,
    * also threaded into the bridge reporter. The program entrypoint resolves it
-   * via the `db.url` seam; when omitted it defaults to the filesystem store for
-   * `workspaceRoot`, keeping `.pipeline/runs` behaviour byte-identical.
+   * via the `db.url` seam.
    */
-  store?: RunControlStore;
+  store: RunControlStore;
   workspaceRoot: string;
 }
 
@@ -84,7 +83,7 @@ function createRunControlSupervisorRuntime(
     nodeStaleAfterMs:
       input.nodeStaleAfterMs ?? DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS,
   });
-  const store = input.store ?? fileRunControlStore(input.workspaceRoot);
+  const store = input.store;
   const bridge = createRunStoreRuntimeReporter({
     now,
     reporter: input.reporter,

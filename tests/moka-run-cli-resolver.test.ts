@@ -67,6 +67,29 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
 
   return {
     ...actual,
+    generateScheduleArtifactInMemory: vi.fn(
+      (input: ScheduleCall & { runId: string }) => {
+        mockState.scheduleCalls.push(input);
+        return Promise.resolve({
+          yaml: [
+            "version: 1",
+            "kind: pipeline-schedule",
+            `schedule_id: ${input.runId}`,
+            `source_entrypoint: ${input.entrypointId}`,
+            `task: ${input.task}`,
+            "generated_at: 2026-06-17T00:00:00.000Z",
+            "root_workflow: root",
+            "workflows:",
+            "  root:",
+            "    nodes:",
+            "      - id: scheduled",
+            "        kind: command",
+            "        command: [node, -e, \"console.log('scheduled')\"]",
+            "",
+          ].join("\n"),
+        });
+      }
+    ),
     generateScheduleArtifact: vi.fn(
       (input: ScheduleCall & { runId: string }) => {
         mockState.scheduleCalls.push(input);
@@ -94,6 +117,23 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
         );
         return Promise.resolve({ path: schedulePath });
       }
+    ),
+  };
+});
+
+vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/run-control/run-control-store")
+    >();
+
+  return {
+    ...actual,
+    withRunControlStoreScoped: vi.fn(
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => use(actual.fileRunControlStore(workspaceRoot))
     ),
   };
 });

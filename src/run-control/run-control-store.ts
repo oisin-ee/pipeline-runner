@@ -1,5 +1,9 @@
 import { Effect, type Scope } from "effect";
-import { loadMokaDbUrl } from "../moka-global-config";
+import {
+  loadMokaDbUrl,
+  type MokaDbUrlRequiredError,
+  requireMokaDbUrl,
+} from "../moka-global-config";
 import type { MokaRunManifest } from "./contracts";
 import { postgresRunControlStore } from "./postgres/postgres-run-control-store";
 import {
@@ -37,7 +41,7 @@ import type {
  * replaying that log. Because the shape differs it carries its own contract.
  *
  * The interface generalizes the file-backed functions in `./store`:
- * `fileRunControlStore` is the default and is byte-identical to today's
+ * `fileRunControlStore` remains the explicit legacy/test adapter for today's
  * `.pipeline/runs` filesystem layout. The Postgres impl (PIPE-91.11) and the
  * cutover (PIPE-91.12) implement/consume the same seam without touching the
  * Effect scheduler or the run-control command surface.
@@ -104,9 +108,10 @@ export type WriteNodeArtifactRequest = Omit<
 >;
 
 /**
- * The default filesystem-backed `RunControlStore`. Delegates 1:1 to the
- * Effect-returning functions in `./store`, binding `workspaceRoot` so every call
- * keeps the existing `.pipeline/runs` on-disk behaviour byte-identical.
+ * Explicit filesystem-backed `RunControlStore` for legacy/test fixtures.
+ * Delegates 1:1 to the Effect-returning functions in `./store`, binding
+ * `workspaceRoot` so every call keeps the existing `.pipeline/runs` on-disk
+ * behaviour byte-identical.
  */
 export function fileRunControlStore(workspaceRoot: string): RunControlStore {
   const withRoot = <T>(input: T): T & { workspaceRoot: string } => ({
@@ -129,12 +134,12 @@ export function fileRunControlStore(workspaceRoot: string): RunControlStore {
 }
 
 /**
- * PIPE-91.12: the single store-selection point. `db.url` presence is the
+ * PIPE-91.12/91.18: the single store-selection point. `db.url` presence is the
  * durable-substrate switch (mirroring the PIPE-91.5 journal cutover): set →
- * the Postgres store from PIPE-91.11; absent → the filesystem default, which is
- * byte-identical to today's `.pipeline/runs` layout. Selection is the only
- * place the substrate is chosen, so the run-control command surface and the
- * scheduler stay storage-agnostic behind the PIPE-91.10 seam.
+ * the Postgres store from PIPE-91.11; absent → `db.url-required` before any
+ * runtime-state store is selected. Selection is the only place the substrate is
+ * chosen, so the run-control command surface and the scheduler stay
+ * storage-agnostic behind the PIPE-91.10 seam.
  *
  * The Postgres store owns a connection pool, so it is acquired as a scoped
  * resource and released (`close`) on scope exit — every consumer that resolves
@@ -144,14 +149,15 @@ export function fileRunControlStore(workspaceRoot: string): RunControlStore {
  */
 export function resolveRunControlStore(
   dbUrl: string | undefined,
-  workspaceRoot: string
-): Effect.Effect<RunControlStore, never, Scope.Scope> {
-  if (dbUrl === undefined) {
-    return Effect.succeed(fileRunControlStore(workspaceRoot));
-  }
-  return Effect.acquireRelease(
-    Effect.sync(() => postgresRunControlStore(dbUrl)),
-    (store) => Effect.promise(() => store.close())
+  _workspaceRoot: string
+): Effect.Effect<RunControlStore, MokaDbUrlRequiredError, Scope.Scope> {
+  return requireMokaDbUrl(dbUrl).pipe(
+    Effect.flatMap((requiredDbUrl) =>
+      Effect.acquireRelease(
+        Effect.sync(() => postgresRunControlStore(requiredDbUrl)),
+        (store) => Effect.promise(() => store.close())
+      )
+    )
   );
 }
 

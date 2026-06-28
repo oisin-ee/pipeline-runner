@@ -19,6 +19,7 @@ import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 // suite; unset skips it so the default test run stays infra-free.
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
+const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/;
 
 // Two-node graph: plan → implement (implement depends on plan).
 const nodes: WorkflowScheduleNode[] = [
@@ -62,13 +63,10 @@ function withStore<A>(
 }
 
 describe("resolveDurableStore selection (no infra)", () => {
-  it("yields the in-memory store when db.url is absent (no close lifecycle)", async () => {
-    const store = await Effect.runPromise(
-      Effect.scoped(resolveDurableStore(undefined, "run-1"))
-    );
-    // The in-memory store is a bare DurableRunStore with no close()/flush()
-    // lifecycle (nothing to release); the Postgres store carries both.
-    expect("close" in store).toBe(false);
+  it("fails fast when db.url is absent instead of selecting the in-memory store", async () => {
+    await expect(
+      Effect.runPromise(Effect.scoped(resolveDurableStore(undefined, "run-1")))
+    ).rejects.toThrow(DB_URL_REQUIRED_RE);
   });
 });
 

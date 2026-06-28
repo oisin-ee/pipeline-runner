@@ -13,7 +13,7 @@ import {
 export const MOKA_GLOBAL_CONFIG_PATH = ".config/moka/config.yaml";
 
 // PIPE-91.3: global durable-substrate switch. Presence of db.url enables the
-// Postgres journal; absence keeps the in-memory scheduler (default, back-compat).
+// Postgres journal. PIPE-91.18 makes run-control/runtime state require it.
 const mokaDbGlobalConfigSchema = z
   .object({
     url: z
@@ -75,6 +75,27 @@ export function mokaGlobalConfigPath(homeDir = homedir()): string {
   return join(homeDir, MOKA_GLOBAL_CONFIG_PATH);
 }
 
+export class MokaDbUrlRequiredError extends Error {
+  readonly code = "db.url-required";
+
+  constructor() {
+    super(
+      "db.url-required: momokaya.db.url is required for Moka run-control runtime state. " +
+        `Configure momokaya.db.url in ${MOKA_GLOBAL_CONFIG_PATH}.`
+    );
+    this.name = "MokaDbUrlRequiredError";
+  }
+}
+
+export function requireMokaDbUrl(
+  dbUrl: string | undefined
+): Effect.Effect<string, MokaDbUrlRequiredError> {
+  if (dbUrl === undefined) {
+    return Effect.fail(new MokaDbUrlRequiredError());
+  }
+  return Effect.succeed(dbUrl);
+}
+
 // PIPE-91.12: a NARROW read of just the durable-substrate toggle
 // (`momokaya.db.url`) for the run-control store cutover. Non-strict by design so
 // the unrelated `momokaya.submit` / `momokaya.kubernetes` sections are ignored,
@@ -89,14 +110,13 @@ const mokaDbUrlReadSchema = z.object({
 /**
  * Resolve the durable-substrate `db.url` toggle for run-control store selection.
  *
- * Returns the configured Postgres url, or `undefined` for the defined default
- * (filesystem store) when the global config is absent or carries no `db.url`.
+ * Returns the configured Postgres url, or `undefined` when the global config is
+ * absent or carries no `db.url`.
  * The whole `momokaya` schema is deliberately NOT validated — only the `db`
  * section is — so an unrelated invalid/missing field never breaks run-control
  * reads. A genuine load fault (corrupt YAML, a malformed `db.url`) is surfaced
- * to stderr and falls back to the filesystem store rather than crashing the
- * command; this is the presence-toggle's resilience, not silent error-swallowing
- * (the fault is always logged).
+ * to stderr and returns `undefined`; the required-DB policy then fails at the
+ * runtime-state boundary with `db.url-required`.
  */
 export function loadMokaDbUrl(): string | undefined {
   const configPath = mokaGlobalConfigPath();

@@ -27,6 +27,7 @@ import {
 // test run stays infra-free. The filesystem-selection case always runs.
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
+const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -52,7 +53,7 @@ function withStore<A>(
   );
 }
 
-describe("resolveRunControlStore filesystem selection", () => {
+describe("resolveRunControlStore required DB policy", () => {
   let workspaceRoot: string;
 
   beforeEach(() => {
@@ -63,14 +64,50 @@ describe("resolveRunControlStore filesystem selection", () => {
     rmSync(workspaceRoot, { force: true, recursive: true });
   });
 
-  it("db.url absent selects the .pipeline/runs filesystem store (AC2, AC3)", async () => {
+  it("db.url absent fails before selecting or creating a filesystem store (AC1, AC3)", async () => {
     const runId = "run-file-select";
-    await withStore(undefined, workspaceRoot, (store) =>
-      store.createRun(createRequest(runId, ["only"]))
-    );
+    await expect(
+      withStore(undefined, workspaceRoot, (store) =>
+        store.createRun(createRequest(runId, ["only"]))
+      )
+    ).rejects.toThrow(DB_URL_REQUIRED_RE);
 
-    // The select chose the filesystem store: the manifest landed on disk in the
-    // byte-identical .pipeline/runs layout.
+    expect(existsSync(join(workspaceRoot, ".pipeline", "runs", runId))).toBe(
+      false
+    );
+    expect(existsSync(join(workspaceRoot, ".pipeline"))).toBe(false);
+  });
+
+  it("db.url absent fails before any caller can read the legacy filesystem store (AC3)", async () => {
+    await expect(
+      withStore(undefined, workspaceRoot, (store) =>
+        store.readRun({ runId: "run-missing-db" })
+      )
+    ).rejects.toThrow(DB_URL_REQUIRED_RE);
+
+    expect(existsSync(join(workspaceRoot, ".pipeline"))).toBe(false);
+  });
+});
+
+describe("legacy filesystem run-control adapter (explicit only)", () => {
+  let workspaceRoot: string;
+
+  beforeEach(() => {
+    workspaceRoot = mkdtempSync(join(tmpdir(), "run-control-cutover-fs-"));
+  });
+
+  afterEach(() => {
+    rmSync(workspaceRoot, { force: true, recursive: true });
+  });
+
+  it("can still be used by explicit legacy/test fixtures (AC3)", async () => {
+    const { fileRunControlStore } = await import(
+      "../src/run-control/run-control-store"
+    );
+    const runId = "run-explicit-file-store";
+    const store = fileRunControlStore(workspaceRoot);
+    await Effect.runPromise(store.createRun(createRequest(runId, ["only"])));
+
     const manifest: unknown = JSON.parse(
       readFileSync(
         join(workspaceRoot, ".pipeline/runs", runId, "manifest.json"),
@@ -78,11 +115,7 @@ describe("resolveRunControlStore filesystem selection", () => {
       )
     );
     expect(manifest).toMatchObject({ nodes: { only: "queued" }, runId });
-
-    // A fresh filesystem resolution reads the same run back.
-    const got = await withStore(undefined, workspaceRoot, (store) =>
-      store.readRun({ runId })
-    );
+    const got = await Effect.runPromise(store.readRun({ runId }));
     expect(got?.nodes).toEqual({ only: "queued" });
   });
 });

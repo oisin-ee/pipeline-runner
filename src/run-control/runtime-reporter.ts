@@ -7,7 +7,7 @@ import type {
   PipelineRuntimeOptions,
 } from "../pipeline-runtime";
 import { createSerializedWriteQueue } from "../serialized-write-queue";
-import { fileRunControlStore, type RunControlStore } from "./run-control-store";
+import type { RunControlStore } from "./run-control-store";
 import { withRunStateLock } from "./run-state-lock";
 import {
   createRuntimeEventProjectionState,
@@ -23,13 +23,11 @@ export interface CreateRunStoreRuntimeReporterInput {
   runId: string;
   /**
    * The run-control store the run-state writes go through. The program
-   * entrypoint resolves it via the `db.url` seam and threads it here; when
-   * omitted it defaults to the filesystem store for `workspaceRoot`, keeping the
-   * `.pipeline/runs` behaviour byte-identical. Observability artifacts
-   * (runtime-events.jsonl, node stdout) are filesystem-only by design and always
-   * use `workspaceRoot`.
+   * entrypoint resolves it via the `db.url` seam and threads it here.
+   * Observability artifacts (runtime-events.jsonl, node stdout) are
+   * filesystem-only by design and always use `workspaceRoot`.
    */
-  store?: RunControlStore;
+  store: RunControlStore;
   workspaceRoot: string;
 }
 
@@ -60,7 +58,7 @@ function createRunStoreRuntimeReporterRuntime(
   input: CreateRunStoreRuntimeReporterInput
 ): RunStoreRuntimeReporter {
   const now = input.now ?? (() => new Date());
-  const store = input.store ?? fileRunControlStore(input.workspaceRoot);
+  const store = input.store;
   let projectionState = createRuntimeEventProjectionState();
   const writes = createSerializedWriteQueue();
 

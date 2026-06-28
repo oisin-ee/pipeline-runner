@@ -37,6 +37,24 @@ vi.mock("../src/pipeline-runtime", () => ({
   }),
 }));
 
+vi.mock("../src/run-control/command-context", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/run-control/command-context")>();
+  const { fileRunControlStore } = await import(
+    "../src/run-control/run-control-store"
+  );
+
+  return {
+    ...actual,
+    withRunControlStore: vi.fn(
+      (use: Parameters<typeof actual.withRunControlStore>[0]) => {
+        const root = actual.workspaceRoot();
+        return use(fileRunControlStore(root), root);
+      }
+    ),
+  };
+});
+
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
 const ORIGINAL_HOME = process.env.HOME;
 const PROMPT_SESSION_SECRET = "PROMPT_SESSION_BODY_TICKET_6_SECRET";

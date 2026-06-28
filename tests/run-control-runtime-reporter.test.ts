@@ -7,6 +7,7 @@ import type {
   PipelineRuntimeOptions,
 } from "../src/pipeline-runtime";
 import type { MokaRunEvent } from "../src/run-control/contracts";
+import { fileRunControlStore } from "../src/run-control/run-control-store";
 import { createRun, readRun } from "./run-control-file-store-helpers";
 import { readJson, readJsonl, runPath } from "./run-control-test-helpers";
 
@@ -22,6 +23,7 @@ interface RunStoreRuntimeReporterModule {
     now?: () => Date;
     reporter?: PipelineRuntimeOptions["reporter"];
     runId: string;
+    store: ReturnType<typeof fileRunControlStore>;
     workspaceRoot: string;
   }) => RunStoreRuntimeReporter;
 }
@@ -86,6 +88,7 @@ describe("run-control runtime reporter bridge", () => {
     const bridge = createRunStoreRuntimeReporter({
       now: sequentialClock(),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
 
@@ -130,6 +133,7 @@ describe("run-control runtime reporter bridge", () => {
     const bridge = createRunStoreRuntimeReporter({
       now: sequentialClock(),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
 
@@ -206,6 +210,7 @@ describe("run-control runtime reporter bridge", () => {
       now: sequentialClock(),
       reporter: (event) => forwardedEvents.push(event),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
     const runtimeEvents: PipelineRuntimeEvent[] = [
@@ -269,6 +274,7 @@ describe("run-control runtime reporter bridge", () => {
     const bridge = createRunStoreRuntimeReporter({
       now: sequentialClock(),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
     const runtimeEvents: PipelineRuntimeEvent[] = [
@@ -393,6 +399,7 @@ describe("run-control runtime reporter bridge", () => {
     const bridge = createRunStoreRuntimeReporter({
       now: sequentialClock(),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
     const outputEvents: PipelineRuntimeEvent[] = [
@@ -443,6 +450,7 @@ describe("run-control runtime reporter bridge", () => {
     const bridge = createRunStoreRuntimeReporter({
       now: sequentialClock(),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
     const sessionEvent = {

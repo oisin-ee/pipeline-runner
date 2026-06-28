@@ -6,6 +6,7 @@ import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
 } from "../src/pipeline-runtime";
+import { fileRunControlStore } from "../src/run-control/run-control-store";
 import { createRun, readRun } from "./run-control-file-store-helpers";
 import { readJson, readJsonl, runPath } from "./run-control-test-helpers";
 
@@ -24,6 +25,7 @@ interface RunControlSupervisorModule {
     nodeStaleAfterMs?: number;
     now?: () => Date;
     runId: string;
+    store: ReturnType<typeof fileRunControlStore>;
     workspaceRoot: string;
   }) => RunControlSupervisor;
 }
@@ -106,6 +108,7 @@ describe("run-control heartbeats and stale detection", () => {
       nodeStaleAfterMs: 60_000,
       now: () => new Date(Date.now()),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
 
@@ -168,6 +171,7 @@ describe("run-control heartbeats and stale detection", () => {
       nodeStaleAfterMs: 30_000,
       now: () => new Date(Date.now()),
       runId,
+      store: fileRunControlStore(workspaceRoot),
       workspaceRoot,
     });
 
