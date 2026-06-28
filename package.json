@@ -149,6 +149,7 @@
     }
   },
   "allowBuilds": {
-    "tree-sitter-typescript": false
+    "tree-sitter-typescript": false,
+    "msgpackr-extract": false
   }
 }
