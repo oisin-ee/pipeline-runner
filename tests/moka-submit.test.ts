@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -143,6 +144,40 @@ const REMOTE_SUBMIT_MODULES = [
   "service.ts",
 ] as const;
 
+function makeGitWorktree(prefix: string): string {
+  const worktreePath = mkdtempSync(join(tmpdir(), prefix));
+  writeFileSync(join(worktreePath, "README.md"), "# submit fixture\n");
+  execFileSync("git", ["init", "--initial-branch=main"], {
+    cwd: worktreePath,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: worktreePath,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["config", "user.name", "Test User"], {
+    cwd: worktreePath,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["add", "README.md"], {
+    cwd: worktreePath,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["commit", "-m", "Initial commit"], {
+    cwd: worktreePath,
+    stdio: "ignore",
+  });
+  execFileSync(
+    "git",
+    ["remote", "add", "origin", "https://github.com/oisin-ee/rondo.git"],
+    {
+      cwd: worktreePath,
+      stdio: "ignore",
+    }
+  );
+  return worktreePath;
+}
+
 function runtimeConfig() {
   return parsePipelineConfigParts({
     runners: `
@@ -280,43 +315,102 @@ describe("submitMoka", () => {
     });
   });
 
+  it("uses in-memory generated graph schedule YAML for submit", async () => {
+    const worktreePath = makeGitWorktree("moka-submit-generated-");
+    const calls: CapturedSubmitOptions[] = [];
+    const scheduleYaml = buildCommandScheduleYaml({
+      command: ["true"],
+      generatedAt: new Date("2026-06-10T00:00:00.000Z"),
+      scheduleId: "run-generated-memory",
+      task: "fix this",
+    });
+
+    try {
+      await submitMoka(
+        {
+          config: CONFIG,
+          eventUrl: "https://console.example/api/pipeline/runner-events",
+          mode: "quick",
+          ...MANAGED_AUTH,
+          namespace: EXPLICIT_NAMESPACE,
+          task: "fix this",
+          type: "graph",
+          worktreePath,
+        },
+        {
+          generateRunId: () => "run-generated-memory",
+          generateSchedule: (input) => {
+            expect(input.entrypointId).toBe("quick");
+            expect(input.runId).toBe("run-generated-memory");
+            expect(input.worktreePath).toBe(worktreePath);
+            return Promise.resolve({
+              artifact: {
+                generated_at: "2026-06-10T00:00:00.000Z",
+                kind: "pipeline-schedule",
+                root_workflow: "root",
+                schedule_id: "run-generated-memory",
+                source_entrypoint: "quick",
+                task: "fix this",
+                version: 1,
+                workflows: { root: { nodes: [] } },
+              },
+              yaml: scheduleYaml,
+            });
+          },
+          submitWorkflow: captureSubmitCall(calls),
+        }
+      );
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].scheduleYaml).toBe(scheduleYaml);
+      expect(existsSync(join(worktreePath, ".pipeline"))).toBe(false);
+    } finally {
+      rmSync(worktreePath, { force: true, recursive: true });
+    }
+  });
+
   it("submits a quick graph with a provided schedule", async () => {
-    const schedulePath = join(PROJECT_ROOT, "quick.yaml");
-    writeFileSync(
-      schedulePath,
-      buildCommandScheduleYaml({
-        command: ["true"],
-        generatedAt: new Date("2026-06-10T00:00:00.000Z"),
-        scheduleId: "run-quick",
-        task: "fix this",
-      })
-    );
+    const worktreePath = makeGitWorktree("moka-submit-explicit-schedule-");
+    const schedulePath = join(worktreePath, "quick.yaml");
+    const scheduleYaml = buildCommandScheduleYaml({
+      command: ["true"],
+      generatedAt: new Date("2026-06-10T00:00:00.000Z"),
+      scheduleId: "run-quick",
+      task: "fix this",
+    });
+    writeFileSync(schedulePath, scheduleYaml);
     const calls: CapturedSubmitOptions[] = [];
 
-    await submitMoka(
-      {
-        config: CONFIG,
-        eventUrl: "https://console.example/api/pipeline/runner-events",
-        mode: "quick",
-        ...MANAGED_AUTH,
-        namespace: EXPLICIT_NAMESPACE,
-        schedulePath,
-        task: "fix this",
-        type: "graph",
-        worktreePath: PROJECT_ROOT,
-      },
-      {
-        generateRunId: () => "run-quick",
-        resolveGitContext: () => Promise.resolve(GIT),
-        submitWorkflow: captureSubmitCall(calls),
-      }
-    );
+    try {
+      await submitMoka(
+        {
+          config: CONFIG,
+          eventUrl: "https://console.example/api/pipeline/runner-events",
+          mode: "quick",
+          ...MANAGED_AUTH,
+          namespace: EXPLICIT_NAMESPACE,
+          schedulePath,
+          task: "fix this",
+          type: "graph",
+          worktreePath,
+        },
+        {
+          generateRunId: () => "run-quick",
+          generateSchedule: () => {
+            throw new Error("explicit schedule path uses file input");
+          },
+          submitWorkflow: captureSubmitCall(calls),
+        }
+      );
+    } finally {
+      rmSync(worktreePath, { force: true, recursive: true });
+    }
 
     expect(calls).toHaveLength(1);
     const payload = JSON.parse(calls[0].payloadJson);
     expect(calls[0]).toMatchObject({
       generateName: "moka-quick-",
-      scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
+      scheduleYaml,
     });
     expect(calls[0]).toMatchObject(MANAGED_AUTH);
     expect(payload).toMatchObject({

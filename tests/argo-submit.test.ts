@@ -151,6 +151,32 @@ describe("submitRunnerArgoWorkflow", () => {
         },
         namespace,
       },
+      spec: {
+        templates: expect.arrayContaining([
+          expect.objectContaining({
+            container: expect.objectContaining({
+              args: expect.arrayContaining(["/etc/pipeline/schedule.yaml"]),
+              volumeMounts: expect.arrayContaining([
+                expect.objectContaining({
+                  mountPath: "/etc/pipeline/schedule.yaml",
+                  name: "runner-schedule",
+                  readOnly: true,
+                  subPath: "schedule.yaml",
+                }),
+              ]),
+            }),
+          }),
+        ]),
+        volumes: expect.arrayContaining([
+          expect.objectContaining({
+            configMap: {
+              items: [{ key: "schedule.yaml", path: "schedule.yaml" }],
+              name: expect.stringMatching(SCHEDULE_CONFIG_MAP_RE),
+            },
+            name: "runner-schedule",
+          }),
+        ]),
+      },
     });
     expect(result).toEqual({
       namespace,
