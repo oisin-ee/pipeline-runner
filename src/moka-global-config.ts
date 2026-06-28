@@ -119,6 +119,21 @@ const mokaDbUrlReadSchema = z.object({
  * runtime-state boundary with `db.url-required`.
  */
 export function loadMokaDbUrl(): string | undefined {
+  // PIPE-94.3: env override — runner pods inject MOKA_DB_URL via secretKeyRef
+  // rather than mounting a config file. Check the env var first; fall through to
+  // the YAML read for the local-operator path.
+  const envUrl = process.env.MOKA_DB_URL;
+  if (envUrl !== undefined) {
+    const parsed = mokaDbGlobalConfigSchema.safeParse({ url: envUrl });
+    if (!parsed.success) {
+      process.stderr.write(
+        `run-control: MOKA_DB_URL is invalid: ${parsed.error.message}\n`
+      );
+      return;
+    }
+    return parsed.data.url;
+  }
+
   const configPath = mokaGlobalConfigPath();
   const program = Effect.gen(function* () {
     const configIo = yield* ConfigIoService;

@@ -1252,6 +1252,46 @@ describe("runner Argo Workflow manifest", () => {
     });
   });
 
+  it("injects MOKA_DB_URL via secretKeyRef into every runner container when dbAuth is configured", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      dbAuth: { secretKey: "db-url", secretName: "momokaya-db" },
+      plan: plan(),
+    });
+
+    const runnerTemplates = manifest.spec.templates.filter(
+      (template) => template.container !== undefined
+    );
+    expect(runnerTemplates.length).toBeGreaterThan(0);
+    for (const template of runnerTemplates) {
+      const env = template.container?.env ?? [];
+      expect(env).toContainEqual({
+        name: "MOKA_DB_URL",
+        valueFrom: {
+          secretKeyRef: { key: "db-url", name: "momokaya-db" },
+        },
+      });
+    }
+  });
+
+  it("omits MOKA_DB_URL from runner containers when dbAuth is absent (safe default)", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      plan: plan(),
+    });
+
+    const runnerTemplates = manifest.spec.templates.filter(
+      (template) => template.container !== undefined
+    );
+    expect(runnerTemplates.length).toBeGreaterThan(0);
+    for (const template of runnerTemplates) {
+      const env = template.container?.env ?? [];
+      expect(env).not.toContainEqual(
+        expect.objectContaining({ name: "MOKA_DB_URL" })
+      );
+    }
+  });
+
   it("injects BROKER_URL + BROKER_API_KEY (from secret) into every runner container when broker auth is set", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,

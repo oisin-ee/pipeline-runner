@@ -57,6 +57,23 @@ export function runnerContainerEnv(
         },
       },
     },
+    // PIPE-94.3: expose db.url to in-cluster runner pods via secretKeyRef so
+    // loadMokaDbUrl() resolves from MOKA_DB_URL without a config-file mount.
+    // Absent when dbAuth is not configured — cluster without the secret still
+    // renders a valid workflow.
+    ...(options.dbAuth === undefined
+      ? []
+      : [
+          {
+            name: "MOKA_DB_URL",
+            valueFrom: {
+              secretKeyRef: {
+                key: options.dbAuth.secretKey,
+                name: options.dbAuth.secretName,
+              },
+            },
+          },
+        ]),
   ];
 }
 

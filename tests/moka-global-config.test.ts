@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  loadMokaDbUrl,
   MOKA_GLOBAL_CONFIG_PATH,
   mokaGlobalConfigPath,
   parseMokaGlobalConfig,
@@ -133,6 +134,37 @@ momokaya:
           "/Users/oisin/.config/moka/config.yaml"
         )
       ).toThrow("postgresql or postgres protocol");
+    });
+  });
+
+  describe("loadMokaDbUrl env override (PIPE-94.3)", () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("resolves MOKA_DB_URL from process env when set, bypassing the config file", () => {
+      vi.stubEnv("MOKA_DB_URL", "postgres://cluster:5432/pipeline");
+
+      expect(loadMokaDbUrl()).toBe("postgres://cluster:5432/pipeline");
+    });
+
+    it("returns undefined and writes to stderr when MOKA_DB_URL is set but invalid", () => {
+      vi.stubEnv("MOKA_DB_URL", "http://not-postgres/pipeline");
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+
+      const result = loadMokaDbUrl();
+
+      expect(result).toBeUndefined();
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining("MOKA_DB_URL")
+      );
+      stderrSpy.mockRestore();
     });
   });
 });

@@ -229,6 +229,16 @@ export const buildRunnerArgoWorkflowOptionsSchema = z
         url: z.string().min(1).default("https://cliproxy.momokaya.ee"),
       })
       .strict(),
+    // PIPE-94.3: durable-substrate db.url injection for runner pods.
+    // When present, MOKA_DB_URL is injected via secretKeyRef so loadMokaDbUrl()
+    // resolves in-cluster without a config file mount.
+    dbAuth: z
+      .object({
+        secretKey: z.string().min(1).default("db-url"),
+        secretName: kubernetesNameSchema,
+      })
+      .strict()
+      .optional(),
     eventAuthSecretKey: z.string().min(1).optional(),
     eventAuthSecretName: kubernetesNameSchema.optional(),
     generateName: z.string().min(1).optional(),
