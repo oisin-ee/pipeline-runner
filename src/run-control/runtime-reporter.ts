@@ -110,16 +110,33 @@ function persistRuntimeEventEffect(
   now: () => Date
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    yield* appendRuntimeEventEffect(input, event);
+    const writesFilesystemObservability = writesFilesystemRunState(
+      store,
+      input.runId
+    );
+
+    if (writesFilesystemObservability) {
+      yield* appendRuntimeEventEffect(input, event);
+    }
 
     for (const writeIntent of writeIntents) {
       yield* persistStoreWriteIntentEffect(input, store, writeIntent, now);
     }
 
-    if (event.type === "node.output.recorded") {
+    if (
+      writesFilesystemObservability &&
+      event.type === "node.output.recorded"
+    ) {
       yield* appendNodeStdoutEffect(input, event.nodeId, event);
     }
   });
+}
+
+function writesFilesystemRunState(
+  store: RunControlStore,
+  runId: string
+): boolean {
+  return store.statusPaths({ runId }).manifest.startsWith(`${RUNS_DIRECTORY}/`);
 }
 
 function persistStoreWriteIntentEffect(

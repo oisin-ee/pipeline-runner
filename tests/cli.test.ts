@@ -16,12 +16,107 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MokaRunManifest } from "../src/run-control/contracts";
+import type {
+  CreateRunRequest,
+  ReadRunRequest,
+  RunControlStore,
+} from "../src/run-control/run-control-store";
+
+interface CapturedCreateRun {
+  input: CreateRunRequest;
+  workspaceRoot: string;
+}
 
 vi.mock("execa", () => ({
   execa: vi.fn(),
 }));
 
 import { execa } from "execa";
+
+const runControlMock = vi.hoisted<{
+  createRunInputs: CapturedCreateRun[];
+  mode: "file" | "memory";
+}>(() => ({
+  createRunInputs: [],
+  mode: "file",
+}));
+
+vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/run-control/run-control-store")
+    >();
+  const { Effect } = await import("effect");
+
+  function memoryRunControlStore(workspaceRoot: string): RunControlStore {
+    const runManifests = new Map<string, MokaRunManifest>();
+
+    return {
+      createRun: (input) => {
+        runControlMock.createRunInputs.push({ input, workspaceRoot });
+        const nodes: MokaRunManifest["nodes"] = {};
+        for (const nodeId of input.nodeIds) {
+          nodes[nodeId] = "queued";
+        }
+        const manifest: MokaRunManifest = {
+          effort: input.effort,
+          events: [],
+          mode: input.mode,
+          nodes,
+          runId: input.runId,
+          ...(input.schedule ? { schedule: input.schedule } : {}),
+          status: "queued",
+          target: input.target,
+        };
+        runManifests.set(input.runId, manifest);
+        return Effect.succeed(manifest);
+      },
+      listRuns: () => Effect.succeed([...runManifests.values()]),
+      readRun: (input: ReadRunRequest) =>
+        Effect.succeed(runManifests.get(input.runId)),
+      recordEvent: () => Effect.void,
+      statusPaths: (input) => ({
+        events: `.memory/runs/${input.runId}/events.jsonl`,
+        manifest: `.memory/runs/${input.runId}/manifest.json`,
+        status: `.memory/runs/${input.runId}/status.json`,
+      }),
+      updateNodeSession: () => Effect.void,
+      updateNodeStatus: () => Effect.void,
+      updateRunController: (input) =>
+        Effect.succeed(
+          runManifests.get(input.runId) ?? {
+            effort: "normal",
+            events: [],
+            mode: "write",
+            nodes: {},
+            runId: input.runId,
+            status: "queued",
+            target: "local",
+          }
+        ),
+      updateRunStatus: () => Effect.void,
+      writeNodeArtifact: (input) =>
+        Effect.succeed({ path: `.memory/runs/${input.runId}/${input.name}` }),
+    };
+  }
+
+  return {
+    ...actual,
+    withRunControlStoreScoped: vi.fn(
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => {
+        const store =
+          runControlMock.mode === "memory"
+            ? memoryRunControlStore(workspaceRoot)
+            : actual.fileRunControlStore(workspaceRoot);
+        return use(store);
+      }
+    ),
+  };
+});
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const DESCRIPTION_RE = /description/i;
@@ -601,6 +696,8 @@ async function validateCliLintFixture(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  runControlMock.createRunInputs.length = 0;
+  runControlMock.mode = "file";
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-basic-payload";
   mockExeca.mockImplementation(((
     command: string,
@@ -1631,7 +1728,7 @@ describe("execute", () => {
     await withCliTempDir(
       "pipeline-cli-schedule-plan-",
       async ({ dir, output, runCli }) => {
-        writeScheduledCliConfig(dir);
+        runControlMock.mode = "memory";
         process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
         await runCli([
@@ -1646,10 +1743,15 @@ describe("execute", () => {
 
         const stdout = output();
         expect(stdout).toMatch(SCHEDULE_GENERATED_RE);
+        expect(stdout).not.toContain("Schedule generated: .pipeline/runs/");
         expect(stdout).not.toContain("Run after approval:");
         expect(stdout).toMatch(SCHEDULE_RUN_WORKFLOW_RE);
         expect(execaCommands()).toContain("opencode");
-        expect(existsSync(join(dir, ".pipeline", "runs"))).toBe(true);
+        expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+        expect(runControlMock.createRunInputs).toHaveLength(1);
+        expect(runControlMock.createRunInputs[0].input.schedule).toContain(
+          "kind: pipeline-schedule"
+        );
       }
     );
   });
@@ -1658,7 +1760,7 @@ describe("execute", () => {
     await withCliTempDir(
       "pipeline-cli-schedule-run-",
       async ({ dir, output, runCli }) => {
-        writeScheduledCliConfig(dir);
+        runControlMock.mode = "memory";
         const schedulePath = join(dir, "approved-schedule.yaml");
         writeFileSync(
           schedulePath,
@@ -1697,6 +1799,10 @@ workflows:
         ]);
 
         expect(output()).toContain("Workflow: schedule-approved-a-root");
+        expect(runControlMock.createRunInputs).toHaveLength(1);
+        expect(runControlMock.createRunInputs[0].input.schedule).toContain(
+          "schedule_id: approved-a"
+        );
       }
     );
   });

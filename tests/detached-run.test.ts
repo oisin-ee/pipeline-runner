@@ -44,6 +44,7 @@ interface DetachedManifest {
     startedAt: string;
   };
   runId: string;
+  schedule?: string;
 }
 
 const DETACHED_CONTROLLER_PID = 42_424;
@@ -112,29 +113,45 @@ vi.mock("../src/pipeline-runtime", () => ({
   }),
 }));
 
-vi.mock("../src/planning/generate", async (importOriginal) => {
+vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/planning/generate")>();
-  const { writeMockScheduleArtifact } = await import(
-    "./run-control-test-helpers"
-  );
+    await importOriginal<
+      typeof import("../src/run-control/run-control-store")
+    >();
 
   return {
     ...actual,
-    generateScheduleArtifact: vi.fn(
+    withRunControlStoreScoped: vi.fn(
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => use(actual.fileRunControlStore(workspaceRoot))
+    ),
+  };
+});
+
+vi.mock("../src/planning/generate", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/planning/generate")>();
+
+  return {
+    ...actual,
+    generateScheduleArtifactInMemory: vi.fn(
       (input: {
         entrypointId: string;
         runId: string;
         task: string;
         worktreePath: string;
-      }) => {
-        const schedulePath = writeMockScheduleArtifact(input, {
-          command: "console.log('detached writer')",
-          nodeId: "writer",
-          rootWorkflowId: "detached-root",
-        });
-        return Promise.resolve({ path: schedulePath });
-      }
+      }) =>
+        Promise.resolve({
+          yaml: detachedScheduleYaml({
+            command: "console.log('detached writer')",
+            nodeId: "writer",
+            rootWorkflowId: "detached-root",
+            runId: input.runId,
+            task: input.task,
+          }),
+        })
     ),
   };
 });
@@ -177,6 +194,7 @@ describe("detached moka run", () => {
     const launchedArgv = [spawnCall.command, ...spawnCall.args];
     expect(launchedArgv.join(" ")).toMatch(CONTROLLER_ARGV_RE);
     expect(launchedArgv.join(" ")).not.toMatch(RAW_OPENCODE_RUN_RE);
+    expect(launchedArgv).not.toContain("--schedule");
 
     const runId = extractRunId(capture.stdout);
     const manifest = readJson(
@@ -189,6 +207,8 @@ describe("detached moka run", () => {
       cwd: workspaceRoot,
       pid: DETACHED_CONTROLLER_PID,
     });
+    expect(manifest.schedule).toContain("kind: pipeline-schedule");
+    expect(manifest.schedule).toContain("schedule_id: run-");
     expect(Number.isNaN(Date.parse(manifest.controller.startedAt))).toBe(false);
     expect(
       workspaceRelative(workspaceRoot, manifest.controller.paths.manifest)
@@ -207,6 +227,48 @@ describe("detached moka run", () => {
         join(workspaceRoot, ".pipeline", "runs", runId, "events.jsonl")
       )
     ).toBe(true);
+    expect(
+      existsSync(
+        join(workspaceRoot, ".pipeline", "runs", runId, "schedule.yaml")
+      )
+    ).toBe(false);
+  });
+
+  it("persists explicit schedule YAML while forwarding the approved path to the controller", async () => {
+    const schedulePath = join(workspaceRoot, "approved-detached-schedule.yaml");
+    writeFileSync(
+      schedulePath,
+      detachedScheduleYaml({
+        command: "console.log('explicit detached writer')",
+        nodeId: "explicit-writer",
+        rootWorkflowId: "explicit-detached-root",
+        runId: "approved-detached",
+        task: "Ticket 8 detached explicit schedule",
+      }),
+      "utf8"
+    );
+
+    const capture = await runMokaInTarget(workspaceRoot, [
+      "run",
+      "Ticket 8 detached explicit schedule",
+      "--detach",
+      "--schedule",
+      schedulePath,
+    ]);
+
+    expect(capture.thrown).toBeUndefined();
+    expect(mockState.spawnCalls).toHaveLength(1);
+    const spawnCall = mockState.spawnCalls[0];
+    const launchedArgv = [spawnCall.command, ...spawnCall.args];
+    expect(launchedArgv).toContain("--schedule");
+    expect(launchedArgv).toContain(schedulePath);
+
+    const runId = extractRunId(capture.stdout);
+    expect(
+      readJson(join(workspaceRoot, ".pipeline", "runs", runId, "manifest.json"))
+    ).toMatchObject({
+      schedule: expect.stringContaining("schedule_id: approved-detached"),
+    });
   });
 
   it("prints the detached run id with status, logs, and stop commands", async () => {
@@ -335,4 +397,29 @@ function extractRunId(output: string): string {
 function workspaceRelative(workspaceRoot: string, value: string): string {
   const fullPath = isAbsolute(value) ? value : join(workspaceRoot, value);
   return relative(workspaceRoot, fullPath).split(sep).join("/");
+}
+
+function detachedScheduleYaml(input: {
+  command: string;
+  nodeId: string;
+  rootWorkflowId: string;
+  runId: string;
+  task: string;
+}): string {
+  return [
+    "version: 1",
+    "kind: pipeline-schedule",
+    `schedule_id: ${input.runId}`,
+    "source_entrypoint: execute",
+    `task: ${input.task}`,
+    "generated_at: 2026-06-17T00:00:00.000Z",
+    `root_workflow: ${input.rootWorkflowId}`,
+    "workflows:",
+    `  ${input.rootWorkflowId}:`,
+    "    nodes:",
+    `      - id: ${input.nodeId}`,
+    "        kind: command",
+    `        command: [node, -e, "${input.command}"]`,
+    "",
+  ].join("\n");
 }

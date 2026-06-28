@@ -11,7 +11,10 @@ import {
 } from "../planning/generate";
 import { flattenNodes } from "../planning/graph";
 import type { RunEffort, RunMode, RunTarget } from "../run-control/contracts";
-import { startDetachedRunController } from "../run-control/detach";
+import {
+  type StartDetachedRunControllerInput,
+  startDetachedRunController,
+} from "../run-control/detach";
 import {
   type RunControlStore,
   withRunControlStoreScoped,
@@ -171,14 +174,7 @@ function persistDetachedRunController(input: {
         const launch = yield* Effect.tryPromise({
           catch: (error) => error,
           try: () =>
-            startDetachedRunController({
-              entrypoint: input.prepared.entrypoint,
-              runId: input.runId,
-              schedule: input.prepared.schedule,
-              task: input.task,
-              workflow: input.prepared.workflow,
-              workspaceRoot: input.worktreePath,
-            }),
+            startDetachedRunController(detachedRunControllerInput(input)),
         });
         yield* store.updateRunController({
           controller: {
@@ -193,6 +189,22 @@ function persistDetachedRunController(input: {
       })
     )
   );
+}
+
+function detachedRunControllerInput(input: {
+  prepared: PreparedDetachedRun;
+  runId: string;
+  task: string;
+  worktreePath: string;
+}): StartDetachedRunControllerInput {
+  return {
+    entrypoint: input.prepared.entrypoint,
+    runId: input.runId,
+    ...(input.prepared.schedule ? { schedule: input.prepared.schedule } : {}),
+    task: input.task,
+    workflow: input.prepared.workflow,
+    workspaceRoot: input.worktreePath,
+  };
 }
 
 function detachedRunRecord(input: {
