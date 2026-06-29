@@ -10,6 +10,7 @@ ARG OPENCODE_PACKAGE_VERSION=1.17.3
 ARG CLAUDE_CODE_PACKAGE_VERSION=2.1.162
 ARG PNPM_PACKAGE_VERSION=10.24.0
 ARG BUN_PACKAGE_VERSION=1.3.14
+ARG NUB_PACKAGE_VERSION=0.2.7
 ARG FALLOW_PACKAGE_VERSION=2.90.0
 ARG MISE_VERSION=2026.4.11
 ARG TOOLHIVE_VERSION=0.29.1
@@ -51,10 +52,12 @@ RUN npm install -g \
     "opencode-ai@${OPENCODE_PACKAGE_VERSION}" \
     "@anthropic-ai/claude-code@${CLAUDE_CODE_PACKAGE_VERSION}" \
     "bun@${BUN_PACKAGE_VERSION}" \
+    "@nubjs/nub@${NUB_PACKAGE_VERSION}" \
     "fallow@${FALLOW_PACKAGE_VERSION}" \
   && npm cache clean --force \
   && command -v moka \
   && command -v bun \
+  && command -v nub \
   && command -v pnpm \
   && command -v opencode \
   && command -v claude \
