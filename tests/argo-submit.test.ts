@@ -403,6 +403,99 @@ describe("submitRunnerArgoWorkflow", () => {
     }
   });
 
+  it("injects PIPELINE_MCP_GATEWAY_AUTHORIZATION secretKeyRef into runner container env when mcpGatewayAuth is configured", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        mcpGatewayAuth: {
+          secretName: "pipeline-runner-mcp-auth",
+          secretKey: "pipeline-mcp-gateway-authorization",
+        },
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: { name: "pipeline-run-mcpgateway" },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
+    expect(containerTemplates.length).toBeGreaterThan(0);
+    for (const template of containerTemplates) {
+      expect(template.container?.env).toContainEqual({
+        name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+        valueFrom: {
+          secretKeyRef: {
+            key: "pipeline-mcp-gateway-authorization",
+            name: "pipeline-runner-mcp-auth",
+          },
+        },
+      });
+    }
+  });
+
+  it("omits PIPELINE_MCP_GATEWAY_AUTHORIZATION env var from runner container env when mcpGatewayAuth is absent", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: { name: "pipeline-run-no-mcpgateway" },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    for (const template of createdWorkflows[0].spec.templates) {
+      const env = template.container?.env ?? [];
+      expect(env).not.toContainEqual(
+        expect.objectContaining({ name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION" })
+      );
+    }
+  });
+
   it("builds valid schedule YAML for a custom argv command", () => {
     const schedule = parseScheduleArtifact(
       buildCommandScheduleYaml({

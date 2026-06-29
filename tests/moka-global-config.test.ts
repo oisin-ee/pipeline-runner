@@ -74,6 +74,41 @@ describe("moka global config", () => {
     expect(config.momokaya.submit.dbAuth).toBeUndefined();
   });
 
+  it("threads an optional mcpGatewayAuth secret ref", () => {
+    const withGatewayAuth = `${VALID_CONFIG}    mcpGatewayAuth:\n      secretName: pipeline-runner-mcp-auth\n      secretKey: pipeline-mcp-gateway-authorization\n`;
+    const config = parseMokaGlobalConfig(
+      withGatewayAuth,
+      "/Users/oisin/.config/moka/config.yaml"
+    );
+
+    expect(config.momokaya.submit.mcpGatewayAuth).toEqual({
+      secretKey: "pipeline-mcp-gateway-authorization",
+      secretName: "pipeline-runner-mcp-auth",
+    });
+  });
+
+  it("defaults mcpGatewayAuth secretKey to pipeline-mcp-gateway-authorization when only secretName is given", () => {
+    const withGatewayAuth = `${VALID_CONFIG}    mcpGatewayAuth:\n      secretName: pipeline-runner-mcp-auth\n`;
+    const config = parseMokaGlobalConfig(
+      withGatewayAuth,
+      "/Users/oisin/.config/moka/config.yaml"
+    );
+
+    expect(config.momokaya.submit.mcpGatewayAuth).toEqual({
+      secretKey: "pipeline-mcp-gateway-authorization",
+      secretName: "pipeline-runner-mcp-auth",
+    });
+  });
+
+  it("leaves mcpGatewayAuth undefined when absent (no gateway header — safe default)", () => {
+    const config = parseMokaGlobalConfig(
+      VALID_CONFIG,
+      "/Users/oisin/.config/moka/config.yaml"
+    );
+
+    expect(config.momokaya.submit.mcpGatewayAuth).toBeUndefined();
+  });
+
   it("rejects incomplete config", () => {
     expect(() =>
       parseMokaGlobalConfig(

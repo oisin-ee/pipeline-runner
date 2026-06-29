@@ -74,6 +74,24 @@ export function runnerContainerEnv(
             },
           },
         ]),
+    // Expose the pipeline-gateway basic-auth header to in-cluster runner pods via
+    // secretKeyRef so dotfiles' opencode pipeline-gateway MCP entry resolves
+    // PIPELINE_MCP_GATEWAY_AUTHORIZATION without any plaintext in the manifest.
+    // Absent when mcpGatewayAuth is not configured — cluster without the secret
+    // still renders a valid workflow.
+    ...(options.mcpGatewayAuth === undefined
+      ? []
+      : [
+          {
+            name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+            valueFrom: {
+              secretKeyRef: {
+                key: options.mcpGatewayAuth.secretKey,
+                name: options.mcpGatewayAuth.secretName,
+              },
+            },
+          },
+        ]),
   ];
 }
 

@@ -5,7 +5,10 @@ import { z } from "zod";
 import { PipelineConfigError } from "./config";
 import { configIssuesFromZodError, validationError } from "./config/schemas";
 import { brokerAuthOptionSchema } from "./credentials/broker";
-import { dbAuthOptionSchema } from "./remote/argo/model";
+import {
+  dbAuthOptionSchema,
+  mcpGatewayAuthOptionSchema,
+} from "./remote/argo/model";
 import {
   ConfigIoService,
   runConfigIoSync,
@@ -45,6 +48,10 @@ const mokaSubmitGlobalConfigSchema = z
     // into the runner workflow (same dbAuth the console threads programmatically).
     // Absent → no MOKA_DB_URL, submission still works.
     dbAuth: dbAuthOptionSchema.optional(),
+    // Optional secret ref so `moka submit` emits PIPELINE_MCP_GATEWAY_AUTHORIZATION
+    // into the runner workflow (same option the console threads programmatically).
+    // Absent → no gateway header, submission still works.
+    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     eventAuthSecretKey: z.string().min(1),
     eventAuthSecretName: z.string().min(1),
     eventUrl: z.string().url(),

@@ -22,6 +22,23 @@ export const dbAuthOptionSchema = z
     secretName: kubernetesNameSchema,
   })
   .strict();
+
+/**
+ * Submit-time secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection in
+ * runner pods. Lets runner-side agents reach the pipeline-gateway vMCP (the
+ * verify-bot-authed browser-automation tools) the same way Coder dev-workspaces
+ * do: the shared dotfiles opencode MCP config reads the gateway basic-auth
+ * header from this env. The single owner of the option shape — the
+ * runner-workflow model, argo-submit, and moka-submit all reference this rather
+ * than redeclaring it. `secretKey` defaults to "pipeline-mcp-gateway-authorization"
+ * (the ExternalSecret-projected key); absent mcpGatewayAuth → no env emitted.
+ */
+export const mcpGatewayAuthOptionSchema = z
+  .object({
+    secretKey: z.string().min(1).default("pipeline-mcp-gateway-authorization"),
+    secretName: kubernetesNameSchema,
+  })
+  .strict();
 const labelValueSchema = z.string().min(1);
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 
@@ -259,6 +276,10 @@ export const buildRunnerArgoWorkflowOptionsSchema = z
     labels: z
       .record(z.string().min(1), z.string().min(1).optional())
       .default({}),
+    // Optional secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection.
+    // When present, the runner sources the gateway basic-auth header via
+    // secretKeyRef so dotfiles' pipeline-gateway MCP entry resolves in-cluster.
+    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     name: z.string().min(1).optional(),
     namespace: kubernetesNameSchema,
     payloadConfigMapKey: z.string().min(1).default("payload.json"),

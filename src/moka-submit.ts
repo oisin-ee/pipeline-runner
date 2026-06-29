@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { PipelineConfig } from "./config";
 import { brokerAuthOptionSchema } from "./credentials/broker";
-import { dbAuthOptionSchema } from "./remote/argo/model";
+import {
+  dbAuthOptionSchema,
+  mcpGatewayAuthOptionSchema,
+} from "./remote/argo/model";
 import { configWithSubmitHooks } from "./remote/submit/event-boundary";
 import { MOKA_SUBMIT_HOOK_EVENTS } from "./remote/submit/hook-events";
 import {
@@ -90,6 +93,11 @@ const mokaSubmitBaseOptionsSchema = z
     // so MOKA_DB_URL is injected as a secretKeyRef. Shared shape (single owner in
     // remote/argo/model); a k8s submission concern, alongside brokerAuth.
     dbAuth: dbAuthOptionSchema.optional(),
+    // Optional secret ref threaded to runner pods so the gateway basic-auth
+    // header reaches PIPELINE_MCP_GATEWAY_AUTHORIZATION via secretKeyRef. Shared
+    // shape (single owner in remote/argo/model); a k8s submission concern,
+    // alongside brokerAuth/dbAuth.
+    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     delivery: runnerDeliverySchema.default({
       mode: "create-new-pr",
       pullRequest: false,

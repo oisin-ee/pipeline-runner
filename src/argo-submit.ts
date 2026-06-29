@@ -18,7 +18,10 @@ import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "./planning/generate";
-import { dbAuthOptionSchema } from "./remote/argo/model";
+import {
+  dbAuthOptionSchema,
+  mcpGatewayAuthOptionSchema,
+} from "./remote/argo/model";
 import { buildRunnerTaskDescriptor } from "./runner-command/task-descriptor";
 import {
   parseRunnerCommandPayload,
@@ -66,6 +69,10 @@ const submitRunnerArgoWorkflowOptionsSchema = z
     imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]).optional(),
     imagePullSecretName: z.string().min(1).optional(),
     kubeconfigPath: z.string().min(1).optional(),
+    // Optional secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection in
+    // runner pods. Shared shape (single owner in remote/argo/model). Absent →
+    // no PIPELINE_MCP_GATEWAY_AUTHORIZATION.
+    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1),
     payloadJson: z.string().min(1),
@@ -177,6 +184,7 @@ function submitRunnerArgoWorkflowEffect(
     annotations,
     brokerAuth: options.brokerAuth,
     dbAuth: options.dbAuth,
+    mcpGatewayAuth: options.mcpGatewayAuth,
     eventAuthSecretKey: options.eventAuthSecretKey,
     eventAuthSecretName: options.eventAuthSecretName,
     generateName: options.generateName,
