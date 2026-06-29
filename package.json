@@ -12,6 +12,7 @@
     "git-url-parse": "^16.1.0",
     "graphology": "0.26.0",
     "graphology-metrics": "2.4.0",
+    "graphology-types": "0.24.8",
     "gray-matter": "^4.0.3",
     "js-tiktoken": "^1.0.21",
     "jsonc-parser": "^3.3.1",
