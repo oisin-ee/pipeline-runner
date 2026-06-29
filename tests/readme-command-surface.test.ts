@@ -90,17 +90,24 @@ const FLAG_DOCUMENTATION_REQUIREMENTS: Requirement[] = [
   },
 ];
 
+// Post-PIPE-91.18, run-control state (manifest, status, events, schedule) is
+// owned by the durable Postgres store, NOT the filesystem. `.pipeline/runs/<id>/`
+// holds only the on-disk observability artifacts the runtime reporter writes
+// (runtime-events.jsonl, nodes/<id>/stdout.jsonl). The docs must describe that
+// reality — not the removed file-store layout (manifest.json/status.json/etc.).
 const RUN_DIRECTORY_REQUIREMENTS: Requirement[] = [
   {
     label: "run directory root",
     pattern: /\.pipeline\/runs\/<runId>\//,
   },
-  { label: "manifest.json", pattern: /manifest\.json/ },
-  { label: "status.json", pattern: /status\.json/ },
-  { label: "events.ndjson", pattern: /events\.ndjson/ },
+  { label: "runtime events stream", pattern: /runtime-events\.jsonl/ },
   { label: "nodes directory", pattern: /nodes\// },
-  { label: "artifacts directory", pattern: /artifacts\// },
-  { label: "schedule.yaml", pattern: /schedule\.yaml/ },
+  { label: "per-node stdout artifact", pattern: /stdout\.jsonl/ },
+  {
+    label: "run-control state owned by the durable Postgres store",
+    pattern:
+      /(?:durable|Postgres|db\.url)[\s\S]{0,200}(?:manifest|status|run-control state)|run-control state[\s\S]{0,160}(?:Postgres|durable|database|db\.url)/i,
+  },
   {
     label: "sanitized export command",
     pattern: /moka export[^\n]*--sanitize|moka export --sanitize[^\n]*/,
