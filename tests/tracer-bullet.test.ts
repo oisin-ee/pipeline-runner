@@ -15,6 +15,27 @@ import { execute } from "../src/index";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
 import type { AgentResult, RunnerLaunchPlan } from "../src/runner";
 
+// execute() resolves the run-control store via withRunControlStoreScoped, which
+// requires db.url (PIPE-91.18, Postgres-only). The tracer pipeline is exercised
+// end-to-end against the file store double — the same DI-via-mock pattern
+// detached-run/cli use — so no live Postgres is needed.
+vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/run-control/run-control-store")
+    >();
+
+  return {
+    ...actual,
+    withRunControlStoreScoped: vi.fn(
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => use(actual.fileRunControlStore(workspaceRoot))
+    ),
+  };
+});
+
 interface LoggedCommand {
   args?: string[];
   cwd?: string;
