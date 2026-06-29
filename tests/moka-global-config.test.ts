@@ -52,6 +52,28 @@ describe("moka global config", () => {
     });
   });
 
+  it("threads an optional durable-substrate dbAuth secret ref (PIPE-94.3)", () => {
+    const withDbAuth = `${VALID_CONFIG}    dbAuth:\n      secretName: momokaya-db-dsn\n      secretKey: dsn\n`;
+    const config = parseMokaGlobalConfig(
+      withDbAuth,
+      "/Users/oisin/.config/moka/config.yaml"
+    );
+
+    expect(config.momokaya.submit.dbAuth).toEqual({
+      secretKey: "dsn",
+      secretName: "momokaya-db-dsn",
+    });
+  });
+
+  it("leaves dbAuth undefined when absent (no MOKA_DB_URL — safe default)", () => {
+    const config = parseMokaGlobalConfig(
+      VALID_CONFIG,
+      "/Users/oisin/.config/moka/config.yaml"
+    );
+
+    expect(config.momokaya.submit.dbAuth).toBeUndefined();
+  });
+
   it("rejects incomplete config", () => {
     expect(() =>
       parseMokaGlobalConfig(

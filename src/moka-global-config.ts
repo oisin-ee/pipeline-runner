@@ -5,6 +5,7 @@ import { z } from "zod";
 import { PipelineConfigError } from "./config";
 import { configIssuesFromZodError, validationError } from "./config/schemas";
 import { brokerAuthOptionSchema } from "./credentials/broker";
+import { dbAuthOptionSchema } from "./remote/argo/model";
 import {
   ConfigIoService,
   runConfigIoSync,
@@ -40,6 +41,10 @@ const mokaSubmitGlobalConfigSchema = z
     // authenticates through the broker; the broker owns OAuth refresh / rotation
     // / failover, so there is no bespoke per-tool auth mount.
     brokerAuth: brokerAuthOptionSchema,
+    // PIPE-94.3: durable-substrate secret ref so `moka submit` emits MOKA_DB_URL
+    // into the runner workflow (same dbAuth the console threads programmatically).
+    // Absent → no MOKA_DB_URL, submission still works.
+    dbAuth: dbAuthOptionSchema.optional(),
     eventAuthSecretKey: z.string().min(1),
     eventAuthSecretName: z.string().min(1),
     eventUrl: z.string().url(),

@@ -104,6 +104,7 @@ function mokaCommonSubmitOptions(input: {
   return {
     brokerAuth: resolveMokaBrokerAuth(input.globalConfig),
     config: input.config,
+    dbAuth: momokaya?.submit.dbAuth,
     delivery: { pullRequest: input.flags.openPr === true },
     eventUrl: input.eventUrl,
     eventAuthSecretKey: momokaya?.submit.eventAuthSecretKey,
