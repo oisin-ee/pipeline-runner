@@ -8,13 +8,13 @@ the host resources it generates. The package CLI is `moka`.
 `moka run "<task>"`
 
 Runs the package-owned workflow runtime from the current worktree. Scheduled
-entrypoints generate a schedule artifact under `.pipeline/runs/<runId>/` and run
-the compiled graph through the runtime.
+entrypoints generate schedule YAML in memory, persist it on the DB-owned run
+manifest, and run the compiled graph through the runtime.
 
 ```shell
 moka run "Implement PIPE-123"
 moka run --target local --effort normal "Implement a standard local change"
-moka run --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-123"
+moka run --schedule ./approved-schedule.yaml "Implement PIPE-123"
 moka run --workflow inspect "Inspect this repo"
 moka run --read-only "Inspect this repo without edits"
 ```
@@ -32,11 +32,12 @@ moka run --target remote --effort thorough "Implement a full hosted graph run"
 
 `moka run --target remote --schedule <path> "<task>"`
 
-Submits an approved schedule artifact. In examples, `<path>` is usually a
-`.pipeline/runs/<runId>/schedule.yaml` file.
+Submits an explicitly approved schedule artifact supplied by the caller. Default
+generated schedules are kept in memory and persisted to the Moka DB; this flag is
+for a user-managed schedule file, not a generated runtime handoff.
 
 ```shell
-moka run --target remote --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-54"
+moka run --target remote --schedule ./approved-schedule.yaml "Implement PIPE-54"
 ```
 
 `moka run --target remote --command -- <command...>`
@@ -89,20 +90,31 @@ moka stop <run-id> [node-id]
 moka export <run-id> --sanitize
 ```
 
-Run directories use `.pipeline/runs/<runId>/`:
+Run-control state lives in the Moka DB selected by `momokaya.db.url` in
+`~/.config/moka/config.yaml`. The run manifest stores generated schedule YAML as
+`manifest.schedule`; run events, node status, artifacts, and node results are
+read by run id from the same DB-owned substrate.
 
-```text
-.pipeline/runs/<runId>/
-  schedule.yaml
-  manifest.json
-  status.json
-  events.ndjson
-  nodes/<node-id>/
-  artifacts/
+```shell
+moka runs
+moka status <run-id>
+moka logs <run-id> [node-id]
+moka export <run-id> --sanitize
 ```
 
 `moka export <run-id> --sanitize` emits a portable evidence bundle while omitting
 prompt text, session body content, secrets, tokens, and credentials.
+
+Debug stepping is DB-owned:
+
+```shell
+moka next node <run-id>
+moka submit-result <run-id> <node-id> --json '<RuntimeNodeResult>'
+moka resume <run-id> "resume this run"
+```
+
+`moka next node` reads `manifest.schedule` from the Moka DB and no longer accepts
+a repo-local generated schedule file.
 
 Compatibility aliases and presets:
 
@@ -113,7 +125,7 @@ moka inspect "Explain the app structure and available checks"
 moka submit "Implement PIPE-54"
 moka submit "fix the login bug" --quick
 moka submit "Fix the login bug" --quick
-moka submit --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-54"
+moka submit --schedule ./approved-schedule.yaml "Implement PIPE-54"
 moka submit --command -- opencode run "fix this bug"
 ```
 
@@ -129,7 +141,7 @@ Validates package-owned config and compiles the selected workflow or schedule.
 
 ```shell
 moka validate
-moka validate --schedule .pipeline/runs/<runId>/schedule.yaml
+moka validate --schedule ./approved-schedule.yaml
 moka validate --workflow inspect
 moka validate --strict
 moka validate --no-lint
@@ -146,7 +158,7 @@ hooks, and artifacts.
 
 ```shell
 moka explain-plan
-moka explain-plan --schedule .pipeline/runs/<runId>/schedule.yaml
+moka explain-plan --schedule ./approved-schedule.yaml
 moka explain-plan --workflow inspect
 ```
 
@@ -334,6 +346,20 @@ then template it as `username`/`password`. For SSH, materialize `identity` and
 `known_hosts` from the external secret manager. `moka submit` references
 configured Secret names; it does not accept per-run secret values.
 
+### Durable Run Substrate
+
+When `momokaya.db.url` is configured in `~/.config/moka/config.yaml`, submitted runs are durably persisted in Postgres without any additional operator action:
+
+**At submit time** — `moka submit` / `moka run --target remote` upserts the run record (run id, schedule YAML, node list) into the run-control store via `createRun`.
+
+**At workflow start** — the in-pod `runner-lifecycle workflow.start` phase is the in-cluster guaranteed floor. It calls `createRun` independently using the same schedule, so the run record is durably written even when the submit-side call was skipped due to a transient outage. `createRun` is a first-writer-wins idempotent upsert (`ON CONFLICT DO NOTHING`); both callers racing is safe and lossless.
+
+**After each node** — `runner-command` records the node's `RuntimeNodeResult` to the durable store, keyed `(runId, nodeId)`. `moka status`, `moka next node`, and `moka resume` read from this store.
+
+The DB URL reaches runner pods as `MOKA_DB_URL`, injected via `secretKeyRef` from the secret named in the `momokaya.submit.dbAuth` config block. The `momokaya.db.url` value in `~/.config/moka/config.yaml` is the operator-side source; the GitOps/ESO layer (Momokaya Postgres via Bitnami chart with ESO-issued credentials) materialises it as the cluster secret.
+
+**Resume of remote runs** — `moka resume <runId> "<description>"` reads `manifest.target` from the durable store. For a remote-origin run it re-submits the persisted schedule to Argo under the same `runId`. Each runner pod skips nodes already recorded PASSED in the store, so only remaining nodes execute and passed nodes' git refs are undisturbed. A node can be forced to re-run regardless of its stored status via the `forceRerunNodeIds` runner-command payload field.
+
 ## Payload Contract
 
 The runner payload contract lives at
@@ -398,8 +424,9 @@ orchestration. Codex is not a supported runtime host.
 ## How The Package Works
 
 The runtime is config-driven by package-owned `@oisincoveney/pipeline` defaults.
-Generated host resources are installed outside `.pipeline`; `.pipeline/runs/` is
-used for schedule and runtime artifacts.
+Generated host resources are installed outside `.pipeline`; default runtime
+state is DB-owned and does not create generated schedule or run-state artifacts
+in the target repository.
 
 Current entrypoints:
 
@@ -431,8 +458,9 @@ roles. The quick graph uses intake, red, green, mechanical, and verification
 roles.
 
 Scheduled entrypoints use their catalog as the seed for the planner. The
-scheduler validates the returned `kind: pipeline-schedule` DAG, writes
-`.pipeline/runs/<runId>/schedule.yaml`, and executes only validated schedules.
+scheduler validates the returned `kind: pipeline-schedule` DAG, persists the
+serialized schedule on the DB-owned run manifest, and executes only validated
+schedules.
 
 Workflow nodes are strict by `kind`:
 

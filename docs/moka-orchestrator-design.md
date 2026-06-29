@@ -1,6 +1,8 @@
 # moka as orchestrator — durable state authority + refusable gate
 
-Status: design (grilled 2026-06-26), not yet built.
+Status: design (grilled 2026-06-26). Layer B durable substrate and debug
+node-stepping are implemented for generated schedules, run-control manifests,
+durable node results, `moka next node`, `moka submit-result`, and `moka resume`.
 
 ## Thesis
 
@@ -32,12 +34,41 @@ moka becomes the central durable state authority and mechanical gate for agent w
 
 7. **Criteria are read-only to the executing agent.** Acceptance criteria and their adjudicating tests are owned by the schedule / planner, never writable by the node's agent (anti reward-hacking; SWE-bench hides test patches for this reason).
 
-8. **Durable substrate = cluster Postgres, one store, URL as a setting.** A `db.url` setting in moka config (alongside `~/.config/moka/config.yaml`) points at the cluster Postgres; local debug points the same setting at the cluster (or a local PG / tunnel). One DB type, no sqlite, no Turso, no sync layer. This replaces today's ephemeral per-run JSONL journal (`src/runtime/run-journal.ts`): record inputs + outputs + criteria, keyed by `(runId, nodeId)`, queryable and resumable across invocations. The Effect scheduler stays (one-engine consolidation intact) — borrow *persistence* (`pg` / `postgres.js` + Drizzle/Kysely for migrations), not an orchestration engine. Steal DBOS's ideas (step-keyed checkpoints, record-inputs-for-deterministic-re-run), not its engine.
+8. **Durable substrate = cluster Postgres, one store, URL as a setting.** A `db.url` setting in moka config (alongside `~/.config/moka/config.yaml`) points at the cluster Postgres; local debug points the same setting at the cluster (or a local PG / tunnel). One DB type, no sqlite, no Turso, no sync layer. This replaces the former ephemeral per-run JSONL journal (`src/runtime/run-journal.ts`): record inputs + outputs + criteria, keyed by `(runId, nodeId)`, queryable and resumable across invocations. The Effect scheduler stays (one-engine consolidation intact) — borrow *persistence* (`pg` / `postgres.js` + Drizzle/Kysely for migrations), not an orchestration engine. Steal DBOS's ideas (step-keyed checkpoints, record-inputs-for-deterministic-re-run), not its engine.
 
 ## Phasing
 
 - **Layer A first** — `moka ticket complete` as a refusable gate with structured reasons. Roughly 70% built on existing gates (`src/runtime/gates/gates.ts`) and acceptance-criteria storage (`src/tickets/backlog-task-store.ts`). Smallest blast radius, biggest robustness win. Prove on real work.
-- **Layer B** — the Postgres durable substrate + CLI stepping (`moka next node`, resume) that makes moka own the cross-invocation loop.
+- **Layer B** — the Postgres durable substrate + CLI stepping (`moka next node`, `moka submit-result`, resume) that makes moka own the cross-invocation loop. Implemented: `momokaya.db.url` selects the DB substrate, generated schedules are persisted as `manifest.schedule`, durable node results are keyed by `(runId, nodeId)`, `moka next node <runId>` reads the schedule from DB state, and `moka resume <runId>` rebuilds the graph from the persisted schedule.
+
+## Durable submitted-run flow (Layer B — PIPE-94)
+
+### Submitted-run creation
+
+`moka submit` (`moka run --target remote`) launches an Argo Workflow AND, when `db.url` is reachable, upserts the run into the RunControlStore via `store.createRun`. The in-pod `runner-lifecycle workflow.start` phase is the guaranteed in-cluster floor: it calls the same `buildRemoteRunCreateRequest` builder to upsert `createRun` with the schedule and the complete node list (`src/runner-command/lifecycle.ts`). `createRun` is idempotent first-writer-wins (`ON CONFLICT DO NOTHING`), so submit + lifecycle both calling it is safe — whichever wins first persists a complete manifest. Each runner pod resolves `db.url` from the `MOKA_DB_URL` environment variable, injected as a `secretKeyRef` from the secret named in `momokaya.submit.dbAuth`. When `MOKA_DB_URL` is absent, `runner-lifecycle` logs the skip and the run proceeds without durable substrate.
+
+### Per-node result persistence
+
+`runner-command` records each node's `RuntimeNodeResult` through the shared step-node core (`src/runtime/step/step-node.ts`) via `recordNodeResult`, keyed `(runId, nodeId)`. The RunControlStore receives a matching node-status projection via the wrapped runtime reporter. This makes `moka next node`, `moka status`, and `moka resume` fully operational on a submitted run. Git node-refs (file-state handoff via `src/run-state/git-refs.ts`) and the Pipeline Console event-sink stream are unchanged; the durable store is additive on top of both.
+
+### One stepping engine
+
+There is a single DAG-stepping execution core at `src/runtime/step/step-node.ts`. `recordNodeResult` is the single terminal-result write path, with three real callers:
+
+- **Local `moka run`** — via `buildRunJournal` in `src/runtime/run-journal.ts`.
+- **Argo runner (`runner-command`)** — via `recordDurableNodeResultEffect` in `src/runner-command/run.ts`.
+- **`moka next node` / `submit-result` CLI** — via `src/run-control/submit-result.ts`.
+
+No parallel stepping path exists; all executors converge on the same `(runId, nodeId)` record.
+
+### Resume semantics
+
+`moka resume <runId>` dispatches on the run's origin (`manifest.target`, resolved in `src/pipeline-runtime.ts`):
+
+- **local** — continues on the LocalScheduler in-process; current behaviour, byte-identical.
+- **remote** — re-submits the persisted schedule to Argo under the same `runId` (so `createRun` stays idempotent and progress is preserved). Each runner pod's `skipAlreadyPassedNodeEffect` checks the durable store first and no-ops any node already recorded PASSED — re-submitting the full graph only executes the remaining nodes; passed nodes' git refs already exist. The `forceRerunNodeIds` runner-command payload field overrides the skip to re-execute a specific already-passed node.
+
+When `db.url` is absent, `moka resume` falls back to the local path, where the missing durable store surfaces a clear error.
 
 ## Module layout (Layer A)
 
@@ -67,7 +98,7 @@ Ticket graph (PIPE-90): 90.1 refusal contract -> 90.2 registry seam -> {90.6 ext
 
 - **DoD authoring is the make-or-break.** SWE-bench Verified culled 68% of hand-written specs as unadjudicatable. Most prose acceptance criteria are not machine-checkable. The planner producing *good* layered criteria matters more than the gate mechanism.
 - **Re-plan loop safety** — the cap needs concrete numbers and a terminal human-escalation state, not infinite re-drive.
-- **Node-execution protocol shape** — exact `next node` output / submit-result input is unspecified.
+- **Node-execution protocol evolution** — the first JSON contract is implemented: `moka next node <runId>` emits `{ runId, nodeId, prompt, criteria, upstreamOutputs }`, and `moka submit-result <runId> <nodeId> --json <RuntimeNodeResult>` persists the terminal node result. Future design work is limited to protocol extensions, not the base shape.
 
 ## Prior-art landscape (research 2026-06-26)
 
