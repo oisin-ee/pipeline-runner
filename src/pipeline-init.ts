@@ -1,6 +1,14 @@
+import { rm } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { execa } from "execa";
 import { AGENT_SKILL_SOURCE } from "./agent-assets";
 import { installCommands } from "./install-commands";
+import {
+  claudeGlobalConfigDir,
+  codexGlobalConfigDir,
+  opencodeGlobalConfigDir,
+} from "./install-commands/shared";
 import { type InstallHooksResult, installHooks } from "./install-hooks";
 import { installRules } from "./install-rules";
 
@@ -52,8 +60,52 @@ interface PipelineInitInstallerFlags {
   force: boolean;
 }
 
+/**
+ * Every global location the `skills` CLI writes into for the three agents we
+ * manage. The CLI copies each skill's real folder once into the shared master
+ * store `~/.agents/skills` and points each agent's global skills dir at it via
+ * symlinks, recording install state in `~/.agents/.skill-lock.json` (or
+ * `$XDG_STATE_HOME/skills/.skill-lock.json`). Each entry below mirrors that
+ * resolution from the skills CLI source (skills `dist/cli.mjs`): per-agent
+ * config dirs honor `CLAUDE_CONFIG_DIR` / `CODEX_HOME` /
+ * `OPENCODE_CONFIG_DIR`+`XDG_CONFIG_HOME` (reused from install-commands so the
+ * test suite's env redirect isolates them), the master store and lock honor
+ * the home dir and `XDG_STATE_HOME`.
+ */
+function globalSkillCleanTargets(): string[] {
+  const agentsHome = homedir();
+  const skillLockPath = process.env.XDG_STATE_HOME
+    ? join(process.env.XDG_STATE_HOME, "skills", ".skill-lock.json")
+    : join(agentsHome, ".agents", ".skill-lock.json");
+  return [
+    join(claudeGlobalConfigDir(), "skills"),
+    join(codexGlobalConfigDir(), "skills"),
+    join(opencodeGlobalConfigDir(), "skills"),
+    join(agentsHome, ".agents", "skills"),
+    skillLockPath,
+  ];
+}
+
+/**
+ * Clean-replace step run before the additive `skills add`. `npx skills add`
+ * only ever adds, so without this a renamed, removed, or foreign global skill
+ * accumulates forever across `moka init` runs. Removing the per-agent symlink
+ * farms + shared master store + lock resets global skill state so the post-add
+ * set equals exactly the canonical `oisin-ee/agent` source. Safe when absent
+ * (rm force); only `skills` subdirs, the master store, and the lock are
+ * touched — never a whole host config dir.
+ */
+async function cleanGlobalSkills(): Promise<void> {
+  await Promise.all(
+    globalSkillCleanTargets().map((target) =>
+      rm(target, { force: true, recursive: true })
+    )
+  );
+}
+
 async function installDefaultSkills(cwd: string): Promise<void> {
   try {
+    await cleanGlobalSkills();
     await execa(
       "npx",
       [

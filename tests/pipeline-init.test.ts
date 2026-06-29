@@ -9,6 +9,25 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Capture hook the execa mock invokes on every shelled-out call. Tests set
+// `onCall` to observe the `npx skills add` invocation (e.g. to assert global
+// skills were already cleaned before the additive install ran).
+const execaSpy = vi.hoisted<{
+  onCall: ((file: string, args: readonly string[]) => void) | undefined;
+}>(() => ({ onCall: undefined }));
+
+// Mock execa so the default `installDefaultSkills` path (which shells out to
+// `npx skills add`) never hits the network. installCommands does not use execa;
+// installRules does but is always replaced by `noopRulesInstaller` here.
+vi.mock("execa", () => ({
+  execa: vi.fn((file: string, args: readonly string[] = []) => {
+    execaSpy.onCall?.(file, args);
+    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
+  }),
+}));
+
+import { execa } from "execa";
 import { loadPipelineConfig } from "../src/config";
 import { resolveHarnessTarget } from "../src/install-commands/shared";
 import { installHooks } from "../src/install-hooks";
@@ -99,6 +118,8 @@ describe("initPipelineProject (global scope)", () => {
       "CLAUDE_CONFIG_DIR",
       "CODEX_HOME",
       "OPENCODE_CONFIG_DIR",
+      "HOME",
+      "XDG_STATE_HOME",
     ]) {
       savedEnv[key] = process.env[key];
     }
@@ -107,9 +128,16 @@ describe("initPipelineProject (global scope)", () => {
     process.env.CLAUDE_CONFIG_DIR = join(home, ".claude");
     process.env.CODEX_HOME = join(home, ".codex");
     process.env.OPENCODE_CONFIG_DIR = join(home, ".config", "opencode");
+    // The skills CLI resolves its shared master store (`~/.agents/skills`) and
+    // lock from the home dir / XDG_STATE_HOME, so `cleanGlobalSkills` does too.
+    // Redirect both into the temp home so the clean step never touches the real
+    // ~/.agents during tests.
+    process.env.HOME = home;
+    delete process.env.XDG_STATE_HOME;
   });
 
   afterEach(() => {
+    execaSpy.onCall = undefined;
     for (const [key, value] of Object.entries(savedEnv)) {
       if (value === undefined) {
         delete process.env[key];
@@ -356,5 +384,57 @@ describe("initPipelineProject (global scope)", () => {
     expect(existsSync(join(dir, ".opencode"))).toBe(false);
     expect(existsSync(join(dir, ".claude"))).toBe(false);
     expect(formatPipelineInitResult(result)).toContain("per-machine");
+  });
+
+  it("clean-replaces global skills: wipes stale installs before the additive add", async () => {
+    // Pre-seed a since-renamed/removed skill in every global location the skills
+    // CLI manages for the three agents: each agent's symlink farm, the shared
+    // master store (~/.agents/skills), and the lock file. A prior `moka init`
+    // would have left these behind; the additive `npx skills add` never prunes.
+    const staleName = "stale-renamed-skill";
+    const staleSkillDirs = [
+      join(home, ".claude", "skills", staleName),
+      join(home, ".codex", "skills", staleName),
+      join(home, ".config", "opencode", "skills", staleName),
+      join(home, ".agents", "skills", staleName),
+    ];
+    for (const skillDir of staleSkillDirs) {
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, "SKILL.md"),
+        `---\nname: ${staleName}\n---\n`
+      );
+    }
+    const lockPath = join(home, ".agents", ".skill-lock.json");
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ skills: { [staleName]: {} }, version: 3 })
+    );
+    const staleTargets = [...staleSkillDirs, lockPath];
+
+    // Capture filesystem state at the moment `npx skills add` runs to prove the
+    // clean happens BEFORE the additive install, not after.
+    let staleGoneWhenAddRan: boolean | undefined;
+    execaSpy.onCall = (file, args) => {
+      if (file === "npx" && args.includes("add")) {
+        staleGoneWhenAddRan = staleTargets.every(
+          (target) => !existsSync(target)
+        );
+      }
+    };
+
+    // No skillInstaller injected → the real installDefaultSkills (clean + add)
+    // runs; execa is mocked so `npx skills add` never hits the network.
+    await initPipelineProject({
+      cwd: dir,
+      hookInstaller: installMockHooks,
+      rulesInstaller: noopRulesInstaller,
+    });
+
+    expect(vi.mocked(execa)).toHaveBeenCalled();
+    expect(staleGoneWhenAddRan).toBe(true);
+    for (const target of staleTargets) {
+      expect(existsSync(target)).toBe(false);
+    }
   });
 });

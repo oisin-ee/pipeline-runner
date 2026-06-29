@@ -41,15 +41,15 @@ export type HarnessHost = ActiveCommandHost | "codex" | "gemini";
  * does our test suite): Claude Code reads `CLAUDE_CONFIG_DIR`, Codex reads
  * `CODEX_HOME`, OpenCode reads `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`.
  */
-function claudeGlobalConfigDir(): string {
+export function claudeGlobalConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
 }
 
-function codexGlobalConfigDir(): string {
+export function codexGlobalConfigDir(): string {
   return process.env.CODEX_HOME ?? join(homedir(), ".codex");
 }
 
-function opencodeGlobalConfigDir(): string {
+export function opencodeGlobalConfigDir(): string {
   return (
     process.env.OPENCODE_CONFIG_DIR ??
     join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode")

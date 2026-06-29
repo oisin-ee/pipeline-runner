@@ -88,11 +88,15 @@ function hashContent(content: Buffer): string {
 // that key's subtree rather than the full bytes — so installing hooks never clobbers
 // the user's other settings. Codex's hooks.json and the opencode plugins are
 // dedicated hook files, so they stay raw whole-file copies.
-const MERGE_MANAGED: Record<string, string[]> = {
-  ".claude/settings.json": ["hooks"],
+const MERGE_MANAGED: Record<string, string[][]> = {
+  ".claude/settings.json": [
+    ["hooks"],
+    ["skillListingBudgetFraction"],
+    ["skillOverrides"],
+  ],
 };
 
-function mergeKeyFor(path: string): string[] | undefined {
+function mergeKeysFor(path: string): string[][] | undefined {
   return MERGE_MANAGED[path];
 }
 
@@ -134,10 +138,16 @@ function managedSubtree(text: string, keyPath: string[]): unknown {
 // The identity of an installed target: the managed subtree for merge-managed files,
 // the full file bytes otherwise. Drift/unchanged/conflict all compare this.
 function targetIdentityHash(path: string, content: Buffer): string {
-  const mergeKey = mergeKeyFor(path);
-  return mergeKey
-    ? hashJson(managedSubtree(content.toString("utf8"), mergeKey))
-    : hashContent(content);
+  const mergeKeys = mergeKeysFor(path);
+  if (!mergeKeys) {
+    return hashContent(content);
+  }
+  const text = content.toString("utf8");
+  const subtrees: Record<string, unknown> = {};
+  for (const keyPath of mergeKeys) {
+    subtrees[keyPath.join(".")] = managedSubtree(text, keyPath);
+  }
+  return hashJson(subtrees);
 }
 
 async function cloneHookRepository(targetDir: string): Promise<void> {
@@ -333,16 +343,20 @@ async function writePlannedFile(file: PlannedHookFile): Promise<void> {
   }
   const target = targetPath(file.path);
   await mkdir(dirname(target), { recursive: true });
-  const mergeKey = mergeKeyFor(file.path);
-  if (mergeKey && existsSync(target)) {
-    // Merge our managed key into the user's existing file, preserving every other
-    // key (mcpServers, permissions, theme, …) and the file's formatting.
-    const currentText = readFileSync(target, "utf8");
-    const desired = managedSubtree(file.content.toString("utf8"), mergeKey);
-    await writeFile(
-      target,
-      ensureTrailingNewline(applyJsonEdit(currentText, mergeKey, desired))
-    );
+  const mergeKeys = mergeKeysFor(file.path);
+  if (mergeKeys && existsSync(target)) {
+    // Merge each managed key into the user's existing file, preserving every other
+    // key (mcpServers, permissions, theme, …) and the file's formatting. Keys the
+    // source does not define are left untouched rather than deleted.
+    const sourceText = file.content.toString("utf8");
+    let merged = readFileSync(target, "utf8");
+    for (const keyPath of mergeKeys) {
+      const desired = managedSubtree(sourceText, keyPath);
+      if (desired !== undefined) {
+        merged = applyJsonEdit(merged, keyPath, desired);
+      }
+    }
+    await writeFile(target, ensureTrailingNewline(merged));
     return;
   }
   await writeFile(target, file.content);

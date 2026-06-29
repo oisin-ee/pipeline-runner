@@ -247,6 +247,42 @@ describe("installHooks", () => {
     await expect(installHooks({ check: true })).resolves.toBeDefined();
   });
 
+  it("merges skillListingBudgetFraction and skillOverrides alongside hooks", async () => {
+    claudeSettings = JSON.stringify({
+      hooks: { Stop: [{ hooks: [{ command: "sh new.sh", type: "command" }] }] },
+      skillListingBudgetFraction: 0.25,
+      skillOverrides: { caveman: { enabled: false } },
+    });
+    const settingsPath = join(home, ".claude/settings.json");
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify(
+        {
+          permissions: { allow: ["Bash"] },
+        },
+        null,
+        2
+      )}\n`
+    );
+
+    await installHooks({ force: true });
+
+    const merged = JSON.parse(readFileSync(settingsPath, "utf8"));
+    expect(merged.permissions).toEqual({ allow: ["Bash"] });
+    expect(merged.hooks).toEqual({
+      Stop: [{ hooks: [{ command: "sh new.sh", type: "command" }] }],
+    });
+    expect(merged.skillListingBudgetFraction).toBe(0.25);
+    expect(merged.skillOverrides).toEqual({ caveman: { enabled: false } });
+
+    const second = await installHooks({});
+    expect(
+      second.items.find((item) => item.path === ".claude/settings.json")?.action
+    ).toBe("unchanged");
+    await expect(installHooks({ check: true })).resolves.toBeDefined();
+  });
+
   it("deletes previously installed hook files removed from the hook repository", async () => {
     await installHooks({});
     includeOpenCodeHook = false;
