@@ -132,72 +132,111 @@ function captureOutput(): {
   };
 }
 
+interface PersistedRunnerArrangement {
+  durableStore: ReturnType<typeof inMemoryDurableRunStore>;
+  fixture: ReturnType<typeof writeRunnerCommandFixture>;
+  mocks: RunnerPersistenceMocks;
+  runControlStore: RunControlStore;
+}
+
+// Install the four runner IO mocks every command run shares (executor emits the
+// terminal result; git workspace + ref ops resolve). The single owner of this
+// boilerplate so each test only states what it asserts, not how the runner is
+// wired.
+function arrangeRunnerMocks(
+  dir: string,
+  result: RuntimeNodeResult = PASSED_RESULT
+): RunnerPersistenceMocks {
+  const mocks = installMockState();
+  mocks.runScheduledWorkflowTask.mockImplementation(
+    executeEmittingResult(result)
+  );
+  mocks.prepareRunnerGitWorkspace.mockResolvedValue(dir);
+  mocks.mergeDependencyRefs.mockResolvedValue(undefined);
+  mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
+  return mocks;
+}
+
+// Arrange a runner with injected durable + run-control stores (the PIPE-94.6
+// persistence path). `seedPassed` pre-records a PASSED node so the PIPE-94.8
+// skip-already-passed path can be exercised.
+function arrangePersistedRunner(options: {
+  runId: string;
+  seedPassed?: boolean;
+  tempPrefix: string;
+}): PersistedRunnerArrangement {
+  const fixture = writeRunnerCommandFixture({
+    runId: options.runId,
+    tempPrefix: options.tempPrefix,
+  });
+  const mocks = arrangeRunnerMocks(fixture.dir);
+  const durableStore = inMemoryDurableRunStore();
+  if (options.seedPassed) {
+    durableStore.record(options.runId, "command", {
+      criteria: [],
+      inputs: {},
+      result: PASSED_RESULT,
+    });
+  }
+  return {
+    durableStore,
+    fixture,
+    mocks,
+    runControlStore: fileRunControlStore(join(fixture.dir, "store")),
+  };
+}
+
+function runPersistedRunner(
+  arrangement: PersistedRunnerArrangement,
+  overrides: { forceRerunNodeIds?: string[] } = {}
+): Promise<number> {
+  const { durableStore, fixture, runControlStore } = arrangement;
+  return runRunnerCommand({
+    cwd: fixture.dir,
+    fetch: async () => new Response(null, { status: 202 }),
+    payloadFile: fixture.payloadPath,
+    resolvePersistence: () => Effect.succeed({ durableStore, runControlStore }),
+    scheduleFile: fixture.schedulePath,
+    stderr: { write: () => true },
+    stdout: { write: () => true },
+    taskDescriptorFile: fixture.descriptorPath,
+    ...(overrides.forceRerunNodeIds
+      ? { forceRerunNodeIds: overrides.forceRerunNodeIds }
+      : {}),
+  });
+}
+
 describe("runner-command durable persistence (PIPE-94.6)", () => {
   it("AC1: records the executed RuntimeNodeResult in the DurableRunStore", async () => {
-    const fixture = writeRunnerCommandFixture({
+    const arrangement = arrangePersistedRunner({
       runId: "run-persist",
       tempPrefix: "runner-command-persist-",
     });
-    const mocks = installMockState();
-    mocks.runScheduledWorkflowTask.mockImplementation(
-      executeEmittingResult(PASSED_RESULT)
-    );
-    mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
-    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
-    const durableStore = inMemoryDurableRunStore();
-    const runControlStore = fileRunControlStore(join(fixture.dir, "store"));
-    await createRun(runControlStore, "run-persist", ["command"]);
+    await createRun(arrangement.runControlStore, "run-persist", ["command"]);
 
-    const exitCode = await runRunnerCommand({
-      cwd: fixture.dir,
-      fetch: async () => new Response(null, { status: 202 }),
-      payloadFile: fixture.payloadPath,
-      resolvePersistence: () =>
-        Effect.succeed({ durableStore, runControlStore }),
-      scheduleFile: fixture.schedulePath,
-      stderr: { write: () => true },
-      stdout: { write: () => true },
-      taskDescriptorFile: fixture.descriptorPath,
-    });
+    const exitCode = await runPersistedRunner(arrangement);
 
     expect(exitCode).toBe(0);
-    expect(durableStore.get("run-persist", "command")?.result).toEqual(
-      PASSED_RESULT
-    );
+    expect(
+      arrangement.durableStore.get("run-persist", "command")?.result
+    ).toEqual(PASSED_RESULT);
   });
 
   it("AC2: run-control node status reflects pass and the durable record advances next node to B", async () => {
-    const fixture = writeRunnerCommandFixture({
+    const arrangement = arrangePersistedRunner({
       runId: "run-advance",
       tempPrefix: "runner-command-advance-",
     });
-    const mocks = installMockState();
-    mocks.runScheduledWorkflowTask.mockImplementation(
-      executeEmittingResult(PASSED_RESULT)
-    );
-    mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
-    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
-    const durableStore = inMemoryDurableRunStore();
-    const runControlStore = fileRunControlStore(join(fixture.dir, "store"));
-    await createRun(runControlStore, "run-advance", ["command", "b"]);
+    await createRun(arrangement.runControlStore, "run-advance", [
+      "command",
+      "b",
+    ]);
 
-    const exitCode = await runRunnerCommand({
-      cwd: fixture.dir,
-      fetch: async () => new Response(null, { status: 202 }),
-      payloadFile: fixture.payloadPath,
-      resolvePersistence: () =>
-        Effect.succeed({ durableStore, runControlStore }),
-      scheduleFile: fixture.schedulePath,
-      stderr: { write: () => true },
-      stdout: { write: () => true },
-      taskDescriptorFile: fixture.descriptorPath,
-    });
+    const exitCode = await runPersistedRunner(arrangement);
 
     expect(exitCode).toBe(0);
     const manifest = await Effect.runPromise(
-      runControlStore.readRun({ runId: "run-advance" })
+      arrangement.runControlStore.readRun({ runId: "run-advance" })
     );
     expect(manifest?.nodes.command).toBe("passed");
 
@@ -212,7 +251,7 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
       nodeMetadata: new Map(),
       nodes,
       runId: "run-advance",
-      store: durableStore,
+      store: arrangement.durableStore,
     });
     expect(envelope?.nodeId).toBe("b");
     expect(envelope?.upstreamOutputs).toEqual([
@@ -220,18 +259,46 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
     ]);
   });
 
+  it("PIPE-94.8: skips re-execution when the node already passed in the store", async () => {
+    const arrangement = arrangePersistedRunner({
+      runId: "run-skip",
+      seedPassed: true,
+      tempPrefix: "runner-command-skip-",
+    });
+
+    const exitCode = await runPersistedRunner(arrangement);
+
+    // The node short-circuits: PASS exit code, but the agent task never runs and
+    // no new node ref is pushed — re-submitting the full DAG only drains the
+    // remaining (not-yet-passed) nodes.
+    expect(exitCode).toBe(0);
+    expect(arrangement.mocks.runScheduledWorkflowTask).not.toHaveBeenCalled();
+    expect(arrangement.mocks.commitAndPushNodeRef).not.toHaveBeenCalled();
+  });
+
+  it("PIPE-94.8: forceRerunNodeIds re-executes an already-passed node (override)", async () => {
+    const arrangement = arrangePersistedRunner({
+      runId: "run-force",
+      seedPassed: true,
+      tempPrefix: "runner-command-force-",
+    });
+
+    const exitCode = await runPersistedRunner(arrangement, {
+      forceRerunNodeIds: ["command"],
+    });
+
+    // The override defeats the skip: the passed node is re-executed and pushed.
+    expect(exitCode).toBe(0);
+    expect(arrangement.mocks.runScheduledWorkflowTask).toHaveBeenCalledTimes(1);
+    expect(arrangement.mocks.commitAndPushNodeRef).toHaveBeenCalledTimes(1);
+  });
+
   it("AC3: db.url absent -> identical exit code, no persistence, skip logged", async () => {
     const fixture = writeRunnerCommandFixture({
       runId: "run-nodb",
       tempPrefix: "runner-command-nodb-",
     });
-    const mocks = installMockState();
-    mocks.runScheduledWorkflowTask.mockImplementation(
-      executeEmittingResult(PASSED_RESULT)
-    );
-    mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
-    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
+    arrangeRunnerMocks(fixture.dir);
     const stdout = captureOutput();
 
     const savedMokaDbUrl = process.env.MOKA_DB_URL;
