@@ -46,6 +46,12 @@ export interface PipelineInitFormatMode {
   dryRun?: boolean;
 }
 
+interface PipelineInitInstallerFlags {
+  check?: boolean;
+  dryRun?: boolean;
+  force: boolean;
+}
+
 async function installDefaultSkills(cwd: string): Promise<void> {
   try {
     await execa(
@@ -80,11 +86,8 @@ export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const { check, dryRun, force } = options;
-  // --force is caller-controlled: a bare `moka init` refuses to clobber manually
-  // edited harness files, while the runner DAG passes --force so a pre-baked or
-  // version-skewed ~/.claude/settings.json is refreshed instead of failing setup.
-  const installerFlags = { check, dryRun, force };
+  const { check, dryRun } = options;
+  const installerFlags = initInstallerFlags(options);
   // Skills come from `npx skills add` (network, externally managed); they are not
   // part of the generated harness, so --check/--dry-run skip them entirely.
   if (!(check || dryRun)) {
@@ -104,6 +107,17 @@ export async function initPipelineProject(
       ...hookInstallerFiles(hooks),
       ...rulesResult.items.map((item) => item.path),
     ],
+  };
+}
+
+function initInstallerFlags(
+  options: PipelineInitOptions
+): PipelineInitInstallerFlags {
+  const { check, dryRun } = options;
+  return {
+    check,
+    dryRun,
+    force: options.force ?? !(check || dryRun),
   };
 }
 

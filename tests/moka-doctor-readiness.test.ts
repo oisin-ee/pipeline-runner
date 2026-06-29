@@ -208,11 +208,27 @@ function normalizeReadPath(path: unknown): string {
 function defaultDoctorExecaMock(
   command: string,
   args: string[] = [],
-  options?: { cwd?: string }
+  options?: { cwd?: string; env?: Record<string, string> }
 ): Promise<{ exitCode: number; stderr: string; stdout: string }> {
   if (command === "npx" && args.includes("skills") && args.includes("add")) {
     writeMockSkills(options?.cwd ?? process.cwd());
     return execaResult("skills installed");
+  }
+  if (
+    command === "npx" &&
+    args.includes("rulesync@8.30.1") &&
+    args.includes("generate") &&
+    !args.includes("--dry-run")
+  ) {
+    writeMockRules(options?.env?.HOME_DIR);
+    return execaResult("rules generated");
+  }
+  if (
+    command === "gh" &&
+    args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent"
+  ) {
+    writeMockAgentRepo(args[3]);
+    return execaResult("agent cloned");
   }
   if (command === "opencode" && args.join(" ") === "--version") {
     return execaResult("opencode 1.2.3");
@@ -359,6 +375,27 @@ function writeMockSkills(root: string): void {
     (lock.skills as Record<string, unknown>)[skill] = { source: "mock" };
   }
   writeProjectFile(root, "skills-lock.json", `${JSON.stringify(lock)}\n`);
+}
+
+function writeMockAgentRepo(root: string): void {
+  writeProjectFile(root, "hooks/claude-code/hooks/check.sh", "#!/bin/sh\n");
+  writeProjectFile(root, "hooks/codex/hooks/check.sh", "#!/bin/sh\n");
+  writeProjectFile(
+    root,
+    "hooks/opencode/plugin/agent-hooks.ts",
+    "export const AgentHooks = async () => ({})\n"
+  );
+  writeProjectFile(root, "rules/00-test.md", "# Test Rule\n");
+}
+
+function writeMockRules(home: string | undefined): void {
+  if (!home) {
+    throw new Error("Mock rulesync expected HOME_DIR.");
+  }
+  writeProjectFile(home, ".claude/CLAUDE.md", "claude rules\n");
+  writeProjectFile(home, ".codex/AGENTS.md", "codex rules\n");
+  writeProjectFile(home, ".gemini/GEMINI.md", "gemini rules\n");
+  writeProjectFile(home, ".config/opencode/AGENTS.md", "opencode rules\n");
 }
 
 function writeProjectFile(

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -130,6 +131,7 @@ const PRIMARY_COMMAND_RE = /\bprimary\b/i;
 const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
 const SCHEDULE_GENERATED_RE = /Schedule generated in memory/;
 const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/;
+const PIPELINE_RUNTIME_STATUS_RE = /^.. \.pipeline(?:\/|$)/;
 const NO_REPO_COPY_RE = /clone|copy|mirror/i;
 const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
@@ -139,6 +141,24 @@ const CLAUDE_GATEWAY_AUTH_HEADER = [
   "$",
   "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
 ].join("");
+
+function initGitRepo(worktreePath: string): void {
+  execFileSync("git", ["init", "--quiet"], { cwd: worktreePath });
+}
+
+function gitStatusPorcelain(worktreePath: string): string[] {
+  return execFileSync("git", ["status", "--porcelain"], {
+    cwd: worktreePath,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
+}
+
+function pipelineRuntimeStatusEntries(entries: string[]): string[] {
+  return entries.filter((entry) => PIPELINE_RUNTIME_STATUS_RE.test(entry));
+}
+
 const DEFAULT_TEST_SKILLS = [
   "add-dark-mode",
   "brand-kit",
@@ -718,6 +738,7 @@ beforeEach(() => {
     ) {
       installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
     }
+    installMockRulesyncOutputIfRequested(command, args, options);
     installMockAgentRepoIfRequested(command, args);
     return Promise.resolve({
       exitCode: 0,
@@ -780,6 +801,30 @@ function installMockAgentRepo(target: string): void {
     "export const AgentHooks = async () => ({})\n"
   );
   writeFileAt(target, "rules/00-test.md", "# Test Rule\n");
+}
+
+function installMockRulesyncOutputIfRequested(
+  command: string,
+  args: string[] | undefined,
+  options: { env?: Record<string, string> } | undefined
+): void {
+  if (
+    command !== "npx" ||
+    !Array.isArray(args) ||
+    !args.includes("rulesync@8.30.1") ||
+    !args.includes("generate") ||
+    args.includes("--dry-run")
+  ) {
+    return;
+  }
+  const home = options?.env?.HOME_DIR;
+  if (!home) {
+    throw new Error("Mock rulesync expected HOME_DIR.");
+  }
+  writeFileAt(home, ".claude/CLAUDE.md", "claude rules\n");
+  writeFileAt(home, ".codex/AGENTS.md", "codex rules\n");
+  writeFileAt(home, ".gemini/GEMINI.md", "gemini rules\n");
+  writeFileAt(home, ".config/opencode/AGENTS.md", "opencode rules\n");
 }
 
 function writeFileAt(root: string, path: string, content: string): void {
@@ -1112,6 +1157,8 @@ function mockToolHiveWorkloads(names: string[]): void {
     const result = toolHiveListResult(command, args, names);
     writeHookResult(command, options);
     installSkillsForCommand(command, args, options);
+    installMockRulesyncOutputIfRequested(command, args, options);
+    installMockAgentRepoIfRequested(command, args);
     return Promise.resolve(result ?? emptyExecaResult()) as any;
   }) as any);
 }
@@ -1356,7 +1403,7 @@ describe("execute", () => {
         mockExeca.mockImplementation(((
           command: string,
           args?: string[],
-          options?: { cwd?: string }
+          options?: { cwd?: string; env?: Record<string, string> }
         ) => {
           if (isSkillsInstallCommand(command, args)) {
             installMockSkills(
@@ -1364,6 +1411,8 @@ describe("execute", () => {
               (options as { cwd?: string } | undefined)?.cwd
             );
           }
+          installMockRulesyncOutputIfRequested(command, args, options);
+          installMockAgentRepoIfRequested(command, args);
           return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
         }) as any);
 
@@ -1728,6 +1777,7 @@ describe("execute", () => {
     await withCliTempDir(
       "pipeline-cli-schedule-plan-",
       async ({ dir, output, runCli }) => {
+        initGitRepo(dir);
         runControlMock.mode = "memory";
         process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
@@ -1748,6 +1798,9 @@ describe("execute", () => {
         expect(stdout).toMatch(SCHEDULE_RUN_WORKFLOW_RE);
         expect(execaCommands()).toContain("opencode");
         expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+        expect(pipelineRuntimeStatusEntries(gitStatusPorcelain(dir))).toEqual(
+          []
+        );
         expect(runControlMock.createRunInputs).toHaveLength(1);
         expect(runControlMock.createRunInputs[0].input.schedule).toContain(
           "kind: pipeline-schedule"
@@ -2173,7 +2226,11 @@ workflows:
       mockExeca.mockImplementation(((
         command: string,
         args?: string[],
-        options?: { cwd?: string; reject?: boolean }
+        options?: {
+          cwd?: string;
+          env?: Record<string, string>;
+          reject?: boolean;
+        }
       ) => {
         if (isSkillsInstallCommand(command, args)) {
           installMockSkills(
@@ -2181,6 +2238,7 @@ workflows:
             (options as { cwd?: string } | undefined)?.cwd
           );
         }
+        installMockRulesyncOutputIfRequested(command, args, options);
         installMockAgentRepoIfRequested(command, args);
         return Promise.resolve({ exitCode: 0, stderr: "", stdout: "true\n" });
       }) as any);

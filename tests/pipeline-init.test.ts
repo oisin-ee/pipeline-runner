@@ -229,11 +229,11 @@ describe("initPipelineProject (global scope)", () => {
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
   });
 
-  it("does not force the hook install by default, so manual edits are not clobbered", async () => {
+  it("forces the hook install by default so stale harness files are refreshed", async () => {
     vi.clearAllMocks();
 
     // Default hookInstaller path (no hookInstaller injected). A bare `moka init`
-    // refuses to overwrite manually edited harness files; --force is opt-in.
+    // owns and refreshes the per-machine harness.
     await initPipelineProject({
       cwd: dir,
       rulesInstaller: noopRulesInstaller,
@@ -243,8 +243,31 @@ describe("initPipelineProject (global scope)", () => {
     expect(installHooks).toHaveBeenCalledWith({
       check: undefined,
       dryRun: undefined,
-      force: undefined,
+      force: true,
     });
+  });
+
+  it("forces generated command files by default so stale harness files are refreshed", async () => {
+    const commandPath = join(
+      home,
+      ".config",
+      "opencode",
+      "commands",
+      "moka-execute.md"
+    );
+    mkdirSync(dirname(commandPath), { recursive: true });
+    writeFileSync(commandPath, "manual stale command\n");
+
+    await initPipelineProject({
+      cwd: dir,
+      hookInstaller: installMockHooks,
+      rulesInstaller: noopRulesInstaller,
+      skillInstaller: installMockSkills,
+    });
+
+    expect(readFileSync(commandPath, "utf8")).not.toBe(
+      "manual stale command\n"
+    );
   });
 
   it("forwards --force to the hook install so a version-skewed settings.json is refreshed", async () => {

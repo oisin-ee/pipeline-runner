@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   formatInstallRulesResult,
@@ -23,6 +23,20 @@ interface RunnerCall {
   env: NodeJS.ProcessEnv;
 }
 
+function writeGeneratedRuleOutputs(home: string): void {
+  const outputs = [
+    [".claude/CLAUDE.md", "claude"],
+    [".codex/AGENTS.md", "codex"],
+    [".gemini/GEMINI.md", "gemini"],
+    [".config/opencode/AGENTS.md", "opencode"],
+  ] as const;
+  for (const [path, host] of outputs) {
+    const target = join(home, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, `${host} rules\n`);
+  }
+}
+
 function makeCapturingRunner(): {
   calls: RunnerCall[];
   runner: RulesyncRunner;
@@ -30,6 +44,13 @@ function makeCapturingRunner(): {
   const calls: RunnerCall[] = [];
   const runner: RulesyncRunner = (args, opts) => {
     calls.push({ args, cwd: opts.cwd, env: opts.env });
+    if (!(args.includes("--dry-run") || args.includes("--check"))) {
+      const home = opts.env.HOME_DIR;
+      if (!home) {
+        return Promise.reject(new Error("HOME_DIR missing"));
+      }
+      writeGeneratedRuleOutputs(home);
+    }
     return Promise.resolve();
   };
   return { calls, runner };
@@ -127,17 +148,31 @@ describe("installRules", () => {
       "-f",
       "rules",
       "--delete",
+      "--global",
     ]);
-    expect(call.env.HOME_DIR).toBe("/test/home");
+    expect(call.env.HOME_DIR).toContain("moka-rules-home-");
+    expect(call.env.HOME_DIR).not.toBe("/test/home");
     expect(call.cwd).toBe(sourceDir);
   });
 
-  it("(d) returns the four expected home-relative output paths", async () => {
+  it("(d) returns the four expected resolved output paths", async () => {
     writeRuleFragment(sourceDir, "00-a.md", "# Rule A");
 
+    const root = mkdtempSync(join(tmpdir(), "install-rules-paths-"));
     const { runner } = makeCapturingRunner();
-    const savedHomeDir = process.env.HOME_DIR;
-    process.env.HOME_DIR = "/fake/home";
+    const savedEnv: Record<string, string | undefined> = {};
+    for (const key of [
+      "CLAUDE_CONFIG_DIR",
+      "CODEX_HOME",
+      "GEMINI_CONFIG_DIR",
+      "OPENCODE_CONFIG_DIR",
+    ]) {
+      savedEnv[key] = process.env[key];
+    }
+    process.env.CLAUDE_CONFIG_DIR = join(root, "claude-home");
+    process.env.CODEX_HOME = join(root, "codex-home");
+    process.env.GEMINI_CONFIG_DIR = join(root, "gemini-home");
+    process.env.OPENCODE_CONFIG_DIR = join(root, "opencode-home");
     let result: InstallRulesResult;
     try {
       result = await installRules({
@@ -145,19 +180,84 @@ describe("installRules", () => {
         sourceOverride: sourceDir,
       });
     } finally {
-      if (savedHomeDir === undefined) {
-        delete process.env.HOME_DIR;
-      } else {
-        process.env.HOME_DIR = savedHomeDir;
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
       }
+      rmSync(root, { force: true, recursive: true });
     }
 
     const paths = result.items.map((item) => item.path);
-    expect(paths).toContain("/fake/home/.claude/CLAUDE.md");
-    expect(paths).toContain("/fake/home/.codex/AGENTS.md");
-    expect(paths).toContain("/fake/home/.gemini/GEMINI.md");
-    expect(paths).toContain("/fake/home/.config/opencode/AGENTS.md");
+    expect(paths).toContain(join(root, "claude-home", "CLAUDE.md"));
+    expect(paths).toContain(join(root, "codex-home", "AGENTS.md"));
+    expect(paths).toContain(join(root, "gemini-home", "GEMINI.md"));
+    expect(paths).toContain(join(root, "opencode-home", "AGENTS.md"));
     expect(paths).toHaveLength(4);
+  });
+
+  it("projects generated rules into host config env dirs", async () => {
+    writeRuleFragment(sourceDir, "00-a.md", "# Rule A");
+
+    const root = mkdtempSync(join(tmpdir(), "install-rules-hosts-"));
+    const wrongHome = join(root, "wrong-home");
+    const savedEnv: Record<string, string | undefined> = {};
+    for (const key of [
+      "CLAUDE_CONFIG_DIR",
+      "CODEX_HOME",
+      "GEMINI_CONFIG_DIR",
+      "HOME_DIR",
+      "OPENCODE_CONFIG_DIR",
+    ]) {
+      savedEnv[key] = process.env[key];
+    }
+
+    process.env.CLAUDE_CONFIG_DIR = join(root, "claude-home");
+    process.env.CODEX_HOME = join(root, "codex-home");
+    process.env.GEMINI_CONFIG_DIR = join(root, "gemini-home");
+    process.env.OPENCODE_CONFIG_DIR = join(root, "opencode-home");
+    process.env.HOME_DIR = wrongHome;
+
+    const { runner } = makeCapturingRunner();
+    try {
+      const result = await installRules({
+        rulesyncRunner: runner,
+        sourceOverride: sourceDir,
+      });
+
+      expect(readFileSync(join(root, "claude-home", "CLAUDE.md"), "utf8")).toBe(
+        "claude rules\n"
+      );
+      expect(readFileSync(join(root, "codex-home", "AGENTS.md"), "utf8")).toBe(
+        "codex rules\n"
+      );
+      expect(readFileSync(join(root, "gemini-home", "GEMINI.md"), "utf8")).toBe(
+        "gemini rules\n"
+      );
+      expect(
+        readFileSync(join(root, "opencode-home", "AGENTS.md"), "utf8")
+      ).toBe("opencode rules\n");
+      expect(existsSync(join(wrongHome, ".claude", "CLAUDE.md"))).toBe(false);
+      expect(result.items.map((item) => item.path).sort()).toEqual(
+        [
+          join(root, "claude-home", "CLAUDE.md"),
+          join(root, "codex-home", "AGENTS.md"),
+          join(root, "gemini-home", "GEMINI.md"),
+          join(root, "opencode-home", "AGENTS.md"),
+        ].sort()
+      );
+    } finally {
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 
   it("(e) dryRun: true adds --dry-run to args and uses action skip", async () => {
@@ -210,7 +310,19 @@ describe("installRules", () => {
       [
         "#!/usr/bin/env node",
         "const fs = require('node:fs');",
+        "const path = require('node:path');",
         `fs.writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(process.argv.slice(2)));`,
+        "const outputs = [",
+        "  ['.claude/CLAUDE.md','claude'],",
+        "  ['.codex/AGENTS.md','codex'],",
+        "  ['.gemini/GEMINI.md','gemini'],",
+        "  ['.config/opencode/AGENTS.md','opencode'],",
+        "];",
+        "for (const [rel, host] of outputs) {",
+        "  const target = path.join(process.env.HOME_DIR, rel);",
+        "  fs.mkdirSync(path.dirname(target), { recursive: true });",
+        "  fs.writeFileSync(target, host + ' rules\\n');",
+        "}",
       ].join("\n")
     );
     chmodSync(npxPath, 0o755);
@@ -236,6 +348,7 @@ describe("installRules", () => {
       "-f",
       "rules",
       "--delete",
+      "--global",
     ]);
     rmSync(binDir, { force: true, recursive: true });
   });
