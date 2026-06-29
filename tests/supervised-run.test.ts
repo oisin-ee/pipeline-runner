@@ -30,6 +30,29 @@ interface RuntimeObservation {
 
 const mockState = vi.hoisted(() => ({
   runtimeCalls: [] as RuntimeObservation[],
+  supervisedScheduleYaml: (input: {
+    command: string;
+    nodeId: string;
+    rootWorkflowId: string;
+    runId: string;
+    task: string;
+  }): string =>
+    [
+      "version: 1",
+      "kind: pipeline-schedule",
+      `schedule_id: ${input.runId}`,
+      "source_entrypoint: execute",
+      `task: ${input.task}`,
+      "generated_at: 2026-06-17T00:00:00.000Z",
+      `root_workflow: ${input.rootWorkflowId}`,
+      "workflows:",
+      `  ${input.rootWorkflowId}:`,
+      "    nodes:",
+      `      - id: ${input.nodeId}`,
+      "        kind: command",
+      `        command: [node, -e, "${input.command}"]`,
+      "",
+    ].join("\n"),
   stderr: [] as string[],
   stdout: [] as string[],
 }));
@@ -37,26 +60,30 @@ const mockState = vi.hoisted(() => ({
 vi.mock("../src/planning/generate", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/planning/generate")>();
-  const { writeMockScheduleArtifact } = await import(
-    "./run-control-test-helpers"
-  );
 
+  // The foreground run path (run-service) generates its schedule via
+  // generateScheduleArtifactInMemory, not the path-returning
+  // generateScheduleArtifact wrapper. Mock the in-memory function (as
+  // detached-run.test.ts does) so the supervisor exercises a deterministic
+  // single-node schedule instead of invoking the live planner model.
   return {
     ...actual,
-    generateScheduleArtifact: vi.fn(
+    generateScheduleArtifactInMemory: vi.fn(
       (input: {
         entrypointId: string;
         runId: string;
         task: string;
         worktreePath: string;
-      }) => {
-        const schedulePath = writeMockScheduleArtifact(input, {
-          command: "console.log('writer')",
-          nodeId: "writer",
-          rootWorkflowId: "supervised-root",
-        });
-        return Promise.resolve({ path: schedulePath });
-      }
+      }) =>
+        Promise.resolve({
+          yaml: mockState.supervisedScheduleYaml({
+            command: "console.log('writer')",
+            nodeId: "writer",
+            rootWorkflowId: "supervised-root",
+            runId: input.runId,
+            task: input.task,
+          }),
+        })
     ),
   };
 });
@@ -101,6 +128,27 @@ vi.mock("../src/pipeline-runtime", () => ({
     return Promise.resolve(supervisedFailureResult());
   }),
 }));
+
+// The foreground run resolves the run-control store via withRunControlStoreScoped,
+// which requires db.url (PIPE-91.18, Postgres-only). These tests exercise the
+// supervisor orchestration against the file store double — the same DI-via-mock
+// pattern detached-run/cli use — so no live Postgres is needed.
+vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/run-control/run-control-store")
+    >();
+
+  return {
+    ...actual,
+    withRunControlStoreScoped: vi.fn(
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => use(actual.fileRunControlStore(workspaceRoot))
+    ),
+  };
+});
 
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
 
