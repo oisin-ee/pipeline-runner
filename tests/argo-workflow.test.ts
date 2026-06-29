@@ -1292,6 +1292,77 @@ describe("runner Argo Workflow manifest", () => {
     }
   });
 
+  it("injects PIPELINE_MCP_GATEWAY_AUTHORIZATION via secretKeyRef into every runner container when mcpGatewayAuth is configured", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      mcpGatewayAuth: {
+        secretKey: "pipeline-mcp-gateway-authorization",
+        secretName: "pipeline-runner-mcp-auth",
+      },
+      plan: plan(),
+    });
+
+    const runnerTemplates = manifest.spec.templates.filter(
+      (template) => template.container !== undefined
+    );
+    expect(runnerTemplates.length).toBeGreaterThan(0);
+    for (const template of runnerTemplates) {
+      const env = template.container?.env ?? [];
+      expect(env).toContainEqual({
+        name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+        valueFrom: {
+          secretKeyRef: {
+            key: "pipeline-mcp-gateway-authorization",
+            name: "pipeline-runner-mcp-auth",
+          },
+        },
+      });
+    }
+  });
+
+  it("defaults the mcpGatewayAuth secretKey to pipeline-mcp-gateway-authorization when only a secretName is given", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      mcpGatewayAuth: { secretName: "pipeline-runner-mcp-auth" },
+      plan: plan(),
+    });
+
+    const runnerTemplates = manifest.spec.templates.filter(
+      (template) => template.container !== undefined
+    );
+    expect(runnerTemplates.length).toBeGreaterThan(0);
+    for (const template of runnerTemplates) {
+      const env = template.container?.env ?? [];
+      expect(env).toContainEqual({
+        name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+        valueFrom: {
+          secretKeyRef: {
+            key: "pipeline-mcp-gateway-authorization",
+            name: "pipeline-runner-mcp-auth",
+          },
+        },
+      });
+    }
+  });
+
+  it("omits PIPELINE_MCP_GATEWAY_AUTHORIZATION from runner containers when mcpGatewayAuth is absent (safe default)", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      plan: plan(),
+    });
+
+    const runnerTemplates = manifest.spec.templates.filter(
+      (template) => template.container !== undefined
+    );
+    expect(runnerTemplates.length).toBeGreaterThan(0);
+    for (const template of runnerTemplates) {
+      const env = template.container?.env ?? [];
+      expect(env).not.toContainEqual(
+        expect.objectContaining({ name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION" })
+      );
+    }
+  });
+
   it("injects BROKER_URL + BROKER_API_KEY (from secret) into every runner container when broker auth is set", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,

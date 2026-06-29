@@ -25,6 +25,9 @@ interface MokaWorkflowSubmitOptions {
   imagePullPolicy?: "Always" | "IfNotPresent" | "Never";
   imagePullSecretName?: string;
   kubeconfigPath?: string;
+  // Forwarded from ParsedMokaBaseOptions → submitRunnerArgoWorkflow so the runner
+  // sources PIPELINE_MCP_GATEWAY_AUTHORIZATION via secretKeyRef.
+  mcpGatewayAuth?: { secretKey?: string; secretName: string };
   name?: string;
   namespace: string;
   payloadJson: string;
@@ -63,6 +66,7 @@ function workflowSubmitOptions(
   return {
     brokerAuth: options.brokerAuth,
     dbAuth: options.dbAuth,
+    mcpGatewayAuth: options.mcpGatewayAuth,
     eventAuthSecretKey: options.eventAuthSecretKey,
     eventAuthSecretName: options.eventAuthSecretName,
     generateName: options.generateName,
