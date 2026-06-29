@@ -2,7 +2,9 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig({
   clean: true,
-  dts: true,
+  // Native TS7 (typescript@rc) drops the legacy JS API rolldown-plugin-dts
+  // needs; generate declarations via the native tsgo binary instead.
+  dts: { tsgo: true },
   entry: {
     "argo-workflow": "src/argo-workflow.ts",
     "argo-submit": "src/argo-submit.ts",
