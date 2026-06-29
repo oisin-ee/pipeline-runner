@@ -121,7 +121,7 @@ importers:
         specifier: ^25.9.1
         version: 25.9.1
       '@typescript/native-preview':
-        specifier: ^7.0.0-dev.20260629.1
+        specifier: 7.0.0-dev.20260629.1
         version: 7.0.0-dev.20260629.1
       drizzle-kit:
         specifier: 0.31.10
