@@ -231,7 +231,7 @@ describe("package public app-facing API", () => {
   });
 
   it("lets a separate TypeScript app compile type and value imports from public subpaths", () => {
-    runChecked("bun", ["run", "build:cli"], {
+    runChecked("nub", ["run", "build:cli"], {
       cwd: process.cwd(),
     });
 
@@ -517,7 +517,7 @@ void runnerManifest;
   }, 30_000);
 
   it("does not expose nullable or missing runtime config affordances from the public config API", () => {
-    runChecked("bun", ["run", "build:cli"], {
+    runChecked("nub", ["run", "build:cli"], {
       cwd: process.cwd(),
     });
 
@@ -543,7 +543,7 @@ void runnerManifest;
   }, 30_000);
 
   it("lets a separate JavaScript app load runtime values from public subpaths after build", () => {
-    runChecked("bun", ["run", "build:cli"], {
+    runChecked("nub", ["run", "build:cli"], {
       cwd: process.cwd(),
     });
 

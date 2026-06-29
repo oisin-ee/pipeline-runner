@@ -128,7 +128,7 @@ describe("package-owned config runtime contract", () => {
   });
 
   it("does not expose missing-config affordances in the public config API", () => {
-    runChecked("bun", ["run", "build:cli"], { cwd: process.cwd() });
+    runChecked("nub", ["run", "build:cli"], { cwd: process.cwd() });
 
     const consumer = tempConsumerApp();
     writeFileSync(
@@ -152,7 +152,7 @@ void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
   }, 30_000);
 
   it("loads package-owned skills from the installed package root", () => {
-    runChecked("bun", ["run", "build:cli"], { cwd: process.cwd() });
+    runChecked("nub", ["run", "build:cli"], { cwd: process.cwd() });
 
     const consumer = tempConsumerApp();
     writeFileSync(

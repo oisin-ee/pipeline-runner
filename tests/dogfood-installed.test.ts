@@ -317,7 +317,7 @@ describe("installed dogfood configuration", () => {
   });
 
   it("does not expose runner orchestrator metadata in installed moka submit help", () => {
-    const result = spawnSync("bun", [cliSourcePath(), "submit", "--help"], {
+    const result = spawnSync("nub", [cliSourcePath(), "submit", "--help"], {
       encoding: "utf8",
     });
     const help = `${result.stdout}\n${result.stderr}`;

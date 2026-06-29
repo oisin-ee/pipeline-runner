@@ -2,7 +2,11 @@ import { createRequire } from "node:module";
 import { extname, join, relative } from "node:path";
 import { Effect } from "effect";
 import Graph from "graphology";
-import pagerank from "graphology-metrics/centrality/pagerank";
+// graphology-metrics ships no package "exports" map, so node/nub strict ESM
+// cannot resolve the extensionless subpath (only bun + the tsdown bundle do).
+// Import the real file with its .js extension so the unbundled CLI
+// (`nub src/index.ts`) boots, not just the bundled dist bin.
+import pagerank from "graphology-metrics/centrality/pagerank.js";
 import {
   type Language,
   type Parser,
