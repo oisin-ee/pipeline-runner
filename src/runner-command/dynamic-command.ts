@@ -68,9 +68,10 @@ export function runScopedDynamicRunnerCommand<
     stderr.write(`${parsed.error.message}\n`);
     return Promise.resolve(DYNAMIC_COMMAND_EXIT.validation);
   }
+  const options = { ...parsed.data, stderr };
   return Effect.runPromise(
     Effect.provide(
-      Effect.scoped(runEffect(parsed.data)),
+      Effect.scoped(runEffect(options)),
       RunnerCommandIoServiceLive
     )
   );

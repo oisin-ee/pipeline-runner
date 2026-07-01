@@ -1,6 +1,8 @@
+import { readFile } from "node:fs/promises";
 import { Effect, type Scope } from "effect";
 import { z } from "zod";
 import type { PipelineConfig } from "../config";
+import { resolveFileReference } from "../path-refs";
 import {
   compileScheduleArtifact,
   generateScheduleArtifactInMemory,
@@ -62,6 +64,7 @@ const PHASE_PROFILES = {
 } as const;
 
 const MAX_DYNAMIC_SCHEDULE_WAVES = 90;
+const JSON_CODE_FENCE_RE = /^```(?:json)?\s*([\s\S]*?)\s*```$/i;
 
 const researchOutputSchema = z
   .object({
@@ -182,7 +185,7 @@ function runAgentPhaseEffect(
     const plan = createRunnerLaunchPlan(context.config, {
       nodeId: PHASE_NODE_IDS[phase],
       profileId: PHASE_PROFILES[phase],
-      prompt: agentPhasePrompt(phase, context),
+      prompt: yield* agentPhasePromptEffect(phase, context),
       worktreePath: context.worktreePath,
     });
     const executor = options.executor ?? runLaunchPlan;
@@ -191,7 +194,10 @@ function runAgentPhaseEffect(
       try: async () => await executor(plan, {}),
     });
     const normalized = normalizeRunnerOutput(plan, agentResult.stdout);
-    const output = normalized.output;
+    const output =
+      agentResult.exitCode === 0
+        ? yield* validatedAgentPhaseOutputEffect(phase, normalized.output)
+        : normalized.output;
     if (phase === "pre-planning" && agentResult.exitCode === 0) {
       yield* parseTicketPlanEffect(output);
     }
@@ -310,12 +316,52 @@ function recordPhaseResultEffect(
   });
 }
 
-function agentPhasePrompt(
+function agentPhasePromptEffect(
   phase: Exclude<PreSchedulePhase, "generate-schedule">,
   context: PreScheduleContext
+): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const profileId = PHASE_PROFILES[phase];
+    const profile = context.config.profiles[profileId];
+    const profileInstructions = yield* profileInstructionsEffect(
+      context.worktreePath,
+      profile?.instructions
+    );
+    return agentPhasePrompt(phase, context, profileInstructions);
+  });
+}
+
+function profileInstructionsEffect(
+  worktreePath: string,
+  instructions: PipelineConfig["profiles"][string]["instructions"] | undefined
+): Effect.Effect<string, unknown> {
+  if (!instructions) {
+    return Effect.succeed("");
+  }
+  if (instructions.inline) {
+    return Effect.succeed(instructions.inline);
+  }
+  const instructionPath = instructions.path;
+  if (!instructionPath) {
+    return Effect.succeed("");
+  }
+  return Effect.tryPromise({
+    catch: (error) => error,
+    try: () =>
+      readFile(resolveFileReference(worktreePath, instructionPath), {
+        encoding: "utf8",
+      }),
+  });
+}
+
+function agentPhasePrompt(
+  phase: Exclude<PreSchedulePhase, "generate-schedule">,
+  context: PreScheduleContext,
+  profileInstructions: string
 ): string {
   if (phase === "pre-research") {
     return [
+      ...remotePhaseContract("research", profileInstructions),
       "Research this task before scheduling.",
       "Return only JSON matching .pipeline/schemas/research.schema.json.",
       "",
@@ -328,6 +374,7 @@ function agentPhasePrompt(
     "pre-research"
   );
   return [
+    ...remotePhaseContract("ticket scoping", profileInstructions),
     "Scope this task into an implementation-ready ticket plan before scheduling.",
     "Return only JSON matching .pipeline/schemas/ticket-plan.schema.json.",
     "",
@@ -337,6 +384,107 @@ function agentPhasePrompt(
     "Research:",
     research?.result.output ?? "No pre-research output recorded.",
   ].join("\n");
+}
+
+function remotePhaseContract(
+  label: string,
+  profileInstructions: string
+): string[] {
+  return [
+    `Automated remote pre-schedule ${label} phase.`,
+    "The phase contract below overrides any conflicting profile instruction.",
+    "",
+    "Phase contract:",
+    "- Do not edit files.",
+    "- Do not spawn subagents or delegate to task tools.",
+    "- Do not call goal or plan tools.",
+    "- Keep inspection bounded to files directly relevant to this task.",
+    "- Return exactly one JSON object with no Markdown fences and no prose.",
+    "",
+    "Profile instructions:",
+    profileInstructions.trim() || "(none)",
+    "",
+  ];
+}
+
+function validatedAgentPhaseOutputEffect(
+  phase: Exclude<PreSchedulePhase, "generate-schedule">,
+  output: string
+): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const json = yield* Effect.try({
+      catch: (error) =>
+        new Error(
+          `${phase} returned invalid JSON: ${errorMessage(error)}. Output excerpt: ${outputExcerpt(output)}`
+        ),
+      try: () => parseJsonObjectOutput(output),
+    });
+    if (phase === "pre-research") {
+      const parsed = researchOutputSchema.safeParse(json);
+      if (!parsed.success) {
+        return yield* Effect.fail(
+          phaseSchemaError(phase, "research.schema.json", parsed.error, output)
+        );
+      }
+      return JSON.stringify(parsed.data);
+    }
+    const parsed = ticketPlanSchema.safeParse(json);
+    if (!parsed.success) {
+      return yield* Effect.fail(
+        phaseSchemaError(phase, "ticket-plan.schema.json", parsed.error, output)
+      );
+    }
+    return JSON.stringify(parsed.data);
+  });
+}
+
+function phaseSchemaError(
+  phase: Exclude<PreSchedulePhase, "generate-schedule">,
+  schemaName: string,
+  error: z.ZodError,
+  output: string
+): Error {
+  return new Error(
+    `${phase} returned JSON that does not match ${schemaName}: ${error.message}. Output excerpt: ${outputExcerpt(output)}`
+  );
+}
+
+function parseJsonObjectOutput(output: string): unknown {
+  const errors: string[] = [];
+  for (const candidate of jsonObjectCandidates(output)) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      errors.push(errorMessage(error));
+    }
+  }
+  throw new Error(errors.at(-1) ?? "no JSON object candidate found");
+}
+
+function jsonObjectCandidates(output: string): string[] {
+  const trimmed = output.trim();
+  const candidates = new Set<string>();
+  if (trimmed.length > 0) {
+    candidates.add(trimmed);
+  }
+  const fenced = trimmed.match(JSON_CODE_FENCE_RE)?.[1];
+  if (fenced?.trim()) {
+    candidates.add(fenced.trim());
+  }
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidates.add(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+  return [...candidates];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function outputExcerpt(output: string): string {
+  return output.trim().replace(/\s+/g, " ").slice(0, 500);
 }
 
 function scheduleEntrypointId(payload: RunnerCommandPayload): string {

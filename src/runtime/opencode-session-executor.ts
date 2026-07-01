@@ -496,7 +496,14 @@ function promptBody(plan: RunnerLaunchPlan): {
   };
 }
 
-const FLAGS_TAKING_VALUE = new Set(["--model", "--dir", "--file", "--format"]);
+const FLAGS_TAKING_VALUE = new Set([
+  "--agent",
+  "--dir",
+  "--file",
+  "--format",
+  "--model",
+  "--variant",
+]);
 
 /**
  * The launch plan carries the prompt inside the CLI argv (`run <prompt>` or
