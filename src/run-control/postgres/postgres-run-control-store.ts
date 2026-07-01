@@ -1,9 +1,8 @@
-import { fileURLToPath } from "node:url";
 import { asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { Effect } from "effect";
 import postgres from "postgres";
+import { migratePostgresSubstrate } from "../../runtime/durable-store/postgres/migrate-substrate";
 import {
   DEFAULT_RUN_CONTROL_STALE_DETECTION,
   type MokaRunControlEvent,
@@ -61,12 +60,6 @@ export interface PostgresRunControlStore extends RunControlStore {
 
 type RunControlDb = ReturnType<typeof drizzle>;
 
-const migrationsFolder = fileURLToPath(
-  // Co-located with the PIPE-91.4 durable store so a single `migrate` provisions
-  // both stores (durable tables in 0000, run-control tables in 0001).
-  new URL("../../runtime/durable-store/postgres/migrations", import.meta.url)
-);
-
 function openClient(dbUrl: string): postgres.Sql {
   // max: 1 — matches the durable store; the migrator needs a single connection
   // and run-control writes are low-volume.
@@ -74,20 +67,14 @@ function openClient(dbUrl: string): postgres.Sql {
 }
 
 /**
- * Apply the shared Drizzle migrations to `dbUrl`. Idempotent: Drizzle tracks
- * applied migrations in `__drizzle_migrations` by content hash, so re-running is
- * a no-op. Because the migrations folder is shared with the durable store, this
- * provisions both stores. Opens and closes its own single-connection client.
+ * Apply the shared Drizzle migrations to `dbUrl`. Delegates to
+ * {@link migratePostgresSubstrate} (shared with the durable store, lock-guarded
+ * for concurrent callers).
  */
 export async function migratePostgresRunControlStore(
   dbUrl: string
 ): Promise<void> {
-  const client = openClient(dbUrl);
-  try {
-    await migrate(drizzle(client), { migrationsFolder });
-  } finally {
-    await client.end();
-  }
+  await migratePostgresSubstrate(dbUrl);
 }
 
 export function postgresRunControlStore(
@@ -132,9 +119,14 @@ function createRun(
         .onConflictDoNothing()
     );
 
-    // Read back the canonical manifest — may be the row just inserted or the
-    // pre-existing one when the insert was a no-op due to conflict.
-    const existing = yield* readRun(db, manifest.runId);
+    // Read back the BASE manifest only (no event replay) — may be the row
+    // just inserted or the pre-existing one when the insert was a no-op due to
+    // conflict. Matches the file-backed store's createRun, which returns the
+    // manifest file unchanged rather than a replayed view: callers rely on a
+    // second createRun for an existing run reflecting the row as last
+    // written, not events recorded since. Use readRun (which replays) to see
+    // the run's current live state.
+    const existing = yield* loadBaseManifest(db, manifest.runId);
     if (existing === undefined) {
       return yield* Effect.fail(
         new Error(`Run ${manifest.runId} not found after createRun upsert.`)
@@ -157,6 +149,10 @@ function publishSchedule(
         schedule: input.schedule,
       })
     );
+    // Unlike createRun's "return unchanged on no-op", publishSchedule is a
+    // state transition whose caller expects the full current picture --
+    // including node statuses recorded via events before this call -- so this
+    // reads back through readRun's replay, not the base row.
     const replayed = yield* readRun(db, runId);
     if (replayed === undefined) {
       return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));

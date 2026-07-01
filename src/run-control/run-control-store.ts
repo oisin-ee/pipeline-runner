@@ -1,9 +1,6 @@
 import { Effect, type Scope } from "effect";
-import {
-  loadMokaDbUrl,
-  type MokaDbUrlRequiredError,
-  requireMokaDbUrl,
-} from "../moka-global-config";
+import { loadMokaDbUrl, requireMokaDbUrl } from "../moka-global-config";
+import { migratePostgresSubstrate } from "../runtime/durable-store/postgres/migrate-substrate";
 import type { MokaRunManifest } from "./contracts";
 import { postgresRunControlStore } from "./postgres/postgres-run-control-store";
 import {
@@ -161,12 +158,19 @@ export function fileRunControlStore(workspaceRoot: string): RunControlStore {
 export function resolveRunControlStore(
   dbUrl: string | undefined,
   _workspaceRoot: string
-): Effect.Effect<RunControlStore, MokaDbUrlRequiredError, Scope.Scope> {
+): Effect.Effect<RunControlStore, unknown, Scope.Scope> {
   return requireMokaDbUrl(dbUrl).pipe(
     Effect.flatMap((requiredDbUrl) =>
-      Effect.acquireRelease(
-        Effect.sync(() => postgresRunControlStore(requiredDbUrl)),
-        (store) => Effect.promise(() => store.close())
+      Effect.tryPromise({
+        catch: (error) => error,
+        try: () => migratePostgresSubstrate(requiredDbUrl),
+      }).pipe(
+        Effect.flatMap(() =>
+          Effect.acquireRelease(
+            Effect.sync(() => postgresRunControlStore(requiredDbUrl)),
+            (store) => Effect.promise(() => store.close())
+          )
+        )
       )
     )
   );

@@ -1,12 +1,11 @@
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
 import pino from "pino";
 import postgres from "postgres";
 import { createSerializedWriteQueue } from "../../../serialized-write-queue";
 import { buildRunJournal, type RunJournal } from "../../run-journal";
 import type { DurableNodeRecord, DurableRunStore } from "../durable-store";
+import { migratePostgresSubstrate } from "./migrate-substrate";
 import { durableNodeRecord, durableRun } from "./schema";
 
 /**
@@ -30,10 +29,6 @@ export interface PostgresDurableRunStore extends DurableRunStore {
 
 const logger = pino({ name: "postgres-durable-store" });
 
-const migrationsFolder = fileURLToPath(
-  new URL("./migrations", import.meta.url)
-);
-
 type DurableDb = ReturnType<typeof drizzle>;
 
 function openClient(dbUrl: string): postgres.Sql {
@@ -43,19 +38,14 @@ function openClient(dbUrl: string): postgres.Sql {
 }
 
 /**
- * Apply the Drizzle migrations to `dbUrl`. Idempotent: Drizzle tracks applied
- * migrations in `__drizzle_migrations` by content hash, so re-running is a
- * no-op. Opens and closes its own single-connection client.
+ * Apply the Drizzle migrations to `dbUrl`. Delegates to
+ * {@link migratePostgresSubstrate} (shared with the run-control store, lock-
+ * guarded for concurrent callers).
  */
 export async function migratePostgresDurableStore(
   dbUrl: string
 ): Promise<void> {
-  const client = openClient(dbUrl);
-  try {
-    await migrate(drizzle(client), { migrationsFolder });
-  } finally {
-    await client.end();
-  }
+  await migratePostgresSubstrate(dbUrl);
 }
 
 function makeBucket(
