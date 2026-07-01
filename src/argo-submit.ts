@@ -32,6 +32,7 @@ import {
 } from "./runner-command-contract";
 import {
   type CoreApi,
+  type KubernetesArgoClientOptions,
   type KubernetesArgoIoDependencies,
   KubernetesArgoService,
   KubernetesArgoServiceLive,
@@ -80,6 +81,7 @@ const submitRunnerArgoWorkflowBaseOptionShape = {
   image: z.string().min(1).optional(),
   imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]).optional(),
   imagePullSecretName: z.string().min(1).optional(),
+  kubeContext: z.string().min(1).optional(),
   kubeconfigPath: z.string().min(1).optional(),
   // Optional secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection in
   // runner pods. Shared shape (single owner in remote/argo/model). Absent →
@@ -305,17 +307,16 @@ function submitRunnerArgoWorkflowEffect(
       namespace: options.namespace,
       options,
     });
-    const response = yield* service.createWorkflow({
-      body: runnerArgoWorkflowManifestSchema.parse(workflow),
+    return yield* submitWorkflowManifest({
       dependencies,
       namespace: options.namespace,
       options,
-    });
-    return workflowSubmitResult(response, workflow, {
-      namespace: options.namespace,
-      payloadConfigMapName,
-      scheduleConfigMapName: scheduleArtifactConfigMapName,
-      taskDescriptorConfigMapName,
+      resultExtras: {
+        payloadConfigMapName,
+        scheduleConfigMapName: scheduleArtifactConfigMapName,
+        taskDescriptorConfigMapName,
+      },
+      workflow,
     });
   });
 }
@@ -395,15 +396,41 @@ function submitDynamicRunnerArgoWorkflowEffect(
       namespace: options.namespace,
       options,
     });
-    const response = yield* service.createWorkflow({
-      body: runnerArgoWorkflowManifestSchema.parse(workflow),
+    return yield* submitWorkflowManifest({
       dependencies,
       namespace: options.namespace,
       options,
+      resultExtras: { payloadConfigMapName },
+      workflow,
     });
-    return workflowSubmitResult(response, workflow, {
-      namespace: options.namespace,
-      payloadConfigMapName,
+  });
+}
+
+function submitWorkflowManifest(input: {
+  dependencies: SubmitRunnerArgoWorkflowDependencies;
+  namespace: string;
+  options: KubernetesArgoClientOptions;
+  resultExtras: Omit<
+    SubmitRunnerArgoWorkflowResult,
+    "namespace" | "workflowName" | "workflowUid"
+  >;
+  workflow: ArgoWorkflowManifest;
+}): Effect.Effect<
+  SubmitRunnerArgoWorkflowResult,
+  unknown,
+  KubernetesArgoService
+> {
+  return Effect.gen(function* () {
+    const service = yield* KubernetesArgoService;
+    const response = yield* service.createWorkflow({
+      body: runnerArgoWorkflowManifestSchema.parse(input.workflow),
+      dependencies: input.dependencies,
+      namespace: input.namespace,
+      options: input.options,
+    });
+    return workflowSubmitResult(response, input.workflow, {
+      namespace: input.namespace,
+      ...input.resultExtras,
     });
   });
 }

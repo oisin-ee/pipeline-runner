@@ -115,6 +115,7 @@ const mokaSubmitBaseOptionsSchema = z
     image: z.string().min(1).optional(),
     imagePullPolicy: imagePullPolicySchema,
     imagePullSecretName: z.string().min(1).optional(),
+    kubeContext: z.string().min(1).optional(),
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),

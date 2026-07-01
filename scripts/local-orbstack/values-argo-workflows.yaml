@@ -1,0 +1,11 @@
+# Mirrors infra repo's k8s/apps/system/argo-workflows.yaml Helm values
+# (chart argo-workflows, argoproj.github.io/argo-helm, version 0.45.22) so a
+# local orbstack cluster runs the same controller config as momokaya, minus
+# the ArgoCD reconciliation loop around it.
+controller:
+  workflowNamespaces:
+    - momokaya-pipeline
+  workflowDefaults:
+    spec:
+      ttlStrategy:
+        secondsAfterCompletion: 86400

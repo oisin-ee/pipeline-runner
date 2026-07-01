@@ -36,6 +36,7 @@ const GLOBAL_CONFIG = {
         secretName: "broker-api-key",
         url: "https://cliproxy.momokaya.ee",
       },
+      dbAuth: { secretKey: "dsn", secretName: "momokaya-db-dsn" },
       eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
       eventAuthSecretName: "event-auth-secret",
       eventUrl: "https://console.example/api/pipeline/runner-events",
@@ -98,6 +99,77 @@ describe("PIPE-65 CLI refactor boundaries", () => {
     });
     expect(withoutPr.delivery).toEqual({ pullRequest: false });
   });
+
+  it("resolves dbAuth from global config when no override flag is given", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: {},
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.dbAuth).toEqual({
+      secretKey: "dsn",
+      secretName: "momokaya-db-dsn",
+    });
+  });
+
+  it("overrides dbAuth with --db-auth-secret-name/--db-auth-secret-key", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: {
+        dbAuthSecretKey: "connection-string",
+        dbAuthSecretName: "orbstack-db-dsn",
+      },
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.dbAuth).toEqual({
+      secretKey: "connection-string",
+      secretName: "orbstack-db-dsn",
+    });
+  });
+
+  it("omits dbAuth when --skip-db-auth is set, regardless of global config", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: { skipDbAuth: true },
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.dbAuth).toBeUndefined();
+  });
+
+  it("omits mcpGatewayAuth by default when global config declares none", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: {},
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.mcpGatewayAuth).toBeUndefined();
+  });
+
+  it("overrides mcpGatewayAuth with --mcp-gateway-auth-secret-name", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: { mcpGatewayAuthSecretName: "orbstack-mcp-gateway-auth" },
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.mcpGatewayAuth).toEqual({
+      secretName: "orbstack-mcp-gateway-auth",
+    });
+  });
 });
 
 describe("PIPE-65 CLI formatting behavior", () => {
@@ -139,10 +211,17 @@ describe("PIPE-65 moka submit option normalization", () => {
         "--event-url",
         "--open-pr",
         "--task",
+        "--db-auth-secret-name",
+        "--db-auth-secret-key",
+        "--skip-db-auth",
+        "--mcp-gateway-auth-secret-name",
+        "--mcp-gateway-auth-secret-key",
+        "--skip-mcp-gateway-auth",
         "--name",
         "--generate-name",
         "--namespace",
         "--kubeconfig",
+        "--kube-context",
         "--service-account",
         "--image",
         "--image-pull-policy",

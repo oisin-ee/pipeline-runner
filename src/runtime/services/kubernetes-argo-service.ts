@@ -22,7 +22,8 @@ export interface KubernetesArgoIoDependencies {
   workflowReadApi?: WorkflowReadApi;
 }
 
-interface KubernetesArgoClientOptions {
+export interface KubernetesArgoClientOptions {
+  kubeContext?: string;
   kubeconfigPath?: string;
 }
 
@@ -147,7 +148,7 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
     ),
 });
 
-function resolveKubeConfig(
+export function resolveKubeConfig(
   options: KubernetesArgoClientOptions,
   dependencies: KubernetesArgoIoDependencies
 ): KubeConfig {
@@ -159,6 +160,14 @@ function resolveKubeConfig(
     kubeConfig.loadFromFile(options.kubeconfigPath);
   } else {
     kubeConfig.loadFromDefault();
+  }
+  if (options.kubeContext) {
+    if (!kubeConfig.getContextObject(options.kubeContext)) {
+      throw new Error(
+        `Kube context '${options.kubeContext}' was not found in the resolved kubeconfig`
+      );
+    }
+    kubeConfig.setCurrentContext(options.kubeContext);
   }
   return kubeConfig;
 }

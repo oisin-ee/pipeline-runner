@@ -64,6 +64,7 @@ const mokaSubmitGlobalConfigSchema = z
 
 const mokaKubernetesGlobalConfigSchema = z
   .object({
+    context: z.string().min(1).optional(),
     kubeconfig: z.string().min(1).optional(),
     namespace: z.string().min(1),
   })
