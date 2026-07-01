@@ -2,7 +2,6 @@ import type {
   ArgoWorkflowEnvVar,
   ArgoWorkflowResourceRequirements,
   ArgoWorkflowRetryStrategy,
-  ParsedBuildRunnerArgoWorkflowOptions,
 } from "./model";
 
 export const RUNNER_WORKFLOW_IMAGE = "ghcr.io/oisin-ee/pipeline-runner:latest";
@@ -34,8 +33,25 @@ const DEFAULT_RUNNER_RESOURCES: ArgoWorkflowResourceRequirements = {
 
 const DEFAULT_RUNNER_DEADLINE_SECONDS = 5400;
 
+export interface RunnerContainerPolicyOptions {
+  brokerAuth: {
+    secretKey: string;
+    secretName: string;
+    url: string;
+  };
+  dbAuth?: {
+    secretKey: string;
+    secretName: string;
+  };
+  mcpGatewayAuth?: {
+    secretKey: string;
+    secretName: string;
+  };
+  resources?: ArgoWorkflowResourceRequirements;
+}
+
 export function runnerContainerEnv(
-  options: ParsedBuildRunnerArgoWorkflowOptions
+  options: RunnerContainerPolicyOptions
 ): ArgoWorkflowEnvVar[] {
   return [
     ...RUNNER_OPENCODE_ENV,
@@ -100,7 +116,7 @@ export function runnerRetryStrategy(): ArgoWorkflowRetryStrategy {
 }
 
 export function runnerTemplateResources(
-  options: ParsedBuildRunnerArgoWorkflowOptions
+  options: RunnerContainerPolicyOptions
 ): ArgoWorkflowResourceRequirements {
   return options.resources ?? DEFAULT_RUNNER_RESOURCES;
 }

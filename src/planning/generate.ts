@@ -32,6 +32,7 @@ import {
   isImplementationNode,
   isWriteCapableParallelChild,
 } from "../schedule/scheduling-roles";
+import type { TicketPlan } from "../tickets/ticket-plan";
 import { compileWorkflowPlan, type WorkflowExecutionPlan } from "./compile";
 import { dependentsByNeed, flattenNodes, hasReachableDependent } from "./graph";
 
@@ -83,6 +84,7 @@ export interface GenerateScheduleOptions {
     options: RunnerExecutionOptions
   ) => AgentResult | Promise<AgentResult>;
   generatedAt?: Date;
+  phaseContext?: SchedulePhaseContext;
   runId?: string;
   task: string;
   worktreePath: string;
@@ -111,7 +113,21 @@ export interface BacklogWorkUnit {
 
 export interface SchedulePlanningContext {
   parentWorkUnits: BacklogWorkUnit[];
+  research?: ScheduleResearchContext;
   workUnits: BacklogWorkUnit[];
+}
+
+export interface ScheduleResearchContext {
+  ac: string[];
+  files?: string[];
+  findings: string[];
+  risks?: string[];
+  target?: string;
+}
+
+export interface SchedulePhaseContext {
+  research?: ScheduleResearchContext;
+  ticketPlan?: TicketPlan;
 }
 
 /**
@@ -251,8 +267,10 @@ export async function generateScheduleArtifactInMemory(
     runId: options.runId,
     task: options.task,
   });
-  const planningContext: SchedulePlanningContext = pruneOutOfScopeDependencies({
-    ...loadBacklogPlanningContext(options.task, options.worktreePath),
+  const planningContext: SchedulePlanningContext = schedulePlanningContext({
+    task: options.task,
+    phaseContext: options.phaseContext,
+    worktreePath: options.worktreePath,
   });
   const generatedArtifact = await planScheduleArtifact(
     baseline,
@@ -289,6 +307,69 @@ export async function generateScheduleArtifactInMemory(
   return {
     artifact,
     yaml: stringify(artifact),
+  };
+}
+
+export function schedulePlanningContext(input: {
+  phaseContext?: SchedulePhaseContext;
+  task: string;
+  worktreePath: string;
+}): SchedulePlanningContext {
+  return pruneOutOfScopeDependencies(
+    mergePhasePlanningContext(
+      loadBacklogPlanningContext(input.task, input.worktreePath),
+      input.phaseContext
+    )
+  );
+}
+
+function mergePhasePlanningContext(
+  base: SchedulePlanningContext,
+  phaseContext: SchedulePhaseContext | undefined
+): SchedulePlanningContext {
+  const planned = phaseContext?.ticketPlan
+    ? ticketPlanPlanningContext(phaseContext.ticketPlan)
+    : { parentWorkUnits: [], workUnits: [] };
+  return {
+    parentWorkUnits: [...base.parentWorkUnits, ...planned.parentWorkUnits],
+    ...(phaseContext?.research ? { research: phaseContext.research } : {}),
+    workUnits: [...base.workUnits, ...planned.workUnits],
+  };
+}
+
+export function ticketPlanPlanningContext(
+  plan: TicketPlan
+): Pick<SchedulePlanningContext, "parentWorkUnits" | "workUnits"> {
+  const localIds = new Map(
+    plan.tickets.map((ticket) => [ticket.key, ticket.key])
+  );
+  return {
+    parentWorkUnits: plan.epic ? [ticketPlanTaskWorkUnit(plan.epic)] : [],
+    workUnits: plan.tickets.map((ticket) =>
+      ticketPlanTaskWorkUnit(ticket, localIds)
+    ),
+  };
+}
+
+function ticketPlanTaskWorkUnit(
+  task: TicketPlan["tickets"][number] | NonNullable<TicketPlan["epic"]>,
+  localIds: ReadonlyMap<string, string> = new Map()
+): BacklogWorkUnit {
+  return {
+    acceptance_criteria: task.acceptance_criteria.map((criterion, index) => ({
+      id: `${task.key}-ac-${index + 1}`,
+      text: criterion.text,
+    })),
+    dependencies:
+      "depends_on" in task
+        ? task.depends_on.flatMap((key) => {
+            const id = localIds.get(key);
+            return id ? [id] : [];
+          })
+        : [],
+    description: task.description,
+    id: task.key,
+    title: task.title,
   };
 }
 

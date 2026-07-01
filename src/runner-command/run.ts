@@ -13,6 +13,7 @@ import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
+import { readPersistedScheduleEffect } from "../run-control/next-node";
 import {
   type RunControlStore,
   resolveRunControlStore,
@@ -40,6 +41,10 @@ import {
   RunnerCommandIoServiceLive,
 } from "../runtime/services/runner-command-io-service";
 import { recordNodeResult } from "../runtime/step/step-node";
+import {
+  requireScheduleFileForFileSource,
+  scheduleSourceFields,
+} from "./schedule-source-options";
 import {
   DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH,
   readRunnerTaskDescriptorEffect,
@@ -91,12 +96,14 @@ const runnerCommandOptionsSchema = z
     resolvePersistence: z
       .custom<ResolveRunnerPersistence>((value) => typeof value === "function")
       .optional(),
-    scheduleFile: z.string().min(1),
+    nodeId: z.string().min(1).optional(),
+    ...scheduleSourceFields,
     stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
     stdout: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
     taskDescriptorFile: z.string().min(1).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(requireScheduleFileForFileSource);
 
 export type RunnerCommandOptions = z.input<typeof runnerCommandOptionsSchema>;
 
@@ -179,6 +186,54 @@ function resolveRunnerTargetNode(
   });
 }
 
+function runnerTaskDescriptorEffect(
+  options: RunnerCommandOptions
+): Effect.Effect<{ nodeId: string }, unknown, RunnerCommandIoService> {
+  if (options.nodeId) {
+    return Effect.succeed({ nodeId: options.nodeId });
+  }
+  return readRunnerTaskDescriptorEffect(
+    options.taskDescriptorFile ?? DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH
+  );
+}
+
+function runnerScheduleYamlEffect(input: {
+  options: RunnerCommandOptions;
+  payload: ReturnType<typeof parseRunnerCommandPayload>;
+  persistence: RunnerDurablePersistence | undefined;
+}): Effect.Effect<string, unknown, RunnerCommandIoService> {
+  if (input.options.scheduleSource === "db") {
+    return persistedRunnerScheduleYamlEffect(input.payload, input.persistence);
+  }
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
+    return yield* io.readText(input.options.scheduleFile ?? "");
+  });
+}
+
+function persistedRunnerScheduleYamlEffect(
+  payload: ReturnType<typeof parseRunnerCommandPayload>,
+  persistence: RunnerDurablePersistence | undefined
+): Effect.Effect<string, unknown> {
+  if (persistence === undefined) {
+    return Effect.fail(
+      new Error(
+        `Run ${payload.run.id} cannot read schedule from DB because durable persistence is unavailable.`
+      )
+    );
+  }
+  return readPersistedScheduleEffect(
+    persistence.runControlStore,
+    payload.run.id
+  );
+}
+
+function scheduleSourceLabel(options: RunnerCommandOptions): string {
+  return options.scheduleSource === "db"
+    ? "persisted schedule"
+    : (options.scheduleFile ?? "schedule.yaml");
+}
+
 function runRunnerCommandEffect(
   options: RunnerCommandOptions,
   runtime: { logger: pino.Logger; stderr: OutputStream; stdout: OutputStream }
@@ -194,9 +249,7 @@ function runRunnerCommandEffect(
     const payload = yield* attemptSync(() =>
       parseRunnerCommandPayload(payloadRaw)
     );
-    const descriptor = yield* readRunnerTaskDescriptorEffect(
-      options.taskDescriptorFile ?? DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH
-    );
+    const descriptor = yield* runnerTaskDescriptorEffect(options);
     logger.info(
       {
         nodeId: descriptor.nodeId,
@@ -276,11 +329,15 @@ function runRunnerCommandEffect(
       { phase: "schedule.compile", status: "start" },
       "schedule.compile start"
     );
-    const scheduleRaw = yield* io.readText(options.scheduleFile);
+    const scheduleRaw = yield* runnerScheduleYamlEffect({
+      options,
+      payload,
+      persistence,
+    });
     const compiled = yield* attemptSync(() =>
       compileScheduleArtifact(
         baseConfig,
-        parseScheduleArtifact(scheduleRaw, options.scheduleFile),
+        parseScheduleArtifact(scheduleRaw, scheduleSourceLabel(options)),
         worktreePath
       )
     );

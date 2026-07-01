@@ -7,6 +7,8 @@ import {
   compileArgoExecutionGraph,
 } from "./argo-graph";
 import {
+  type ArgoWorkflowManifest,
+  buildDynamicRunnerArgoWorkflowManifest,
   buildRunnerArgoWorkflowManifest,
   runnerArgoWorkflowManifestSchema,
 } from "./argo-workflow";
@@ -53,6 +55,17 @@ const configMapSchema = z
       .strict(),
   })
   .strict();
+
+const createdWorkflowSchema = z
+  .object({
+    metadata: z
+      .object({
+        name: z.string().min(1).optional(),
+        uid: z.string().min(1).optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
 
 const submitRunnerArgoWorkflowOptionsSchema = z
   .object({
@@ -115,6 +128,13 @@ export interface SubmitRunnerArgoWorkflowDependencies {
   workflowApi?: WorkflowApi;
 }
 
+export type SubmitDynamicRunnerArgoWorkflowOptions = Omit<
+  SubmitRunnerArgoWorkflowOptions,
+  "scheduleYaml"
+> & {
+  workflowId: string;
+};
+
 export function submitRunnerArgoWorkflow(
   rawOptions: SubmitRunnerArgoWorkflowOptions,
   dependencies: SubmitRunnerArgoWorkflowDependencies = {}
@@ -123,6 +143,20 @@ export function submitRunnerArgoWorkflow(
     Effect.provide(
       Effect.suspend(() =>
         submitRunnerArgoWorkflowEffect(rawOptions, dependencies)
+      ),
+      KubernetesArgoServiceLive
+    )
+  );
+}
+
+export function submitDynamicRunnerArgoWorkflow(
+  rawOptions: SubmitDynamicRunnerArgoWorkflowOptions,
+  dependencies: SubmitRunnerArgoWorkflowDependencies = {}
+): Promise<SubmitRunnerArgoWorkflowResult> {
+  return Effect.runPromise(
+    Effect.provide(
+      Effect.suspend(() =>
+        submitDynamicRunnerArgoWorkflowEffect(rawOptions, dependencies)
       ),
       KubernetesArgoServiceLive
     )
@@ -261,25 +295,114 @@ function submitRunnerArgoWorkflowEffect(
       namespace: options.namespace,
       options,
     });
-    const created = z
-      .object({
-        metadata: z
-          .object({
-            name: z.string().min(1).optional(),
-            uid: z.string().min(1).optional(),
-          })
-          .passthrough(),
-      })
-      .passthrough()
-      .parse(response);
-    return workflowSubmitResultSchema.parse({
+    return workflowSubmitResult(response, workflow, {
       namespace: options.namespace,
       payloadConfigMapName,
       scheduleConfigMapName: scheduleArtifactConfigMapName,
       taskDescriptorConfigMapName,
-      workflowName: created.metadata.name ?? workflow.metadata.name,
-      workflowUid: created.metadata.uid,
     });
+  });
+}
+
+function submitDynamicRunnerArgoWorkflowEffect(
+  rawOptions: SubmitDynamicRunnerArgoWorkflowOptions,
+  dependencies: SubmitRunnerArgoWorkflowDependencies
+): Effect.Effect<
+  SubmitRunnerArgoWorkflowResult,
+  unknown,
+  KubernetesArgoService
+> {
+  const { config: _config, workflowId, ...schemaOptions } = rawOptions;
+  const options = submitRunnerArgoWorkflowOptionsSchema
+    .omit({ scheduleYaml: true })
+    .extend({ workflowId: z.string().min(1) })
+    .parse({ ...schemaOptions, workflowId });
+  const parsedPayload = runnerCommandPayloadSchema.parse(
+    parseRunnerCommandPayload(options.payloadJson)
+  );
+  const { payload, payloadJson } = normalizeRunnerPayloadForSubmit({
+    payload: parsedPayload,
+    payloadJson: options.payloadJson,
+  });
+  if (payload.workflow.id !== workflowId) {
+    throw new Error(
+      `Runner payload workflow '${payload.workflow.id}' does not match dynamic workflow '${workflowId}'`
+    );
+  }
+  const payloadConfigMapName = `pipeline-payload-${randomBytes(6).toString("hex")}`;
+  const labels = {
+    "pipeline.oisin.dev/project": payload.run.project,
+    "pipeline.oisin.dev/run-id": payload.run.id,
+    "pipeline.oisin.dev/source": "argo-workflow",
+    "pipeline.oisin.dev/workflow": workflowId,
+  };
+  const annotations =
+    payload.task.kind === "ticket"
+      ? {
+          "pipeline.oisin.dev/ticket-id": payload.task.id,
+          "pipeline.oisin.dev/ticket-project": payload.run.project,
+          "pipeline.oisin.dev/ticket-title": payload.task.title,
+        }
+      : {};
+  const workflow = buildDynamicRunnerArgoWorkflowManifest({
+    annotations,
+    brokerAuth: options.brokerAuth,
+    dbAuth: options.dbAuth,
+    eventAuthSecretKey: options.eventAuthSecretKey,
+    eventAuthSecretName: options.eventAuthSecretName,
+    generateName: options.generateName,
+    gitCredentialsSecretName: options.gitCredentialsSecretName,
+    githubAuthSecretName: options.githubAuthSecretName,
+    image: options.image,
+    imagePullPolicy: options.imagePullPolicy,
+    imagePullSecretName: options.imagePullSecretName,
+    labels,
+    name: options.name,
+    namespace: options.namespace,
+    payloadConfigMapName,
+    serviceAccountName: options.serviceAccountName,
+    workflowId,
+  });
+  return Effect.gen(function* () {
+    const service = yield* KubernetesArgoService;
+    yield* service.createConfigMap({
+      body: configMapSchema.parse({
+        apiVersion: "v1",
+        data: { "payload.json": payloadJson },
+        kind: "ConfigMap",
+        metadata: {
+          labels,
+          name: payloadConfigMapName,
+          namespace: options.namespace,
+        },
+      }),
+      dependencies,
+      namespace: options.namespace,
+      options,
+    });
+    const response = yield* service.createWorkflow({
+      body: runnerArgoWorkflowManifestSchema.parse(workflow),
+      dependencies,
+      namespace: options.namespace,
+      options,
+    });
+    return workflowSubmitResult(response, workflow, {
+      namespace: options.namespace,
+      payloadConfigMapName,
+    });
+  });
+}
+
+function workflowSubmitResult(
+  response: unknown,
+  workflow: ArgoWorkflowManifest,
+  base: Omit<SubmitRunnerArgoWorkflowResult, "workflowName" | "workflowUid">
+): SubmitRunnerArgoWorkflowResult {
+  const created = createdWorkflowSchema.parse(response);
+  return workflowSubmitResultSchema.parse({
+    ...base,
+    workflowName: created.metadata.name ?? workflow.metadata.name,
+    workflowUid: created.metadata.uid,
   });
 }
 

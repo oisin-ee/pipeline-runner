@@ -1,7 +1,9 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parsePipelineConfigParts } from "../src/config";
 import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
@@ -11,6 +13,9 @@ import {
   type MokaRunManifest,
   parseMokaRunManifest,
 } from "../src/run-control/contracts";
+import { buildNextNodeEnvelopeFromRunStore } from "../src/run-control/next-node";
+import { fileRunControlStore } from "../src/run-control/run-control-store";
+import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
 import { readRun } from "./run-control-file-store-helpers";
 import {
   readJson,
@@ -56,6 +61,38 @@ const mockState = vi.hoisted(() => ({
   stderr: [] as string[],
   stdout: [] as string[],
 }));
+
+const NEXT_NODE_CONFIG = parsePipelineConfigParts({
+  pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: package-default
+        kind: command
+        command: ["node", "-e", "console.log('wrong graph')"]
+`,
+  profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: command
+    instructions: { inline: Orchestrate }
+`,
+  runners: `
+version: 1
+runners:
+  command:
+    type: command
+    command: node
+    capabilities:
+      native_subagents: false
+      output_formats: [text]
+`,
+});
 
 vi.mock("../src/planning/generate", async (importOriginal) => {
   const actual =
@@ -199,6 +236,37 @@ describe("foreground supervised moka run", () => {
     );
   });
 
+  it("persists generated schedule so next-node can reconstruct the first ready node", async () => {
+    const capture = await runMokaInTarget(workspaceRoot, [
+      "run",
+      "Ticket",
+      "7",
+      "next-node",
+      "schedule",
+    ]);
+
+    expect(capture.thrown).toBeInstanceOf(Error);
+    expect(mockState.runtimeCalls).toHaveLength(1);
+    const runtimeStart = mockState.runtimeCalls[0];
+    expect(runtimeStart.manifestBeforeRuntime?.schedule).toContain(
+      "kind: pipeline-schedule"
+    );
+    expect(runtimeStart.manifestBeforeRuntime?.schedule).toContain("writer");
+
+    await expect(
+      buildLocalRunFirstNextNode({
+        runId: runtimeStart.runId,
+        workspaceRoot,
+      })
+    ).resolves.toEqual({
+      criteria: [],
+      nodeId: "writer",
+      prompt: "writer",
+      runId: runtimeStart.runId,
+      upstreamOutputs: [],
+    });
+  });
+
   it("streams progress, persists events and artifacts, and leaves failure follow-ups", async () => {
     const capture = await runMokaInTarget(workspaceRoot, [
       "run",
@@ -317,6 +385,21 @@ function runMokaInTarget(workspaceRoot: string, args: string[]) {
     originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
     workspaceRoot,
   });
+}
+
+function buildLocalRunFirstNextNode(input: {
+  readonly runId: string;
+  readonly workspaceRoot: string;
+}) {
+  return Effect.runPromise(
+    buildNextNodeEnvelopeFromRunStore({
+      config: NEXT_NODE_CONFIG,
+      durableStore: inMemoryDurableRunStore(),
+      runControlStore: fileRunControlStore(input.workspaceRoot),
+      runId: input.runId,
+      worktreePath: input.workspaceRoot,
+    })
+  );
 }
 
 function supervisedFailureEvents(): PipelineRuntimeEvent[] {

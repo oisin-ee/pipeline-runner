@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Command } from "commander";
 import { Effect } from "effect";
 import postgres from "postgres";
@@ -107,6 +111,21 @@ function scheduleYaml(): string {
   ].join("\n");
 }
 
+function makeGitWorktree(prefix: string): string {
+  const worktreePath = mkdtempSync(join(tmpdir(), prefix));
+  execFileSync("git", ["init", "--quiet"], { cwd: worktreePath });
+  return worktreePath;
+}
+
+function gitStatusPorcelain(worktreePath: string): string[] {
+  return execFileSync("git", ["status", "--porcelain"], {
+    cwd: worktreePath,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
+}
+
 async function captureStdout<T>(run: () => Promise<T>): Promise<string> {
   let stdout = "";
   const writeSpy = vi
@@ -136,10 +155,23 @@ function submitResultProgram(): Command {
   return program;
 }
 
-function runNextNodeCommand(runId: string): Promise<string> {
-  return captureStdout(() =>
-    nextNodeProgram().parseAsync(["next", "node", runId], { from: "user" })
-  );
+async function runNextNodeCommand(
+  runId: string,
+  worktreePath: string
+): Promise<string> {
+  const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+  try {
+    process.env.PIPELINE_TARGET_PATH = worktreePath;
+    return await captureStdout(() =>
+      nextNodeProgram().parseAsync(["next", "node", runId], { from: "user" })
+    );
+  } finally {
+    if (originalTargetPath === undefined) {
+      delete process.env.PIPELINE_TARGET_PATH;
+    } else {
+      process.env.PIPELINE_TARGET_PATH = originalTargetPath;
+    }
+  }
 }
 
 async function runSubmitResultCommand(
@@ -248,6 +280,7 @@ describePg(
     it("command actions read manifest.schedule from the DB and advance across process boundaries (AC1, AC3)", async () => {
       const id = runId("db-schedule-step");
       createdRunIds.push(id);
+      const worktreePath = makeGitWorktree("next-node-db-worktree-");
       const store = postgresRunControlStore(dbUrl);
       try {
         await Effect.runPromise(
@@ -260,33 +293,40 @@ describePg(
             target: "local",
           })
         );
-      } finally {
-        await store.close();
-      }
 
-      expect(JSON.parse(await runNextNodeCommand(id))).toMatchObject({
-        nodeId: "plan",
-        prompt: "Plan the work",
-        runId: id,
-        upstreamOutputs: [],
-      });
+        expect(
+          JSON.parse(await runNextNodeCommand(id, worktreePath))
+        ).toMatchObject({
+          nodeId: "plan",
+          prompt: "Plan the work",
+          runId: id,
+          upstreamOutputs: [],
+        });
 
-      await runSubmitResultCommand(id, "plan", passedResult("plan"));
+        await runSubmitResultCommand(id, "plan", passedResult("plan"));
 
-      expect(JSON.parse(await runNextNodeCommand(id))).toMatchObject({
-        nodeId: "implement",
-        prompt: "Implement",
-        runId: id,
-        upstreamOutputs: [{ nodeId: "plan", output: "output of plan" }],
-      });
+        expect(
+          JSON.parse(await runNextNodeCommand(id, worktreePath))
+        ).toMatchObject({
+          nodeId: "implement",
+          prompt: "Implement",
+          runId: id,
+          upstreamOutputs: [{ nodeId: "plan", output: "output of plan" }],
+        });
 
-      const rows = await adminClient()<{ schedule: string }[]>`
+        expect(gitStatusPorcelain(worktreePath)).toEqual([]);
+
+        const rows = await adminClient()<{ schedule: string }[]>`
         select manifest->>'schedule' as schedule
         from moka_run_control_run
         where run_id = ${id}
       `;
-      expect(rows[0]?.schedule).toContain("kind: pipeline-schedule");
-      expect(rows[0]?.schedule).toContain("db-next-node");
+        expect(rows[0]?.schedule).toContain("kind: pipeline-schedule");
+        expect(rows[0]?.schedule).toContain("db-next-node");
+      } finally {
+        await store.close();
+        rmSync(worktreePath, { force: true, recursive: true });
+      }
     });
   }
 );

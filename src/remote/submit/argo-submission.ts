@@ -1,4 +1,7 @@
-import { submitRunnerArgoWorkflow } from "../../argo-submit";
+import {
+  submitDynamicRunnerArgoWorkflow,
+  submitRunnerArgoWorkflow,
+} from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
 import type { BrokerAuthOption } from "../../credentials/broker";
 import type {
@@ -31,8 +34,9 @@ interface MokaWorkflowSubmitOptions {
   name?: string;
   namespace: string;
   payloadJson: string;
-  scheduleYaml: string;
+  scheduleYaml?: string;
   serviceAccountName?: string;
+  workflowId: string;
 }
 
 export type MokaWorkflowSubmit = (
@@ -45,24 +49,52 @@ export async function submitCompiledMokaWorkflow(input: {
   plan: CompiledMokaSubmitPlan;
   submitWorkflow?: MokaWorkflowSubmit;
 }): Promise<MokaSubmitOutput> {
-  const submitWorkflow = input.submitWorkflow ?? submitRunnerArgoWorkflow;
-  const result = await submitWorkflow({
-    ...workflowSubmitOptions(input.options),
-    config: input.plan.config,
-    generateName: input.plan.generateName,
-    payloadJson: runnerPayloadJson({
-      context: input.context,
-      options: input.options,
-      plan: input.plan,
-    }),
-    scheduleYaml: input.plan.scheduleYaml,
+  const payloadJson = runnerPayloadJson({
+    context: input.context,
+    options: input.options,
+    plan: input.plan,
   });
+  if (input.plan.dynamicScheduling) {
+    const dynamicOptions = {
+      ...workflowSubmitOptions(input.options),
+      config: input.plan.config,
+      generateName: input.plan.generateName,
+      payloadJson,
+      workflowId: input.plan.workflowId,
+    };
+    const result =
+      input.submitWorkflow === undefined
+        ? await submitDynamicRunnerArgoWorkflow(dynamicOptions)
+        : await input.submitWorkflow(dynamicOptions);
+    return workflowSubmitResultSchema.parse(result);
+  }
+  const scheduleYaml = requireStaticScheduleYaml(input.plan);
+  const result =
+    input.submitWorkflow === undefined
+      ? await submitRunnerArgoWorkflow({
+          ...workflowSubmitOptions(input.options),
+          config: input.plan.config,
+          generateName: input.plan.generateName,
+          payloadJson,
+          scheduleYaml,
+        })
+      : await input.submitWorkflow({
+          ...workflowSubmitOptions(input.options),
+          config: input.plan.config,
+          generateName: input.plan.generateName,
+          payloadJson,
+          scheduleYaml,
+          workflowId: input.plan.workflowId,
+        });
   return workflowSubmitResultSchema.parse(result);
 }
 
 function workflowSubmitOptions(
   options: ParsedMokaBaseOptions
-): Omit<MokaWorkflowSubmitOptions, "config" | "payloadJson" | "scheduleYaml"> {
+): Omit<
+  MokaWorkflowSubmitOptions,
+  "config" | "payloadJson" | "scheduleYaml" | "workflowId"
+> {
   return {
     brokerAuth: options.brokerAuth,
     dbAuth: options.dbAuth,
@@ -80,6 +112,15 @@ function workflowSubmitOptions(
     namespace: requireSubmitOption(options.namespace, "namespace"),
     serviceAccountName: options.serviceAccountName,
   };
+}
+
+function requireStaticScheduleYaml(plan: CompiledMokaSubmitPlan): string {
+  if (plan.scheduleYaml) {
+    return plan.scheduleYaml;
+  }
+  throw new Error(
+    `Static workflow submit requires scheduleYaml for run ${plan.runId}`
+  );
 }
 
 function runnerPayloadJson(input: {

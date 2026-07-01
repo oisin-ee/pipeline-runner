@@ -18,18 +18,26 @@ export interface RunnerWorkflowStorage {
   volumes: ArgoWorkflowVolume[];
 }
 
+type RunnerWorkflowSecretOptions = Pick<
+  ParsedBuildRunnerArgoWorkflowOptions,
+  | "eventAuthSecretKey"
+  | "eventAuthSecretName"
+  | "gitCredentialsSecretName"
+  | "githubAuthSecretName"
+>;
+
+type DynamicRunnerWorkflowStorageOptions = RunnerWorkflowSecretOptions &
+  Pick<
+    ParsedBuildRunnerArgoWorkflowOptions,
+    "payloadConfigMapKey" | "payloadConfigMapName"
+  >;
+
 export function runnerWorkflowStorage(
   options: ParsedBuildRunnerArgoWorkflowOptions,
   tasks: ArgoExecutableTask[]
 ): RunnerWorkflowStorage {
   const volumes: ArgoWorkflowVolume[] = [
-    {
-      configMap: {
-        items: [{ key: options.payloadConfigMapKey, path: "payload.json" }],
-        name: options.payloadConfigMapName,
-      },
-      name: "runner-payload",
-    },
+    runnerPayloadVolume(options),
     {
       configMap: {
         items: [{ key: options.scheduleConfigMapKey, path: "schedule.yaml" }],
@@ -49,12 +57,7 @@ export function runnerWorkflowStorage(
     },
   ];
   const volumeMounts: ArgoWorkflowVolumeMount[] = [
-    {
-      mountPath: RUNNER_WORKFLOW_PAYLOAD_PATH,
-      name: "runner-payload",
-      readOnly: true,
-      subPath: "payload.json",
-    },
+    runnerPayloadVolumeMount(),
     {
       mountPath: RUNNER_WORKFLOW_SCHEDULE_PATH,
       name: "runner-schedule",
@@ -73,8 +76,48 @@ export function runnerWorkflowStorage(
   };
 }
 
+export function dynamicRunnerWorkflowStorage(
+  options: DynamicRunnerWorkflowStorageOptions
+): RunnerWorkflowStorage {
+  const volumes: ArgoWorkflowVolume[] = [runnerPayloadVolume(options)];
+  const volumeMounts: ArgoWorkflowVolumeMount[] = [runnerPayloadVolumeMount()];
+
+  appendEventAuthStorage(options, volumes, volumeMounts);
+  appendGitCredentialsStorage(options, volumes, volumeMounts);
+  appendGithubAuthStorage(options, volumes, volumeMounts);
+
+  return {
+    volumeMounts: z.array(argoWorkflowVolumeMountSchema).parse(volumeMounts),
+    volumes: z.array(argoWorkflowVolumeSchema).parse(volumes),
+  };
+}
+
+function runnerPayloadVolume(
+  options: Pick<
+    ParsedBuildRunnerArgoWorkflowOptions,
+    "payloadConfigMapKey" | "payloadConfigMapName"
+  >
+): ArgoWorkflowVolume {
+  return {
+    configMap: {
+      items: [{ key: options.payloadConfigMapKey, path: "payload.json" }],
+      name: options.payloadConfigMapName,
+    },
+    name: "runner-payload",
+  };
+}
+
+function runnerPayloadVolumeMount(): ArgoWorkflowVolumeMount {
+  return {
+    mountPath: RUNNER_WORKFLOW_PAYLOAD_PATH,
+    name: "runner-payload",
+    readOnly: true,
+    subPath: "payload.json",
+  };
+}
+
 function appendEventAuthStorage(
-  options: ParsedBuildRunnerArgoWorkflowOptions,
+  options: RunnerWorkflowSecretOptions,
   volumes: ArgoWorkflowVolume[],
   volumeMounts: ArgoWorkflowVolumeMount[]
 ): void {
@@ -105,7 +148,7 @@ function appendEventAuthStorage(
 }
 
 function appendGitCredentialsStorage(
-  options: ParsedBuildRunnerArgoWorkflowOptions,
+  options: RunnerWorkflowSecretOptions,
   volumes: ArgoWorkflowVolume[],
   volumeMounts: ArgoWorkflowVolumeMount[]
 ): void {
@@ -127,7 +170,7 @@ function appendGitCredentialsStorage(
 }
 
 function appendGithubAuthStorage(
-  options: ParsedBuildRunnerArgoWorkflowOptions,
+  options: RunnerWorkflowSecretOptions,
   volumes: ArgoWorkflowVolume[],
   volumeMounts: ArgoWorkflowVolumeMount[]
 ): void {

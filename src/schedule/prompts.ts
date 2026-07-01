@@ -81,6 +81,11 @@ export function plannerPrompt(
       ? stringify(planningContext.parentWorkUnits)
       : "No backlog parent context was resolved.",
     "",
+    "Pre-schedule research context:",
+    planningContext.research
+      ? stringify(planningContext.research)
+      : "No pre-schedule research context was recorded.",
+    "",
     "Baseline schedule:",
     stringify(baseline),
   ].join("\n");

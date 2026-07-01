@@ -24,6 +24,7 @@ import {
 import {
   createRunManifest,
   parseRunStatusFile,
+  publishScheduleManifest,
   replayEvents,
   statusFromManifest,
 } from "./store-manifest";
@@ -36,6 +37,7 @@ import {
 import type {
   CreateRunInput,
   NodeArtifactReference,
+  PublishScheduleInput,
   ReadRunInput,
   RecordEventInput,
   RunStatusFile,
@@ -86,17 +88,56 @@ export function createRunEffect(
 export function updateRunControllerEffect(
   input: UpdateRunControllerInput
 ): Effect.Effect<MokaRunManifest, unknown> {
+  return updateManifestEffect(input, (manifest) =>
+    parseMokaRunManifest({
+      ...manifest,
+      controller: parseMokaRunController(input.controller),
+    })
+  );
+}
+
+export function publishScheduleEffect(
+  input: PublishScheduleInput
+): Effect.Effect<MokaRunManifest, unknown> {
+  return Effect.gen(function* () {
+    const runId = yield* logicalSegmentEffect("runId", input.runId);
+    yield* updateManifestEffect({ ...input, runId }, (manifest) =>
+      publishScheduleManifest({
+        manifest,
+        nodeIds: input.nodeIds,
+        schedule: input.schedule,
+      })
+    );
+    const paths = runPaths(input.workspaceRoot, runId);
+    const replayed = yield* readRunEffect({
+      runId,
+      workspaceRoot: input.workspaceRoot,
+    });
+    if (!replayed) {
+      return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
+    }
+    const currentStatus = yield* readStatusEffect(paths.status);
+    yield* writeJsonEffect(
+      paths.status,
+      statusFromManifest(replayed, currentStatus)
+    );
+    return replayed;
+  });
+}
+
+function updateManifestEffect(
+  input: Pick<UpdateRunControllerInput, "runId" | "workspaceRoot">,
+  update: (manifest: MokaRunManifest) => MokaRunManifest
+): Effect.Effect<MokaRunManifest, unknown> {
   return Effect.gen(function* () {
     const runId = yield* logicalSegmentEffect("runId", input.runId);
     const paths = runPaths(input.workspaceRoot, runId);
     yield* ensureRunExistsEffect(paths.manifest, runId);
     const manifest = yield* readManifestEffect(paths.manifest);
-    const updated = yield* Effect.sync(() =>
-      parseMokaRunManifest({
-        ...manifest,
-        controller: parseMokaRunController(input.controller),
-      })
-    );
+    const updated = yield* Effect.try({
+      catch: (error) => error,
+      try: () => update(manifest),
+    });
     yield* writeJsonEffect(paths.manifest, updated);
     return updated;
   });

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,6 +40,19 @@ function tempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function initGitRepo(worktreePath: string): void {
+  execFileSync("git", ["init", "--quiet"], { cwd: worktreePath });
+}
+
+function gitStatusPorcelain(worktreePath: string): string[] {
+  return execFileSync("git", ["status", "--porcelain"], {
+    cwd: worktreePath,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
 }
 
 afterEach(() => {
@@ -145,6 +159,7 @@ async function seedPersistedNodes(
 }
 
 describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
+  vi.setConfig({ hookTimeout: 90_000, testTimeout: 90_000 });
   const dbUrl = PG_URL;
   const suitePrefix = `pgresumesched-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const openStores: PostgresRunControlStore[] = [];
@@ -163,7 +178,6 @@ describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
   }
 
   beforeAll(async () => {
-    vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
     await migratePostgresRunControlStore(dbUrl);
     admin = postgres(dbUrl, { max: 1 });
   });
@@ -186,6 +200,7 @@ describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
     const id = runId("custom");
     const markerDir = tempDir("moka-resume-sched-markers-");
     const worktreePath = tempDir("moka-resume-sched-work-");
+    initGitRepo(worktreePath);
     const config = packageConfig(markerDir);
     const scheduleYaml = customScheduleYaml(markerDir);
 
@@ -236,11 +251,13 @@ describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
     // AC2: only the unfinished nodes of the ORIGINAL graph ran. `step-one` was
     // replayed from the journal (skipped, no marker); `pkg-default` never ran.
     expect({
+      gitStatus: gitStatusPorcelain(worktreePath),
       markers: readdirSync(markerDir).sort(),
       nodes: result.nodes.map((node) => node.nodeId).sort(),
       outcome: result.outcome,
       workflowId: compiled.workflowId,
     }).toEqual({
+      gitStatus: [],
       markers: ["step-three", "step-two"],
       nodes: ["step-one", "step-three", "step-two"],
       outcome: "PASS",

@@ -345,6 +345,9 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
       {
         submitWorkflow: async () => FAKE_SUBMISSION,
         upsertRunRecord: async (plan) => {
+          if (!plan.scheduleYaml) {
+            throw new Error("Expected explicit schedule YAML in test plan");
+          }
           await Effect.runPromise(
             runControlStore.createRun(
               buildRemoteRunCreateRequest({

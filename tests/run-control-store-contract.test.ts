@@ -49,6 +49,9 @@ import {
 const run = <A>(fx: Effect.Effect<A, unknown>): Promise<A> =>
   Effect.runPromise(fx);
 
+const DIFFERENT_PUBLISHED_SCHEDULE_ERROR =
+  /already has a different published schedule/;
+
 /**
  * A per-test isolated world over one backend. `make()` opens a FRESH handle over
  * the SAME backing store, so a handle opened after writes proves durable replay
@@ -415,6 +418,86 @@ for (const backend of backends) {
       // Fresh handle — proves durable round-trip, not in-memory state.
       const replayed = await run(world.make().readRun({ runId: id }));
       expect(replayed?.schedule).toBe(scheduleYaml);
+    });
+
+    it("publishSchedule adds final nodes, preserves phase status, and is idempotent for the same schedule", async () => {
+      const id = world.runId("publish-schedule");
+      const scheduleYaml =
+        "kind: pipeline-schedule\nversion: 1\nschedule_id: published\ngenerated_at: 2026-06-28T00:00:00.000Z\nsource_entrypoint: quick\nroot_workflow: root\ntask: test";
+      const writer = world.make();
+
+      await run(
+        writer.createRun({
+          effort: "normal",
+          mode: "write",
+          nodeIds: ["pre-research", "pre-planning"],
+          runId: id,
+          target: "remote",
+        })
+      );
+      await run(
+        writer.updateNodeStatus({
+          at: "2026-06-28T00:00:00.000Z",
+          nodeId: "pre-research",
+          runId: id,
+          status: "passed",
+        })
+      );
+
+      const published = await run(
+        writer.publishSchedule({
+          nodeIds: ["implement", "verify"],
+          runId: id,
+          schedule: scheduleYaml,
+        })
+      );
+      const republished = await run(
+        world.make().publishSchedule({
+          nodeIds: ["implement", "verify"],
+          runId: id,
+          schedule: scheduleYaml,
+        })
+      );
+
+      expect(published.schedule).toBe(scheduleYaml);
+      expect(republished.schedule).toBe(scheduleYaml);
+      expect(republished.nodes).toEqual({
+        implement: "queued",
+        "pre-planning": "queued",
+        "pre-research": "passed",
+        verify: "queued",
+      });
+    });
+
+    it("publishSchedule rejects a different schedule for an already-published run", async () => {
+      const id = world.runId("publish-reject");
+      const writer = world.make();
+      await run(
+        writer.createRun({
+          effort: "normal",
+          mode: "write",
+          nodeIds: ["pre-research"],
+          runId: id,
+          target: "remote",
+        })
+      );
+      await run(
+        writer.publishSchedule({
+          nodeIds: ["implement"],
+          runId: id,
+          schedule: "schedule: one",
+        })
+      );
+
+      await expect(
+        run(
+          writer.publishSchedule({
+            nodeIds: ["implement"],
+            runId: id,
+            schedule: "schedule: two",
+          })
+        )
+      ).rejects.toThrow(DIFFERENT_PUBLISHED_SCHEDULE_ERROR);
     });
   });
 }

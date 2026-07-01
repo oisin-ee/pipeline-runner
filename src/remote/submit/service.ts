@@ -6,8 +6,12 @@ import type {
   ParsedMokaSubmitOptions,
   ParsedMokaWithRun,
 } from "../../moka-submit";
-import { resolveRunControlStore } from "../../run-control/run-control-store";
+import {
+  type RunControlStore,
+  resolveRunControlStore,
+} from "../../run-control/run-control-store";
 import { buildRemoteRunCreateRequest } from "../../run-control/run-record";
+import { preScheduleNodeIds } from "../../runner-command/pre-schedule";
 import {
   type MokaWorkflowSubmit,
   submitCompiledMokaWorkflow,
@@ -93,14 +97,7 @@ async function defaultUpsertRunRecord(
       Effect.scoped(
         resolveRunControlStore(dbUrl, worktreePath ?? "").pipe(
           Effect.flatMap((store) =>
-            store.createRun(
-              buildRemoteRunCreateRequest({
-                config: plan.config,
-                runId: plan.runId,
-                scheduleYaml: plan.scheduleYaml,
-                worktreePath,
-              })
-            )
+            upsertSubmittedRunRecord(store, plan, worktreePath)
           )
         )
       )
@@ -110,6 +107,46 @@ async function defaultUpsertRunRecord(
       `moka submit: createRun failed (store may be unreachable) — submitting Argo workflow for run ${plan.runId} regardless: ${error instanceof Error ? error.message : String(error)}\n`
     );
   }
+}
+
+function upsertSubmittedRunRecord(
+  store: RunControlStore,
+  plan: CompiledMokaSubmitPlan,
+  worktreePath?: string
+): Effect.Effect<unknown, unknown> {
+  if (plan.dynamicScheduling || !plan.scheduleYaml) {
+    return store.createRun({
+      effort: "normal",
+      mode: "write",
+      nodeIds: [...preScheduleNodeIds()],
+      runId: plan.runId,
+      target: "remote",
+    });
+  }
+  const scheduleYaml = plan.scheduleYaml;
+  const request = buildRemoteRunCreateRequest({
+    config: plan.config,
+    runId: plan.runId,
+    scheduleYaml,
+    worktreePath,
+  });
+  return store
+    .createRun({
+      effort: request.effort,
+      mode: request.mode,
+      nodeIds: [...preScheduleNodeIds()],
+      runId: request.runId,
+      target: request.target,
+    })
+    .pipe(
+      Effect.flatMap(() =>
+        store.publishSchedule({
+          nodeIds: request.nodeIds,
+          runId: request.runId,
+          schedule: request.schedule ?? scheduleYaml,
+        })
+      )
+    );
 }
 
 function submitRunId(

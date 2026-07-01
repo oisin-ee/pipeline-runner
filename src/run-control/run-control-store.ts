@@ -9,6 +9,7 @@ import { postgresRunControlStore } from "./postgres/postgres-run-control-store";
 import {
   createRunEffect,
   listRunsEffect,
+  publishScheduleEffect,
   readRunEffect,
   recordEventEffect,
   updateNodeSessionEffect,
@@ -21,6 +22,7 @@ import { runControlStatusPaths } from "./store-paths";
 import type {
   CreateRunInput,
   NodeArtifactReference,
+  PublishScheduleInput,
   ReadRunInput,
   RecordEventInput,
   RunControlStatusPaths,
@@ -55,6 +57,10 @@ export interface RunControlStore {
   createRun(input: CreateRunRequest): Effect.Effect<MokaRunManifest, unknown>;
   /** All runs, manifests reconstructed by replaying each event log. */
   listRuns(): Effect.Effect<MokaRunManifest[], unknown>;
+  /** Publish the final schedule once and add its executable node ids. */
+  publishSchedule(
+    input: PublishScheduleRequest
+  ): Effect.Effect<MokaRunManifest, unknown>;
   /** A single run's manifest reconstructed by replaying its event log. */
   readRun(
     input: ReadRunRequest
@@ -84,6 +90,10 @@ export interface RunControlStore {
 }
 
 export type CreateRunRequest = Omit<CreateRunInput, "workspaceRoot">;
+export type PublishScheduleRequest = Omit<
+  PublishScheduleInput,
+  "workspaceRoot"
+>;
 export type ReadRunRequest = Omit<ReadRunInput, "workspaceRoot">;
 export type RecordEventRequest = Omit<RecordEventInput, "workspaceRoot">;
 export type UpdateRunControllerRequest = Omit<
@@ -122,6 +132,7 @@ export function fileRunControlStore(workspaceRoot: string): RunControlStore {
   return {
     createRun: (input) => createRunEffect(withRoot(input)),
     listRuns: () => listRunsEffect({ workspaceRoot }),
+    publishSchedule: (input) => publishScheduleEffect(withRoot(input)),
     readRun: (input) => readRunEffect(withRoot(input)),
     recordEvent: (input) => recordEventEffect(withRoot(input)),
     statusPaths: (input) => runControlStatusPaths(withRoot(input)),

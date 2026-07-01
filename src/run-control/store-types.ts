@@ -27,6 +27,12 @@ export interface ReadRunInput extends StoreContext {
   runId: string;
 }
 
+export interface PublishScheduleInput extends StoreContext {
+  nodeIds: string[];
+  runId: string;
+  schedule: string;
+}
+
 export interface RunControlStatusPaths {
   events: string;
   manifest: string;

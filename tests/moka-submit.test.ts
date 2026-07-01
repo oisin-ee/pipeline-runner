@@ -9,10 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import type {
-  SubmitRunnerArgoWorkflowOptions,
-  SubmitRunnerArgoWorkflowResult,
-} from "../src/argo-submit";
+import type { SubmitRunnerArgoWorkflowResult } from "../src/argo-submit";
 import { buildCommandScheduleYaml } from "../src/argo-submit";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
 import {
@@ -37,13 +34,10 @@ const GIT = {
   url: "https://github.com/oisin-ee/rondo.git",
 };
 
-type CapturedSubmitOptions = Omit<
-  SubmitRunnerArgoWorkflowOptions,
-  "namespace"
-> & {
-  namespace?: string;
-};
 type SubmitMokaDependencies = NonNullable<Parameters<typeof submitMoka>[1]>;
+type CapturedSubmitOptions = Parameters<
+  NonNullable<SubmitMokaDependencies["submitWorkflow"]>
+>[0];
 
 afterAll(() => {
   rmSync(PROJECT_ROOT, { force: true, recursive: true });
@@ -254,14 +248,8 @@ describe("submitMoka", () => {
     expect(argoSubmissionSource).toContain("submitRunnerArgoWorkflow");
   });
 
-  it("submits a full graph by generating an execute schedule", async () => {
+  it("submits a full graph as a dynamic DB-drained workflow without generating a local schedule", async () => {
     const calls: CapturedSubmitOptions[] = [];
-    const scheduleYaml = buildCommandScheduleYaml({
-      command: ["true"],
-      generatedAt: new Date("2026-06-10T00:00:00.000Z"),
-      scheduleId: "run-1",
-      task: "build the feature",
-    });
 
     await submitMoka(
       {
@@ -276,22 +264,10 @@ describe("submitMoka", () => {
       },
       {
         generateRunId: () => "run-1",
-        generateSchedule: (input) => {
-          expect(input.entrypointId).toBe("execute");
-          expect(input.task).toBe("build the feature");
-          return Promise.resolve({
-            artifact: {
-              generated_at: "2026-06-10T00:00:00.000Z",
-              kind: "pipeline-schedule",
-              root_workflow: "root",
-              schedule_id: "run-1",
-              source_entrypoint: "execute",
-              task: "build the feature",
-              version: 1,
-              workflows: { root: { nodes: [] } },
-            },
-            yaml: scheduleYaml,
-          });
+        generateSchedule: () => {
+          throw new Error(
+            "generated graph schedules are created in runner pods"
+          );
         },
         readFile: () => {
           throw new Error("generated schedule should be returned in memory");
@@ -305,8 +281,9 @@ describe("submitMoka", () => {
     const payload = JSON.parse(calls[0].payloadJson);
     expect(calls[0]).toMatchObject({
       generateName: "moka-full-",
-      scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
+      workflowId: "schedule-run-1-root",
     });
+    expect(calls[0]).not.toHaveProperty("scheduleYaml");
     expect(calls[0]).toMatchObject(MANAGED_AUTH);
     expect(payload).toMatchObject({
       events: { authTokenFile: MANAGED_EVENT_AUTH_TOKEN_FILE },
@@ -315,15 +292,9 @@ describe("submitMoka", () => {
     });
   });
 
-  it("uses in-memory generated graph schedule YAML for submit", async () => {
+  it("keeps generated graph schedule YAML out of the submit client filesystem", async () => {
     const worktreePath = makeGitWorktree("moka-submit-generated-");
     const calls: CapturedSubmitOptions[] = [];
-    const scheduleYaml = buildCommandScheduleYaml({
-      command: ["true"],
-      generatedAt: new Date("2026-06-10T00:00:00.000Z"),
-      scheduleId: "run-generated-memory",
-      task: "fix this",
-    });
 
     try {
       await submitMoka(
@@ -339,30 +310,18 @@ describe("submitMoka", () => {
         },
         {
           generateRunId: () => "run-generated-memory",
-          generateSchedule: (input) => {
-            expect(input.entrypointId).toBe("quick");
-            expect(input.runId).toBe("run-generated-memory");
-            expect(input.worktreePath).toBe(worktreePath);
-            return Promise.resolve({
-              artifact: {
-                generated_at: "2026-06-10T00:00:00.000Z",
-                kind: "pipeline-schedule",
-                root_workflow: "root",
-                schedule_id: "run-generated-memory",
-                source_entrypoint: "quick",
-                task: "fix this",
-                version: 1,
-                workflows: { root: { nodes: [] } },
-              },
-              yaml: scheduleYaml,
-            });
+          generateSchedule: () => {
+            throw new Error(
+              "generated graph schedules are created in runner pods"
+            );
           },
           submitWorkflow: captureSubmitCall(calls),
         }
       );
 
       expect(calls).toHaveLength(1);
-      expect(calls[0].scheduleYaml).toBe(scheduleYaml);
+      expect(calls[0].scheduleYaml).toBeUndefined();
+      expect(calls[0].workflowId).toBe("schedule-run-generated-memory-root");
       expect(existsSync(join(worktreePath, ".pipeline"))).toBe(false);
     } finally {
       rmSync(worktreePath, { force: true, recursive: true });
@@ -1079,7 +1038,7 @@ workflows:
   it("calls upsertRunRecord with runId and scheduleYaml before Argo submission (AC1)", async () => {
     const calls: CapturedSubmitOptions[] = [];
     const runRecords: Array<{
-      plan: { runId: string; scheduleYaml: string };
+      plan: { runId: string; scheduleYaml?: string };
       worktreePath: string | undefined;
     }> = [];
 
@@ -1192,15 +1151,8 @@ workflows:
     expect(calls[0].generateName).toBe("moka-full-");
   });
 
-  it("sets delivery.pull_request.enabled on the config passed to generateSchedule when delivery.pullRequest is true", async () => {
-    const capturedConfigs: (typeof CONFIG)[] = [];
+  it("keeps pull-request delivery in the dynamic runner payload when delivery.pullRequest is true", async () => {
     const calls: CapturedSubmitOptions[] = [];
-    const scheduleYaml = buildCommandScheduleYaml({
-      command: ["true"],
-      generatedAt: new Date("2026-06-18T00:00:00.000Z"),
-      scheduleId: "run-delivery",
-      task: "deliver feature",
-    });
 
     await submitMoka(
       {
@@ -1216,21 +1168,10 @@ workflows:
       },
       {
         generateRunId: () => "run-delivery",
-        generateSchedule: (input) => {
-          capturedConfigs.push(input.config);
-          return Promise.resolve({
-            artifact: {
-              generated_at: "2026-06-18T00:00:00.000Z",
-              kind: "pipeline-schedule",
-              root_workflow: "root",
-              schedule_id: "run-delivery",
-              source_entrypoint: "execute",
-              task: "deliver feature",
-              version: 1,
-              workflows: { root: { nodes: [] } },
-            },
-            yaml: scheduleYaml,
-          });
+        generateSchedule: () => {
+          throw new Error(
+            "generated graph schedules are created in runner pods"
+          );
         },
         readFile: () => {
           throw new Error("generated schedule should be returned in memory");
@@ -1240,7 +1181,10 @@ workflows:
       }
     );
 
-    expect(capturedConfigs).toHaveLength(1);
-    expect(capturedConfigs[0].delivery?.pull_request?.enabled).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0].payloadJson).delivery).toEqual({
+      mode: "create-new-pr",
+      pullRequest: true,
+    });
   });
 });

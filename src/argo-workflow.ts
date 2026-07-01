@@ -7,8 +7,10 @@ import {
 import type { WorkflowExecutionPlan } from "./planning/compile";
 import {
   type ArgoWorkflowTemplate,
+  buildDynamicRunnerArgoWorkflowOptionsSchema,
   buildRunnerArgoWorkflowOptionsSchema,
   createRunnerArgoWorkflowManifestSchema,
+  type ParsedBuildDynamicRunnerArgoWorkflowOptions,
   type ParsedBuildRunnerArgoWorkflowOptions,
 } from "./remote/argo/model";
 import {
@@ -16,10 +18,16 @@ import {
   RUNNER_WORKFLOW_START_TASK,
 } from "./remote/argo/policy";
 import {
+  dynamicRunnerWorkflowStorage,
   type RunnerWorkflowStorage,
   runnerWorkflowStorage,
 } from "./remote/argo/storage";
 import {
+  dynamicPreScheduleTemplate,
+  dynamicReadyWaveSelectorTemplate,
+  dynamicRunnerCommandTemplate,
+  dynamicRunnerFinalizerTemplate,
+  READY_NODE_IDS_PARAMETER,
   runnerCommandTemplate,
   runnerFinalizerTemplate,
   runnerLifecycleTemplate,
@@ -35,6 +43,9 @@ export type BuildRunnerArgoWorkflowOptions = z.input<
 > & {
   plan: WorkflowExecutionPlan;
 };
+export type BuildDynamicRunnerArgoWorkflowOptions = z.input<
+  typeof buildDynamicRunnerArgoWorkflowOptionsSchema
+>;
 type ArgoWorkflowMetadata = ArgoWorkflowManifest["metadata"];
 type ArgoWorkflowSpec = ArgoWorkflowManifest["spec"];
 
@@ -49,6 +60,19 @@ export function buildRunnerArgoWorkflowManifest(
     kind: "Workflow",
     metadata: workflowMetadata(options),
     spec: workflowSpec(options, graph.tasks, storage),
+  });
+}
+
+export function buildDynamicRunnerArgoWorkflowManifest(
+  rawOptions: BuildDynamicRunnerArgoWorkflowOptions
+): ArgoWorkflowManifest {
+  const options = buildDynamicRunnerArgoWorkflowOptionsSchema.parse(rawOptions);
+  const storage = dynamicRunnerWorkflowStorage(options);
+  return runnerArgoWorkflowManifestSchema.parse({
+    apiVersion: "argoproj.io/v1alpha1",
+    kind: "Workflow",
+    metadata: dynamicWorkflowMetadata(options),
+    spec: dynamicWorkflowSpec(options, storage),
   });
 }
 
@@ -84,6 +108,22 @@ function workflowMetadata(
   };
 }
 
+function dynamicWorkflowMetadata(
+  options: ParsedBuildDynamicRunnerArgoWorkflowOptions
+): ArgoWorkflowMetadata {
+  return {
+    annotations: compactRecord(options.annotations),
+    ...(options.name ? { name: options.name } : {}),
+    ...(options.generateName ? { generateName: options.generateName } : {}),
+    labels: compactRecord({
+      "pipeline.oisin.dev/source": "argo-workflow",
+      "pipeline.oisin.dev/workflow": options.workflowId,
+      ...options.labels,
+    }),
+    namespace: options.namespace,
+  };
+}
+
 function workflowSpec(
   options: ParsedBuildRunnerArgoWorkflowOptions,
   tasks: ArgoExecutableTask[],
@@ -105,6 +145,26 @@ function workflowSpec(
   };
 }
 
+function dynamicWorkflowSpec(
+  options: ParsedBuildDynamicRunnerArgoWorkflowOptions,
+  storage: RunnerWorkflowStorage
+): ArgoWorkflowSpec {
+  return {
+    ...(options.activeDeadlineSeconds
+      ? { activeDeadlineSeconds: options.activeDeadlineSeconds }
+      : {}),
+    entrypoint: RUNNER_WORKFLOW_ENTRYPOINT,
+    ...(options.imagePullSecretName
+      ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
+      : {}),
+    serviceAccountName: options.serviceAccountName,
+    onExit: "pipeline-finalizer",
+    templates: dynamicWorkflowTemplates(options, storage.volumeMounts),
+    ...(options.ttlStrategy ? { ttlStrategy: options.ttlStrategy } : {}),
+    volumes: storage.volumes,
+  };
+}
+
 function workflowTemplates(
   options: ParsedBuildRunnerArgoWorkflowOptions,
   tasks: ArgoExecutableTask[],
@@ -115,6 +175,22 @@ function workflowTemplates(
     runnerLifecycleTemplate(options, volumeMounts),
     ...tasks.map((task) => runnerCommandTemplate(task, options, volumeMounts)),
     runnerFinalizerTemplate(options, volumeMounts),
+  ];
+}
+
+function dynamicWorkflowTemplates(
+  options: ParsedBuildDynamicRunnerArgoWorkflowOptions,
+  volumeMounts: RunnerWorkflowStorage["volumeMounts"]
+): ArgoWorkflowTemplate[] {
+  return [
+    dynamicWorkflowEntrypointTemplate(),
+    dynamicDrainTemplate(),
+    dynamicPreScheduleTemplate("pre-research", options, volumeMounts),
+    dynamicPreScheduleTemplate("pre-planning", options, volumeMounts),
+    dynamicPreScheduleTemplate("generate-schedule", options, volumeMounts),
+    dynamicReadyWaveSelectorTemplate(options, volumeMounts),
+    dynamicRunnerCommandTemplate(options, volumeMounts),
+    dynamicRunnerFinalizerTemplate(options, volumeMounts),
   ];
 }
 
@@ -136,6 +212,46 @@ function workflowDagTemplate(
       ],
     },
     name: RUNNER_WORKFLOW_ENTRYPOINT,
+  };
+}
+
+function dynamicWorkflowEntrypointTemplate(): ArgoWorkflowTemplate {
+  return {
+    name: RUNNER_WORKFLOW_ENTRYPOINT,
+    steps: [
+      [{ name: "pre-research", template: "pre-research" }],
+      [{ name: "pre-planning", template: "pre-planning" }],
+      [{ name: "generate-schedule", template: "generate-schedule" }],
+      [{ name: "drain-ready-waves", template: "drain-ready-waves" }],
+    ],
+  };
+}
+
+function dynamicDrainTemplate(): ArgoWorkflowTemplate {
+  const readyExpression = `{{steps.select-ready-wave.outputs.parameters.${READY_NODE_IDS_PARAMETER}}} != []`;
+  return {
+    name: "drain-ready-waves",
+    steps: [
+      [{ name: "select-ready-wave", template: "select-ready-wave" }],
+      [
+        {
+          arguments: {
+            parameters: [{ name: "node-id", value: "{{item}}" }],
+          },
+          name: "run-ready-node",
+          template: "runner-command",
+          when: readyExpression,
+          withParam: `{{steps.select-ready-wave.outputs.parameters.${READY_NODE_IDS_PARAMETER}}}`,
+        },
+      ],
+      [
+        {
+          name: "drain-next-wave",
+          template: "drain-ready-waves",
+          when: readyExpression,
+        },
+      ],
+    ],
   };
 }
 

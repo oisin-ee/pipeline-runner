@@ -21,6 +21,7 @@ import {
 } from "../contracts";
 import type {
   CreateRunRequest,
+  PublishScheduleRequest,
   RecordEventRequest,
   RunControlStore,
   UpdateNodeSessionRequest,
@@ -29,6 +30,7 @@ import type {
   UpdateRunStatusRequest,
   WriteNodeArtifactRequest,
 } from "../run-control-store";
+import { publishScheduleManifest } from "../store-manifest";
 import type {
   NodeArtifactReference,
   RunControlStatusPaths,
@@ -98,6 +100,7 @@ export function postgresRunControlStore(
     close: () => client.end(),
     createRun: (input) => createRun(db, input),
     listRuns: () => listRuns(db),
+    publishSchedule: (input) => publishSchedule(db, input),
     readRun: (input) => readRun(db, input.runId),
     recordEvent: (input) => recordEvent(db, input),
     statusPaths: (input) => statusPaths(input.runId),
@@ -138,6 +141,27 @@ function createRun(
       );
     }
     return existing;
+  });
+}
+
+function publishSchedule(
+  db: RunControlDb,
+  input: PublishScheduleRequest
+): Effect.Effect<MokaRunManifest, unknown> {
+  return Effect.gen(function* () {
+    const runId = yield* requireRunId(input.runId);
+    yield* updateRunManifest(db, runId, (manifest) =>
+      publishScheduleManifest({
+        manifest,
+        nodeIds: input.nodeIds,
+        schedule: input.schedule,
+      })
+    );
+    const replayed = yield* readRun(db, runId);
+    if (replayed === undefined) {
+      return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
+    }
+    return replayed;
   });
 }
 
@@ -204,17 +228,28 @@ function updateRunController(
 ): Effect.Effect<MokaRunManifest, unknown> {
   return Effect.gen(function* () {
     const runId = yield* requireRunId(input.runId);
+    return yield* updateRunManifest(db, runId, (manifest) =>
+      parseMokaRunManifest({
+        ...manifest,
+        controller: parseMokaRunController(input.controller),
+      })
+    );
+  });
+}
+
+function updateRunManifest(
+  db: RunControlDb,
+  runId: string,
+  update: (manifest: MokaRunManifest) => MokaRunManifest
+): Effect.Effect<MokaRunManifest, unknown> {
+  return Effect.gen(function* () {
     const base = yield* loadBaseManifest(db, runId);
     if (base === undefined) {
       return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
     }
     const updated = yield* Effect.try({
       catch: (error) => error,
-      try: () =>
-        parseMokaRunManifest({
-          ...base,
-          controller: parseMokaRunController(input.controller),
-        }),
+      try: () => update(base),
     });
     yield* dbEffect(() =>
       db

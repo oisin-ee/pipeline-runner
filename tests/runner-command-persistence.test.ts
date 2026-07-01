@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -259,6 +260,37 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
     ]);
   });
 
+  it("reads the schedule from DB and node id from the Argo item parameter", async () => {
+    const arrangement = arrangePersistedRunner({
+      runId: "run-db-schedule",
+      tempPrefix: "runner-command-db-schedule-",
+    });
+    await createRun(arrangement.runControlStore, "run-db-schedule", [
+      "command",
+    ]);
+
+    const exitCode = await runRunnerCommand({
+      cwd: arrangement.fixture.dir,
+      fetch: async () => new Response(null, { status: 202 }),
+      nodeId: "command",
+      payloadFile: arrangement.fixture.payloadPath,
+      resolvePersistence: () =>
+        Effect.succeed({
+          durableStore: arrangement.durableStore,
+          runControlStore: arrangement.runControlStore,
+        }),
+      scheduleSource: "db",
+      stderr: { write: () => true },
+      stdout: { write: () => true },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(
+      arrangement.durableStore.get("run-db-schedule", "command")?.result
+    ).toEqual(PASSED_RESULT);
+    expect(arrangement.mocks.runScheduledWorkflowTask).toHaveBeenCalledTimes(1);
+  });
+
   it("PIPE-94.8: skips re-execution when the node already passed in the store", async () => {
     const arrangement = arrangePersistedRunner({
       runId: "run-skip",
@@ -331,13 +363,17 @@ function createRun(
   runId: string,
   nodeIds: string[]
 ): Promise<unknown> {
+  const fixture = writeRunnerCommandFixture({
+    runId,
+    tempPrefix: "runner-command-schedule-source-",
+  });
   return Effect.runPromise(
     store.createRun({
       effort: "normal",
       mode: "write",
       nodeIds,
       runId,
-      schedule: `schedule_id: ${runId}`,
+      schedule: readFileSync(fixture.schedulePath, "utf8"),
       target: "remote",
     })
   );

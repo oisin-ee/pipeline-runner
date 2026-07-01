@@ -70,6 +70,39 @@ export function buildNextNodeEnvelopeFromRunStore(
   input: NextNodeRunStoreInput
 ): Effect.Effect<NextNodeEnvelope | undefined, unknown> {
   return Effect.gen(function* () {
+    const { nodeMetadata, nodes } = yield* scheduleNodesFromRunStore(input);
+    return buildNextNodeEnvelope({
+      nodeMetadata,
+      nodes,
+      runId: input.runId,
+      store: input.durableStore,
+    });
+  });
+}
+
+export function readyNodeIdsFromRunStore(
+  input: NextNodeRunStoreInput
+): Effect.Effect<string[], unknown> {
+  return Effect.gen(function* () {
+    const { nodes } = yield* scheduleNodesFromRunStore(input);
+    const completed = collectStoredResults({
+      nodeMetadata: new Map(),
+      nodes,
+      runId: input.runId,
+      store: input.durableStore,
+    });
+    return computeReadyNodeIds({ completed, nodes });
+  });
+}
+
+function scheduleNodesFromRunStore(input: NextNodeRunStoreInput): Effect.Effect<
+  {
+    nodeMetadata: NextNodeInput["nodeMetadata"];
+    nodes: WorkflowScheduleNode[];
+  },
+  unknown
+> {
+  return Effect.gen(function* () {
     const scheduleRaw = yield* readPersistedScheduleEffect(
       input.runControlStore,
       input.runId
@@ -99,16 +132,11 @@ export function buildNextNodeEnvelopeFromRunStore(
         },
       ])
     );
-    return buildNextNodeEnvelope({
-      nodeMetadata,
-      nodes,
-      runId: input.runId,
-      store: input.durableStore,
-    });
+    return { nodeMetadata, nodes };
   });
 }
 
-function readPersistedScheduleEffect(
+export function readPersistedScheduleEffect(
   store: RunControlStore,
   runId: string
 ): Effect.Effect<string, unknown> {

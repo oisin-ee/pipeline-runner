@@ -358,7 +358,9 @@ function resolveVariant(
   if (!(effort && model)) {
     return;
   }
-  return model.startsWith("openai/") ? effort : undefined;
+  return model.startsWith("openai/") || model.startsWith("broker/")
+    ? effort
+    : undefined;
 }
 
 function resolveLaunchModel(

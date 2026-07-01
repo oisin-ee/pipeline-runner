@@ -18,6 +18,7 @@ import {
   parseScheduleArtifact,
   pruneOutOfScopeDependencies,
   type ScheduleArtifact,
+  ticketPlanPlanningContext,
 } from "../src/planning/generate";
 
 const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
@@ -310,6 +311,68 @@ async function generateScheduleWithPrompt(options: {
 }
 
 describe("schedule artifacts", () => {
+  it("converts a phase TicketPlan into scheduler work units with dependencies and evidence", () => {
+    const context = ticketPlanPlanningContext({
+      epic: {
+        acceptance_criteria: [{ evidence: "unit test", text: "Epic done" }],
+        description: "Parent context",
+        key: "epic",
+        likely_files: [],
+        plan: "Parent plan",
+        references: [],
+        title: "Parent",
+      },
+      tickets: [
+        {
+          acceptance_criteria: [{ evidence: "test A", text: "A works" }],
+          depends_on: [],
+          description: "Implement A",
+          key: "build-a",
+          likely_files: ["src/a.ts"],
+          plan: "Edit A",
+          references: ["src/a.ts"],
+          title: "Build A",
+        },
+        {
+          acceptance_criteria: [{ evidence: "test B", text: "B works" }],
+          depends_on: ["build-a"],
+          description: "Implement B",
+          key: "build-b",
+          likely_files: ["src/b.ts"],
+          plan: "Edit B",
+          references: ["src/b.ts"],
+          title: "Build B",
+        },
+      ],
+    });
+
+    expect(context.parentWorkUnits).toEqual([
+      {
+        acceptance_criteria: [{ id: "epic-ac-1", text: "Epic done" }],
+        dependencies: [],
+        description: "Parent context",
+        id: "epic",
+        title: "Parent",
+      },
+    ]);
+    expect(context.workUnits).toEqual([
+      {
+        acceptance_criteria: [{ id: "build-a-ac-1", text: "A works" }],
+        dependencies: [],
+        description: "Implement A",
+        id: "build-a",
+        title: "Build A",
+      },
+      {
+        acceptance_criteria: [{ id: "build-b-ac-1", text: "B works" }],
+        dependencies: ["build-a"],
+        description: "Implement B",
+        id: "build-b",
+        title: "Build B",
+      },
+    ]);
+  });
+
   it("generates schedule artifact YAML in memory without creating .pipeline", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-in-memory-"));
     const schedule = buildScheduleYaml({

@@ -1,11 +1,16 @@
 import { Effect } from "effect";
 import { z } from "zod";
 import { compileArgoExecutionGraph } from "../argo-graph";
+import { loadMokaDbUrl } from "../moka-global-config";
+import type { MokaRunStatus } from "../run-control/contracts";
+import { withRunControlStoreScoped } from "../run-control/run-control-store";
 import { RunnerCommandPayloadValidationError } from "../runner-command-contract";
 import type {
   PipelineRuntimeResult,
   RuntimeFailure,
+  RuntimeNodeResult,
 } from "../runtime/contracts";
+import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import { dispatchHooks } from "../runtime/hooks";
 import {
   flushAndReport,
@@ -19,6 +24,10 @@ import {
   createRunnerLifecycleContextEffect,
   type RunnerLifecycleContext,
 } from "./lifecycle-context";
+import {
+  requireScheduleFileForFileSource,
+  scheduleSourceFields,
+} from "./schedule-source-options";
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -34,10 +43,11 @@ const runnerFinalizeOptionsSchema = z
       .custom<FetchLike>((value) => typeof value === "function")
       .optional(),
     payloadFile: z.string().min(1),
-    scheduleFile: z.string().min(1),
+    ...scheduleSourceFields,
     stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(requireScheduleFileForFileSource);
 
 export type RunnerFinalizeOptions = z.input<typeof runnerFinalizeOptionsSchema>;
 
@@ -64,6 +74,12 @@ function runRunnerFinalizeEffect(
     const io = yield* RunnerCommandIoService;
     const { compiled, context, payload, sink, worktreePath } =
       yield* createRunnerLifecycleContextEffect(options);
+    const execution = yield* finalizerExecutionEffect({
+      argoStatus: options.argoStatus,
+      scheduleSource: options.scheduleSource ?? "file",
+      context,
+      worktreePath,
+    });
     const lifecycle = yield* Effect.tryPromise({
       try: () =>
         finalizeWorkflowLifecycle(
@@ -73,10 +89,7 @@ function runRunnerFinalizeEffect(
             runWorkflowHook: (event, failure) =>
               dispatchHooks(context, event, failure),
           },
-          {
-            completed: [],
-            outcome: options.argoStatus === "Succeeded" ? "PASS" : "FAIL",
-          }
+          execution
         ),
       catch: (error) => error,
     });
@@ -97,6 +110,94 @@ function runRunnerFinalizeEffect(
       Effect.sync(() => finalizeErrorExitCode(error, stderr))
     )
   );
+}
+
+function finalizerExecutionEffect(input: {
+  argoStatus: string;
+  context: RunnerLifecycleContext["context"];
+  scheduleSource: "db" | "file";
+  worktreePath: string;
+}): Effect.Effect<
+  {
+    completed: RuntimeNodeResult[];
+    failure?: RuntimeFailure;
+    outcome: PipelineRuntimeResult["outcome"];
+  },
+  unknown
+> {
+  if (input.scheduleSource !== "db") {
+    return Effect.succeed({
+      completed: [],
+      outcome: input.argoStatus === "Succeeded" ? "PASS" : "FAIL",
+    });
+  }
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const runId = yield* finalizerRunIdEffect(input.context);
+      const durableStore = yield* resolveDurableStore(loadMokaDbUrl(), runId);
+      const completed = input.context.plan.topologicalOrder.flatMap((node) => {
+        const record = durableStore.get(runId, node.id);
+        return record ? [record.result] : [];
+      });
+      const failed = completed.find((result) => result.status === "failed");
+      const missing = input.context.plan.topologicalOrder
+        .map((node) => node.id)
+        .filter((nodeId) => !durableStore.get(runId, nodeId));
+      const status = dynamicFinalizerRunStatus({ failed, missing });
+      yield* withRunControlStoreScoped(input.worktreePath, (store) =>
+        store.updateRunStatus({
+          at: new Date().toISOString(),
+          runId,
+          status,
+        })
+      );
+      if (failed) {
+        return {
+          completed,
+          failure: {
+            evidence: failed.evidence,
+            gate: failed.nodeId,
+            nodeId: failed.nodeId,
+            reason: `node '${failed.nodeId}' failed`,
+          },
+          outcome: "FAIL" as const,
+        };
+      }
+      if (missing.length > 0) {
+        return {
+          completed,
+          failure: {
+            evidence: [`missing durable results: ${missing.join(", ")}`],
+            gate: "dynamic-finalizer",
+            reason: "dynamic run finished before all DB-scheduled nodes passed",
+          },
+          outcome: "FAIL" as const,
+        };
+      }
+      return { completed, outcome: "PASS" as const };
+    })
+  );
+}
+
+function dynamicFinalizerRunStatus(input: {
+  failed?: RuntimeNodeResult;
+  missing: string[];
+}): MokaRunStatus {
+  if (input.failed) {
+    return "failed";
+  }
+  if (input.missing.length > 0) {
+    return "blocked";
+  }
+  return "passed";
+}
+
+function finalizerRunIdEffect(
+  context: RunnerLifecycleContext["context"]
+): Effect.Effect<string, Error> {
+  return context.runId
+    ? Effect.succeed(context.runId)
+    : Effect.fail(new Error("Dynamic finalizer requires context.runId."));
 }
 
 function finalizeErrorExitCode(error: unknown, stderr: OutputStream) {

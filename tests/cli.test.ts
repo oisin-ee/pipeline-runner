@@ -74,6 +74,19 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
         return Effect.succeed(manifest);
       },
       listRuns: () => Effect.succeed([...runManifests.values()]),
+      publishSchedule: (input) => {
+        const current = runManifests.get(input.runId);
+        if (!current) {
+          return Effect.fail(new Error(`Run ${input.runId} does not exist.`));
+        }
+        const nodes = { ...current.nodes };
+        for (const nodeId of input.nodeIds) {
+          nodes[nodeId] ??= "queued";
+        }
+        const manifest = { ...current, nodes, schedule: input.schedule };
+        runManifests.set(input.runId, manifest);
+        return Effect.succeed(manifest);
+      },
       readRun: (input: ReadRunRequest) =>
         Effect.succeed(runManifests.get(input.runId)),
       recordEvent: () => Effect.void,
@@ -1982,11 +1995,11 @@ workflows:
 
         // With the PIPE-73 SDK transport the executor calls session.prompt
         // instead of execa("opencode"). Verify the stub received a prompt
-        // carrying the base model declared on moka-inspector (openai/gpt-5.5)
+        // carrying the base model declared on moka-inspector (broker/gpt-5.5)
         // and its reasoning effort applied as the model variant.
         expect(stub.promptBodies.length).toBeGreaterThan(0);
         expect(stub.promptBodies[0]).toMatchObject({
-          model: { modelID: "gpt-5.5", providerID: "openai" },
+          model: { modelID: "gpt-5.5", providerID: "broker" },
           variant: "low",
         });
         // quick-node-bin must not be called regardless of transport.

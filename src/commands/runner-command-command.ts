@@ -2,11 +2,18 @@ import type { Command } from "commander";
 import { Context, Effect, Layer } from "effect";
 import { runRunnerFinalize } from "../runner-command/finalize";
 import { runRunnerLifecycle } from "../runner-command/lifecycle";
+import {
+  type PreSchedulePhase,
+  runPreSchedulePhase,
+} from "../runner-command/pre-schedule";
 import { runRunnerCommand } from "../runner-command/run";
+import { runSelectReadyWave } from "../runner-command/select-ready-wave";
 
 interface RunnerCommandOptions {
+  nodeId?: string;
   payloadFile: string;
-  scheduleFile: string;
+  scheduleFile?: string;
+  scheduleSource?: "db" | "file";
 }
 
 interface RunnerLifecycleOptions extends RunnerCommandOptions {
@@ -15,6 +22,11 @@ interface RunnerLifecycleOptions extends RunnerCommandOptions {
 
 interface RunnerFinalizeOptions extends RunnerCommandOptions {
   argoStatus: string;
+}
+
+interface PreScheduleOptions {
+  payloadFile: string;
+  phase: PreSchedulePhase;
 }
 
 class RunnerCommandService extends Context.Service<
@@ -26,9 +38,16 @@ class RunnerCommandService extends Context.Service<
     readonly lifecycle: (
       options: RunnerLifecycleOptions
     ) => Effect.Effect<number, unknown>;
+    readonly preSchedule: (
+      options: PreScheduleOptions
+    ) => Effect.Effect<number, unknown>;
     readonly run: (
       options: RunnerCommandOptions
     ) => Effect.Effect<number, unknown>;
+    readonly selectReadyWave: (options: {
+      outputFile: string;
+      payloadFile: string;
+    }) => Effect.Effect<number, unknown>;
   }
 >()("RunnerCommandService") {}
 
@@ -43,10 +62,20 @@ const RunnerCommandServiceLive = Layer.succeed(RunnerCommandService, {
       catch: (error) => error,
       try: () => runRunnerLifecycle(options),
     }),
+  preSchedule: (options) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: () => runPreSchedulePhase(options),
+    }),
   run: (options) =>
     Effect.tryPromise({
       catch: (error) => error,
       try: () => runRunnerCommand(options),
+    }),
+  selectReadyWave: (options) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: () => runSelectReadyWave(options),
     }),
 });
 
@@ -76,6 +105,23 @@ const runRunnerFinalizeEffect = (options: RunnerFinalizeOptions) =>
     yield* setProcessExitCode(exitCode);
   });
 
+const runPreScheduleEffect = (options: PreScheduleOptions) =>
+  Effect.gen(function* () {
+    const service = yield* RunnerCommandService;
+    const exitCode = yield* service.preSchedule(options);
+    yield* setProcessExitCode(exitCode);
+  });
+
+const runSelectReadyWaveEffect = (options: {
+  outputFile: string;
+  payloadFile: string;
+}) =>
+  Effect.gen(function* () {
+    const service = yield* RunnerCommandService;
+    const exitCode = yield* service.selectReadyWave(options);
+    yield* setProcessExitCode(exitCode);
+  });
+
 const runRunnerProgram = <A>(
   program: Effect.Effect<A, unknown, RunnerCommandService>
 ) => Effect.runPromise(Effect.provide(program, RunnerCommandServiceLive));
@@ -85,10 +131,9 @@ export function registerRunnerCommandCommand(program: Command): void {
     .command("runner-command")
     .description("Run one scheduled Argo Workflow task")
     .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
-    .requiredOption(
-      "--schedule-file <path>",
-      "Path to the schedule artifact YAML"
-    )
+    .option("--node-id <id>", "Node id to execute without a task descriptor")
+    .option("--schedule-file <path>", "Path to the schedule artifact YAML")
+    .option("--schedule-source <source>", "Schedule source: file or db")
     .action((options: RunnerCommandOptions) =>
       runRunnerProgram(runRunnerCommandEffect(options))
     );
@@ -107,15 +152,37 @@ export function registerRunnerCommandCommand(program: Command): void {
     );
 
   program
+    .command("runner-pre-schedule")
+    .description("Run one dynamic pre-schedule phase")
+    .requiredOption(
+      "--phase <phase>",
+      "pre-research, pre-planning, or generate-schedule"
+    )
+    .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
+    .action((options: PreScheduleOptions) =>
+      runRunnerProgram(runPreScheduleEffect(options))
+    );
+
+  program
     .command("runner-finalize")
     .description("Finalize one Argo Workflow run")
     .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
-    .requiredOption(
-      "--schedule-file <path>",
-      "Path to the schedule artifact YAML"
-    )
+    .option("--schedule-file <path>", "Path to the schedule artifact YAML")
+    .option("--schedule-source <source>", "Schedule source: file or db")
     .requiredOption("--argo-status <status>", "Argo Workflow status")
     .action((options: RunnerFinalizeOptions) =>
       runRunnerProgram(runRunnerFinalizeEffect(options))
+    );
+
+  program
+    .command("runner-select-ready-wave")
+    .description("Select DB-ready nodes for the next dynamic Argo wave")
+    .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
+    .requiredOption(
+      "--output-file <path>",
+      "Path where the ready node id JSON array is written"
+    )
+    .action((options: { outputFile: string; payloadFile: string }) =>
+      runRunnerProgram(runSelectReadyWaveEffect(options))
     );
 }

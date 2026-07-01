@@ -67,6 +67,39 @@ export function createRunManifest(input: CreateRunInput): {
   return { manifest, nodeIds, runId };
 }
 
+export function publishScheduleManifest(input: {
+  manifest: MokaRunManifest;
+  nodeIds: string[];
+  schedule: string;
+}): MokaRunManifest {
+  if (input.schedule.length === 0) {
+    throw new Error("schedule must be a non-empty string.");
+  }
+  if (
+    input.manifest.schedule !== undefined &&
+    input.manifest.schedule !== input.schedule
+  ) {
+    throw new Error(
+      `Run ${input.manifest.runId} already has a different published schedule.`
+    );
+  }
+  const nodeIds = input.nodeIds.map((nodeId) =>
+    parseLogicalSegment("nodeId", nodeId)
+  );
+  return parseMokaRunManifest({
+    ...input.manifest,
+    nodes: {
+      ...input.manifest.nodes,
+      ...Object.fromEntries(
+        nodeIds
+          .filter((nodeId) => !(nodeId in input.manifest.nodes))
+          .map((nodeId) => [nodeId, "queued" as const])
+      ),
+    },
+    schedule: input.schedule,
+  });
+}
+
 export function replayEvents(
   manifest: MokaRunManifest,
   events: MokaRunControlEvent[]

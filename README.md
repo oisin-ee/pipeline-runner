@@ -1,8 +1,9 @@
 # @oisincoveney/pipeline
 
 Config-driven multi-agent pipeline runner for repository work. The installed
-package owns the runtime defaults; target repositories use `.pipeline/runs/` for
-generated schedules and run artifacts, not as the source of runtime config.
+package owns the runtime defaults. Default Moka runs persist generated
+schedules, run manifests, events, node status, and node results in the configured
+Moka Postgres database, not in the target repository.
 
 The published command is `moka`.
 
@@ -94,8 +95,8 @@ moka explain-plan
 `moka run "<task>"` is the primary command surface.
 
 It runs package-owned workflow config from the current worktree. Scheduled
-entrypoints generate a schedule artifact under `.pipeline/runs/<runId>/` and run
-the compiled schedule through the runtime.
+entrypoints generate schedule YAML in memory, persist it on the DB-owned run
+manifest, and run the compiled schedule through the runtime.
 
 Canonical commands:
 
@@ -114,7 +115,7 @@ Canonical commands:
 ```shell
 moka run "Implement PIPE-123 user-facing behavior"
 moka run --target local --effort normal "Implement a standard local change"
-moka run --schedule .pipeline/runs/<runId>/schedule.yaml "Implement PIPE-123"
+moka run --schedule ./approved-schedule.yaml "Implement PIPE-123"
 moka run --workflow inspect "Report the app structure and available checks. Do not modify files."
 moka run --effort quick "Implement a focused fix"
 moka run --effort normal "Implement a standard fix"
@@ -153,17 +154,23 @@ Read-only ticket commands are `moka ticket graph check`, `moka ticket sequence`,
 `moka ticket start` without `--dry-run`: they use Backlog CLI task creation and
 editing or invoke `moka run` for the selected ticket.
 
-Local run artifacts live under `.pipeline/runs/<runId>/`:
+Local run-control state lives in the Moka DB selected by `momokaya.db.url` in
+`~/.config/moka/config.yaml`. The run manifest stores the generated schedule as
+`manifest.schedule`; node results are stored by `(runId, nodeId)` in the durable
+node record table. Use the run-control commands to inspect or export this state:
 
-```text
-.pipeline/runs/<runId>/
-  schedule.yaml
-  manifest.json
-  status.json
-  events.ndjson
-  nodes/<node-id>/
-  artifacts/
+```shell
+moka runs
+moka status <run-id>
+moka logs <run-id> [node-id]
+moka export <run-id> --sanitize
 ```
+
+`moka next node <run-id>` reads the persisted `manifest.schedule` from the Moka
+DB and emits the next ready node envelope. `moka submit-result <run-id>
+<node-id> --json '<RuntimeNodeResult>'` writes the node result back to the same
+DB state. `moka resume <run-id>` reconstructs the graph from the persisted
+schedule; it does not need a repo-local generated schedule file.
 
 Use `moka export <run-id> --sanitize` before sharing a run. The sanitized export
 keeps portable evidence and omits prompt text, session body content, secrets,

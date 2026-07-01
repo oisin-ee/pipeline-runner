@@ -102,6 +102,24 @@ const argoWorkflowArtifactSchema = z
   })
   .strict();
 
+const argoWorkflowParameterArgumentSchema = z
+  .object({
+    name: z.string().min(1),
+    value: z.string(),
+  })
+  .strict();
+
+const argoWorkflowParameterOutputSchema = z
+  .object({
+    name: z.string().min(1),
+    valueFrom: z
+      .object({
+        path: z.string().min(1),
+      })
+      .strict(),
+  })
+  .strict();
+
 const argoWorkflowRetryStrategySchema = z
   .object({
     expression: z.string().min(1).optional(),
@@ -153,12 +171,17 @@ const argoWorkflowTemplateSchema = z
                 arguments: z
                   .object({
                     artifacts: z.array(argoWorkflowArtifactSchema).optional(),
+                    parameters: z
+                      .array(argoWorkflowParameterArgumentSchema)
+                      .optional(),
                   })
                   .strict()
                   .optional(),
                 dependencies: z.array(z.string().min(1)).optional(),
                 name: z.string().min(1),
                 template: z.string().min(1),
+                when: z.string().min(1).optional(),
+                withParam: z.string().min(1).optional(),
               })
               .strict()
           )
@@ -177,9 +200,32 @@ const argoWorkflowTemplateSchema = z
       .optional(),
     outputs: z
       .object({
-        artifacts: z.array(argoWorkflowArtifactSchema),
+        artifacts: z.array(argoWorkflowArtifactSchema).optional(),
+        parameters: z.array(argoWorkflowParameterOutputSchema).optional(),
       })
       .strict()
+      .optional(),
+    steps: z
+      .array(
+        z.array(
+          z
+            .object({
+              arguments: z
+                .object({
+                  parameters: z
+                    .array(argoWorkflowParameterArgumentSchema)
+                    .optional(),
+                })
+                .strict()
+                .optional(),
+              name: z.string().min(1),
+              template: z.string().min(1),
+              when: z.string().min(1).optional(),
+              withParam: z.string().min(1).optional(),
+            })
+            .strict()
+        )
+      )
       .optional(),
     activeDeadlineSeconds: z.number().int().positive().optional(),
     name: z.string().min(1),
@@ -188,9 +234,11 @@ const argoWorkflowTemplateSchema = z
   .strict()
   .refine(
     (template) =>
-      template.container !== undefined || template.dag !== undefined,
+      template.container !== undefined ||
+      template.dag !== undefined ||
+      template.steps !== undefined,
     {
-      message: "Workflow templates must declare container or dag",
+      message: "Workflow templates must declare container, dag, or steps",
     }
   );
 
@@ -246,19 +294,29 @@ export function createRunnerArgoWorkflowManifestSchema() {
     .strict();
 }
 
-export const buildRunnerArgoWorkflowOptionsSchema = z
+const runnerWorkflowBrokerAuthSchema = z
+  .object({
+    secretKey: z.string().min(1).default("api-key"),
+    secretName: kubernetesNameSchema,
+    url: z.string().min(1).default("https://cliproxy.momokaya.ee"),
+  })
+  .strict();
+
+const runnerWorkflowTtlStrategySchema = z
+  .object({
+    secondsAfterCompletion: z.number().int().positive().optional(),
+    secondsAfterFailure: z.number().int().positive().optional(),
+    secondsAfterSuccess: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const runnerArgoWorkflowBaseOptionsSchema = z
   .object({
     activeDeadlineSeconds: z.number().int().positive().optional(),
     annotations: z
       .record(z.string().min(1), z.string().min(1).optional())
       .default({}),
-    brokerAuth: z
-      .object({
-        secretKey: z.string().min(1).default("api-key"),
-        secretName: kubernetesNameSchema,
-        url: z.string().min(1).default("https://cliproxy.momokaya.ee"),
-      })
-      .strict(),
+    brokerAuth: runnerWorkflowBrokerAuthSchema,
     // PIPE-94.3: durable-substrate db.url injection for runner pods.
     // When present, MOKA_DB_URL is injected via secretKeyRef so loadMokaDbUrl()
     // resolves in-cluster without a config file mount.
@@ -285,29 +343,42 @@ export const buildRunnerArgoWorkflowOptionsSchema = z
     payloadConfigMapKey: z.string().min(1).default("payload.json"),
     payloadConfigMapName: kubernetesNameSchema,
     resources: argoWorkflowResourceRequirementsSchema.optional(),
-    scheduleConfigMapKey: z.string().min(1).default("schedule.yaml"),
-    scheduleConfigMapName: kubernetesNameSchema,
     serviceAccountName: kubernetesNameSchema.default(
       RUNNER_WORKFLOW_SERVICE_ACCOUNT
     ),
-    taskDescriptorConfigMapName: kubernetesNameSchema,
-    ttlStrategy: z
-      .object({
-        secondsAfterCompletion: z.number().int().positive().optional(),
-        secondsAfterFailure: z.number().int().positive().optional(),
-        secondsAfterSuccess: z.number().int().positive().optional(),
-      })
-      .strict()
-      .optional(),
+    ttlStrategy: runnerWorkflowTtlStrategySchema.optional(),
   })
-  .strict()
-  .refine(
-    (options) =>
-      options.name !== undefined || options.generateName !== undefined,
-    {
-      message: "Runner Workflow options must declare name or generateName",
-    }
-  );
+  .strict();
+
+export const buildRunnerArgoWorkflowOptionsSchema =
+  runnerArgoWorkflowBaseOptionsSchema
+    .extend({
+      scheduleConfigMapKey: z.string().min(1).default("schedule.yaml"),
+      scheduleConfigMapName: kubernetesNameSchema,
+      taskDescriptorConfigMapName: kubernetesNameSchema,
+    })
+    .strict()
+    .refine(
+      (options) =>
+        options.name !== undefined || options.generateName !== undefined,
+      {
+        message: "Runner Workflow options must declare name or generateName",
+      }
+    );
+
+export const buildDynamicRunnerArgoWorkflowOptionsSchema =
+  runnerArgoWorkflowBaseOptionsSchema
+    .extend({
+      workflowId: z.string().min(1),
+    })
+    .strict()
+    .refine(
+      (options) =>
+        options.name !== undefined || options.generateName !== undefined,
+      {
+        message: "Runner Workflow options must declare name or generateName",
+      }
+    );
 
 export type ArgoWorkflowEnvVar = z.infer<typeof argoWorkflowEnvVarSchema>;
 export type ArgoWorkflowResourceRequirements = z.infer<
@@ -326,3 +397,6 @@ export type ParsedBuildRunnerArgoWorkflowOptions = z.output<
 > & {
   plan: WorkflowExecutionPlan;
 };
+export type ParsedBuildDynamicRunnerArgoWorkflowOptions = z.output<
+  typeof buildDynamicRunnerArgoWorkflowOptionsSchema
+>;

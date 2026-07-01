@@ -11,6 +11,8 @@ import {
   compileScheduleArtifact,
   parseScheduleArtifact,
 } from "../planning/generate";
+import { readPersistedScheduleEffect } from "../run-control/next-node";
+import { withRunControlStoreScoped } from "../run-control/run-control-store";
 import { parseRunnerCommandPayload } from "../runner-command-contract";
 import type { createRunnerEventSink } from "../runner-event-sink";
 import type { RuntimeContext } from "../runtime/contracts";
@@ -25,7 +27,8 @@ interface RunnerLifecycleContextOptions {
   cwd?: string;
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   payloadFile: string;
-  scheduleFile: string;
+  scheduleFile?: string;
+  scheduleSource?: "db" | "file";
 }
 
 export function createRunnerLifecycleContextEffect(
@@ -42,11 +45,13 @@ export function createRunnerLifecycleContextEffect(
       options.cwd
     );
     const config = yield* loadRunnerLifecycleConfigEffect(worktreePath);
-    const { compiled, scheduleYaml } = yield* compileRunnerScheduleEffect(
+    const { compiled, scheduleYaml } = yield* compileRunnerScheduleEffect({
       config,
-      options.scheduleFile,
-      worktreePath
-    );
+      payload,
+      scheduleFile: options.scheduleFile,
+      scheduleSource: options.scheduleSource ?? "file",
+      worktreePath,
+    });
     yield* assertWorkflowIdsMatch(payload.workflow.id, compiled.workflowId);
     const task = yield* runnerTaskTextEffect(payload.task, worktreePath);
     const context = buildRunnerRuntimeContext({
@@ -90,23 +95,53 @@ interface CompiledRunnerSchedule {
   scheduleYaml: string;
 }
 
-function compileRunnerScheduleEffect(
-  config: ReturnType<typeof loadPipelineConfig>,
-  scheduleFile: string,
-  worktreePath: string
-): Effect.Effect<CompiledRunnerSchedule, unknown, RunnerCommandIoService> {
+function compileRunnerScheduleEffect(input: {
+  config: ReturnType<typeof loadPipelineConfig>;
+  payload: ReturnType<typeof parseRunnerCommandPayload>;
+  scheduleFile?: string;
+  scheduleSource: "db" | "file";
+  worktreePath: string;
+}): Effect.Effect<CompiledRunnerSchedule, unknown, RunnerCommandIoService> {
   return Effect.gen(function* () {
-    const io = yield* RunnerCommandIoService;
-    const scheduleYaml = yield* io.readText(scheduleFile);
+    const scheduleYaml = yield* lifecycleScheduleYamlEffect(input);
     const compiled = yield* attemptSync(() =>
       compileScheduleArtifact(
-        config,
-        parseScheduleArtifact(scheduleYaml, scheduleFile),
-        worktreePath
+        input.config,
+        parseScheduleArtifact(
+          scheduleYaml,
+          lifecycleScheduleSourceLabel(input)
+        ),
+        input.worktreePath
       )
     );
     return { compiled, scheduleYaml };
   });
+}
+
+function lifecycleScheduleYamlEffect(input: {
+  payload: ReturnType<typeof parseRunnerCommandPayload>;
+  scheduleFile?: string;
+  scheduleSource: "db" | "file";
+  worktreePath: string;
+}): Effect.Effect<string, unknown, RunnerCommandIoService> {
+  if (input.scheduleSource === "db") {
+    return withRunControlStoreScoped(input.worktreePath, (store) =>
+      readPersistedScheduleEffect(store, input.payload.run.id)
+    );
+  }
+  return Effect.gen(function* () {
+    const io = yield* RunnerCommandIoService;
+    return yield* io.readText(input.scheduleFile ?? "");
+  });
+}
+
+function lifecycleScheduleSourceLabel(input: {
+  scheduleFile?: string;
+  scheduleSource: "db" | "file";
+}): string {
+  return input.scheduleSource === "db"
+    ? "persisted schedule"
+    : (input.scheduleFile ?? "schedule.yaml");
 }
 
 function assertWorkflowIdsMatch(

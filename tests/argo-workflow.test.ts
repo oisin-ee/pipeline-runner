@@ -8,6 +8,7 @@ import {
   compileArgoExecutionGraph,
 } from "../src/argo-graph";
 import {
+  buildDynamicRunnerArgoWorkflowManifest,
   buildRunnerArgoWorkflowManifest,
   runnerArgoWorkflowManifestSchema,
   stringifyRunnerArgoWorkflow,
@@ -88,6 +89,71 @@ function retryStrategyForTemplate(
 }
 
 describe("runner Argo Workflow manifest", () => {
+  it("renders dynamic DB-drain workflow with selector output, withParam, and recursive drain", () => {
+    const manifest = buildDynamicRunnerArgoWorkflowManifest({
+      brokerAuth: BASE_OPTIONS.brokerAuth,
+      dbAuth: {
+        secretKey: "db-url",
+        secretName: "moka-db",
+      },
+      generateName: "pipeline-run-",
+      namespace: "workflow-namespace",
+      payloadConfigMapName: "pipeline-payload-run-1",
+      workflowId: "schedule-run-1-root",
+    });
+
+    expect(runnerArgoWorkflowManifestSchema.parse(manifest)).toEqual(manifest);
+    expect(manifest.spec.volumes).toEqual([
+      {
+        configMap: {
+          items: [{ key: "payload.json", path: "payload.json" }],
+          name: "pipeline-payload-run-1",
+        },
+        name: "runner-payload",
+      },
+    ]);
+    expect(JSON.stringify(manifest)).not.toContain("runner-schedule");
+    expect(JSON.stringify(manifest)).not.toContain("runner-task-descriptor");
+
+    const entrypoint = manifest.spec.templates.find(
+      (template) => template.name === "pipeline"
+    );
+    expect(entrypoint?.steps?.flat().map((step) => step.name)).toEqual([
+      "pre-research",
+      "pre-planning",
+      "generate-schedule",
+      "drain-ready-waves",
+    ]);
+
+    const selector = manifest.spec.templates.find(
+      (template) => template.name === "select-ready-wave"
+    );
+    expect(selector?.outputs?.parameters).toEqual([
+      {
+        name: "ready-node-ids",
+        valueFrom: { path: "/tmp/moka-ready-node-ids.json" },
+      },
+    ]);
+
+    const drain = manifest.spec.templates.find(
+      (template) => template.name === "drain-ready-waves"
+    );
+    expect(drain?.steps?.[1]?.[0]).toMatchObject({
+      arguments: {
+        parameters: [{ name: "node-id", value: "{{item}}" }],
+      },
+      name: "run-ready-node",
+      template: "runner-command",
+      withParam:
+        "{{steps.select-ready-wave.outputs.parameters.ready-node-ids}}",
+    });
+    expect(drain?.steps?.[2]?.[0]).toMatchObject({
+      name: "drain-next-wave",
+      template: "drain-ready-waves",
+      when: "{{steps.select-ready-wave.outputs.parameters.ready-node-ids}} != []",
+    });
+  });
+
   it("keeps rendering pure and separates Argo policy owners", () => {
     const missingOwnerFiles = ARGO_OWNER_FILES.filter(
       (path) => !existsSync(join(process.cwd(), path))
