@@ -28,7 +28,7 @@ const RUNNER_OPENCODE_ENV: ArgoWorkflowEnvVar[] = [
 
 const DEFAULT_RUNNER_RESOURCES: ArgoWorkflowResourceRequirements = {
   limits: { cpu: "4", memory: "12Gi" },
-  requests: { cpu: "1", memory: "5Gi" },
+  requests: { cpu: "500m", memory: "1Gi" },
 };
 
 const DEFAULT_RUNNER_DEADLINE_SECONDS = 5400;

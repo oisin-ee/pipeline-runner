@@ -125,6 +125,7 @@ function runPreSchedulePhaseEffect(
 ): Effect.Effect<number, never, RunnerCommandIoService | Scope.Scope> {
   return Effect.gen(function* () {
     const context = yield* preScheduleContextEffect(options);
+    yield* ensurePreScheduleRunRecordEffect(context);
     const result =
       options.phase === "generate-schedule"
         ? yield* generateSchedulePhaseEffect(context)
@@ -138,6 +139,20 @@ function runPreSchedulePhaseEffect(
       Effect.sync(() => dynamicRunnerCommandErrorExit(error, options.stderr))
     )
   );
+}
+
+function ensurePreScheduleRunRecordEffect(
+  context: PreScheduleContext
+): Effect.Effect<void, unknown> {
+  return context.persistence.runControlStore
+    .createRun({
+      effort: "normal",
+      mode: "write",
+      nodeIds: [...preScheduleNodeIds()],
+      runId: context.payload.run.id,
+      target: "remote",
+    })
+    .pipe(Effect.asVoid);
 }
 
 function preScheduleContextEffect(
