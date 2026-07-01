@@ -373,6 +373,87 @@ describe("schedule artifacts", () => {
     ]);
   });
 
+  it("falls back to a deterministic TicketPlan graph when the phase planner infra fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moka-ticket-plan-fallback-"));
+    const nodeIds: string[] = [];
+
+    try {
+      const result = await generateScheduleArtifactInMemory({
+        config: config(),
+        entrypointId: "execute",
+        executor: (plan) => {
+          nodeIds.push(plan.nodeId);
+          return {
+            exitCode: 1,
+            stderr: "",
+            stdout:
+              '{"type":"error","error":{"name":"UnknownError","data":{"message":"Unexpected server error"}}}',
+          };
+        },
+        generatedAt: new Date("2026-06-03T12:00:00.000Z"),
+        phaseContext: {
+          ticketPlan: {
+            tickets: [
+              {
+                acceptance_criteria: [
+                  { evidence: "unit test", text: "A works" },
+                ],
+                depends_on: [],
+                description: "Implement A",
+                key: "build-a",
+                likely_files: ["src/a.ts"],
+                plan: "Edit A",
+                references: ["src/a.ts"],
+                title: "Build A",
+              },
+              {
+                acceptance_criteria: [
+                  { evidence: "unit test", text: "B works" },
+                ],
+                depends_on: ["build-a"],
+                description: "Implement B",
+                key: "build-b",
+                likely_files: ["src/b.ts"],
+                plan: "Edit B",
+                references: ["src/b.ts"],
+                title: "Build B",
+              },
+            ],
+          },
+        },
+        runId: "run-ticket-plan-fallback",
+        task: "Build A then B",
+        worktreePath: dir,
+      });
+
+      expect(nodeIds).toEqual(["schedule-plan"]);
+      expect(result.artifact.workflows.root.nodes).toEqual([
+        expect.objectContaining({
+          id: "build-a-implement",
+          profile: "moka-code-writer",
+          task_context: expect.objectContaining({ id: "build-a" }),
+        }),
+        expect.objectContaining({
+          id: "build-b-implement",
+          needs: ["build-a-implement"],
+          profile: "moka-code-writer",
+          task_context: expect.objectContaining({ id: "build-b" }),
+        }),
+        expect.objectContaining({
+          id: "generated-coverage",
+          needs: ["build-a-implement", "build-b-implement"],
+          profile: "moka-verifier",
+        }),
+      ]);
+      expect(() =>
+        compileScheduleArtifact(config(), result.artifact, dir)
+      ).not.toThrow();
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("generates schedule artifact YAML in memory without creating .pipeline", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-in-memory-"));
     const schedule = buildScheduleYaml({

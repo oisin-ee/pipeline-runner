@@ -5,6 +5,7 @@ import { parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import {
   type PipelineConfig,
+  type SchedulingRole,
   validatePipelineConfig,
   workflowSchema,
 } from "../config";
@@ -32,6 +33,7 @@ import {
   isImplementationNode,
   isWriteCapableParallelChild,
 } from "../schedule/scheduling-roles";
+import { uniqueGeneratedId } from "../strings";
 import type { TicketPlan } from "../tickets/ticket-plan";
 import { compileWorkflowPlan, type WorkflowExecutionPlan } from "./compile";
 import { dependentsByNeed, flattenNodes, hasReachableDependent } from "./graph";
@@ -41,6 +43,7 @@ const ID_RE = /^[a-z][a-z0-9-]*$/;
 const SCHEDULE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const MARKDOWN_YAML_FENCE_RE = /```(?:ya?ml)?\s*\r?\n([\s\S]*?)\r?\n```/i;
 const SCHEDULE_PLANNER_REPAIR_ATTEMPTS = 1;
+const PREFERRED_IMPLEMENTATION_PROFILE_IDS = ["moka-code-writer"] as const;
 const SCHEDULE_BUILTINS = [
   "drain-merge",
   "duplication",
@@ -423,6 +426,12 @@ async function planScheduleArtifact(
     plannerProfile,
     options.entrypointId
   );
+  const ticketPlanFallback = ticketPlanScheduleArtifact(
+    baseline,
+    options.config,
+    planningContext,
+    options.phaseContext
+  );
   const prompt = plannerPrompt(
     options.entrypointId,
     options.task,
@@ -430,9 +439,18 @@ async function planScheduleArtifact(
     options.config,
     planningContext
   );
-  const source = requireSchedulePlannerSource(
-    await runSchedulePlanner(requiredPlannerProfile, prompt, options)
+  const sourceResult = await runSchedulePlannerSource(
+    requiredPlannerProfile,
+    prompt,
+    options
   );
+  if (!sourceResult.ok) {
+    if (ticketPlanFallback) {
+      return ticketPlanFallback;
+    }
+    throw sourceResult.error;
+  }
+  const source = requireSchedulePlannerSource(sourceResult.source);
 
   const initial = acceptedGeneratedSchedule(
     parseGeneratedSchedule(source, "planner output")
@@ -448,7 +466,96 @@ async function planScheduleArtifact(
     options,
     plannerProfile: requiredPlannerProfile,
   });
-  return scheduleArtifactAfterRepair(repair, baseline, initial.error, source);
+  return scheduleArtifactAfterRepair(
+    repair,
+    ticketPlanFallback ?? baseline,
+    initial.error,
+    source
+  );
+}
+
+async function runSchedulePlannerSource(
+  plannerProfile: string,
+  prompt: string,
+  options: GenerateScheduleOptions
+): Promise<
+  { ok: true; source: string } | { error: ScheduleArtifactError; ok: false }
+> {
+  try {
+    return {
+      ok: true,
+      source: await runSchedulePlanner(plannerProfile, prompt, options),
+    };
+  } catch (err) {
+    if (err instanceof ScheduleArtifactError) {
+      return { error: err, ok: false };
+    }
+    throw err;
+  }
+}
+
+function ticketPlanScheduleArtifact(
+  baseline: ScheduleArtifact,
+  config: PipelineConfig,
+  planningContext: SchedulePlanningContext,
+  phaseContext: SchedulePhaseContext | undefined
+): ScheduleArtifact | undefined {
+  if (!phaseContext?.ticketPlan || planningContext.workUnits.length === 0) {
+    return;
+  }
+  const implementationProfile = profileIdForSchedulingRole(
+    config,
+    "implementation",
+    PREFERRED_IMPLEMENTATION_PROFILE_IDS
+  );
+  if (!implementationProfile) {
+    throw new ScheduleArtifactError(
+      "Cannot generate TicketPlan schedule: no profile declares scheduling role 'implementation'"
+    );
+  }
+  const usedIds = new Set<string>();
+  const nodeIdsByUnit = new Map(
+    planningContext.workUnits.map((unit) => [
+      unit.id,
+      uniqueGeneratedId(`${unit.id}-implement`, usedIds, "work-implement"),
+    ])
+  );
+  const nodes: WorkflowNode[] = planningContext.workUnits.map((unit) => {
+    const needs = (unit.dependencies ?? []).flatMap((id) => {
+      const nodeId = nodeIdsByUnit.get(id);
+      return nodeId ? [nodeId] : [];
+    });
+    return {
+      id: nodeIdsByUnit.get(unit.id) ?? "work-implement",
+      kind: "agent",
+      ...(needs.length > 0 ? { needs } : {}),
+      profile: implementationProfile,
+      task_context: { id: unit.id },
+    };
+  });
+  return {
+    ...baseline,
+    root_workflow: "root",
+    workflows: {
+      root: {
+        description: "Generated deterministic schedule from TicketPlan.",
+        nodes,
+      },
+    },
+  };
+}
+
+function profileIdForSchedulingRole(
+  config: PipelineConfig,
+  role: SchedulingRole,
+  preferredIds: readonly string[]
+): string | undefined {
+  const matchingIds = Object.entries(config.profiles)
+    .filter(([, profile]) => profile.scheduling_roles?.includes(role))
+    .map(([id]) => id);
+  return (
+    preferredIds.find((id) => matchingIds.includes(id)) ?? matchingIds.sort()[0]
+  );
 }
 
 function requireSchedulePlannerProfile(
