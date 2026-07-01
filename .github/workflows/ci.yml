@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -27,12 +28,16 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@oisin-ee"
 
       - name: Install nub
         run: npm i -g @nubjs/nub@0.2.7
 
       - name: Install dependencies
         run: nub ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Test
         run: nub run test
