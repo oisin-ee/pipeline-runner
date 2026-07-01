@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   buildCommandScheduleYaml,
+  submitDynamicRunnerArgoWorkflow,
   submitRunnerArgoWorkflow,
 } from "../src/argo-submit";
 import {
@@ -493,6 +494,59 @@ describe("submitRunnerArgoWorkflow", () => {
       expect(env).not.toContainEqual(
         expect.objectContaining({ name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION" })
       );
+    }
+  });
+
+  it("injects PIPELINE_MCP_GATEWAY_AUTHORIZATION into dynamic runner containers when mcpGatewayAuth is configured", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitDynamicRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        mcpGatewayAuth: {
+          secretName: "pipeline-runner-mcp-auth",
+          secretKey: "pipeline-mcp-gateway-authorization",
+        },
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        workflowId: "schedule-submit-smoke-root",
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: { name: "pipeline-run-dynamic-mcpgateway" },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
+    expect(containerTemplates.length).toBeGreaterThan(0);
+    for (const template of containerTemplates) {
+      expect(template.container?.env).toContainEqual({
+        name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+        valueFrom: {
+          secretKeyRef: {
+            key: "pipeline-mcp-gateway-authorization",
+            name: "pipeline-runner-mcp-auth",
+          },
+        },
+      });
     }
   });
 

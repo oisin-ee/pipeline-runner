@@ -67,39 +67,49 @@ const createdWorkflowSchema = z
   })
   .passthrough();
 
+const submitRunnerArgoWorkflowBaseOptionShape = {
+  brokerAuth: brokerAuthOptionSchema,
+  // PIPE-94.4: optional secret ref for MOKA_DB_URL injection in runner pods.
+  // Shared shape (single owner in remote/argo/model). Absent → no MOKA_DB_URL.
+  dbAuth: dbAuthOptionSchema.optional(),
+  eventAuthSecretKey: z.string().min(1).optional(),
+  eventAuthSecretName: z.string().min(1).optional(),
+  generateName: z.string().min(1).optional(),
+  gitCredentialsSecretName: z.string().min(1).optional(),
+  githubAuthSecretName: z.string().min(1).optional(),
+  image: z.string().min(1).optional(),
+  imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]).optional(),
+  imagePullSecretName: z.string().min(1).optional(),
+  kubeconfigPath: z.string().min(1).optional(),
+  // Optional secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection in
+  // runner pods. Shared shape (single owner in remote/argo/model). Absent →
+  // no PIPELINE_MCP_GATEWAY_AUTHORIZATION.
+  mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
+  name: z.string().min(1).optional(),
+  namespace: z.string().min(1),
+  payloadJson: z.string().min(1),
+  serviceAccountName: z.string().min(1).optional(),
+};
+
 const submitRunnerArgoWorkflowOptionsSchema = z
   .object({
-    brokerAuth: brokerAuthOptionSchema,
-    // PIPE-94.4: optional secret ref for MOKA_DB_URL injection in runner pods.
-    // Shared shape (single owner in remote/argo/model). Absent → no MOKA_DB_URL.
-    dbAuth: dbAuthOptionSchema.optional(),
-    eventAuthSecretKey: z.string().min(1).optional(),
-    eventAuthSecretName: z.string().min(1).optional(),
-    generateName: z.string().min(1).optional(),
-    gitCredentialsSecretName: z.string().min(1).optional(),
-    githubAuthSecretName: z.string().min(1).optional(),
-    image: z.string().min(1).optional(),
-    imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]).optional(),
-    imagePullSecretName: z.string().min(1).optional(),
-    kubeconfigPath: z.string().min(1).optional(),
-    // Optional secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection in
-    // runner pods. Shared shape (single owner in remote/argo/model). Absent →
-    // no PIPELINE_MCP_GATEWAY_AUTHORIZATION.
-    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
-    name: z.string().min(1).optional(),
-    namespace: z.string().min(1),
-    payloadJson: z.string().min(1),
+    ...submitRunnerArgoWorkflowBaseOptionShape,
     scheduleYaml: z.string().min(1),
-    serviceAccountName: z.string().min(1).optional(),
   })
   .strict()
-  .refine(
-    (options) =>
-      options.name !== undefined || options.generateName !== undefined,
-    {
-      message: "Argo submit options must declare name or generateName",
-    }
-  );
+  .refine(hasWorkflowName, {
+    message: "Argo submit options must declare name or generateName",
+  });
+
+const submitDynamicRunnerArgoWorkflowOptionsSchema = z
+  .object({
+    ...submitRunnerArgoWorkflowBaseOptionShape,
+    workflowId: z.string().min(1),
+  })
+  .strict()
+  .refine(hasWorkflowName, {
+    message: "Argo submit options must declare name or generateName",
+  });
 
 const commandScheduleOptionsSchema = z
   .object({
@@ -109,6 +119,13 @@ const commandScheduleOptionsSchema = z
     task: z.string().min(1),
   })
   .strict();
+
+function hasWorkflowName(options: {
+  generateName?: string;
+  name?: string;
+}): boolean {
+  return options.name !== undefined || options.generateName !== undefined;
+}
 
 export type SubmitRunnerArgoWorkflowOptions = z.input<
   typeof submitRunnerArgoWorkflowOptionsSchema
@@ -128,11 +145,10 @@ export interface SubmitRunnerArgoWorkflowDependencies {
   workflowApi?: WorkflowApi;
 }
 
-export type SubmitDynamicRunnerArgoWorkflowOptions = Omit<
-  SubmitRunnerArgoWorkflowOptions,
-  "scheduleYaml"
+export type SubmitDynamicRunnerArgoWorkflowOptions = z.input<
+  typeof submitDynamicRunnerArgoWorkflowOptionsSchema
 > & {
-  workflowId: string;
+  config: PipelineConfig;
 };
 
 export function submitRunnerArgoWorkflow(
@@ -312,11 +328,9 @@ function submitDynamicRunnerArgoWorkflowEffect(
   unknown,
   KubernetesArgoService
 > {
-  const { config: _config, workflowId, ...schemaOptions } = rawOptions;
-  const options = submitRunnerArgoWorkflowOptionsSchema
-    .omit({ scheduleYaml: true })
-    .extend({ workflowId: z.string().min(1) })
-    .parse({ ...schemaOptions, workflowId });
+  const { config: _config, ...schemaOptions } = rawOptions;
+  const options =
+    submitDynamicRunnerArgoWorkflowOptionsSchema.parse(schemaOptions);
   const parsedPayload = runnerCommandPayloadSchema.parse(
     parseRunnerCommandPayload(options.payloadJson)
   );
@@ -324,9 +338,9 @@ function submitDynamicRunnerArgoWorkflowEffect(
     payload: parsedPayload,
     payloadJson: options.payloadJson,
   });
-  if (payload.workflow.id !== workflowId) {
+  if (payload.workflow.id !== options.workflowId) {
     throw new Error(
-      `Runner payload workflow '${payload.workflow.id}' does not match dynamic workflow '${workflowId}'`
+      `Runner payload workflow '${payload.workflow.id}' does not match dynamic workflow '${options.workflowId}'`
     );
   }
   const payloadConfigMapName = `pipeline-payload-${randomBytes(6).toString("hex")}`;
@@ -334,7 +348,7 @@ function submitDynamicRunnerArgoWorkflowEffect(
     "pipeline.oisin.dev/project": payload.run.project,
     "pipeline.oisin.dev/run-id": payload.run.id,
     "pipeline.oisin.dev/source": "argo-workflow",
-    "pipeline.oisin.dev/workflow": workflowId,
+    "pipeline.oisin.dev/workflow": options.workflowId,
   };
   const annotations =
     payload.task.kind === "ticket"
@@ -356,12 +370,13 @@ function submitDynamicRunnerArgoWorkflowEffect(
     image: options.image,
     imagePullPolicy: options.imagePullPolicy,
     imagePullSecretName: options.imagePullSecretName,
+    mcpGatewayAuth: options.mcpGatewayAuth,
     labels,
     name: options.name,
     namespace: options.namespace,
     payloadConfigMapName,
     serviceAccountName: options.serviceAccountName,
-    workflowId,
+    workflowId: options.workflowId,
   });
   return Effect.gen(function* () {
     const service = yield* KubernetesArgoService;
