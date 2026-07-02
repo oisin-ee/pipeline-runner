@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: pipeline-runner-event-auth
+  namespace: momokaya-pipeline
+spec:
+  encryptedData:
+    OISIN_PIPELINE_EVENT_AUTH_TOKEN: AgBS1hrivVDyLQXGMQMZio2GHMAz3zyoDrFntaGfqAJ6deO9yZU2GC4dFk19moYQlt7BaTyf5CyCYIQEiSE3Cs1EAAzpS7QPbYtpkelb5Eo6zEykF4U4/oE8gmOC6AKQacwBiW8e/AS2FceE8BTDBjDKWYEaZcEy8+mgzg2LBrJ/mpTjjmNUOZ9q+a8ibVg8ffgwWlVdG+bi2J65E8iDB222jKowfB4PWgSoh74Vf2AzzGc0Kwk709zRBF6r+MDU+obJBVuWS7/4qFaG0doZLlNcJXycphQsYrc4kujGXoGMk1tV8BTY61G6tUc6Jc3U3QaBbIwzEYDEbceU547LJtx4cMjFL8e3RopirfjKgQ3gT/6x+WbqoOBOnw+F4pat/ocFabiY/wk3N9w6iTS9UY99KPwwmoHxLgL0YcTBR1f2Ek/5C53yjFbFRXo5hXZsSZv8goR5mAd1sV76q7v1xZflzUqRoT17Ipyp5Z8TM9Za5W+m97Kh2npYqKXsHkwqX1nl6u7boIml+9KgiNT7MHZXMCBsg2vEfatWgiafK0c3ncUbCdLEx0TbRlRKaeipnvBYw9NDXdPosHfwWz3iw3m6u2BNDk2AfdjdAkIfLZ2jda1QqyNmt0smYXW3Wss9XWJUNOX+lAdBjuJQpgSvZ2ZucJDAaYBCQtpBitYpTBCE+MhJF/WcPsXJvTHpgpeTvmgL5dPUGhG19TnG9Pw3m7Q=
+  template:
+    metadata:
+      name: pipeline-runner-event-auth
+      namespace: momokaya-pipeline

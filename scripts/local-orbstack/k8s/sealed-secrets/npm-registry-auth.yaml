@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: npm-registry-auth
+  namespace: momokaya-pipeline
+spec:
+  encryptedData:
+    npmrc: AgAYiLcAtozwgZnBux5p5Bt8vkppT2lXDYh7+0sSaa28UPWptcVuIUIyWMlybGSbFt4Bw47PR2pmiZpmSK6Jl7/B7SNAEA4zmcWqPvs9CmG90Qe0llYbZ9T3LcRK4HMKeNtL6i3j9aK3VTc/DWxDexYpa4P66fCwDIDhN9/LO0NepoHM6asmM+B38XkDgX///f780fsz6hAQue28Ts0LPnQIcEHLh1CGxw2D9ltcoPxBIS64jAgULZJhJtr4xmhug1vR0OfIlGSVqMrWC6x7+3yY7z5idCvKKG7Qw9ssGuVl0vTkrifH5Gw5DEXC08msg7UJKSBP7JsS1nEWkb+umKqhKWHT3GFt6t6Q0LiE0N7ZfsqE4O/0XrAypeBduH8QC1pyf8CpP6j2gaS5pVPg6UasQ7XYZPQ25vGaXEQ9Vb+V08BlUc9HnQMoQqYVj7XgX8BTWn5KcpnsW8V4iAIubGgopVFBdr2hOv05hjbueCxvcEXNoiMQ2w40nfAsQswpLGf2fxE9Scfy0V+GxBzAu0FRida85zmBdGu5YRsvgIbO6HrCPKK/XMbN+adIROXVH5R6AONo5K19lhQSA7Z+/O5A+ggGNIlc99eJEh+tOBo19lq+1sYQZz/HJxOCM+wEtPoYKYBOOduwm3+uvOgeTpyVkakL95OBISdWTgxw55TJEUxF+tfllJloCEdhHhLGETkMP8L6L+KIahhQvE3Ni6G9Wn/ik0kxdX5m42SZkapn3wMoLLbTHj0J5hGyMC+QLOUFNfTUmWZNDsL0K19G+y/hLvFo4yWDH3vFI8mS/7TkmkjmR9fwa5o/f0448kD6WkmVeEY0Qnwm8IBwHuX9DWUj66qU9sPI1M8=
+  template:
+    metadata:
+      name: npm-registry-auth
+      namespace: momokaya-pipeline

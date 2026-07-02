@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: broker-api-key
+  namespace: momokaya-pipeline
+spec:
+  encryptedData:
+    api-key: AgAXT/MifolH6fNZez2VOnQ++htY3YR/qiONz+7E15NuS5smDl7mD6DQn9MVNMW6mdluOBXKTue8uEWIgYAlSR0s2tiodXiA3oBRb/R7bfGusf5LFVIU1TwnbCujD2elJBkc9c0i1L+a97B3UUZMaf3A7obp9XBFgtUv0PIyBWKBgchDNCkQm8q8JlbcTQa8KXedNVcXphsJD0rCgJp5fD8mhkpsNWag7nDxjs9MhcMy1VDuKd1LXF5fYCUh+kV3GZnmfjIhCwGCNMbYElLPcvxG0lF9UTYm/zX1M+hB/sWtjbVSnf0d0kMr6QPI+Ao/QIaAQ6Zf6Ccjc4LmTTelSmEKDDNraSVpFna7vM8wb6zuBtMBB9vCJckfbIQRjuPUVSqMnm6aTqx55BIiudvuQ1OnDaRwkBRS7bOz510esMAUEha6wAbnMh4wuqDKkncBykd2ffZI2Ihs21VCre8gzPsSoQ+NjGOkiyl6sDCQzosbRBVbJ4w1U85tbFxdY8RqQg6bvoCKXmxeoLrWiL6y/gtd7VSuXyNLEffZAdFJQaW4VpQzNk7tbXVz2xRIv+Av66N82pHjpMg2CBY0zPCpgw9Cl3Op2K04wNJ13cBfpL8RiK55dnHhgMefXxWQc5Zb45Tgd39w8Mbox/paq1jL21lrANVPufj4VazFWxXLhHgKqnvuksPCp3YkgHUczSwO1ZKl0afCxlEn0Orva4hRCA8=
+  template:
+    metadata:
+      name: broker-api-key
+      namespace: momokaya-pipeline

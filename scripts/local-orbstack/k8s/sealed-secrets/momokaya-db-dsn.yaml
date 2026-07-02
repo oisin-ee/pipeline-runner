@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: momokaya-db-dsn
+  namespace: momokaya-pipeline
+spec:
+  encryptedData:
+    dsn: AgC1SOpfv8/rW/qID1UP90GVtaoCbEaDmIsWPBrH9tsbKxTfdYczgAVkEAXDwD62kbHmAFHwmO/TCoB99g3JDgOG3xVeM90jRDHH2Ab1d7+xDah1E+AVhB/xsO6OdgExq+0DXz0IScofl1SnEgBy6ZkG9bhTBIl1MCncERXIvNXuPe1haOg13O21YwGNIm+swznNqT1iB2kDQSaR6a2cktzYdoIlYpEG2v42YYYlWpb4dYu3a+WbUblmphNpVw48o2wk8qy8jOKRl0vtlcez4PDTeKHyew+CP4rlptH3yMnB97n7smdJUp2oM1OkNA6wIAzN7KGiJLqqvEFgyiog0XBuDRq1S3UvUrpLcjaen7BMnpCD8RjEratovj788GL9wZjIe2yvp6sqVgpJ/4RFSBNzEG5iHEjrtzN8ulb9QYgjkybfPeTWK7ktnICCZvrnLXOKcRaNH0GgHLwSO49Ga/f1CuaiLZpJPE1rbvRSe2PzYzPsDINZXpG9+yZ6UbDZIUEa696zasCP3AwIkWVjAT58eDhiGzZehiWuQdB4rb5k/B7bnUNPlbwoFiB/jIGU5mxphlYVbzuEN/91lacOU+A0LO+IVsWICtX9tpxpKGpGl29VSFxFvQJGa4OSwLESBLgt0jNLy+oF094rjAgnI5SWPaq6s+atgf3x0R0Sz1UUtxrrpWd6KjWXcp5siWwOX+lx4C8mhv3ryKfiRgc8gb2/gVcXh0VdTNVQBOmkskX8X5yAhQDlCwSt1w6QmA0LSO3F4v3k4Qy6Xojh4b5oNAQIgmF6xFBrfc5qOfIbY35jTLwQHue2bDO60p9N5MnA3LHHiYXs
+  template:
+    metadata:
+      name: momokaya-db-dsn
+      namespace: momokaya-pipeline

@@ -80,8 +80,9 @@ docker-registry`), and `momokaya-db-dsn` (key `dsn`, value
 broker/console in this sandbox) and can be sealed the same way with any
 placeholder value.
 
-Once sealed and committed to `k8s/sealed-secrets/`, add that path as a third
-source in `argocd-app.yaml` and Argo CD reconciles them like everything else.
+Once sealed, list each file in `k8s/kustomization.yaml`'s `resources:` --
+the `k8s/` path is already Argo CD's first source, so no separate Application
+source is needed. Argo CD then reconciles them like everything else.
 
 ## Using the sandbox
 

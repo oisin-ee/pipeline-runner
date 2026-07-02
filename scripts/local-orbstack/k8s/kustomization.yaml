@@ -4,3 +4,10 @@ resources:
   - namespace.yaml
   - rbac.yaml
   - postgres.yaml
+  - sealed-secrets/broker-api-key.yaml
+  - sealed-secrets/ghcr-pull-secret.yaml
+  - sealed-secrets/momokaya-db-dsn.yaml
+  - sealed-secrets/npm-registry-auth.yaml
+  - sealed-secrets/oisin-bot-git-credentials.yaml
+  - sealed-secrets/oisin-bot-github-auth.yaml
+  - sealed-secrets/pipeline-runner-event-auth.yaml

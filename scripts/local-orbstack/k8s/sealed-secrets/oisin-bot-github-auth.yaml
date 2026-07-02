@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: oisin-bot-github-auth
+  namespace: momokaya-pipeline
+spec:
+  encryptedData:
+    hosts.yml: AgCIsnLeMVg6lGoOkExb+dYhEl1fD5Ke+Qh/bUDQPzvmBBWxPyLKUcClHBHzRynateBXrNuG84seR01IC/0B0f3RXtXEs7BRWq7Hwes6uoGkwFga96vsg2sKmGI6sLo1vYJUQGvijjeoX24Zyam4B0PqpQwnbJz5Zj/Qa1ytPeBjq9SXUfJ+EuRYrJ+2Mzd0wa9T95+TLuDzxgBkQxFU8fGAtLysclw3BjfDDSsXgN32FcWC8mvzEGbvwD/Cj45DmeZZ1ZYatSskqBjGbARTjDiQvQD0C4B4NpAU8Q4mKMOl9rNtE1rVAvc8BuhZiHdunf0wtNv9loqIjWaqfnzGwfdIXvxK8jf7Sefm7OK1VAFKqL72HDxu5Rx6xSNaKrSKn7NP6LSXBEArRfjMye1OuwNbqyXDLqecxMx0Ad50H4wpVU+z3D/Yfz6W0w5QK5lFAo3ZUnL5dYQuPOyGfmZwcs31lHeJv8KHvI6ir2mvBlFhjsL1GxeQG2WsQAz/PV8Q5HSCLe4C07BnbTcRtxYa+wgZnVP0JKPLpFroN63h65qp4yRUDaORplOmIGJnme2dnjVm7Lc0BSVuS9dSk6mQTVTSjRLo2iGd/AT5bp1Yi+IYmKF8Z1kkxzi/ynt2dgkkIAOWtkmmqnmmj9sBtzgSqHVWq6s/uTbKTc2PdNFY27VaJp9ArB0RCNImXvj0dEpInvSIobhBiaVOqM3Wi9xKgg9XzrQnfyyq7QS0tFmWvQjT1KytbY7McuwgTJTD1X+3ctN6BDdHRicXMukuZf2G2tt49dy8ThNRA4WBfteYc/meRLOljtrx2KOlaftfDvWJuUunrT+A6KI9wFPyfXgU+hN6usE=
+  template:
+    metadata:
+      name: oisin-bot-github-auth
+      namespace: momokaya-pipeline
