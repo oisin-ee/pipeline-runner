@@ -342,6 +342,13 @@ export type PipelineRuntimeEvent = { parentNodeId?: string } & (
       workflowId: string;
     }
   | {
+      deliveryPullRequest: {
+        action: "opened" | "updated";
+        url: string;
+      };
+      type: "delivery.pull-request";
+    }
+  | {
       outcome: PipelineRuntimeResult["outcome"];
       type: "workflow.finish";
       workflowId: string;
