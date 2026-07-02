@@ -66,6 +66,7 @@ describe("PIPE-58 cleanup contracts", () => {
       "./argo-workflow",
       "./config",
       "./events",
+      "./factory-lane",
       "./hooks",
       "./moka-global-config",
       "./moka-submit",

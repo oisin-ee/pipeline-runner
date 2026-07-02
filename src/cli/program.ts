@@ -11,6 +11,7 @@ import {
 import { loadPipelineConfig, type PipelineConfig } from "../config";
 import { registerRunControlCommands } from "../run-control/commands";
 import { registerBootstrapCommands } from "./bootstrap-commands";
+import { registerFactoryCommands } from "./factory-commands";
 import { registerLoopCommand } from "./loop-commands";
 import { registerMcpGatewayCommands } from "./mcp-gateway-commands";
 import { registerPlanCommands } from "./plan-commands";
@@ -60,6 +61,7 @@ function registerApplicationCommands(
   registerMcpGatewayCommands(program);
   registerSubmitCommand(program);
   registerLoopCommand(program);
+  registerFactoryCommands(program);
   registerRunnerCommandCommand(program);
   registerBenchCommand(program);
   registerTicketCommand(program, {

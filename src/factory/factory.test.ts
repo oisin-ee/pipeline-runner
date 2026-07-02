@@ -1,0 +1,330 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  buildCopierCopyArgs,
+  committerConfigArgs,
+  runCreateExperiment,
+} from "./create-experiment";
+import type { FactoryExec, FactoryGit } from "./exec";
+import { buildFactoryLaneJob, FACTORY_LANE_LABEL } from "./factory-lane";
+import { isStampOf, parseCopierAnswers } from "./stamp-answers";
+import { runTemplateUpdate, summarizeTemplateUpdate } from "./template-update";
+
+const KEBAB_ERROR = /kebab-case/;
+const ALREADY_EXISTS_ERROR = /already exists/;
+const SIDE_EFFECT_CALLS = /^(copier copy|gh repo create|git push|git clone)/;
+const COPIER_COPY_CALL = /^copier copy/;
+const GH_REPO_CREATE_CALL = /^gh repo create oisin-ee\/scratch-app --private/;
+const APP_PUSH_CALL = /^git push -u origin main/;
+const GIT_CLONE_CALL = /^git clone/;
+const INFRA_PUSH_CALL = /^git push origin HEAD:main/;
+const REPO_DIR_PREFIX = /^update-/;
+
+const MOMOKAYA_ANSWERS = [
+  "_commit: v1.0.2",
+  "_src_path: gh:oisin-ee/momokaya-template",
+  "name: scratch-app",
+].join("\n");
+
+const OTHER_TEMPLATE_ANSWERS = [
+  "_commit: HEAD",
+  "_src_path: /tmp/bunx-1000-@oisincoveney/dev@latest/node_modules/@oisincoveney/dev/templates/copier",
+].join("\n");
+
+describe("stamp-answers", () => {
+  it("parses the copier receipt fields", () => {
+    const receipt = parseCopierAnswers(MOMOKAYA_ANSWERS);
+    expect(receipt.commit).toBe("v1.0.2");
+    expect(receipt.srcPath).toBe("gh:oisin-ee/momokaya-template");
+  });
+
+  it("accepts only momokaya-template stamps", () => {
+    expect(
+      isStampOf(parseCopierAnswers(MOMOKAYA_ANSWERS), "momokaya-template")
+    ).toBe(true);
+    expect(
+      isStampOf(parseCopierAnswers(OTHER_TEMPLATE_ANSWERS), "momokaya-template")
+    ).toBe(false);
+    expect(isStampOf({}, "momokaya-template")).toBe(false);
+  });
+});
+
+describe("buildCopierCopyArgs", () => {
+  it("builds a headless trusted stamp invocation", () => {
+    expect(
+      buildCopierCopyArgs({
+        db: true,
+        destination: "/work/scratch-app",
+        flavor: "web",
+        name: "scratch-app",
+        previews: false,
+        templateSource: "gh:oisin-ee/momokaya-template",
+      })
+    ).toEqual([
+      "copy",
+      "--trust",
+      "--defaults",
+      "--data",
+      "name=scratch-app",
+      "--data",
+      "flavor=web",
+      "--data",
+      "db=true",
+      "--data",
+      "previews=false",
+      "gh:oisin-ee/momokaya-template",
+      "/work/scratch-app",
+    ]);
+  });
+
+  it("pins --vcs-ref when a template ref is given", () => {
+    const args = buildCopierCopyArgs({
+      db: false,
+      destination: "/d",
+      flavor: "expo-web",
+      name: "x",
+      previews: true,
+      templateRef: "v1.0.2",
+      templateSource: "gh:oisin-ee/momokaya-template",
+    });
+    expect(args.slice(3, 5)).toEqual(["--vcs-ref", "v1.0.2"]);
+  });
+});
+
+describe("runCreateExperiment", () => {
+  it("rejects a non-kebab-case name before any side effect", async () => {
+    await expect(
+      runCreateExperiment({
+        exec: failingExec,
+        git: failingGit,
+        name: "Bad_Name",
+      })
+    ).rejects.toThrow(KEBAB_ERROR);
+  });
+
+  it("runs stamp -> repo create -> push -> registry commit in order", async () => {
+    const workRoot = mkdtempSync(join(tmpdir(), "factory-test-"));
+    const calls: string[] = [];
+    const exec: FactoryExec = (command, args) => {
+      calls.push([command, ...args].join(" "));
+      if (command === "gh" && args[0] === "repo" && args[1] === "view") {
+        return Promise.reject(new Error("not found"));
+      }
+      if (command === "copier") {
+        const registryDir = join(
+          workRoot,
+          "scratch-app",
+          "infra-registry",
+          "config"
+        );
+        mkdirSync(registryDir, { recursive: true });
+        writeFileSync(
+          join(registryDir, "scratch-app.yaml"),
+          "repo: scratch-app\n"
+        );
+      }
+      return Promise.resolve({ stdout: "" });
+    };
+    const git: FactoryGit = (_cwd, args) => {
+      calls.push(["git", ...args].join(" "));
+      if (args[0] === "clone") {
+        mkdirSync(join(String(args.at(-1)), "k8s"), { recursive: true });
+      }
+      return Promise.resolve(args[0] === "rev-parse" ? "abc123\n" : "");
+    };
+
+    const result = await runCreateExperiment({
+      exec,
+      git,
+      log: () => undefined,
+      name: "scratch-app",
+      workRoot,
+    });
+
+    expect(result.repoUrl).toBe("https://github.com/oisin-ee/scratch-app");
+    expect(result.registryPath).toBe(
+      "k8s/apps/platform-fleet/config/scratch-app.yaml"
+    );
+    expect(result.infraCommitSha).toBe("abc123");
+    const sequence = calls.filter((call) => SIDE_EFFECT_CALLS.test(call));
+    expect(sequence[0]).toMatch(COPIER_COPY_CALL);
+    expect(sequence[1]).toMatch(GH_REPO_CREATE_CALL);
+    expect(sequence[2]).toMatch(APP_PUSH_CALL);
+    expect(sequence[3]).toMatch(GIT_CLONE_CALL);
+    expect(sequence[4]).toMatch(INFRA_PUSH_CALL);
+  });
+
+  it("refuses to overwrite an existing repo", async () => {
+    const exec: FactoryExec = (command, args) =>
+      command === "gh" && args[1] === "view"
+        ? Promise.resolve({ stdout: "{}" })
+        : Promise.reject(new Error("unexpected exec"));
+    await expect(
+      runCreateExperiment({
+        exec,
+        git: failingGit,
+        log: () => undefined,
+        name: "taken",
+      })
+    ).rejects.toThrow(ALREADY_EXISTS_ERROR);
+  });
+});
+
+describe("runTemplateUpdate", () => {
+  it("filters non-momokaya stamps and aggregates per-repo results", async () => {
+    const workRoot = mkdtempSync(join(tmpdir(), "factory-update-"));
+    const exec: FactoryExec = (command, args) => {
+      if (command === "copier") {
+        return Promise.resolve({ stdout: "" });
+      }
+      if (command === "gh" && args[0] === "pr") {
+        return Promise.resolve({
+          stdout: "https://github.com/oisin-ee/stamped/pull/1\n",
+        });
+      }
+      return Promise.reject(new Error(`unexpected exec ${command}`));
+    };
+    const git: FactoryGit = (_cwd, args) => {
+      if (args[0] === "clone") {
+        const dir = String(args.at(-1));
+        mkdirSync(dir, { recursive: true });
+        const repo = basename(dir).replace(REPO_DIR_PREFIX, "");
+        if (repo === "stamped") {
+          writeFileSync(join(dir, ".copier-answers.yml"), MOMOKAYA_ANSWERS);
+        }
+        if (repo === "other") {
+          writeFileSync(
+            join(dir, ".copier-answers.yml"),
+            OTHER_TEMPLATE_ANSWERS
+          );
+        }
+        return Promise.resolve("");
+      }
+      if (args[0] === "status") {
+        return Promise.resolve(" M mise.toml\n");
+      }
+      return Promise.resolve("");
+    };
+
+    const { results } = await runTemplateUpdate({
+      exec,
+      git,
+      log: () => undefined,
+      repos: ["stamped", "other", "bare"],
+      workRoot,
+    });
+
+    expect(results).toEqual([
+      {
+        prUrl: "https://github.com/oisin-ee/stamped/pull/1",
+        repo: "stamped",
+        status: "pr-opened",
+        version: "v1.0.2",
+      },
+      {
+        message:
+          "stamped from /tmp/bunx-1000-@oisincoveney/dev@latest/node_modules/@oisincoveney/dev/templates/copier, not momokaya-template",
+        repo: "other",
+        status: "not-stamped",
+      },
+      { repo: "bare", status: "not-stamped" },
+    ]);
+    expect(summarizeTemplateUpdate(results)).toEqual({ failed: 0, opened: 1 });
+  });
+
+  it("reports a clean tree as up-to-date", async () => {
+    const workRoot = mkdtempSync(join(tmpdir(), "factory-clean-"));
+    const git: FactoryGit = (_cwd, args) => {
+      if (args[0] === "clone") {
+        const dir = String(args.at(-1));
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, ".copier-answers.yml"), MOMOKAYA_ANSWERS);
+        return Promise.resolve("");
+      }
+      return Promise.resolve("");
+    };
+    const { results } = await runTemplateUpdate({
+      exec: () => Promise.resolve({ stdout: "" }),
+      git,
+      log: () => undefined,
+      repos: ["stamped"],
+      workRoot,
+    });
+    expect(results).toEqual([
+      { repo: "stamped", status: "up-to-date", version: "v1.0.2" },
+    ]);
+  });
+});
+
+describe("buildFactoryLaneJob", () => {
+  it("builds a runner-image Job that overrides only the container args", () => {
+    const job = buildFactoryLaneJob({
+      argv: ["create-experiment", "--name", "scratch-app"],
+      gitCredentialsSecretName: "oisin-bot-git-credentials",
+      githubAuthSecretName: "oisin-bot-github-auth",
+      image: "ghcr.io/oisin-ee/pipeline-runner:abc",
+      imagePullSecretName: "ghcr-pull-secret",
+      namespace: "momokaya-pipeline",
+      serviceAccountName: "pipeline-runner",
+    });
+
+    expect(job.metadata.labels[FACTORY_LANE_LABEL]).toBe("create-experiment");
+    const podSpec = job.spec.template.spec;
+    const container = podSpec.containers[0];
+    expect(container?.args).toEqual([
+      "create-experiment",
+      "--name",
+      "scratch-app",
+    ]);
+    expect(container && "command" in container).toBe(false);
+    expect(podSpec.restartPolicy).toBe("Never");
+    expect(job.spec.backoffLimit).toBe(0);
+    expect(podSpec.volumes.map((volume) => volume.name)).toEqual([
+      "runner-git-credentials",
+      "github-auth",
+    ]);
+    expect(container?.volumeMounts).toEqual([
+      {
+        mountPath: "/etc/pipeline/git-credentials",
+        name: "runner-git-credentials",
+        readOnly: true,
+      },
+      {
+        mountPath: "/root/.config/gh/hosts.yml",
+        name: "github-auth",
+        readOnly: true,
+        subPath: "hosts.yml",
+      },
+    ]);
+  });
+
+  it("requires at least one argv element", () => {
+    expect(() =>
+      buildFactoryLaneJob({
+        argv: [],
+        gitCredentialsSecretName: "a",
+        githubAuthSecretName: "b",
+        image: "img",
+        namespace: "ns",
+      })
+    ).toThrow();
+  });
+});
+
+describe("committerConfigArgs", () => {
+  it("pins the oisin-bot committer identity", () => {
+    expect(committerConfigArgs()).toEqual([
+      "-c",
+      "user.name=oisin-bot",
+      "-c",
+      "user.email=git@oisin.ee",
+    ]);
+  });
+});
+
+const failingExec: FactoryExec = () =>
+  Promise.reject(new Error("exec must not run"));
+const failingGit: FactoryGit = () =>
+  Promise.reject(new Error("git must not run"));

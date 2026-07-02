@@ -13,6 +13,8 @@ export const BUILTIN_PIPE_COMMANDS = new Set([
   "argo",
   "runner-command",
   "ticket",
+  "create-experiment",
+  "template-update",
 ]);
 
 interface EntrypointCommandFlags {

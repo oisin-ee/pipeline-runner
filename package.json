@@ -81,6 +81,10 @@
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
     },
+    "./factory-lane": {
+      "types": "./dist/factory-lane.d.ts",
+      "import": "./dist/factory-lane.js"
+    },
     "./events": {
       "types": "./dist/runner-event-schema.d.ts",
       "import": "./dist/runner-event-schema.js"

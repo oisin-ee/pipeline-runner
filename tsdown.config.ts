@@ -9,6 +9,7 @@ export default defineConfig({
     "argo-workflow": "src/argo-workflow.ts",
     "argo-submit": "src/argo-submit.ts",
     config: "src/config.ts",
+    "factory-lane": "src/factory/factory-lane.ts",
     "runner-event-schema": "src/runner-event-schema.ts",
     hooks: "src/hooks.ts",
     index: "src/index.ts",

@@ -38,6 +38,10 @@ const EXPECTED_PUBLIC_EXPORTS = {
     types: "./dist/argo-workflow.d.ts",
   },
   "./config": { import: "./dist/config.js", types: "./dist/config.d.ts" },
+  "./factory-lane": {
+    import: "./dist/factory-lane.js",
+    types: "./dist/factory-lane.d.ts",
+  },
   "./events": {
     import: "./dist/runner-event-schema.js",
     types: "./dist/runner-event-schema.d.ts",

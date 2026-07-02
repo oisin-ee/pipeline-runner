@@ -1,0 +1,55 @@
+import { execa } from "execa";
+import { runAuthenticatedGit } from "../run-state/git-refs";
+
+/**
+ * Factory lanes (create-experiment / template-update) shell out to `copier`,
+ * `gh` and `git`. The non-git seams mirror the loop lane's `GhExec` shape
+ * (src/loop/gh-runner.ts) so tests inject fakes without spawning processes.
+ *
+ * Git is NOT a raw seam: every git operation routes through
+ * `runAuthenticatedGit` (src/run-state/git-refs.ts), the one git-auth
+ * primitive that wires the runner's mounted credential store and
+ * GIT_TERMINAL_PROMPT=0. Outside a runner pod (no mounted credentials) it
+ * degrades to ambient auth, which is what local development wants.
+ */
+export type FactoryExec = (
+  command: string,
+  args: readonly string[],
+  options?: { readonly cwd?: string }
+) => Promise<{ readonly stdout: string }>;
+
+export type FactoryGit = (cwd: string, args: string[]) => Promise<string>;
+
+export type FactoryLog = (line: string) => void;
+
+export const defaultFactoryExec: FactoryExec = (command, args, options) =>
+  execa(command, [...args], {
+    ...(options?.cwd ? { cwd: options.cwd } : {}),
+    stdin: "ignore",
+  });
+
+export const defaultFactoryGit: FactoryGit = (cwd, args) =>
+  runAuthenticatedGit(cwd, args);
+
+export interface FactorySeams {
+  readonly exec?: FactoryExec;
+  readonly git?: FactoryGit;
+  readonly log?: FactoryLog;
+}
+
+export interface ResolvedFactorySeams {
+  readonly exec: FactoryExec;
+  readonly git: FactoryGit;
+  readonly log: FactoryLog;
+}
+
+export function resolveFactorySeams(
+  seams: FactorySeams = {}
+): ResolvedFactorySeams {
+  return {
+    exec: seams.exec ?? defaultFactoryExec,
+    git: seams.git ?? defaultFactoryGit,
+    // Lane progress lines ARE the runner Job log — the acceptance-evidence channel.
+    log: seams.log ?? ((line: string) => console.log(line)),
+  };
+}

@@ -18,6 +18,7 @@ const EXPECTED_PACKAGE_EXPORTS = [
   "./argo-submit",
   "./argo-workflow",
   "./config",
+  "./factory-lane",
   "./events",
   "./hooks",
   "./moka-global-config",
