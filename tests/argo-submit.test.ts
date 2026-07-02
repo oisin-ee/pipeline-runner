@@ -550,6 +550,106 @@ describe("submitRunnerArgoWorkflow", () => {
     }
   });
 
+  it("mounts an .npmrc Secret into static runner containers when npmRegistryAuthSecretName is configured", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        npmRegistryAuthSecretName: "npm-registry-auth",
+        payloadJson: PAYLOAD,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: { name: "pipeline-run-npm-registry" },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    expect(createdWorkflows[0].spec.volumes).toContainEqual(
+      expect.objectContaining({
+        name: "npm-registry-auth",
+        secret: expect.objectContaining({ secretName: "npm-registry-auth" }),
+      })
+    );
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
+    expect(containerTemplates.length).toBeGreaterThan(0);
+    for (const template of containerTemplates) {
+      expect(template.container?.volumeMounts).toContainEqual(
+        expect.objectContaining({ mountPath: "/root/.npmrc" })
+      );
+    }
+  });
+
+  it("mounts an .npmrc Secret into dynamic runner containers when npmRegistryAuthSecretName is configured", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitDynamicRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        npmRegistryAuthSecretName: "npm-registry-auth",
+        payloadJson: PAYLOAD,
+        workflowId: "schedule-submit-smoke-root",
+      },
+      {
+        coreApi: {
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        },
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: { name: "pipeline-run-dynamic-npm-registry" },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    expect(createdWorkflows[0].spec.volumes).toContainEqual(
+      expect.objectContaining({
+        name: "npm-registry-auth",
+        secret: expect.objectContaining({ secretName: "npm-registry-auth" }),
+      })
+    );
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
+    expect(containerTemplates.length).toBeGreaterThan(0);
+    for (const template of containerTemplates) {
+      expect(template.container?.volumeMounts).toContainEqual(
+        expect.objectContaining({ mountPath: "/root/.npmrc" })
+      );
+    }
+  });
+
   it("builds valid schedule YAML for a custom argv command", () => {
     const schedule = parseScheduleArtifact(
       buildCommandScheduleYaml({

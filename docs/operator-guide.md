@@ -236,6 +236,7 @@ momokaya:
     gitCredentialsSecretName: <git-credentials-secret-name>
     githubAuthSecretName: <github-auth-secret-name>
     imagePullSecretName: <image-pull-secret-name>
+    npmRegistryAuthSecretName: <npm-registry-auth-secret-name>  # optional
     brokerAuth:
       secretName: <broker-api-key-secret-name>
       secretKey: api-key
@@ -334,6 +335,12 @@ Expected namespace resources:
 - The GitHub CLI auth Secret named by `submit.githubAuthSecretName` with key
   `hosts.yml`; this Secret is for `gh` and pull request delivery, not git
   clone/fetch/push authentication
+- Optional: the private-registry auth Secret named by
+  `submit.npmRegistryAuthSecretName` with key `npmrc`, mounted at
+  `/root/.npmrc`; lets `.moka/bootstrap.sh`'s dependency install step (e.g.
+  `nub ci`) authenticate to private-scoped package registries, e.g. GitHub
+  Packages. Absent by default — bootstrap then only has public-registry
+  access, matching current behavior
 - A pipeline-console event sink reachable from the pod
 
 Credential issuance and rotation are owned by the cluster/infra layer, not by

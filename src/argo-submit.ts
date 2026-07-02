@@ -89,6 +89,7 @@ const submitRunnerArgoWorkflowBaseOptionShape = {
   mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
   name: z.string().min(1).optional(),
   namespace: z.string().min(1),
+  npmRegistryAuthSecretName: z.string().min(1).optional(),
   payloadJson: z.string().min(1),
   serviceAccountName: z.string().min(1).optional(),
 };
@@ -248,6 +249,7 @@ function submitRunnerArgoWorkflowEffect(
     labels,
     name: options.name,
     namespace: options.namespace,
+    npmRegistryAuthSecretName: options.npmRegistryAuthSecretName,
     payloadConfigMapName,
     plan: compiled.plan,
     scheduleConfigMapName: scheduleArtifactConfigMapName,
@@ -375,6 +377,7 @@ function submitDynamicRunnerArgoWorkflowEffect(
     labels,
     name: options.name,
     namespace: options.namespace,
+    npmRegistryAuthSecretName: options.npmRegistryAuthSecretName,
     payloadConfigMapName,
     serviceAccountName: options.serviceAccountName,
     workflowId: options.workflowId,

@@ -34,6 +34,9 @@ interface MokaWorkflowSubmitOptions {
   mcpGatewayAuth?: { secretKey?: string; secretName: string };
   name?: string;
   namespace: string;
+  // Forwarded from ParsedMokaBaseOptions -> submitRunnerArgoWorkflow so the .npmrc
+  // Secret is mounted at /root/.npmrc for private-registry bootstrap installs.
+  npmRegistryAuthSecretName?: string;
   payloadJson: string;
   scheduleYaml?: string;
   serviceAccountName?: string;
@@ -112,6 +115,7 @@ function workflowSubmitOptions(
     kubeconfigPath: options.kubeconfigPath,
     name: options.name,
     namespace: requireSubmitOption(options.namespace, "namespace"),
+    npmRegistryAuthSecretName: options.npmRegistryAuthSecretName,
     serviceAccountName: options.serviceAccountName,
   };
 }

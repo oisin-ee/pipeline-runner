@@ -24,6 +24,7 @@ type RunnerWorkflowSecretOptions = Pick<
   | "eventAuthSecretName"
   | "gitCredentialsSecretName"
   | "githubAuthSecretName"
+  | "npmRegistryAuthSecretName"
 >;
 
 type DynamicRunnerWorkflowStorageOptions = RunnerWorkflowSecretOptions &
@@ -66,9 +67,7 @@ export function runnerWorkflowStorage(
     },
   ];
 
-  appendEventAuthStorage(options, volumes, volumeMounts);
-  appendGitCredentialsStorage(options, volumes, volumeMounts);
-  appendGithubAuthStorage(options, volumes, volumeMounts);
+  appendSharedSecretStorage(options, volumes, volumeMounts);
 
   return {
     volumeMounts: z.array(argoWorkflowVolumeMountSchema).parse(volumeMounts),
@@ -82,14 +81,25 @@ export function dynamicRunnerWorkflowStorage(
   const volumes: ArgoWorkflowVolume[] = [runnerPayloadVolume(options)];
   const volumeMounts: ArgoWorkflowVolumeMount[] = [runnerPayloadVolumeMount()];
 
-  appendEventAuthStorage(options, volumes, volumeMounts);
-  appendGitCredentialsStorage(options, volumes, volumeMounts);
-  appendGithubAuthStorage(options, volumes, volumeMounts);
+  appendSharedSecretStorage(options, volumes, volumeMounts);
 
   return {
     volumeMounts: z.array(argoWorkflowVolumeMountSchema).parse(volumeMounts),
     volumes: z.array(argoWorkflowVolumeSchema).parse(volumes),
   };
+}
+
+// Both static and dynamic runner workflows mount the same set of optional
+// secret-backed volumes -- one call site, not duplicated per builder.
+function appendSharedSecretStorage(
+  options: RunnerWorkflowSecretOptions,
+  volumes: ArgoWorkflowVolume[],
+  volumeMounts: ArgoWorkflowVolumeMount[]
+): void {
+  appendEventAuthStorage(options, volumes, volumeMounts);
+  appendGitCredentialsStorage(options, volumes, volumeMounts);
+  appendGithubAuthStorage(options, volumes, volumeMounts);
+  appendNpmRegistryAuthStorage(options, volumes, volumeMounts);
 }
 
 function runnerPayloadVolume(
@@ -189,5 +199,28 @@ function appendGithubAuthStorage(
     name: "github-auth",
     readOnly: true,
     subPath: "hosts.yml",
+  });
+}
+
+function appendNpmRegistryAuthStorage(
+  options: RunnerWorkflowSecretOptions,
+  volumes: ArgoWorkflowVolume[],
+  volumeMounts: ArgoWorkflowVolumeMount[]
+): void {
+  if (!options.npmRegistryAuthSecretName) {
+    return;
+  }
+  volumes.push({
+    name: "npm-registry-auth",
+    secret: {
+      items: [{ key: "npmrc", path: "npmrc" }],
+      secretName: options.npmRegistryAuthSecretName,
+    },
+  });
+  volumeMounts.push({
+    mountPath: "/root/.npmrc",
+    name: "npm-registry-auth",
+    readOnly: true,
+    subPath: "npmrc",
   });
 }

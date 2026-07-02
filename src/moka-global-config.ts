@@ -58,6 +58,12 @@ const mokaSubmitGlobalConfigSchema = z
     gitCredentialsSecretName: z.string().min(1),
     githubAuthSecretName: z.string().min(1),
     imagePullSecretName: z.string().min(1),
+    // Optional secret ref for an .npmrc mounted at /root/.npmrc in runner pods so
+    // .moka/bootstrap.sh's dependency install (e.g. nub ci) can authenticate to
+    // private-scoped package registries, e.g. GitHub Packages. When not set,
+    // bootstrap only has public-registry access, same as before this option
+    // existed.
+    npmRegistryAuthSecretName: z.string().min(1).optional(),
     serviceAccountName: z.string().min(1),
   })
   .strict();

@@ -119,6 +119,7 @@ const mokaSubmitBaseOptionsSchema = z
     kubeconfigPath: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
+    npmRegistryAuthSecretName: z.string().min(1).optional(),
     repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema.optional(),
     serviceAccountName: z.string().min(1).optional(),

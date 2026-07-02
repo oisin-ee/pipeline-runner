@@ -26,12 +26,14 @@ export interface MokaSubmitFlags {
   mcpGatewayAuthSecretName?: string;
   name?: string;
   namespace?: string;
+  npmRegistryAuthSecretName?: string;
   openPr?: boolean;
   quick?: boolean;
   schedule?: string;
   serviceAccount?: string;
   skipDbAuth?: boolean;
   skipMcpGatewayAuth?: boolean;
+  skipNpmRegistryAuth?: boolean;
   task?: string;
 }
 
@@ -61,6 +63,25 @@ function resolveOptionalSecretRef(
     };
   }
   return fromGlobalConfig;
+}
+
+interface SecretNameFlags {
+  secretName?: string;
+  skip?: boolean;
+}
+
+// Same override precedence as resolveOptionalSecretRef, for a plain secret-name
+// field with no separate key -- the mounted key is fixed (see
+// appendNpmRegistryAuthStorage), so there is nothing for a "secret key" flag to
+// override.
+function resolveOptionalSecretName(
+  flags: SecretNameFlags,
+  fromGlobalConfig: string | undefined
+): string | undefined {
+  if (flags.skip) {
+    return;
+  }
+  return flags.secretName ?? fromGlobalConfig;
 }
 
 type MokaSubmitInput = Parameters<typeof submitMoka>[0];
@@ -104,6 +125,14 @@ export function addMokaSubmitOptions(command: Command): Command {
       .option(
         "--skip-mcp-gateway-auth",
         "omit PIPELINE_MCP_GATEWAY_AUTHORIZATION injection regardless of global config"
+      )
+      .option(
+        "--npm-registry-auth-secret-name <name>",
+        "override momokaya.submit.npmRegistryAuthSecretName"
+      )
+      .option(
+        "--skip-npm-registry-auth",
+        "omit the /root/.npmrc mount regardless of global config"
       ),
     {
       kubeconfig: true,
@@ -194,6 +223,13 @@ function mokaCommonSubmitOptions(input: {
     kubeconfigPath: input.flags.kubeconfig ?? momokaya?.kubernetes.kubeconfig,
     name: input.flags.name,
     namespace: input.flags.namespace ?? momokaya?.kubernetes.namespace,
+    npmRegistryAuthSecretName: resolveOptionalSecretName(
+      {
+        secretName: input.flags.npmRegistryAuthSecretName,
+        skip: input.flags.skipNpmRegistryAuth,
+      },
+      momokaya?.submit.npmRegistryAuthSecretName
+    ),
     serviceAccountName:
       input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
     worktreePath: input.cwd,

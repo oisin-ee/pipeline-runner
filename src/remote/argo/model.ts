@@ -340,6 +340,11 @@ const runnerArgoWorkflowBaseOptionsSchema = z
     mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     name: z.string().min(1).optional(),
     namespace: kubernetesNameSchema,
+    // Optional secret ref for an .npmrc mounted at /root/.npmrc so the repo's
+    // own bootstrap (.moka/bootstrap.sh -> nub install) can authenticate to
+    // private-scoped package registries. Absent -> bootstrap only has access
+    // to public registries, same as before this option existed.
+    npmRegistryAuthSecretName: kubernetesNameSchema.optional(),
     payloadConfigMapKey: z.string().min(1).default("payload.json"),
     payloadConfigMapName: kubernetesNameSchema,
     resources: argoWorkflowResourceRequirementsSchema.optional(),

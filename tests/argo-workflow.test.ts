@@ -1749,6 +1749,48 @@ describe("runner Argo Workflow manifest", () => {
     );
   });
 
+  it("mounts an .npmrc Secret at /root/.npmrc when npmRegistryAuthSecretName is configured", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      npmRegistryAuthSecretName: "npm-registry-auth-secret",
+      plan: plan(),
+    });
+
+    const runner = manifest.spec.templates.find(
+      (template) => template.name === "task-one"
+    )?.container;
+
+    expect(runner?.volumeMounts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ mountPath: "/root/.npmrc" }),
+      ])
+    );
+    expect(manifest.spec.volumes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "npm-registry-auth",
+          secret: expect.objectContaining({
+            items: [{ key: "npmrc", path: "npmrc" }],
+            secretName: "npm-registry-auth-secret",
+          }),
+        }),
+      ])
+    );
+  });
+
+  it("omits the .npmrc mount when npmRegistryAuthSecretName is absent", () => {
+    const manifest = buildRunnerArgoWorkflowManifest({
+      ...BASE_OPTIONS,
+      plan: plan(),
+    });
+
+    expect(manifest.spec.volumes).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ name: "npm-registry-auth" }),
+      ])
+    );
+  });
+
   it("compiles agent-kind nodes to runner-command tasks identical to command-kind nodes", () => {
     /*
      * AC#2: Agent nodes lower to the same runner-command template as command

@@ -43,6 +43,7 @@ const GLOBAL_CONFIG = {
       gitCredentialsSecretName: "git-credentials-secret",
       githubAuthSecretName: "github-auth-secret",
       imagePullSecretName: "image-pull-secret",
+      npmRegistryAuthSecretName: "npm-registry-auth-secret",
       serviceAccountName: "runner",
     },
   },
@@ -170,6 +171,42 @@ describe("PIPE-65 CLI refactor boundaries", () => {
       secretName: "orbstack-mcp-gateway-auth",
     });
   });
+
+  it("resolves npmRegistryAuthSecretName from global config when no override flag is given", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: {},
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.npmRegistryAuthSecretName).toBe("npm-registry-auth-secret");
+  });
+
+  it("overrides npmRegistryAuthSecretName with --npm-registry-auth-secret-name", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: { npmRegistryAuthSecretName: "orbstack-npm-registry-auth" },
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.npmRegistryAuthSecretName).toBe("orbstack-npm-registry-auth");
+  });
+
+  it("omits npmRegistryAuthSecretName when --skip-npm-registry-auth is set, regardless of global config", () => {
+    const config = loadPackagePipelineConfig(process.cwd());
+    const result = buildMokaSubmitInputFromCli({
+      config,
+      cwd: "/repo",
+      flags: { skipNpmRegistryAuth: true },
+      globalConfig: GLOBAL_CONFIG,
+      input: ["do a thing"],
+    });
+    expect(result.npmRegistryAuthSecretName).toBeUndefined();
+  });
 });
 
 describe("PIPE-65 CLI formatting behavior", () => {
@@ -217,6 +254,8 @@ describe("PIPE-65 moka submit option normalization", () => {
         "--mcp-gateway-auth-secret-name",
         "--mcp-gateway-auth-secret-key",
         "--skip-mcp-gateway-auth",
+        "--npm-registry-auth-secret-name",
+        "--skip-npm-registry-auth",
         "--name",
         "--generate-name",
         "--namespace",
