@@ -68,5 +68,43 @@ RUN npm install -g \
   && command -v thv \
   && thv version
 
+# chezmoi: provisions the shared agent harness (skills, agent hooks, global
+# instruction rules) plus the dotfiles toolchain from the PUBLIC
+# oisincoveney/dotfiles. The dotfiles' .chezmoiexternal clones the PRIVATE
+# oisin-ee/agent repo, and its run_onchange scripts install the mise tool set and
+# run the agent harness installer — both need GitHub auth. That auth is passed as
+# a BuildKit secret so the token is never baked into an image layer. The dotfiles
+# templates name/email from CHEZMOI_NAME / CHEZMOI_EMAIL (defaulted in the
+# source), so the apply is fully non-interactive.
+RUN curl -fsLS get.chezmoi.io | sh -s -- -b /usr/local/bin \
+  && command -v chezmoi \
+  && chezmoi --version
+
+# GIT_CONFIG_GLOBAL points git at a build-only config carrying the token-rewrite
+# rule, so authenticating the private clone never writes the token into
+# /root/.gitconfig (which chezmoi itself overwrites from dot_gitconfig.tmpl during
+# apply). The build config lives under /tmp and is removed in the same layer, so
+# the token never persists. GITHUB_TOKEN also authenticates chezmoi's github.com
+# archive/API fetches and mise's github/aqua backends.
+RUN --mount=type=secret,id=gh_token \
+  set -eu; \
+  GITHUB_TOKEN="$(cat /run/secrets/gh_token)"; \
+  export GITHUB_TOKEN; \
+  export GIT_CONFIG_GLOBAL=/tmp/gitconfig-build; \
+  git config --file "$GIT_CONFIG_GLOBAL" \
+    url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+  git config --file "$GIT_CONFIG_GLOBAL" \
+    url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"; \
+  chezmoi init --apply --force oisincoveney/dotfiles; \
+  rm -f "$GIT_CONFIG_GLOBAL"
+
+# Install moka's own slash-command adapters (/moka-execute|inspect|quick) + the
+# singleton MCP gateway host config AFTER the harness is laid down by chezmoi.
+# moka no longer installs the harness itself (that moved to oisin-ee/agent via
+# chezmoi above); this step only adds the /moka-* entrypoints on top.
+RUN moka init \
+  && test -f /root/.config/opencode/commands/moka-execute.md \
+  && test -f /root/.claude/commands/moka-execute.md
+
 ENTRYPOINT ["moka"]
 CMD ["runner-command"]

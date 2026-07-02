@@ -95,6 +95,14 @@ jobs:
           push: true
           build-args: |
             PIPELINE_PACKAGE_VERSION=${{ needs.release.outputs.version }}
+          # gh_token authenticates the Dockerfile's `chezmoi apply`, whose
+          # .chezmoiexternal clones the PRIVATE oisin-ee/agent repo (and its
+          # run_onchange scripts fetch mise tools from GitHub). This MUST be a PAT
+          # or GitHub App token with read (contents:read) access to oisin-ee/agent
+          # — the default per-repo GITHUB_TOKEN is scoped to this repo only and
+          # cannot read another private repo, so the clone would 404/403 with it.
+          secrets: |
+            gh_token=${{ secrets.AGENT_REPO_READ_TOKEN }}
           tags: |
             ghcr.io/oisin-ee/pipeline-runner:${{ github.sha }}
             ghcr.io/oisin-ee/pipeline-runner:latest
