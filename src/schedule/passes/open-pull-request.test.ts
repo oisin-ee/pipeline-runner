@@ -4,6 +4,7 @@ import type { ScheduleArtifact } from "../../planning/generate";
 import {
   appendPullRequestDelivery,
   isPullRequestDeliveryEnabled,
+  shouldAppendPullRequestDelivery,
 } from "./open-pull-request";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,37 @@ function artifactWithNodes(
 // ---------------------------------------------------------------------------
 
 describe("appendPullRequestDelivery pass", () => {
+  it("treats payload delivery.pullRequest=true as pull-request delivery opt-in without config", () => {
+    const config = baseConfig(undefined);
+
+    expect(
+      shouldAppendPullRequestDelivery({
+        config,
+        requested: true,
+      })
+    ).toBe(true);
+  });
+
+  it("uses config-driven delivery when payload delivery.pullRequest is absent or false", () => {
+    expect(
+      shouldAppendPullRequestDelivery({
+        config: baseConfig(true),
+      })
+    ).toBe(true);
+    expect(
+      shouldAppendPullRequestDelivery({
+        config: baseConfig(true),
+        requested: false,
+      })
+    ).toBe(true);
+    expect(
+      shouldAppendPullRequestDelivery({
+        config: baseConfig(false),
+        requested: false,
+      })
+    ).toBe(false);
+  });
+
   it("returns artifact unchanged when delivery is disabled (default)", () => {
     const config = baseConfig(false);
     const artifact = artifactWithNodes([

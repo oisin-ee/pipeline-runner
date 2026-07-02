@@ -21,6 +21,7 @@ import {
   type PipelineRuntimeEvent,
   runPipelineFromConfig,
 } from "../src/pipeline-runtime";
+import { parseScheduleArtifact } from "../src/planning/generate";
 import type { RunnerLaunchPlan } from "../src/runner";
 
 const PROJECT_ROOT = mkdtempSync(join(tmpdir(), "moka-submit-"));
@@ -99,6 +100,19 @@ function submittedRepositoryUrl(calls: CapturedSubmitOptions[]): string {
   }
   const payload = JSON.parse(calls[0].payloadJson);
   return payload.repository.url;
+}
+
+function submittedScheduleBuiltinCount(
+  calls: CapturedSubmitOptions[],
+  builtin: string
+): number {
+  if (calls.length !== 1 || calls[0].scheduleYaml === undefined) {
+    throw new Error("Expected one workflow submission with schedule YAML");
+  }
+  const artifact = parseScheduleArtifact(calls[0].scheduleYaml);
+  return artifact.workflows[artifact.root_workflow].nodes.filter(
+    (node) => node.kind === "builtin" && node.builtin === builtin
+  ).length;
 }
 
 const MANAGED_AUTH = {
@@ -401,6 +415,67 @@ describe("submitMoka", () => {
     });
   });
 
+  it("forwards caller-supplied Workflow retention, deadline, and pod GC fields", async () => {
+    const calls: CapturedSubmitOptions[] = [];
+    const {
+      config: _config,
+      worktreePath: _worktreePath,
+      ...schemaInput
+    } = mokaCommandInput({
+      activeDeadlineSeconds: 3600,
+      podGC: {
+        deleteDelayDuration: "30s",
+        strategy: "OnPodSuccess",
+      },
+      ttlStrategy: {
+        secondsAfterFailure: 604_800,
+        secondsAfterSuccess: 300,
+      },
+    });
+
+    const parsed = mokaSubmitOptionsSchema.parse(schemaInput);
+
+    expect(parsed).toMatchObject({
+      activeDeadlineSeconds: 3600,
+      podGC: {
+        deleteDelayDuration: "30s",
+        strategy: "OnPodSuccess",
+      },
+      ttlStrategy: {
+        secondsAfterFailure: 604_800,
+        secondsAfterSuccess: 300,
+      },
+    });
+
+    await submitMoka(
+      mokaCommandInput({
+        activeDeadlineSeconds: 3600,
+        podGC: {
+          deleteDelayDuration: "30s",
+          strategy: "OnPodSuccess",
+        },
+        ttlStrategy: {
+          secondsAfterFailure: 604_800,
+          secondsAfterSuccess: 300,
+        },
+      }),
+      mokaCommandDependencies(calls, "run-lifecycle")
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      activeDeadlineSeconds: 3600,
+      podGC: {
+        deleteDelayDuration: "30s",
+        strategy: "OnPodSuccess",
+      },
+      ttlStrategy: {
+        secondsAfterFailure: 604_800,
+        secondsAfterSuccess: 300,
+      },
+    });
+  });
+
   it("rejects submit input without an event destination", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
       brokerAuth: MANAGED_AUTH.brokerAuth,
@@ -640,8 +715,9 @@ describe("submitMoka", () => {
       githubAuthSecretName: "console-github-auth",
       imagePullSecretName: "console-pull-secret",
       namespace: "console-runners",
-      scheduleYaml,
     });
+    expect(calls[0].scheduleYaml).not.toBe(scheduleYaml);
+    expect(submittedScheduleBuiltinCount(calls, "open-pull-request")).toBe(1);
     const payload = JSON.parse(calls[0].payloadJson);
     expect(payload).toMatchObject({
       delivery: { pullRequest: true },
@@ -1186,5 +1262,48 @@ workflows:
       mode: "create-new-pr",
       pullRequest: true,
     });
+  });
+
+  it("does not append pull-request delivery to explicit graph schedules when payload delivery is absent or false", async () => {
+    const cases: Array<{
+      delivery?: MokaSubmitInput["delivery"];
+      runId: string;
+    }> = [
+      { runId: "run-delivery-absent" },
+      { delivery: { pullRequest: false }, runId: "run-delivery-false" },
+    ];
+
+    for (const submitCase of cases) {
+      const calls: CapturedSubmitOptions[] = [];
+
+      await submitMoka(
+        {
+          config: CONFIG,
+          ...(submitCase.delivery ? { delivery: submitCase.delivery } : {}),
+          eventUrl: "https://console.example/api/pipeline/runner-events",
+          mode: "full",
+          ...MANAGED_AUTH,
+          namespace: EXPLICIT_NAMESPACE,
+          repository: {
+            baseBranch: GIT.baseBranch,
+            sha: GIT.sha,
+            url: GIT.url,
+          },
+          run: { id: submitCase.runId, project: "rondo" },
+          scheduleYaml: buildCommandScheduleYaml({
+            command: ["true"],
+            generatedAt: new Date("2026-06-10T00:00:00.000Z"),
+            scheduleId: submitCase.runId,
+            task: "deliver feature",
+          }),
+          task: "deliver feature",
+          type: "graph",
+          worktreePath: PROJECT_ROOT,
+        },
+        { submitWorkflow: captureSubmitCall(calls) }
+      );
+
+      expect(submittedScheduleBuiltinCount(calls, "open-pull-request")).toBe(0);
+    }
   });
 });

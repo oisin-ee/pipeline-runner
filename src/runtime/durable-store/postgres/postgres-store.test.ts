@@ -7,6 +7,7 @@ import {
   type PostgresDurableRunStore,
   postgresDurableRunStore,
 } from "./postgres-store";
+import { MOKA_POSTGRES_SCHEMA } from "./schema";
 
 // PIPE-91.4: integration test against the REAL cluster Postgres (no
 // testcontainer, no tunnel). Set MOKA_PG_TEST_URL to the (port-forwarded)
@@ -65,8 +66,14 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
     for (const store of openStores) {
       await store.close();
     }
-    await admin`delete from moka_durable_node_record where run_id like ${`${suitePrefix}%`}`;
-    await admin`delete from moka_durable_run where run_id like ${`${suitePrefix}%`}`;
+    await admin`
+      delete from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_durable_node_record
+      where run_id like ${`${suitePrefix}%`}
+    `;
+    await admin`
+      delete from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_durable_run
+      where run_id like ${`${suitePrefix}%`}
+    `;
     await admin.end();
   });
 
@@ -161,7 +168,8 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
 
     const tables = await admin<{ table_name: string }[]>`
       select table_name from information_schema.tables
-      where table_name in ('moka_durable_run', 'moka_durable_node_record')
+      where table_schema = ${MOKA_POSTGRES_SCHEMA}
+        and table_name in ('moka_durable_run', 'moka_durable_node_record')
       order by table_name
     `;
     expect(tables.map((t) => t.table_name)).toEqual([

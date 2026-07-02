@@ -2,7 +2,11 @@ import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../planning/compile";
-import type { NodeAttemptResult, RuntimeContext } from "../contracts";
+import type {
+  NodeAttemptResult,
+  PipelineRuntimeEvent,
+  RuntimeContext,
+} from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { CommandExecutor } from "../services/command-executor-service";
 import type { OpenPullRequestGitClient } from "../services/open-pull-request-git-service";
@@ -113,6 +117,13 @@ function buildRecordingCommandExecutor(
           output: "preview",
         });
       }
+      if (command.includes("view")) {
+        return Effect.succeed<NodeAttemptResult>({
+          evidence: [],
+          exitCode: 0,
+          output,
+        });
+      }
       return Effect.succeed<NodeAttemptResult>({
         evidence: [],
         exitCode: 0,
@@ -130,7 +141,8 @@ function buildRecordingCommandExecutor(
 function contextForOpenPr(
   task = "Fix bug\n\nMore detail",
   headBranch?: string,
-  mode?: "create-new-pr" | "update-existing-pr"
+  mode?: "create-new-pr" | "update-existing-pr",
+  reporter?: RuntimeContext["reporter"]
 ): RuntimeContext {
   const config = parsePipelineConfigParts({
     runners: `
@@ -194,6 +206,7 @@ workflows:
     hookResults: new Map(),
     nodeStateStore: new NodeStateStore(),
     plan: compileWorkflowPlan(config),
+    ...(reporter ? { reporter } : {}),
     runId: "run-opr",
     task,
     workflowId: "default",
@@ -256,6 +269,49 @@ describe("open-pull-request builtin", () => {
     expect(editCall).toBeDefined();
     expect(editCall?.args).toContain("--add-label");
     expect(editCall?.args).toContain("preview");
+  });
+
+  it("emits a typed delivery event when a PR is opened", async () => {
+    const events: PipelineRuntimeEvent[] = [];
+    const context = contextForOpenPr("Fix bug", undefined, undefined, (event) =>
+      events.push(event)
+    );
+    const { layer: executorLayer } = buildRecordingCommandExecutor();
+    const gitLayer = buildFakeGitLayer();
+
+    const result = await runWithLayers(context, gitLayer, executorLayer);
+
+    expect(result.exitCode).toBe(0);
+    expect(events).toContainEqual({
+      deliveryPullRequest: {
+        action: "opened",
+        url: "https://github.com/owner/repo/pull/1",
+      },
+      type: "delivery.pull-request",
+    });
+  });
+
+  it("emits a typed delivery event when an existing PR is updated", async () => {
+    const events: PipelineRuntimeEvent[] = [];
+    const context = contextForOpenPr(
+      "Fix bug",
+      undefined,
+      "update-existing-pr",
+      (event) => events.push(event)
+    );
+    const { layer: executorLayer } = buildRecordingCommandExecutor();
+    const gitLayer = buildFakeGitLayer();
+
+    const result = await runWithLayers(context, gitLayer, executorLayer);
+
+    expect(result.exitCode).toBe(0);
+    expect(events).toContainEqual({
+      deliveryPullRequest: {
+        action: "updated",
+        url: "https://github.com/owner/repo/pull/1",
+      },
+      type: "delivery.pull-request",
+    });
   });
 
   it("still reports the PR as opened when the label doesn't exist on the target repo", async () => {

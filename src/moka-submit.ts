@@ -2,6 +2,9 @@ import { z } from "zod";
 import type { PipelineConfig } from "./config";
 import { brokerAuthOptionSchema } from "./credentials/broker";
 import {
+  argoWorkflowActiveDeadlineSecondsSchema,
+  argoWorkflowPodGcSchema,
+  argoWorkflowTtlStrategySchema,
   dbAuthOptionSchema,
   mcpGatewayAuthOptionSchema,
 } from "./remote/argo/model";
@@ -88,6 +91,7 @@ export const mokaSubmitResultSchema = workflowSubmitResultSchema;
 
 const mokaSubmitBaseOptionsSchema = z
   .object({
+    activeDeadlineSeconds: argoWorkflowActiveDeadlineSecondsSchema.optional(),
     brokerAuth: brokerAuthOptionSchema,
     // PIPE-94.4: optional durable-substrate secret ref threaded to runner pods
     // so MOKA_DB_URL is injected as a secretKeyRef. Shared shape (single owner in
@@ -120,9 +124,11 @@ const mokaSubmitBaseOptionsSchema = z
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
     npmRegistryAuthSecretName: z.string().min(1).optional(),
+    podGC: argoWorkflowPodGcSchema.optional(),
     repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema.optional(),
     serviceAccountName: z.string().min(1).optional(),
+    ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
   })
   .strict();
 

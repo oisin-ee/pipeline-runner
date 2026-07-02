@@ -36,6 +36,7 @@ type FetchLike = (
 
 const runnerFinalizeOptionsSchema = z
   .object({
+    argoFailures: z.string().min(1).optional(),
     argoStatus: z.string().min(1),
     cwd: z.string().min(1).optional(),
     env: z.record(z.string(), z.string().optional()).optional(),
@@ -47,6 +48,7 @@ const runnerFinalizeOptionsSchema = z
     stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
   })
   .strict()
+  .superRefine(validateArgoFailures)
   .superRefine(requireScheduleFileForFileSource);
 
 export type RunnerFinalizeOptions = z.input<typeof runnerFinalizeOptionsSchema>;
@@ -55,6 +57,20 @@ const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
+const ARGO_STOP_SHUTDOWN_MESSAGE_PATTERNS = [
+  /^Stopped with strategy 'Stop'$/,
+  /^workflow shutdown with strategy:\s+Stop$/,
+];
+
+const argoFailureSchema = z
+  .object({
+    message: z.string().optional(),
+  })
+  .passthrough();
+
+const argoFailuresSchema = z.array(argoFailureSchema);
+
+type ArgoFailure = z.infer<typeof argoFailureSchema>;
 
 export function runRunnerFinalize(
   rawOptions: Partial<RunnerFinalizeOptions> = {}
@@ -75,6 +91,7 @@ function runRunnerFinalizeEffect(
     const { compiled, context, payload, sink, worktreePath } =
       yield* createRunnerLifecycleContextEffect(options);
     const execution = yield* finalizerExecutionEffect({
+      argoFailures: options.argoFailures,
       argoStatus: options.argoStatus,
       scheduleSource: options.scheduleSource ?? "file",
       context,
@@ -102,7 +119,11 @@ function runRunnerFinalizeEffect(
         worktreePath,
       });
     }
-    sink.recordFinalResult(lifecycle.result.outcome, payload.workflow.id);
+    if (lifecycle.result.outcome === "CANCELLED") {
+      sink.recordCancellation(payload.workflow.id);
+    } else {
+      sink.recordFinalResult(lifecycle.result.outcome, payload.workflow.id);
+    }
     yield* flushAndReport(sink, stderr);
     return lifecycle.result.outcome === "PASS" ? EXIT_PASS : EXIT_FAIL;
   }).pipe(
@@ -113,6 +134,7 @@ function runRunnerFinalizeEffect(
 }
 
 function finalizerExecutionEffect(input: {
+  argoFailures?: string;
   argoStatus: string;
   context: RunnerLifecycleContext["context"];
   scheduleSource: "db" | "file";
@@ -125,10 +147,11 @@ function finalizerExecutionEffect(input: {
   },
   unknown
 > {
+  const outcome = finalizerOutcome(input);
   if (input.scheduleSource !== "db") {
     return Effect.succeed({
       completed: [],
-      outcome: input.argoStatus === "Succeeded" ? "PASS" : "FAIL",
+      outcome,
     });
   }
   return Effect.scoped(
@@ -143,7 +166,7 @@ function finalizerExecutionEffect(input: {
       const missing = input.context.plan.topologicalOrder
         .map((node) => node.id)
         .filter((nodeId) => !durableStore.get(runId, nodeId));
-      const status = dynamicFinalizerRunStatus({ failed, missing });
+      const status = dynamicFinalizerRunStatus({ failed, missing, outcome });
       yield* withRunControlStoreScoped(input.worktreePath, (store) =>
         store.updateRunStatus({
           at: new Date().toISOString(),
@@ -151,6 +174,12 @@ function finalizerExecutionEffect(input: {
           status,
         })
       );
+      if (outcome === "CANCELLED") {
+        return {
+          completed,
+          outcome,
+        };
+      }
       if (failed) {
         return {
           completed,
@@ -182,7 +211,11 @@ function finalizerExecutionEffect(input: {
 function dynamicFinalizerRunStatus(input: {
   failed?: RuntimeNodeResult;
   missing: string[];
+  outcome: PipelineRuntimeResult["outcome"];
 }): MokaRunStatus {
+  if (input.outcome === "CANCELLED") {
+    return "aborted";
+  }
   if (input.failed) {
     return "failed";
   }
@@ -190,6 +223,85 @@ function dynamicFinalizerRunStatus(input: {
     return "blocked";
   }
   return "passed";
+}
+
+function finalizerOutcome(input: {
+  argoFailures?: string;
+  argoStatus: string;
+}): PipelineRuntimeResult["outcome"] {
+  if (hasArgoStopShutdownFailure(input.argoFailures)) {
+    return "CANCELLED";
+  }
+  return input.argoStatus === "Succeeded" ? "PASS" : "FAIL";
+}
+
+function hasArgoStopShutdownFailure(rawFailures: string | undefined): boolean {
+  return argoFailuresFromJson(rawFailures).some(isArgoStopShutdownFailure);
+}
+
+function argoFailuresFromJson(rawFailures: string | undefined): ArgoFailure[] {
+  if (!rawFailures) {
+    return [];
+  }
+  const result = parseArgoFailures(rawFailures);
+  if (result.success) {
+    return result.data;
+  }
+  throw new z.ZodError([
+    {
+      code: "custom",
+      message: result.message,
+      path: ["argoFailures"],
+    },
+  ]);
+}
+
+function isArgoStopShutdownFailure(failure: ArgoFailure): boolean {
+  const message = failure.message ?? "";
+  return ARGO_STOP_SHUTDOWN_MESSAGE_PATTERNS.some((pattern) =>
+    pattern.test(message)
+  );
+}
+
+function validateArgoFailures(
+  options: { argoFailures?: string },
+  ctx: z.RefinementCtx
+): void {
+  if (!options.argoFailures) {
+    return;
+  }
+  const result = parseArgoFailures(options.argoFailures);
+  if (!result.success) {
+    ctx.addIssue({
+      code: "custom",
+      message: result.message,
+      path: ["argoFailures"],
+    });
+  }
+}
+
+function parseArgoFailures(
+  rawFailures: string
+):
+  | { data: ArgoFailure[]; success: true }
+  | { message: string; success: false } {
+  try {
+    const parsed: unknown = JSON.parse(rawFailures);
+    const result = argoFailuresSchema.safeParse(parsed);
+    return result.success
+      ? { data: result.data, success: true }
+      : {
+          message: `Argo failures must be workflow.failures JSON: ${result.error.message}`,
+          success: false,
+        };
+  } catch (error) {
+    return {
+      message: `Argo failures must be workflow.failures JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      success: false,
+    };
+  }
 }
 
 function finalizerRunIdEffect(

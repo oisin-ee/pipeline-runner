@@ -27,7 +27,7 @@ import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
 import { applyNodeCatalogModelFallbacks } from "../schedule/passes/models";
 import {
   appendPullRequestDelivery,
-  isPullRequestDeliveryEnabled,
+  shouldAppendPullRequestDelivery,
 } from "../schedule/passes/open-pull-request";
 import { namespaceScheduleWorkflows } from "../schedule/passes/references";
 import { plannerPrompt, plannerRepairPrompt } from "../schedule/prompts";
@@ -91,6 +91,7 @@ export interface GenerateScheduleOptions {
   ) => AgentResult | Promise<AgentResult>;
   generatedAt?: Date;
   phaseContext?: SchedulePhaseContext;
+  pullRequestDeliveryRequested?: boolean;
   runId?: string;
   task: string;
   worktreePath: string;
@@ -295,7 +296,10 @@ export async function generateScheduleArtifactInMemory(
         options.config,
         policy.node_catalog,
         appendPullRequestDelivery(
-          isPullRequestDeliveryEnabled(options.config),
+          shouldAppendPullRequestDelivery({
+            config: options.config,
+            requested: options.pullRequestDeliveryRequested,
+          }),
           integrateParallelWriteFanout(
             options.config,
             addGeneratedImplementationCoverage(

@@ -1,8 +1,9 @@
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PipelineConfig } from "../config";
 import type { MokaSubmitInput, MokaSubmitResult } from "../moka-submit";
 import type { RunnerEventRecord } from "../runner-command-contract";
+import { RUNNER_EVENT_SINK_RETRY_POLICY } from "../runner-event-sink";
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
 import {
   buildControllerDeps,
@@ -206,7 +207,9 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
       },
     });
 
-    await Effect.runPromise(deps.emit({ type: "loop.start", strategy: "bfs" }));
+    await Effect.runPromise(
+      deps.emit({ type: "loop.start", projectId: "demo", strategy: "bfs" })
+    );
     await Effect.runPromise(
       deps.emit({
         type: "loop.node.transition",
@@ -224,7 +227,10 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
     const [start, transition, finish] = posted;
     expect(start.type).toBe("loop.start");
     if (start.type === "loop.start") {
-      expect(start.loopStart).toEqual({ strategy: "bfs" });
+      expect(start.loopStart).toEqual({
+        projectId: "demo",
+        strategy: "bfs",
+      });
     }
     if (transition.type === "loop.node.transition") {
       expect(transition.loopNodeTransition).toEqual({
@@ -235,6 +241,40 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
     if (finish.type === "loop.finish") {
       expect(finish.loopFinish).toEqual({ blocked: 0, passed: 1 });
     }
+  });
+
+  it("posts loop events through the shared runner sink retry policy", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          fetchMock.mock.calls.length <=
+            RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
+            ? "retry me"
+            : "",
+          {
+            status:
+              fetchMock.mock.calls.length <=
+              RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
+                ? 503
+                : 200,
+          }
+        )
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+    try {
+      const deps = buildControllerDeps(context());
+
+      await Effect.runPromise(
+        deps.emit({ type: "loop.start", projectId: "demo", strategy: "bfs" })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(
+      RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries + 1
+    );
   });
 
   it("maps a graph snapshot through the DTO schema", async () => {

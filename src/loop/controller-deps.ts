@@ -8,6 +8,7 @@ import {
 } from "../moka-submit";
 import { runAuthenticatedGit } from "../run-state/git-refs";
 import type { RunnerEventRecord } from "../runner-command-contract";
+import { RUNNER_EVENT_SINK_RETRY_POLICY } from "../runner-event-sink";
 import {
   RunnerEventSinkHttpService,
   RunnerEventSinkHttpServiceLive,
@@ -146,6 +147,7 @@ export function buildControllerDeps(
         runId: input.runId,
         workflowName: input.workflowName,
       }),
+    projectId: context.project,
     refreshBacklog: () =>
       Effect.tryPromise({
         catch: refreshError,
@@ -294,7 +296,7 @@ const RECORD_BUILDER: Readonly<
     event.type === "loop.start"
       ? {
           ...envelope,
-          loopStart: { strategy: event.strategy },
+          loopStart: { projectId: event.projectId, strategy: event.strategy },
           type: "loop.start",
         }
       : unreachable(event),
@@ -370,8 +372,8 @@ function defaultPostEvent(
             authToken: context.eventAuthToken,
             events: [record],
             fetch: fetchImpl,
-            maxRetries: 0,
-            retryDelayMs: 250,
+            maxRetries: RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries,
+            retryDelayMs: RUNNER_EVENT_SINK_RETRY_POLICY.retryDelayMs,
             url: context.eventUrl,
           })
         ),

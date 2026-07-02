@@ -113,6 +113,10 @@
       "types": "./dist/runner-command-contract.d.ts",
       "import": "./dist/runner-command-contract.js"
     },
+    "./tickets": {
+      "types": "./dist/tickets/ticket-graph-dto.d.ts",
+      "import": "./dist/tickets/ticket-graph-dto.js"
+    },
     "./runtime": {
       "types": "./dist/pipeline-runtime.d.ts",
       "import": "./dist/pipeline-runtime.js"

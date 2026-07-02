@@ -25,6 +25,8 @@ interface OpenPrContext {
   task: string;
 }
 
+type PullRequestDeliveryAction = "opened" | "updated";
+
 export function executeOpenPullRequestBuiltin(
   context: RuntimeContext,
   _node?: PlannedWorkflowNode
@@ -243,8 +245,8 @@ function labelCreatedPr(
   return runGhPrEdit(executor, prCtx.headBranch, prCtx.label, context).pipe(
     Effect.map((editResult) =>
       editResult.exitCode === 0
-        ? openPrSuccess(url, "opened")
-        : openPrSuccess(url, "opened", [
+        ? openPrSuccess(context, url, "opened")
+        : openPrSuccess(context, url, "opened", [
             `open-pull-request: label '${prCtx.label}' not applied — ${editResult.output || `gh pr edit exited ${editResult.exitCode}`}`,
           ])
     )
@@ -278,7 +280,12 @@ function handleExistingPr(
     const executor = yield* CommandExecutor;
     const editResult = yield* runGhPrEdit(executor, headBranch, label, context);
     if (editResult.exitCode === 0) {
-      return openPrSuccess(headBranch, "updated");
+      const viewResult = yield* runGhPrView(executor, headBranch, context);
+      return viewResult.exitCode === 0
+        ? openPrSuccess(context, extractPrUrl(viewResult.output), "updated")
+        : openPrFailure(
+            viewResult.output || `gh pr view exited ${viewResult.exitCode}`
+          );
     }
     return openPrFailure(
       editResult.output || `gh pr edit exited ${editResult.exitCode}`
@@ -294,6 +301,16 @@ function runGhPrEdit(
 ): Effect.Effect<NodeAttemptResult, never> {
   return executor
     .execute(buildGhPrEditArgs(headBranch, label), context)
+    .pipe(Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e)))));
+}
+
+function runGhPrView(
+  executor: CommandExecutorService,
+  headBranch: string,
+  context: RuntimeContext
+): Effect.Effect<NodeAttemptResult, never> {
+  return executor
+    .execute(buildGhPrViewArgs(headBranch), context)
     .pipe(Effect.catch((e) => Effect.succeed(openPrFailure(errorMessage(e)))));
 }
 
@@ -322,6 +339,10 @@ function buildGhPrEditArgs(headBranch: string, label: string): string[] {
   return ["gh", "pr", "edit", headBranch, "--add-label", label];
 }
 
+function buildGhPrViewArgs(headBranch: string): string[] {
+  return ["gh", "pr", "view", headBranch, "--json", "url", "--jq", ".url"];
+}
+
 function isPrAlreadyExistsError(output: string): boolean {
   return PR_ALREADY_EXISTS_RE.test(output);
 }
@@ -335,10 +356,15 @@ function extractPrUrl(output: string): string {
 }
 
 function openPrSuccess(
+  context: RuntimeContext,
   url: string,
-  action: "opened" | "updated",
+  action: PullRequestDeliveryAction,
   extraEvidence: string[] = []
 ): NodeAttemptResult {
+  context.reporter?.({
+    deliveryPullRequest: { action, url },
+    type: "delivery.pull-request",
+  });
   return {
     evidence: [`open-pull-request: PR ${action} — ${url}`, ...extraEvidence],
     exitCode: 0,

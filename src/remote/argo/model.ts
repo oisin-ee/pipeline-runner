@@ -42,6 +42,51 @@ export const mcpGatewayAuthOptionSchema = z
 const labelValueSchema = z.string().min(1);
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 
+export const argoWorkflowActiveDeadlineSecondsSchema = z
+  .number()
+  .int()
+  .nonnegative();
+
+export const argoWorkflowTtlStrategySchema = z
+  .object({
+    secondsAfterCompletion: z.number().int().nonnegative().optional(),
+    secondsAfterFailure: z.number().int().nonnegative().optional(),
+    secondsAfterSuccess: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const argoWorkflowLabelSelectorRequirementSchema = z
+  .object({
+    key: z.string().min(1),
+    operator: z.enum(["In", "NotIn", "Exists", "DoesNotExist"]),
+    values: z.array(z.string()).optional(),
+  })
+  .strict();
+
+const argoWorkflowLabelSelectorSchema = z
+  .object({
+    matchExpressions: z
+      .array(argoWorkflowLabelSelectorRequirementSchema)
+      .optional(),
+    matchLabels: z.record(z.string().min(1), z.string()).optional(),
+  })
+  .strict();
+
+export const argoWorkflowPodGcSchema = z
+  .object({
+    deleteDelayDuration: z.string().min(1).optional(),
+    labelSelector: argoWorkflowLabelSelectorSchema.optional(),
+    strategy: z
+      .enum([
+        "OnPodCompletion",
+        "OnPodSuccess",
+        "OnWorkflowCompletion",
+        "OnWorkflowSuccess",
+      ])
+      .optional(),
+  })
+  .strict();
+
 const configMapVolumeSchema = z
   .object({
     items: z.array(
@@ -265,7 +310,8 @@ export function createRunnerArgoWorkflowManifestSchema() {
         ),
       spec: z
         .object({
-          activeDeadlineSeconds: z.number().int().positive().optional(),
+          activeDeadlineSeconds:
+            argoWorkflowActiveDeadlineSecondsSchema.optional(),
           entrypoint: z.literal(RUNNER_WORKFLOW_ENTRYPOINT),
           imagePullSecrets: z
             .array(z.object({ name: kubernetesNameSchema }).strict())
@@ -279,14 +325,8 @@ export function createRunnerArgoWorkflowManifestSchema() {
           serviceAccountName: kubernetesNameSchema,
           onExit: z.string().min(1).optional(),
           templates: z.array(argoWorkflowTemplateSchema).min(2),
-          ttlStrategy: z
-            .object({
-              secondsAfterCompletion: z.number().int().positive().optional(),
-              secondsAfterFailure: z.number().int().positive().optional(),
-              secondsAfterSuccess: z.number().int().positive().optional(),
-            })
-            .strict()
-            .optional(),
+          podGC: argoWorkflowPodGcSchema.optional(),
+          ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
           volumes: z.array(argoWorkflowVolumeSchema).min(1),
         })
         .strict(),
@@ -302,17 +342,9 @@ const runnerWorkflowBrokerAuthSchema = z
   })
   .strict();
 
-const runnerWorkflowTtlStrategySchema = z
-  .object({
-    secondsAfterCompletion: z.number().int().positive().optional(),
-    secondsAfterFailure: z.number().int().positive().optional(),
-    secondsAfterSuccess: z.number().int().positive().optional(),
-  })
-  .strict();
-
 const runnerArgoWorkflowBaseOptionsSchema = z
   .object({
-    activeDeadlineSeconds: z.number().int().positive().optional(),
+    activeDeadlineSeconds: argoWorkflowActiveDeadlineSecondsSchema.optional(),
     annotations: z
       .record(z.string().min(1), z.string().min(1).optional())
       .default({}),
@@ -351,7 +383,7 @@ const runnerArgoWorkflowBaseOptionsSchema = z
     serviceAccountName: kubernetesNameSchema.default(
       RUNNER_WORKFLOW_SERVICE_ACCOUNT
     ),
-    ttlStrategy: runnerWorkflowTtlStrategySchema.optional(),
+    ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
   })
   .strict();
 
@@ -386,6 +418,7 @@ export const buildDynamicRunnerArgoWorkflowOptionsSchema =
     );
 
 export type ArgoWorkflowEnvVar = z.infer<typeof argoWorkflowEnvVarSchema>;
+export type ArgoWorkflowPodGC = z.infer<typeof argoWorkflowPodGcSchema>;
 export type ArgoWorkflowResourceRequirements = z.infer<
   typeof argoWorkflowResourceRequirementsSchema
 >;
@@ -393,6 +426,9 @@ export type ArgoWorkflowRetryStrategy = z.infer<
   typeof argoWorkflowRetryStrategySchema
 >;
 export type ArgoWorkflowTemplate = z.infer<typeof argoWorkflowTemplateSchema>;
+export type ArgoWorkflowTtlStrategy = z.infer<
+  typeof argoWorkflowTtlStrategySchema
+>;
 export type ArgoWorkflowVolume = z.infer<typeof argoWorkflowVolumeSchema>;
 export type ArgoWorkflowVolumeMount = z.infer<
   typeof argoWorkflowVolumeMountSchema

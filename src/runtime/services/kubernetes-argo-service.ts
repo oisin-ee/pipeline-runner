@@ -2,6 +2,8 @@ import {
   CoreV1Api,
   CustomObjectsApi,
   KubeConfig,
+  PatchStrategy,
+  setHeaderOptions,
 } from "@kubernetes/client-node";
 import { Context, Effect, Layer } from "effect";
 import { execa } from "execa";
@@ -9,11 +11,37 @@ import type { WorkflowPhase, WorkflowReadApi } from "../../loop/argo-poll";
 import { classifyArgoPhase, extractArgoRawPhase } from "../../loop/argo-poll";
 
 export type { WorkflowReadApi } from "../../loop/argo-poll";
-export type CoreApi = Pick<CoreV1Api, "createNamespacedConfigMap">;
+export interface CoreApi {
+  readonly createNamespacedConfigMap: (
+    param: Parameters<CoreV1Api["createNamespacedConfigMap"]>[0],
+    options?: Parameters<CoreV1Api["createNamespacedConfigMap"]>[1]
+  ) => Promise<unknown>;
+  readonly deleteNamespacedConfigMap: (
+    param: Parameters<CoreV1Api["deleteNamespacedConfigMap"]>[0],
+    options?: Parameters<CoreV1Api["deleteNamespacedConfigMap"]>[1]
+  ) => Promise<unknown>;
+  readonly patchNamespacedConfigMap: (
+    param: Parameters<CoreV1Api["patchNamespacedConfigMap"]>[0],
+    options?: Parameters<CoreV1Api["patchNamespacedConfigMap"]>[1]
+  ) => Promise<unknown>;
+}
 export type WorkflowApi = Pick<
   CustomObjectsApi,
   "createNamespacedCustomObject"
 >;
+
+export interface KubernetesOwnerReference {
+  readonly apiVersion: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly uid: string;
+}
+
+export interface ConfigMapOwnerReferencesPatch {
+  readonly metadata: {
+    readonly ownerReferences: readonly KubernetesOwnerReference[];
+  };
+}
 
 export interface KubernetesArgoIoDependencies {
   coreApi?: CoreApi;
@@ -57,12 +85,25 @@ export class KubernetesArgoService extends Context.Service<
       readonly namespace: string;
       readonly options: KubernetesArgoClientOptions;
     }) => Effect.Effect<unknown, unknown>;
+    readonly deleteConfigMap: (input: {
+      readonly dependencies: KubernetesArgoIoDependencies;
+      readonly name: string;
+      readonly namespace: string;
+      readonly options: KubernetesArgoClientOptions;
+    }) => Effect.Effect<unknown, unknown>;
     readonly getWorkflowPhase: (input: {
       readonly dependencies: KubernetesArgoIoDependencies;
       readonly name: string;
       readonly namespace: string;
       readonly options: KubernetesArgoClientOptions;
     }) => Effect.Effect<WorkflowPhase, unknown>;
+    readonly patchConfigMapOwnerReferences: (input: {
+      readonly body: ConfigMapOwnerReferencesPatch;
+      readonly dependencies: KubernetesArgoIoDependencies;
+      readonly name: string;
+      readonly namespace: string;
+      readonly options: KubernetesArgoClientOptions;
+    }) => Effect.Effect<unknown, unknown>;
     readonly kubectl: (
       args: readonly string[],
       options: KubectlOptions
@@ -79,6 +120,18 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
       Effect.flatMap(({ coreApi }) =>
         Effect.tryPromise({
           try: () => coreApi.createNamespacedConfigMap({ body, namespace }),
+          catch: (error) => error,
+        })
+      )
+    ),
+  deleteConfigMap: ({ dependencies, name, namespace, options }) =>
+    Effect.try({
+      try: () => apiClients(options, dependencies),
+      catch: (error) => error,
+    }).pipe(
+      Effect.flatMap(({ coreApi }) =>
+        Effect.tryPromise({
+          try: () => coreApi.deleteNamespacedConfigMap({ name, namespace }),
           catch: (error) => error,
         })
       )
@@ -121,6 +174,28 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
         })
       ),
       Effect.map((resource) => classifyArgoPhase(extractArgoRawPhase(resource)))
+    ),
+  patchConfigMapOwnerReferences: ({
+    body,
+    dependencies,
+    name,
+    namespace,
+    options,
+  }) =>
+    Effect.try({
+      try: () => apiClients(options, dependencies),
+      catch: (error) => error,
+    }).pipe(
+      Effect.flatMap(({ coreApi }) =>
+        Effect.tryPromise({
+          try: () =>
+            coreApi.patchNamespacedConfigMap(
+              { body, name, namespace },
+              setHeaderOptions("Content-Type", PatchStrategy.MergePatch)
+            ),
+          catch: (error) => error,
+        })
+      )
     ),
   kubectl: (args, options) =>
     Effect.tryPromise({

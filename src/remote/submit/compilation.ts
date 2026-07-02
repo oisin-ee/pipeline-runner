@@ -1,3 +1,4 @@
+import { stringify } from "yaml";
 import { buildCommandScheduleYaml } from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
 import type {
@@ -11,6 +12,10 @@ import {
   parseScheduleArtifact,
 } from "../../planning/generate";
 import type { MokaSubmission, RunnerTask } from "../../runner-command-contract";
+import {
+  appendPullRequestDelivery,
+  shouldAppendPullRequestDelivery,
+} from "../../schedule/passes/open-pull-request";
 import { readScheduleFile } from "./io";
 
 export interface MokaSubmitCompilationDependencies {
@@ -100,6 +105,16 @@ function readExplicitGraphScheduleYaml(
   options: ParsedMokaGraphOptions,
   dependencies: MokaSubmitCompilationDependencies
 ): string | null {
+  const scheduleYaml = readRawExplicitGraphScheduleYaml(options, dependencies);
+  return scheduleYaml
+    ? graphScheduleYamlWithDelivery(options, scheduleYaml)
+    : null;
+}
+
+function readRawExplicitGraphScheduleYaml(
+  options: ParsedMokaGraphOptions,
+  dependencies: MokaSubmitCompilationDependencies
+): string | null {
   if (options.scheduleYaml) {
     return options.scheduleYaml;
   }
@@ -107,6 +122,21 @@ function readExplicitGraphScheduleYaml(
     return readScheduleFile(dependencies, options.schedulePath);
   }
   return null;
+}
+
+function graphScheduleYamlWithDelivery(
+  options: ParsedMokaGraphOptions,
+  scheduleYaml: string
+): string {
+  const artifact = parseScheduleArtifact(scheduleYaml, "schedule.yaml");
+  const transformed = appendPullRequestDelivery(
+    shouldAppendPullRequestDelivery({
+      config: options.config,
+      requested: options.delivery.pullRequest,
+    }),
+    artifact
+  );
+  return transformed === artifact ? scheduleYaml : stringify(transformed);
 }
 
 function scheduleWorkflowId(

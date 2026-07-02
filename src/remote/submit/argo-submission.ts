@@ -10,11 +10,13 @@ import type {
 } from "../../moka-submit";
 import { buildRunnerCommandPayload } from "../../runner-command-contract";
 import { workflowSubmitResultSchema } from "../../workflow-submit-contract";
+import type { ArgoWorkflowPodGC, ArgoWorkflowTtlStrategy } from "../argo/model";
 import type { CompiledMokaSubmitPlan } from "./compilation";
 import { runnerEvents } from "./event-boundary";
 import type { MokaSubmissionContext } from "./io";
 
 interface MokaWorkflowSubmitOptions {
+  activeDeadlineSeconds?: number;
   brokerAuth: BrokerAuthOption;
   config: PipelineConfig;
   // PIPE-94.4: forwarded from ParsedMokaBaseOptions → submitRunnerArgoWorkflow
@@ -38,8 +40,10 @@ interface MokaWorkflowSubmitOptions {
   // Secret is mounted at /root/.npmrc for private-registry bootstrap installs.
   npmRegistryAuthSecretName?: string;
   payloadJson: string;
+  podGC?: ArgoWorkflowPodGC;
   scheduleYaml?: string;
   serviceAccountName?: string;
+  ttlStrategy?: ArgoWorkflowTtlStrategy;
   workflowId: string;
 }
 
@@ -100,6 +104,7 @@ function workflowSubmitOptions(
   "config" | "payloadJson" | "scheduleYaml" | "workflowId"
 > {
   return {
+    activeDeadlineSeconds: options.activeDeadlineSeconds,
     brokerAuth: options.brokerAuth,
     dbAuth: options.dbAuth,
     mcpGatewayAuth: options.mcpGatewayAuth,
@@ -116,7 +121,9 @@ function workflowSubmitOptions(
     name: options.name,
     namespace: requireSubmitOption(options.namespace, "namespace"),
     npmRegistryAuthSecretName: options.npmRegistryAuthSecretName,
+    podGC: options.podGC,
     serviceAccountName: options.serviceAccountName,
+    ttlStrategy: options.ttlStrategy,
   };
 }
 

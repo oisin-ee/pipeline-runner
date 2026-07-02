@@ -1,11 +1,11 @@
 # Pipeline Console Runner Contract
 
 `moka` is the runner package CLI used by the container image.
-`pipeline-console` creates, lists, and cancels Kubernetes Jobs, stores events,
-renders the UI, and owns Kueue/Kubernetes discovery. The runner does not own the
-console database, event store, Job builder, Kueue watcher, or UI.
+`pipeline-console` submits, lists, observes, and cancels Argo Workflows, stores
+events, and renders the UI. The runner does not own the console database, event
+store, Workflow submission/observation path, or UI.
 
-## Console Job Payload
+## Console Workflow Payload
 
 `pipeline-console` starts the image with the payload JSON as a mounted
 ConfigMap file and the event auth token as a mounted Secret file. The runner
@@ -110,12 +110,16 @@ Each event has a strictly increasing integer `sequence`, a string `type`, an
 `node`, `gate`, `artifact`, `log`, and `finalResult`. The console stores
 non-reserved top-level fields as event payload.
 
-If a configured terminal sink flush fails, the Job exits `70`. If payload
-validation fails but the runner can recover the run identity and event config, it
-posts a `runner.schema.validation` warning event, then posts `workflow.finish`
-with outcome `FAIL`, and exits `64`. If identity or event config is not
-recoverable, it writes the validation error to stderr and exits `64` without
-posting events.
+If a configured terminal sink flush fails, the runner retries the final flush
+with backoff for about 60 seconds, reports the telemetry failure to stderr when
+the retry budget is exhausted, and preserves the workflow's real exit code.
+Telemetry delivery is not the authority for Argo outcome: a successful finalizer
+does not become failed solely because the console event sink is unavailable. If
+payload validation fails but the runner can recover the run identity and event
+config, it posts a `runner.schema.validation` warning event, then posts
+`workflow.finish` with outcome `FAIL`, and exits `64`. If identity or event
+config is not recoverable, it writes the validation error to stderr and exits
+`64` without posting events.
 
 Runner-command phases are emitted as `runner.command.phase` log events:
 workspace preparation, environment readiness, optional setup, generated schedule,
@@ -196,6 +200,11 @@ The runner executes one explicit command, translates runtime events, flushes
 final events, and exits with a deterministic code. It does not create
 Kubernetes resources, query Kubernetes, write console database records, run
 migrations, or import `pipeline-console` source.
+
+Console reconciliation is the backstop for missing terminal telemetry. The
+console observes the Argo Workflow status and reconciles a missing or delayed
+`workflow.finish` record from workflow state rather than relying on runner
+telemetry to make the finalizer fail.
 
 ## Intentionally Stable Decisions
 

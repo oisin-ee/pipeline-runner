@@ -111,6 +111,7 @@ function buildDeps(config: ScriptedDepsConfig): {
       }
       return Effect.succeed(null);
     },
+    projectId: "project-demo",
     emit: (event) => {
       events.push(event);
       return Effect.void;
@@ -332,7 +333,10 @@ describe("runLoopController — configurable strategy", () => {
     const start = recorder.events[0];
     expect(start?.type).toBe("loop.start");
     if (start?.type === "loop.start") {
-      expect(start.strategy).toBe("priority");
+      expect(start).toMatchObject({
+        projectId: "project-demo",
+        strategy: "priority",
+      });
     }
   });
 

@@ -702,6 +702,8 @@ describe("runner Argo Workflow manifest", () => {
                   "/etc/pipeline/schedule.yaml",
                   "--argo-status",
                   "{{workflow.status}}",
+                  "--argo-failures",
+                  "{{workflow.failures}}",
                 ],
                 "command": [
                   "moka",
@@ -1197,6 +1199,8 @@ describe("runner Argo Workflow manifest", () => {
                 - /etc/pipeline/schedule.yaml
                 - --argo-status
                 - "{{workflow.status}}"
+                - --argo-failures
+                - "{{workflow.failures}}"
               command:
                 - moka
               env:

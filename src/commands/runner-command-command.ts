@@ -170,6 +170,7 @@ export function registerRunnerCommandCommand(program: Command): void {
     .option("--schedule-file <path>", "Path to the schedule artifact YAML")
     .option("--schedule-source <source>", "Schedule source: file or db")
     .requiredOption("--argo-status <status>", "Argo Workflow status")
+    .option("--argo-failures <json>", "Argo Workflow failure details JSON")
     .action((options: RunnerFinalizeOptions) =>
       runRunnerProgram(runRunnerFinalizeEffect(options))
     );

@@ -77,6 +77,7 @@ const EVENT_PROJECTION_HANDLERS: Record<
   ),
   "artifact.check.finish": noStoreWriteHandler,
   "artifact.check.start": noStoreWriteHandler,
+  "delivery.pull-request": noStoreWriteHandler,
   "gate.finish": eventHandler("gate.finish", (event, state) =>
     nodeStatusIntent(state, event.nodeId, event.passed ? "running" : "blocked")
   ),

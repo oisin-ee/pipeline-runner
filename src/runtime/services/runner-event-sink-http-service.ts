@@ -29,6 +29,7 @@ class EventSinkHttpError extends Data.TaggedError("EventSinkHttpError")<{
 const RETRYABLE_STATUS_CODES = [
   408, 429, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511,
 ];
+const REQUEST_TIMEOUT_MS = 10_000;
 
 function authHeaderName(request: RunnerEventSinkPostBatchRequest): string {
   return request.authHeader ?? "Authorization";
@@ -95,9 +96,18 @@ function postBatch(
             retryOnTimeout: true,
             statusCodes: RETRYABLE_STATUS_CODES,
           },
+          timeout: REQUEST_TIMEOUT_MS,
+          totalTimeout: totalTimeoutMs(request),
         })
         .then(() => undefined),
   });
+}
+
+function totalTimeoutMs(request: RunnerEventSinkPostBatchRequest): number {
+  const attempts = request.maxRetries + 1;
+  return (
+    attempts * REQUEST_TIMEOUT_MS + request.maxRetries * request.retryDelayMs
+  );
 }
 
 export class RunnerEventSinkHttpService extends Context.Service<

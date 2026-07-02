@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -325,6 +326,49 @@ describe("installed dogfood configuration", () => {
     expect(result.status, help).toBe(0);
     expect(help).not.toContain("--orchestrator");
     expect(help).not.toMatch(RUNNER_ORCHESTRATOR_METADATA_RE);
+  });
+
+  it("exposes loop and ticket graph schemas from built public subpaths", () => {
+    const build = spawnSync("nub", ["run", "build:cli"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    expect(build.status, `${build.stdout}\n${build.stderr}`).toBe(0);
+
+    const consumer = tempProject();
+    mkdirSync(join(consumer, "node_modules", "@oisincoveney"), {
+      recursive: true,
+    });
+    symlinkSync(
+      process.cwd(),
+      join(consumer, "node_modules", "@oisincoveney", "pipeline")
+    );
+    writeProjectFile(
+      consumer,
+      "schema-import-smoke.mjs",
+      `
+import {
+  loopStateSchema,
+  ticketGraphDtoSchema,
+} from "@oisincoveney/pipeline/tickets";
+
+if (loopStateSchema.parse("queued") !== "queued") {
+  throw new Error("loopStateSchema parse failed");
+}
+ticketGraphDtoSchema.parse({
+  batches: [["PIPE-1"]],
+  dangling: [],
+  edges: [],
+  nodes: [{ id: "PIPE-1", loopState: "queued", status: "To Do", title: "One" }],
+});
+`
+    );
+
+    const result = spawnSync("node", ["schema-import-smoke.mjs"], {
+      cwd: consumer,
+      encoding: "utf8",
+    });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
   });
 
   it("keeps installed host resources aligned with package defaults and agent grants", async () => {

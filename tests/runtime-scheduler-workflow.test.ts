@@ -428,6 +428,8 @@ describe("LocalScheduler and Argo workflow parity", () => {
       "/etc/pipeline/schedule.yaml",
       "--argo-status",
       "{{workflow.status}}",
+      "--argo-failures",
+      "{{workflow.failures}}",
     ]);
 
     expect(retryStrategiesByTemplate(argoManifest)).toEqual({

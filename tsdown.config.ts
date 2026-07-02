@@ -18,6 +18,7 @@ export default defineConfig({
     "pipeline-runtime": "src/pipeline-runtime.ts",
     runner: "src/runner.ts",
     "runner-command-contract": "src/runner-command-contract.ts",
+    "tickets/ticket-graph-dto": "src/tickets/ticket-graph-dto.ts",
     "planning/compile": "src/planning/compile.ts",
     "planning/generate": "src/planning/generate.ts",
   },

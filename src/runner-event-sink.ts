@@ -47,8 +47,13 @@ export interface RunnerEventSink {
 }
 
 const DEFAULT_BATCH_SIZE = 50;
-const DEFAULT_MAX_RETRIES = 0;
+const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 250;
+
+export const RUNNER_EVENT_SINK_RETRY_POLICY = {
+  maxRetries: DEFAULT_MAX_RETRIES,
+  retryDelayMs: DEFAULT_RETRY_DELAY_MS,
+} as const;
 
 /*
  * Keep the custom event sink HTTP batching and retry path. Kubernetes events are
@@ -239,10 +244,13 @@ function postBatchRequest(
     authToken: options.authToken,
     events,
     fetch: fetchImpl,
-    maxRetries: nonNegativeOrDefault(options.maxRetries, DEFAULT_MAX_RETRIES),
+    maxRetries: nonNegativeOrDefault(
+      options.maxRetries,
+      RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
+    ),
     retryDelayMs: nonNegativeOrDefault(
       options.retryDelayMs,
-      DEFAULT_RETRY_DELAY_MS
+      RUNNER_EVENT_SINK_RETRY_POLICY.retryDelayMs
     ),
     url: options.url,
   };

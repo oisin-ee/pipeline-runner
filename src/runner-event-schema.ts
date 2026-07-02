@@ -132,6 +132,11 @@ const runnerFinalResultDetailsSchema = z.object({
   workflowId: z.string().min(1),
 });
 
+const runnerPullRequestDeliveryDetailsSchema = z.object({
+  action: z.enum(["opened", "updated"]),
+  url: z.string().url(),
+});
+
 /* ---------- event record variants ---------- */
 
 const workflowPlanEventSchema = runnerEventEnvelopeSchema.extend({
@@ -181,9 +186,15 @@ const finalResultEventSchema = runnerEventEnvelopeSchema.extend({
   type: z.literal("workflow.finish"),
 });
 
+const pullRequestDeliveryEventSchema = runnerEventEnvelopeSchema.extend({
+  deliveryPullRequest: runnerPullRequestDeliveryDetailsSchema,
+  type: z.literal("delivery.pull-request"),
+});
+
 /* ---------- loop.* detail schemas ---------- */
 
 const loopStartDetailsSchema = z.object({
+  projectId: z.string().min(1),
   root: z.string().min(1).optional(),
   strategy: z.string().min(1),
 });
@@ -236,6 +247,7 @@ export const runnerEventRecordSchema = z.union([
   artifactEventSchema,
   logEventSchema,
   finalResultEventSchema,
+  pullRequestDeliveryEventSchema,
   loopStartEventSchema,
   loopGraphSnapshotEventSchema,
   loopNodeTransitionEventSchema,

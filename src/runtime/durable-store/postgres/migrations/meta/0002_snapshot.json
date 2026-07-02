@@ -1,0 +1,314 @@
+{
+  "id": "98d4d455-6063-4bff-9168-dda376b0497d",
+  "prevId": "774f08cd-09da-4e41-a0a1-dbae14314dac",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "moka.moka_durable_node_record": {
+      "name": "moka_durable_node_record",
+      "schema": "moka",
+      "columns": {
+        "criteria": {
+          "name": "criteria",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "inputs": {
+          "name": "inputs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "node_id": {
+          "name": "node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "moka_durable_node_record_run_id_moka_durable_run_run_id_fk": {
+          "name": "moka_durable_node_record_run_id_moka_durable_run_run_id_fk",
+          "tableFrom": "moka_durable_node_record",
+          "tableTo": "moka_durable_run",
+          "schemaTo": "moka",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["run_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "moka_durable_node_record_run_id_node_id_pk": {
+          "name": "moka_durable_node_record_run_id_node_id_pk",
+          "columns": ["run_id", "node_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "moka.moka_durable_run": {
+      "name": "moka_durable_run",
+      "schema": "moka",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "moka.moka_run_control_event": {
+      "name": "moka_run_control_event",
+      "schema": "moka",
+      "columns": {
+        "event": {
+          "name": "event",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "moka_run_control_event_run_id_moka_run_control_run_run_id_fk": {
+          "name": "moka_run_control_event_run_id_moka_run_control_run_run_id_fk",
+          "tableFrom": "moka_run_control_event",
+          "tableTo": "moka_run_control_run",
+          "schemaTo": "moka",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["run_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "moka.moka_run_control_node_artifact": {
+      "name": "moka_run_control_node_artifact",
+      "schema": "moka",
+      "columns": {
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "node_id": {
+          "name": "node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "moka_run_control_node_artifact_run_id_moka_run_control_run_run_id_fk": {
+          "name": "moka_run_control_node_artifact_run_id_moka_run_control_run_run_id_fk",
+          "tableFrom": "moka_run_control_node_artifact",
+          "tableTo": "moka_run_control_run",
+          "schemaTo": "moka",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["run_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "moka_run_control_node_artifact_run_id_node_id_name_pk": {
+          "name": "moka_run_control_node_artifact_run_id_node_id_name_pk",
+          "columns": ["run_id", "node_id", "name"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "moka.moka_run_control_node_session": {
+      "name": "moka_run_control_node_session",
+      "schema": "moka",
+      "columns": {
+        "node_id": {
+          "name": "node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "moka_run_control_node_session_run_id_moka_run_control_run_run_id_fk": {
+          "name": "moka_run_control_node_session_run_id_moka_run_control_run_run_id_fk",
+          "tableFrom": "moka_run_control_node_session",
+          "tableTo": "moka_run_control_run",
+          "schemaTo": "moka",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["run_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "moka_run_control_node_session_run_id_node_id_pk": {
+          "name": "moka_run_control_node_session_run_id_node_id_pk",
+          "columns": ["run_id", "node_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "moka.moka_run_control_run": {
+      "name": "moka_run_control_run",
+      "schema": "moka",
+      "columns": {
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "manifest": {
+          "name": "manifest",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {
+    "moka": "moka"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

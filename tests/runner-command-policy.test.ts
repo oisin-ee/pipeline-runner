@@ -1,7 +1,15 @@
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runRunnerCommand } from "../src/runner-command/run";
+import { createRunnerEventSink } from "../src/runner-event-sink";
 import {
+  flushAndReport,
+  RunnerCommandIoServiceLive,
+} from "../src/runtime/services/runner-command-io-service";
+import {
+  captureEventBatches,
   cleanupRunnerCommandFixtures,
+  finalResults,
   writeRunnerCommandFixture,
 } from "./runner-command-fixture";
 
@@ -63,6 +71,7 @@ vi.mock("../src/run-state/git-refs", () => ({
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
   (
     globalThis as typeof globalThis & {
       __runnerCommandPolicyMocks?: RunnerCommandPolicyMocks;
@@ -72,6 +81,47 @@ afterEach(() => {
 });
 
 describe("runner-command hook policy", () => {
+  it("retries terminal event flush before reporting failure", async () => {
+    vi.useFakeTimers();
+    const batches: unknown[][] = [];
+    let attempts = 0;
+    const capture = captureEventBatches(batches);
+    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      attempts += 1;
+      if (attempts <= 2) {
+        return Promise.resolve(
+          new Response("console unavailable", {
+            status: 503,
+          })
+        );
+      }
+      return capture(input, init);
+    });
+    const sink = createRunnerEventSink({
+      authToken: "console-token",
+      fetch,
+      runId: "run-terminal-flush",
+      url: "https://pipeline-console.example/api/pipeline/runner-events",
+    });
+    const stderr = captureOutput();
+
+    sink.recordFinalResult("PASS", "default");
+    const flush = Effect.runPromise(
+      Effect.provide(
+        flushAndReport(sink, stderr.stream),
+        RunnerCommandIoServiceLive
+      )
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    await flush;
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(finalResults(batches)).toEqual([
+      { outcome: "PASS", workflowId: "default" },
+    ]);
+    expect(stderr.text()).toBe("");
+  });
+
   it("passes payload hook policy into scheduled task execution", async () => {
     const fixture = writeRunnerCommandFixture({
       hookPolicy: { allowCommandHooks: false },

@@ -68,7 +68,10 @@ describe("runner-finalize lifecycle hooks", () => {
     ]);
   });
 
-  it("runs workflow.failure before workflow.complete and records a failing final result", async () => {
+  it.each([
+    "Failed",
+    "Error",
+  ])("runs workflow.failure before workflow.complete and records a failing final result for %s", async (argoStatus) => {
     const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
     writeLifecycleConfig(dir, [
       "workflow.success",
@@ -79,7 +82,7 @@ describe("runner-finalize lifecycle hooks", () => {
     mockExeca.mockImplementation(commandHookResult());
 
     const exitCode = await runRunnerFinalize({
-      argoStatus: "Failed",
+      argoStatus,
       cwd: dir,
       fetch: captureEventBatches(batches),
       payloadFile: payloadPath,
@@ -93,6 +96,43 @@ describe("runner-finalize lifecycle hooks", () => {
     ).toEqual(["workflow.failure", "workflow.complete"]);
     expect(finalResults(batches)).toEqual([
       { outcome: "FAIL", workflowId: "schedule-run-1-root" },
+    ]);
+  });
+
+  it.each([
+    "Stopped with strategy 'Stop'",
+    "workflow shutdown with strategy:  Stop",
+  ])("records cancellation when Argo reports shutdown Stop failure message %s", async (message) => {
+    const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
+    writeLifecycleConfig(dir, [
+      "workflow.success",
+      "workflow.failure",
+      "workflow.complete",
+    ]);
+    const batches: unknown[][] = [];
+    mockExeca.mockImplementation(commandHookResult());
+
+    const exitCode = await runRunnerFinalize({
+      argoFailures: JSON.stringify([
+        {
+          displayName: "node-one",
+          message,
+          phase: "Failed",
+          templateName: "task-one",
+        },
+      ]),
+      argoStatus: "Failed",
+      cwd: dir,
+      fetch: captureEventBatches(batches),
+      payloadFile: payloadPath,
+      scheduleFile: schedulePath,
+      stderr: { write: () => true },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(eventTypes(batches)).toEqual(["run.cancelled", "workflow.finish"]);
+    expect(finalResults(batches)).toEqual([
+      { outcome: "CANCELLED", workflowId: "schedule-run-1-root" },
     ]);
   });
 

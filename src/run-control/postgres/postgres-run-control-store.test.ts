@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { MOKA_POSTGRES_SCHEMA } from "../../runtime/durable-store/postgres/schema";
 import type { CreateRunRequest } from "../run-control-store";
 import {
   migratePostgresRunControlStore,
@@ -59,10 +60,22 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
       await store.close();
     }
     const like = `${suitePrefix}%`;
-    await admin`delete from moka_run_control_node_artifact where run_id like ${like}`;
-    await admin`delete from moka_run_control_node_session where run_id like ${like}`;
-    await admin`delete from moka_run_control_event where run_id like ${like}`;
-    await admin`delete from moka_run_control_run where run_id like ${like}`;
+    await admin`
+      delete from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_artifact
+      where run_id like ${like}
+    `;
+    await admin`
+      delete from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_session
+      where run_id like ${like}
+    `;
+    await admin`
+      delete from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_event
+      where run_id like ${like}
+    `;
+    await admin`
+      delete from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_run
+      where run_id like ${like}
+    `;
     await admin.end();
   });
 
@@ -183,7 +196,8 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
       })
     );
     const rows = await admin<{ session_id: string }[]>`
-      select session_id from moka_run_control_node_session
+      select session_id
+      from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_session
       where run_id = ${id} and node_id = ${"only"}
     `;
     expect(rows.map((row) => row.session_id)).toEqual(["sess-1"]);
@@ -197,7 +211,8 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
       })
     );
     const after = await admin<{ session_id: string }[]>`
-      select session_id from moka_run_control_node_session
+      select session_id
+      from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_session
       where run_id = ${id} and node_id = ${"only"}
     `;
     expect(after.map((row) => row.session_id)).toEqual(["sess-2"]);
@@ -244,7 +259,8 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
     const rows = await admin<
       { content: string; content_type: string | null }[]
     >`
-      select content, content_type from moka_run_control_node_artifact
+      select content, content_type
+      from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_artifact
       where run_id = ${id} and node_id = ${"node"} and name = ${"log.txt"}
     `;
     expect(rows).toEqual([{ content: "second", content_type: "text/plain" }]);
@@ -281,7 +297,8 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
 
     const tables = await admin<{ table_name: string }[]>`
       select table_name from information_schema.tables
-      where table_name in (
+      where table_schema = ${MOKA_POSTGRES_SCHEMA}
+        and table_name in (
         'moka_durable_run',
         'moka_durable_node_record',
         'moka_run_control_run',

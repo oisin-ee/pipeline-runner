@@ -44,12 +44,12 @@ Initialize package-owned pipeline support:
 moka init
 ```
 
-`moka init` installs or refreshes the whole per-machine harness in one step:
-the package's default skills, generated host command surfaces, the singleton
-`pipeline-gateway` MCP entry, copied hook files from private
-`oisin-ee/agent/hooks`, and global instruction files from `oisin-ee/agent/rules`.
-OpenCode is the package default runtime. The command does not create repo-local
-`.pipeline` config files.
+`moka init` installs or refreshes Moka-owned host adapters: `/moka-quick`,
+`/moka-execute`, and `/moka-inspect` command surfaces, native-agent projections,
+and the singleton `pipeline-gateway` MCP host config. It does not install the
+shared agent harness; skills, hooks, rules, and Claude settings come from
+`oisin-ee/agent` via chezmoi. OpenCode is the package default runtime. The
+command does not create repo-local `.pipeline` config files.
 
 The default MCP gateway can run locally or point at the hosted Momokaya gateway.
 Set `PIPELINE_MCP_GATEWAY_AUTHORIZATION` to the full HTTP `Authorization` header
@@ -59,14 +59,14 @@ value before starting OpenCode when using a protected gateway:
 export PIPELINE_MCP_GATEWAY_AUTHORIZATION="Basic $(printf '%s' 'user:password' | base64)"
 ```
 
-Verify the generated harness (commands, hooks, rules) is current after package
-upgrades or edits to `oisin-ee/agent`, without writing anything:
+Verify generated Moka host adapters are current after package upgrades, without
+writing anything:
 
 ```shell
 moka init --check
 ```
 
-Refresh it, overwriting any locally edited harness files:
+Refresh generated Moka host adapters, overwriting locally edited adapter files:
 
 ```shell
 moka init --force
@@ -107,10 +107,10 @@ Canonical commands:
 - `moka stop <run-id> [node-id]`: abort a run or one active node.
 - `moka export <run-id> --sanitize`: print a portable evidence bundle.
 - `moka doctor`: check local prerequisites and config health.
-- `moka init`: install or refresh the whole per-machine harness (skills,
-  command surfaces, hooks, rules). `--check` verifies without writing,
-  `--dry-run` previews, `--force` overwrites locally edited files. The harness
-  is always installed globally; there is no `--scope`.
+- `moka init`: install or refresh Moka-owned host adapters (command surfaces,
+  native-agent projections, and gateway config). `--check` verifies without
+  writing, `--dry-run` previews, `--force` overwrites locally edited adapter
+  files. The shared agent harness is installed separately by chezmoi.
 
 ```shell
 moka run "Implement PIPE-123 user-facing behavior"
@@ -197,10 +197,10 @@ For a compact command reference, see
 ## Momokaya Runner Image
 
 The package is also the runner code used by the Momokaya runner image. The
-control plane owns Argo Workflow submission, run listing, cancellation, event
-storage, Kueue discovery, and UI rendering. This package owns the in-container
-`moka runner-command` and `moka runner-finalize` commands used by Argo Workflow
-DAG tasks.
+control plane owns Argo Workflow submission, status observation, run listing,
+cancellation, event storage, and UI rendering. This package owns the
+in-container `moka runner-command` and `moka runner-finalize` commands used by
+Argo Workflow DAG tasks.
 
 Argo starts the image with payload, schedule, and per-task descriptor files
 mounted from ConfigMaps, plus the event auth token mounted from a Secret. The

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { V1ConfigMap } from "@kubernetes/client-node";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   buildCommandScheduleYaml,
@@ -26,6 +27,65 @@ const BROKER_AUTH = {
   secretName: "broker-api-key",
   url: "https://cliproxy.momokaya.ee",
 };
+const WORKFLOW_OWNER_REFERENCE = {
+  apiVersion: "argoproj.io/v1alpha1",
+  kind: "Workflow",
+  name: "pipeline-run-abcde",
+  uid: "workflow-uid-1",
+};
+
+interface PatchConfigMapRequest {
+  readonly body: {
+    readonly metadata: {
+      readonly ownerReferences: readonly [typeof WORKFLOW_OWNER_REFERENCE];
+    };
+  };
+  readonly name: string;
+  readonly namespace: string;
+}
+
+interface DeleteConfigMapRequest {
+  readonly name: string;
+  readonly namespace: string;
+}
+
+interface ConfigMapApiOverrides {
+  readonly createNamespacedConfigMap: (input: {
+    readonly body: V1ConfigMap;
+  }) => Promise<unknown>;
+  readonly deleteNamespacedConfigMap?: (
+    input: DeleteConfigMapRequest
+  ) => Promise<unknown>;
+  readonly patchNamespacedConfigMap?: (
+    input: PatchConfigMapRequest
+  ) => Promise<unknown>;
+}
+
+function configMapApi(overrides: ConfigMapApiOverrides) {
+  return {
+    createNamespacedConfigMap: overrides.createNamespacedConfigMap,
+    deleteNamespacedConfigMap:
+      overrides.deleteNamespacedConfigMap ??
+      ((input: DeleteConfigMapRequest) =>
+        Promise.resolve({
+          apiVersion: "v1",
+          kind: "Status",
+          metadata: { name: input.name },
+        })),
+    patchNamespacedConfigMap:
+      overrides.patchNamespacedConfigMap ??
+      ((input: PatchConfigMapRequest) =>
+        Promise.resolve({
+          apiVersion: "v1",
+          kind: "ConfigMap",
+          metadata: {
+            name: input.name,
+            namespace: input.namespace,
+            ownerReferences: input.body.metadata.ownerReferences,
+          },
+        })),
+  };
+}
 
 afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });
@@ -100,12 +160,12 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             createdConfigMaps.push(input.body);
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(input.body);
@@ -195,6 +255,198 @@ describe("submitRunnerArgoWorkflow", () => {
     });
   });
 
+  it("patches static run ConfigMaps with ownerReferences after Workflow creation", async () => {
+    const createdConfigMaps: V1ConfigMap[] = [];
+    const patchedConfigMaps: PatchConfigMapRequest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: configMapApi({
+          createNamespacedConfigMap(input: { body: V1ConfigMap }) {
+            createdConfigMaps.push(input.body);
+            return Promise.resolve(input.body);
+          },
+          deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
+            return Promise.resolve({ metadata: { name: input.name } });
+          },
+          patchNamespacedConfigMap(input: PatchConfigMapRequest) {
+            patchedConfigMaps.push(input);
+            return Promise.resolve({
+              metadata: {
+                name: input.name,
+                namespace: input.namespace,
+                ownerReferences: input.body.metadata.ownerReferences,
+              },
+            });
+          },
+        }),
+        workflowApi: {
+          createNamespacedCustomObject() {
+            return Promise.resolve({
+              metadata: {
+                name: WORKFLOW_OWNER_REFERENCE.name,
+                uid: WORKFLOW_OWNER_REFERENCE.uid,
+              },
+            });
+          },
+        },
+      }
+    );
+
+    const createdNames = createdConfigMaps.map(
+      (configMap) => configMap.metadata?.name
+    );
+    expect(patchedConfigMaps).toHaveLength(3);
+    expect(patchedConfigMaps.map((configMap) => configMap.name)).toEqual(
+      expect.arrayContaining(createdNames)
+    );
+    expect(patchedConfigMaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: {
+            metadata: { ownerReferences: [WORKFLOW_OWNER_REFERENCE] },
+          },
+          name: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
+          namespace,
+        }),
+        expect.objectContaining({
+          body: {
+            metadata: { ownerReferences: [WORKFLOW_OWNER_REFERENCE] },
+          },
+          name: expect.stringMatching(SCHEDULE_CONFIG_MAP_RE),
+          namespace,
+        }),
+        expect.objectContaining({
+          body: {
+            metadata: { ownerReferences: [WORKFLOW_OWNER_REFERENCE] },
+          },
+          name: expect.stringMatching(TASK_DESCRIPTOR_CONFIG_MAP_RE),
+          namespace,
+        }),
+      ])
+    );
+  });
+
+  it("patches dynamic run ConfigMap with ownerReferences after Workflow creation", async () => {
+    const patchedConfigMaps: PatchConfigMapRequest[] = [];
+
+    await submitDynamicRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        workflowId: "schedule-submit-smoke-root",
+      },
+      {
+        coreApi: configMapApi({
+          createNamespacedConfigMap(input: { body: V1ConfigMap }) {
+            return Promise.resolve(input.body);
+          },
+          deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
+            return Promise.resolve({ metadata: { name: input.name } });
+          },
+          patchNamespacedConfigMap(input: PatchConfigMapRequest) {
+            patchedConfigMaps.push(input);
+            return Promise.resolve({
+              metadata: {
+                name: input.name,
+                namespace: input.namespace,
+                ownerReferences: input.body.metadata.ownerReferences,
+              },
+            });
+          },
+        }),
+        workflowApi: {
+          createNamespacedCustomObject() {
+            return Promise.resolve({
+              metadata: {
+                name: WORKFLOW_OWNER_REFERENCE.name,
+                uid: WORKFLOW_OWNER_REFERENCE.uid,
+              },
+            });
+          },
+        },
+      }
+    );
+
+    expect(patchedConfigMaps).toHaveLength(1);
+    expect(patchedConfigMaps[0]).toEqual({
+      body: {
+        metadata: { ownerReferences: [WORKFLOW_OWNER_REFERENCE] },
+      },
+      name: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
+      namespace,
+    });
+  });
+
+  it("deletes created ConfigMaps when ownerReference patching fails after Workflow creation", async () => {
+    const deletedConfigMaps: DeleteConfigMapRequest[] = [];
+
+    await expect(
+      submitRunnerArgoWorkflow(
+        {
+          brokerAuth: BROKER_AUTH,
+          config: DEFAULT_CONFIG,
+          generateName: "pipeline-run-",
+          namespace,
+          payloadJson: PAYLOAD,
+          scheduleYaml: SCHEDULE,
+        },
+        {
+          coreApi: configMapApi({
+            createNamespacedConfigMap(input: { body: V1ConfigMap }) {
+              return Promise.resolve(input.body);
+            },
+            deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
+              deletedConfigMaps.push(input);
+              return Promise.resolve({ metadata: { name: input.name } });
+            },
+            patchNamespacedConfigMap() {
+              return Promise.reject(new Error("patch failed"));
+            },
+          }),
+          workflowApi: {
+            createNamespacedCustomObject() {
+              return Promise.resolve({
+                metadata: {
+                  name: WORKFLOW_OWNER_REFERENCE.name,
+                  uid: WORKFLOW_OWNER_REFERENCE.uid,
+                },
+              });
+            },
+          },
+        }
+      )
+    ).rejects.toThrow("patch failed");
+
+    expect(deletedConfigMaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
+          namespace,
+        }),
+        expect.objectContaining({
+          name: expect.stringMatching(SCHEDULE_CONFIG_MAP_RE),
+          namespace,
+        }),
+        expect.objectContaining({
+          name: expect.stringMatching(TASK_DESCRIPTOR_CONFIG_MAP_RE),
+          namespace,
+        }),
+      ])
+    );
+  });
+
   it("normalizes GitHub SSH repository URLs in persisted runner payloads", async () => {
     const createdConfigMaps: Array<{
       data?: Record<string, string>;
@@ -221,12 +473,12 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             createdConfigMaps.push(input.body);
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             return Promise.resolve({
@@ -235,6 +487,7 @@ describe("submitRunnerArgoWorkflow", () => {
                 ...(input.body as { metadata: Record<string, unknown> })
                   .metadata,
                 name: "pipeline-run-normalized",
+                uid: "workflow-normalized-uid",
               },
             });
           },
@@ -254,6 +507,162 @@ describe("submitRunnerArgoWorkflow", () => {
     expect(persistedPayload.repository.url).toBe(
       "https://github.com/oisin-ee/rondo.git"
     );
+  });
+
+  it("threads caller-supplied Workflow retention, deadline, and pod GC into static submissions", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        activeDeadlineSeconds: 3600,
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        podGC: {
+          deleteDelayDuration: "30s",
+          strategy: "OnPodSuccess",
+        },
+        scheduleYaml: SCHEDULE,
+        ttlStrategy: {
+          secondsAfterFailure: 604_800,
+          secondsAfterSuccess: 300,
+        },
+      },
+      {
+        coreApi: configMapApi({
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        }),
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: {
+                name: "pipeline-run-lifecycle",
+                uid: "workflow-lifecycle-uid",
+              },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    expect(createdWorkflows[0].spec).toMatchObject({
+      activeDeadlineSeconds: 3600,
+      podGC: {
+        deleteDelayDuration: "30s",
+        strategy: "OnPodSuccess",
+      },
+      ttlStrategy: {
+        secondsAfterFailure: 604_800,
+        secondsAfterSuccess: 300,
+      },
+    });
+  });
+
+  it("threads caller-supplied Workflow retention, deadline, and pod GC into dynamic submissions", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitDynamicRunnerArgoWorkflow(
+      {
+        activeDeadlineSeconds: 3600,
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        podGC: {
+          deleteDelayDuration: "30s",
+          strategy: "OnPodSuccess",
+        },
+        ttlStrategy: {
+          secondsAfterFailure: 604_800,
+          secondsAfterSuccess: 300,
+        },
+        workflowId: "schedule-submit-smoke-root",
+      },
+      {
+        coreApi: configMapApi({
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        }),
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: {
+                name: "pipeline-run-dynamic-lifecycle",
+                uid: "workflow-dynamic-lifecycle-uid",
+              },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    expect(createdWorkflows[0].spec).toMatchObject({
+      activeDeadlineSeconds: 3600,
+      podGC: {
+        deleteDelayDuration: "30s",
+        strategy: "OnPodSuccess",
+      },
+      ttlStrategy: {
+        secondsAfterFailure: 604_800,
+        secondsAfterSuccess: 300,
+      },
+    });
+  });
+
+  it("omits Workflow retention, deadline, and pod GC when caller leaves them unset", async () => {
+    const createdWorkflows: ArgoWorkflowManifest[] = [];
+
+    await submitRunnerArgoWorkflow(
+      {
+        brokerAuth: BROKER_AUTH,
+        config: DEFAULT_CONFIG,
+        generateName: "pipeline-run-",
+        namespace,
+        payloadJson: PAYLOAD,
+        scheduleYaml: SCHEDULE,
+      },
+      {
+        coreApi: configMapApi({
+          createNamespacedConfigMap(input) {
+            return Promise.resolve(input.body);
+          },
+        }),
+        workflowApi: {
+          createNamespacedCustomObject(input) {
+            createdWorkflows.push(
+              runnerArgoWorkflowManifestSchema.parse(input.body)
+            );
+            return Promise.resolve({
+              metadata: {
+                name: "pipeline-run-no-lifecycle",
+                uid: "workflow-no-lifecycle-uid",
+              },
+            });
+          },
+        },
+      }
+    );
+
+    expect(createdWorkflows).toHaveLength(1);
+    expect(createdWorkflows[0].spec).not.toHaveProperty(
+      "activeDeadlineSeconds"
+    );
+    expect(createdWorkflows[0].spec).not.toHaveProperty("podGC");
+    expect(createdWorkflows[0].spec).not.toHaveProperty("ttlStrategy");
   });
 
   it("stores ticket metadata on submitted Argo Workflow annotations", async () => {
@@ -278,11 +687,11 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(input.body);
@@ -332,11 +741,11 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             // Parse through the manifest schema — type-safe, no casts.
@@ -344,7 +753,10 @@ describe("submitRunnerArgoWorkflow", () => {
               runnerArgoWorkflowManifestSchema.parse(input.body)
             );
             return Promise.resolve({
-              metadata: { name: "pipeline-run-dbauth" },
+              metadata: {
+                name: "pipeline-run-dbauth",
+                uid: "workflow-dbauth-uid",
+              },
             });
           },
         },
@@ -377,18 +789,21 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(
               runnerArgoWorkflowManifestSchema.parse(input.body)
             );
             return Promise.resolve({
-              metadata: { name: "pipeline-run-no-dbauth" },
+              metadata: {
+                name: "pipeline-run-no-dbauth",
+                uid: "workflow-no-dbauth-uid",
+              },
             });
           },
         },
@@ -421,18 +836,21 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(
               runnerArgoWorkflowManifestSchema.parse(input.body)
             );
             return Promise.resolve({
-              metadata: { name: "pipeline-run-mcpgateway" },
+              metadata: {
+                name: "pipeline-run-mcpgateway",
+                uid: "workflow-mcpgateway-uid",
+              },
             });
           },
         },
@@ -470,18 +888,21 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(
               runnerArgoWorkflowManifestSchema.parse(input.body)
             );
             return Promise.resolve({
-              metadata: { name: "pipeline-run-no-mcpgateway" },
+              metadata: {
+                name: "pipeline-run-no-mcpgateway",
+                uid: "workflow-no-mcpgateway-uid",
+              },
             });
           },
         },
@@ -514,18 +935,21 @@ describe("submitRunnerArgoWorkflow", () => {
         workflowId: "schedule-submit-smoke-root",
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(
               runnerArgoWorkflowManifestSchema.parse(input.body)
             );
             return Promise.resolve({
-              metadata: { name: "pipeline-run-dynamic-mcpgateway" },
+              metadata: {
+                name: "pipeline-run-dynamic-mcpgateway",
+                uid: "workflow-dynamic-mcpgateway-uid",
+              },
             });
           },
         },
@@ -564,18 +988,21 @@ describe("submitRunnerArgoWorkflow", () => {
         scheduleYaml: SCHEDULE,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(
               runnerArgoWorkflowManifestSchema.parse(input.body)
             );
             return Promise.resolve({
-              metadata: { name: "pipeline-run-npm-registry" },
+              metadata: {
+                name: "pipeline-run-npm-registry",
+                uid: "workflow-npm-registry-uid",
+              },
             });
           },
         },
@@ -614,18 +1041,21 @@ describe("submitRunnerArgoWorkflow", () => {
         workflowId: "schedule-submit-smoke-root",
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             createdWorkflows.push(
               runnerArgoWorkflowManifestSchema.parse(input.body)
             );
             return Promise.resolve({
-              metadata: { name: "pipeline-run-dynamic-npm-registry" },
+              metadata: {
+                name: "pipeline-run-dynamic-npm-registry",
+                uid: "workflow-dynamic-npm-registry-uid",
+              },
             });
           },
         },
@@ -809,12 +1239,12 @@ workflows:
         scheduleYaml: agentSchedule,
       },
       {
-        coreApi: {
+        coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             createdConfigMaps.push(input.body);
             return Promise.resolve(input.body);
           },
-        },
+        }),
         workflowApi: {
           createNamespacedCustomObject(input) {
             return Promise.resolve({
@@ -823,6 +1253,7 @@ workflows:
                 ...(input.body as { metadata: Record<string, unknown> })
                   .metadata,
                 name: "moka-full-agent",
+                uid: "workflow-moka-full-agent-uid",
               },
             });
           },

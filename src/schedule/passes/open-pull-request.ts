@@ -13,6 +13,13 @@ export function isPullRequestDeliveryEnabled(config: PipelineConfig): boolean {
   return config.delivery?.pull_request?.enabled === true;
 }
 
+export function shouldAppendPullRequestDelivery(input: {
+  config: PipelineConfig;
+  requested?: boolean;
+}): boolean {
+  return input.requested === true || isPullRequestDeliveryEnabled(input.config);
+}
+
 /** True when the node list already has an open-pull-request builtin. */
 function hasPullRequestNode(nodes: WorkflowNode[]): boolean {
   return nodes.some(

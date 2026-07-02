@@ -88,6 +88,8 @@ export interface ControllerDeps {
     readonly workflowName: string;
     readonly runId: string;
   }) => Effect.Effect<TerminalPhase, Error>;
+  /** Project id from the runner payload; emitted for console run association. */
+  readonly projectId: string;
   /** Git-refresh the backlog from main after a ticket passes; returns fresh records. */
   readonly refreshBacklog: () => Effect.Effect<
     readonly BacklogTaskRecord[],
@@ -116,7 +118,11 @@ export interface ControllerDeps {
 // ---------------------------------------------------------------------------
 
 export type LoopControllerEvent =
-  | { readonly type: "loop.start"; readonly strategy: string }
+  | {
+      readonly type: "loop.start";
+      readonly projectId: string;
+      readonly strategy: string;
+    }
   | { readonly type: "loop.graph.snapshot"; readonly snapshot: unknown }
   | {
       readonly type: "loop.node.transition";
@@ -182,7 +188,11 @@ export function runLoopController(
       Effect.mapError((error) => new Error(error.message))
     );
 
-    yield* deps.emit({ type: "loop.start", strategy: deps.strategy });
+    yield* deps.emit({
+      type: "loop.start",
+      projectId: deps.projectId,
+      strategy: deps.strategy,
+    });
     const snapshot = yield* serializeTicketGraph(graph);
     yield* deps.emit({ type: "loop.graph.snapshot", snapshot });
 

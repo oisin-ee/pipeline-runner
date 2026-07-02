@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Schedule } from "effect";
 import { execa } from "execa";
 import type { z } from "zod";
 import { prepareOpencodeCredentials } from "../../credentials/runner";
@@ -17,6 +17,10 @@ import { createRunnerEventSink } from "../../runner-event-sink";
 interface FlushableSink {
   flush: () => Promise<void>;
 }
+
+const TERMINAL_FLUSH_RETRY_LIMIT = 60;
+const TERMINAL_FLUSH_RETRY_DELAY = "1 second";
+const TERMINAL_FLUSH_TIMEOUT = "60 seconds";
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -50,12 +54,30 @@ function flushRunnerCommandSink(
 ): Effect.Effect<void, never, RunnerCommandIoService> {
   return Effect.gen(function* () {
     const io = yield* RunnerCommandIoService;
-    const result = yield* Effect.result(io.flushSink(sink));
+    const result = yield* Effect.result(
+      flushSinkWithTerminalRetry(io.flushSink, sink)
+    );
     if (result._tag === "Success") {
       return;
     }
     reportError(errorMessage(result.failure));
   });
+}
+
+function flushSinkWithTerminalRetry(
+  flushSink: (sink: FlushableSink) => Effect.Effect<void, unknown>,
+  sink: FlushableSink
+): Effect.Effect<void, unknown> {
+  return flushSink(sink).pipe(
+    Effect.retry(terminalFlushRetrySchedule()),
+    Effect.timeout(TERMINAL_FLUSH_TIMEOUT)
+  );
+}
+
+function terminalFlushRetrySchedule() {
+  return Schedule.spaced(TERMINAL_FLUSH_RETRY_DELAY).pipe(
+    Schedule.both(Schedule.recurs(TERMINAL_FLUSH_RETRY_LIMIT))
+  );
 }
 
 function errorMessage(error: unknown): string {

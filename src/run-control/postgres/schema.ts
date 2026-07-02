@@ -1,11 +1,11 @@
 import {
   bigserial,
   jsonb,
-  pgTable,
   primaryKey,
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
+import { mokaPostgresSchema } from "../../runtime/durable-store/postgres/schema";
 import type { MokaRunControlEvent, MokaRunManifest } from "../contracts";
 
 /**
@@ -25,10 +25,9 @@ import type { MokaRunControlEvent, MokaRunManifest } from "../contracts";
  * - `moka_run_control_node_artifact` — one row per `(run_id, node_id, name)`,
  *   the artifact bytes the file store keeps under `nodes/<nodeId>/<name>`.
  *
- * Table names are prefixed (`moka_run_control_`) because the cluster Postgres is
- * shared with the durable store (`moka_durable_*`) and other tenants.
+ * Tables live in the shared `moka` substrate schema alongside the durable store.
  */
-export const runControlRun = pgTable("moka_run_control_run", {
+export const runControlRun = mokaPostgresSchema.table("moka_run_control_run", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -36,18 +35,21 @@ export const runControlRun = pgTable("moka_run_control_run", {
   runId: text("run_id").primaryKey(),
 });
 
-export const runControlEvent = pgTable("moka_run_control_event", {
-  event: jsonb("event").$type<MokaRunControlEvent>().notNull(),
-  recordedAt: timestamp("recorded_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  runId: text("run_id")
-    .notNull()
-    .references(() => runControlRun.runId),
-  seq: bigserial("seq", { mode: "number" }).primaryKey(),
-});
+export const runControlEvent = mokaPostgresSchema.table(
+  "moka_run_control_event",
+  {
+    event: jsonb("event").$type<MokaRunControlEvent>().notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runControlRun.runId),
+    seq: bigserial("seq", { mode: "number" }).primaryKey(),
+  }
+);
 
-export const runControlNodeSession = pgTable(
+export const runControlNodeSession = mokaPostgresSchema.table(
   "moka_run_control_node_session",
   {
     nodeId: text("node_id").notNull(),
@@ -59,7 +61,7 @@ export const runControlNodeSession = pgTable(
   (table) => [primaryKey({ columns: [table.runId, table.nodeId] })]
 );
 
-export const runControlNodeArtifact = pgTable(
+export const runControlNodeArtifact = mokaPostgresSchema.table(
   "moka_run_control_node_artifact",
   {
     content: text("content").notNull(),

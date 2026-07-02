@@ -304,6 +304,11 @@ export interface RunnerFinalResultDetails {
   workflowId: string;
 }
 
+export interface RunnerPullRequestDeliveryDetails {
+  action: "opened" | "updated";
+  url: string;
+}
+
 export interface RunnerHookResultDetails {
   artifacts?: Array<{ contentType?: string; name: string; path: string }>;
   event: string;
@@ -328,6 +333,7 @@ interface RunnerEventEnvelope {
 export type LoopState = "queued" | "running" | "merging" | "passed" | "blocked";
 
 export interface LoopStartDetails {
+  readonly projectId: string;
   readonly root?: string;
   readonly strategy: string;
 }
@@ -400,6 +406,10 @@ export type RunnerEventRecord =
   | (RunnerEventEnvelope & {
       finalResult: RunnerFinalResultDetails;
       type: "workflow.finish";
+    })
+  | (RunnerEventEnvelope & {
+      deliveryPullRequest: RunnerPullRequestDeliveryDetails;
+      type: "delivery.pull-request";
     })
   | (RunnerEventEnvelope & {
       loopStart: LoopStartDetails;
@@ -523,6 +533,7 @@ export function mapRuntimeEventToRunnerEventRecords(
     mapNodeRunnerEvent(event, record) ??
     mapGateRunnerEvent(event, record) ??
     mapArtifactRunnerEvent(event, record) ??
+    mapDeliveryRunnerEvent(event, record) ??
     mapLogRunnerEvent(event, record) ??
     throwUnhandledRuntimeEvent(event)
   );
@@ -846,6 +857,24 @@ function mapLogRunnerEvent(
             nodeId: event.nodeId,
             workflowId: event.workflowId,
           }),
+        },
+      ];
+    default:
+      return null;
+  }
+}
+
+function mapDeliveryRunnerEvent(
+  event: PipelineRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord[] | null {
+  switch (event.type) {
+    case "delivery.pull-request":
+      return [
+        {
+          ...record,
+          deliveryPullRequest: event.deliveryPullRequest,
+          type: event.type,
         },
       ];
     default:

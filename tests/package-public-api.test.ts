@@ -64,6 +64,10 @@ const EXPECTED_PUBLIC_EXPORTS = {
     import: "./dist/runner-command-contract.js",
     types: "./dist/runner-command-contract.d.ts",
   },
+  "./tickets": {
+    import: "./dist/tickets/ticket-graph-dto.js",
+    types: "./dist/tickets/ticket-graph-dto.d.ts",
+  },
   "./runtime": {
     import: "./dist/pipeline-runtime.js",
     types: "./dist/pipeline-runtime.d.ts",
@@ -197,8 +201,8 @@ describe("package public app-facing API", () => {
     ];
     const packedPaths = files.map((file) => file.path);
 
-    // Skills are install-managed: `moka init` installs them from the skills
-    // source into host dirs, so the package must not ship skill bodies.
+    // Skills are installed by the shared agent harness into host dirs, so the
+    // package must not ship skill bodies.
     expect(packedPaths.some((path) => path.startsWith(".agents/skills/"))).toBe(
       false
     );
@@ -282,6 +286,10 @@ import {
   runnerArgoWorkflowManifestSchema,
   type ArgoWorkflowManifest,
 } from "@oisincoveney/pipeline/argo-workflow";
+import type {
+  SubmitDynamicRunnerArgoWorkflowOptions,
+  SubmitRunnerArgoWorkflowOptions,
+} from "@oisincoveney/pipeline/argo-submit";
 import {
   defineHook,
   parseHookResult,
@@ -394,6 +402,7 @@ const hookPolicy: MokaSubmitHookPolicyInput = mokaSubmitHookPolicySchema.parse({
   allowCommandHooks: false,
 });
 const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
+  activeDeadlineSeconds: 3600,
   brokerAuth: {
     secretName: "broker-api-key",
   },
@@ -413,6 +422,10 @@ const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
     project: "pipeline-console",
     requestedBy: "console-user@example.com",
   },
+  podGC: {
+    deleteDelayDuration: "30s",
+    strategy: "OnPodSuccess",
+  },
   scheduleYaml: ${JSON.stringify("kind: pipeline-schedule\nversion: 1\nschedule_id: smoke-a\ngenerated_at: 2026-06-03T12:00:00.000Z\nsource_entrypoint: execute\ntask: consumer compile smoke\nroot_workflow: root\nworkflows:\n  root:\n    nodes:\n      - id: check\n        kind: command\n        command: [node, -e, \"console.log('ok')\"]\n")},
   task: {
     id: "PIPE-56",
@@ -420,6 +433,10 @@ const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
     title: "Expose typed Zod moka submit API for Pipeline Console",
   },
   type: "graph",
+  ttlStrategy: {
+    secondsAfterFailure: 604_800,
+    secondsAfterSuccess: 300,
+  },
 });
 const mokaSubmitOutput: MokaSubmitOutput = mokaSubmitResultSchema.parse({
   namespace: "pipeline-namespace",
@@ -482,6 +499,40 @@ const runnerManifest: ArgoWorkflowManifest = buildRunnerArgoWorkflowManifest({
   taskDescriptorConfigMapName: "pipeline-runner-tasks",
 });
 runnerArgoWorkflowManifestSchema.parse(runnerManifest);
+const staticSubmitOptions: SubmitRunnerArgoWorkflowOptions = {
+  activeDeadlineSeconds: 3600,
+  brokerAuth: { secretName: "broker-api-key" },
+  config,
+  generateName: "pipeline-runner-smoke-",
+  namespace: "pipeline-namespace",
+  payloadJson: JSON.stringify(runnerPayload),
+  podGC: {
+    deleteDelayDuration: "30s",
+    strategy: "OnPodSuccess",
+  },
+  scheduleYaml: ${JSON.stringify("kind: pipeline-schedule\nversion: 1\nschedule_id: smoke-a\ngenerated_at: 2026-06-03T12:00:00.000Z\nsource_entrypoint: execute\ntask: consumer compile smoke\nroot_workflow: root\nworkflows:\n  root:\n    nodes:\n      - id: check\n        kind: command\n        command: [node, -e, \"console.log('ok')\"]\n")},
+  ttlStrategy: {
+    secondsAfterFailure: 604_800,
+    secondsAfterSuccess: 300,
+  },
+};
+const dynamicSubmitOptions: SubmitDynamicRunnerArgoWorkflowOptions = {
+  activeDeadlineSeconds: 3600,
+  brokerAuth: { secretName: "broker-api-key" },
+  config,
+  generateName: "pipeline-runner-smoke-",
+  namespace: "pipeline-namespace",
+  payloadJson: JSON.stringify(runnerPayload),
+  podGC: {
+    deleteDelayDuration: "30s",
+    strategy: "OnPodSuccess",
+  },
+  ttlStrategy: {
+    secondsAfterFailure: 604_800,
+    secondsAfterSuccess: 300,
+  },
+  workflowId: "schedule-smoke-a-root",
+};
 
 void loadPipelineConfig;
 void WorkflowPlannerError;
@@ -507,6 +558,8 @@ void scheduledPlan;
 void configWithoutOrchestrator;
 void parsedPayload;
 void runnerManifest;
+void staticSubmitOptions;
+void dynamicSubmitOptions;
 `,
       "utf8"
     );
