@@ -28,6 +28,7 @@ const EXPECTED_PACKAGE_EXPORTS = [
   "./runner-command-contract",
   "./runtime",
   "./schedule",
+  "./tickets",
 ] as const;
 
 const RUNTIME_MACHINE_CONTRACT_IMPORT_RE =

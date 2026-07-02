@@ -75,6 +75,7 @@ describe("PIPE-58 cleanup contracts", () => {
       "./runner-command-contract",
       "./runtime",
       "./schedule",
+      "./tickets",
     ]);
   });
 });
