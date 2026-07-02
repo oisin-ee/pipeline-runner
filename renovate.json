@@ -1,25 +1,33 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "labels": ["dependencies"],
+  "extends": [
+    "github>oisin-ee/renovate-config"
+  ],
+  "labels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
       "groupName": "dev tooling",
-      "matchDepTypes": ["devDependencies"],
+      "matchDepTypes": [
+        "devDependencies"
+      ],
       "matchPackageNames": [
         "@biomejs/biome",
         "jscpd",
         "tsdown",
-        "typescript",
-        "ultracite",
         "vitest"
       ]
     },
     {
       "groupName": "runtime libraries",
-      "matchDepTypes": ["dependencies"]
+      "matchDepTypes": [
+        "dependencies"
+      ]
     }
   ],
   "rangeStrategy": "bump",
-  "schedule": ["before 5am on monday"]
+  "schedule": [
+    "before 5am on monday"
+  ]
 }
