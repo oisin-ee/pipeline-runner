@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
 } from "./create-experiment";
 import type { FactoryExec, FactoryGit } from "./exec";
 import { buildFactoryLaneJob, FACTORY_LANE_LABEL } from "./factory-lane";
+import { githubGitCredentialEnv } from "./git-credentials";
 import { isStampOf, parseCopierAnswers } from "./stamp-answers";
 import { runTemplateUpdate, summarizeTemplateUpdate } from "./template-update";
 
@@ -21,6 +22,7 @@ const APP_PUSH_CALL = /^git push -u origin main/;
 const GIT_CLONE_CALL = /^git clone/;
 const INFRA_PUSH_CALL = /^git push origin HEAD:main/;
 const REPO_DIR_PREFIX = /^update-/;
+const STORE_FILE_RE = /^store --file=(.+)$/;
 
 const MOMOKAYA_ANSWERS = [
   "_commit: v1.0.2",
@@ -321,6 +323,32 @@ describe("committerConfigArgs", () => {
       "-c",
       "user.email=git@oisin.ee",
     ]);
+  });
+});
+
+describe("githubGitCredentialEnv", () => {
+  it("returns empty env when no mounted credentials exist", () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), "factory-nocred-"));
+    expect(githubGitCredentialEnv(emptyDir)).toEqual({});
+  });
+
+  it("builds a credential.helper store env from mounted username/password", () => {
+    const dir = mkdtempSync(join(tmpdir(), "factory-cred-"));
+    writeFileSync(join(dir, "username"), "oisin-bot\n");
+    writeFileSync(join(dir, "password"), "ghp_secrettoken\n");
+
+    const env = githubGitCredentialEnv(dir);
+
+    expect(env.GIT_CONFIG_COUNT).toBe("1");
+    expect(env.GIT_CONFIG_KEY_0).toBe("credential.helper");
+    expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+    const storeMatch = STORE_FILE_RE.exec(env.GIT_CONFIG_VALUE_0 ?? "");
+    expect(storeMatch).not.toBeNull();
+    const storePath = storeMatch?.[1] ?? "";
+    // The token lands only in the 0600 store file, never in a URL/argv.
+    expect(readFileSync(storePath, "utf8")).toBe(
+      "https://oisin-bot:ghp_secrettoken@github.com\n"
+    );
   });
 });
 

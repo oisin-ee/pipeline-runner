@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { committerConfigArgs } from "./create-experiment";
 import { type FactorySeams, resolveFactorySeams } from "./exec";
+import { githubGitCredentialEnv } from "./git-credentials";
 import { isStampOf, parseCopierAnswers } from "./stamp-answers";
 
 /**
@@ -172,7 +173,8 @@ async function updateRepo(input: {
         "--defaults",
         ...(input.templateRef ? ["--vcs-ref", input.templateRef] : []),
       ],
-      { cwd: cloneDir }
+      // copier re-fetches the private template with its own git subprocess.
+      { cwd: cloneDir, env: githubGitCredentialEnv() }
     );
 
     const status = await git(cloneDir, ["status", "--porcelain"]);

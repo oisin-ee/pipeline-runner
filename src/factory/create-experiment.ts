@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DEFAULT_RUNNER_COMMAND_GIT_COMMITTER } from "../config/schema/catalog";
 import { type FactorySeams, resolveFactorySeams } from "./exec";
+import { githubGitCredentialEnv } from "./git-credentials";
 
 /**
  * create-experiment lane (INFRA-087.12): one deterministic run births a
@@ -122,7 +123,10 @@ export async function runCreateExperiment(
       previews,
       ...(options.templateRef ? { templateRef: options.templateRef } : {}),
       templateSource,
-    })
+    }),
+    // copier fetches the private template with its own git subprocess — give it
+    // the mounted github.com credential (see git-credentials.ts).
+    { env: githubGitCredentialEnv() }
   );
 
   const stampedRegistryEntry = join(

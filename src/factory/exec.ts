@@ -15,7 +15,11 @@ import { runAuthenticatedGit } from "../run-state/git-refs";
 export type FactoryExec = (
   command: string,
   args: readonly string[],
-  options?: { readonly cwd?: string }
+  options?: {
+    readonly cwd?: string;
+    /** Extra env merged onto the child's inherited environment (e.g. copier's github.com credential). */
+    readonly env?: Readonly<Record<string, string>>;
+  }
 ) => Promise<{ readonly stdout: string }>;
 
 export type FactoryGit = (cwd: string, args: string[]) => Promise<string>;
@@ -23,8 +27,11 @@ export type FactoryGit = (cwd: string, args: string[]) => Promise<string>;
 export type FactoryLog = (line: string) => void;
 
 export const defaultFactoryExec: FactoryExec = (command, args, options) =>
+  // extendEnv defaults to true, so options.env is merged onto process.env for
+  // the child only (and inherited by grandchildren — copier's git subprocess).
   execa(command, [...args], {
     ...(options?.cwd ? { cwd: options.cwd } : {}),
+    ...(options?.env ? { env: options.env } : {}),
     stdin: "ignore",
   });
 
