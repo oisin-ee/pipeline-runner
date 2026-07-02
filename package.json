@@ -130,6 +130,7 @@
     "test:image": "mkdir -p /tmp/pipeline-test && printf '{}' > /tmp/pipeline-test/payload.json && printf 'kind: pipeline-schedule\\nversion: 1\\nschedule_id: smoke\\ngenerated_at: 2026-06-10T00:00:00.000Z\\nsource_entrypoint: custom\\ntask: smoke\\nroot_workflow: root\\nworkflows:\\n  root:\\n    nodes:\\n      - id: smoke\\n        kind: command\\n        command: [true]\\n' > /tmp/pipeline-test/schedule.yaml && printf '{\"nodeId\":\"smoke\"}' > /tmp/pipeline-test/task.json && printf 'test-token' > /tmp/pipeline-test/event-token && docker build -t pipeline-runner:test . && docker run --rm -v /tmp/pipeline-test/payload.json:/etc/pipeline/payload.json:ro -v /tmp/pipeline-test/schedule.yaml:/etc/pipeline/schedule.yaml:ro -v /tmp/pipeline-test/task.json:/etc/pipeline/task.json:ro -v /tmp/pipeline-test/event-token:/etc/pipeline/event-auth/token:ro pipeline-runner:test runner-command --payload-file /etc/pipeline/payload.json --schedule-file /etc/pipeline/schedule.yaml; test $? -eq 64",
     "test:dogfood": "vitest run tests/dogfood-installed.test.ts",
     "test:live-runners": "PIPELINE_LIVE_RUNNERS=1 vitest run tests/dogfood-live-runners.test.ts",
+    "local-orbstack:migrate": "nub scripts/local-orbstack/migrate-postgres.ts",
     "typecheck": "tsc --noEmit",
     "build": "nub run build:cli",
     "check": "ultracite check",

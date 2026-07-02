@@ -1,0 +1,41 @@
+# Reconciled by Argo CD (see README.md in this directory for the one-time,
+# tool-native Argo CD bootstrap this Application requires). Mirrors infra's
+# momokaya Application (k8s/apps/system/argo-workflows.yaml in the infra
+# repo): same chart, same version, same values -- plus this repo's own
+# Namespace/RBAC/Postgres manifests as a second source in the same
+# Application. Nothing here is applied by a script; Argo CD's own
+# reconciliation loop applies and self-heals it continuously.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pipeline-local-orbstack
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/oisin-ee/pipeline-runner.git
+      targetRevision: main
+      path: scripts/local-orbstack/k8s
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-workflows
+      targetRevision: 0.45.22
+      helm:
+        releaseName: argo-workflows
+        values: |
+          controller:
+            workflowNamespaces:
+              - momokaya-pipeline
+            workflowDefaults:
+              spec:
+                ttlStrategy:
+                  secondsAfterCompletion: 86400
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: momokaya-pipeline
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

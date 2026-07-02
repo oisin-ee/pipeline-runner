@@ -1,0 +1,54 @@
+# Disposable durable-substrate Postgres, in-cluster (not a bare `docker run`
+# living outside Kubernetes) so it's part of the same reconciled state as
+# everything else here. Data is not expected to survive cluster deletion --
+# this is a local dev sandbox, not a persistence target.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline-test-postgres
+  namespace: momokaya-pipeline
+  labels:
+    app: pipeline-test-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pipeline-test-postgres
+  template:
+    metadata:
+      labels:
+        app: pipeline-test-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_PASSWORD
+              value: localtest
+            - name: POSTGRES_DB
+              value: moka
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 3
+            periodSeconds: 2
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pipeline-test-postgres
+  namespace: momokaya-pipeline
+spec:
+  selector:
+    app: pipeline-test-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
