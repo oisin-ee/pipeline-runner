@@ -1366,35 +1366,36 @@ describe("execute", () => {
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+      // moka init installs only its own slash-command adapters + gateway config;
+      // the agent harness (skills, hooks, rules) comes from oisin-ee/agent via
+      // chezmoi, not moka.
       expect(
         generatedHostFilesExist(dir, [
-          ".agents/skills/execute/SKILL.md",
-          ".agents/skills/inspect/SKILL.md",
-          ".agents/skills/quick/SKILL.md",
           ".opencode/commands/moka-execute.md",
+          ".opencode/commands/moka-quick.md",
+          ".opencode/commands/moka-inspect.md",
           ".opencode/opencode.json",
         ])
       ).toBe(true);
-      expect(mockExeca).toHaveBeenCalledWith(
-        "npx",
-        [
-          "--yes",
-          "skills",
-          "add",
-          "oisin-ee/agent/skills",
-          "--agent",
-          "opencode",
-          "--agent",
-          "codex",
-          "--agent",
-          "claude-code",
-          "--skill",
-          "*",
-          "--yes",
-          "--global",
-        ],
-        expect.objectContaining({ cwd: dir, stdio: "inherit" })
-      );
+      // No skill install: moka init never shells out to `npx skills add`.
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) =>
+            command === "npx" &&
+            Array.isArray(args) &&
+            args.includes("skills") &&
+            args.includes("add")
+        )
+      ).toBe(false);
+      // No harness clone: moka init never clones oisin-ee/agent.
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) =>
+            command === "gh" &&
+            Array.isArray(args) &&
+            args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent"
+        )
+      ).toBe(false);
       expect(
         mockExeca.mock.calls.some(
           ([command, args]) =>
@@ -1492,42 +1493,6 @@ describe("execute", () => {
         "https://pipeline-mcp.momokaya.ee/mcp/"
       );
     });
-  });
-
-  it("installs agent hooks from the consolidated private agent repository", async () => {
-    await withCliTempDir(
-      "pipeline-cli-hooks-",
-      async ({ dir, output, runCli }) => {
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "init",
-        ]);
-
-        expect(readFileSync(join(dir, ".claude/hooks/check.sh"), "utf8")).toBe(
-          "#!/bin/sh\necho claude\n"
-        );
-        expect(readFileSync(join(dir, ".codex/hooks/check.sh"), "utf8")).toBe(
-          "#!/bin/sh\necho codex\n"
-        );
-        expect(
-          readFileSync(join(dir, ".opencode/plugin/agent-hooks.ts"), "utf8")
-        ).toContain("AgentHooks");
-        expect(output()).toContain("generated .claude/hooks/check.sh");
-        expect(mockExeca).toHaveBeenCalledWith(
-          "gh",
-          [
-            "repo",
-            "clone",
-            "oisin-ee/agent",
-            expect.any(String),
-            "--",
-            "--depth=1",
-          ],
-          expect.objectContaining({ stdio: "inherit" })
-        );
-      }
-    );
   });
 
   it("does not expose a hook source override flag", async () => {

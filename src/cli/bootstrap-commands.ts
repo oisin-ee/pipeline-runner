@@ -48,11 +48,14 @@ export function registerBootstrapCommands(program: Command): void {
   program
     .command("init")
     .description(
-      "Install or refresh package-owned pipeline support: per-machine harness (skills + slash-command adapters + agent hooks + global instruction files) installed globally to ~/.claude, ~/.config/opencode, ~/.codex with no repo-local config"
+      "Install or refresh moka's slash-command adapters (/moka-execute, /moka-inspect, /moka-quick) plus the singleton MCP gateway host config, globally to ~/.claude, ~/.config/opencode, ~/.codex with no repo-local config. The agent harness (skills, hooks, instruction rules) is provisioned separately from oisin-ee/agent via chezmoi, not by moka."
     )
-    .option("--check", "verify the generated harness is current; fail if stale")
+    .option(
+      "--check",
+      "verify the installed adapters are current; fail if stale"
+    )
     .option("--dry-run", "show planned changes without writing files")
-    .option("--force", "overwrite manually edited harness files")
+    .option("--force", "overwrite manually edited command adapter files")
     .action(async (flags: InitFlags) => {
       const result = await initPipelineProject({
         ...flags,

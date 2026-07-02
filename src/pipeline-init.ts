@@ -1,48 +1,10 @@
-import { rm } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { execa } from "execa";
-import { AGENT_SKILL_SOURCE } from "./agent-assets";
 import { installCommands } from "./install-commands";
-import {
-  claudeGlobalConfigDir,
-  codexGlobalConfigDir,
-  opencodeGlobalConfigDir,
-} from "./install-commands/shared";
-import { type InstallHooksResult, installHooks } from "./install-hooks";
-import { installRules } from "./install-rules";
-
-export type PipelineSkillInstaller = (cwd: string) => Promise<void>;
-export type PipelineHookInstaller = (
-  cwd: string
-) => Promise<Pick<InstallHooksResult, "items"> | { files: string[] }>;
-
-export type PipelineRulesInstaller = (
-  cwd: string
-) => Promise<{ items: { path: string }[] }>;
-
-const DEFAULT_SKILL_INSTALL_SOURCE = AGENT_SKILL_SOURCE;
-const SKILL_INSTALL_AGENT_ARGS = [
-  "--agent",
-  "opencode",
-  "--agent",
-  "codex",
-  "--agent",
-  "claude-code",
-  "--skill",
-  "*",
-  "--yes",
-  "--global",
-];
 
 export interface PipelineInitOptions {
   check?: boolean;
   cwd?: string;
   dryRun?: boolean;
   force?: boolean;
-  hookInstaller?: PipelineHookInstaller;
-  rulesInstaller?: PipelineRulesInstaller;
-  skillInstaller?: PipelineSkillInstaller;
 }
 
 export interface PipelineInitResult {
@@ -61,105 +23,22 @@ interface PipelineInitInstallerFlags {
 }
 
 /**
- * Every global location the `skills` CLI writes into for the three agents we
- * manage. The CLI copies each skill's real folder once into the shared master
- * store `~/.agents/skills` and points each agent's global skills dir at it via
- * symlinks, recording install state in `~/.agents/.skill-lock.json` (or
- * `$XDG_STATE_HOME/skills/.skill-lock.json`). Each entry below mirrors that
- * resolution from the skills CLI source (skills `dist/cli.mjs`): per-agent
- * config dirs honor `CLAUDE_CONFIG_DIR` / `CODEX_HOME` /
- * `OPENCODE_CONFIG_DIR`+`XDG_CONFIG_HOME` (reused from install-commands so the
- * test suite's env redirect isolates them), the master store and lock honor
- * the home dir and `XDG_STATE_HOME`.
+ * `moka init` installs only moka's own slash-command adapters
+ * (`/moka-execute|inspect|quick`) plus the singleton MCP gateway host config,
+ * globally for Claude Code, Codex, and OpenCode. The shared agent harness
+ * (skills, agent hooks, and global instruction rules) is no longer installed by
+ * moka — it is provisioned from `oisin-ee/agent` via chezmoi (the dotfiles'
+ * `.chezmoiexternal` clone + `run_onchange` harness installer). Keeping moka's
+ * command adapters here means the runner image (and local dev) still gets the
+ * `/moka-*` entrypoints after `chezmoi apply` lays down the harness.
  */
-function globalSkillCleanTargets(): string[] {
-  const agentsHome = homedir();
-  const skillLockPath = process.env.XDG_STATE_HOME
-    ? join(process.env.XDG_STATE_HOME, "skills", ".skill-lock.json")
-    : join(agentsHome, ".agents", ".skill-lock.json");
-  return [
-    join(claudeGlobalConfigDir(), "skills"),
-    join(codexGlobalConfigDir(), "skills"),
-    join(opencodeGlobalConfigDir(), "skills"),
-    join(agentsHome, ".agents", "skills"),
-    skillLockPath,
-  ];
-}
-
-/**
- * Clean-replace step run before the additive `skills add`. `npx skills add`
- * only ever adds, so without this a renamed, removed, or foreign global skill
- * accumulates forever across `moka init` runs. Removing the per-agent symlink
- * farms + shared master store + lock resets global skill state so the post-add
- * set equals exactly the canonical `oisin-ee/agent` source. Safe when absent
- * (rm force); only `skills` subdirs, the master store, and the lock are
- * touched — never a whole host config dir.
- */
-async function cleanGlobalSkills(): Promise<void> {
-  await Promise.all(
-    globalSkillCleanTargets().map((target) =>
-      rm(target, { force: true, recursive: true })
-    )
-  );
-}
-
-async function installDefaultSkills(cwd: string): Promise<void> {
-  try {
-    await cleanGlobalSkills();
-    await execa(
-      "npx",
-      [
-        "--yes",
-        "skills",
-        "add",
-        DEFAULT_SKILL_INSTALL_SOURCE,
-        ...SKILL_INSTALL_AGENT_ARGS,
-      ],
-      { cwd, stdio: "inherit" }
-    );
-  } catch (error) {
-    const cause = error instanceof Error ? `: ${error.message}` : "";
-    throw new Error(
-      `Failed to install default skills from ${DEFAULT_SKILL_INSTALL_SOURCE}${cause}. ` +
-        "If this is a private repository, authenticate GitHub access for npx skills add and rerun `moka init`."
-    );
-  }
-}
-
-function hookInstallerFiles(
-  result: Pick<InstallHooksResult, "items"> | { files: string[] }
-): string[] {
-  return "items" in result
-    ? result.items.map((item) => item.path)
-    : result.files;
-}
-
 export async function initPipelineProject(
   options: PipelineInitOptions = {}
 ): Promise<PipelineInitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const { check, dryRun } = options;
   const installerFlags = initInstallerFlags(options);
-  // Skills come from `npx skills add` (network, externally managed); they are not
-  // part of the generated harness, so --check/--dry-run skip them entirely.
-  if (!(check || dryRun)) {
-    const skillInstaller = options.skillInstaller ?? installDefaultSkills;
-    await skillInstaller(cwd);
-  }
   const result = await installCommands({ cwd, host: "all", ...installerFlags });
-  const hookInstaller =
-    options.hookInstaller ?? (() => installHooks(installerFlags));
-  const hooks = await hookInstaller(cwd);
-  const rulesInstaller =
-    options.rulesInstaller ?? (() => installRules(installerFlags));
-  const rulesResult = await rulesInstaller(cwd);
-  return {
-    files: [
-      ...result.items.map((item) => item.path),
-      ...hookInstallerFiles(hooks),
-      ...rulesResult.items.map((item) => item.path),
-    ],
-  };
+  return { files: result.items.map((item) => item.path) };
 }
 
 function initInstallerFlags(
@@ -175,17 +54,17 @@ function initInstallerFlags(
 
 const INIT_RESULT_COPY = {
   install: {
-    headline: "Initialized package-owned pipeline support:",
+    headline: "Initialized moka slash-command adapters:",
     fileVerb: "generated",
     footer: "no repo-local pipeline config files were created",
   },
   check: {
-    headline: "Verified package-owned pipeline support is current:",
+    headline: "Verified moka slash-command adapters are current:",
     fileVerb: "current",
-    footer: "harness verified; no changes written",
+    footer: "adapters verified; no changes written",
   },
   dryRun: {
-    headline: "Planned package-owned pipeline support:",
+    headline: "Planned moka slash-command adapters:",
     fileVerb: "would generate",
     footer: "dry run; no changes written",
   },
@@ -210,7 +89,7 @@ export function formatPipelineInitResult(
   const copy = INIT_RESULT_COPY[initResultMode(mode)];
   return [
     copy.headline,
-    "per-machine harness globally (user/global skills + ~/.claude, ~/.config/opencode, ~/.codex); global instruction files generated via rulesync from oisin-ee/agent/rules; inherited by every repo with no per-repo copy",
+    "per-machine slash-command adapters (/moka-execute|inspect|quick) installed globally (~/.claude, ~/.config/opencode, ~/.codex); the agent harness (skills, hooks, instruction rules) comes from oisin-ee/agent via chezmoi, not moka",
     ...result.files.map((path) => `${copy.fileVerb} ${path}`),
     copy.footer,
   ].join("\n");
