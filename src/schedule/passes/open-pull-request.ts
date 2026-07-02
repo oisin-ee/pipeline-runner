@@ -9,7 +9,7 @@ type WorkflowNode = Workflow["nodes"][number];
 const OPEN_PR_BUILTIN = "open-pull-request";
 
 /** True when pull_request delivery is opted in via config. */
-function isPullRequestDeliveryEnabled(config: PipelineConfig): boolean {
+export function isPullRequestDeliveryEnabled(config: PipelineConfig): boolean {
   return config.delivery?.pull_request?.enabled === true;
 }
 
@@ -43,10 +43,10 @@ function buildPrNode(
 
 /** Append a final open-pull-request node to the root workflow when enabled. */
 export function appendPullRequestDelivery(
-  config: PipelineConfig,
+  enabled: boolean,
   artifact: ScheduleArtifact
 ): ScheduleArtifact {
-  if (!isPullRequestDeliveryEnabled(config)) {
+  if (!enabled) {
     return artifact;
   }
   const rootWorkflow = artifact.workflows[artifact.root_workflow];

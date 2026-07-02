@@ -19,6 +19,7 @@ import {
   type CompiledScheduleArtifact,
   compileScheduleArtifact,
   parseScheduleArtifact,
+  type ScheduleArtifact,
 } from "./planning/generate";
 import {
   dbAuthOptionSchema,
@@ -38,6 +39,7 @@ import {
   KubernetesArgoServiceLive,
   type WorkflowApi,
 } from "./runtime/services/kubernetes-argo-service";
+import { appendPullRequestDelivery } from "./schedule/passes/open-pull-request";
 import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
 const scheduleIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/);
@@ -117,6 +119,7 @@ const submitDynamicRunnerArgoWorkflowOptionsSchema = z
 const commandScheduleOptionsSchema = z
   .object({
     command: z.array(z.string().min(1)).min(1),
+    deliverPullRequest: z.boolean().default(false),
     generatedAt: z.date().default(() => new Date()),
     scheduleId: scheduleIdSchema.optional(),
     task: z.string().min(1),
@@ -457,7 +460,7 @@ export function buildCommandScheduleYaml(
   const options = commandScheduleOptionsSchema.parse(rawOptions);
   const scheduleId =
     options.scheduleId ?? `custom-${randomBytes(8).toString("hex")}`;
-  return stringify({
+  const artifact: ScheduleArtifact = {
     generated_at: options.generatedAt.toISOString(),
     kind: "pipeline-schedule",
     root_workflow: "root",
@@ -476,7 +479,10 @@ export function buildCommandScheduleYaml(
         ],
       },
     },
-  });
+  };
+  return stringify(
+    appendPullRequestDelivery(options.deliverPullRequest, artifact)
+  );
 }
 
 function normalizeRunnerPayloadForSubmit(input: {

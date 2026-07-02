@@ -25,7 +25,10 @@ import { integrateParallelWriteFanout } from "../schedule/passes/drain-merge";
 import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
 import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
 import { applyNodeCatalogModelFallbacks } from "../schedule/passes/models";
-import { appendPullRequestDelivery } from "../schedule/passes/open-pull-request";
+import {
+  appendPullRequestDelivery,
+  isPullRequestDeliveryEnabled,
+} from "../schedule/passes/open-pull-request";
 import { namespaceScheduleWorkflows } from "../schedule/passes/references";
 import { plannerPrompt, plannerRepairPrompt } from "../schedule/prompts";
 import {
@@ -292,7 +295,7 @@ export async function generateScheduleArtifactInMemory(
         options.config,
         policy.node_catalog,
         appendPullRequestDelivery(
-          options.config,
+          isPullRequestDeliveryEnabled(options.config),
           integrateParallelWriteFanout(
             options.config,
             addGeneratedImplementationCoverage(

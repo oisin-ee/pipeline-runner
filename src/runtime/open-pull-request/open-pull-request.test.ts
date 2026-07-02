@@ -247,9 +247,46 @@ describe("open-pull-request builtin", () => {
     expect(createCall?.args).toContain("main");
     expect(createCall?.args).toContain("--head");
     expect(createCall?.args).toContain("moka/run/run-opr");
-    expect(createCall?.args).toContain("--label");
-    expect(createCall?.args).toContain("preview");
+    expect(createCall?.args).not.toContain("--label");
     expect(result.evidence[0]).toContain("opened");
+
+    const editCall = calls.find(
+      (c) => c.args.includes("edit") && c.args.includes("pr")
+    );
+    expect(editCall).toBeDefined();
+    expect(editCall?.args).toContain("--add-label");
+    expect(editCall?.args).toContain("preview");
+  });
+
+  it("still reports the PR as opened when the label doesn't exist on the target repo", async () => {
+    const context = contextForOpenPr();
+    const calls: RecordedCall[] = [];
+    const executorLayer = Layer.succeed(CommandExecutor, {
+      execute: (command: string[]) => {
+        calls.push({ args: command });
+        if (command.includes("create")) {
+          return Effect.succeed<NodeAttemptResult>({
+            evidence: [],
+            exitCode: 0,
+            output: "https://github.com/owner/repo/pull/1",
+          });
+        }
+        return Effect.succeed<NodeAttemptResult>({
+          evidence: [],
+          exitCode: 1,
+          output: "could not add label: 'preview' not found",
+        });
+      },
+    });
+    const gitLayer = buildFakeGitLayer();
+
+    const result = await runWithLayers(context, gitLayer, executorLayer);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.evidence[0]).toContain("opened");
+    expect(result.evidence.some((line) => line.includes("not applied"))).toBe(
+      true
+    );
   });
 
   it("falls back to gh pr edit when the PR already exists", async () => {

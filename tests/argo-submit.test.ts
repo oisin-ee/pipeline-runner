@@ -680,6 +680,39 @@ describe("submitRunnerArgoWorkflow", () => {
     });
   });
 
+  it("omits the open-pull-request node by default", () => {
+    const schedule = parseScheduleArtifact(
+      buildCommandScheduleYaml({
+        command: ["echo", "hi"],
+        scheduleId: "custom-no-pr",
+        task: "echo hi",
+      })
+    );
+
+    const nodes = schedule.workflows.root.nodes;
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].kind).toBe("command");
+  });
+
+  it("appends an open-pull-request node depending on the command node when deliverPullRequest is set", () => {
+    const schedule = parseScheduleArtifact(
+      buildCommandScheduleYaml({
+        command: ["echo", "hi"],
+        deliverPullRequest: true,
+        scheduleId: "custom-with-pr",
+        task: "echo hi",
+      })
+    );
+
+    const nodes = schedule.workflows.root.nodes;
+    expect(nodes).toHaveLength(2);
+    const prNode = nodes.find(
+      (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
+    );
+    expect(prNode).toBeDefined();
+    expect(prNode?.needs).toEqual(["command"]);
+  });
+
   it("submits a generated agent-node schedule: task descriptors carry nodeId per task", async () => {
     /*
      * AC#2: The runner recovers per-node agent context (profile, models,

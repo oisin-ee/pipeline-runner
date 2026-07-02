@@ -73,6 +73,7 @@ function compileMokaCommandSubmitPlan(
   const task = commandTask(options);
   const scheduleYaml = buildCommandScheduleYaml({
     command: options.commandArgv,
+    deliverPullRequest: options.delivery.pullRequest,
     scheduleId: runId,
     task: taskDescription(task),
   });

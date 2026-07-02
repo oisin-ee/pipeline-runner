@@ -219,13 +219,36 @@ function submitPullRequest(
     const title = extractPrTitle(prCtx.task);
     const createResult = yield* runGhPrCreate(executor, prCtx, title, context);
     if (createResult.exitCode === 0) {
-      return openPrSuccess(extractPrUrl(createResult.output), "opened");
+      return yield* labelCreatedPr(executor, prCtx, createResult, context);
     }
     if (isPrAlreadyExistsError(createResult.output)) {
       return yield* handleExistingPr(prCtx.headBranch, prCtx.label, context);
     }
     return createResult;
   });
+}
+
+// The label is enrichment, not the deliverable -- the PR opening is. gh pr
+// create validates --label up front and refuses to create anything at all
+// if the label is missing from the target repo, so labeling happens as a
+// separate best-effort step after the PR exists: a missing/misconfigured
+// label degrades to a note in evidence, never blocks delivery of the PR.
+function labelCreatedPr(
+  executor: CommandExecutorService,
+  prCtx: OpenPrContext,
+  createResult: NodeAttemptResult,
+  context: RuntimeContext
+): Effect.Effect<NodeAttemptResult, never> {
+  const url = extractPrUrl(createResult.output);
+  return runGhPrEdit(executor, prCtx.headBranch, prCtx.label, context).pipe(
+    Effect.map((editResult) =>
+      editResult.exitCode === 0
+        ? openPrSuccess(url, "opened")
+        : openPrSuccess(url, "opened", [
+            `open-pull-request: label '${prCtx.label}' not applied — ${editResult.output || `gh pr edit exited ${editResult.exitCode}`}`,
+          ])
+    )
+  );
 }
 
 interface CommandExecutorService {
@@ -292,8 +315,6 @@ function buildGhPrCreateArgs(prCtx: OpenPrContext, title: string): string[] {
     title,
     "--body",
     `Opened by moka run ${prCtx.runId}`,
-    "--label",
-    prCtx.label,
   ];
 }
 
@@ -315,10 +336,11 @@ function extractPrUrl(output: string): string {
 
 function openPrSuccess(
   url: string,
-  action: "opened" | "updated"
+  action: "opened" | "updated",
+  extraEvidence: string[] = []
 ): NodeAttemptResult {
   return {
-    evidence: [`open-pull-request: PR ${action} — ${url}`],
+    evidence: [`open-pull-request: PR ${action} — ${url}`, ...extraEvidence],
     exitCode: 0,
     output: JSON.stringify({ action, url }),
   };
