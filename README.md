@@ -379,6 +379,15 @@ Package and container publishing is owned by GitHub Actions. Do not publish from
 a workstation with `npm publish`, `semantic-release`, Docker pushes, or direct
 registry commands.
 
+The authoritative package version lives in the npm registry, not in this
+repository. `package.json` pins the `0.0.0-development` semantic-release
+sentinel and is never bumped in git; semantic-release derives and publishes the
+real version from commit history at release time. To learn the current version,
+query the registry (`npm view @oisincoveney/pipeline version`) — the repo
+`version` field is intentionally not authoritative. Downstream pins (for example
+pipeline-console) should track the registry via Renovate rather than the git
+field.
+
 Before committing changes in this repository, run:
 
 ```shell
