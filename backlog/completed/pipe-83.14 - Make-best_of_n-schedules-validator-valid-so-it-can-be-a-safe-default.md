@@ -1,10 +1,10 @@
 ---
 id: PIPE-83.14
 title: Make best_of_n schedules validator-valid so it can be a safe default
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-06-16 10:53'
-updated_date: '2026-06-16 12:44'
+updated_date: '2026-07-04 18:56'
 labels:
   - architecture
   - runtime
@@ -49,3 +49,9 @@ GATE: tests/dogfood-installed.test.ts epic-schedule validation must pass with be
 - [ ] #7 RUNTIME GAP 2 (blocker): the winning candidate's file changes stay in its worktree and are never merged back to main, so downstream nodes can't see them. Fix: promote the selected candidate's worktree diff on selection.
 - [ ] #8 best_of_n + parallel_worktrees reverted to OFF in defaults until gaps 1+2 land (on-by-default hung every real run in a candidate retry loop). Re-enable + verify a full moka run completes PASS with candidates run + winner selected + merged.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed as dropped — best_of_n is removed entirely, per Oisin's directive (2026-07-04): the feature is not wanted. This ticket aimed to make best_of_n schedules validator-valid so it could be a safe default; that goal is void because best_of_n itself was nuked. Current code state confirms the removal: src/schedule/passes/candidates.ts and src/runtime/select-candidate/select-candidate.ts are GONE; no best_of_n / select-candidate references remain in src/, defaults/, or docs/; defaults/pipeline.yaml carries no best_of_n or on-by-default candidate config. The only residue is a regression guard in tests/dogfood-installed.test.ts:572-589 asserting generated schedules carry NO candidate fan-out ("best_of_n was removed"), which locks the removal in place. The remaining enable-by-default and runtime-gap ACs (#4,#6,#7,#8) are moot. Superseded by the earlier full removal noted in the PIPE-83 epic state.
+<!-- SECTION:FINAL_SUMMARY:END -->
