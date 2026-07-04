@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { V1ConfigMap } from "@kubernetes/client-node";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   buildCommandScheduleYaml,
   submitDynamicRunnerArgoWorkflow,
@@ -389,8 +389,79 @@ describe("submitRunnerArgoWorkflow", () => {
     });
   });
 
-  it("deletes created ConfigMaps when ownerReference patching fails after Workflow creation", async () => {
+  it(
+    "returns submitted Workflow result and keeps ConfigMaps when " +
+      "ownerReference patching fails after Workflow creation",
+    async () => {
+      const deletedConfigMaps: DeleteConfigMapRequest[] = [];
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+
+      try {
+        const result = await submitRunnerArgoWorkflow(
+          {
+            brokerAuth: BROKER_AUTH,
+            config: DEFAULT_CONFIG,
+            generateName: "pipeline-run-",
+            namespace,
+            payloadJson: PAYLOAD,
+            scheduleYaml: SCHEDULE,
+          },
+          {
+            coreApi: configMapApi({
+              createNamespacedConfigMap(input: { body: V1ConfigMap }) {
+                return Promise.resolve(input.body);
+              },
+              deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
+                deletedConfigMaps.push(input);
+                return Promise.resolve({ metadata: { name: input.name } });
+              },
+              patchNamespacedConfigMap() {
+                return Promise.reject(new Error("patch failed"));
+              },
+            }),
+            workflowApi: {
+              createNamespacedCustomObject() {
+                return Promise.resolve({
+                  metadata: {
+                    name: WORKFLOW_OWNER_REFERENCE.name,
+                    uid: WORKFLOW_OWNER_REFERENCE.uid,
+                  },
+                });
+              },
+            },
+          }
+        );
+
+        expect(result).toEqual({
+          namespace,
+          payloadConfigMapName: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
+          scheduleConfigMapName: expect.stringMatching(SCHEDULE_CONFIG_MAP_RE),
+          taskDescriptorConfigMapName: expect.stringMatching(
+            TASK_DESCRIPTOR_CONFIG_MAP_RE
+          ),
+          workflowName: WORKFLOW_OWNER_REFERENCE.name,
+          workflowUid: WORKFLOW_OWNER_REFERENCE.uid,
+        });
+        expect(deletedConfigMaps).toEqual([]);
+        expect(stderrSpy).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "moka submit: failed to set Workflow ownerReference"
+          )
+        );
+        expect(stderrSpy).toHaveBeenCalledWith(
+          expect.stringContaining("patch failed")
+        );
+      } finally {
+        stderrSpy.mockRestore();
+      }
+    }
+  );
+
+  it("deletes created ConfigMaps when Workflow creation fails before Workflow exists", async () => {
     const deletedConfigMaps: DeleteConfigMapRequest[] = [];
+    const patchedConfigMaps: PatchConfigMapRequest[] = [];
 
     await expect(
       submitRunnerArgoWorkflow(
@@ -411,24 +482,27 @@ describe("submitRunnerArgoWorkflow", () => {
               deletedConfigMaps.push(input);
               return Promise.resolve({ metadata: { name: input.name } });
             },
-            patchNamespacedConfigMap() {
-              return Promise.reject(new Error("patch failed"));
+            patchNamespacedConfigMap(input: PatchConfigMapRequest) {
+              patchedConfigMaps.push(input);
+              return Promise.resolve({
+                metadata: {
+                  name: input.name,
+                  namespace: input.namespace,
+                  ownerReferences: input.body.metadata.ownerReferences,
+                },
+              });
             },
           }),
           workflowApi: {
             createNamespacedCustomObject() {
-              return Promise.resolve({
-                metadata: {
-                  name: WORKFLOW_OWNER_REFERENCE.name,
-                  uid: WORKFLOW_OWNER_REFERENCE.uid,
-                },
-              });
+              return Promise.reject(new Error("workflow create failed"));
             },
           },
         }
       )
-    ).rejects.toThrow("patch failed");
+    ).rejects.toThrow("workflow create failed");
 
+    expect(patchedConfigMaps).toEqual([]);
     expect(deletedConfigMaps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -445,6 +519,70 @@ describe("submitRunnerArgoWorkflow", () => {
         }),
       ])
     );
+  });
+
+  it("returns submitted Workflow result and skips ownership when Workflow response has no uid", async () => {
+    const deletedConfigMaps: DeleteConfigMapRequest[] = [];
+    const patchedConfigMaps: PatchConfigMapRequest[] = [];
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      const result = await submitDynamicRunnerArgoWorkflow(
+        {
+          brokerAuth: BROKER_AUTH,
+          config: DEFAULT_CONFIG,
+          generateName: "pipeline-run-",
+          namespace,
+          payloadJson: PAYLOAD,
+          workflowId: "schedule-submit-smoke-root",
+        },
+        {
+          coreApi: configMapApi({
+            createNamespacedConfigMap(input: { body: V1ConfigMap }) {
+              return Promise.resolve(input.body);
+            },
+            deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
+              deletedConfigMaps.push(input);
+              return Promise.resolve({ metadata: { name: input.name } });
+            },
+            patchNamespacedConfigMap(input: PatchConfigMapRequest) {
+              patchedConfigMaps.push(input);
+              return Promise.resolve({
+                metadata: {
+                  name: input.name,
+                  namespace: input.namespace,
+                  ownerReferences: input.body.metadata.ownerReferences,
+                },
+              });
+            },
+          }),
+          workflowApi: {
+            createNamespacedCustomObject() {
+              return Promise.resolve({
+                metadata: {
+                  name: WORKFLOW_OWNER_REFERENCE.name,
+                },
+              });
+            },
+          },
+        }
+      );
+
+      expect(result).toEqual({
+        namespace,
+        payloadConfigMapName: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
+        workflowName: WORKFLOW_OWNER_REFERENCE.name,
+      });
+      expect(deletedConfigMaps).toEqual([]);
+      expect(patchedConfigMaps).toEqual([]);
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining("did not include metadata.uid")
+      );
+    } finally {
+      stderrSpy.mockRestore();
+    }
   });
 
   it("normalizes GitHub SSH repository URLs in persisted runner payloads", async () => {

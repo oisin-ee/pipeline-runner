@@ -314,7 +314,8 @@ function submitRunnerArgoWorkflowEffect(
       namespace: options.namespace,
       options,
     });
-    return yield* submitWorkflowManifest({
+    return yield* submitWorkflowWithRunConfigMaps({
+      configMapNames: createdConfigMapNames,
       dependencies,
       namespace: options.namespace,
       options,
@@ -327,26 +328,7 @@ function submitRunnerArgoWorkflowEffect(
       workflowFieldOverrides: {
         podGC: options.podGC,
       },
-    }).pipe(
-      Effect.flatMap((result) =>
-        ownRunConfigMaps({
-          configMapNames: createdConfigMapNames,
-          dependencies,
-          namespace: options.namespace,
-          options,
-          result,
-        })
-      ),
-      Effect.catch((error) =>
-        cleanupRunConfigMapsOnFailure({
-          configMapNames: createdConfigMapNames,
-          dependencies,
-          error,
-          namespace: options.namespace,
-          options,
-        })
-      )
-    );
+    });
   });
 }
 
@@ -424,7 +406,8 @@ function submitDynamicRunnerArgoWorkflowEffect(
       namespace: options.namespace,
       options,
     });
-    return yield* submitWorkflowManifest({
+    return yield* submitWorkflowWithRunConfigMaps({
+      configMapNames: createdConfigMapNames,
       dependencies,
       namespace: options.namespace,
       options,
@@ -433,26 +416,7 @@ function submitDynamicRunnerArgoWorkflowEffect(
       workflowFieldOverrides: {
         podGC: options.podGC,
       },
-    }).pipe(
-      Effect.flatMap((result) =>
-        ownRunConfigMaps({
-          configMapNames: createdConfigMapNames,
-          dependencies,
-          namespace: options.namespace,
-          options,
-          result,
-        })
-      ),
-      Effect.catch((error) =>
-        cleanupRunConfigMapsOnFailure({
-          configMapNames: createdConfigMapNames,
-          dependencies,
-          error,
-          namespace: options.namespace,
-          options,
-        })
-      )
-    );
+    });
   });
 }
 
@@ -579,6 +543,12 @@ function ownRunConfigMaps(input: {
   KubernetesArgoService
 > {
   const ownerReference = workflowOwnerReference(input.result);
+  if (ownerReference === undefined) {
+    return warnRunConfigMapOwnershipSkipped({
+      error: new Error(missingWorkflowUidMessage(input.result)),
+      result: input.result,
+    }).pipe(Effect.as(input.result));
+  }
   const body = configMapOwnerReferencesPatch(ownerReference);
   return patchRunConfigMapOwnerReferences({
     body,
@@ -587,6 +557,41 @@ function ownRunConfigMaps(input: {
     namespace: input.namespace,
     options: input.options,
   }).pipe(Effect.as(input.result));
+}
+
+function ownRunConfigMapsBestEffort(input: {
+  configMapNames: readonly string[];
+  dependencies: SubmitRunnerArgoWorkflowDependencies;
+  namespace: string;
+  options: KubernetesArgoClientOptions;
+  result: SubmitRunnerArgoWorkflowResult;
+}): Effect.Effect<
+  SubmitRunnerArgoWorkflowResult,
+  never,
+  KubernetesArgoService
+> {
+  return ownRunConfigMaps(input).pipe(
+    Effect.catch((error) =>
+      warnRunConfigMapOwnershipSkipped({
+        error,
+        result: input.result,
+      }).pipe(Effect.as(input.result))
+    )
+  );
+}
+
+function warnRunConfigMapOwnershipSkipped(input: {
+  error: unknown;
+  result: SubmitRunnerArgoWorkflowResult;
+}): Effect.Effect<void> {
+  return Effect.sync(() => {
+    const reason = errorMessage(input.error);
+    const message =
+      "moka submit: failed to set Workflow ownerReference for ConfigMaps after " +
+      `Argo Workflow '${input.result.workflowName}' was created; ` +
+      `leaving ConfigMaps for TTL/sweeper cleanup: ${reason}\n`;
+    process.stderr.write(message);
+  });
 }
 
 function cleanupRunConfigMapsOnFailure(input: {
@@ -661,11 +666,9 @@ function deleteRunConfigMaps(input: {
 
 function workflowOwnerReference(
   result: SubmitRunnerArgoWorkflowResult
-): KubernetesOwnerReference {
+): KubernetesOwnerReference | undefined {
   if (result.workflowUid === undefined) {
-    throw new Error(
-      `Created Argo Workflow '${result.workflowName}' did not include metadata.uid; cannot own ConfigMaps`
-    );
+    return undefined;
   }
   return workflowOwnerReferenceSchema.parse({
     apiVersion: "argoproj.io/v1alpha1",
@@ -673,6 +676,12 @@ function workflowOwnerReference(
     name: result.workflowName,
     uid: result.workflowUid,
   });
+}
+
+function missingWorkflowUidMessage(
+  result: SubmitRunnerArgoWorkflowResult
+): string {
+  return `Created Argo Workflow '${result.workflowName}' did not include metadata.uid; cannot own ConfigMaps`;
 }
 
 function configMapOwnerReferencesPatch(
@@ -721,6 +730,53 @@ function submitWorkflowManifest(input: {
       ...input.resultExtras,
     });
   });
+}
+
+function submitWorkflowWithRunConfigMaps(input: {
+  configMapNames: readonly string[];
+  dependencies: SubmitRunnerArgoWorkflowDependencies;
+  namespace: string;
+  options: KubernetesArgoClientOptions;
+  resultExtras: Omit<
+    SubmitRunnerArgoWorkflowResult,
+    "namespace" | "workflowName" | "workflowUid"
+  >;
+  workflow: ArgoWorkflowManifest;
+  workflowFieldOverrides?: {
+    podGC?: ArgoWorkflowPodGC;
+  };
+}): Effect.Effect<
+  SubmitRunnerArgoWorkflowResult,
+  unknown,
+  KubernetesArgoService
+> {
+  return submitWorkflowManifest({
+    dependencies: input.dependencies,
+    namespace: input.namespace,
+    options: input.options,
+    resultExtras: input.resultExtras,
+    workflow: input.workflow,
+    workflowFieldOverrides: input.workflowFieldOverrides,
+  }).pipe(
+    Effect.catch((error) =>
+      cleanupRunConfigMapsOnFailure({
+        configMapNames: input.configMapNames,
+        dependencies: input.dependencies,
+        error,
+        namespace: input.namespace,
+        options: input.options,
+      })
+    ),
+    Effect.flatMap((result) =>
+      ownRunConfigMapsBestEffort({
+        configMapNames: input.configMapNames,
+        dependencies: input.dependencies,
+        namespace: input.namespace,
+        options: input.options,
+        result,
+      })
+    )
+  );
 }
 
 function applyWorkflowFieldOverrides(
