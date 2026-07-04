@@ -3,9 +3,10 @@ id: PIPE-88.4
 title: >-
   PR identity resolver + required-check classifier
   (fixable/infra-down/indeterminate)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-21 19:27'
+updated_date: '2026-07-04 19:42'
 labels: []
 dependencies: []
 modified_files:
@@ -26,13 +27,28 @@ Escalation: report Met/Unmet with evidence/blocker.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 runId resolves to its PR number via branch convention -- Evidence: test stubs gh pr list and asserts PR number
-- [ ] #2 classifier is a data table over check conclusions, not a branch ladder -- Evidence: parameterized test covers failure->fixable, cancelled/timed_out/error->infra-down, stuck/missing->indeterminate
-- [ ] #3 indeterminate requires positive infra signal to ever become infra-down -- Evidence: test: stuck in_progress + no outage -> indeterminate, not infra-down
+- [x] #1 runId resolves to its PR number via branch convention -- Evidence: test stubs gh pr list and asserts PR number
+- [x] #2 classifier is a data table over check conclusions, not a branch ladder -- Evidence: parameterized test covers failure->fixable, cancelled/timed_out/error->infra-down, stuck/missing->indeterminate
+- [x] #3 indeterminate requires positive infra signal to ever become infra-down -- Evidence: test: stuck in_progress + no outage -> indeterminate, not infra-down
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+DONE. PR identity resolver + required-check classifier.
+
+Evidence:
+- src/loop/gh-checks.ts — resolves child runId to its PR via the pipeline/<runId> head-branch convention (gh pr list --head, JSON parsed); classifyRequiredChecks maps check conclusions through data tables, not a branch ladder:
+  - CONCLUSION_CLASS_TABLE (gh-checks.ts:83): failure/action_required -> fixable; cancelled/timed_out -> infra-down.
+  - COMMIT_STATUS_CLASS_TABLE (:91): error -> infra-down.
+  - CLASS_PRIORITY (:100): fixable(2) > infra-down(1) > indeterminate(0); anything absent from the tables (unknown/passing/stuck in_progress) falls through to indeterminate, so a merely-stuck check is never infra-down without a positive infra signal.
+- Tests green: src/loop/gh-checks.test.ts (13 passed), parameterized over failure->fixable, cancelled/timed_out/error->infra-down, stuck/missing->indeterminate, plus PR-number resolution stub.
+
+AC1/2/3 all met.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Run feature-implementation workflow in order
-- [ ] #2 pnpm test on classifier; record output
+- [x] #1 Run feature-implementation workflow in order
+- [x] #2 pnpm test on classifier; record output
 <!-- DOD:END -->

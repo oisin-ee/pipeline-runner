@@ -4,11 +4,11 @@ title: Move runner-job orchestration into dedicated module
 status: To Do
 assignee: []
 created_date: '2026-06-05 12:27'
+updated_date: '2026-07-04 19:40'
 labels:
   - runner-job
   - architecture
-dependencies:
-  - PIPE-49.1
+dependencies: []
 references:
   - src/kubernetes-runner.ts
   - src/runner-event-sink.ts
@@ -40,3 +40,13 @@ Move the current Kubernetes runner-job orchestration into a dedicated runner-job
 <!-- SECTION:PLAN:BEGIN -->
 Port the existing orchestration into src/runner-job/run.ts, update runner-job command imports, delete the old file, and update tests/imports directly with no shim.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: grooming
+created: 2026-07-04 19:40
+---
+ARCHIVE — obsolete/superseded. Asks to move orchestration into `src/runner-job/run.ts` (export `runRunnerJob`) and delete `src/kubernetes-runner.ts`. Both the source file AND the target module are gone: `src/runner-job/run.ts` (869 lines) was DELETED in 269f097 'feat: moka'. `runKubernetesRunnerJob`/`runRunnerJob` exist nowhere in src today (git grep finds them only in these backlog files). Remote orchestration now lives in `src/runner-command/` + `src/remote/argo` + `src/remote/submit`. The refactor is moot.
+---
+<!-- COMMENTS:END -->

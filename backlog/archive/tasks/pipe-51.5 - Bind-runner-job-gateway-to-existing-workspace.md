@@ -4,6 +4,7 @@ title: Bind runner-job gateway to existing /workspace
 status: To Do
 assignee: []
 created_date: '2026-06-08 15:54'
+updated_date: '2026-07-04 19:44'
 labels:
   - mcp
   - gateway
@@ -43,3 +44,20 @@ Integrate gateway reconciliation into runner-job startup so repo-aware MCP backe
 <!-- SECTION:PLAN:BEGIN -->
 Add a runner-job integration seam in src/runner-job/run.ts with injectable reconcile function for tests. Avoid adding Kubernetes API calls to the in-pod runner. Keep src/runner-job/k8s.ts changes limited to config/secret wiring if the command needs it.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: grooming (opus)
+created: 2026-07-04 19:44
+---
+ARCHIVED — superseded by the hosted-gateway architecture. Verified against current repo (2026-07-04):
+
+- The referenced subsystem no longer exists: src/runner-job/run.ts and src/runner-job/k8s.ts were removed in the moka refactor (commit 269f097 'feat: moka'). There is no runner-job startup path to integrate reconcile into.
+- The MCP gateway model pivoted from per-runner local reconcile to a single INFRA-hosted gateway. Default config (.pipeline/profiles.yaml:52) is now `mode: hosted`, `url: https://pipeline-mcp.momokaya.ee/mcp/` (chart lives in the infra repo k8s/charts/pipeline-mcp-gateway, INFRA-074).
+- Runner pods no longer reconcile a local gateway; they connect to the hosted gateway URL and receive PIPELINE_MCP_GATEWAY_AUTHORIZATION injected via secretKeyRef (src/remote/argo/policy.ts:95-102, model.ts:369; commit af666ab). reconcileGateway() is now only invoked by the `moka mcp gateway reconcile` CLI (src/cli/mcp-gateway-commands.ts) — no runner caller.
+- The ticket's INTENT (runner MCP binds to the existing workspace, never a duplicate clone) is satisfied by the current design: the runner sets PIPELINE_TARGET_PATH to the prepared worktree (src/run-control/detach.ts:41) and no MCP-specific clone occurs anywhere.
+
+No remaining valid work matches this ticket's ACs (runner-job startup reconcile hook, k8s.ts secret wiring). Archiving as superseded rather than grooming.
+---
+<!-- COMMENTS:END -->

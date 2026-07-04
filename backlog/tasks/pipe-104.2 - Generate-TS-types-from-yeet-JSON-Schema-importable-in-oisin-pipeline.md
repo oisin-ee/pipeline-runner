@@ -4,7 +4,7 @@ title: 'Generate TS types from yeet JSON Schema, importable in oisin-pipeline'
 status: To Do
 assignee: []
 created_date: '2026-07-04 10:55'
-updated_date: '2026-07-04 10:56'
+updated_date: '2026-07-04 19:41'
 labels: []
 dependencies:
   - PIPE-104.1
@@ -24,6 +24,12 @@ Workflow: feature-implementation. What to build: a codegen step that turns yeet'
 - [ ] #1 Generated RunSpec + Event TS types compile and an import file typechecks -- Evidence: tsc/nub typecheck passes on a file importing both
 - [ ] #2 Regeneration is reproducible from yeet schema output -- Evidence: re-running the gen script on unchanged schema yields no diff
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Groomed 2026-07-04. Un-started, valid, correctly blocked on 104.1. No generated yeet TS types module and no schema-gen script in oisin-pipeline. NOTE: package manager here is `nub` + vitest + ultracite (not npm/bun) — the regen script should be a `nub run` package script (bin name is `moka`). Keep To Do.
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

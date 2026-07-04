@@ -4,7 +4,7 @@ title: Verify Moka submits real Argo Workflows
 status: To Do
 assignee: []
 created_date: '2026-06-10 14:10'
-updated_date: '2026-06-11 15:24'
+updated_date: '2026-07-04 19:42'
 labels:
   - momokaya
   - verification
@@ -45,6 +45,18 @@ Prove the Moka command shape through real repository usage and real Argo Workflo
 <!-- SECTION:PLAN:BEGIN -->
 Use the repository verification standard. Build the package, run the installed/built CLI, create a disposable k3d or equivalent local cluster, install Argo Workflows, submit full/quick/command paths with real manifests, inspect Workflow specs, and delete the cluster. Do not publish locally.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Groomed 2026-07-04. VERDICT: GROOM — keep To Do (blocker resolved, but no fresh disposable-cluster evidence recorded, and ACs partly stale vs current architecture).
+
+BLOCKER RESOLVED: the Final Summary below ('proper graph lowering remains required', 'fake builtin/group/parallel lowering removed') is now STALE. Graph-to-Argo lowering landed in PIPE-54.8 (commit f53d083 'feat: complete graph-to-Argo lowering semantics'). src/argo-graph.ts now lowers builtin/group/parallel node kinds (cases at argo-graph.ts:116/120/127; exhaustive `never` guard + validation error at :49 for genuinely unsupported kinds). All 54.7 dependencies (54.5/54.6/54.8) are Done and the parent epic PIPE-54 is marked Done (2026-07-04).
+
+ARCHITECTURE DRIFT in the ACs: per PIPE-54/54.8 the current model submits generated graphs as DYNAMIC DB-drained Argo Workflows created IN THE RUNNER POD, not a statically client-compiled DAG. So AC#4/#5 'produces a Workflow DAG' should be reframed to 'produces a root Argo Workflow that drains its schedule from the durable store' (workflowId schedule-run-<id>-root).
+
+WHY STILL OPEN: this is a real-cluster verification ticket (disposable k3d/k8s + Argo, submit full/quick/command, inspect Workflow specs, confirm zero k8s Jobs). PIPE-54's closure cites unit-test evidence (moka-submit/argo-submit/argo-workflow tests), not a live disposable-cluster run of all three paths post-54.8. Real submit→Argo cluster evidence does exist in adjacent dogfoods (PIPE-94.9 submit→kill→inspect→resume end-to-end, Done). DECISION FOR USER: either (a) run the disposable-cluster verification against the current dynamic-DB-drained paths and close, or (b) fold this into PIPE-94.9's dogfood evidence and archive as superseded. Not closing unilaterally — no fresh evidence read for this ticket's specific ACs.
+<!-- SECTION:NOTES:END -->
 
 ## Final Summary
 

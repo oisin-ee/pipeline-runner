@@ -4,6 +4,7 @@ title: 'moka: opencode parity gate — yeet executor == SDK executor'
 status: To Do
 assignee: []
 created_date: '2026-07-04 10:56'
+updated_date: '2026-07-04 19:41'
 labels: []
 dependencies:
   - PIPE-104.3
@@ -23,6 +24,12 @@ Workflow: feature-implementation. What to build: a parity test harness proving t
 - [ ] #1 Representative opencode runs produce identical normalized RunnerEventRecord streams across both executors -- Evidence: parity test diffs the two streams, empty diff
 - [ ] #2 Node outcomes (pass/fail + structured output) match across executors -- Evidence: parity test asserts equal outcomes per run
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Groomed 2026-07-04. Un-started, valid, blocked on 104.3. Parity gate cannot exist until the yeet executor lands. RunnerEventRecord events published from src/runtime/events/events.ts. Keep To Do.
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

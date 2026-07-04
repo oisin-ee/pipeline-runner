@@ -4,13 +4,12 @@ title: Emit runner-job phase readiness events
 status: To Do
 assignee: []
 created_date: '2026-06-05 12:27'
+updated_date: '2026-07-04 19:40'
 labels:
   - runner-job
   - events
   - observability
-dependencies:
-  - PIPE-49.2
-  - PIPE-49.4
+dependencies: []
 references:
   - src/runner-event-sink.ts
   - src/runner-job-contract.ts
@@ -43,3 +42,13 @@ Emit event records for runner-job environment phases so Pipeline Console can sho
 <!-- SECTION:PLAN:BEGIN -->
 Add runner-job phase event helpers and extend event sink/contract mapping only where needed for Console-readable records.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: grooming
+created: 2026-07-04 19:40
+---
+ARCHIVE — obsolete/superseded. Adds `src/runner-job/events.ts` phase-readiness events (checkout/devspace/config/MCP-auth phases) mapped through the runner-job contract. The runner-job module and `src/runner-job-contract.ts` were deleted in 269f097 'feat: moka'. Event plumbing today is `src/runner-event-sink.ts` + `src/runner-event-schema.ts` under the moka runner, and there is no devspace-checkout phase to instrument. Obsolete with the architecture it observed.
+---
+<!-- COMMENTS:END -->

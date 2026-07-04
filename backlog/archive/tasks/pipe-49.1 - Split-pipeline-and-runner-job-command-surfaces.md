@@ -4,6 +4,7 @@ title: Split pipeline and runner-job command surfaces
 status: To Do
 assignee: []
 created_date: '2026-06-05 12:27'
+updated_date: '2026-07-04 19:40'
 labels:
   - runner-job
   - architecture
@@ -39,3 +40,13 @@ Extract command registration so the pipeline CLI surface and Kubernetes runner-j
 <!-- SECTION:PLAN:BEGIN -->
 Create command registration modules, move existing registration without behavior changes, then update src/index.ts to compose them.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: grooming
+created: 2026-07-04 19:40
+---
+ARCHIVE — obsolete/superseded. Targets a command-surface split for a `runner-job` module that no longer exists. `src/commands/runner-job-command.ts` and the whole `src/runner-job/` module were built (f304e97 'feat(runner): add self-contained runner jobs') then DELETED wholesale in 269f097 'feat: moka' (2026-06-10), which replaced the self-contained Kubernetes devspace runner-job architecture with moka submit -> Argo Workflows. Today `src/index.ts` no longer owns command registration at all — it delegates to `src/cli/program`; there is no runner-job command surface to split. Verify: `git show --stat 269f097` lists `src/commands/runner-job-command.ts | 24 -`.
+---
+<!-- COMMENTS:END -->

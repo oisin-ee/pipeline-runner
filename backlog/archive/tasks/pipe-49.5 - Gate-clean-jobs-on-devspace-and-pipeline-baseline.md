@@ -4,12 +4,12 @@ title: Gate clean jobs on devspace and pipeline baseline
 status: To Do
 assignee: []
 created_date: '2026-06-05 12:27'
+updated_date: '2026-07-04 19:40'
 labels:
   - runner-job
   - devspace
   - validation
-dependencies:
-  - PIPE-49.4
+dependencies: []
 references:
   - src/config.ts
 modified_files:
@@ -40,3 +40,13 @@ Add runner-job readiness checks that prove the clean checkout is a devspace repo
 <!-- SECTION:PLAN:BEGIN -->
 Create src/runner-job/devspace.ts and readiness checks called from runRunnerJob before runPipelineFromConfig.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: grooming
+created: 2026-07-04 19:40
+---
+ARCHIVE — obsolete/superseded. Gates clean jobs on /workspace/devspace.yaml + stable pipeline baseline via `src/runner-job/devspace.ts`. That file (77 lines) was deleted in 269f097 'feat: moka', and `devspace` appears nowhere in `src/` today (`git grep -l devspace -- 'src/**'` returns nothing). The devspace-repo readiness concept was abandoned with the moka/Argo pivot.
+---
+<!-- COMMENTS:END -->

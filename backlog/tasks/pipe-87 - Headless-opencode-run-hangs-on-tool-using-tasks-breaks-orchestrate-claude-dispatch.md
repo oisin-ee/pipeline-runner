@@ -1,11 +1,12 @@
 ---
 id: PIPE-87
 title: >-
-  Headless `opencode run` hangs on tool-using tasks — breaks orchestrate's Claude-Code dispatch
+  Headless `opencode run` hangs on tool-using tasks — breaks orchestrate's
+  Claude-Code dispatch
 status: To Do
 assignee: []
 created_date: '2026-06-17 14:55'
-updated_date: '2026-06-17 14:55'
+updated_date: '2026-07-04 19:44'
 labels:
   - moka
   - orchestrate
@@ -17,6 +18,13 @@ references:
   - .claude/skills/orchestrate/SKILL.md
   - .opencode/agents/MoKa Inspector.md
   - .opencode/opencode.json
+  - 'src/install-commands/claude-code.ts:122'
+  - >-
+    backlog/tasks/pipe-73 -
+    Replace-agent-node-subprocess-scraping-with-opencode-serve-opencode-ai-sdk.md
+  - >-
+    backlog/tasks/pipe-104 -
+    yeet-as-moka-spawn-runner-—-Phase-01-opencode-parity.md
 priority: high
 ---
 
@@ -52,6 +60,16 @@ The `orchestrate` skill on Claude Code is non-functional locally — any real la
 - [ ] #4 The fix is encoded where it belongs (opencode config defaults, the generated MoKa agent permission/LSP config, or an orchestrate-skill dispatch flag), not as a one-off env tweak
 - [ ] #5 The `orchestrate` skill doc notes any required local config (e.g. `lsp:false` for headless dispatch) so the Claude-Code branch is reliable
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Grooming 2026-07-04 — still valid, still To Do. Investigation half (AC #1-3) is checked/concluded: root cause = LSP init on the first tool-using turn; `lsp:false` was the verified workaround. Remaining #4 (encode the fix where it belongs) and #5 (document in orchestrate skill) are UNCHECKED — the fix was found but never durably encoded. Only commit for this ticket is db47f68 docs(backlog): record PIPE-87 headless opencode-run investigation — no code fix landed.
+
+Reference correction — the ticket points at `.claude/skills/orchestrate/SKILL.md` and `.opencode/opencode.json`, NEITHER of which lives in this repo (the orchestrate skill body is in the separate oisin-ee/skills repo; the .opencode config is generated into consumer repos at `moka init` time). The IN-REPO hang surface that this repo actually owns is **src/install-commands/claude-code.ts:122**, which still emits the exact headless dispatch `opencode run --agent "<displayName>" --format json --dir "$PWD" '<prompt>'` — the command PIPE-87 reports hangs on tool-using tasks. That line is where AC#4's durable fix (e.g. inject `lsp:false`/serve-mode dispatch) would land for the Claude-Code adapter.
+
+Relations: PIPE-73 (Replace agent-node subprocess scraping with opencode serve/SDK) is still To Do — the runtime RUNNER path already uses the SDK (src/runtime/opencode-session-executor.ts) but the Claude-Code install-commands DISPATCH path still shells out to headless `opencode run`, so PIPE-73 landing on the dispatch path could retire this hang entirely. PIPE-104 (newest epic: yeet-backed opencode executor behind the executor seam) may supersede the whole headless-opencode dispatch — confirm scope before investing here; if PIPE-104 replaces the Claude-Code dispatch subprocess, PIPE-87 may become moot.
+<!-- SECTION:NOTES:END -->
 
 ## Handoff Prompt
 

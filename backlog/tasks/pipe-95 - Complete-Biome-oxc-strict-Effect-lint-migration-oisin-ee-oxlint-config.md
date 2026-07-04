@@ -4,6 +4,7 @@ title: Complete Biome->oxc + strict + Effect lint migration (@oisin-ee/oxlint-co
 status: To Do
 assignee: []
 created_date: '2026-07-01 19:57'
+updated_date: '2026-07-04 19:42'
 labels:
   - migration
 dependencies: []
@@ -26,3 +27,17 @@ pipeline-runner (@oisincoveney/pipeline) was a Biome lint repo, uses Effect (eff
 - [ ] #1 biome removed; oxlint + oxfmt + strict + effect preset active
 - [ ] #2 ultracite check --type-aware passes (0 errors); tsc passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Grooming verification 2026-07-04 (repo state). Migration STARTED but NOT complete — both toolchains coexist.
+
+DONE so far: package.json devDeps carry @oisin-ee/oxlint-config@1.0.0, oxlint@1.71.0, oxfmt@0.56.0, oxlint-tsgolint@0.23.0, @mpsuesser/oxlint-plugin-effect@0.3.0, ultracite@7.7.0. oxlint.config.ts exists (extends [core, strict], typeAware:true, typeCheck:true).
+
+AC#1 UNMET (biome removed; oxlint+oxfmt+strict+effect active): @biomejs/biome@2.4.15 STILL in devDependencies; biome.jsonc STILL present (extends ultracite/biome/core + ultracite/biome/vitest). oxfmt.config.ts does NOT exist (missing). Effect preset NOT wired — oxlint.config.ts has only [core, strict]; its own comment says 'add the effect/effectMigration presets... See the migration Backlog ticket' (still pending). effect@4.0.0-beta.90 is a runtime dep, so the effect preset is in-scope.
+
+AC#2 UNMET/UNVERIFIED (ultracite check --type-aware passes 0 errors; tsc passes): package.json check script is 'ultracite check' (NOT --type-aware). Which provider ultracite resolves is ambiguous while biome.jsonc still exists alongside oxlint.config.ts. Gate not run in this grooming pass.
+
+REMAINING: (1) add oxfmt.config.ts (import ultracite/oxfmt); (2) add effect preset scoped to Effect code (effectMigration on any frontend); (3) remove biome.jsonc + @biomejs/biome, confirm ultracite check uses the oxlint provider; (4) update check script to --type-aware if that's the intended gate; (5) run the gate green + tsc. Kept To Do.
+<!-- SECTION:NOTES:END -->

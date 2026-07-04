@@ -4,6 +4,7 @@ title: 'yeet: versioned JSON Schema for RunSpec + Event via schemars'
 status: To Do
 assignee: []
 created_date: '2026-07-04 10:55'
+updated_date: '2026-07-04 19:41'
 labels: []
 dependencies: []
 parent_task_id: PIPE-104
@@ -22,6 +23,12 @@ Workflow: feature-implementation. What to build: yeet emits a versioned, machine
 - [ ] #1 `yeet schema` prints valid JSON Schema covering RunSpec and every Event variant -- Evidence: piped through a JSON Schema validator, exit 0
 - [ ] #2 Schema carries a stable schema_version field -- Evidence: snapshot test pins version + shape; changing a wire type without bumping fails the test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Groomed 2026-07-04. Un-started, valid. Verified in ~/dev/yeet: Cargo.toml has no `schemars` dep; no `JsonSchema` derive on RunSpec/Event; no `yeet schema` subcommand in src/cli.rs. RunSpec = src/spec.rs, Event = src/event.rs (paths in ticket correct). Both ACs unmet. Keep To Do.
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

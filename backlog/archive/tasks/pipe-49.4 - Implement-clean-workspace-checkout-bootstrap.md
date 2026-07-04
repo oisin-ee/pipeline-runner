@@ -4,12 +4,12 @@ title: Implement clean workspace checkout bootstrap
 status: To Do
 assignee: []
 created_date: '2026-06-05 12:27'
+updated_date: '2026-07-04 19:40'
 labels:
   - runner-job
   - workspace
   - git
-dependencies:
-  - PIPE-49.3
+dependencies: []
 references:
   - src/runner-job-contract.ts
   - package.json
@@ -41,3 +41,13 @@ Add runner-job workspace preparation that clones the requested repository into /
 <!-- SECTION:PLAN:BEGIN -->
 Create src/runner-job/workspace.ts and credentials helper module, inject simple-git for tests, and keep all /workspace assumptions inside runner-job modules.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: grooming
+created: 2026-07-04 19:40
+---
+ARCHIVE — obsolete/superseded. Asks to create `src/runner-job/workspace.ts` + `credentials.ts` to clone+checkout into /workspace. `src/runner-job/workspace.ts` (181 lines) was deleted in 269f097 'feat: moka'. The clean-checkout goal now lives in the moka runner via `src/run-state/git-refs.ts` (DEFAULT_WORKSPACE_PATH = '/workspace', runAuthenticatedGit) — a different module under a different architecture. The runner-job-scoped bootstrap this ticket specifies no longer has a home.
+---
+<!-- COMMENTS:END -->

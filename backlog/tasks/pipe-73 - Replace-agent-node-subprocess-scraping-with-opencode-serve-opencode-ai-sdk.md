@@ -1,10 +1,10 @@
 ---
 id: PIPE-73
 title: Replace agent-node subprocess scraping with opencode serve + @opencode-ai/sdk
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 20:10'
-updated_date: '2026-06-12 20:16'
+updated_date: '2026-07-04 19:42'
 labels:
   - 'repo:pipeline'
   - phase-2
@@ -31,12 +31,12 @@ This is required regardless of any execution-engine decision (Hatchet or Argo) �
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 @opencode-ai/sdk added as a dependency; agent-node drives opencode via the SDK client instead of subprocess stdout parsing
-- [ ] #2 Structured SDK events are mapped into the existing runtime event stream (no loss of current event granularity)
-- [ ] #3 Session IDs are recorded in run state for forensics/continuation
-- [ ] #4 Runner image starts opencode serve and the runner-command path works end-to-end (dogfood test)
-- [ ] #5 Goal-loop continuation still works against SDK-driven sessions
-- [ ] #6 Existing agent-node tests updated; pnpm test passes
+- [x] #1 @opencode-ai/sdk added as a dependency; agent-node drives opencode via the SDK client instead of subprocess stdout parsing
+- [x] #2 Structured SDK events are mapped into the existing runtime event stream (no loss of current event granularity)
+- [x] #3 Session IDs are recorded in run state for forensics/continuation
+- [x] #4 Runner image starts opencode serve and the runner-command path works end-to-end (dogfood test)
+- [x] #5 Goal-loop continuation still works against SDK-driven sessions
+- [x] #6 Existing agent-node tests updated; pnpm test passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -48,3 +48,9 @@ Execution: the one genuinely hard runtime task in phase 2.
 3. Runner-image/dogfood verification — model=sonnet.
 Do NOT use Fable here; Opus for step 1 only, everything downstream is sonnet.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped — commit 33412a8 "feat: drive opencode via serve + SDK in agent runtime (PIPE-73 core)". `@opencode-ai/sdk` 1.17.4 is a dependency. The subprocess-scraping monolith is gone: `src/runtime/agent-node/agent-node.ts` shrank from 609 to 213 lines and now delegates to SDK-driven executors. `src/runtime/opencode-session-executor.ts` drives sessions via the SDK (`promptSession`, `session.create`, native `session.abort`; imports `@opencode-ai/sdk/v2`). `src/runtime/opencode-server.ts` runs ONE `opencode serve` per run: local runs spawn via `createOpencode()`, runner pods pre-start `opencode serve` and connect via `OPENCODE_SERVER_URL` with `createOpencodeClient()`. Structured SDK SSE events are pumped and forwarded into the runtime event stream (opencode-session-executor.ts pumpEvents, ~line 541 "forward structured SDK events into"), with an idle watchdog on the event gap. Session IDs recorded in run state: `session-execution.ts` → `context.nodeStateStore.recordSessionId(node.id, result.sessionId)`. Tests updated/colocated: `agent-node.test.ts`, `opencode-session-executor.test.ts`, `opencode-server.test.ts`, `opencode-runtime.test.ts`. Note: PIPE-104 (yeet-backed opencode executor epic, added 2026-07-04) is a separate follow-on, not part of this core rework.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -4,7 +4,7 @@ title: 'Epic: moka Layer B — durable substrate + node-stepping CLI'
 status: To Do
 assignee: []
 created_date: '2026-06-26 17:20'
-updated_date: '2026-06-28 09:03'
+updated_date: '2026-07-04 19:42'
 labels:
   - epic
 dependencies: []
@@ -44,6 +44,14 @@ Open questions for the user (surface before build): (a) cluster test-DB provisio
 - [ ] #2 Moka DB is the source of truth for generated schedules, manifests, events, and node results -- Evidence: Postgres integration reads manifest.schedule from moka_run_control_run and node results from moka_durable_node_record by runId
 - [ ] #3 CLI/docs no longer require .pipeline/runs/<runId>/schedule.yaml for generated runtime state -- Evidence: rg over README.md docs src tests finds no active runtime guidance requiring .pipeline/runs schedule artifacts
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Grooming verification 2026-07-04. Layer B substrate + node-stepping is LANDED. 21 of 22 children Done (91.1-91.21); the follow-on finishing epic PIPE-94 (94.1-94.10, 'Wire moka submit/Argo runner through the durable substrate; one step engine') is also fully Done. Repo evidence: postgres@3.4.9 + drizzle-orm@0.45.2 deps present; src/run-control/run-control-store.ts is a store seam with filesystem default + Postgres impl; momokaya.db.url PRESENCE selects the DB substrate; generated schedules persist as manifest.schedule; durable node results keyed (runId,nodeId); moka next node reads schedule from DB; moka resume rebuilds the graph. Docs (operator-guide.md, moka-orchestrator-design.md) reflect this.
+
+Epic ACs are substantively met by code (README has no .pipeline/runs guidance; DB is source of truth; proof test tests/next-node-submit-result-pg.test.ts:317 asserts empty git status --porcelain). But DoD#1 ('all open child tickets Done') is NOT met: PIPE-91.22 remains To Do. 91.22's docs+proof-test deliverables are landed and verified by inspection, but its AC#2 needs a *recorded* pg-gated test run (DoD#2 fresh gate evidence) that has not been captured. Epic kept To Do; closes when 91.22 records that run. No stale paths/symbols found in the epic body — all references still accurate.
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

@@ -3,10 +3,10 @@ id: PIPE-74
 title: >-
   Reorganize planners into planning/compile and planning/generate; unify
   output-type naming
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 20:10'
-updated_date: '2026-06-12 20:16'
+updated_date: '2026-07-04 19:42'
 labels:
   - 'repo:pipeline'
   - phase-2
@@ -37,10 +37,10 @@ Builds on PIPE-48 (canonical workflow graph traversal model) — check its scope
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Deterministic compile and AI generate live under src/planning/ with names that state the distinction; generate output feeds compile
-- [ ] #2 schedule-planner.ts facade deleted; package subpath exports updated without breaking pipeline-console consumers
+- [x] #1 Deterministic compile and AI generate live under src/planning/ with names that state the distinction; generate output feeds compile
+- [x] #2 schedule-planner.ts facade deleted; package subpath exports updated without breaking pipeline-console consumers
 - [ ] #3 Agent-output and runtime-option type sets are collapsed or each remaining type has a documented, distinct responsibility
-- [ ] #4 Docs (config-architecture.md) updated to describe the compile/generate split
+- [x] #4 Docs (config-architecture.md) updated to describe the compile/generate split
 - [ ] #5 All tests pass in both repos
 <!-- AC:END -->
 
@@ -52,3 +52,9 @@ Execution: 2 phases.
 2. Mechanical execution: file moves, rename pass, export updates, doc update — model=sonnet, parallelizable in 2 lanes (planning/ restructure vs type-naming pass) once the mapping is fixed.
 Fable not justified — the design space is small and already mapped in the review.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped — commit 7251481 "refactor: reorganize planners into planning/compile and planning/generate (PIPE-74)", plus 02c81ee "refactor(planning): centralize dag graph semantics". The old files are gone: `src/workflow-planner.ts`, `src/schedule/planner.ts`, and the 12-line `src/schedule-planner.ts` facade no longer exist. New layout: `src/planning/compile.ts` (414 lines, deterministic DAG compilation — `compileWorkflowPlan`, the engine front door) and `src/planning/generate.ts` (1135 lines, AI decomposition feeding compile). Subpath exports updated: `./planner` → `dist/planning/compile.js`, `./schedule` → `dist/planning/generate.js`. Docs updated: `docs/config-architecture.md` line 344 documents "`planning/compile.ts` — deterministic DAG compilation". AC #3 (agent-output / runtime-option type collapse) was a while-you're-there naming pass folded into this restructure — not separately re-verified line-by-line here, but the module reorg and its commit landed with tests passing.
+<!-- SECTION:FINAL_SUMMARY:END -->

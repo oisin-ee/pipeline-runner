@@ -4,7 +4,7 @@ title: 'Infra: put Zitadel auth in front of the public pipeline-console ingress'
 status: To Do
 assignee: []
 created_date: '2026-06-12 20:11'
-updated_date: '2026-06-12 20:21'
+updated_date: '2026-07-04 19:43'
 labels:
   - 'repo:infra'
   - 'repo:console'
@@ -48,4 +48,6 @@ Authorized to commit directly to infra main (ArgoCD will sync) — verify ACs im
 
 <!-- SECTION:NOTES:BEGIN -->
 Decision 2026-06-12 (Oisin): gateway forward-auth via Zitadel, not in-app OIDC. Direct-to-main commits on infra authorized.
+
+Grooming 2026-07-04 — still valid, still To Do. Verified this repo (oisin-pipeline) holds NONE of the work: no console ingress, Traefik, oauth2-proxy, forward-auth, or Zitadel manifests exist here (`rg -li zitadel|oauth2-proxy|forward-auth` → only a passing mention in docs/mcp-gateway.md; `k8s/` contains only `runner-dev/`, unrelated). The entire implementation belongs in the SEPARATE infra GitOps repo — per the Momokaya deploy standard, the pipeline-console prod Application + ingress live at infra `k8s/apps/platform/<app>.yaml` (infra-owned, ArgoCD-synced). Labels already correct (repo:infra, repo:console). Decision remains as pre-made by Oisin 2026-06-12: gateway forward-auth (oauth2-proxy / Traefik OIDC middleware against Zitadel), NOT in-app OIDC. Remaining work is entirely in the infra repo: (1) oauth2-proxy/forward-auth manifests + Zitadel app registration; (2) exclusion rules for /api/pipeline/runner-events (bearer) and /api/github/webhooks (signature); (3) verify the 4 ACs live post-sync. No code lands in oisin-pipeline for this ticket.
 <!-- SECTION:NOTES:END -->
