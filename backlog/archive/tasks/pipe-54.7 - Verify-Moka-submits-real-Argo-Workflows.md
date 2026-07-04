@@ -4,7 +4,7 @@ title: Verify Moka submits real Argo Workflows
 status: To Do
 assignee: []
 created_date: '2026-06-10 14:10'
-updated_date: '2026-07-04 19:42'
+updated_date: '2026-07-04 19:54'
 labels:
   - momokaya
   - verification
@@ -56,6 +56,8 @@ BLOCKER RESOLVED: the Final Summary below ('proper graph lowering remains requir
 ARCHITECTURE DRIFT in the ACs: per PIPE-54/54.8 the current model submits generated graphs as DYNAMIC DB-drained Argo Workflows created IN THE RUNNER POD, not a statically client-compiled DAG. So AC#4/#5 'produces a Workflow DAG' should be reframed to 'produces a root Argo Workflow that drains its schedule from the durable store' (workflowId schedule-run-<id>-root).
 
 WHY STILL OPEN: this is a real-cluster verification ticket (disposable k3d/k8s + Argo, submit full/quick/command, inspect Workflow specs, confirm zero k8s Jobs). PIPE-54's closure cites unit-test evidence (moka-submit/argo-submit/argo-workflow tests), not a live disposable-cluster run of all three paths post-54.8. Real submit→Argo cluster evidence does exist in adjacent dogfoods (PIPE-94.9 submit→kill→inspect→resume end-to-end, Done). DECISION FOR USER: either (a) run the disposable-cluster verification against the current dynamic-DB-drained paths and close, or (b) fold this into PIPE-94.9's dogfood evidence and archive as superseded. Not closing unilaterally — no fresh evidence read for this ticket's specific ACs.
+
+Archived 2026-07-04 as SUPERSEDED (Oisin decision). The technical blocker (client-side graph lowering) was resolved by PIPE-54.8 / commit f53d083 (src/argo-graph.ts lowers builtin/group/parallel); parent epic PIPE-54 is Done. This ticket's ACs assume a client-compiled DAG, but the architecture is now dynamic DB-drained in-runner (PIPE-91/94 durable substrate). Real moka→Argo submit is proven by PIPE-94 (SHIPPED) and covered going forward by the PIPE-94.9 dogfood. No separate client-DAG verification is meaningful under the new model.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
