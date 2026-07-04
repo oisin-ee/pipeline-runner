@@ -213,10 +213,10 @@ describe("runner container image packaging", () => {
       files?: string[];
     };
 
-    // Skills are install-managed (`moka init` installs them from the skills
-    // source into host dirs), so the package ships neither the repo harness copy
-    // (.agents/skills) nor a project-installed copy (.pipeline/skills); it ships
-    // the runtime config defaults it owns.
+    // Skills are installed by the shared agent harness into host dirs, so the
+    // package ships neither the repo harness copy (.agents/skills) nor a
+    // project-installed copy (.pipeline/skills); it ships the runtime config
+    // defaults it owns.
     expect(pkg.files).toContain("defaults");
     expect(pkg.files).not.toContain(".agents/skills");
     expect(pkg.files).not.toContain(".pipeline/skills");

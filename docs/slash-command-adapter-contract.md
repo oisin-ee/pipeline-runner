@@ -32,9 +32,9 @@ moka init --check
 - OpenCode agents project package profiles as markdown agents with `mode`,
   `description`, resolved `model`, `permission`, `hidden`, and task permission
   maps. The primary orchestrator may call only generated package profile agents.
-- OpenCode skill files are installed by `npx skills add` during `moka init`;
-  Moka does not generate `.opencode/skills`. Generated agent
-  `permission.skill` maps still deny ungranted skills.
+- OpenCode skill files are installed by the shared harness from `oisin-ee/agent`;
+  Moka does not generate skill files. Generated agent `permission.skill` maps
+  still deny ungranted skills.
 - `.opencode/opencode.json` includes the singleton `pipeline-gateway` MCP
   server and enables OpenCode LSP. CLI lint, typecheck, tests, and configured
   gates remain the blocking verification path; LSP is editor/runtime assistance.

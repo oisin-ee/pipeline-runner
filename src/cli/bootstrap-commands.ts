@@ -48,7 +48,12 @@ export function registerBootstrapCommands(program: Command): void {
   program
     .command("init")
     .description(
-      "Install or refresh moka's slash-command adapters (/moka-execute, /moka-inspect, /moka-quick) plus the singleton MCP gateway host config, globally to ~/.claude, ~/.config/opencode, ~/.codex with no repo-local config. The agent harness (skills, hooks, instruction rules) is provisioned separately from oisin-ee/agent via chezmoi, not by moka."
+      [
+        "Install or refresh Moka host adapters (/moka-execute, /moka-inspect, /moka-quick command surfaces,",
+        "native-agent projections, and gateway config), globally to ~/.claude, ~/.config/opencode, ~/.codex",
+        "with no repo-local config. The shared agent harness (skills, hooks, instruction rules) is provisioned",
+        "separately from oisin-ee/agent via chezmoi, not by Moka.",
+      ].join(" ")
     )
     .option(
       "--check",

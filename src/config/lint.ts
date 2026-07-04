@@ -79,10 +79,10 @@ function lintFileReferences(config: PipelineConfig): Array<{
   ref: { path: string; source_root?: "package" | "project" };
 }> {
   const refs: ReturnType<typeof lintFileReferences> = [];
-  // Skill bodies are install-managed (installed into host dirs by `moka init`),
-  // so a missing skill body is not a config defect and must not produce a
-  // missing-file-reference lint warning. Profile instructions and output
-  // schemas remain package/project assets and are still linted below.
+  // Skill bodies are shared harness assets installed from oisin-ee/agent, so a
+  // missing skill body is not a config defect and must not produce a
+  // missing-file-reference lint warning. Profile instructions and output schemas
+  // remain package/project assets and are still linted below.
   for (const [profileId, profile] of Object.entries(config.profiles)) {
     pushLintPathRef(refs, `profiles.${profileId}.instructions.path`, {
       path: profile.instructions.path,
@@ -128,7 +128,7 @@ function missingFileReferenceWarning(
 function missingFileReferenceMessage(path: string, value: string): string {
   const base = `${path} references missing file '${value}'`;
   if (path.startsWith("skills.") && value.startsWith(".agents/skills/")) {
-    return `${base}. Run \`moka init\` to install project-local skills with \`npx --yes skills add oisin-ee/agent/skills\`.`;
+    return `${base}. Run \`chezmoi apply --refresh-externals always\` to install shared harness skills from oisin-ee/agent.`;
   }
   return base;
 }

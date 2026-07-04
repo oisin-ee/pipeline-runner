@@ -98,10 +98,10 @@ RUN --mount=type=secret,id=gh_token \
   chezmoi init --apply --force oisincoveney/dotfiles; \
   rm -f "$GIT_CONFIG_GLOBAL"
 
-# Install moka's own slash-command adapters (/moka-execute|inspect|quick) + the
-# singleton MCP gateway host config AFTER the harness is laid down by chezmoi.
-# moka no longer installs the harness itself (that moved to oisin-ee/agent via
-# chezmoi above); this step only adds the /moka-* entrypoints on top.
+# Install Moka host adapters (/moka-execute|inspect|quick command surfaces,
+# native-agent projections, and gateway config) AFTER the shared harness is laid
+# down by chezmoi. Moka no longer installs the harness itself; this step adds
+# the /moka-* entrypoints and package-owned host config on top.
 RUN moka init \
   && test -f /root/.config/opencode/commands/moka-execute.md \
   && test -f /root/.claude/commands/moka-execute.md

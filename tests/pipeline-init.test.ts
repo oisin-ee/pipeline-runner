@@ -15,10 +15,11 @@ import {
   initPipelineProject,
 } from "../src/pipeline-init";
 
-// `moka init` now installs only moka's own slash-command adapters (plus the
-// singleton MCP gateway host config). The agent harness (skills, hooks,
-// instruction rules) is provisioned from oisin-ee/agent via chezmoi, not moka —
-// so this suite asserts a commands-only install with no network side effects.
+// `moka init` now installs only Moka's own host adapters (command surfaces,
+// native-agent projections, and singleton MCP gateway config). The agent
+// harness (skills, hooks, instruction rules) is provisioned from oisin-ee/agent
+// via chezmoi, not Moka, so this suite asserts an adapter-only install with no
+// network side effects.
 
 function bootstrappedHostFilesExist(home: string): boolean {
   return [
@@ -66,7 +67,7 @@ describe("initPipelineProject (global scope)", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("installs slash-command adapters without repo-local pipeline config", async () => {
+  it("installs host adapters without repo-local pipeline config", async () => {
     const result = await initPipelineProject({ cwd: dir });
 
     expect(result.files).toContain(".opencode/commands/moka-execute.md");
@@ -102,12 +103,12 @@ describe("initPipelineProject (global scope)", () => {
     expect(existsSync(join(home, ".config", "opencode", "skills"))).toBe(false);
   });
 
-  it("formats init as one-command slash-command adapter setup", async () => {
+  it("formats init as one-command host adapter setup", async () => {
     const result = await initPipelineProject({ cwd: dir });
     const output = formatPipelineInitResult(result);
 
-    expect(output).toContain("Initialized moka slash-command adapters:");
-    expect(output).toContain("slash-command adapters");
+    expect(output).toContain("Initialized Moka host adapters:");
+    expect(output).toContain("Moka host adapters");
     expect(output).toContain("chezmoi");
     expect(output).toContain("generated .opencode/opencode.json");
     expect(output).toContain(
@@ -159,9 +160,7 @@ describe("initPipelineProject (global scope)", () => {
     );
     expect(existsSync(join(dir, ".opencode"))).toBe(false);
     expect(existsSync(join(dir, ".claude"))).toBe(false);
-    expect(formatPipelineInitResult(result)).toContain(
-      "slash-command adapters"
-    );
+    expect(formatPipelineInitResult(result)).toContain("Moka host adapters");
   });
 
   it("formats --check as a verify, not an install", async () => {
@@ -170,9 +169,7 @@ describe("initPipelineProject (global scope)", () => {
     const result = await initPipelineProject({ check: true, cwd: dir });
     const output = formatPipelineInitResult(result, { check: true });
 
-    expect(output).toContain(
-      "Verified moka slash-command adapters are current:"
-    );
+    expect(output).toContain("Verified Moka host adapters are current:");
     expect(output).toContain("adapters verified; no changes written");
     expect(output).not.toContain("Initialized");
   });

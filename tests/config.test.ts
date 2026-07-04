@@ -1725,10 +1725,10 @@ describe("final review asset bundle", () => {
   });
 
   it("wires the install-managed critique skill into the reviewer profile", () => {
-    // Skill bodies are install-managed (installed from the skills source into
-    // host dirs by `moka init`), not bundled in the package, so the contract is
-    // the config wiring: the reviewer grants the critique skill and the skill is
-    // declared in the registry.
+    // Skill bodies are installed from the shared agent harness into host dirs,
+    // not bundled in the package, so the contract is the config wiring: the
+    // reviewer grants the critique skill and the skill is declared in the
+    // registry.
     const config = loadPackagePipelineConfig(process.cwd());
 
     expect(config.skills.critique).toBeDefined();

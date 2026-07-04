@@ -151,8 +151,8 @@ receive explicit grants:
 - `network`: inherited or disabled.
 - `output`: text, JSON, JSONL, or JSON Schema output.
 
-Default skills resolve from project-installed skill files created by
-`moka init` via `npx --yes skills add oisin-ee/agent/skills`:
+Default skills resolve from shared harness skill files installed from
+`oisin-ee/agent` by chezmoi:
 
 ```yaml
 skills:
@@ -161,11 +161,11 @@ skills:
 ```
 
 Project-authored skill and rule paths resolve from the project root and must
-exist for runtime use. If default skill files are missing, run `moka init` to
-install them before executing workflows.
+exist for runtime use. If shared harness skill files are missing, run
+`chezmoi apply --refresh-externals always` before executing workflows.
 
-Default agent hooks are copied by `moka init` from private `oisin-ee/agent`.
-That source repository has one canonical hook layout:
+Default agent hooks are copied by `bin/install-harness.mjs` from private
+`oisin-ee/agent`. That source repository has one canonical hook layout:
 
 ```text
 hooks/claude-code/
@@ -173,18 +173,10 @@ hooks/codex/
 hooks/opencode/
 ```
 
-Moka overlays those folders onto `.claude`, `.codex`, and `.opencode` for
-project scope, or the corresponding per-machine host config directories for
-global scope. Moka tracks installed hashes in host-local manifests so it can
-update unchanged owned hook files, delete owned files removed from the hook
-repository, and reject manual drift unless `--force` is used.
-
-`moka init --skill-scope` (PIPE-83.12) chooses how the default set is installed:
-`project` (default) vendors a repo-local copy (`skills add … --copy`,
-`skills-lock.json`); `personal` installs once at user/global scope
-(`skills add … --global`) so every repo the user opens inherits the skills with
-no per-repo copy and no project lockfile — the standardization path for a single
-user across many projects.
+The harness installer overlays those folders onto the corresponding per-machine
+host config directories. It tracks installed hashes in host-local manifests so
+it can update unchanged owned hook files, delete owned files removed from the
+hook repository, and reject manual drift unless `--force` is used.
 
 MCP-enabled profiles use one gateway grant:
 
@@ -211,10 +203,10 @@ OpenCode host resources are generated from the same profile registry:
 
 - `.opencode/agents/*.md` declares native agents with `mode`, `description`,
   resolved model, explicit permissions, and task access to generated agents only.
-- `.opencode/skills/*/SKILL.md` is installed by `skills add`; Moka only
-  generates agents, commands, plugins, and project config.
-- Additional manually authored OpenCode hook plugins can be copied from
-  `oisin-ee/agent/hooks/opencode/` by `moka init`.
+- `.agents/skills/*/SKILL.md` is installed by the shared harness; Moka only
+  generates agents, commands, plugins, and host config.
+- Additional manually authored OpenCode hook plugins are copied from
+  `oisin-ee/agent/hooks/opencode/` by the shared harness installer.
 - `.opencode/plugins/pipeline-goal-context.ts` projects package-owned
   continuation context into OpenCode compaction.
 - `.opencode/opencode.json` contains the gateway MCP config, enables LSP, and
@@ -454,8 +446,9 @@ rather than re-emitting it into every project.
 
 ## Troubleshooting
 
-- Missing host resources: run `moka init`; `moka run` loads the installed
+- Missing Moka host adapters: run `moka init`; `moka run` loads the installed
   package config.
+- Missing shared harness assets: run `chezmoi apply --refresh-externals always`.
 - Capability error: reduce the profile grants or choose a runner whose declared
   capabilities include the requested tools, filesystem, network, output, rules,
   skills, or MCP access.

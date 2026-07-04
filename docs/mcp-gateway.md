@@ -47,7 +47,7 @@ host-specific MCP config.
 3. Configure `mcp_gateway` in package-owned profile config.
 4. Run `moka mcp gateway reconcile` to render and apply the full ToolHive vMCP
    backend inventory for the current workspace.
-5. Run `moka init` to write project OpenCode and Claude Code command surfaces and host
+5. Run `moka init` to write OpenCode and Claude Code command surfaces and host
    MCP config.
 6. Run `moka mcp gateway doctor` to verify gateway health and required tools.
 7. Keep high-risk upstream capabilities controlled by gateway-side policy, not

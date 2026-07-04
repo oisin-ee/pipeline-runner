@@ -618,7 +618,7 @@ async function withCliTempDir(
   ];
   try {
     writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
-    // Redirect per-machine host dirs into `dir` so installed harness files land
+    // Redirect per-machine host dirs into `dir` so installed adapter files land
     // under `dir` and existing path assertions (join(dir, ".opencode/…")) work.
     for (const key of hostEnvKeys) {
       savedHostEnv[key] = process.env[key];
@@ -1366,8 +1366,8 @@ describe("execute", () => {
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-      // moka init installs only its own slash-command adapters + gateway config;
-      // the agent harness (skills, hooks, rules) comes from oisin-ee/agent via
+      // moka init installs only its own host adapters + gateway config; the
+      // agent harness (skills, hooks, rules) comes from oisin-ee/agent via
       // chezmoi, not moka.
       expect(
         generatedHostFilesExist(dir, [

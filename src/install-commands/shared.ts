@@ -29,7 +29,7 @@ export type InstallHost = (typeof INSTALL_HOSTS)[number];
 export type CommandHostSelection = InstallHost | "all";
 
 /**
- * Any host a generated harness file can be attributed to. `codex` and `gemini`
+ * Any host a generated Moka adapter file can be attributed to. `codex` and `gemini`
  * are instruction-only hosts: they receive a generated global instruction
  * memory file (upserted via a marker block) but no slash-command/agent adapter,
  * so they need no resourceRoots scan and no HostAdapter.
