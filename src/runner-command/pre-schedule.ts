@@ -231,6 +231,7 @@ function generateSchedulePhaseEffect(
           config: context.config,
           entrypointId,
           phaseContext,
+          pullRequestDeliveryRequested: context.payload.delivery.pullRequest,
           runId: context.payload.run.id,
           task: context.task,
           worktreePath: context.worktreePath,
