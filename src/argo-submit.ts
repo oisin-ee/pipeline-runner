@@ -668,7 +668,7 @@ function workflowOwnerReference(
   result: SubmitRunnerArgoWorkflowResult
 ): KubernetesOwnerReference | undefined {
   if (result.workflowUid === undefined) {
-    return undefined;
+    return;
   }
   return workflowOwnerReferenceSchema.parse({
     apiVersion: "argoproj.io/v1alpha1",
