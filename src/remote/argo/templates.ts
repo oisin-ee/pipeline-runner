@@ -5,6 +5,7 @@ import type {
   ArgoWorkflowVolumeMount,
   ParsedBuildRunnerArgoWorkflowOptions,
 } from "./model";
+import type { RunnerContainerPolicyOptions } from "./policy";
 import {
   RUNNER_WORKFLOW_PAYLOAD_PATH,
   RUNNER_WORKFLOW_SCHEDULE_PATH,
@@ -14,7 +15,6 @@ import {
   runnerTemplateDeadlineSeconds,
   runnerTemplateResources,
 } from "./policy";
-import type { RunnerContainerPolicyOptions } from "./policy";
 
 const READY_NODE_IDS_PATH = "/tmp/moka-ready-node-ids.json";
 export const READY_NODE_IDS_PARAMETER = "ready-node-ids";

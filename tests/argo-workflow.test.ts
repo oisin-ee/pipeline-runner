@@ -2,7 +2,6 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import * as Arr from "effect/Array";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -90,20 +89,19 @@ const retryStrategyForTemplate = (
     "retryStrategy"
   )?.value;
 
-const expectRunnerContainersPreserveImageEntrypoint = (
+const runnerContainersPreserveImageEntrypoint = (
   manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>
-) => {
+): boolean => {
   const containers = manifest.spec.templates.flatMap((template) =>
     template.container === undefined ? [] : [template.container]
   );
 
-  expect(Arr.isReadonlyArrayNonEmpty(containers)).toBe(true);
-  expect(
+  return (
+    containers.length > 0 &&
     containers.every(
-      (container) =>
-        Arr.isReadonlyArrayNonEmpty(container.args) && !("command" in container)
+      (container) => container.args.length > 0 && !("command" in container)
     )
-  ).toBe(true);
+  );
 };
 
 describe("runner Argo Workflow manifest", () => {
@@ -173,25 +171,29 @@ describe("runner Argo Workflow manifest", () => {
   });
 
   it("passes runner subcommands as args and preserves the image entrypoint", () => {
-    expectRunnerContainersPreserveImageEntrypoint(
-      buildRunnerArgoWorkflowManifest({
-        ...BASE_OPTIONS,
-        plan: plan(),
-      })
-    );
-    expectRunnerContainersPreserveImageEntrypoint(
-      buildDynamicRunnerArgoWorkflowManifest({
-        brokerAuth: BASE_OPTIONS.brokerAuth,
-        dbAuth: {
-          secretKey: "db-url",
-          secretName: "moka-db",
-        },
-        generateName: "pipeline-run-",
-        namespace: "workflow-namespace",
-        payloadConfigMapName: "pipeline-payload-run-1",
-        workflowId: "schedule-run-1-root",
-      })
-    );
+    expect(
+      runnerContainersPreserveImageEntrypoint(
+        buildRunnerArgoWorkflowManifest({
+          ...BASE_OPTIONS,
+          plan: plan(),
+        })
+      )
+    ).toBe(true);
+    expect(
+      runnerContainersPreserveImageEntrypoint(
+        buildDynamicRunnerArgoWorkflowManifest({
+          brokerAuth: BASE_OPTIONS.brokerAuth,
+          dbAuth: {
+            secretKey: "db-url",
+            secretName: "moka-db",
+          },
+          generateName: "pipeline-run-",
+          namespace: "workflow-namespace",
+          payloadConfigMapName: "pipeline-payload-run-1",
+          workflowId: "schedule-run-1-root",
+        })
+      )
+    ).toBe(true);
   });
 
   it("keeps rendering pure and separates Argo policy owners", () => {
