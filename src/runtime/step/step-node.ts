@@ -87,9 +87,9 @@ export const buildEnvelopeForNode = (
   );
   const upstreamOutputs = node.needs.flatMap((needId) => {
     const result = passedByNodeId.get(needId);
-    return result !== undefined
-      ? [{ nodeId: needId, output: result.output }]
-      : [];
+    return result === undefined
+      ? []
+      : [{ nodeId: needId, output: result.output }];
   });
   return Option.some({
     criteria,

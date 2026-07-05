@@ -4,7 +4,7 @@ import { getOrUndefined, none, some } from "effect/Option";
 import type { PlannedWorkflowNode } from "./planning/compile";
 import { findNode } from "./planning/graph";
 
-export const findPlannedNodeOption = (
+const findPlannedNodeOption = (
   nodes: PlannedWorkflowNode[],
   nodeId: string
 ): Option<PlannedWorkflowNode> => {

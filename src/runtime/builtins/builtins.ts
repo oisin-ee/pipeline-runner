@@ -193,7 +193,13 @@ const resolveRequiredScriptCommand = (
   });
 
 const runtimeChangedFiles = (context: RuntimeContext): string[] =>
-  [...new Set(context.nodeStateStore.changedFilesForAllNodes())].toSorted();
+  [
+    ...new Set(
+      [...context.nodeStateStore.nodeSnapshots.values()].flatMap((snapshot) => [
+        ...snapshot.files,
+      ])
+    ),
+  ].toSorted();
 
 const semgrepTargets = (context: RuntimeContext): Option.Option<string[]> => {
   const targets = runtimeChangedFiles(context).filter((file) =>

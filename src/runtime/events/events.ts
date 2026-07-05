@@ -716,7 +716,7 @@ const recordStructuredOutput = (
     return;
   }
   const validation = structuredOutputValidation(context, output);
-  context.nodeStateStore.recordStructuredOutput({
+  context.nodeStateStore.structuredOutputs.push({
     attempt: output.attempt,
     format: output.format,
     nodeId: structuredOutputNodeId(context, output.nodeId),

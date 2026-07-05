@@ -93,21 +93,37 @@ profiles:
     model: broker/gpt-5.5
     reasoning_effort: xhigh
     description: Orchestrate the configured pipeline and enforce gates.
-    instructions: { inline: "Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates." }
+    instructions:
+      {
+        inline: "Orchestrate through the canonical local `moka run` supervisor. For compatibility slash commands, run the `moka run` command and flags shown in the command body. Treat execution as CLI/supervised runtime, not OpenCode-native Task execution. Enforce only package-configured gates.",
+      }
     skills: [orchestrate, execute, quick, inspect]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
   moka-researcher:
     runner: opencode
     description: Research the requested task and produce structured findings.
-    instructions: { inline: "Inspect first-party source, tests, docs, and task context for the current task only. Produce concise findings with file references and stop; do not perform open-ended repository exploration." }
+    instructions:
+      {
+        inline: "Inspect first-party source, tests, docs, and task context for the current task only. Produce concise findings with file references and stop; do not perform open-ended repository exploration.",
+      }
     timeout_ms: 900000
     skills: [research, spec, scope]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema
@@ -116,12 +132,20 @@ profiles:
   moka-ticket-scoper:
     runner: opencode
     description: Scope a request into a validated Backlog ticket plan.
-    instructions: { inline: "Use the scope skill contract to produce implementation-complete Backlog tickets. Return only valid JSON matching `.pipeline/schemas/ticket-plan.schema.json`. Every acceptance criterion must include concrete evidence text. Do not emit partial tickets; include dependencies, likely files, references, priorities, and plan text for each proposed ticket." }
+    instructions:
+      {
+        inline: "Use the scope skill contract to produce implementation-complete Backlog tickets. Return only valid JSON matching `.pipeline/schemas/ticket-plan.schema.json`. Every acceptance criterion must include concrete evidence text. Do not emit partial tickets; include dependencies, likely files, references, priorities, and plan text for each proposed ticket.",
+      }
     timeout_ms: 300000
     skills: [scope]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema
@@ -136,30 +160,51 @@ profiles:
     skills: [research]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
   moka-schedule-planner:
     runner: opencode
     model: broker/gpt-5.5
     reasoning_effort: xhigh
     description: Refine a baseline schedule into a specialized approved-plan artifact.
-    instructions: { inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only." }
+    instructions:
+      {
+        inline: "Generate exactly one workflow named root as an explicit schedule graph. Return YAML only.",
+      }
     timeout_ms: 300000
     skills: [schedule-graph-shaping]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
   moka-test-writer:
     runner: opencode
     scheduling_roles: [implementation]
     description: Add focused failing tests for the requested behavior.
     timeout_ms: 1800000
-    instructions: { inline: "This scheduled node is already dispatched by Moka; do direct repository work inside the current workspace. Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor from this node. Add focused failing tests for the requested behavior only. Do not change production code. Only edit files matching test paths such as **/*.test.*, **/*.spec.*, **/*_test.*, **/__tests__/**, test/**, or tests/**. Tool findings about lint, types, complexity, or dead code must be resolved at source; comments must not hide them. If a gate flags your test, restructure the test (e.g. move restricted imports into shared support/fixture helpers). Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
+    instructions:
+      {
+        inline: "This scheduled node is already dispatched by Moka; do direct repository work inside the current workspace. Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor from this node. Add focused failing tests for the requested behavior only. Do not change production code. Only edit files matching test paths such as **/*.test.*, **/*.spec.*, **/*_test.*, **/__tests__/**, test/**, or tests/**. Tool findings about lint, types, complexity, or dead code must be resolved at source; comments must not hide them. If a gate flags your test, restructure the test (e.g. move restricted imports into shared support/fixture helpers). Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object.",
+      }
     skills: [test]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
-    filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: workspace-write,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema
@@ -170,11 +215,19 @@ profiles:
     scheduling_roles: [implementation]
     description: Implement production code until the failing tests pass.
     timeout_ms: 1800000
-    instructions: { inline: "This scheduled node is already dispatched by Moka; do direct repository work inside the current workspace. Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor from this node. Implement the smallest production change that makes the failing tests pass. Tool findings about lint, types, complexity, or dead code must be resolved at source; comments must not hide them. Reduce complexity by extracting helpers, remove genuinely dead code, and migrate off deprecated APIs rather than hiding the warning. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object." }
+    instructions:
+      {
+        inline: "This scheduled node is already dispatched by Moka; do direct repository work inside the current workspace. Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor from this node. Implement the smallest production change that makes the failing tests pass. Tool findings about lint, types, complexity, or dead code must be resolved at source; comments must not hide them. Reduce complexity by extracting helpers, remove genuinely dead code, and migrate off deprecated APIs rather than hiding the warning. Return only valid JSON with top-level changes and verification. Every changes entry must include summary, why, and files. Include risks, followups, and lessons when present. Do not use Markdown fences or prose outside the JSON object.",
+      }
     skills: [trace, test, fix, library-first-development]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash, edit, write]
-    filesystem: { mode: workspace-write, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: workspace-write,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema
@@ -184,11 +237,19 @@ profiles:
     runner: opencode
     scheduling_roles: [coverage]
     description: Audit the finished change against every acceptance criterion.
-    instructions: { inline: 'Audit the completed change against each canonical acceptance criterion independently. Return only valid JSON with top-level "verdict", "evidence", "acceptance", and optional "violations". Each "acceptance" entry must include "id", "verdict", and non-empty "evidence". Do not use Markdown fences or prose outside the JSON object.' }
+    instructions:
+      {
+        inline: 'Audit the completed change against each canonical acceptance criterion independently. Return only valid JSON with top-level "verdict", "evidence", "acceptance", and optional "violations". Each "acceptance" entry must include "id", "verdict", and non-empty "evidence". Do not use Markdown fences or prose outside the JSON object.',
+      }
     skills: [critique, doubt]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema
@@ -198,11 +259,19 @@ profiles:
     runner: opencode
     scheduling_roles: [coverage]
     description: Perform the final thermo-nuclear code quality review of the integration branch.
-    instructions: { inline: "Perform the final code quality review of the integration branch." }
+    instructions:
+      {
+        inline: "Perform the final code quality review of the integration branch.",
+      }
     skills: [critique]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema
@@ -212,11 +281,19 @@ profiles:
     runner: opencode
     scheduling_roles: [coverage]
     description: Verify checks, implementation fit, and final evidence.
-    instructions: { inline: 'Verify checks, implementation fit, and final evidence. Return only valid JSON with top-level "verdict", "evidence", and optional "violations". Do not use Markdown fences or prose outside the JSON object.' }
+    instructions:
+      {
+        inline: 'Verify checks, implementation fit, and final evidence. Return only valid JSON with top-level "verdict", "evidence", and optional "violations". Do not use Markdown fences or prose outside the JSON object.',
+      }
     skills: [verify, critique, secure, optimize]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema
@@ -227,11 +304,17 @@ profiles:
     model: broker/gpt-5.5
     reasoning_effort: low
     description: Store durable lessons from the completed run.
-    instructions: { inline: "Store durable lessons from the completed run when useful." }
+    instructions:
+      { inline: "Store durable lessons from the completed run when useful." }
     skills: [migrate]
     mcp_servers: [pipeline-gateway]
     tools: [read, list, grep, glob, bash]
-    filesystem: { mode: read-only, allow: ["**/*"], deny: ["node_modules/**", "dist/**", ".git/**"] }
+    filesystem:
+      {
+        mode: read-only,
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+      }
     network: { mode: inherit }
     output:
       format: json_schema

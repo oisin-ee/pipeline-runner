@@ -1,10 +1,10 @@
 ---
 id: PIPE-9
-title: 'PIPE-10: tracer-bullet-smoke'
+title: "PIPE-10: tracer-bullet-smoke"
 status: Done
 assignee: []
-created_date: '2026-05-20 22:18'
-updated_date: '2026-05-20 23:13'
+created_date: "2026-05-20 22:18"
+updated_date: "2026-05-20 23:13"
 labels: []
 dependencies:
   - PIPE-8
@@ -13,5 +13,3 @@ dependencies:
 priority: high
 ordinal: 9000
 ---
-
-

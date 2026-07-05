@@ -3,8 +3,8 @@ id: PIPE-38.6
 title: Document console runner integration and local dry run
 status: Done
 assignee: []
-created_date: '2026-06-02 19:20'
-updated_date: '2026-06-02 20:41'
+created_date: "2026-06-02 19:20"
+updated_date: "2026-06-02 20:41"
 labels:
   - pipeline
   - runner
@@ -30,6 +30,7 @@ ordinal: 63000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Document the completed integration boundary so future implementers and operators keep `oisin-pipeline` scoped to the runner package/image instead of adding a second Kubernetes-facing service layer inside this repository.
@@ -46,7 +47,9 @@ Document the completed integration boundary so future implementers and operators
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 README explains that `oisin-pipeline` is the runner package/image and `pipeline-console` is the surface that creates/lists/cancels Jobs and stores events.
 - [x] #2 `docs/pipeline-console-runner-contract.md` includes the exact current `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON` example from completed console code and the exact event batch shape accepted by console.
 - [x] #3 `docs/operator-guide.md` includes a local dry-run command and a Kubernetes Job dry-run example that do not require creating any new Kubernetes API kind.
@@ -57,5 +60,7 @@ Document the completed integration boundary so future implementers and operators
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Updated README, docs/operator-guide.md, and docs/pipeline-console-runner-contract.md with the console/runner boundary, payload and event batch shape, token sources, local dry run, Kubernetes Job dry-run, image verification, and troubleshooting without adding any new Kubernetes API/service/database responsibilities.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

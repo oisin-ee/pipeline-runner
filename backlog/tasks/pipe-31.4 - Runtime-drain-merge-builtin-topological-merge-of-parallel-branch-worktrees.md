@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.4
-title: 'Runtime: drain-merge builtin (topological merge of parallel-branch worktrees)'
+title: "Runtime: drain-merge builtin (topological merge of parallel-branch worktrees)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:43'
-updated_date: '2026-05-28 20:05'
+created_date: "2026-05-28 17:43"
+updated_date: "2026-05-28 20:05"
 labels:
   - drain
   - runtime
@@ -14,9 +14,9 @@ dependencies:
   - PIPE-31.3
 references:
   - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
-  - 'src/config.ts:54'
+  - "src/config.ts:54"
   - src/gates.ts
-  - 'src/pipeline-runtime.ts:1141'
+  - "src/pipeline-runtime.ts:1141"
 modified_files:
   - src/config.ts
   - src/pipeline-runtime.ts
@@ -30,6 +30,7 @@ ordinal: 4000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Add a new project builtin `drain-merge` that reads the prior node's output (typically a `kind: parallel` container whose children are `kind: workflow` invocations with `worktree_root`), creates an integration branch from the pinned base SHA, and merges each PASSed child branch into it using `git merge --no-ff`. Conflicts are surfaced, not auto-resolved.
@@ -44,7 +45,7 @@ After parallel sub-workflows have produced isolated branches in separate worktre
 - id: merge
   kind: builtin
   builtin: drain-merge
-  needs: [implement]   # `implement` is a `kind: parallel` whose children produced branches
+  needs: [implement] # `implement` is a `kind: parallel` whose children produced branches
 ```
 
 Lives next to the existing builtins (`typecheck`, `test`, `semgrep`, `duplication`). Registry update in `src/config.ts` (the `BUILTIN_GATES`/builtin-node registry). Executor in `src/gates.ts` (or wherever sibling builtin node executors live; verify).
@@ -91,16 +92,20 @@ Mock `simple-git` / `execa`.
 ## Dependencies
 
 Depends on:
+
 - PIPE-31.2 (`kind: parallel`) — drain-merge consumes its output shape.
 - PIPE-31.3 (`worktree_root` lifecycle) — drain-merge expects `branch` + `baseSha` in child outputs.
 
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"The one project builtin: `drain-merge`".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `drain-merge` registered as a builtin node kind alongside `typecheck`/`test`/`semgrep`/`duplication` in `src/config.ts`
 - [x] #2 Executor reads upstream `parallel` container's child outputs, expects `{ status, branch, worktreePath, baseSha }` per child
 - [x] #3 Creates `runs/integration/${runId}` from pinned base SHA; idempotent if it already exists
@@ -116,5 +121,7 @@ Depends on:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented the drain-merge builtin and verified it through the configured pipe workflow. The runtime now accepts drain-merge as a workflow builtin, reads parallel child worktree outputs, creates or checks out an integration branch, merges PASSed branches in declaration order, records skipped children and conflicts, rejects divergent base SHAs before side effects, and preserves strict failed-parallel behavior except for direct drain-merge continuation. Added focused runtime/config coverage including failed workflow child plus passing worktree child regression. Verification passed: typecheck, full tests, semgrep, duplication, acceptance PASS, verifier PASS.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

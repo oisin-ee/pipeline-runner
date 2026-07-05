@@ -1,12 +1,6 @@
 import { Effect, Fiber, Queue } from "effect";
-import {
-  fromUndefinedOr,
-  isSome,
-  match,
-  none,
-  some,
-  type Option,
-} from "effect/Option";
+import { fromUndefinedOr, isSome, match, none, some } from "effect/Option";
+import type { Option } from "effect/Option";
 
 import { uniqueStrings } from "../strings";
 import type {
@@ -205,10 +199,10 @@ const recordCategoryRun = (
   category: WorkflowNodeCategory
 ): void => {
   match(category, {
-    onNone: () => undefined,
+    onNone: () => {},
     onSome: (name) => {
       counts.set(name, (counts.get(name) ?? 0) + 1);
-      return undefined;
+      return;
     },
   });
 };
@@ -309,9 +303,9 @@ const selectLaunchableNodes = (
   capacity: number
 ): string[] => {
   const ready = readyNodeIds(state);
-  return state.fanOutWidth !== undefined
-    ? cappedSelection(ready, capacity, state, state.fanOutWidth)
-    : ready.slice(0, capacity);
+  return state.fanOutWidth === undefined
+    ? ready.slice(0, capacity)
+    : cappedSelection(ready, capacity, state, state.fanOutWidth);
 };
 
 const launchReady = (ctx: SchedulerContext): Effect.Effect<void> =>

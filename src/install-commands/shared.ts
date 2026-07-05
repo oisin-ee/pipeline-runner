@@ -44,13 +44,13 @@ export type HarnessHost = ActiveCommandHost | "codex" | "gemini";
  * does our test suite): Claude Code reads `CLAUDE_CONFIG_DIR`, Codex reads
  * `CODEX_HOME`, OpenCode reads `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`.
  */
-export const claudeGlobalConfigDir = (): string =>
+const claudeGlobalConfigDir = (): string =>
   process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
 
-export const codexGlobalConfigDir = (): string =>
+const codexGlobalConfigDir = (): string =>
   process.env.CODEX_HOME ?? join(homedir(), ".codex");
 
-export const opencodeGlobalConfigDir = (): string =>
+const opencodeGlobalConfigDir = (): string =>
   process.env.OPENCODE_CONFIG_DIR ??
   join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode");
 

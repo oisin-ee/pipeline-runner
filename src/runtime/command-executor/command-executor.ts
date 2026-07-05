@@ -1,4 +1,5 @@
-import { getOrElse, none, some, type Option } from "effect/Option";
+import { getOrElse, none, some } from "effect/Option";
+import type { Option } from "effect/Option";
 import { execa } from "execa";
 
 import type { CommandExecutionOptions, NodeAttemptResult } from "../contracts";
@@ -46,7 +47,7 @@ const commandErrorFields = (error: unknown): CommandErrorFields => ({
   exitCode: getOrElse(numberField(error, "exitCode"), () => 1),
   stderr: getOrElse(stringField(error, "stderr"), () => ""),
   stdout: getOrElse(stringField(error, "stdout"), () => ""),
-  timedOut: getOrElse(booleanField(error, "timedOut"), () => false) === true,
+  timedOut: getOrElse(booleanField(error, "timedOut"), () => false),
 });
 
 const limitOutput = (
@@ -85,12 +86,12 @@ export const executeCommand = async (
     const result = await execa(command[0], command.slice(1), {
       cancelSignal: context.signal,
       cwd: context.worktreePath,
-      ...(options.env !== undefined ? { env: options.env } : {}),
+      ...(options.env === undefined ? {} : { env: options.env }),
       ...(options.extendEnv === false ? { extendEnv: false } : {}),
-      ...(options.input !== undefined ? { input: options.input } : {}),
-      ...(options.outputLimitBytes !== undefined
-        ? { maxBuffer: options.outputLimitBytes }
-        : {}),
+      ...(options.input === undefined ? {} : { input: options.input }),
+      ...(options.outputLimitBytes === undefined
+        ? {}
+        : { maxBuffer: options.outputLimitBytes }),
       timeout: options.timeout,
     });
     const output = limitOutput(

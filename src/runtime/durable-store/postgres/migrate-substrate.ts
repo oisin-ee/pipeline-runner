@@ -4,7 +4,8 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { MigrationMeta } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { isSome, none, some, type Option } from "effect/Option";
+import { isSome, none, some } from "effect/Option";
+import type { Option } from "effect/Option";
 import postgres from "postgres";
 
 import { MOKA_POSTGRES_SCHEMA } from "./schema";

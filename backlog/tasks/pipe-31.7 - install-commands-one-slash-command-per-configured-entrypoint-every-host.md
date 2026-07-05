@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.7
-title: 'install-commands: one slash command per configured entrypoint (every host)'
+title: "install-commands: one slash command per configured entrypoint (every host)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:45'
-updated_date: '2026-05-28 21:27'
+created_date: "2026-05-28 17:45"
+updated_date: "2026-05-28 21:27"
 labels:
   - drain
   - install-commands
@@ -13,13 +13,13 @@ dependencies:
   - PIPE-31.5
 references:
   - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
-  - 'src/install-commands.ts:440'
-  - 'src/install-commands.ts:502'
-  - 'src/install-commands.ts:571'
-  - 'src/install-commands.ts:681'
-  - 'src/install-commands.ts:864'
-  - 'src/install-commands.ts:948'
-  - 'src/install-commands.ts:984'
+  - "src/install-commands.ts:440"
+  - "src/install-commands.ts:502"
+  - "src/install-commands.ts:571"
+  - "src/install-commands.ts:681"
+  - "src/install-commands.ts:864"
+  - "src/install-commands.ts:948"
+  - "src/install-commands.ts:984"
 modified_files:
   - src/install-commands.ts
   - tests/install-commands.test.ts
@@ -45,6 +45,7 @@ ordinal: 7000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Replace the hardcoded single `pipe` entry in each per-host generator (`codexDefinitions`, `opencodeDefinitions`, `codexDefinitions`, `kimiDefinitions`, `piDefinitions` in `src/install-commands.ts`) with a `.map` over `Object.entries(config.entrypoints)`. Each entrypoint produces its own slash command at the host-specific path. The body still uses the existing `orchestratorBlock` + `dispatchBlock` builders, but `dispatchBlock` is threaded with the entrypoint id so the generated body invokes `pipe <id> ...` instead of always `pipe ...`.
@@ -89,10 +90,13 @@ Soft dep on PIPE-31.5 (entrypoint-as-subcommand) so that the generated `pipe <id
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"install-commands: one slash command per entrypoint".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Each per-host generator (`codexDefinitions`, `opencodeDefinitions`, `codexDefinitions`, `kimiDefinitions`, `piDefinitions`) iterates `Object.entries(config.entrypoints)` instead of hardcoding `pipe`
 - [x] #2 Each entrypoint produces a slash command file at the host's expected path with filename `<id>.md`
 - [x] #3 `dispatchBlock` threaded with entrypoint id; generated body invokes `pipe <id> <description>` not bare `pipe <description>`
@@ -105,5 +109,7 @@ Soft dep on PIPE-31.5 (entrypoint-as-subcommand) so that the generated `pipe <id
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Generated one host command surface per configured entrypoint, threaded entrypoint workflow dispatch through generated bodies, generalized invocations, cleaned obsolete per-host command files including the old Kimi skill surface, preserved native per-profile agents, and updated dogfood/docs coverage. Verified with acceptance PASS, verifier PASS, install-commands --check, typecheck, full tests, semgrep, and duplication gate.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

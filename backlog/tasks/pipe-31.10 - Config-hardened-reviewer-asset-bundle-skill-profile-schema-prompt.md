@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.10
-title: 'Config: hardened-reviewer asset bundle (skill + profile + schema + prompt)'
+title: "Config: hardened-reviewer asset bundle (skill + profile + schema + prompt)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:46'
-updated_date: '2026-05-28 22:04'
+created_date: "2026-05-28 17:46"
+updated_date: "2026-05-28 22:04"
 labels:
   - drain
   - config
@@ -31,6 +31,7 @@ ordinal: 10000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Add the asset bundle for the final `review` node in `epic-drain`:
@@ -91,10 +92,10 @@ Follow surrounding-profile conventions for any other fields (rules, tools, etc.)
         "required": ["severity", "message"],
         "properties": {
           "severity": { "enum": ["info", "warn", "error", "critical"] },
-          "message":  { "type": "string" },
-          "file":     { "type": "string" },
-          "line":     { "type": "integer", "minimum": 1 },
-          "rule":     { "type": "string" }
+          "message": { "type": "string" },
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 1 },
+          "rule": { "type": "string" }
         }
       }
     }
@@ -143,10 +144,13 @@ Independent of other config tasks. The workflow that uses this profile (PIPE-31.
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"Profile and skill additions for the example".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `skills.hardened-review` registered in `.pipeline/profiles.yaml` pointing at `.agents/skills/hardened-review/SKILL.md`
 - [x] #2 `pipeline-hardened-reviewer` profile added with `filesystem: read-only`, `skills: [hardened-review]`, `mcp_servers: [serena, semgrep, github-readonly]`, instructions at `.pipeline/prompts/hardened-review.md`, output `json_schema` -> `.pipeline/schemas/review.schema.json`
 - [x] #3 `.pipeline/schemas/review.schema.json` defines required `verdict` (PASS|FAIL) and `findings` array with severity/message/file/line/rule
@@ -159,5 +163,7 @@ Independent of other config tasks. The workflow that uses this profile (PIPE-31.
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Added the hardened-review asset bundle: skill registration, reviewer profile, review output schema, and prompt. Added focused tests for profile/schema/prompt contracts and present/absent skill missing-file-reference behavior. Updated dogfood config loading to defer lint-missing external skill references without creating the external skill. Verified with acceptance PASS, verifier PASS, focused tests, full tests, typecheck, semgrep, and duplication gate.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

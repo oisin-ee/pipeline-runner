@@ -11,6 +11,7 @@ OpenCode project config is generated at `.opencode/opencode.json` with only the
 config environment variables; agents inherit the project-level config.
 
 References:
+
 - https://opencode.ai/docs/config/
 - https://dev.opencode.ai/docs/mcp-servers/
 

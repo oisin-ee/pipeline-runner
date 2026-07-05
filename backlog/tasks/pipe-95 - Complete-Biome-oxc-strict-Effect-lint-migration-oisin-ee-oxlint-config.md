@@ -3,8 +3,8 @@ id: PIPE-95
 title: Complete Biome->oxc + strict + Effect lint migration (@oisin-ee/oxlint-config)
 status: To Do
 assignee: []
-created_date: '2026-07-01 19:57'
-updated_date: '2026-07-05 18:34'
+created_date: "2026-07-01 19:57"
+updated_date: "2026-07-05 18:34"
 labels:
   - migration
 dependencies:
@@ -15,7 +15,9 @@ ordinal: 332000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 pipeline-runner (@oisincoveney/pipeline) was a Biome lint repo, uses Effect (effect@4.0.0-beta.90). Created oxlint.config.ts (extends [core, strict], typeAware+typeCheck) + added oxc deps (@oisin-ee/oxlint-config, oxlint, oxfmt, oxlint-tsgolint) + @mpsuesser/oxlint-plugin-effect. Finish:
+
 - nub install.
 - Add oxfmt.config.ts (import ultracite/oxfmt).
 - Add the effect preset (import { effect } from @oisin-ee/oxlint-config) scoped to the Effect code; effectMigration on any frontend.
@@ -24,7 +26,9 @@ pipeline-runner (@oisincoveney/pipeline) was a Biome lint repo, uses Effect (eff
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 biome removed; oxlint + oxfmt + strict + effect preset active
 - [ ] #2 ultracite check --type-aware passes (0 errors); tsc passes
 <!-- AC:END -->
@@ -32,6 +36,7 @@ pipeline-runner (@oisincoveney/pipeline) was a Biome lint repo, uses Effect (eff
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
+
 Grooming verification 2026-07-04 (repo state). Migration STARTED but NOT complete — both toolchains coexist.
 
 DONE so far: package.json devDeps carry @oisin-ee/oxlint-config@1.0.0, oxlint@1.71.0, oxfmt@0.56.0, oxlint-tsgolint@0.23.0, @mpsuesser/oxlint-plugin-effect@0.3.0, ultracite@7.7.0. oxlint.config.ts exists (extends [core, strict], typeAware:true, typeCheck:true).
@@ -41,10 +46,13 @@ AC#1 UNMET (biome removed; oxlint+oxfmt+strict+effect active): @biomejs/biome@2.
 AC#2 UNMET/UNVERIFIED (ultracite check --type-aware passes 0 errors; tsc passes): package.json check script is 'ultracite check' (NOT --type-aware). Which provider ultracite resolves is ambiguous while biome.jsonc still exists alongside oxlint.config.ts. Gate not run in this grooming pass.
 
 REMAINING: (1) add oxfmt.config.ts (import ultracite/oxfmt); (2) add effect preset scoped to Effect code (effectMigration on any frontend); (3) remove biome.jsonc + @biomejs/biome, confirm ultracite check uses the oxlint provider; (4) update check script to --type-aware if that's the intended gate; (5) run the gate green + tsc. Kept To Do.
+
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done
+
 <!-- DOD:BEGIN -->
+
 - [ ] #1 PIPE-95.1 through PIPE-95.14 complete with per-ticket AC/DoD evidence recorded.
 - [ ] #2 nub run check exits 0.
 - [ ] #3 nub run typecheck exits 0.

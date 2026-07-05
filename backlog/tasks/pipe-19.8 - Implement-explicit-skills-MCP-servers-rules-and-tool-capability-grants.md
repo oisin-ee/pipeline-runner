@@ -1,10 +1,10 @@
 ---
 id: PIPE-19.8
-title: 'Implement explicit skills, MCP servers, rules, and tool capability grants'
+title: "Implement explicit skills, MCP servers, rules, and tool capability grants"
 status: Done
 assignee: []
-created_date: '2026-05-24 14:17'
-updated_date: '2026-05-25 09:44'
+created_date: "2026-05-24 14:17"
+updated_date: "2026-05-25 09:44"
 labels:
   - pipeline
   - capabilities
@@ -31,11 +31,15 @@ ordinal: 27000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Implement the top-level registries and per-agent grants for rules, skills, MCP servers, tools, filesystem, and network policies. This replaces profile magic with explicit capability declarations that can be validated and projected into each host runner as far as that host supports them.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Top-level `rules`, `skills`, and `mcp_servers` declarations can be referenced by agents and workflows.
 - [x] #2 Agents can allow only the rules, skills, MCP servers, and tools they need.
 - [x] #3 Validation fails when an agent references an undeclared rule, skill, or MCP server.
@@ -46,5 +50,7 @@ Implement the top-level registries and per-agent grants for rules, skills, MCP s
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Validated top-level rules, skills, MCP servers, tools, filesystem, network, and output capabilities as explicit per-agent grants, then projected those grants into host resources without widening access.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

@@ -3,8 +3,8 @@ id: PIPE-38.5
 title: Build and publish the oisin-pipeline runner image
 status: Done
 assignee: []
-created_date: '2026-06-01 21:04'
-updated_date: '2026-06-02 20:41'
+created_date: "2026-06-01 21:04"
+updated_date: "2026-06-02 20:41"
 labels:
   - pipeline
   - runner
@@ -33,6 +33,7 @@ ordinal: 62000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Package the repository as the container image referenced by completed `pipeline-console` chart values:
@@ -54,10 +55,13 @@ pipeline:
 ## Publishing
 
 Extend the existing publish workflow so it can publish the npm package and the runner image without conflating their artifacts. The image must be tagged with immutable git SHA tags and the mutable tag expected by `pipeline-console` values.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `Dockerfile` builds a runnable image whose default command is the runner Job entrypoint and whose build context excludes backlog, test output, local run state, and node_modules churn not needed in the final image.
 - [x] #2 An image smoke test runs the container with a malformed or minimal payload and proves the command reaches runner validation rather than failing due to missing binary/module wiring.
 - [x] #3 The publish workflow builds and pushes `ghcr.io/oisin-ee/oisin-pipeline-runner:<git-sha>` and `ghcr.io/oisin-ee/oisin-pipeline-runner:latest` or the repository's configured mutable release tag.
@@ -68,5 +72,7 @@ Extend the existing publish workflow so it can publish the npm package and the r
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Added Dockerfile, .dockerignore, test:image, runner image tests, and a separate publish workflow job for ghcr.io/oisin-ee/oisin-pipeline-runner tagged by git SHA and latest. Verified the image builds and reaches runner payload validation via bun run test:image.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

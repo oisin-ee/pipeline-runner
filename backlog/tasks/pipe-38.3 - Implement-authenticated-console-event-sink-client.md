@@ -3,8 +3,8 @@ id: PIPE-38.3
 title: Implement authenticated console event sink client
 status: Done
 assignee: []
-created_date: '2026-06-01 21:04'
-updated_date: '2026-06-02 20:41'
+created_date: "2026-06-01 21:04"
+updated_date: "2026-06-02 20:41"
 labels:
   - pipeline
   - runner
@@ -30,6 +30,7 @@ ordinal: 60000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Implement the runner-side event sink that turns `PipelineRuntimeEvent` callbacks into authenticated event batches accepted by completed `pipeline-console`.
@@ -47,10 +48,13 @@ Implement the runner-side event sink that turns `PipelineRuntimeEvent` callbacks
 ## Failure policy
 
 The runner should retry transient HTTP/network failures with bounded backoff. Authentication failures, malformed responses, and repeated retry exhaustion are terminal runner failures because the console would otherwise show a Kubernetes Job without durable event history.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `src/runner-event-sink.ts` exports a reporter-compatible sink factory that accepts the validated runner payload and returns `{ reporter, flush, fail }` or an equivalent explicit lifecycle API.
 - [x] #2 The sink posts `{ events: [...] }` batches whose items include integer `sequence`, string `type`, timestamp, and console-detail-friendly payload fields.
 - [x] #3 The sink sets `Authorization: Bearer <token>` by default and honors a non-default `eventSink.authHeader` from the payload.
@@ -61,5 +65,7 @@ The runner should retry transient HTTP/network failures with bounded backoff. Au
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented src/runner-event-sink.ts with ordered batching, injected fetch, bearer auth using the configured header, retry/terminal failure policy, final flush behavior, and tests for sequencing, batching, auth, retry, terminal 401/403, mapping, and cancellation. Review fix made authToken required and kept token lookup in runner preparation only.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

@@ -3,8 +3,8 @@ id: PIPE-40.10
 title: Integrate node execution machine and remove local node reducer
 status: Done
 assignee: []
-created_date: '2026-06-03 09:26'
-updated_date: '2026-06-04 09:21'
+created_date: "2026-06-03 09:26"
+updated_date: "2026-06-04 09:21"
 labels:
   - xstate
   - runtime
@@ -29,11 +29,15 @@ ordinal: 83000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Make nodeExecutionMachine the source of truth for node lifecycle, retry, cancellation, and terminal node snapshots. Remove the local transitionNode/reduceNodeState model and p-retry-based node retry orchestration.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 executeNode or its replacement creates and runs a nodeExecutionMachine actor for each planned node.
 - [x] #2 NodeExecutionState values in PipelineRuntimeResult are derived from node actor snapshots, not manual transitionNode mutations.
 - [x] #3 p-retry is no longer used for node retry orchestration; retry delay, retry eligibility, retry exhaustion, and retry observability are owned by nodeExecutionMachine.
@@ -45,11 +49,15 @@ Make nodeExecutionMachine the source of truth for node lifecycle, retry, cancell
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Modify src/pipeline-runtime.ts to replace node execution internals with nodeExecutionMachine actor execution. Keep workflow batch loops in place until PIPE-40.11. Remove p-retry dependency from package.json only if no other runtime path uses it; otherwise leave dependency cleanup to PIPE-40.12.
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Integrated the node execution machine as the runtime source of truth for node lifecycle, retry, cancellation, and terminal snapshots, removing local reducer/retry plumbing. Verified during backlog grooming on 2026-06-04 with the full repository verification suite.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

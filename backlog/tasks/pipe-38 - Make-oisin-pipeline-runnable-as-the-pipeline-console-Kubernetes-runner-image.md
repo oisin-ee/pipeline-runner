@@ -3,8 +3,8 @@ id: PIPE-38
 title: Make oisin-pipeline runnable as the pipeline-console Kubernetes runner image
 status: Done
 assignee: []
-created_date: '2026-06-01 21:03'
-updated_date: '2026-06-02 20:41'
+created_date: "2026-06-01 21:03"
+updated_date: "2026-06-02 20:41"
 labels:
   - pipeline
   - runner
@@ -36,6 +36,7 @@ ordinal: 57000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Turn the existing TypeScript/Bun `@oisincoveney/pipeline` package into the image and entrypoint that `pipeline-console` launches as a plain Kubernetes `batch/v1` Job.
@@ -58,7 +59,9 @@ Turn the existing TypeScript/Bun `@oisincoveney/pipeline` package into the image
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 The child tickets define a runner-image implementation plan around the current TypeScript runtime and completed `pipeline-console` Job/event contract.
 - [x] #2 The runner can execute a console-created payload by invoking the existing `runPipelineFromConfig` path with `runId`, `workflowId`, `task`, `worktreePath`, `signal`, and a runtime reporter.
 - [x] #3 Runner events are posted to the console event sink as ordered authenticated batches whose shape matches `pipeline-console`'s completed `appendRunEvents` path.
@@ -69,17 +72,20 @@ Turn the existing TypeScript/Bun `@oisincoveney/pipeline` package into the image
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Epic-drain implementation route approved by `$epic PIPE-38` on 2026-06-02.
 
 Research findings: runtime already supports runId/workflowId/task/worktreePath/signal/reporter; console creates one OISIN_PIPELINE_RUNNER_PAYLOAD_JSON payload and accepts authenticated ordered event batches; no Kubernetes API/event DB/console code belongs in this repo.
 
 Track routing:
+
 - backend: PIPE-38.1, PIPE-38.2, PIPE-38.3, PIPE-38.4, PIPE-38.6
 - k8s: PIPE-38.5
 - test: empty
 - frontend: empty
 
 Execution plan:
+
 1. Run backend and k8s implementation in isolated worktrees under .pipeline/runs/pipe-38/.
 2. Backend track owns contract, runner-job entrypoint, event sink, cancellation behavior, and integration docs.
 3. K8s track owns Dockerfile/.dockerignore/image smoke test/publish workflow image changes.
@@ -90,5 +96,7 @@ Execution plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Completed PIPE-38 via backend commit 9e37560, k8s commit 9068308, merge commits a33c5d0/d639f98, and review-fix commit 1eb988c. The package now provides the runner-job command, console payload/event contract, authenticated event sink, cancellation handling, runner image/publish workflow, and docs while leaving console-owned Job creation, event storage, UI, database, and Kubernetes discovery outside this repo. Verification in a clean PIPE-38 worktree passed targeted runner/image tests, bun run check, bun run typecheck, bun run build, full bun run test, bun run test:image, and the final thermo-nuclear review gate.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

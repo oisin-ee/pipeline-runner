@@ -19,7 +19,13 @@ For each task, run it through `moka run` once per **variant** and record one
 result object per task+variant:
 
 ```json
-{ "task": "clamp", "variant": "baseline", "resolved": true, "costTokens": 1200, "wallMs": 90000 }
+{
+  "task": "clamp",
+  "variant": "baseline",
+  "resolved": true,
+  "costTokens": 1200,
+  "wallMs": 90000
+}
 ```
 
 - `variant`: `baseline` (one strong agent, full task context, linear) vs

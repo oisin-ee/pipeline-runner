@@ -6,7 +6,8 @@ import {
   setHeaderOptions,
 } from "@kubernetes/client-node";
 import { Context, Effect, Layer } from "effect";
-import { getOrElse, isSome, none, some, type Option } from "effect/Option";
+import { getOrElse, isSome, none, some } from "effect/Option";
+import type { Option } from "effect/Option";
 import { execa } from "execa";
 
 import type { WorkflowPhase, WorkflowReadApi } from "../../loop/argo-poll";

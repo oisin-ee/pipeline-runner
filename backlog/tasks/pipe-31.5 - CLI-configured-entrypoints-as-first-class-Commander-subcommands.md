@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.5
-title: 'CLI: configured entrypoints as first-class Commander subcommands'
+title: "CLI: configured entrypoints as first-class Commander subcommands"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:44'
-updated_date: '2026-05-28 20:25'
+created_date: "2026-05-28 17:44"
+updated_date: "2026-05-28 20:25"
 labels:
   - drain
   - cli
@@ -12,8 +12,8 @@ milestone: m-0
 dependencies: []
 references:
   - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
-  - 'src/index.ts:284'
-  - 'src/index.ts:404'
+  - "src/index.ts:284"
+  - "src/index.ts:404"
 modified_files:
   - src/config.ts
   - src/index.ts
@@ -26,6 +26,7 @@ ordinal: 5000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Make every entry in `config.entrypoints` automatically a Commander subcommand discoverable in `pipe --help`. `pipe epic ...`, `pipe drain ...`, and any future entrypoint just work — no per-entrypoint code edits required.
@@ -57,7 +58,7 @@ Implementation: build a `DIRECT_SUBCOMMANDS` set; skip registration when an entr
 
 `createCliProgram` and `runCli` do NOT swallow config-load failures. If `pipeline.yaml` is missing, malformed, or fails schema validation, the CLI prints the error and exits non-zero — including for `pipe epic foo` where the user might think "epic" is just a description. Silent misinterpretation is worse than a clear error.
 
-Exception: `pipe init` and `pipe doctor` work without a config (init creates one; doctor checks prerequisites). These must remain in an always-direct subcommand path that bypasses config-loading entirely. Two reasonable implementations: (a) short-circuit before building the Commander program when `argv[2]` is `init` or `doctor`; (b) inside `createCliProgram`, do a soft `tryLoadPipelineConfig` that returns `null` when the file is *missing*, but propagates *malformed* errors. Either is acceptable; pick the one with smaller diff.
+Exception: `pipe init` and `pipe doctor` work without a config (init creates one; doctor checks prerequisites). These must remain in an always-direct subcommand path that bypasses config-loading entirely. Two reasonable implementations: (a) short-circuit before building the Commander program when `argv[2]` is `init` or `doctor`; (b) inside `createCliProgram`, do a soft `tryLoadPipelineConfig` that returns `null` when the file is _missing_, but propagates _malformed_ errors. Either is acceptable; pick the one with smaller diff.
 
 ## Implementation sketch (the new bit, ~30 lines)
 
@@ -71,7 +72,7 @@ export function createCliProgram(): Command {
   // existing run / pipe / validate / explain-plan / doctor / init / install-commands ...
 
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-  const config = tryLoadPipelineConfig(cwd);   // returns null when MISSING; throws on malformed
+  const config = tryLoadPipelineConfig(cwd); // returns null when MISSING; throws on malformed
   if (config) {
     for (const [id, entry] of Object.entries(config.entrypoints)) {
       if (DIRECT_SUBCOMMANDS.has(id)) continue;
@@ -106,10 +107,13 @@ None inside this epic. Sequencing: `pipe validate` lint extensions (PIPE-31.6) f
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"CLI: entrypoints as first-class subcommands".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `createCliProgram()` loads `pipeline.yaml` eagerly via `tryLoadPipelineConfig` and registers a `.command(<id>)` per entry in `config.entrypoints`
 - [x] #2 Each registered subcommand description defaults to `entrypoint.description` and dispatches to `pipe(desc, { entrypoint: id })`
 - [x] #3 `pipe run --entrypoint <name>` continues to work unchanged — the new surface is additive sugar
@@ -122,5 +126,7 @@ None inside this epic. Sequencing: `pipe validate` lint extensions (PIPE-31.6) f
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented configured entrypoints as first-class Commander subcommands through the configured pipe workflow. `createCliProgram()` now eagerly soft-loads pipeline config, registers non-colliding entrypoints with descriptions and `<description...>` arguments, preserves builtin command precedence plus the `pipe` alias, and `runCli()` recognizes dynamic commands before falling back to default run rewriting. Added CLI coverage for dynamic dispatch/help, builtin collision, `run --entrypoint` escape hatch, bootstrap init/doctor without config, and malformed config propagation. Verification passed: acceptance PASS, verifier PASS, typecheck, full tests, semgrep, and duplication.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

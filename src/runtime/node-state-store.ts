@@ -44,8 +44,6 @@ export class NodeStateStore {
     this.nodeStates = input.nodeStates ?? new Map<string, NodeExecutionState>();
     this.structuredOutputs = input.structuredOutputs ?? [];
   }
-
-  // fallow-ignore-next-line unused-class-member
   forkForParallelChildren(children: PlannedWorkflowNode[]): NodeStateStore {
     return new NodeStateStore({
       handoffByNode: new Map(this.handoffByNode),
@@ -58,101 +56,22 @@ export class NodeStateStore {
       structuredOutputs: this.structuredOutputs,
     });
   }
-
-  // fallow-ignore-next-line unused-class-member
-  changedFiles(nodeId: string): string[] {
-    const snapshot = this.nodeSnapshots.get(nodeId);
-    return snapshot === undefined ? [] : [...snapshot.files];
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  changedFilesForAllNodes(): string[] {
-    return [...this.nodeSnapshots.values()].flatMap((snapshot) => [
-      ...snapshot.files,
-    ]);
-  }
-
-  // fallow-ignore-next-line unused-class-member
   getNodeState(nodeId: string): Option.Option<NodeExecutionState> {
     return Option.fromUndefinedOr(this.nodeStates.get(nodeId));
   }
-
-  // fallow-ignore-next-line unused-class-member
-  getOutput(nodeId: string): Option.Option<string> {
-    return Option.fromUndefinedOr(this.lastOutputByNode.get(nodeId));
-  }
-
-  // fallow-ignore-next-line unused-class-member
   handoff(nodeId: string): Option.Option<NodeHandoff> {
     return Option.fromUndefinedOr(this.handoffByNode.get(nodeId));
   }
-
-  // fallow-ignore-next-line unused-class-member
-  outputText(nodeId: string): string {
-    return this.lastOutputByNode.get(nodeId) ?? "";
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  getSnapshot(nodeId: string): Option.Option<ChangedFilesSnapshot> {
-    return Option.fromUndefinedOr(this.nodeSnapshots.get(nodeId));
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  inheritedOutputIdsExcluding(nodeIds: Iterable<string>): string[] {
-    const excluded = new Set(nodeIds);
-    return [...this.inheritedOutputNodeIds].filter(
-      (id) => !excluded.has(id) && this.lastOutputByNode.has(id)
-    );
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  markInheritedOutput(nodeId: string): void {
-    this.inheritedOutputNodeIds.add(nodeId);
-  }
-
-  // fallow-ignore-next-line unused-class-member
   recordHandoff(nodeId: string, handoff?: NodeHandoff): void {
     if (handoff !== undefined) {
       this.handoffByNode.set(nodeId, handoff);
     }
   }
-
-  // fallow-ignore-next-line unused-class-member
-  recordOutput(nodeId: string, output: string): void {
-    this.lastOutputByNode.set(nodeId, output);
-  }
-
-  // fallow-ignore-next-line unused-class-member
   recordSessionId(nodeId: string, sessionId: string): void {
     const existing = this.nodeStates.get(nodeId);
     if (existing !== undefined) {
       this.nodeStates.set(nodeId, { ...existing, sessionId });
     }
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  recordStructuredOutput(output: RuntimeStructuredOutput): void {
-    this.structuredOutputs.push(output);
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  setNodeState(nodeId: string, state: NodeExecutionState): void {
-    this.nodeStates.set(nodeId, state);
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  setSnapshot(nodeId: string, snapshot: ChangedFilesSnapshot): void {
-    this.nodeSnapshots.set(nodeId, snapshot);
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  toNodeStateRecord(): Record<string, NodeExecutionState> {
-    return Object.fromEntries(this.nodeStates);
-  }
-
-  // fallow-ignore-next-line unused-class-member
-  structuredOutputList(): RuntimeStructuredOutput[] {
-    return [...this.structuredOutputs];
   }
 }
 

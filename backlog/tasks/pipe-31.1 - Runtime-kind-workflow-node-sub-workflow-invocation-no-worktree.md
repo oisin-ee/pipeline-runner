@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.1
-title: 'Runtime: kind: workflow node (sub-workflow invocation, no worktree)'
+title: "Runtime: kind: workflow node (sub-workflow invocation, no worktree)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:41'
-updated_date: '2026-05-28 18:31'
+created_date: "2026-05-28 17:41"
+updated_date: "2026-05-28 18:31"
 labels:
   - drain
   - runtime
@@ -12,9 +12,9 @@ milestone: m-0
 dependencies: []
 references:
   - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
-  - 'src/config.ts:423'
-  - 'src/pipeline-runtime.ts:1190'
-  - 'src/pipeline-runtime.ts:1199'
+  - "src/config.ts:423"
+  - "src/pipeline-runtime.ts:1190"
+  - "src/pipeline-runtime.ts:1199"
 modified_files:
   - src/config.ts
   - src/workflow-planner.ts
@@ -29,6 +29,7 @@ ordinal: 1000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Introduce a new workflow node kind that invokes a named sub-workflow defined elsewhere in the same `pipeline.yaml`. Sub-workflow execution reuses the existing `runPipelineFromConfig` machinery — same executor, hooks, gates, retry policy, reporter. The sub-workflow runs in the parent's `worktreePath` for now (no isolation). Worktree isolation is added in a follow-up task.
@@ -42,7 +43,7 @@ This is half of the structural-DAG primitive set the epic depends on. With it, a
 ```yaml
 - id: frontend
   kind: workflow
-  workflow: default            # name of another workflow defined in this config
+  workflow: default # name of another workflow defined in this config
 ```
 
 ## Schema (src/config.ts, around `workflowNodeSchema` at :423)
@@ -53,9 +54,9 @@ Add a new discriminant to `workflowNodeSchema`:
 workflowNodeBaseSchema
   .extend({
     kind: z.literal("workflow"),
-    workflow: z.string(),       // sub-workflow id; must exist in workflows registry
+    workflow: z.string(), // sub-workflow id; must exist in workflows registry
   })
-  .strict()
+  .strict();
 ```
 
 Cross-reference validation lives where other workflow refs are checked (`validateRegistryIds` etc. in src/config.ts).
@@ -92,10 +93,13 @@ Use the existing `executor` injection pattern.
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"1. `kind: workflow`".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `src/config.ts` workflowNodeSchema accepts `kind: workflow` with required `workflow:` field; rejects unknown workflow id at cross-reference validation
 - [x] #2 `src/pipeline-runtime.ts` dispatches `kind: workflow` through a new `executeWorkflowNode` helper that reuses `runPipelineFromConfig` (same executor, hooks, gates, retry, reporter)
 - [x] #3 Sub-workflow inherits parent's `lastOutputByNode` and `taskContext` — child agents can reason about upstream node outputs via the existing prompt-rendering path
@@ -107,5 +111,7 @@ Use the existing `executor` injection pattern.
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented same-worktree kind: workflow nodes through the configured pipe workflow. Added schema/cross-reference validation, planner metadata, runtime child workflow execution with inherited task context/upstream outputs, parent-context reporter events, failure propagation, and focused config/runtime tests. Verification passed: typecheck, full tests, Semgrep, duplication gate, acceptance, verifier, and learn nodes.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

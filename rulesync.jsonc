@@ -5,5 +5,5 @@
   "outputRoots": ["."],
   "delete": false,
   "simulateSubagents": true,
-  "gitignoreTargetsOnly": true
+  "gitignoreTargetsOnly": true,
 }

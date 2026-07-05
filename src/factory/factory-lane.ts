@@ -15,7 +15,7 @@ import { z } from "zod";
  * hosts.yml at /root/.config/gh/hosts.yml.
  */
 
-export const factoryLaneJobOptionsSchema = z.object({
+const factoryLaneJobOptionsSchema = z.object({
   activeDeadlineSeconds: z.number().int().positive().default(1800),
   argv: z.array(z.string().min(1)).min(1),
   generateName: z.string().min(1).default("moka-factory-"),
@@ -39,10 +39,6 @@ export const factoryLaneJobOptionsSchema = z.object({
 export type FactoryLaneJobOptionsInput = z.input<
   typeof factoryLaneJobOptionsSchema
 >;
-export type FactoryLaneJobOptions = z.output<
-  typeof factoryLaneJobOptionsSchema
->;
-
 export const FACTORY_LANE_LABEL = "pipeline.oisin.dev/factory-lane";
 
 export const buildFactoryLaneJob = (input: FactoryLaneJobOptionsInput) => {

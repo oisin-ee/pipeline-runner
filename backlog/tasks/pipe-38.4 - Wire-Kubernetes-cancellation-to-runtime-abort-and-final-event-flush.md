@@ -3,8 +3,8 @@ id: PIPE-38.4
 title: Wire Kubernetes cancellation to runtime abort and final event flush
 status: Done
 assignee: []
-created_date: '2026-06-01 21:04'
-updated_date: '2026-06-02 20:41'
+created_date: "2026-06-01 21:04"
+updated_date: "2026-06-02 20:41"
 labels:
   - pipeline
   - runner
@@ -33,6 +33,7 @@ ordinal: 61000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Make Kubernetes Job deletion or process termination produce a clean runtime cancellation instead of a dropped process.
@@ -49,7 +50,9 @@ Completed `pipeline-console` cancellation deletes the runner Job and records a c
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 The runner entrypoint passes an `AbortSignal` to `runPipelineFromConfig` and the signal is aborted on `SIGTERM` and `SIGINT`.
 - [x] #2 A first termination signal causes an ordered cancellation event and final result event to be flushed before process exit when the sink is reachable.
 - [x] #3 A second termination signal exits without hanging on network I/O or child process cleanup.
@@ -60,5 +63,7 @@ Completed `pipeline-console` cancellation deletes the runner Job and records a c
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Wired SIGTERM/SIGINT to an AbortController in the runner job, records cancellation/final result events, flushes before graceful 130 exit, force exits on a second signal, handles runtime CANCELLED, and preserves console-owned Job cancellation boundaries. Covered by kubernetes runner and event sink tests.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

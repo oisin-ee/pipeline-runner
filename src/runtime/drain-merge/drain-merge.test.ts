@@ -90,7 +90,7 @@ describe("drain-merge builtin", () => {
   it("skips failed children and passed children without worktrees", async () => {
     const context = contextForDrainMerge();
     const node = context.plan.graph.node("merge");
-    context.nodeStateStore.recordOutput(
+    context.nodeStateStore.lastOutputByNode.set(
       "fanout",
       JSON.stringify({
         children: {

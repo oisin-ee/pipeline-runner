@@ -4,8 +4,8 @@ title: Enforce pipeline gate semantics
 status: Done
 assignee:
   - Codex
-created_date: '2026-05-21 09:19'
-updated_date: '2026-05-21 09:45'
+created_date: "2026-05-21 09:19"
+updated_date: "2026-05-21 09:45"
 labels:
   - workflow
   - gates
@@ -29,11 +29,15 @@ ordinal: 11000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Make the workflow treat gate outcomes as control-flow decisions instead of passive fields. Today RED can fail while the workflow continues, and the final outcome only considers GREEN and VERIFY. The pipeline should produce an accurate PASS or FAIL and preserve enough evidence to explain why.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 A failed RED gate prevents the run from being reported as PASS.
 - [x] #2 The final workflow outcome requires RED, GREEN, and VERIFY to have passed.
 - [x] #3 Failure results include the reason and relevant test or verification evidence needed to diagnose the gate failure.
@@ -44,7 +48,9 @@ Make the workflow treat gate outcomes as control-flow decisions instead of passi
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Implementation plan:
+
 1. Work in dedicated `wt` branch/worktree `pipe-11-gate-semantics` based on updated `main`.
 2. Change workflow semantics so the final result requires RED, GREEN, and VERIFY to pass; failed gates must not be reported as PASS.
 3. Preserve a stable CLI-consumable output shape while adding concise failure evidence and reasons.
@@ -55,5 +61,7 @@ Implementation plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Enforced gate result semantics so final PASS requires RED, GREEN, and VERIFY to pass. Workflow output keeps `outcome` and adds `failureDetails` with gate, reason, and evidence. Added tests for RED, GREEN, VERIFY failure paths and full PASS. Verification passed on main: `bun run test`, `bun run typecheck`, `bun run check`, and `bun run build`. Merged implementation commit: 3210414.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

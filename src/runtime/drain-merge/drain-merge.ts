@@ -7,8 +7,8 @@ import {
   isSome,
   none,
   some,
-  type Option,
 } from "effect/Option";
+import type { Option } from "effect/Option";
 
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import { generateRuntimeRunId } from "../context";
@@ -249,12 +249,14 @@ const drainMergeChildren = (
   if (isNone(upstreamNodeId)) {
     return [];
   }
-  if (context.plan.graph.hasNode(upstreamNodeId.value) === false) {
+  if (!context.plan.graph.hasNode(upstreamNodeId.value)) {
     return [];
   }
   const upstream = context.plan.graph.node(upstreamNodeId.value);
   const output = parseJsonObject(
-    context.nodeStateStore.getOutput(upstreamNodeId.value)
+    fromUndefinedOr(
+      context.nodeStateStore.lastOutputByNode.get(upstreamNodeId.value)
+    )
   );
   const childrenOutput = parseJsonObject(output.children);
   return (upstream.children ?? []).flatMap((child) => {

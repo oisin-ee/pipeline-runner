@@ -290,8 +290,8 @@ sources of truth. Host resources use OpenCode native agents for model-backed
 nodes. Otherwise generated instructions dispatch to the configured command
 runner.
 
-| Host | Generated files | Invocation |
-| --- | --- | --- |
+| Host     | Generated files                                                                                                         | Invocation                                                           |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | OpenCode | `.opencode/commands/moka-<entrypoint>.md`, `.opencode/agents/*.md`, `.opencode/plugins/*.ts`, `.opencode/opencode.json` | `/moka-quick <task>`, `/moka-execute <task>`, `/moka-inspect <task>` |
 
 The installer is idempotent, supports `--check` and `--dry-run`, and refuses to

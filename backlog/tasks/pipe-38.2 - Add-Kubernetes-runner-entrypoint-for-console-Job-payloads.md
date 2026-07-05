@@ -3,8 +3,8 @@ id: PIPE-38.2
 title: Add Kubernetes runner entrypoint for console Job payloads
 status: Done
 assignee: []
-created_date: '2026-06-01 21:04'
-updated_date: '2026-06-02 20:41'
+created_date: "2026-06-01 21:04"
+updated_date: "2026-06-02 20:41"
 labels:
   - pipeline
   - runner
@@ -31,6 +31,7 @@ ordinal: 59000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Add a first-class CLI entrypoint that runs the existing pipeline runtime from the console-created Kubernetes Job payload.
@@ -66,7 +67,9 @@ Exit code rules:
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `oisin-pipeline runner-job` and the package `bin` entrypoint can execute a valid `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON` without requiring `pipeline-console` code at runtime.
 - [x] #2 The command passes `runId`, `workflowId`, `task`, `worktreePath`, and `reporter` into `runPipelineFromConfig` rather than re-planning a different workflow selection.
 - [x] #3 The command uses `PIPELINE_TARGET_PATH` exactly like the existing CLI path does, so a Job can run from `/workspace/repo` or from a checked-out target mounted elsewhere.
@@ -77,5 +80,7 @@ Exit code rules:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Added the runner-job CLI entrypoint through src/kubernetes-runner.ts and src/index.ts. It validates OISIN_PIPELINE_RUNNER_PAYLOAD_JSON, resolves PIPELINE_TARGET_PATH, invokes runPipelineFromConfig with runId/workflowId/task/worktreePath/signal/reporter, and returns documented exit codes without importing or creating console/Kubernetes resources.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

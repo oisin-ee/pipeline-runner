@@ -9,6 +9,7 @@ tool's own official installer, run once, after which Argo CD's reconciliation
 loop (`syncPolicy.automated` + `selfHeal`) owns the state.
 
 ## One-time bootstrap (run yourself — GitOps-only policy blocks the agent
+
 ## from running kubectl/helm)
 
 1. Install Argo CD (official quick-start:
@@ -60,7 +61,7 @@ kill %1
 decryptable only by the Sealed Secrets controller running on orbstack. To
 (re)generate one, e.g. for `oisin-bot-git-credentials`, using `oisin-bot`'s
 `gh` auth (`gh auth switch --user oisin-bot`; `gh auth refresh --scopes
-read:packages` if package reads 403 -- only ever acts on the *active*
+read:packages` if package reads 403 -- only ever acts on the _active_
 account, so switch first):
 
 ```

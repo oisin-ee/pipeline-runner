@@ -1,22 +1,22 @@
 ---
 id: doc-1
-title: 'Incident: moka changed-files gate fails on .pipeline run-state (TOVA-767 run)'
+title: "Incident: moka changed-files gate fails on .pipeline run-state (TOVA-767 run)"
 type: guide
-created_date: '2026-06-17 14:24'
+created_date: "2026-06-17 14:24"
 ---
 
 # Incident: moka changed-files gate fails on `.pipeline/` run-state
 
 **Date:** 2026-06-17
 **Reporter:** stack-review session (consumer repo `~/dev/tova`)
-**Severity:** High — `moka run --effort thorough` cannot complete *any* write-mode multi-node run in a repo where run-state lives in the worktree; the failure is deterministic, not flaky.
+**Severity:** High — `moka run --effort thorough` cannot complete _any_ write-mode multi-node run in a repo where run-state lives in the worktree; the failure is deterministic, not flaky.
 **Status:** Diagnosed; fixes filed as tickets (see bottom).
 
 ## Summary
 
 A supervised `moka run --effort thorough "TOVA-767"` (local target, write mode) in the `tova` repo **failed at the `red-*` test-writing phase**: all four red nodes and all four remediation retries failed the **`changed-files` gate** with `changed-file policy failed`, citing **only `.pipeline/` run-state files** as "changes outside allow list." No `green-*` implementation node ever ran. A secondary, transient `opencode session failed: fetch failed` also killed one node's agent.
 
-The decisive cause is a **gate-configuration bug in the pipeline itself**: the `changed_files` gate's ignore globs exclude *some* `.pipeline/` subpaths but **not** the run-control state directories the supervisor writes during the run. So the supervisor's own bookkeeping writes are attributed to the node under test and fail its gate — every time, in any repo where `.pipeline/runs` is inside the worktree.
+The decisive cause is a **gate-configuration bug in the pipeline itself**: the `changed_files` gate's ignore globs exclude _some_ `.pipeline/` subpaths but **not** the run-control state directories the supervisor writes during the run. So the supervisor's own bookkeeping writes are attributed to the node under test and fail its gate — every time, in any repo where `.pipeline/runs` is inside the worktree.
 
 ## Environment
 
@@ -28,7 +28,7 @@ The decisive cause is a **gate-configuration bug in the pipeline itself**: the `
 
 ## Root cause #1 (primary, deterministic) — changed-files gate does not exclude `.pipeline/` run-state
 
-The `changed_files` gate compares the worktree's changed files against each node's allow list. The supervisor writes its **own** run-state into the worktree under `.pipeline/runs/<run-id>/…` and `.pipeline/journal/…` *while nodes execute*. Those writes are not on any node's allow list, so the gate fails the node.
+The `changed_files` gate compares the worktree's changed files against each node's allow list. The supervisor writes its **own** run-state into the worktree under `.pipeline/runs/<run-id>/…` and `.pipeline/journal/…` _while nodes execute_. Those writes are not on any node's allow list, so the gate fails the node.
 
 Evidence — every red gate failed with the same shape (run log):
 
@@ -50,7 +50,7 @@ The gate **already** ignores some `.pipeline/` paths but not the run-state ones:
 - Gate logic that emits the failure: `src/runtime/gates/gates.ts:632` (`policy = gate.changed_files`), `:650` (`changes outside allow list: …`), `:671` (`reason: "changed-file policy failed"`).
 - Precedent that `.pipeline` is meant to be invisible to repo scanning: `src/context/repo-map.ts:78` already lists `.pipeline` in `SKIP_DIRS`.
 
-**Why it's deterministic:** the run-state files change continuously during the run and are never in any node's allow list, so *any* write-mode node gate fails regardless of whether the agent produced correct output. The remediation retries fail identically.
+**Why it's deterministic:** the run-state files change continuously during the run and are never in any node's allow list, so _any_ write-mode node gate fails regardless of whether the agent produced correct output. The remediation retries fail identically.
 
 ## Root cause #2 (secondary, transient) — opencode runner dies on `fetch failed`
 
@@ -70,7 +70,7 @@ This is a network/model-gateway transient (the session ran during a window of up
   - `apps/app/features/pay/__tests__/picker.test.tsx` (+51/−4)
   - `apps/backend/cmd/server/main_test.go` (+177)
   - `apps/backend/internal/server/payments_test.go` (+85)
-  These were never validated (never reached green) and should be reverted in the consumer repo.
+    These were never validated (never reached green) and should be reverted in the consumer repo.
 - `.pipeline/runs/<run-id>/` and `.pipeline/journal/` left untracked in the consumer repo; **`.pipeline/` is not gitignored** in `tova`.
 
 ## Recommended fixes

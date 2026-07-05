@@ -233,7 +233,7 @@ momokaya:
     gitCredentialsSecretName: <git-credentials-secret-name>
     githubAuthSecretName: <github-auth-secret-name>
     imagePullSecretName: <image-pull-secret-name>
-    npmRegistryAuthSecretName: <npm-registry-auth-secret-name>  # optional
+    npmRegistryAuthSecretName: <npm-registry-auth-secret-name> # optional
     brokerAuth:
       secretName: <broker-api-key-secret-name>
       secretKey: api-key

@@ -27,7 +27,7 @@ export type FactoryGit = (cwd: string, args: string[]) => Promise<string>;
 
 export type FactoryLog = (line: string) => void;
 
-export const defaultFactoryExec: FactoryExec = async (command, args, options) =>
+const defaultFactoryExec: FactoryExec = async (command, args, options) =>
   // extendEnv defaults to true, so options.env is merged onto process.env for
   // the child only (and inherited by grandchildren — copier's git subprocess).
   await execa(command, [...args], {
@@ -38,7 +38,7 @@ export const defaultFactoryExec: FactoryExec = async (command, args, options) =>
     stdin: "ignore",
   });
 
-export const defaultFactoryGit: FactoryGit = async (cwd, args) =>
+const defaultFactoryGit: FactoryGit = async (cwd, args) =>
   await runAuthenticatedGit(cwd, args);
 
 export interface FactorySeams {

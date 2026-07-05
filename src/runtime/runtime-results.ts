@@ -1,3 +1,5 @@
+import * as R from "effect/Record";
+
 import type {
   NodeExecutionState,
   PipelineRuntimeResult,
@@ -31,11 +33,11 @@ export const cancelledFailure = (): RuntimeFailure => ({
 const runtimeNodeStates = (
   context: RuntimeContext
 ): Record<string, NodeExecutionState> =>
-  context.nodeStateStore.toNodeStateRecord();
+  R.fromEntries(context.nodeStateStore.nodeStates);
 
 const runtimeStructuredOutputs = (
   context: RuntimeContext
-): RuntimeStructuredOutput[] => context.nodeStateStore.structuredOutputList();
+): RuntimeStructuredOutput[] => [...context.nodeStateStore.structuredOutputs];
 
 const passedRuntimeResult = (
   context: RuntimeContext,

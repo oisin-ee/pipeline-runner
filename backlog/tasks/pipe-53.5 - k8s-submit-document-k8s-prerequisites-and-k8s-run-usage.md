@@ -1,10 +1,10 @@
 ---
 id: PIPE-53.5
-title: 'k8s-submit: document k8s prerequisites and k8s-run usage'
+title: "k8s-submit: document k8s prerequisites and k8s-run usage"
 status: Done
 assignee: []
-created_date: '2026-06-09 19:54'
-updated_date: '2026-06-10 14:10'
+created_date: "2026-06-09 19:54"
+updated_date: "2026-06-10 14:10"
 labels:
   - docs
   - superseded
@@ -20,7 +20,9 @@ ordinal: 163000
 ---
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Section documents all required Secrets with exact names and keys
 - [ ] #2 Section documents k8s-run command syntax with required and optional flags
 - [ ] #3 Section documents --local fallback
@@ -30,6 +32,7 @@ ordinal: 163000
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Add new section to docs/operator-guide.md after the existing runner-job documentation (~line 207).
 
 Section content:
@@ -58,10 +61,13 @@ oisin-pipeline k8s-run --entrypoint quick --event-url https://console.example.co
 Use --local on the run command for workstation-local execution:
 
 oisin-pipeline run --local --entrypoint quick 'fix the login bug'
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Superseded by PIPE-54. Do not implement this k8s Job/--local plan; the accepted direction is the Moka submit command surface backed by Argo Workflows.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

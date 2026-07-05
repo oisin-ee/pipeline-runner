@@ -3,7 +3,7 @@ id: PIPE-92.5
 title: Audit plain node lifecycle transition contract
 status: Done
 assignee: []
-created_date: '2026-06-26 22:06'
+created_date: "2026-06-26 22:06"
 labels: []
 dependencies:
   - PIPE-92.4
@@ -25,16 +25,20 @@ ordinal: 294000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Workflow: plan-scope-spec
 Scope: inspect every recordNodeEvent call site, the NodeExecutionEvent union, current NodeStateTracker handler table, runtime actor docs, and PIPE-59/PIPE-69 de-xstate decisions. Produce an implementation-ready transition contract for the current plain async runtime.
 Dependencies: PIPE-92.4 to reduce pipeline-runtime churn before lifecycle work
 Likely modified files: backlog task notes and optionally docs/runtime-actor-model.md if stale/ambiguous lifecycle docs must be corrected
 Non-goal: do not reintroduce xstate; the current tests explicitly forbid it.
 Escalation: report Met/Unmet criteria with evidence/blocker.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Every NodeExecutionEvent has an explicit allowed-from/status-to contract, including terminal-state behaviour -- Evidence: task notes or docs contain transition table plus rg count of recordNodeEvent call sites reviewed
 - [x] #2 Contract reconciles stale docs/adr-xstate-runtime-actor-system.md with current PIPE-59/PIPE-69 plain-runtime decisions -- Evidence: references and decision notes, no xstate dependency proposed
 - [x] #3 Implementation slice is confirmed small enough or split further before code starts -- Evidence: updated child ticket notes or new subtasks
@@ -43,6 +47,7 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
+
 ### Workflow Evidence
 
 - Scope: `plan-scope-spec`; no production code changes.
@@ -80,6 +85,7 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 Canonical table: `docs/runtime-actor-model.md`, section `Node Execution Event Contract`.
 
 Summary:
+
 - `READY`: `pending` -> `ready`.
 - `STARTED`: `ready` or `running` -> `running`.
 - `START_HOOKS_FINISHED`, `SNAPSHOT_BEFORE_FINISHED`, `RUNNER_STARTED`, `RUNNER_FINISHED`, `OUTPUT_RECORDED`,
@@ -113,6 +119,7 @@ WHY THIS MATTERS: PIPE-92.6 will change tracker behaviour; a vague lifecycle con
 terminal mutation or push legality checks back into `pipeline-runtime.ts`.
 
 Degraded adversarial review findings:
+
 - Potential issue: docs list fine-grained node states that are not persisted `NodeStatus` values. Resolution: the table
   explicitly scopes itself to persisted `NodeExecutionState.status`.
 - Potential issue: `SUCCESS_HOOKS_STARTED` is declared but unproduced. Resolution: table marks it as declared with no
@@ -123,10 +130,13 @@ Degraded adversarial review findings:
   PIPE-59/PIPE-69 as current authority without proposing any state-machine dependency.
 
 Cross-model skipped: no explicit authorization to invoke an external model CLI.
+
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done
+
 <!-- DOD:BEGIN -->
+
 - [x] #1 Run the plan-scope-spec workflow in order: scope -> inspect repo facts -> assumptions -> acceptance criteria -> doubt/grill review
 - [x] #2 Proof checks recorded: rg -n 'recordNodeEvent|NodeStateTracker|xstate' src tests docs backlog/tasks && bun run test tests/runtime-node-state-tracker.test.ts
 <!-- DOD:END -->
@@ -134,11 +144,13 @@ Cross-model skipped: no explicit authorization to invoke an external model CLI.
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 PIPE-92.5 completed as a plan-scope-spec audit only. No production code changed. The transition contract lives in
 `docs/runtime-actor-model.md` under `Node Execution Event Contract`; PIPE-92.6 notes now confirm one small follow-up
 implementation slice owned by `NodeStateTracker`.
 
 Proof output summary:
+
 - `rg -n 'recordNodeEvent|NodeStateTracker|xstate' src tests docs backlog/tasks`: exit 0; 150 matching lines; output reviewed and includes
   source producer/helper lines, focused tests, stale historical task/ADR references, and PIPE-92.5/PIPE-92.6 notes.
 - `bun run test tests/runtime-node-state-tracker.test.ts`: exit 0; 1 file passed, 3 tests passed.

@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.3
-title: 'Runtime: worktree isolation for kind: workflow (worktree_root + lifecycle)'
+title: "Runtime: worktree isolation for kind: workflow (worktree_root + lifecycle)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:43'
-updated_date: '2026-05-28 19:25'
+created_date: "2026-05-28 17:43"
+updated_date: "2026-05-28 19:25"
 labels:
   - drain
   - runtime
@@ -13,8 +13,8 @@ dependencies:
   - PIPE-31.1
 references:
   - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
-  - 'src/pipeline-runtime.ts:384'
-  - 'src/pipeline-runtime.ts:1141'
+  - "src/pipeline-runtime.ts:384"
+  - "src/pipeline-runtime.ts:1141"
 modified_files:
   - src/config.ts
   - src/workflow-planner.ts
@@ -30,6 +30,7 @@ ordinal: 3000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Add `worktree_root` as an optional field on `kind: workflow` nodes. When set, the sub-workflow runs in a freshly-created git worktree at the resolved path on a fresh branch. The runtime owns the full lifecycle: create on entry, remove on success, leave for inspection on failure.
@@ -107,10 +108,13 @@ Depends on PIPE-31.1 (`kind: workflow` primitive) — extends it.
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"1. `kind: workflow`" (the `worktree_root` clause) and §"Open items resolved during implementation" (base SHA pinning, env safety, `.pipeline/` symlink).
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Schema accepts optional `worktree_root: string` on `kind: workflow` nodes
 - [x] #2 `${runId}` and `${nodeId}` substitution implemented; no general templating engine
 - [x] #3 Base SHA pinned once per parent workflow at start via `git rev-parse HEAD` and reused for every nested worktree under that run
@@ -125,5 +129,7 @@ Depends on PIPE-31.1 (`kind: workflow` primitive) — extends it.
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented workflow-node worktree isolation through the configured pipe workflow. Added optional worktree_root schema/planner support, runId generation, workflow-start base SHA pinning, git worktree add/remove --force lifecycle, .pipeline symlink fallback, child worktreePath dispatch without env mutation, failure inspection evidence, metadata output fields with null no-worktree values, and focused tests for success/failure/substitution/concurrency/base-SHA behavior. Verification passed: typecheck, full tests, Semgrep, duplication gate, acceptance, verifier, and learn nodes.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.8
-title: 'Config: epic entrypoint + epic-drain workflow (pipeline.yaml + .gitignore)'
+title: "Config: epic entrypoint + epic-drain workflow (pipeline.yaml + .gitignore)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:45'
-updated_date: '2026-05-28 22:42'
+created_date: "2026-05-28 17:45"
+updated_date: "2026-05-28 22:42"
 labels:
   - drain
   - config
@@ -48,6 +48,7 @@ ordinal: 8000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Wire the new structural primitives together into a real, runnable feature. Adds the `epic` entrypoint and the `epic-drain` workflow to `.pipeline/pipeline.yaml`. Also adds `.pipeline/runs/` to `.gitignore` so per-run worktree paths don't pollute git status.
@@ -130,6 +131,7 @@ Append `.pipeline/runs/` to `.gitignore` so per-run worktrees, branches, and rep
 ## Dependencies
 
 Depends on:
+
 - PIPE-31.1 (`kind: workflow`) — `implement` children use it.
 - PIPE-31.2 (`kind: parallel`) — `implement` is a parallel container.
 - PIPE-31.3 (`worktree_root` lifecycle) — every `implement` child uses `worktree_root`.
@@ -142,10 +144,13 @@ Note: PIPE-31.9 and PIPE-31.10 are independent of each other and of the runtime 
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"Worked example — epic drain" and §"Profile and skill additions for the example".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `.pipeline/pipeline.yaml` defines `entrypoints.epic` and `workflows.epic-drain` exactly per the shape in the description
 - [x] #2 `workflows.epic-drain` uses `kind: parallel` containing four `kind: workflow` children with `worktree_root: .pipeline/runs/${runId}/<track>`
 - [x] #3 `workflows.epic-drain` has a `drain-merge` builtin node and a `review` agent node with the verdict gate
@@ -159,5 +164,7 @@ Note: PIPE-31.9 and PIPE-31.10 are independent of each other and of the runtime 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Added the epic entrypoint and epic-drain workflow with research, epic routing, parallel default/default/default/infra implementation worktrees, drain-merge, and hardened review. Added the infra stub workflow, ignored .pipeline/runs/, updated explain-plan to tolerate lint-only missing references and show parallel children, regenerated all host command surfaces for epic, and tightened tests/dogfood coverage. Verified with acceptance PASS, verifier PASS, focused epic/install/dogfood tests, full tests, typecheck, semgrep, duplication, and learn.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

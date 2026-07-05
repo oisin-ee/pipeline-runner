@@ -35,7 +35,7 @@ interface DoctorCheck {
   passed: boolean;
 }
 
-export interface DoctorResult {
+export interface ClusterDoctorResult {
   checks: DoctorCheck[];
   passed: boolean;
 }
@@ -294,7 +294,7 @@ const checkClusterSecretStore = (
 
 const runClusterDoctorEffect = (
   options: ClusterDoctorOptions = {}
-): Effect.Effect<DoctorResult, never, KubernetesArgoService> => {
+): Effect.Effect<ClusterDoctorResult, never, KubernetesArgoService> => {
   const resources = clusterResources();
   const namespace = options.namespace ?? DEFAULT_NAMESPACE;
   const kubectlOptions = {
@@ -346,7 +346,7 @@ const runClusterDoctorEffect = (
 
 export const runClusterDoctor = async (
   options: ClusterDoctorOptions = {}
-): Promise<DoctorResult> =>
+): Promise<ClusterDoctorResult> =>
   await Effect.runPromise(
     Effect.provide(
       Effect.suspend(() => runClusterDoctorEffect(options)),

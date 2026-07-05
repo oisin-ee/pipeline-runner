@@ -492,7 +492,7 @@ ticketGraphDtoSchema.parse({
       ).toBe(true);
 
       for (const profileId of workflowProfileIds(config)) {
-        const runner = config.profiles[profileId].runner;
+        const { runner } = config.profiles[profileId];
         const nativeAgentPath = nativeAgentPathFor(runner, profileId);
         Option.match(nativeAgentPath, {
           onNone: () => {},

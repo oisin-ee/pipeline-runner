@@ -16,7 +16,7 @@ export const evaluateArtifactGate = (
   nodeId: string,
   context: ArtifactContext
 ): RuntimeGateResult => {
-  const path = gate.path;
+  const { path } = gate;
   const passed = path.length > 0 && artifactExists(context.worktreePath, path);
   return {
     evidence: [

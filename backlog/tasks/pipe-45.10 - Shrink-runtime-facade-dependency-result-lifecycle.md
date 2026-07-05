@@ -3,7 +3,7 @@ id: PIPE-45.10
 title: Shrink runtime facade dependency result lifecycle
 status: Done
 assignee: []
-created_date: '2026-06-27 14:03'
+created_date: "2026-06-27 14:03"
 labels: []
 dependencies:
   - PIPE-45.3
@@ -33,23 +33,29 @@ ordinal: 305000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Workflow: feature-implementation
 Scope: Split src/pipeline-runtime.ts into runtime facade, dependency/result mapping, lifecycle execution, journal acquisition, and public error formatting.
 Dependencies: PIPE-45.3, PIPE-45.4, PIPE-45.7
-Likely modified files: src/pipeline-runtime.ts, src/runtime/workflow/*, tests/pipeline-runtime.test.ts, tests/runtime-*.test.ts
+Likely modified files: src/pipeline-runtime.ts, src/runtime/workflow/_, tests/pipeline-runtime.test.ts, tests/runtime-_.test.ts
 Reuse: Effect runtime substrate remains; existing scheduler/journal modules stay owners.
 Escalation: report Met/Unmet criteria with evidence/blocker.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Public ./runtime facade stays compatible while internals move behind owned modules -- Evidence: `bun run test tests/runtime-refactor-boundaries.test.ts tests/pipeline-runtime.test.ts tests/runtime-scheduler-workflow.test.ts tests/package-public-api.test.ts tests/moka-resume.test.ts tests/moka-resume-schedule.test.ts tests/durable-resume-postgres.test.ts tests/run-control-runtime-reporter.test.ts tests/supervised-run.test.ts tests/tracer-bullet.test.ts` passed, 97 tests, 6 skipped.
 - [x] #2 src/pipeline-runtime.ts falls below 1k lines or records structural justification -- Evidence: `wc -l src/pipeline-runtime.ts` reports 103 lines; `pnpm exec fallow audit --changed-since HEAD --production` passed with no changed-file gate issues.
 - [x] #3 No scheduler/runtime semantics drift -- Evidence: focused runtime/API tests passed, including `tests/runtime-scheduler-workflow.test.ts`, `tests/pipeline-runtime.test.ts`, `tests/moka-resume.test.ts`, and `tests/durable-resume-postgres.test.ts`.
 <!-- AC:END -->
 
 ## Definition of Done
+
 <!-- DOD:BEGIN -->
+
 - [x] #1 Run feature-implementation workflow in order and record proof.
 <!-- DOD:END -->
 

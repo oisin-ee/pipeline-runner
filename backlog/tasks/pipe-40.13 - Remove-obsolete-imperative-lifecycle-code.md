@@ -3,8 +3,8 @@ id: PIPE-40.13
 title: Remove obsolete imperative lifecycle code
 status: Done
 assignee: []
-created_date: '2026-06-03 09:27'
-updated_date: '2026-06-04 09:22'
+created_date: "2026-06-03 09:27"
+updated_date: "2026-06-04 09:22"
 labels:
   - xstate
   - runtime
@@ -26,11 +26,15 @@ ordinal: 86000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Delete runtime lifecycle code that XState now owns, including local reducers, manual retry orchestration, obsolete helper types, and dependencies that no longer serve another purpose.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 src/pipeline-runtime.ts no longer contains transitionNode, reduceNodeState, NodeStateEvent, executeWorkflowBatch imperative scheduling helpers, or p-retry-based node retry logic.
 - [x] #2 package.json and bun.lock no longer include p-retry if no remaining code imports it.
 - [x] #3 No compatibility shim remains unless it is required by a public API and has explicit tests proving why it must stay.
@@ -41,11 +45,15 @@ Delete runtime lifecycle code that XState now owns, including local reducers, ma
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Search with rg for deleted symbols and p-retry imports. Remove dead code in the smallest set of files. Keep this as cleanup only; do not add new runtime behavior beyond deleting obsolete paths.
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Removed obsolete imperative lifecycle code after the actor migration, including reducer/retry/scheduling paths now owned by XState machines. Verified during backlog grooming on 2026-06-04 with `bun run typecheck`, `bun run check`, `bun run build`, `bun run test`, and `bun run test:dogfood`.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

@@ -1,10 +1,10 @@
 ---
 id: PIPE-53.3
-title: 'k8s-submit: register k8s-run CLI command and --local flag'
+title: "k8s-submit: register k8s-run CLI command and --local flag"
 status: Done
 assignee: []
-created_date: '2026-06-09 19:53'
-updated_date: '2026-06-10 14:10'
+created_date: "2026-06-09 19:53"
+updated_date: "2026-06-10 14:10"
 labels:
   - cli
   - superseded
@@ -21,7 +21,9 @@ ordinal: 161000
 ---
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 oisin-pipeline k8s-run --entrypoint quick --event-url http://localhost:3000/api/events 'fix login' attempts k8s Job creation
 - [ ] #2 oisin-pipeline k8s-run --help shows all flags with descriptions
 - [ ] #3 Missing required --entrypoint or --event-url prints error and exits non-zero
@@ -32,6 +34,7 @@ ordinal: 161000
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Changes to src/index.ts (~60 lines):
 
 1. Import submitK8sRunnerJob and k8sSubmitOptionsSchema from ./k8s-submit
@@ -47,5 +50,7 @@ Changes to src/index.ts (~60 lines):
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Superseded by PIPE-54. Do not implement this k8s Job/--local plan; the accepted direction is the Moka submit command surface backed by Argo Workflows.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

@@ -36,7 +36,12 @@ hooks:
   functions:
     generated-defaults-audit:
       kind: command
-      command: [node, -e, "const fs=require('node:fs'); fs.writeFileSync(process.env.PIPELINE_HOOK_RESULT, JSON.stringify({status:'pass',summary:'Generated defaults audit passed'}));"]
+      command:
+        [
+          node,
+          -e,
+          "const fs=require('node:fs'); fs.writeFileSync(process.env.PIPELINE_HOOK_RESULT, JSON.stringify({status:'pass',summary:'Generated defaults audit passed'}));",
+        ]
       trusted: true
       timeout_ms: 5000
       output_limit_bytes: 4096
@@ -111,7 +116,8 @@ scheduler:
         green-implementation:
           category: green
           profile: moka-code-writer
-          models: [opencode-go/qwen3.7-max, broker/gpt-5.5, kimi-for-coding/k2p6]
+          models:
+            [opencode-go/qwen3.7-max, broker/gpt-5.5, kimi-for-coding/k2p6]
           reasoning_effort: high
         verification:
           category: verification
@@ -119,7 +125,17 @@ scheduler:
           models: [broker/gpt-5.5, kimi-for-coding/kimi-k2-thinking]
           reasoning_effort: medium
     execute:
-      required_categories: [intake, research, red, green, mechanical, acceptance, verification, learn]
+      required_categories:
+        [
+          intake,
+          research,
+          red,
+          green,
+          mechanical,
+          acceptance,
+          verification,
+          learn,
+        ]
       nodes:
         backlog-intake:
           category: intake
@@ -139,12 +155,14 @@ scheduler:
         green-backend:
           category: green
           profile: moka-code-writer
-          models: [opencode-go/qwen3.7-max, broker/gpt-5.5, kimi-for-coding/k2p6]
+          models:
+            [opencode-go/qwen3.7-max, broker/gpt-5.5, kimi-for-coding/k2p6]
           reasoning_effort: high
         green-frontend:
           category: green
           profile: moka-code-writer
-          models: [broker/gpt-5.5, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
+          models:
+            [broker/gpt-5.5, kimi-for-coding/k2p6, opencode-go/qwen3.7-max]
           reasoning_effort: high
         acceptance-review:
           category: acceptance

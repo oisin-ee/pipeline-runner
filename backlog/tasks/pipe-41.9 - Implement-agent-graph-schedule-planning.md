@@ -3,8 +3,8 @@ id: PIPE-41.9
 title: Implement constrained agent-graph schedule planning
 status: Done
 assignee: []
-created_date: '2026-06-03 18:33'
-updated_date: '2026-06-04 09:22'
+created_date: "2026-06-03 18:33"
+updated_date: "2026-06-04 09:22"
 labels:
   - pipeline
   - schedules
@@ -25,11 +25,15 @@ ordinal: 97000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Use constrained agent-graph planning for scheduled entrypoints. The configured `baseline` remains as the seed artifact, but there is no separate baseline-refinement planner mode.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Schedule policies no longer accept `planner_strategy`; `baseline` is only the seed artifact for planner generation
 - [x] #2 Checked-in and scaffolded schedules omit obsolete planner strategy config
 - [x] #3 The planner prompt includes backlog work units, allowed profiles/workflows, gate recipes, max parallel policy, and the baseline artifact
@@ -41,11 +45,15 @@ Use constrained agent-graph planning for scheduled entrypoints. The configured `
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Remove schedule-strategy branching, enrich the schedule-planner prompt for constrained graph generation, and keep the written artifact format unchanged.
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented constrained schedule planning without `planner_strategy`: the baseline is used as the planner seed, prompt input carries work units and allowed primitives, planner output remains a compilable `pipeline-schedule`, and profile/workflow invention is rejected. Verified during backlog grooming on 2026-06-04 with the full repository verification suite and generated schedule CLI validation.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

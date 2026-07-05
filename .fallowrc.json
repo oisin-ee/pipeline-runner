@@ -1,6 +1,7 @@
 {
   "$schema": "https://fallow.dev/schema.json",
   "ignoreDependencies": [
+    "@mpsuesser/oxlint-plugin-effect",
     "tree-sitter-javascript",
     "tree-sitter-typescript",
     "ultracite"

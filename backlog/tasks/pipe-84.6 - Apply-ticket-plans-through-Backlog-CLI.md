@@ -3,8 +3,8 @@ id: PIPE-84.6
 title: Apply ticket plans through Backlog CLI
 status: Done
 assignee: []
-created_date: '2026-06-17 10:38'
-updated_date: '2026-06-17 12:58'
+created_date: "2026-06-17 10:38"
+updated_date: "2026-06-17 12:58"
 labels:
   - moka
   - ticket
@@ -28,11 +28,15 @@ ordinal: 239000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Implement moka ticket create --apply by converting a validated ticket plan into ordered Backlog CLI mutations. This ticket owns creating the epic parent by default, creating children, resolving local dependency keys to assigned Backlog ids, and surfacing structured failure if any Backlog command cannot be parsed.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 When --parent is absent, create --apply creates an epic parent before child tasks; evidence: tests/ticket-plan-apply.test.ts asserts BacklogService call order.
 - [x] #2 When --parent is provided, create --apply creates child tasks under the existing parent and does not create a new epic; evidence: apply test asserts command args.
 - [x] #3 Local dependency keys in the plan become real Backlog ids after child creation; evidence: test asserts a dependent child receives --dep with the created prerequisite id.
@@ -43,11 +47,15 @@ Implement moka ticket create --apply by converting a validated ticket plan into 
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Add src/tickets/apply-ticket-plan.ts. Reuse or extend the existing BacklogService from src/runtime/services/backlog-service.ts. Parse Backlog ids from --plain output using the existing tolerant task id pattern or a shared parser. Keep apply separate from dry-run rendering.
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented ticket plan application through BacklogService-backed backlog task create --plain calls. Verified parent creation, existing-parent apply, dependency id resolution, mutation boundary, malformed stdout failure reporting, source CLI flags, strict config validation, typecheck, style check, and focused test suite.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

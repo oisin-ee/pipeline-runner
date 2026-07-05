@@ -3,7 +3,7 @@ id: PIPE-52.11
 title: Document OpenCode-first operation and ecosystem choices
 status: Done
 assignee: []
-created_date: '2026-06-08 19:02'
+created_date: "2026-06-08 19:02"
 labels:
   - docs
   - opencode
@@ -31,11 +31,15 @@ ordinal: 156000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Update operator and architecture docs so users understand OpenCode-first defaults, goal loop behavior, continuation evidence, generated team graphs, DCP code, plugins, MCP gateway inventory, skills, prompts, permissions, and LSP tradeoffs.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 README and operator docs describe OpenCode as the default runtime and Codex as compatibility runner.
 - [x] #2 Docs explain goal-state artifacts, continuation stop reasons, and verifier/acceptance evidence requirements.
 - [x] #3 Docs list the default OpenCode plugins and DCP code as part of the curated default stack.
@@ -45,5 +49,7 @@ Update operator and architecture docs so users understand OpenCode-first default
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Update docs only after implementation contracts exist. Keep publishing instructions consistent with AGENTS.md: no local npm publish or direct container push.
+
 <!-- SECTION:PLAN:END -->

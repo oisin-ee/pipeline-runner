@@ -3,8 +3,8 @@ id: PIPE-40.3
 title: Implement hook invocation machine
 status: Done
 assignee: []
-created_date: '2026-06-03 09:25'
-updated_date: '2026-06-04 09:21'
+created_date: "2026-06-03 09:25"
+updated_date: "2026-06-04 09:21"
 labels:
   - xstate
   - runtime
@@ -15,7 +15,7 @@ references:
   - src/pipeline-runtime.ts
   - src/config.ts
 documentation:
-  - 'https://stately.ai/docs/invoke'
+  - "https://stately.ai/docs/invoke"
 modified_files:
   - src/runtime-machines/hook-machine.ts
   - tests/runtime-machines-hook.test.ts
@@ -27,11 +27,15 @@ ordinal: 76000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Build a standalone XState v5 hookInvocationMachine so hooks become first-class observable actors rather than imperative helper calls.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 hookInvocationMachine is created with setup(...).createMachine(...) and typed context/events/actions/guards/actors.
 - [x] #2 The machine exposes queued, running, passed, failed, timedOut, and skipped states with hook/running/terminal/failure/cancelled tags where appropriate.
 - [x] #3 The machine models required vs optional hook failure behavior without masking failures behind default success.
@@ -43,11 +47,15 @@ Build a standalone XState v5 hookInvocationMachine so hooks become first-class o
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Add src/runtime-machines/hook-machine.ts and tests/runtime-machines-hook.test.ts. Reuse existing HookSpec and HookRuntimePolicy types where possible without introducing circular imports.
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented the standalone hook invocation machine with explicit hook states, failure policy behavior, observability events, and focused tests. Verified during backlog grooming on 2026-06-04 with the full repository verification suite.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

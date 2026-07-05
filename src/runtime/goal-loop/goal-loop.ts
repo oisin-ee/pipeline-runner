@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-file
 import { Effect, Option } from "effect";
 
 import type { PipelineConfig } from "../../config";
@@ -26,10 +25,8 @@ import {
 } from "./continuation-prompt";
 
 export type {
-  GoalLoopContinuationInput,
   GoalLoopOptions,
   GoalLoopResult,
-  GoalLoopTerminalState,
 } from "../services/goal-loop-service";
 
 const isValidMaxContinuations = (value: number): boolean =>

@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.6
-title: 'CLI: pipe validate lint extensions + --strict flag'
+title: "CLI: pipe validate lint extensions + --strict flag"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:44'
-updated_date: '2026-05-28 20:53'
+created_date: "2026-05-28 17:44"
+updated_date: "2026-05-28 20:53"
 labels:
   - drain
   - cli
@@ -13,7 +13,7 @@ dependencies:
   - PIPE-31.5
 references:
   - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
-  - 'src/index.ts:315'
+  - "src/index.ts:315"
 modified_files:
   - src/config.ts
   - src/index.ts
@@ -26,6 +26,7 @@ ordinal: 6000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Extend `pipe validate` (already runs schema validation and compiles the workflow plan) with a small set of additional lints. Add a `--strict` flag that turns warnings into errors.
@@ -54,6 +55,7 @@ The existing `validate` subcommand (lines ~315-331) gets two new options:
 ```
 
 Action flow:
+
 1. Load config (existing).
 2. Run schema validation + `compileWorkflowPlan` (existing).
 3. Unless `--no-lint`: run the lint set above against the loaded config. Emit warnings via stderr with a `WARN ` prefix.
@@ -82,10 +84,13 @@ Depends on PIPE-31.5 (entrypoint-as-subcommand) — the entrypoint-shadowing lin
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"Linting via existing `pipe validate`".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `pipe validate` runs the existing schema+plan checks then a new lint pass; lints emit `WARN <rule-id>: <message>` to stderr
 - [x] #2 `--strict` flag turns any warning into a non-zero exit
 - [x] #3 `--no-lint` flag skips the lint pass (schema-only behavior preserved)
@@ -101,5 +106,7 @@ Depends on PIPE-31.5 (entrypoint-as-subcommand) — the entrypoint-shadowing lin
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented `pipe validate` lint extensions and strict/no-lint controls through the configured pipe workflow. Validate now runs schema/config/plan checks first, then emits `WARN <rule-id>: <message>` lint warnings for entrypoint shadowing, missing file references, singleton parallel containers, and worktree root style. `--strict` promotes warnings to failure, `--no-lint` preserves schema-only behavior, normal config loading remains strict, and undefined workflow references remain hard config validation. Verification passed: acceptance PASS, verifier PASS, typecheck, full tests, semgrep, and duplication.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

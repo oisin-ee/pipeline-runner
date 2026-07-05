@@ -3,8 +3,8 @@ id: PIPE-45.1
 title: Refresh cleanup baseline and public API guard
 status: Done
 assignee: []
-created_date: '2026-06-27 14:01'
-updated_date: '2026-06-27 14:09'
+created_date: "2026-06-27 14:01"
+updated_date: "2026-06-27 14:09"
 labels: []
 dependencies: []
 references:
@@ -25,16 +25,20 @@ ordinal: 296000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Workflow: feature-implementation
 Scope: Freeze public package exports/bin/CLI/config contract before any structural movement. Capture current size/dead-code baseline.
 Dependencies: PIPE-45
-Likely modified files: tests/package-public-api.test.ts, tests/dist-contract.test.ts, optional tests/refactor-boundaries.test.ts, backlog/tasks/pipe-45*.md
+Likely modified files: tests/package-public-api.test.ts, tests/dist-contract.test.ts, optional tests/refactor-boundaries.test.ts, backlog/tasks/pipe-45\*.md
 Reuse: existing package.json exports/bin, Bun/Vitest runner, current fallow/knip tooling. No new dependency.
 Escalation: report Met/Unmet criteria with evidence/blocker.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Public exports and bin surface are explicitly guarded -- Evidence: tests/package-public-api.test.ts and tests/dist-contract.test.ts pass.
 - [x] #2 Cleanup baseline is recorded for current hotspots and dead surface -- Evidence: bun run typecheck, bun run check, bun test, pnpm dlx knip --reporter compact --no-progress, pnpm exec fallow health --production --complexity --targets --hotspots --report-only output recorded in task notes.
 - [x] #3 No code cleanup ticket may alter public package exports without updating this guard or adding explicit public API migration evidence -- Evidence: test assertion covers package exports/bin.
@@ -43,21 +47,26 @@ Escalation: report Met/Unmet criteria with evidence/blocker.
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
+
 Implementation evidence (2026-06-27):
 
 Research ledger:
+
 - Local: inspected package.json exports/bin, tsdown.config.ts entries, tests/package-public-api.test.ts, tests/dist-contract.test.ts, Backlog task graph, and current source line counts.
 - External primary/source/tool: Node.js package docs confirm package exports define/encapsulate public entry points; Backlog CLI help used for task graph mutation; Bun/Vitest commands used from package scripts.
 
 Library-first/reuse decision:
+
 - Used existing package.json exports/bin as contract source, existing Vitest/Bun script path for proof, and existing Zod dependency to validate package.json shape in the test.
 - No new dependency, no dependency-cruiser, no custom package-map parser.
 
 Change:
+
 - Added tests/package-public-api.test.ts guard that pins exact package exports map and moka bin surface before structural cleanup.
 - Created PIPE-45 child graph PIPE-45.1 through PIPE-45.18 and updated parent scope from stale files to current hotspots.
 
 Proof commands:
+
 - backlog sequence list --plain: PIPE-45.1 first; PIPE-45.2-45.8 parallel after guard; dependent structural tickets sequence after prerequisites; PIPE-45.18 final.
 - bunx vitest run tests/package-public-api.test.ts tests/dist-contract.test.ts: passed, 2 files, 8 tests.
 - bun run typecheck: passed.
@@ -69,6 +78,7 @@ Proof commands:
 - git diff --check: passed.
 
 Code Rubric:
+
 - Declarative PASS: expected public export map is a data fixture in tests/package-public-api.test.ts.
 - Modular/deep PASS: package surface guard is a single public-contract test, not scattered assertions.
 - One owner PASS: package exports/bin variation owned by EXPECTED_PUBLIC_EXPORTS plus bin assertion.
@@ -78,6 +88,7 @@ Code Rubric:
 - Verified PASS: focused tests, typecheck, check, full test, knip baseline, fallow baseline ran fresh.
 
 Critique:
+
 - Correctness: guard directly pins Node package exports/bin surface before refactor.
 - Security: no secret/auth path touched; package export paths remain relative ./dist paths.
 - Performance: test-only/package metadata check; no runtime path changed.
@@ -86,7 +97,9 @@ Critique:
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done
+
 <!-- DOD:BEGIN -->
+
 - [x] #1 Run feature-implementation workflow: research + library-first-development, Build Contract, targeted test, quality-gate/critique, verify.
 - [x] #2 Record fresh proof output in implementation notes.
 <!-- DOD:END -->

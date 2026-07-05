@@ -3,8 +3,8 @@ id: PIPE-52.4
 title: Build continuation prompt engine and bounded goal loop
 status: Done
 assignee: []
-created_date: '2026-06-08 19:00'
-updated_date: '2026-06-08 20:01'
+created_date: "2026-06-08 19:00"
+updated_date: "2026-06-08 20:01"
 labels:
   - goal-loop
   - continuation
@@ -26,11 +26,15 @@ ordinal: 149000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Generate continuation prompts from persisted goal state and add a bounded runtime loop that re-enters OpenCode when the goal is incomplete but recoverable.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Continuation prompt includes original task, task refs, current schedule node context, failed gates, verifier or acceptance evidence, changed files summary, prior attempts, and exact next requirement.
 - [ ] #2 Loop stops with explicit terminal states: passed, blocked, cancelled, max_continuations_reached, or no_progress_detected.
 - [ ] #3 No-progress detection blocks when the same failure signature repeats without new changed files or new evidence.
@@ -40,5 +44,7 @@ Generate continuation prompts from persisted goal state and add a bounded runtim
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Add a continuation prompt builder module and integrate it at the workflow/runtime boundary, not inside individual profiles. Use existing XState workflow ownership and runner launch plan. Do not rely on OpenCode promptAsync in the first implementation; spawn bounded OpenCode runs through the existing runner adapter.
+
 <!-- SECTION:PLAN:END -->

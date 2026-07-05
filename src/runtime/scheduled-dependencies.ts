@@ -1,4 +1,5 @@
-import { getOrUndefined, match, none, some, type Option } from "effect/Option";
+import { getOrUndefined, match, none, some } from "effect/Option";
+import type { Option } from "effect/Option";
 
 import type {
   NodeExecutionState,
@@ -117,7 +118,7 @@ const scheduledDependencyNodeIds = (
       return;
     }
     visited.add(candidateId);
-    if (context.plan.graph.hasNode(candidateId) === false) {
+    if (!context.plan.graph.hasNode(candidateId)) {
       return;
     }
     const candidate = context.plan.graph.node(candidateId);
@@ -126,7 +127,7 @@ const scheduledDependencyNodeIds = (
     }
     ordered.push(candidateId);
   };
-  if (context.plan.graph.hasNode(nodeId) === false) {
+  if (!context.plan.graph.hasNode(nodeId)) {
     return ordered;
   }
   const node = context.plan.graph.node(nodeId);
@@ -145,9 +146,9 @@ export const hydrateDependencyOutputs = (
   const outputs = dependencyOutputMap(dependencyOutputs);
   const finishedAt = now();
   for (const [nodeId, output] of outputs) {
-    context.nodeStateStore.recordOutput(nodeId, output);
-    context.nodeStateStore.markInheritedOutput(nodeId);
-    context.nodeStateStore.setNodeState(
+    context.nodeStateStore.lastOutputByNode.set(nodeId, output);
+    context.nodeStateStore.inheritedOutputNodeIds.add(nodeId);
+    context.nodeStateStore.nodeStates.set(
       nodeId,
       inheritedDependencyOutputState(context, nodeId, output, finishedAt)
     );
@@ -163,7 +164,7 @@ export const hydrateScheduledDependencyStates = (
     const existing = getOrUndefined(
       context.nodeStateStore.getNodeState(dependencyId)
     );
-    context.nodeStateStore.setNodeState(
+    context.nodeStateStore.nodeStates.set(
       dependencyId,
       scheduledDependencyState(dependencyId, finishedAt, existing)
     );

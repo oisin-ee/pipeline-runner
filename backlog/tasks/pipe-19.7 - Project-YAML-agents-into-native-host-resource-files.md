@@ -3,8 +3,8 @@ id: PIPE-19.7
 title: Project YAML agents into native host resource files
 status: Done
 assignee: []
-created_date: '2026-05-24 14:17'
-updated_date: '2026-05-25 09:44'
+created_date: "2026-05-24 14:17"
+updated_date: "2026-05-25 09:44"
 labels:
   - pipeline
   - host-resources
@@ -31,11 +31,15 @@ ordinal: 26000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Update host resource generation so Codex, Codex, OpenCode, Kimi, and Pi resources are derived from `.pipeline/pipeline.yaml`. Generated resources should be host-specific projections of the same runner/agent/workflow definitions, not separate hand-maintained profile systems.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Codex resource generation represents configured agents, instructions, tools, MCP access, skills, and model settings as native Codex artifacts where supported.
 - [x] #2 Codex resource generation emits `.codex/agents` entries derived from YAML agents and preserves configured model, sandbox, MCP, and skills settings where supported.
 - [x] #3 OpenCode resource generation emits command and agent files using native primary/subagent modes and permissions derived from YAML.
@@ -46,5 +50,7 @@ Update host resource generation so Codex, Codex, OpenCode, Kimi, and Pi resource
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Regenerated host resource projection from YAML for Codex, Codex, OpenCode, Kimi, and Pi, including configured agents, grants, workflow shape, and Pi subagent validation.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

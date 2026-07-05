@@ -32,17 +32,17 @@ The package still needs its own scheduler and state model because the pipeline c
 
 ## Library-First Vetting
 
-| Item | Role in the Stack | Decision |
-| --- | --- | --- |
-| `@opencode-ai/plugin` | Official plugin API for OpenCode lifecycle hooks | Use when package code implements OpenCode plugins. |
-| `@opencode-ai/sdk` | Official programmatic API for OpenCode integration | Use when package code needs OpenCode API access outside generated config. |
-| `opencode-handoff` | Handoff/session capture pattern | Incorporate the relevant handoff behaviour into package-owned continuation flows. |
-| DCP code | Dynamic context pruning for long OpenCode sessions | Include in the default OpenCode stack and wire it into continuation/context policy. |
-| `@devtheops/opencode-plugin-otel` | OpenTelemetry plugin reference | Use as telemetry pattern input for package-owned runtime observability. |
-| `opencode-snip` | Snippet/prompt helper pattern | Use as prompt-discipline and reusable snippet input. |
-| `opencode-background-agents` | Background/delegated agent pattern | Use as delegation input for scheduler-generated team mode. |
-| `opencode-mem` | Memory/context helper pattern | Use as input for durable goal context and memory projection. |
-| `cupcake` | OpenCode ecosystem utility surfaced during research | Keep in the surfaced ecosystem inventory when relevant to package workflows. |
+| Item                              | Role in the Stack                                   | Decision                                                                            |
+| --------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `@opencode-ai/plugin`             | Official plugin API for OpenCode lifecycle hooks    | Use when package code implements OpenCode plugins.                                  |
+| `@opencode-ai/sdk`                | Official programmatic API for OpenCode integration  | Use when package code needs OpenCode API access outside generated config.           |
+| `opencode-handoff`                | Handoff/session capture pattern                     | Incorporate the relevant handoff behaviour into package-owned continuation flows.   |
+| DCP code                          | Dynamic context pruning for long OpenCode sessions  | Include in the default OpenCode stack and wire it into continuation/context policy. |
+| `@devtheops/opencode-plugin-otel` | OpenTelemetry plugin reference                      | Use as telemetry pattern input for package-owned runtime observability.             |
+| `opencode-snip`                   | Snippet/prompt helper pattern                       | Use as prompt-discipline and reusable snippet input.                                |
+| `opencode-background-agents`      | Background/delegated agent pattern                  | Use as delegation input for scheduler-generated team mode.                          |
+| `opencode-mem`                    | Memory/context helper pattern                       | Use as input for durable goal context and memory projection.                        |
+| `cupcake`                         | OpenCode ecosystem utility surfaced during research | Keep in the surfaced ecosystem inventory when relevant to package workflows.        |
 
 ## Consequences
 

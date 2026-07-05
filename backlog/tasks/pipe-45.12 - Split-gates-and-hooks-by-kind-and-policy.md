@@ -3,7 +3,7 @@ id: PIPE-45.12
 title: Split gates and hooks by kind and policy
 status: Done
 assignee: []
-created_date: '2026-06-27 14:03'
+created_date: "2026-06-27 14:03"
 labels: []
 dependencies:
   - PIPE-45.10
@@ -22,22 +22,28 @@ ordinal: 307000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Workflow: feature-implementation
 Scope: Split hook execution, hook policy, gate evaluation, artifact/quality gates, and event rendering into focused modules.
 Dependencies: PIPE-45.10
-Likely modified files: src/runtime/gates/gates.ts, src/runtime/hooks/hooks.ts, src/runtime/gates/*, src/runtime/hooks/*, tests/gates.test.ts, tests/install-hooks.test.ts
+Likely modified files: src/runtime/gates/gates.ts, src/runtime/hooks/hooks.ts, src/runtime/gates/_, src/runtime/hooks/_, tests/gates.test.ts, tests/install-hooks.test.ts
 Reuse: existing hook/gate contracts and shell execution helpers; no alternate policy engine.
 Escalation: report Met/Unmet criteria with evidence/blocker.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Hook and gate policies are separated by kind/owner -- Evidence: source inspection in `tests/pipe-45-12-hook-gate-boundaries.test.ts`; hook owners split under `src/runtime/hooks/`, gate kind registry remains in `src/runtime/gates/registry.ts`.
 - [x] #2 Gate/hook tests pass with no added suppressions -- Evidence: `bun run test src/runtime/hooks/hooks.test.ts tests/gates.test.ts tests/install-hooks.test.ts`; combined focused proof also passed 9 files / 104 tests.
 - [x] #3 No silent error handling or broad fallback defaults are introduced -- Evidence: quality-gate review plus `bun run typecheck`, `bun run check`, and `pnpm exec fallow audit --changed-since HEAD --production`.
 <!-- AC:END -->
 
 ## Definition of Done
+
 <!-- DOD:BEGIN -->
+
 - [x] #1 Run feature-implementation workflow in order and record proof.
 <!-- DOD:END -->

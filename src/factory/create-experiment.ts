@@ -24,7 +24,7 @@ import { githubGitCredentialEnv } from "./git-credentials";
  * (registry `lifecycle: retired` + repo deletion) is the documented cleanup.
  */
 
-export const EXPERIMENT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/u;
+const EXPERIMENT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/u;
 
 const DEFAULT_ORG = "oisin-ee";
 const DEFAULT_TEMPLATE_SOURCE = "gh:oisin-ee/momokaya-template";

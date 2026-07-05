@@ -3,8 +3,8 @@ id: PIPE-19.5
 title: Build typed runner adapters plus command runner escape hatch
 status: Done
 assignee: []
-created_date: '2026-05-24 14:17'
-updated_date: '2026-05-25 09:44'
+created_date: "2026-05-24 14:17"
+updated_date: "2026-05-25 09:44"
 labels:
   - pipeline
   - runner
@@ -25,11 +25,15 @@ ordinal: 24000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Create the runner abstraction used by agent nodes. Built-in runner adapters should cover Codex, Codex, OpenCode, Kimi, and Pi with typed fields for model, reasoning/thinking, sandbox/permissions, cwd, env, output mode, and timeout. A `command` runner should support arbitrary CLIs only when capabilities and output behavior are declared explicitly.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Runner validation rejects unknown built-in runners and unsupported capability combinations before execution.
 - [x] #2 Built-in runner adapters can produce deterministic launch plans without calling external model services in tests.
 - [x] #3 The command runner supports argv-style commands and declares its capabilities explicitly.
@@ -40,5 +44,7 @@ Create the runner abstraction used by agent nodes. Built-in runner adapters shou
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Added typed launch planning for Codex, Codex, OpenCode, Kimi, Pi, and command runners with explicit output capability validation and deterministic tests.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

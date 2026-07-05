@@ -7,7 +7,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { Option } from "effect";
 
@@ -49,20 +49,6 @@ const provisionGeneratedResources = (
   }
 };
 
-const copyFileInto = (
-  fromRoot: string,
-  toRoot: string,
-  relativePath: string
-): void => {
-  const source = join(fromRoot, relativePath);
-  if (!existsSync(source)) {
-    return;
-  }
-  const dest = join(toRoot, relativePath);
-  mkdirSync(dirname(dest), { recursive: true });
-  cpSync(source, dest, { recursive: true });
-};
-
 export type WorktreeState =
   | "active"
   | "removed"
@@ -100,16 +86,6 @@ interface WorktreeManifest {
 const git = (cwd: string, args: string[]): string =>
   execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
 
-const changedWorktreeFiles = (worktreePath: string): string[] => {
-  const modified = git(worktreePath, ["diff", "--name-only", "HEAD"]);
-  const untracked = git(worktreePath, [
-    "ls-files",
-    "--others",
-    "--exclude-standard",
-  ]);
-  return [...modified.split("\n"), ...untracked.split("\n")].filter(Boolean);
-};
-
 const sanitize = (id: string): string =>
   id.replaceAll(/[^A-Za-z0-9._-]/gu, "-");
 
@@ -125,32 +101,6 @@ const childWorktreeRelPath = (
     sanitize(parentNodeId),
     sanitize(childNodeId)
   );
-
-/**
- * PIPE-83.14: promote a best-of-N winner's edits from its (retained) worktree
- * back into the main worktree, so downstream nodes (tests, verification) see the
- * selected candidate's changes. Copies modified + untracked files; no-op if the
- * worktree is gone. Returns the promoted file paths.
- */
-export const promoteWorktreeChanges = (
-  repoRoot: string,
-  parentNodeId: string,
-  childNodeId: string,
-  runId?: string
-): string[] => {
-  const worktreePath = join(
-    repoRoot,
-    childWorktreeRelPath(parentNodeId, childNodeId, runId)
-  );
-  if (!existsSync(worktreePath)) {
-    return [];
-  }
-  const files = changedWorktreeFiles(worktreePath);
-  for (const relativePath of files) {
-    copyFileInto(worktreePath, repoRoot, relativePath);
-  }
-  return files;
-};
 
 const writeManifest = (path: string, manifest: WorktreeManifest): void => {
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");

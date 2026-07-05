@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.2
-title: 'Runtime: kind: parallel container node (concurrent children)'
+title: "Runtime: kind: parallel container node (concurrent children)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:42'
-updated_date: '2026-05-28 18:56'
+created_date: "2026-05-28 17:42"
+updated_date: "2026-05-28 18:56"
 labels:
   - drain
   - runtime
@@ -13,9 +13,9 @@ dependencies:
   - PIPE-31.1
 references:
   - /Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md
-  - 'src/config.ts:423'
-  - 'src/pipeline-runtime.ts:1190'
-  - 'src/pipeline-runtime.ts:498'
+  - "src/config.ts:423"
+  - "src/pipeline-runtime.ts:1190"
+  - "src/pipeline-runtime.ts:498"
 modified_files:
   - src/config.ts
   - src/workflow-planner.ts
@@ -30,6 +30,7 @@ ordinal: 2000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Introduce a new workflow node kind whose `nodes:` children execute concurrently. Children can be any kind — `agent`, `command`, `builtin`, `workflow` (the new sub-workflow primitive), or even nested `parallel` containers. Uniform composition; no special-casing per child kind.
@@ -44,10 +45,10 @@ The other half of the structural-DAG primitive set. With `kind: parallel`, a YAM
 - id: implement
   kind: parallel
   nodes:
-    - { id: test,     kind: workflow, workflow: default }
+    - { id: test, kind: workflow, workflow: default }
     - { id: frontend, kind: workflow, workflow: default }
-    - { id: backend,  kind: workflow, workflow: default }
-    - { id: k8s,      kind: workflow, workflow: infra   }
+    - { id: backend, kind: workflow, workflow: default }
+    - { id: k8s, kind: workflow, workflow: infra }
 ```
 
 ## Schema (src/config.ts, `workflowNodeSchema` at :423)
@@ -58,9 +59,9 @@ Add a discriminant:
 workflowNodeBaseSchema
   .extend({
     kind: z.literal("parallel"),
-    nodes: z.array(workflowNodeSchema).min(1),   // recursive — same shape as top-level
+    nodes: z.array(workflowNodeSchema).min(1), // recursive — same shape as top-level
   })
-  .strict()
+  .strict();
 ```
 
 Reject empty children at schema time (a lint will also surface this in `pipe validate` — separate ticket — but the schema is the first line of defense).
@@ -98,10 +99,13 @@ Depends on PIPE-31.1 (`kind: workflow` primitive) landing first so the nested-co
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"2. `kind: parallel`".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `src/config.ts` workflowNodeSchema accepts `kind: parallel` with non-empty `nodes:` children; schema declaration made lazy to support recursion
 - [x] #2 Empty `nodes:` array rejected at schema validation
 - [x] #3 `src/pipeline-runtime.ts` dispatches `kind: parallel` to `executeParallelNode` that runs children via existing `pLimit(maxParallelNodes)`
@@ -115,5 +119,7 @@ Depends on PIPE-31.1 (`kind: workflow` primitive) landing first so the nested-co
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented kind: parallel container nodes through the configured pipe workflow. Added recursive schema support, recursive child validation/planning, runtime child execution via existing pLimit strategy, maxParallelNodes handling, failFast abort and queue clearing, aggregate output JSON, nested parallel/workflow composition, reporter parent context, and focused tests. Verification passed: typecheck, full tests, Semgrep, duplication gate, acceptance, verifier, and learn nodes.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

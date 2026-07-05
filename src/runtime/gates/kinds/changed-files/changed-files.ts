@@ -52,7 +52,9 @@ export const evaluateChangedFilesGate = (
   nodeId: string,
   context: Pick<RuntimeContext, "nodeStateStore">
 ): RuntimeGateResult => {
-  const changed = context.nodeStateStore.changedFiles(nodeId);
+  const changed = [
+    ...(context.nodeStateStore.nodeSnapshots.get(nodeId)?.files ?? []),
+  ];
   const policy = gate.changed_files;
   const evidence: string[] = [];
   const untrackedFiltered =

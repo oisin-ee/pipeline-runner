@@ -75,7 +75,7 @@ const recordImplementationRemediationEffect = (input: {
     ) {
       return false;
     }
-    input.context.nodeStateStore.recordOutput(
+    input.context.nodeStateStore.lastOutputByNode.set(
       input.implementationNode.id,
       input.result.output
     );
@@ -164,8 +164,8 @@ const remediateImplementationAncestor = (
     const beforeSnapshot = yield* input.dependencies.snapshotChangedFiles(
       input.context.worktreePath
     );
-    const beforeOutput = input.context.nodeStateStore.getOutput(
-      implementationNode.id
+    const beforeOutput = Option.fromUndefinedOr(
+      input.context.nodeStateStore.lastOutputByNode.get(implementationNode.id)
     );
     const result = yield* executeImplementationRemediation({
       attempt: input.attempt,
@@ -309,7 +309,9 @@ const remediateWritableNodeFailure = (
     const beforeSnapshot = yield* input.dependencies.snapshotChangedFiles(
       input.context.worktreePath
     );
-    const beforeOutput = input.context.nodeStateStore.getOutput(input.node.id);
+    const beforeOutput = Option.fromUndefinedOr(
+      input.context.nodeStateStore.lastOutputByNode.get(input.node.id)
+    );
     const result = yield* executeSelfRemediation(input);
     if (result.status !== "passed") {
       return Option.none();
@@ -332,8 +334,11 @@ const remediateWritableNodeFailure = (
       return Option.none();
     }
 
-    input.context.nodeStateStore.setSnapshot(input.node.id, changed);
-    input.context.nodeStateStore.recordOutput(input.node.id, result.output);
+    input.context.nodeStateStore.nodeSnapshots.set(input.node.id, changed);
+    input.context.nodeStateStore.lastOutputByNode.set(
+      input.node.id,
+      result.output
+    );
     return Option.some({
       result: {
         attempts: input.attempt + 1,

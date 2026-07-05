@@ -47,7 +47,7 @@ const recordNodeEvent = (
     Option.getOrUndefined(context.nodeStateStore.getNodeState(nodeId))
   );
   const state = tracker.record(event);
-  context.nodeStateStore.setNodeState(nodeId, state);
+  context.nodeStateStore.nodeStates.set(nodeId, state);
 };
 
 export const isCancelled = (context: RuntimeContext): boolean =>
@@ -589,9 +589,11 @@ const recordAttemptOutput = (
     const afterSnapshot = yield* snapshotChangedFilesEffect(
       context.worktreePath
     );
-    const beforeSnapshot = context.nodeStateStore.getSnapshot(node.id);
+    const beforeSnapshot = Option.fromUndefinedOr(
+      context.nodeStateStore.nodeSnapshots.get(node.id)
+    );
     if (Option.isSome(beforeSnapshot)) {
-      context.nodeStateStore.setSnapshot(
+      context.nodeStateStore.nodeSnapshots.set(
         node.id,
         diffChangedFiles(
           beforeSnapshot.value,
@@ -600,7 +602,7 @@ const recordAttemptOutput = (
         )
       );
     }
-    context.nodeStateStore.recordOutput(node.id, last.output);
+    context.nodeStateStore.lastOutputByNode.set(node.id, last.output);
     context.nodeStateStore.recordHandoff(node.id, last.handoff);
     emitNodeOutputRecorded(context, node, attempt, last.output);
     recordNodeEvent(context, node.id, { at: now(), type: "OUTPUT_RECORDED" });
@@ -862,7 +864,7 @@ runNodeAttemptBody = (
       at: now(),
       type: "START_HOOKS_FINISHED",
     });
-    context.nodeStateStore.setSnapshot(
+    context.nodeStateStore.nodeSnapshots.set(
       node.id,
       yield* snapshotChangedFilesEffect(context.worktreePath)
     );

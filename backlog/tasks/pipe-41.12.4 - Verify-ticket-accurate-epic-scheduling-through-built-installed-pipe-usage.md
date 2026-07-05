@@ -3,8 +3,8 @@ id: PIPE-41.12.4
 title: Verify ticket-accurate epic scheduling through built installed-pipe usage
 status: Done
 assignee: []
-created_date: '2026-06-04 09:28'
-updated_date: '2026-06-04 09:48'
+created_date: "2026-06-04 09:28"
+updated_date: "2026-06-04 09:48"
 labels:
   - pipeline
   - schedules
@@ -31,11 +31,15 @@ ordinal: 109000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Add the real usage proof for the PC-37 failure class. Once schedule planning understands Backlog dependencies and installed validation accepts `task_context`, the repository must prove that a built or installed `pipe` can generate, validate, and explain a ticket-accurate schedule for a multi-child epic without falling back to generic tracks.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 A dogfood test creates or uses a PC-37-shaped Backlog fixture with at least six child tickets, including one sequential dependency chain, two independent branches, and one final rollout/verification child.
 - [x] #2 The scheduled epic entrypoint generates a schedule artifact whose root workflow contains explicit nodes assigned to every child ticket id and no generic-only `test/frontend/backend/k8s` implementation plan.
 - [x] #3 The generated schedule preserves Backlog child dependencies in the explained execution plan while independent child branches remain parallelizable.
@@ -47,6 +51,7 @@ Add the real usage proof for the PC-37 failure class. Once schedule planning und
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 1. Build a PC-37-shaped fixture in the dogfood or CLI test layer, using real Backlog task markdown and the configured scheduled epic entrypoint.
 2. Invoke the schedule generation path the same way users do, capturing the generated `.pipeline/runs/<runId>/schedule.yaml` path from CLI output where possible.
 3. Run the built or installed `pipe validate --schedule <schedule.yaml>` command against that generated artifact and assert success.
@@ -58,11 +63,15 @@ Add the real usage proof for the PC-37 failure class. Once schedule planning und
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
+
 Execution started after schedule graph validation and `task_context` CLI/public-package coverage were green. This slice will add the PC-37-shaped dogfood proof through CLI schedule generation, validation, and explain-plan.
+
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Added a PC-37-shaped dogfood test with six child tickets, sequential dependencies, independent parallel branches, and final rollout verification. The test generates a ticket-accurate schedule with hydrated `task_context`, verifies every child id is assigned, rejects the old generic-track-only shape, and runs CLI `validate --schedule` plus `explain-plan --schedule` against the generated artifact. Verification also included built CLI validation/explain against existing generated schedules.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

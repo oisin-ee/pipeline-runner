@@ -3,8 +3,8 @@ id: PIPE-95.11
 title: Clear remote Argo factory and public-surface strict lint for PIPE-95
 status: To Do
 assignee: []
-created_date: '2026-07-05 19:19'
-updated_date: '2026-07-05 18:34'
+created_date: "2026-07-05 19:19"
+updated_date: "2026-07-05 18:34"
 labels:
   - migration
 dependencies:
@@ -51,23 +51,27 @@ ordinal: 356000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Workflow: feature-implementation
 What to build: Clear strict/type-aware/Effect lint diagnostics owned by Argo submission/modeling, remote submit, factory, context/repo-map, package/public runtime surfaces, and paired tests.
-Scope: src/argo*.ts, src/remote/**, src/factory/**, src/context/**, public package/runtime helper files not owned by earlier lanes, and paired tests. Do not touch runtime core, runner, run-control, CLI/config, planning/schedule/tickets, or package metadata unless recording a transferred residual.
+Scope: src/argo\*.ts, src/remote/**, src/factory/**, src/context/\*\*, public package/runtime helper files not owned by earlier lanes, and paired tests. Do not touch runtime core, runner, run-control, CLI/config, planning/schedule/tickets, or package metadata unless recording a transferred residual.
 Dependencies / Blocked by: PIPE-95.5.
 Likely modified files: remote/Argo/factory/context/public-surface files and paired tests named by the fresh lint JSON.
 Research required: inspect remote submit contracts, Argo models/templates, factory command boundaries, safe JSON/schema helpers, and existing service wrappers before edits.
 Model recommendation:
+
 - Claude: unknown -- no Claude model inventory is exposed in this session.
 - Codex: gpt-5.5-high -- remote/Argo lane has submit/runtime behaviour risk; current host exposes gpt-5.5.
 - OpenCode: moka-code-writer/default -- dispatch must revalidate live availability.
-Escalation:
+  Escalation:
 - Met: remote/Argo/factory diagnostics clear with focused tests and typecheck.
 - Unmet: record exact file/rule/count and missing schema/service contract.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Remote/Argo/factory/public-surface diagnostics are cleared. -- Evidence: parsed oxlint JSON filtered to this lane write boundary shows zero errors except transferred residuals with rule/file/count.
 - [ ] #2 Remote/Argo/factory behaviours remain covered. -- Evidence: focused tests for touched files pass and nub run typecheck exits 0.
 - [ ] #3 Write boundary is respected. -- Evidence: review lists any out-of-bound file touched and why it was required, otherwise no out-of-bound source/test edits.
@@ -77,11 +81,15 @@ Escalation:
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Filter lint JSON to remote/Argo/factory/context/public-surface paths, group by submit/schema/service boundary, repair one seam at a time, run focused tests, then rerun filtered counts and typecheck.
+
 <!-- SECTION:PLAN:END -->
 
 ## Definition of Done
+
 <!-- DOD:BEGIN -->
+
 - [ ] #1 The ticket global-rules feature-implementation workflow was run in order.
 - [ ] #2 Focused proof ran fresh and output was recorded.
 - [ ] #3 Required verify/review step passed, or blocker was reported in structured form.

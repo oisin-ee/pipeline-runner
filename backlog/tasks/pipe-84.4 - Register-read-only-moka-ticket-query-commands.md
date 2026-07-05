@@ -3,8 +3,8 @@ id: PIPE-84.4
 title: Register read-only moka ticket query commands
 status: Done
 assignee: []
-created_date: '2026-06-17 10:37'
-updated_date: '2026-06-17 12:35'
+created_date: "2026-06-17 10:37"
+updated_date: "2026-06-17 12:35"
 labels:
   - moka
   - ticket
@@ -31,11 +31,15 @@ ordinal: 237000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Add the read-only moka ticket command namespace for graph validation, sequence rendering, and next-ticket selection. This ticket owns the command registration and output formatting for non-mutating ticket queries only.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 bun src/index.ts ticket graph check --help, ticket sequence --help, and ticket next --help show the read-only query commands; evidence: CLI help test or captured command output.
 - [x] #2 moka ticket graph check passes valid graphs and fails missing dependencies or cycles with actionable messages; evidence: tests/ticket-command.test.ts uses temp Backlog fixtures.
 - [x] #3 moka ticket sequence --plain prints stable dependency batches; evidence: CLI test asserts exact plain output for a representative graph.
@@ -44,10 +48,10 @@ Add the read-only moka ticket command namespace for graph validation, sequence r
 - [x] #6 ticket is reserved as a builtin command for config linting so configured entrypoints cannot silently shadow it; evidence: BUILTIN_PIPE_COMMANDS/config lint test covers ticket.
 <!-- AC:END -->
 
-
-
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Add src/commands/ticket-command.ts and register it from src/cli/program.ts before configured entrypoint commands are registered. Add ticket to BUILTIN_PIPE_COMMANDS so config linting reports a shadowed entrypoint if package config later defines one. Wire only graph check, sequence, and next read-only paths. Do not add --claim, create, apply, start, or moka run coupling in this ticket.
+
 <!-- SECTION:PLAN:END -->

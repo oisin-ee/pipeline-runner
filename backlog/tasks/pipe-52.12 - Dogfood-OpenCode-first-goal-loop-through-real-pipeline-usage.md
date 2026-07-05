@@ -3,8 +3,8 @@ id: PIPE-52.12
 title: Dogfood OpenCode-first goal loop through real pipeline usage
 status: To Do
 assignee: []
-created_date: '2026-06-08 19:02'
-updated_date: '2026-07-04 19:42'
+created_date: "2026-06-08 19:02"
+updated_date: "2026-07-04 19:42"
 labels:
   - verification
   - dogfood
@@ -32,11 +32,15 @@ ordinal: 157000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Verify the complete OpenCode-first goal-loop system through real repository usage paths, not isolated scripts.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Run package checks: bun run typecheck, bun run check, bun run test, and bun run build.
 - [ ] #2 Run real generated-host checks: pipe install-commands --host opencode --check and pipe validate.
 - [ ] #3 Generate and inspect at least one scheduled pipe artifact and one team-graph schedule artifact, then run validate and explain-plan on both.
@@ -47,15 +51,19 @@ Verify the complete OpenCode-first goal-loop system through real repository usag
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 This is the final integration gate. Use the repository Verification Standard: real CLI, generated command surfaces, installed/dogfood flow, build, and representative end-to-end path. Report exact commands and what they proved.
+
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
+
 Groomed 2026-07-04. VERDICT: GROOM — valid, un-started, keep To Do. Sole remaining child of epic PIPE-52. All dependency subtasks (52.4–52.11) are Done. Goal-loop implementation confirmed present: src/runtime/goal-loop/{goal-loop.ts,continuation-prompt.ts}, src/runtime/goal-state/{goal-state.ts,goal-requirement.ts}, src/runtime/services/goal-loop-service.ts.
 
 AC COMMAND DRIFT — the ACs predate the toolchain + CLI rename; correct before executing:
+
 - AC#1: `bun run typecheck/check/test/build` → toolchain is now `nub` + vitest + ultracite. Use: `nub run typecheck` (tsc --noEmit), `nub run check` (= ultracite check), `nub run test` (= vitest run), `nub run build` (= tsdown).
 - AC#2: `pipe install-commands --host opencode --check` and `pipe validate` → the CLI binary is now `moka` (package @oisincoveney/pipeline, bin `moka`). install-commands is folded into `moka init` (see src/pipeline-init.ts importing installCommands; recent commit 750306e 'reframe moka init as host-adapter install'). validate/explain-plan remain: BUILTIN_PIPE_COMMANDS = run/validate/explain-plan/doctor/init/mcp/submit/argo/runner-command/ticket (src/commands/pipeline-command.ts:5). So: `moka init --host opencode` (+ its check flag) and `moka validate`.
 - AC#3: scheduled + team-graph artifacts then `moka validate` + `moka explain-plan`.

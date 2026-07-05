@@ -322,11 +322,11 @@ timeouts, output limits, sanitized env, and explicit trust flags.
 
 ## Host Support Matrix
 
-| Runner      | Native subagents | Rules | Skills | MCP | Outputs                   | Generated resources             |
-| ----------- | ---------------- | ----- | ------ | --- | ------------------------- | ------------------------------- |
-| OpenCode    | yes              | yes   | yes    | yes | text, JSON, JSONL, schema | commands, agents, skills, plugins, LSP |
-| Claude Code | via `opencode run` | yes (skill) | yes | yes | declared by runner | commands, wrapper agents, settings |
-| command     | no               | no    | no     | no  | declared by runner        | subprocess argv                 |
+| Runner      | Native subagents   | Rules       | Skills | MCP | Outputs                   | Generated resources                    |
+| ----------- | ------------------ | ----------- | ------ | --- | ------------------------- | -------------------------------------- |
+| OpenCode    | yes                | yes         | yes    | yes | text, JSON, JSONL, schema | commands, agents, skills, plugins, LSP |
+| Claude Code | via `opencode run` | yes (skill) | yes    | yes | declared by runner        | commands, wrapper agents, settings     |
+| command     | no                 | no          | no     | no  | declared by runner        | subprocess argv                        |
 
 Generated host resources follow a native runner rule. OpenCode runner nodes use
 OpenCode native agents. The Claude Code host does not run MoKa profiles natively:
@@ -373,15 +373,15 @@ overflow the call stack on deep generated workflow chains.
 The shipped `defaults/pipeline.yaml` turns **`context_handoff`, `repo_map`, and
 `durability` ON** — moka uses its architecture by default; `parallel_worktrees`
 is opt-in. Each block can be overridden in `pipeline.yaml`; the per-block
-`# default …` notes below mark the *schema* default that applies when a block is
+`# default …` notes below mark the _schema_ default that applies when a block is
 omitted entirely.
 
 ### `context_handoff` — curated node-to-node handoffs
 
 ```yaml
 context_handoff:
-  enabled: true          # default false
-  model: openai/gpt-5.5-fast   # optional cheap model for the deriving call
+  enabled: true # default false
+  model: openai/gpt-5.5-fast # optional cheap model for the deriving call
 ```
 
 When enabled, each agent node derives a structured `NodeHandoff`
@@ -396,7 +396,7 @@ raw output text, so disabling the flag is byte-identical to prior behaviour.
 
 ```yaml
 parallel_worktrees:
-  enabled: true          # default false
+  enabled: true # default false
 ```
 
 When enabled, every child of a `kind: parallel` node runs in its own git
@@ -404,15 +404,15 @@ worktree on an auto-named branch (`.pipeline/worktrees/...`), so concurrent
 candidate edits cannot collide. Teardown is idempotent and crash-safe: a
 worktree with dirty or unpushed work is retained (never deleted), and orphaned
 worktrees are GC'd on the next parallel node under the same guard. A worktree is
-*not* a sandbox (node_modules/build state are shared) — real isolation remains
+_not_ a sandbox (node_modules/build state are shared) — real isolation remains
 k8s mode. SDK-runner nodes honour the per-child directory via `plan.cwd`.
 
 ### `durability` — durable crash-resume
 
 ```yaml
 durability:
-  enabled: true              # default false
-  dir: .pipeline/journal     # default
+  enabled: true # default false
+  dir: .pipeline/journal # default
 ```
 
 When enabled, the scheduler journals each terminal node result to an
@@ -431,7 +431,7 @@ default → the scheduler runs purely in-memory, exactly as before.
 mcp_gateway:
   provider: toolhive
   mode: hosted
-  host_scope: global       # default "project"
+  host_scope: global # default "project"
 ```
 
 The singleton pipeline gateway is normally synthesized into each repo's

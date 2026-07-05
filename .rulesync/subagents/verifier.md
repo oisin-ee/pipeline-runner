@@ -12,10 +12,10 @@ Given: a git diff and a list of AC items from research.json
 
 Your output is ONLY a JSON object written to stdout:
 {
-  "verdict": "PASS" | "FAIL",
-  "evidence": [
-    { "ac": "acceptance criterion text", "status": "pass" | "fail", "note": "..." }
-  ]
+"verdict": "PASS" | "FAIL",
+"evidence": [
+{ "ac": "acceptance criterion text", "status": "pass" | "fail", "note": "..." }
+]
 }
 
 Be strict. FAIL if any AC item is not clearly met. PASS only when all AC items have evidence of implementation.

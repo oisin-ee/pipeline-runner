@@ -3,8 +3,8 @@ id: PIPE-54.4
 title: Implement moka submit CLI
 status: Done
 assignee: []
-created_date: '2026-06-10 14:09'
-updated_date: '2026-06-10 14:32'
+created_date: "2026-06-10 14:09"
+updated_date: "2026-06-10 14:32"
 labels:
   - momokaya
   - cli
@@ -27,11 +27,15 @@ ordinal: 168000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Expose the new primary command shape: `moka submit`. This replaces top-level quick/execute and argo submit-command as user-facing submission commands.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 package.json bin installs `moka` as the primary binary
 - [ ] #2 CLI help shows `submit` with task-description mode, `--quick`, `--schedule <path>`, and `--command -- <argv...>`
 - [ ] #3 `moka submit "build the feature"` calls the submission service in full mode
@@ -45,11 +49,15 @@ Expose the new primary command shape: `moka submit`. This replaces top-level qui
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Update createCliProgram and package metadata. Prefer Commander options and a Zod option parser at the command boundary for normalized submit inputs. Keep the command-mode separator explicit via `--command --`; do not infer custom-command mode from raw `--` alone.
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented the moka submit CLI surface. Top-level quick/execute and argo submit-command are removed from help; submit supports --quick, --schedule, --command, --event-url, and runner Argo options.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

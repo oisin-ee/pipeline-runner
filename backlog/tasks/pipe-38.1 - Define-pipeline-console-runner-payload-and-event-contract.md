@@ -3,8 +3,8 @@ id: PIPE-38.1
 title: Define pipeline-console runner payload and event contract
 status: Done
 assignee: []
-created_date: '2026-06-01 21:03'
-updated_date: '2026-06-02 20:41'
+created_date: "2026-06-01 21:03"
+updated_date: "2026-06-02 20:41"
 labels:
   - pipeline
   - runner
@@ -30,6 +30,7 @@ ordinal: 58000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Add the shared runner contract module that validates the exact payload emitted by completed `pipeline-console` runner Jobs and defines how `PipelineRuntimeEvent` values become console event records.
@@ -88,10 +89,13 @@ The console Job payload includes sink URL and header name, not a token. Define t
 3. readable Kubernetes service account token at `/var/run/secrets/kubernetes.io/serviceaccount/token`
 
 If none is present, contract validation must fail before starting the runtime.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `src/runner-job-contract.ts` exports zod schemas and TypeScript types for `OISIN_PIPELINE_RUNNER_PAYLOAD_JSON`, event sink config, run identity, workflow selector, and task prompt.
 - [x] #2 Validation rejects missing `eventSink.url`, missing `run.runId`, missing `run.projectId`, missing `selector.workflowId`, missing `task.prompt`, invalid URLs, and payloads that set unsupported selector modes.
 - [x] #3 The contract exports a `RunnerEventRecord` type with required `sequence`, required `type`, optional `at`, and passthrough payload fields compatible with `pipeline-console`'s `eventRecordFromRequest`.
@@ -103,5 +107,7 @@ If none is present, contract validation must fail before starting the runtime.
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented src/runner-job-contract.ts with zod payload schemas, typed RunnerEventRecord variants, event mapping to console-friendly fields, token lookup helpers, contract docs, and focused tests. Review fix removed the lossy singular mapper and made workflow.planned emit plan plus edge records through the plural mapper.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

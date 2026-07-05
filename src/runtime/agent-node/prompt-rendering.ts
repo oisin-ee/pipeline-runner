@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect";
+import * as R from "effect/Record";
 
 import type { PipelineConfig } from "../../config";
 import { gatewayServerForProfile } from "../../mcp/gateway-config";
@@ -103,12 +104,12 @@ const profileGrantLines = (profile?: AgentProfile): string[] =>
 const renderDependencySection = (
   nodeId: string,
   context: Pick<RuntimeContext, "nodeStateStore">
-): string => {
-  return Option.match(context.nodeStateStore.handoff(nodeId), {
-    onNone: () => `## ${nodeId}\n${context.nodeStateStore.outputText(nodeId)}`,
+): string =>
+  Option.match(context.nodeStateStore.handoff(nodeId), {
+    onNone: () =>
+      `## ${nodeId}\n${context.nodeStateStore.lastOutputByNode.get(nodeId) ?? ""}`,
     onSome: (handoff) => renderHandoff(nodeId, handoff),
   });
-};
 
 const hasStdoutAcceptanceGate = (node: PlannedWorkflowNode): boolean =>
   (node.gates ?? []).some(
@@ -132,20 +133,20 @@ const downstreamBuiltinIds = (
   topologicalOrder: readonly PlannedWorkflowNode[],
   builtin: string
 ): string[] => {
-  const nodesById = new Map(
+  const nodesById: Partial<Record<string, PlannedWorkflowNode>> = R.fromEntries(
     topologicalOrder.map((candidate) => [candidate.id, candidate])
   );
-  const seen = new Set<string>();
+  const seen: string[] = [];
   const pending = [...node.dependents];
   const matches: string[] = [];
   while (pending.length > 0) {
     const id = pending.shift();
-    if (id === undefined || id.length === 0 || seen.has(id)) {
+    if (id === undefined || id.length === 0 || seen.includes(id)) {
       continue;
     }
-    seen.add(id);
-    const candidate = nodesById.get(id);
-    if (!candidate) {
+    seen.push(id);
+    const candidate = nodesById[id];
+    if (candidate === undefined) {
       continue;
     }
     if (candidate.kind === "builtin" && candidate.builtin === builtin) {
@@ -262,8 +263,10 @@ const inheritedOutputSections = (
   node: PlannedWorkflowNode,
   context: Pick<RuntimeContext, "nodeStateStore">
 ): string[] => {
-  const inherited = context.nodeStateStore.inheritedOutputIdsExcluding(
-    node.needs
+  const inherited = [...context.nodeStateStore.inheritedOutputNodeIds].filter(
+    (id) =>
+      !node.needs.includes(id) &&
+      context.nodeStateStore.lastOutputByNode.has(id)
   );
   if (inherited.length === 0) {
     return [];
@@ -432,7 +435,7 @@ const isHttpMcpServer = (
 const renderList = (values?: string[]): string => values?.join(" ") ?? "none";
 
 const renderObjectKeys = (value?: Record<string, unknown>): string =>
-  Object.keys(value ?? {}).join(", ") || "none";
+  R.keys(value ?? {}).join(", ") || "none";
 
 const renderHttpMcpServerReference = (
   id: string,
@@ -492,13 +495,13 @@ const renderMcpReferences = (
   profile?: AgentProfile
 ): string => {
   const servers = gatewayServerForProfile(config, profile);
-  if (Object.keys(servers).length === 0) {
+  if (R.keys(servers).length === 0) {
     return "";
   }
   return [
     "",
     "Loaded MCP servers:",
-    ...Object.entries(servers).map(([id, server]) =>
+    ...R.toEntries(servers).map(([id, server]) =>
       renderMcpServerReference(id, server)
     ),
   ].join("\n");

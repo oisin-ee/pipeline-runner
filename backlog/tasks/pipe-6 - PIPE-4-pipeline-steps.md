@@ -1,10 +1,10 @@
 ---
 id: PIPE-6
-title: 'PIPE-4: pipeline-steps'
+title: "PIPE-4: pipeline-steps"
 status: Done
 assignee: []
-created_date: '2026-05-20 22:18'
-updated_date: '2026-05-20 22:44'
+created_date: "2026-05-20 22:18"
+updated_date: "2026-05-20 22:44"
 labels: []
 dependencies:
   - PIPE-2
@@ -12,5 +12,3 @@ dependencies:
 priority: high
 ordinal: 6000
 ---
-
-

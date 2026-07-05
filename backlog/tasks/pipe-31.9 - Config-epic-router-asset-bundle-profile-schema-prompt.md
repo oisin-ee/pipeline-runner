@@ -1,10 +1,10 @@
 ---
 id: PIPE-31.9
-title: 'Config: epic-router asset bundle (profile + schema + prompt)'
+title: "Config: epic-router asset bundle (profile + schema + prompt)"
 status: Done
 assignee: []
-created_date: '2026-05-28 17:45'
-updated_date: '2026-05-28 21:45'
+created_date: "2026-05-28 17:45"
+updated_date: "2026-05-28 21:45"
 labels:
   - drain
   - config
@@ -29,6 +29,7 @@ ordinal: 9000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 ## What
 
 Add the asset bundle for the `plan` node in `epic-drain`:
@@ -46,7 +47,7 @@ The `plan` node in `epic-drain` (PIPE-31.8) calls `profile: pipeline-epic-router
 ```yaml
 profiles:
   pipeline-epic-router:
-    runner: codex                           # match the convention in surrounding profiles
+    runner: codex # match the convention in surrounding profiles
     filesystem: read-only
     mcp_servers: [backlog, github-readonly]
     instructions:
@@ -67,10 +68,10 @@ If existing profiles in the file specify `rules:` / `skills:` / `tools:` lists, 
   "additionalProperties": false,
   "required": ["test", "frontend", "backend", "k8s"],
   "properties": {
-    "test":     { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
+    "test": { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
     "frontend": { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
-    "backend":  { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
-    "k8s":      { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
+    "backend": { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
+    "k8s": { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
     "rationale": { "type": "string" }
   },
   "$defs": {
@@ -79,7 +80,7 @@ If existing profiles in the file specify `rules:` / `skills:` / `tools:` lists, 
       "additionalProperties": false,
       "required": ["id"],
       "properties": {
-        "id":    { "type": "string" },
+        "id": { "type": "string" },
         "title": { "type": "string" },
         "rationale": { "type": "string" }
       }
@@ -137,10 +138,13 @@ Independent of other config tasks. The workflow that uses this profile (PIPE-31.
 ## Reference
 
 `/Users/oisin/.codex/plans/right-now-we-have-parallel-abelson.md` §"Profile and skill additions for the example" and §"How parallelism is decided".
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 `pipeline-epic-router` profile added to `.pipeline/profiles.yaml` with `filesystem: read-only`, `mcp_servers: [backlog, github-readonly]`, instructions pointing to `.pipeline/prompts/epic-router.md`, output `json_schema` -> `.pipeline/schemas/epic-plan.schema.json`
 - [x] #2 Profile conforms to surrounding-profile conventions (runner, rules/skills/tools where applicable)
 - [x] #3 `.pipeline/schemas/epic-plan.schema.json` created with the four required track keys (test/frontend/backend/k8s), each an array of `ticket` objects with `id` (required), `title`, `rationale`
@@ -152,5 +156,7 @@ Independent of other config tasks. The workflow that uses this profile (PIPE-31.
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Added the epic-router asset bundle: profile, prompt, and fixed-track epic plan schema. Added focused config/CLI tests for the profile contract, schema behavior, prompt contract, and missing-file lint coverage. Verified with acceptance PASS, verifier PASS, focused tests, validate --no-lint, typecheck, full tests, semgrep, and duplication gate.
+
 <!-- SECTION:FINAL_SUMMARY:END -->

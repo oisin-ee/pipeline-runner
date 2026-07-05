@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect";
+import * as R from "effect/Record";
 import { z } from "zod";
 
 import { compileArgoExecutionGraph } from "../argo-graph";
@@ -274,11 +275,11 @@ const runnerFinalizeRuntimeResult = (
   failureDetails: failure ? [failure] : [],
   gates: context.gates,
   hookFailures: context.hookFailures,
-  nodeStates: context.nodeStateStore.toNodeStateRecord(),
+  nodeStates: R.fromEntries(context.nodeStateStore.nodeStates),
   nodes,
   outcome,
   plan: context.plan,
-  structuredOutputs: context.nodeStateStore.structuredOutputList(),
+  structuredOutputs: [...context.nodeStateStore.structuredOutputs],
 });
 
 const runRunnerFinalizeEffect = (

@@ -1,0 +1,9153 @@
+{
+  "src/argo-graph.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "max-classes-per-file": {
+      "count": 1
+    }
+  },
+  "src/argo-submit.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 6
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 4
+    },
+    "promise/prefer-await-to-then": {
+      "count": 4
+    },
+    "typescript/no-deprecated": {
+      "count": 2
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/argo-workflow.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 6
+    },
+    "effect/prefer-arr-match": {
+      "count": 6
+    }
+  },
+  "src/backlog.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "import/first": {
+      "count": 1
+    },
+    "no-use-before-define": {
+      "count": 2
+    }
+  },
+  "src/bench/eval-report.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    }
+  },
+  "src/claude-settings-config.ts": {
+    "default-param-last": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "unicorn/no-array-reduce": {
+      "count": 1
+    }
+  },
+  "src/claude-user-config.ts": {
+    "default-param-last": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "unicorn/no-array-reduce": {
+      "count": 1
+    }
+  },
+  "src/cli/bootstrap-commands.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 3
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-console": {
+      "count": 3
+    }
+  },
+  "src/cli/doctor.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 7
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/avoid-try-catch": {
+      "count": 6
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 6
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-effect-is": {
+      "count": 10
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    }
+  },
+  "src/cli/factory-commands.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 2
+    },
+    "no-console": {
+      "count": 2
+    }
+  },
+  "src/cli/format.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 5
+    },
+    "effect/use-console-service": {
+      "count": 1
+    },
+    "no-console": {
+      "count": 1
+    },
+    "typescript/switch-exhaustiveness-check": {
+      "count": 5
+    },
+    "unicorn/no-object-as-default-parameter": {
+      "count": 1
+    }
+  },
+  "src/cli/loop-commands.ts": {
+    "effect/avoid-process-env": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 1
+    },
+    "no-console": {
+      "count": 1
+    }
+  },
+  "src/cli/mcp-gateway-commands.ts": {
+    "effect/avoid-process-env": {
+      "count": 6
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 5
+    },
+    "no-console": {
+      "count": 5
+    }
+  },
+  "src/cli/plan-commands.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 6
+    },
+    "effect/prefer-arr-match": {
+      "count": 6
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 3
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "no-console": {
+      "count": 3
+    },
+    "no-use-before-define": {
+      "count": 1
+    }
+  },
+  "src/cli/program.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/cli/run-commands.ts": {
+    "effect/use-console-service": {
+      "count": 2
+    },
+    "no-console": {
+      "count": 2
+    }
+  },
+  "src/cli/run-resolver.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    }
+  },
+  "src/cli/run-service.ts": {
+    "effect/avoid-process-env": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 5
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 5
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-console": {
+      "count": 5
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "typescript/prefer-promise-reject-errors": {
+      "count": 1
+    },
+    "typescript/promise-function-async": {
+      "count": 1
+    },
+    "typescript/return-await": {
+      "count": 1
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
+      "count": 1
+    }
+  },
+  "src/cli/submit-options.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 3
+    }
+  },
+  "src/cluster-doctor.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/codex-config.ts": {
+    "default-param-last": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "unicorn/no-array-reduce": {
+      "count": 1
+    }
+  },
+  "src/commands/bench-command.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/commands/pipeline-command.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    }
+  },
+  "src/commands/runner-command-command.ts": {
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 5
+    }
+  },
+  "src/commands/ticket-command.ts": {
+    "effect/imperative-loops": {
+      "count": 1
+    }
+  },
+  "src/commands/ticket/complete.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    }
+  },
+  "src/commands/ticket/create.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "no-empty-function": {
+      "count": 1
+    }
+  },
+  "src/commands/ticket/graph-check.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/commands/ticket/next.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/commands/ticket/sequence.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/commands/ticket/shared.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 1
+    },
+    "no-console": {
+      "count": 1
+    }
+  },
+  "src/commands/ticket/start.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 1
+    }
+  },
+  "src/config/defaults.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-fn": {
+      "count": 2
+    },
+    "typescript/no-deprecated": {
+      "count": 3
+    }
+  },
+  "src/config/lint.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 5
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    }
+  },
+  "src/config/load.ts": {
+    "default-param-last": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/use-console-service": {
+      "count": 1
+    },
+    "no-console": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    },
+    "unicorn/no-object-as-default-parameter": {
+      "count": 1
+    }
+  },
+  "src/config/schema/mcp.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 2
+    }
+  },
+  "src/config/schema/reference-validation.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    }
+  },
+  "src/config/schemas.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 3
+    }
+  },
+  "src/config/validate.ts": {
+    "default-param-last": {
+      "count": 6
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 14
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 21
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "typescript/unbound-method": {
+      "count": 1
+    },
+    "unicorn/no-lonely-if": {
+      "count": 1
+    }
+  },
+  "src/context/repo-map.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/context/repo-map.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 5
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 8
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 3
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "unicorn/no-useless-collection-argument": {
+      "count": 1
+    }
+  },
+  "src/credentials/broker.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 2
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 4
+    }
+  },
+  "src/credentials/broker.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/credentials/codex-config.ts": {
+    "default-param-last": {
+      "count": 1
+    }
+  },
+  "src/credentials/file-targets.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/credentials/local-codex-auth-sync.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 7
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/credentials/opencode-config.ts": {
+    "default-param-last": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/credentials/runner.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 10
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 4
+    }
+  },
+  "src/credentials/runner.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/factory/create-experiment.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 2
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "unicorn/no-await-expression-member": {
+      "count": 1
+    }
+  },
+  "src/factory/exec.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "no-empty-function": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/factory/factory-lane.ts": {
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    }
+  },
+  "src/factory/factory.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 11
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 6
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 2
+    },
+    "require-await": {
+      "count": 6
+    },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 6
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 2
+    }
+  },
+  "src/factory/git-credentials.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 5
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/factory/stamp-answers.ts": {
+    "typescript/no-deprecated": {
+      "count": 1
+    }
+  },
+  "src/factory/template-update.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 6
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 7
+    },
+    "effect/prefer-arr-match": {
+      "count": 7
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    }
+  },
+  "src/gates.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 8
+    },
+    "effect/avoid-try-catch": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-array-fromoption-over-option-match-empty": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-empty-function": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 4
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 4
+    }
+  },
+  "src/git-remote-url.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/index.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    }
+  },
+  "src/install-commands.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    }
+  },
+  "src/install-commands/claude-code.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/install-commands/host-selection.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    }
+  },
+  "src/install-commands/opencode.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 1
+    },
+    "unicorn/no-object-as-default-parameter": {
+      "count": 1
+    },
+    "unicorn/no-useless-collection-argument": {
+      "count": 1
+    }
+  },
+  "src/install-commands/planner.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 7
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 2
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 2
+    },
+    "typescript/unbound-method": {
+      "count": 2
+    },
+    "unicorn/no-array-for-each": {
+      "count": 1
+    }
+  },
+  "src/install-commands/shared.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 5
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-inline-comments": {
+      "count": 1
+    }
+  },
+  "src/install-commands/writer.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 2
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-type-conversion": {
+      "count": 1
+    }
+  },
+  "src/json-config-merge.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/json-line-values.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/loop/argo-poll.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 7
+    },
+    "effect/effect-run-in-body": {
+      "count": 6
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "src/loop/argo-poll.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "import/no-duplicates": {
+      "count": 1
+    },
+    "no-duplicate-imports": {
+      "count": 1
+    },
+    "no-inline-comments": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/loop/backlog-records.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    }
+  },
+  "src/loop/controller-deps.test.ts": {
+    "effect/avoid-expect-in-if": {
+      "count": 4
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 10
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "no-inline-comments": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 2
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/loop/controller-deps.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 7
+    },
+    "effect/effect-promise-vs-trypromise": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/loop/controller.test.ts": {
+    "effect/avoid-direct-tag-checks": {
+      "count": 1
+    },
+    "effect/avoid-expect-in-if": {
+      "count": 5
+    },
+    "effect/avoid-option-getorthrow": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 10
+    },
+    "effect/no-barrel-imports": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "import/no-duplicates": {
+      "count": 1
+    },
+    "no-duplicate-imports": {
+      "count": 2
+    }
+  },
+  "src/loop/controller.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 5
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "prefer-const": {
+      "count": 2
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "unicorn/no-immediate-mutation": {
+      "count": 1
+    }
+  },
+  "src/loop/gh-checks.test.ts": {
+    "effect/avoid-expect-in-if": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/loop/gh-checks.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-array-fromoption-over-option-match-empty": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "unicorn/no-array-reduce": {
+      "count": 1
+    }
+  },
+  "src/loop/gh-runner.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 1
+    }
+  },
+  "src/loop/gh-runner.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/loop/loop-command.test.ts": {
+    "effect/avoid-expect-in-if": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "no-inline-comments": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/loop/loop-command.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 6
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    }
+  },
+  "src/loop/loop-controller-entrypoint.ts": {
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    }
+  },
+  "src/loop/merge.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-direct-tag-checks": {
+      "count": 2
+    },
+    "effect/avoid-expect-in-if": {
+      "count": 5
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 8
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/no-base-to-string": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/loop/merge.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-catchall-default": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 2
+    },
+    "promise/prefer-await-to-then": {
+      "count": 2
+    }
+  },
+  "src/mcp/gateway-config.ts": {
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 3
+    }
+  },
+  "src/mcp/gateway-doctor.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/avoid-try-catch": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/effect-catchall-default": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 3
+    },
+    "promise/prefer-await-to-then": {
+      "count": 3
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 2
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 2
+    },
+    "typescript/no-unsafe-return": {
+      "count": 3
+    }
+  },
+  "src/mcp/gateway-error.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/mcp/gateway-reconcile.ts": {
+    "effect/avoid-process-env": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 1
+    }
+  },
+  "src/mcp/gateway-runtime.ts": {
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/mcp/host-config.ts": {
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 6
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/mcp/host-renderers.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-process-env": {
+      "count": 4
+    }
+  },
+  "src/mcp/repo-local-backends.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    }
+  },
+  "src/mcp/toolhive-vmcp.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 3
+    }
+  },
+  "src/model-resolver.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 1
+    }
+  },
+  "src/moka-global-config.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-fn": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 4
+    },
+    "typescript/no-deprecated": {
+      "count": 2
+    }
+  },
+  "src/moka-submit.ts": {
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 2
+    }
+  },
+  "src/opencode-project-config.ts": {
+    "default-param-last": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 5
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "unicorn/no-array-reduce": {
+      "count": 3
+    }
+  },
+  "src/path-refs.ts": {
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/pipeline-runtime.ts": {
+    "effect/avoid-option-getorthrow": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/planned-node.ts": {
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/planning/compile.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 7
+    },
+    "effect/prefer-arr-match": {
+      "count": 7
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 2
+    }
+  },
+  "src/planning/dependency-refs.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    }
+  },
+  "src/planning/generate.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 19
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/avoid-try-catch": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 22
+    },
+    "effect/prefer-arr-match": {
+      "count": 22
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 2
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 7
+    }
+  },
+  "src/planning/graph.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 12
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 14
+    },
+    "effect/no-length-comparison": {
+      "count": 5
+    },
+    "effect/prefer-arr-match": {
+      "count": 5
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 6
+    }
+  },
+  "src/remote/argo/storage.ts": {
+    "effect/no-length-comparison": {
+      "count": 5
+    },
+    "effect/prefer-arr-match": {
+      "count": 5
+    }
+  },
+  "src/remote/submit/argo-submission.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    }
+  },
+  "src/remote/submit/compilation.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/remote/submit/event-boundary.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/remote/submit/io.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    }
+  },
+  "src/remote/submit/service.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "typescript/await-thenable": {
+      "count": 1
+    }
+  },
+  "src/run-control/command-context.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/run-control/commands.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 5
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/run-control/contracts.ts": {
+    "typescript/no-deprecated": {
+      "count": 1
+    }
+  },
+  "src/run-control/detach.ts": {
+    "effect/avoid-process-env": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    }
+  },
+  "src/run-control/file-errors.ts": {
+    "effect/prefer-effect-is": {
+      "count": 1
+    }
+  },
+  "src/run-control/logical-segment.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/run-control/next-node.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    }
+  },
+  "src/run-control/postgres/postgres-run-control-store.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 31
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    }
+  },
+  "src/run-control/postgres/postgres-run-control-store.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 7
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 3
+    }
+  },
+  "src/run-control/resume-command.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    }
+  },
+  "src/run-control/run-artifacts-command.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-array-fromoption-over-option-match-empty": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 3
+    },
+    "effect/use-filesystem-service": {
+      "count": 2
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 4
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 2
+    }
+  },
+  "src/run-control/run-command-domain.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/run-control/run-control-store.ts": {
+    "effect/effect-promise-vs-trypromise": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/run-control/run-query-command.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    },
+    "unicorn/prefer-spread": {
+      "count": 1
+    }
+  },
+  "src/run-control/run-state-lock.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "no-promise-executor-return": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "src/run-control/run-state-lock.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 1
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 1
+    }
+  },
+  "src/run-control/runtime-event-projection.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    }
+  },
+  "src/run-control/runtime-reporter.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/run-control/stop-command.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    }
+  },
+  "src/run-control/store-fs-effects.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 2
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 2
+    },
+    "promise/prefer-await-to-then": {
+      "count": 2
+    }
+  },
+  "src/run-control/store-manifest.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/run-control/store-paths.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/run-control/store.ts": {
+    "effect/avoid-direct-json": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 2
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 4
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 2
+    }
+  },
+  "src/run-control/submit-result.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 7
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    }
+  },
+  "src/run-control/submit-result.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/run-control/supervisor.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 9
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    }
+  },
+  "src/run-control/workspace.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/run-state/git-refs.test.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 10
+    },
+    "effect/avoid-sync-fs": {
+      "count": 15
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/run-state/git-refs.ts": {
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 10
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 5
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 6
+    },
+    "effect/prefer-arr-match": {
+      "count": 6
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/runner-command-contract.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    }
+  },
+  "src/runner-command-contract.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 6
+    },
+    "effect/prefer-arr-match": {
+      "count": 6
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 6
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    },
+    "typescript/switch-exhaustiveness-check": {
+      "count": 6
+    }
+  },
+  "src/runner-command/dynamic-command.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "no-empty-function": {
+      "count": 1
+    }
+  },
+  "src/runner-command/finalize.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    }
+  },
+  "src/runner-command/lifecycle-context.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    }
+  },
+  "src/runner-command/lifecycle.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-catchall-default": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 2
+    },
+    "promise/prefer-await-to-then": {
+      "count": 2
+    }
+  },
+  "src/runner-command/pre-schedule.ts": {
+    "effect/avoid-direct-json": {
+      "count": 6
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 7
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/runner-command/run.ts": {
+    "effect/avoid-direct-tag-checks": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 7
+    },
+    "effect/effect-catchall-default": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-effect-is": {
+      "count": 5
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 4
+    },
+    "promise/prefer-await-to-then": {
+      "count": 4
+    },
+    "typescript/consistent-return": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/runner-command/schedule-source-options.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/runner-command/select-ready-wave.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/runner-command/task-descriptor.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runner-event-schema.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 7
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 7
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 7
+    }
+  },
+  "src/runner-event-schema.ts": {
+    "typescript/no-deprecated": {
+      "count": 1
+    }
+  },
+  "src/runner-event-sink.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 3
+    }
+  },
+  "src/runner.test.ts": {
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/runner.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "func-style": {
+      "count": 1
+    },
+    "no-use-before-define": {
+      "count": 1
+    }
+  },
+  "src/runner/opencode-excludes.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/runner/subprocess-result.ts": {
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-effect-is": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/runner/subprocess.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    }
+  },
+  "src/runner/timeouts.ts": {
+    "effect/avoid-process-env": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/runtime/agent-node/agent-node.test.ts": {
+    "effect/avoid-any": {
+      "count": 4
+    },
+    "effect/avoid-direct-json": {
+      "count": 4
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 6
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "no-inline-comments": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 8
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 4
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 3
+    }
+  },
+  "src/runtime/agent-node/agent-node.ts": {
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 2
+    }
+  },
+  "src/runtime/agent-node/handoff-finalization.ts": {
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/runtime/agent-node/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/agent-node/model-selection.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/agent-node/output-finalization.ts": {
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 5
+    },
+    "effect/prefer-arr-match": {
+      "count": 5
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 2
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 4
+    }
+  },
+  "src/runtime/agent-node/prompt-rendering.ts": {
+    "effect/effect-catchall-default": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 15
+    },
+    "effect/prefer-arr-match": {
+      "count": 15
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 2
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/runtime/agent-node/session-execution.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    }
+  },
+  "src/runtime/builtins/builtins.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    },
+    "typescript/strict-boolean-expressions": {
+      "count": 1
+    }
+  },
+  "src/runtime/builtins/builtins.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 7
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/effect-promise-vs-trypromise": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 5
+    },
+    "effect/prefer-arr-match": {
+      "count": 5
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/runtime/builtins/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/changed-files/changed-files.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "src/runtime/changed-files/changed-files.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 5
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/changed-files/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/command-executor/command-executor.test.ts": {
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "typescript/only-throw-error": {
+      "count": 1
+    }
+  },
+  "src/runtime/command-executor/command-executor.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/runtime/command-executor/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/config-error.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/runtime/context/context.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/context/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/contracts/contracts.test.ts": {
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 6
+    }
+  },
+  "src/runtime/contracts/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/detached-race.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 2
+    }
+  },
+  "src/runtime/detached-race.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/drain-merge/drain-merge.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 5
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    }
+  },
+  "src/runtime/drain-merge/drain-merge.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-direct-tag-checks": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "promise/prefer-await-to-then": {
+      "count": 4
+    }
+  },
+  "src/runtime/drain-merge/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/durable-store/acquisition.ts": {
+    "effect/effect-promise-vs-trypromise": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/durable-store/durable-store.test.ts": {
+    "effect/avoid-option-getorthrow": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/durable-store/durable-store.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/durable-store/postgres/migrate-substrate.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/runtime/durable-store/postgres/postgres-store.test.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-option-getorthrow": {
+      "count": 5
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/durable-store/postgres/postgres-store.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 2
+    },
+    "no-shadow": {
+      "count": 6
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "typescript/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/runtime/effect-substrate-poc.test.ts": {
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/events/events.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 5
+    }
+  },
+  "src/runtime/events/events.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 21
+    },
+    "effect/prefer-arr-match": {
+      "count": 21
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 5
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/runtime/events/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/adjudication/llm-judge.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/adjudication/structured-claim.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/adjudicator/adjudicator.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "no-inline-comments": {
+      "count": 5
+    }
+  },
+  "src/runtime/gates/adjudicator/adjudicator.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    }
+  },
+  "src/runtime/gates/adjudicator/index.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/contract.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/gates.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 6
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    },
+    "typescript/strict-boolean-expressions": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    }
+  },
+  "src/runtime/gates/gates.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/kinds/acceptance/acceptance.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/kinds/acceptance/acceptance.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 5
+    },
+    "effect/prefer-arr-match": {
+      "count": 5
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/kinds/artifact/artifact.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/kinds/builtin/builtin.test.ts": {
+    "import/first": {
+      "count": 2
+    }
+  },
+  "src/runtime/gates/kinds/changed-files/changed-files.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    }
+  },
+  "src/runtime/gates/kinds/changed-files/changed-files.ts": {
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    }
+  },
+  "src/runtime/gates/kinds/command/command.test.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/kinds/command/command.ts": {
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/kinds/json-schema/json-schema.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/kinds/verdict/verdict.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    }
+  },
+  "src/runtime/gates/kinds/verdict/verdict.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/orchestrator.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/gates/registry.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/goal-loop/continuation-prompt.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 12
+    },
+    "effect/prefer-arr-match": {
+      "count": 12
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/no-base-to-string": {
+      "count": 2
+    }
+  },
+  "src/runtime/goal-loop/goal-loop.test.ts": {
+    "no-shadow": {
+      "count": 1
+    }
+  },
+  "src/runtime/goal-loop/goal-loop.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/goal-state/goal-requirement.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/runtime/goal-state/goal-state.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 4
+    }
+  },
+  "src/runtime/goal-state/goal-state.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 13
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 5
+    },
+    "effect/prefer-arr-match": {
+      "count": 5
+    },
+    "effect/prefer-effect-is": {
+      "count": 4
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "unicorn/no-array-reduce": {
+      "count": 1
+    },
+    "unicorn/prefer-array-find": {
+      "count": 1
+    }
+  },
+  "src/runtime/handoff.test.ts": {
+    "effect/avoid-option-getorthrow": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/handoff.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/command-hook.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/context.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/runtime/hooks/events.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/execution.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/hooks.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 8
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    }
+  },
+  "src/runtime/hooks/hooks.ts": {
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    }
+  },
+  "src/runtime/hooks/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/invocation.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/module-hook.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 1
+    },
+    "promise/param-names": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/policy.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/hooks/results.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/journal-acquisition.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/json-validation/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/json-validation/json-validation.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 5
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/runtime/json-validation/json-validation.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "promise/valid-params": {
+      "count": 1
+    }
+  },
+  "src/runtime/local-scheduler.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/node-execution.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    },
+    "prefer-const": {
+      "count": 2
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "promise/valid-params": {
+      "count": 1
+    },
+    "typescript/consistent-return": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    },
+    "unicorn/prefer-spread": {
+      "count": 1
+    }
+  },
+  "src/runtime/node-protocol/node-protocol.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    }
+  },
+  "src/runtime/node-state-store.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    }
+  },
+  "src/runtime/node-state-store.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 11
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/node-state-tracker.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    }
+  },
+  "src/runtime/open-pull-request/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/open-pull-request/open-pull-request.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    }
+  },
+  "src/runtime/open-pull-request/open-pull-request.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-direct-tag-checks": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-catchall-default": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 3
+    },
+    "promise/prefer-await-to-then": {
+      "count": 5
+    }
+  },
+  "src/runtime/opencode-adapter.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/opencode-runtime.test.ts": {
+    "effect/avoid-any": {
+      "count": 4
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 5
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 5
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 14
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 10
+    },
+    "typescript/require-await": {
+      "count": 5
+    }
+  },
+  "src/runtime/opencode-runtime.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/effect-promise-vs-trypromise": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 3
+    }
+  },
+  "src/runtime/opencode-server.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 5
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "src/runtime/opencode-server.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/runtime/opencode-session-executor.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 11
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "no-promise-executor-return": {
+      "count": 2
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 10
+    },
+    "require-await": {
+      "count": 14
+    },
+    "require-yield": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    },
+    "typescript/only-throw-error": {
+      "count": 2
+    },
+    "typescript/require-await": {
+      "count": 14
+    },
+    "typescript/strict-void-return": {
+      "count": 4
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 3
+    }
+  },
+  "src/runtime/opencode-session-executor.ts": {
+    "default-case": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 6
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 9
+    },
+    "effect/prefer-arr-match": {
+      "count": 9
+    },
+    "effect/prefer-effect-is": {
+      "count": 4
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 4
+    },
+    "no-shadow": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 3
+    },
+    "promise/prefer-await-to-then": {
+      "count": 6
+    },
+    "typescript/consistent-return": {
+      "count": 1
+    },
+    "typescript/no-unsafe-argument": {
+      "count": 1
+    },
+    "typescript/unbound-method": {
+      "count": 1
+    }
+  },
+  "src/runtime/parallel-node/index.ts": {
+    "oxc/no-barrel-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/parallel-node/parallel-node.test.ts": {
+    "effect/avoid-any": {
+      "count": 2
+    },
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "no-promise-executor-return": {
+      "count": 2
+    },
+    "promise/avoid-new": {
+      "count": 2
+    },
+    "require-await": {
+      "count": 5
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 7
+    },
+    "typescript/consistent-type-imports": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 4
+    },
+    "typescript/require-await": {
+      "count": 5
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    }
+  },
+  "src/runtime/parallel-node/parallel-node.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 6
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    }
+  },
+  "src/runtime/parallel-worktrees/parallel-worktrees.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 11
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "src/runtime/parallel-worktrees/parallel-worktrees.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 10
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/runtime/protected-paths/protected-paths.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/remediation/remediation.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 6
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 2
+    }
+  },
+  "src/runtime/run-journal.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/runtime/scheduled-dependencies.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    }
+  },
+  "src/runtime/scheduler.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 11
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 6
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    },
+    "no-empty-function": {
+      "count": 1
+    },
+    "no-useless-return": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/agent-node-runtime-service.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/backlog-service.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "max-classes-per-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/command-executor-service.test.ts": {
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/command-executor-service.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/config-io-service.ts": {
+    "effect/avoid-direct-tag-checks": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    },
+    "typescript/no-unsafe-return": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "typescript/only-throw-error": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/drain-merge-git-service.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "import/no-named-as-default": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/file-system-service.ts": {
+    "effect/avoid-direct-tag-checks": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "typescript/only-throw-error": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/git-porcelain-service.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/goal-loop-service.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/kubernetes-argo-service.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/mcp-gateway-service.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-native-fetch": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 5
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 6
+    },
+    "effect/prefer-arr-match": {
+      "count": 6
+    },
+    "effect/prefer-effect-fn": {
+      "count": 6
+    },
+    "effect/prefer-effect-is": {
+      "count": 5
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    }
+  },
+  "src/runtime/services/open-pull-request-git-service.test.ts": {
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-fn": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/open-pull-request-git-service.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/opencode-runtime-server-service.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/opencode-sdk-service.ts": {
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    }
+  },
+  "src/runtime/services/repo-io-service.ts": {
+    "effect/avoid-direct-tag-checks": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-arr-sort": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 2
+    },
+    "typescript/only-throw-error": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/run-journal-file-service.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/runner-command-io-service.ts": {
+    "effect/avoid-direct-tag-checks": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/runner-event-sink-http-service.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "max-classes-per-file": {
+      "count": 1
+    }
+  },
+  "src/runtime/services/worktree-service.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/step/step-node.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/runtime/workflow-execution.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/runtime/workflow-lifecycle.ts": {
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/safe-json.ts": {
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    }
+  },
+  "src/schedule/backlog-context.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 9
+    },
+    "effect/prefer-arr-match": {
+      "count": 9
+    },
+    "effect/prefer-array-fromoption-over-option-match-empty": {
+      "count": 2
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/schedule/passes/coverage.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/schedule/passes/drain-merge.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "unicorn/no-array-reduce": {
+      "count": 1
+    }
+  },
+  "src/schedule/passes/ids.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    }
+  },
+  "src/schedule/passes/models.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-match-over-switch": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/switch-exhaustiveness-check": {
+      "count": 1
+    }
+  },
+  "src/schedule/passes/open-pull-request.test.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/schedule/passes/open-pull-request.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/schedule/passes/references.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "oxc/only-used-in-recursion": {
+      "count": 1
+    }
+  },
+  "src/schedule/prompts.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 5
+    },
+    "effect/prefer-arr-match": {
+      "count": 5
+    },
+    "effect/prefer-array-fromoption-over-option-match-empty": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "unicorn/no-array-method-this-argument": {
+      "count": 1
+    },
+    "unicorn/no-useless-collection-argument": {
+      "count": 1
+    }
+  },
+  "src/serialized-write-queue.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "no-promise-executor-return": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 2
+    },
+    "promise/param-names": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 1
+    }
+  },
+  "src/serialized-write-queue.ts": {
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 1
+    },
+    "promise/prefer-await-to-then": {
+      "count": 2
+    }
+  },
+  "src/standard-output-schemas.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/strings.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    }
+  },
+  "src/task-ref.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "prefer-destructuring": {
+      "count": 1
+    }
+  },
+  "src/tickets/apply-ticket-plan.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 3
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/yield-in-for-loop": {
+      "count": 1
+    }
+  },
+  "src/tickets/backlog-task-store.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/require-effect-concurrency": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 2
+    }
+  },
+  "src/tickets/completion/complete-ticket.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/tickets/completion/complete-ticket.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "promise/prefer-await-to-callbacks": {
+      "count": 2
+    }
+  },
+  "src/tickets/ticket-graph-dto.test.ts": {
+    "effect/effect-run-in-body": {
+      "count": 6
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    }
+  },
+  "src/tickets/ticket-graph-dto.ts": {
+    "effect/effect-catchall-default": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/tickets/ticket-graph.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    }
+  },
+  "src/tickets/ticket-plan-command-args.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "src/tickets/ticket-plan.ts": {
+    "effect/avoid-data-tagged-error": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    }
+  },
+  "src/tickets/ticket-selection.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/tickets/ticket-task-index.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-arr-sort": {
+      "count": 1
+    }
+  },
+  "src/tickets/validation-error-format.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    }
+  },
+  "src/token-estimator.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "tests/agent-node-refactor-boundaries.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/argo-submit.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 7
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/casting-awareness": {
+      "count": 8
+    },
+    "effect/imperative-loops": {
+      "count": 7
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 8
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 24
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 8
+    }
+  },
+  "tests/argo-workflow.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/imperative-loops": {
+      "count": 7
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 5
+    },
+    "typescript/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "tests/cli-refactor-boundaries.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/cli.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 12
+    },
+    "effect/avoid-expect-in-if": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 7
+    },
+    "effect/avoid-node-imports": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 94
+    },
+    "effect/avoid-sync-fs": {
+      "count": 45
+    },
+    "effect/avoid-try-catch": {
+      "count": 19
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 7
+    },
+    "effect/imperative-loops": {
+      "count": 16
+    },
+    "effect/prefer-effect-is": {
+      "count": 3
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-http-client-service": {
+      "count": 2
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 2
+    },
+    "require-await": {
+      "count": 11
+    },
+    "typescript/consistent-type-imports": {
+      "count": 2
+    },
+    "typescript/no-base-to-string": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 10
+    },
+    "typescript/no-misused-promises": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-type-conversion": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-call": {
+      "count": 8
+    },
+    "typescript/require-await": {
+      "count": 11
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 3
+    },
+    "unicorn/prefer-native-coercion-functions": {
+      "count": 1
+    }
+  },
+  "tests/command-artifacts.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/config.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 11
+    },
+    "effect/avoid-try-catch": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 5
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/credentials-boundaries.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 5
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/detached-run.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 7
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 6
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 2
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 6
+    },
+    "typescript/consistent-type-imports": {
+      "count": 3
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    },
+    "unicorn/prefer-event-target": {
+      "count": 4
+    }
+  },
+  "tests/dist-contract.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/dogfood-installed.test.ts": {
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-expect-in-if": {
+      "count": 3
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 9
+    },
+    "effect/avoid-process-env": {
+      "count": 16
+    },
+    "effect/avoid-sync-fs": {
+      "count": 16
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 5
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-throw-literal": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "typescript/only-throw-error": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "tests/dogfood-live-runners.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 5
+    },
+    "effect/avoid-expect-in-if": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 4
+    },
+    "effect/prefer-arr-match": {
+      "count": 4
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 2
+    }
+  },
+  "tests/durable-resume-postgres.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/effect-promise-vs-trypromise": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 3
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 6
+    },
+    "require-await": {
+      "count": 6
+    },
+    "typescript/require-await": {
+      "count": 6
+    },
+    "typescript/unbound-method": {
+      "count": 1
+    }
+  },
+  "tests/durable-submitted-run-e2e.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 4
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 5
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-inline-comments": {
+      "count": 2
+    },
+    "require-await": {
+      "count": 3
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 4
+    },
+    "typescript/consistent-type-imports": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "typescript/no-unsafe-return": {
+      "count": 4
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    },
+    "typescript/require-await": {
+      "count": 3
+    },
+    "typescript/strict-boolean-expressions": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    }
+  },
+  "tests/gate-test-context.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "tests/gates.test.ts": {
+    "effect/avoid-any": {
+      "count": 17
+    },
+    "effect/avoid-direct-json": {
+      "count": 4
+    },
+    "effect/avoid-process-env": {
+      "count": 8
+    },
+    "effect/avoid-sync-fs": {
+      "count": 12
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "import/first": {
+      "count": 2
+    },
+    "prefer-const": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 19
+    },
+    "typescript/no-explicit-any": {
+      "count": 16
+    },
+    "typescript/no-unsafe-return": {
+      "count": 3
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 18
+    }
+  },
+  "tests/install-commands.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 14
+    },
+    "effect/avoid-sync-fs": {
+      "count": 68
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 10
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/kubernetes-argo-service.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/live-pg-durable-suite.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    }
+  },
+  "tests/local-codex-auth-sync.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 5
+    },
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 6
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 2
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 3
+    }
+  },
+  "tests/mcp-repo-local-backends.test.ts": {
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "tests/model-resolver.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    }
+  },
+  "tests/moka-doctor-readiness.test.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 7
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-process-env": {
+      "count": 11
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/avoid-try-catch": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "import/first": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    },
+    "no-throw-literal": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 8
+    },
+    "typescript/consistent-type-imports": {
+      "count": 1
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 7
+    },
+    "typescript/only-throw-error": {
+      "count": 2
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "tests/moka-resume-origin.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 3
+    },
+    "typescript/require-await": {
+      "count": 3
+    }
+  },
+  "tests/moka-resume-schedule.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-random-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/moka-resume.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/unbound-method": {
+      "count": 1
+    }
+  },
+  "tests/moka-run-cli-resolver.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 5
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 4
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 4
+    },
+    "typescript/consistent-type-imports": {
+      "count": 3
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 6
+    },
+    "typescript/require-await": {
+      "count": 4
+    }
+  },
+  "tests/moka-run-db-url-required.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 2
+    },
+    "typescript/consistent-type-imports": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 2
+    }
+  },
+  "tests/moka-run-remote-compat.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "tests/moka-submit.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 9
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 13
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/use-clock-service": {
+      "count": 5
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 9
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 9
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "tests/next-node-submit-result-pg.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 4
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 6
+    },
+    "effect/avoid-try-catch": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 2
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    },
+    "typescript/consistent-type-imports": {
+      "count": 1
+    },
+    "typescript/unbound-method": {
+      "count": 1
+    }
+  },
+  "tests/next-node.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "tests/okteto-runner-recipe.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 5
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    }
+  },
+  "tests/opencode-ecosystem.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 2
+    }
+  },
+  "tests/opencode-project-config.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 8
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 4
+    },
+    "typescript/no-unsafe-call": {
+      "count": 1
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 9
+    }
+  },
+  "tests/opencode-project-gateway-scope.test.ts": {
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/package-owned-config-contract.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 13
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    }
+  },
+  "tests/package-public-api.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 7
+    },
+    "effect/avoid-sync-fs": {
+      "count": 8
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-deprecated": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    }
+  },
+  "tests/pipe-45-12-hook-gate-boundaries.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/pipe58-cleanup-contract.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/pipe66-decision-notes.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/no-empty-interface": {
+      "count": 2
+    },
+    "typescript/no-empty-object-type": {
+      "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
+    },
+    "typescript/strict-boolean-expressions": {
+      "count": 1
+    }
+  },
+  "tests/pipeline-init.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 8
+    },
+    "effect/avoid-sync-fs": {
+      "count": 21
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "tests/pipeline-runtime.test.ts": {
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 22
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 5
+    },
+    "effect/avoid-process-env": {
+      "count": 17
+    },
+    "effect/avoid-sync-fs": {
+      "count": 5
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
+    },
+    "effect/casting-awareness": {
+      "count": 6
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-effect-is": {
+      "count": 4
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-promise-executor-return": {
+      "count": 5
+    },
+    "promise/avoid-new": {
+      "count": 8
+    },
+    "require-await": {
+      "count": 5
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 7
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "typescript/no-unsafe-argument": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 10
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 4
+    },
+    "typescript/no-unsafe-return": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    },
+    "typescript/require-await": {
+      "count": 5
+    },
+    "typescript/strict-void-return": {
+      "count": 14
+    }
+  },
+  "tests/pipeline-workspace-ignore.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 8
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/planning-graph.test.ts": {
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    }
+  },
+  "tests/postgres-substrate-auto-migrate.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 5
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "tests/protected-paths.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 8
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    }
+  },
+  "tests/readme-command-surface.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    }
+  },
+  "tests/run-control-commands.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 4
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 4
+    },
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/consistent-type-imports": {
+      "count": 1
+    },
+    "typescript/no-misused-spread": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    },
+    "unicorn/no-immediate-mutation": {
+      "count": 1
+    }
+  },
+  "tests/run-control-contracts.test.ts": {
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "typescript/no-deprecated": {
+      "count": 2
+    }
+  },
+  "tests/run-control-file-store-helpers.ts": {
+    "effect/effect-run-in-body": {
+      "count": 9
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    }
+  },
+  "tests/run-control-heartbeats.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 2
+    },
+    "effect/use-clock-service": {
+      "count": 5
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    }
+  },
+  "tests/run-control-refactor-boundaries.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    }
+  },
+  "tests/run-control-runtime-event-projection.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    }
+  },
+  "tests/run-control-runtime-reporter.test.ts": {
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/imperative-loops": {
+      "count": 3
+    },
+    "effect/use-clock-service": {
+      "count": 4
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-promise-executor-return": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 5
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 4
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    }
+  },
+  "tests/run-control-store-contract.test.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/run-control-store-cutover.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 5
+    },
+    "effect/effect-run-in-body": {
+      "count": 3
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/run-control-store-seam.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/effect-run-in-body": {
+      "count": 13
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/run-control-store.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 9
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-return": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/run-control-test-helpers.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "no-shadow": {
+      "count": 1
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    },
+    "typescript/no-unsafe-return": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 2
+    }
+  },
+  "tests/run-control-writers-pg.test.ts": {
+    "effect/avoid-process-env": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/effect-run-in-body": {
+      "count": 6
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 3
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-random-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-promise-executor-return": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "tests/run-journal.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/run-resolver.test.ts": {
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/run-state-git-refs.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 16
+    },
+    "effect/avoid-sync-fs": {
+      "count": 15
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "tests/runner-command-contract.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 13
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
+    },
+    "typescript/no-unsafe-argument": {
+      "count": 2
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 19
+    },
+    "typescript/no-unsafe-call": {
+      "count": 29
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 7
+    },
+    "typescript/no-unsafe-return": {
+      "count": 7
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/runner-command-fixture.ts": {
+    "effect/avoid-direct-json": {
+      "count": 5
+    },
+    "effect/avoid-sync-fs": {
+      "count": 8
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 4
+    },
+    "typescript/no-base-to-string": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 4
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "tests/runner-command-persistence.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-option-getorthrow": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "typescript/no-unsafe-return": {
+      "count": 4
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    },
+    "typescript/strict-void-return": {
+      "count": 5
+    }
+  },
+  "tests/runner-command-policy.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 3
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 4
+    },
+    "typescript/no-invalid-void-type": {
+      "count": 1
+    },
+    "typescript/no-unsafe-return": {
+      "count": 4
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    }
+  },
+  "tests/runner-command.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 3
+    }
+  },
+  "tests/runner-event-sink.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 4
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 3
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 4
+    },
+    "no-promise-executor-return": {
+      "count": 1
+    },
+    "promise/avoid-new": {
+      "count": 2
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
+    },
+    "typescript/no-unsafe-argument": {
+      "count": 2
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 14
+    },
+    "typescript/no-unsafe-call": {
+      "count": 46
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 34
+    },
+    "typescript/no-unsafe-return": {
+      "count": 3
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    },
+    "typescript/strict-void-return": {
+      "count": 1
+    },
+    "unicorn/no-await-expression-member": {
+      "count": 3
+    }
+  },
+  "tests/runner-finalize.test.ts": {
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/runner-image.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-base-to-string": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 1
+    },
+    "typescript/no-unsafe-member-access": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    }
+  },
+  "tests/runner-lifecycle.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 3
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 6
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 1
+    }
+  },
+  "tests/runner-pre-schedule.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 5
+    },
+    "effect/avoid-option-getorthrow": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    }
+  },
+  "tests/runner.test.ts": {
+    "effect/avoid-any": {
+      "count": 1
+    },
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 9
+    },
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 2
+    },
+    "import/first": {
+      "count": 6
+    },
+    "promise/avoid-new": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 1
+    },
+    "unicorn/prefer-event-target": {
+      "count": 1
+    }
+  },
+  "tests/runtime-actor-contract-boundary.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-sync-fs": {
+      "count": 19
+    },
+    "effect/casting-awareness": {
+      "count": 3
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 3
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    },
+    "typescript/strict-boolean-expressions": {
+      "count": 2
+    }
+  },
+  "tests/runtime-actor-docs.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/strict-boolean-expressions": {
+      "count": 1
+    }
+  },
+  "tests/runtime-actor-ids-contract.test.ts": {
+    "typescript/strict-void-return": {
+      "count": 1
+    }
+  },
+  "tests/runtime-node-state-tracker.test.ts": {
+    "typescript/no-unsafe-assignment": {
+      "count": 2
+    }
+  },
+  "tests/runtime-observability-inspection.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/runtime-refactor-boundaries.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "tests/runtime-retry.test.ts": {
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 2
+    }
+  },
+  "tests/runtime-scheduler-workflow.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/avoid-try-catch": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/schedule-drain-merge-pass.test.ts": {
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/schedule-planner-boundaries.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 3
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 4
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 5
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/schedule-planner.test.ts": {
+    "effect/avoid-any": {
+      "count": 2
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 10
+    },
+    "effect/avoid-try-catch": {
+      "count": 30
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "effect/imperative-loops": {
+      "count": 2
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/use-clock-service": {
+      "count": 26
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 4
+    },
+    "typescript/no-unsafe-assignment": {
+      "count": 6
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    },
+    "typescript/strict-boolean-expressions": {
+      "count": 1
+    },
+    "unicorn/prefer-ternary": {
+      "count": 1
+    }
+  },
+  "tests/schedule-prompts.test.ts": {
+    "effect/avoid-any": {
+      "count": 2
+    },
+    "effect/casting-awareness": {
+      "count": 2
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 4
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 2
+    }
+  },
+  "tests/step-node.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-option-getorthrow": {
+      "count": 3
+    },
+    "effect/effect-run-in-body": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "require-await": {
+      "count": 1
+    },
+    "typescript/require-await": {
+      "count": 1
+    }
+  },
+  "tests/supervised-run.test.ts": {
+    "effect/avoid-any": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 2
+    },
+    "effect/avoid-sync-fs": {
+      "count": 2
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 6
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 3
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 8
+    },
+    "typescript/consistent-type-imports": {
+      "count": 2
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 3
+    }
+  },
+  "tests/ticket-backlog-store.test.ts": {
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/ticket-command.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/avoid-native-object-helpers": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 5
+    },
+    "effect/avoid-sync-fs": {
+      "count": 4
+    },
+    "effect/avoid-try-catch": {
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 5
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-useless-return": {
+      "count": 1
+    },
+    "prefer-destructuring": {
+      "count": 4
+    },
+    "require-await": {
+      "count": 2
+    },
+    "typescript/no-base-to-string": {
+      "count": 3
+    },
+    "typescript/require-await": {
+      "count": 2
+    },
+    "unicorn/consistent-function-scoping": {
+      "count": 1
+    }
+  },
+  "tests/ticket-complete-command.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 1
+    },
+    "effect/avoid-process-env": {
+      "count": 4
+    },
+    "effect/avoid-sync-fs": {
+      "count": 6
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    }
+  },
+  "tests/ticket-graph.test.ts": {
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
+      "count": 4
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "tests/ticket-plan-apply.test.ts": {
+    "effect/effect-run-in-body": {
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "tests/ticket-plan.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 3
+    },
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "tests/ticket-selection.test.ts": {
+    "effect/effect-run-in-body": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "tests/tracer-bullet.test.ts": {
+    "effect/avoid-direct-json": {
+      "count": 2
+    },
+    "effect/avoid-process-env": {
+      "count": 20
+    },
+    "effect/avoid-sync-fs": {
+      "count": 16
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
+    "effect/use-command-executor-service": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    },
+    "typescript/consistent-type-imports": {
+      "count": 1
+    },
+    "typescript/no-dynamic-delete": {
+      "count": 1
+    },
+    "typescript/no-unsafe-type-assertion": {
+      "count": 1
+    }
+  },
+  "tests/workflow-planner.test.ts": {
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/casting-awareness": {
+      "count": 1
+    },
+    "effect/imperative-loops": {
+      "count": 7
+    },
+    "effect/no-length-comparison": {
+      "count": 2
+    },
+    "effect/prefer-arr-match": {
+      "count": 2
+    },
+    "effect/prefer-arr-sort": {
+      "count": 1
+    },
+    "effect/use-filesystem-service": {
+      "count": 1
+    },
+    "effect/use-path-service": {
+      "count": 1
+    },
+    "effect/use-temp-file-scoped": {
+      "count": 1
+    },
+    "no-plusplus": {
+      "count": 1
+    },
+    "typescript/consistent-type-assertions": {
+      "count": 1
+    }
+  }
+}

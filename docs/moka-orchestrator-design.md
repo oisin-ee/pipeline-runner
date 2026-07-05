@@ -10,7 +10,7 @@ moka becomes the central durable state authority and mechanical gate for agent w
 
 ## Glossary
 
-- **Schedule** — the unit of work. A request compiles to a schedule (a DAG of nodes); work scales by schedule *size*, not by architecture. Small task → small schedule; epic → large nested schedule.
+- **Schedule** — the unit of work. A request compiles to a schedule (a DAG of nodes); work scales by schedule _size_, not by architecture. Small task → small schedule; epic → large nested schedule.
 - **Ticket** — one entrypoint that compiles to a schedule. `moka ticket complete` adjudicates that schedule's terminal success gate.
 - **Wave** — a static topological layer of the DAG, and the unit of expansion. Execution proceeds wave by wave.
 - **Node-execution protocol** — the executor-agnostic contract between moka and whatever runs a node (a moka-spawned agent, or an external/human caller in debug). Input: prompt + criteria + upstream outputs. Output: a `RuntimeNodeResult`.
@@ -34,7 +34,7 @@ moka becomes the central durable state authority and mechanical gate for agent w
 
 7. **Criteria are read-only to the executing agent.** Acceptance criteria and their adjudicating tests are owned by the schedule / planner, never writable by the node's agent (anti reward-hacking; SWE-bench hides test patches for this reason).
 
-8. **Durable substrate = cluster Postgres, one store, URL as a setting.** A `db.url` setting in moka config (alongside `~/.config/moka/config.yaml`) points at the cluster Postgres; local debug points the same setting at the cluster (or a local PG / tunnel). One DB type, no sqlite, no Turso, no sync layer. This replaces the former ephemeral per-run JSONL journal (`src/runtime/run-journal.ts`): record inputs + outputs + criteria, keyed by `(runId, nodeId)`, queryable and resumable across invocations. The Effect scheduler stays (one-engine consolidation intact) — borrow *persistence* (`pg` / `postgres.js` + Drizzle/Kysely for migrations), not an orchestration engine. Steal DBOS's ideas (step-keyed checkpoints, record-inputs-for-deterministic-re-run), not its engine.
+8. **Durable substrate = cluster Postgres, one store, URL as a setting.** A `db.url` setting in moka config (alongside `~/.config/moka/config.yaml`) points at the cluster Postgres; local debug points the same setting at the cluster (or a local PG / tunnel). One DB type, no sqlite, no Turso, no sync layer. This replaces the former ephemeral per-run JSONL journal (`src/runtime/run-journal.ts`): record inputs + outputs + criteria, keyed by `(runId, nodeId)`, queryable and resumable across invocations. The Effect scheduler stays (one-engine consolidation intact) — borrow _persistence_ (`pg` / `postgres.js` + Drizzle/Kysely for migrations), not an orchestration engine. Steal DBOS's ideas (step-keyed checkpoints, record-inputs-for-deterministic-re-run), not its engine.
 
 ## Phasing
 
@@ -96,7 +96,7 @@ Ticket graph (PIPE-90): 90.1 refusal contract -> 90.2 registry seam -> {90.6 ext
 
 ## Open risks (not yet designed)
 
-- **DoD authoring is the make-or-break.** SWE-bench Verified culled 68% of hand-written specs as unadjudicatable. Most prose acceptance criteria are not machine-checkable. The planner producing *good* layered criteria matters more than the gate mechanism.
+- **DoD authoring is the make-or-break.** SWE-bench Verified culled 68% of hand-written specs as unadjudicatable. Most prose acceptance criteria are not machine-checkable. The planner producing _good_ layered criteria matters more than the gate mechanism.
 - **Re-plan loop safety** — the cap needs concrete numbers and a terminal human-escalation state, not infinite re-drive.
 - **Node-execution protocol evolution** — the first JSON contract is implemented: `moka next node <runId>` emits `{ runId, nodeId, prompt, criteria, upstreamOutputs }`, and `moka submit-result <runId> <nodeId> --json <RuntimeNodeResult>` persists the terminal node result. Future design work is limited to protocol extensions, not the base shape.
 

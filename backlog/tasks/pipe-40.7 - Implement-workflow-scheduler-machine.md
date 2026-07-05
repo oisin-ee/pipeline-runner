@@ -3,8 +3,8 @@ id: PIPE-40.7
 title: Implement workflow scheduler machine
 status: Done
 assignee: []
-created_date: '2026-06-03 09:25'
-updated_date: '2026-06-04 09:21'
+created_date: "2026-06-03 09:25"
+updated_date: "2026-06-04 09:21"
 labels:
   - xstate
   - runtime
@@ -15,8 +15,8 @@ references:
   - src/workflow-planner.ts
   - src/pipeline-runtime.ts
 documentation:
-  - 'https://stately.ai/docs/actors'
-  - 'https://stately.ai/docs/system'
+  - "https://stately.ai/docs/actors"
+  - "https://stately.ai/docs/system"
 modified_files:
   - src/runtime-machines/workflow-machine.ts
   - tests/runtime-machines-workflow.test.ts
@@ -28,11 +28,15 @@ ordinal: 80000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+
 Build a standalone XState v5 workflowSchedulerMachine that models batch scheduling, max-parallel limits, fail-fast behavior, cancellation, drain behavior, and terminal workflow outcome without integrating it into pipeline-runtime.ts yet.
+
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 workflowSchedulerMachine is created with setup(...).createMachine(...) and typed context/events/actions/guards/actors.
 - [x] #2 The machine explicitly represents planning, startingHooks, scheduling, runningBatch, failFastStopping, cancelling, completingHooks, passed, failed, and cancelled states.
 - [x] #3 The machine supports maxParallelNodes and failFast semantics without relying on ad hoc loops in tests.
@@ -44,11 +48,15 @@ Build a standalone XState v5 workflowSchedulerMachine that models batch scheduli
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 Add src/runtime-machines/workflow-machine.ts and tests/runtime-machines-workflow.test.ts. Use fake node actors and fake hook actors for deterministic scheduling tests.
+
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
+
 Implemented the standalone workflow scheduler machine for DAG scheduling, max-parallel behavior, fail-fast, cancellation, and terminal workflow outcome. Verified during backlog grooming on 2026-06-04 with the full repository verification suite.
+
 <!-- SECTION:FINAL_SUMMARY:END -->
