@@ -1,8 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import * as Arr from "effect/Array";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
+
 import {
   ArgoGraphCompilerError,
   compileArgoExecutionGraph,
@@ -26,7 +29,7 @@ afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });
 });
 
-function plan() {
+const plan = () => {
   const config: PipelineConfig = structuredClone(DEFAULT_CONFIG);
   config.default_workflow = "argo";
   config.workflows.argo = {
@@ -42,7 +45,7 @@ function plan() {
     ],
   };
   return compileWorkflowPlan(config, "argo");
-}
+};
 
 const BASE_OPTIONS = {
   brokerAuth: {
@@ -68,7 +71,7 @@ const RUNNER_RETRY_STRATEGY = {
 // (a plain-scalar fold that unfolds to the single-line expression on parse), so
 // inter-token whitespace is matched with \s+ to tolerate the wrap.
 const RETRY_STRATEGY_FRAGMENT_PATTERN =
-  /retryStrategy:\n\s+expression: lastRetry\.status == 'Error' \|\|\s+\(lastRetry\.exitCode != '0'\s+&&\s+lastRetry\.exitCode != '1'\)\n\s+limit: "3"\n\s+retryPolicy: Always/;
+  /retryStrategy:\n\s+expression: lastRetry\.status == 'Error' \|\|\s+\(lastRetry\.exitCode != '0'\s+&&\s+lastRetry\.exitCode != '1'\)\n\s+limit: "3"\n\s+retryPolicy: Always/u;
 const ARGO_OWNER_FILES = [
   "src/remote/argo/model.ts",
   "src/remote/argo/policy.ts",
@@ -76,17 +79,32 @@ const ARGO_OWNER_FILES = [
   "src/remote/argo/templates.ts",
 ] as const;
 
-function retryStrategyForTemplate(
+const retryStrategyForTemplate = (
   manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>,
   templateName: string
-) {
-  return Object.getOwnPropertyDescriptor(
+) =>
+  Object.getOwnPropertyDescriptor(
     manifest.spec.templates.find(
       (template) => template.name === templateName
     ) ?? {},
     "retryStrategy"
   )?.value;
-}
+
+const expectRunnerContainersPreserveImageEntrypoint = (
+  manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>
+) => {
+  const containers = manifest.spec.templates.flatMap((template) =>
+    template.container === undefined ? [] : [template.container]
+  );
+
+  expect(Arr.isReadonlyArrayNonEmpty(containers)).toBe(true);
+  expect(
+    containers.every(
+      (container) =>
+        Arr.isReadonlyArrayNonEmpty(container.args) && !("command" in container)
+    )
+  ).toBe(true);
+};
 
 describe("runner Argo Workflow manifest", () => {
   it("renders dynamic DB-drain workflow with selector output, withParam, and recursive drain", () => {
@@ -154,21 +172,43 @@ describe("runner Argo Workflow manifest", () => {
     });
   });
 
+  it("passes runner subcommands as args and preserves the image entrypoint", () => {
+    expectRunnerContainersPreserveImageEntrypoint(
+      buildRunnerArgoWorkflowManifest({
+        ...BASE_OPTIONS,
+        plan: plan(),
+      })
+    );
+    expectRunnerContainersPreserveImageEntrypoint(
+      buildDynamicRunnerArgoWorkflowManifest({
+        brokerAuth: BASE_OPTIONS.brokerAuth,
+        dbAuth: {
+          secretKey: "db-url",
+          secretName: "moka-db",
+        },
+        generateName: "pipeline-run-",
+        namespace: "workflow-namespace",
+        payloadConfigMapName: "pipeline-payload-run-1",
+        workflowId: "schedule-run-1-root",
+      })
+    );
+  });
+
   it("keeps rendering pure and separates Argo policy owners", () => {
     const missingOwnerFiles = ARGO_OWNER_FILES.filter(
       (path) => !existsSync(join(process.cwd(), path))
     );
     const rendererSource = readFileSync(
       join(process.cwd(), "src/argo-workflow.ts"),
-      "utf8"
+      "utf-8"
     );
     const policySource = readFileSync(
       join(process.cwd(), "src/remote/argo/policy.ts"),
-      "utf8"
+      "utf-8"
     );
     const storageSource = readFileSync(
       join(process.cwd(), "src/remote/argo/storage.ts"),
-      "utf8"
+      "utf-8"
     );
 
     expect(missingOwnerFiles).toEqual([]);
@@ -271,9 +311,6 @@ describe("runner Argo Workflow manifest", () => {
                   "--schedule-file",
                   "/etc/pipeline/schedule.yaml",
                 ],
-                "command": [
-                  "moka",
-                ],
                 "env": [
                   {
                     "name": "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
@@ -373,9 +410,6 @@ describe("runner Argo Workflow manifest", () => {
                   "/etc/pipeline/payload.json",
                   "--schedule-file",
                   "/etc/pipeline/schedule.yaml",
-                ],
-                "command": [
-                  "moka",
                 ],
                 "env": [
                   {
@@ -483,9 +517,6 @@ describe("runner Argo Workflow manifest", () => {
                   "--schedule-file",
                   "/etc/pipeline/schedule.yaml",
                 ],
-                "command": [
-                  "moka",
-                ],
                 "env": [
                   {
                     "name": "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
@@ -591,9 +622,6 @@ describe("runner Argo Workflow manifest", () => {
                   "/etc/pipeline/payload.json",
                   "--schedule-file",
                   "/etc/pipeline/schedule.yaml",
-                ],
-                "command": [
-                  "moka",
                 ],
                 "env": [
                   {
@@ -704,9 +732,6 @@ describe("runner Argo Workflow manifest", () => {
                   "{{workflow.status}}",
                   "--argo-failures",
                   "{{workflow.failures}}",
-                ],
-                "command": [
-                  "moka",
                 ],
                 "env": [
                   {
@@ -925,8 +950,6 @@ describe("runner Argo Workflow manifest", () => {
                 - /etc/pipeline/payload.json
                 - --schedule-file
                 - /etc/pipeline/schedule.yaml
-              command:
-                - moka
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
@@ -990,8 +1013,6 @@ describe("runner Argo Workflow manifest", () => {
                 - /etc/pipeline/payload.json
                 - --schedule-file
                 - /etc/pipeline/schedule.yaml
-              command:
-                - moka
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
@@ -1059,8 +1080,6 @@ describe("runner Argo Workflow manifest", () => {
                 - /etc/pipeline/payload.json
                 - --schedule-file
                 - /etc/pipeline/schedule.yaml
-              command:
-                - moka
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
@@ -1128,8 +1147,6 @@ describe("runner Argo Workflow manifest", () => {
                 - /etc/pipeline/payload.json
                 - --schedule-file
                 - /etc/pipeline/schedule.yaml
-              command:
-                - moka
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
@@ -1201,8 +1218,6 @@ describe("runner Argo Workflow manifest", () => {
                 - "{{workflow.status}}"
                 - --argo-failures
                 - "{{workflow.failures}}"
-              command:
-                - moka
               env:
                 - name: CODEX_AUTH_PER_PROJECT_ACCOUNTS
                   value: "0"
@@ -1539,7 +1554,9 @@ describe("runner Argo Workflow manifest", () => {
     ]);
     expect(nodeTasks).toHaveLength(3);
     expect(
-      nodeTasks.every((task) => task.dependencies?.includes("workflow-start"))
+      nodeTasks.every(
+        (task) => task.dependencies?.includes("workflow-start") === true
+      )
     ).toBe(true);
     expect(manifest.spec.onExit).toBe("pipeline-finalizer");
   });
@@ -1571,7 +1588,7 @@ describe("runner Argo Workflow manifest", () => {
     // Retries any infra/abnormal failure (Argo "Error", exit 70/137/255/…);
     // keeps only clean deterministic task failures (exit 1) out.
     expect(rendered).toContain("retryPolicy: Always");
-    expect(rendered.match(RETRY_STRATEGY_FRAGMENT_PATTERN)?.[0]).toBeDefined();
+    expect(RETRY_STRATEGY_FRAGMENT_PATTERN.exec(rendered)?.[0]).toBeDefined();
     expect(rendered).toContain("lastRetry.status == 'Error'");
     expect(rendered).toContain("lastRetry.exitCode != '0'");
     expect(rendered).toContain("lastRetry.exitCode != '1'");
@@ -1664,7 +1681,7 @@ describe("runner Argo Workflow manifest", () => {
       "--schedule-file",
       "/etc/pipeline/schedule.yaml",
     ]);
-    expect(runner?.command).toEqual(["moka"]);
+    expect(Object.hasOwn(runner ?? {}, "command")).toBe(false);
     expect(runner?.env).toEqual(
       expect.arrayContaining([
         { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
@@ -1804,26 +1821,6 @@ describe("runner Argo Workflow manifest", () => {
      * only the nodeId — it is intentionally minimal and uniform across kinds.
      */
     const config = parsePipelineConfigParts({
-      runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-  impl:
-    runner: opencode
-    instructions: { inline: Implement }
-`,
       pipeline: `
 version: 1
 default_workflow: agent-graph
@@ -1839,6 +1836,26 @@ workflows:
         kind: agent
         profile: impl
         needs: [plan]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  impl:
+    runner: opencode
+    instructions: { inline: Implement }
+`,
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
 `,
     });
     const agentPlan = compileWorkflowPlan(config, "agent-graph");
@@ -1878,18 +1895,18 @@ workflows:
     );
     // task-descriptor subPath encodes the nodeId so the runner can load context
     expect(
-      planTemplate?.container?.volumeMounts?.find(
+      planTemplate?.container?.volumeMounts.find(
         (vm) => vm.mountPath === "/etc/pipeline/task.json"
       )?.subPath
     ).toBe("node-plan.json");
     expect(
-      implTemplate?.container?.volumeMounts?.find(
+      implTemplate?.container?.volumeMounts.find(
         (vm) => vm.mountPath === "/etc/pipeline/task.json"
       )?.subPath
     ).toBe("node-impl.json");
     // schedule payload is mounted — runner loads agent profile from it via nodeId
     expect(
-      planTemplate?.container?.volumeMounts?.some(
+      planTemplate?.container?.volumeMounts.some(
         (vm) => vm.mountPath === "/etc/pipeline/schedule.yaml"
       )
     ).toBe(true);
@@ -1927,17 +1944,16 @@ workflows:
 // compileArgoExecutionGraph — graph lowering semantics
 // ---------------------------------------------------------------------------
 
-function agentConfig() {
-  return parsePipelineConfigParts({
-    runners: `
+const agentConfig = () =>
+  parsePipelineConfigParts({
+    pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes: []
 `,
     profiles: `
 version: 1
@@ -1952,17 +1968,17 @@ profiles:
     runner: opencode
     instructions: { inline: Review }
 `,
-    pipeline: `
+    runners: `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes: []
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
 `,
   });
-}
 
 describe("compileArgoExecutionGraph", () => {
   it("lowers agent-kind nodes to Argo DAG tasks with preserved dependency order", () => {
@@ -1970,8 +1986,8 @@ describe("compileArgoExecutionGraph", () => {
     config.workflows["agent-dag"] = {
       nodes: [
         { id: "plan", kind: "agent", profile: "orchestrator" },
-        { id: "impl", kind: "agent", profile: "impl", needs: ["plan"] },
-        { id: "review", kind: "agent", profile: "review", needs: ["impl"] },
+        { id: "impl", kind: "agent", needs: ["plan"], profile: "impl" },
+        { id: "review", kind: "agent", needs: ["impl"], profile: "review" },
       ],
     };
     const agentPlan = compileWorkflowPlan(config, "agent-dag");
@@ -1996,8 +2012,8 @@ describe("compileArgoExecutionGraph", () => {
     const config = agentConfig();
     config.workflows["builtin-dag"] = {
       nodes: [
-        { id: "lint", kind: "builtin", builtin: "lint" },
-        { id: "test", kind: "builtin", builtin: "test", needs: ["lint"] },
+        { builtin: "lint", id: "lint", kind: "builtin" },
+        { builtin: "test", id: "test", kind: "builtin", needs: ["lint"] },
       ],
     };
     const builtinPlan = compileWorkflowPlan(config, "builtin-dag");
@@ -2018,13 +2034,13 @@ describe("compileArgoExecutionGraph", () => {
     config.workflows["fan-graph"] = {
       nodes: [
         { id: "start", kind: "agent", profile: "orchestrator" },
-        { id: "impl-a", kind: "agent", profile: "impl", needs: ["start"] },
-        { id: "impl-b", kind: "agent", profile: "impl", needs: ["start"] },
+        { id: "impl-a", kind: "agent", needs: ["start"], profile: "impl" },
+        { id: "impl-b", kind: "agent", needs: ["start"], profile: "impl" },
         {
           id: "review",
           kind: "agent",
-          profile: "review",
           needs: ["impl-a", "impl-b"],
+          profile: "review",
         },
       ],
     };
@@ -2055,7 +2071,7 @@ describe("compileArgoExecutionGraph", () => {
     const config = agentConfig();
     config.workflows["parallel-graph"] = {
       nodes: [
-        { id: "gate", kind: "command", command: ["true"] },
+        { command: ["true"], id: "gate", kind: "command" },
         {
           id: "fanout",
           kind: "parallel",
@@ -2119,8 +2135,8 @@ describe("compileArgoExecutionGraph", () => {
         {
           id: "review",
           kind: "agent",
-          profile: "review",
           needs: ["impls"],
+          profile: "review",
         },
       ],
     };
