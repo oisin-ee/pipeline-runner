@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import * as Option from "effect/Option";
 
 import type { PipelineConfig, WorkflowNodeKind } from "../config";
 import { uniqueStrings } from "../strings";
@@ -261,14 +262,14 @@ const buildParallelBatches = (
   ).map((batch) => plannedNodesForIds(graph, batch));
 };
 
-const agentNodeCategory = (node: WorkflowNode): string | void =>
-  node.kind === "agent" ? node.category : undefined;
+const agentNodeCategory = (node: WorkflowNode): Option.Option<string> =>
+  node.kind === "agent" ? Option.fromUndefinedOr(node.category) : Option.none();
 
 const plannedTaskContext = (
   taskContext: WorkflowNode["task_context"]
-): PlannedWorkflowTaskContext | void => {
+): Option.Option<PlannedWorkflowTaskContext> => {
   if (taskContext === undefined) {
-    return;
+    return Option.none();
   }
   const planned: PlannedWorkflowTaskContext = {};
   if (taskContext.acceptance_criteria !== undefined) {
@@ -291,26 +292,75 @@ const plannedTaskContext = (
   if (taskContext.title !== undefined && taskContext.title.length > 0) {
     planned.title = taskContext.title;
   }
-  return planned;
+  return Option.some(planned);
 };
+
+type PlannedNodeKindFields = Pick<
+  PlannedWorkflowNode,
+  "builtin" | "children" | "command" | "nodes" | "profile"
+>;
+
+const plannedNodeKindFields = (
+  node: WorkflowNode,
+  children: Option.Option<PlannedWorkflowNode[]>
+): PlannedNodeKindFields => {
+  if (node.kind === "agent") {
+    return { profile: node.profile };
+  }
+  if (node.kind === "builtin") {
+    return { builtin: node.builtin };
+  }
+  if (node.kind === "command") {
+    return { command: node.command };
+  }
+  if (node.kind === "parallel") {
+    return { children: Option.getOrElse(children, () => []) };
+  }
+  return { nodes: node.nodes };
+};
+
+const plannedNodeCategoryField = (
+  category: Option.Option<string>
+): Pick<PlannedWorkflowNode, "category"> =>
+  Option.match(category, {
+    onNone: () => ({}),
+    onSome: (value) => ({ category: value }),
+  });
+
+const plannedNodeTaskContextField = (
+  taskContext: Option.Option<PlannedWorkflowTaskContext>
+): Pick<PlannedWorkflowNode, "taskContext"> =>
+  Option.match(taskContext, {
+    onNone: () => ({}),
+    onSome: (value) => ({ taskContext: value }),
+  });
+
+const plannedNodeTimeoutField = (
+  timeoutMs: Option.Option<number>
+): Pick<PlannedWorkflowNode, "timeoutMs"> =>
+  Option.match(timeoutMs, {
+    onNone: () => ({}),
+    onSome: (value) => (value === 0 ? {} : { timeoutMs: value }),
+  });
 
 const toPlannedNode = (
   node: WorkflowNode,
   index: number
 ): PlannedWorkflowNode => {
   const category = agentNodeCategory(node);
-  const taskContext = plannedTaskContext(node.task_context);
-  const planned: PlannedWorkflowNode = {
-    artifacts: node.artifacts,
-    builtin: "builtin" in node ? node.builtin : undefined,
-    ...(category === undefined ? {} : { category }),
-    children:
-      node.kind === "parallel"
-        ? node.nodes.map((child, childIndex) =>
+  const children =
+    node.kind === "parallel"
+      ? Option.some(
+          node.nodes.map((child, childIndex) =>
             toPlannedNode(child, childIndex)
           )
-        : undefined,
-    command: "command" in node ? node.command : undefined,
+        )
+      : Option.none();
+  const taskContext = plannedTaskContext(node.task_context);
+  return {
+    artifacts: node.artifacts,
+    ...plannedNodeCategoryField(category),
+    ...plannedNodeKindFields(node, children),
     dependents: [],
     gates: node.gates,
     id: node.id,
@@ -318,16 +368,11 @@ const toPlannedNode = (
     kind: node.kind,
     models: node.models,
     needs: node.needs ?? [],
-    nodes: node.kind === "group" ? node.nodes : undefined,
-    profile: "profile" in node ? node.profile : undefined,
     reasoning_effort: node.reasoning_effort,
     retries: node.retries,
-    ...(taskContext === undefined ? {} : { taskContext }),
+    ...plannedNodeTaskContextField(taskContext),
+    ...plannedNodeTimeoutField(Option.fromUndefinedOr(node.timeout_ms)),
   };
-  if (node.timeout_ms !== undefined && node.timeout_ms !== 0) {
-    planned.timeoutMs = node.timeout_ms;
-  }
-  return planned;
 };
 
 const createWorkflowGraph = (

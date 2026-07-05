@@ -8,8 +8,6 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { isSome, some } from "effect/Option";
-
 import type { BrokerCredentials } from "./broker";
 import { resolveBrokerCredentials } from "./broker";
 import { applyOpencodeBrokerProvider } from "./opencode-config";
@@ -158,11 +156,8 @@ const syncLocalCodexAuthWithBroker = (
 export const syncLocalCodexAuth = (
   options: SyncLocalCodexAuthOptions
 ): SyncLocalCodexAuthResult => {
-  const broker =
-    options.broker === undefined
-      ? resolveBrokerCredentials()
-      : some(options.broker);
-  return isSome(broker)
-    ? syncLocalCodexAuthWithBroker(options, broker.value)
-    : brokerRequiredResult(options.root);
+  const broker = options.broker ?? resolveBrokerCredentials();
+  return broker === undefined
+    ? brokerRequiredResult(options.root)
+    : syncLocalCodexAuthWithBroker(options, broker);
 };

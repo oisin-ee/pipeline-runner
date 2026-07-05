@@ -1,7 +1,7 @@
 // fallow-ignore-file code-duplication
 import { randomUUID } from "node:crypto";
 
-import { Option } from "effect";
+import * as Option from "effect/Option";
 
 import { loadPipelineConfig } from "../../config";
 import type { PipelineConfig } from "../../config";
@@ -18,16 +18,16 @@ import { initialNodeStateStore } from "../node-state-store";
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 const DEFAULT_HOOK_OUTPUT_LIMIT_BYTES = 64 * 1024;
 
-export const resolveWorkflowSelection = (
+const resolveWorkflowSelectionOption = (
   config: PipelineConfig,
   workflowId?: string,
   entrypointId?: string
-): Option.Option<string> => {
+) => {
   if (workflowId !== undefined && workflowId.length > 0) {
     return Option.some(workflowId);
   }
   if (entrypointId === undefined || entrypointId.length === 0) {
-    return Option.none();
+    return Option.none<string>();
   }
   if (!Object.hasOwn(config.entrypoints, entrypointId)) {
     throw new Error(`Unknown pipeline entrypoint '${entrypointId}'`);
@@ -40,6 +40,15 @@ export const resolveWorkflowSelection = (
   }
   return Option.some(entrypoint.workflow);
 };
+
+export const resolveWorkflowSelection = (
+  config: PipelineConfig,
+  workflowId?: string,
+  entrypointId?: string
+) =>
+  Option.getOrUndefined(
+    resolveWorkflowSelectionOption(config, workflowId, entrypointId)
+  );
 
 const normalizeMaxParallelNodes = (value: number): number => {
   if (!(Number.isInteger(value) && value > 0)) {
@@ -81,10 +90,7 @@ export const createRuntimeContext = (
     options.workflowId,
     options.entrypoint
   );
-  const plan = compileWorkflowPlan(
-    config,
-    Option.getOrUndefined(workflowSelection)
-  );
+  const plan = compileWorkflowPlan(config, workflowSelection);
   const { workflowId } = plan;
   const runId =
     options.runId ??

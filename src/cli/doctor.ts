@@ -404,7 +404,7 @@ export const runDoctor = async (
   ]);
   const globalConfig = loadMokaGlobalConfig();
   const clusterResult =
-    options.cluster === true
+    options.cluster !== undefined && options.cluster !== false
       ? await runClusterDoctor({
           kubeContext: options.kubeContext,
           kubeconfigPath:

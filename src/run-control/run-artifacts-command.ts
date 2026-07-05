@@ -1,7 +1,6 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
 import { Effect, Option } from "effect";
 
@@ -142,14 +141,6 @@ const readFileUtf8Effect = (path: string): Effect.Effect<string, unknown> =>
     try: async () => await readFile(path, "utf-8"),
   });
 
-const delayEffect = (milliseconds: number): Effect.Effect<void, unknown> =>
-  Effect.tryPromise({
-    catch: (error) => error,
-    try: async () => {
-      await delay(milliseconds);
-    },
-  });
-
 const normalizeRelative = (from: string, path: string): string =>
   relative(from, path).split(sep).join("/");
 
@@ -218,7 +209,7 @@ const followArtifactsEffect = (
 ): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     for (;;) {
-      yield* delayEffect(WATCH_INTERVAL_MS);
+      yield* Effect.sleep(WATCH_INTERVAL_MS);
       const latestRun = yield* requireRunEffect(input.store, input.runId);
       const artifacts = yield* readArtifactsEffect(
         input.workspaceRoot,

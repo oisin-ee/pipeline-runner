@@ -101,6 +101,21 @@ const shouldClearNodeActivity = (event: PipelineRuntimeEvent): boolean =>
 const shouldMarkNodeRunning = (event: PipelineRuntimeEvent): boolean =>
   MARK_NODE_RUNNING.some((predicate) => predicate(event));
 
+const scheduleStaleTimerEffect = (input: {
+  activity: NodeActivity;
+  delayMs: number;
+  nodeId: string;
+  onTimer: (nodeId: string) => void;
+}): Effect.Effect<void> =>
+  Effect.sync(() => {
+    if (input.activity.staleTimer) {
+      clearTimeout(input.activity.staleTimer);
+    }
+    input.activity.staleTimer = setTimeout(() => {
+      input.onTimer(input.nodeId);
+    }, input.delayMs);
+  });
+
 const createRunControlSupervisorRuntime = (
   input: CreateRunControlSupervisorInput
 ): RunControlSupervisor => {
@@ -178,13 +193,13 @@ const createRunControlSupervisorRuntime = (
       const elapsedMs = now().getTime() - activity.lastActivityMs;
       if (elapsedMs < staleDetection.nodeStaleAfterMs) {
         const delayMs = staleDetection.nodeStaleAfterMs - elapsedMs;
-        yield* Effect.sync(() => {
-          if (activity.staleTimer) {
-            clearTimeout(activity.staleTimer);
-          }
-          activity.staleTimer = setTimeout(() => {
-            Effect.runSync(markNodeStalledEffect(nodeId));
-          }, delayMs);
+        yield* scheduleStaleTimerEffect({
+          activity,
+          delayMs,
+          nodeId,
+          onTimer: (stalledNodeId) => {
+            Effect.runSync(markNodeStalledEffect(stalledNodeId));
+          },
         });
         return;
       }
@@ -202,20 +217,6 @@ const createRunControlSupervisorRuntime = (
       );
     });
 
-  const scheduleStaleTimerEffect = (
-    nodeId: string,
-    activity: NodeActivity,
-    delayMs = staleDetection.nodeStaleAfterMs
-  ): Effect.Effect<void> =>
-    Effect.sync(() => {
-      if (activity.staleTimer) {
-        clearTimeout(activity.staleTimer);
-      }
-      activity.staleTimer = setTimeout(() => {
-        Effect.runSync(markNodeStalledEffect(nodeId));
-      }, delayMs);
-    });
-
   const markNodeRunningEffect = (nodeId: string): Effect.Effect<void> =>
     Effect.gen(function* markNodeRunningProgram() {
       if (!(runActive && !stopped)) {
@@ -229,7 +230,14 @@ const createRunControlSupervisorRuntime = (
         status: "running",
       };
       nodeActivity.set(nodeId, activity);
-      yield* scheduleStaleTimerEffect(nodeId, activity);
+      yield* scheduleStaleTimerEffect({
+        activity,
+        delayMs: staleDetection.nodeStaleAfterMs,
+        nodeId,
+        onTimer: (stalledNodeId) => {
+          Effect.runSync(markNodeStalledEffect(stalledNodeId));
+        },
+      });
 
       if (wasStalled) {
         const at = timestamp(now);

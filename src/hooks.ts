@@ -1,18 +1,16 @@
 import { z } from "zod";
 
+export const hookArtifactSchema = z
+  .object({
+    contentType: z.string().optional(),
+    name: z.string().min(1),
+    path: z.string().min(1),
+  })
+  .strict();
+
 export const hookResultSchema = z
   .object({
-    artifacts: z
-      .array(
-        z
-          .object({
-            contentType: z.string().optional(),
-            name: z.string().min(1),
-            path: z.string().min(1),
-          })
-          .strict()
-      )
-      .optional(),
+    artifacts: z.array(hookArtifactSchema).optional(),
     outputs: z.record(z.string(), z.unknown()).optional(),
     patch: z
       .object({

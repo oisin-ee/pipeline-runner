@@ -74,27 +74,71 @@ const stripLegacyPipelineFields = (
   return stripped;
 };
 
-// PIPE-83: thread the opt-in architecture-hardening blocks from pipeline.yaml
-// into the resolved config so real runs (not just injected-config tests) honour
-// them. Without this they were unreachable from a normal config load.
-const pipe83Fields = (
-  pipeline: z.infer<typeof pipelineFileSchema>
-): Partial<PipelineConfig> => {
-  const keys = [
-    "context_handoff",
-    "delivery",
-    "parallel_worktrees",
-    "repo_map",
-  ] as const;
-  const source = pipeline as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const key of keys) {
-    if (source[key] !== undefined) {
-      out[key] = source[key];
-    }
+type PipelineFile = z.infer<typeof pipelineFileSchema>;
+type ProfilesFile = z.infer<typeof profilesFileSchema>;
+type RunnersFile = z.infer<typeof runnersFileSchema>;
+
+const warnPipelineDeprecations = (
+  deprecations: PipelineDeprecationDiagnostic[]
+): void => {
+  for (const diag of deprecations) {
+    console.warn(
+      `[pipeline] '${diag.field}' is no longer supported and has been ignored. ${diag.guidance}`
+    );
   }
-  return out as Partial<PipelineConfig>;
 };
+
+const parsePipelineFileEffect = (
+  source: string,
+  sourcePath: string
+): Effect.Effect<PipelineFile, unknown, ConfigIoService> =>
+  Effect.gen(function* effectBody() {
+    const configIo = yield* ConfigIoService;
+    const rawPipelineObj = yield* configIo.parseYaml(source, sourcePath);
+    const pipelineDeprecations = detectLegacyPipelineFields(rawPipelineObj);
+    warnPipelineDeprecations(pipelineDeprecations);
+    const pipelineParsed = pipelineFileSchema.safeParse(
+      stripLegacyPipelineFields(rawPipelineObj, pipelineDeprecations)
+    );
+    if (!pipelineParsed.success) {
+      return yield* Effect.fail(
+        validationError(configIssuesFromZodError(pipelineParsed.error))
+      );
+    }
+    return pipelineParsed.data;
+  });
+
+const assembledPipelineConfig = (
+  pipeline: PipelineFile,
+  profiles: ProfilesFile,
+  runners: RunnersFile
+): PipelineConfig => ({
+  ...(pipeline.context_handoff
+    ? { context_handoff: pipeline.context_handoff }
+    : {}),
+  default_workflow: pipeline.default_workflow,
+  ...(pipeline.delivery ? { delivery: pipeline.delivery } : {}),
+  entrypoints: pipeline.entrypoints,
+  hooks: pipeline.hooks,
+  ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
+  mcp_servers: profiles.mcp_servers,
+  ...(pipeline.orchestrator ? { orchestrator: pipeline.orchestrator } : {}),
+  ...(pipeline.parallel_worktrees
+    ? { parallel_worktrees: pipeline.parallel_worktrees }
+    : {}),
+  profiles: profiles.profiles,
+  ...(pipeline.repo_map ? { repo_map: pipeline.repo_map } : {}),
+  rules: profiles.rules,
+  runner_command: pipeline.runner_command,
+  runners: runners.runners,
+  scheduler: pipeline.scheduler,
+  schedules: pipeline.schedules,
+  skills: profiles.skills,
+  ...(pipeline.task_context ? { task_context: pipeline.task_context } : {}),
+  token_budget: pipeline.token_budget,
+  version: 1,
+  workflows: pipeline.workflows,
+});
 
 const parsePipelineConfigPartsEffect = (
   sources: PipelineConfigParts,
@@ -103,7 +147,6 @@ const parsePipelineConfigPartsEffect = (
   options: PipelineConfigValidationOptions
 ) =>
   Effect.gen(function* effectBody() {
-    const configIo = yield* ConfigIoService;
     const runners = yield* parseConfigYamlAs(
       sources.runners,
       sourcePaths.runners,
@@ -114,61 +157,12 @@ const parsePipelineConfigPartsEffect = (
       sourcePaths.profiles,
       profilesFileSchema
     );
-    // PIPE-91.3: parse raw YAML first to detect and strip deprecated fields
-    // before strict schema validation, then emit structured deprecation diagnostics.
-    const rawPipelineObj = yield* configIo.parseYaml(
+    const pipeline = yield* parsePipelineFileEffect(
       sources.pipeline,
       sourcePaths.pipeline
     );
-    const pipelineDeprecations = detectLegacyPipelineFields(rawPipelineObj);
-    for (const diag of pipelineDeprecations) {
-      console.warn(
-        `[pipeline] '${diag.field}' is no longer supported and has been ignored. ${diag.guidance}`
-      );
-    }
-    const strippedPipelineObj = stripLegacyPipelineFields(
-      rawPipelineObj,
-      pipelineDeprecations
-    );
-    const pipelineParsed = pipelineFileSchema.safeParse(strippedPipelineObj);
-    if (!pipelineParsed.success) {
-      return yield* Effect.fail(
-        validationError(configIssuesFromZodError(pipelineParsed.error))
-      );
-    }
-    const pipeline = pipelineParsed.data;
     return validatePipelineConfig(
-      {
-        ...(pipeline.context_handoff
-          ? { context_handoff: pipeline.context_handoff }
-          : {}),
-        default_workflow: pipeline.default_workflow,
-        ...(pipeline.delivery ? { delivery: pipeline.delivery } : {}),
-        entrypoints: pipeline.entrypoints,
-        hooks: pipeline.hooks,
-        ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
-        mcp_servers: profiles.mcp_servers,
-        ...(pipeline.orchestrator
-          ? { orchestrator: pipeline.orchestrator }
-          : {}),
-        ...(pipeline.parallel_worktrees
-          ? { parallel_worktrees: pipeline.parallel_worktrees }
-          : {}),
-        profiles: profiles.profiles,
-        ...(pipeline.repo_map ? { repo_map: pipeline.repo_map } : {}),
-        rules: profiles.rules,
-        runner_command: pipeline.runner_command,
-        runners: runners.runners,
-        scheduler: pipeline.scheduler,
-        schedules: pipeline.schedules,
-        skills: profiles.skills,
-        ...(pipeline.task_context
-          ? { task_context: pipeline.task_context }
-          : {}),
-        token_budget: pipeline.token_budget,
-        version: 1,
-        workflows: pipeline.workflows,
-      },
+      assembledPipelineConfig(pipeline, profiles, runners),
       projectRoot,
       options
     );

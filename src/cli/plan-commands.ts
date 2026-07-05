@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 
 import type { Command } from "commander";
-import { Option } from "effect";
 
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config";
@@ -66,9 +65,7 @@ const configuredWorkflowPlan = (
   config: context.config,
   plan: compileWorkflowPlan(
     context.config,
-    Option.getOrUndefined(
-      resolveWorkflowSelection(context.config, flags.workflow, flags.entrypoint)
-    )
+    resolveWorkflowSelection(context.config, flags.workflow, flags.entrypoint)
   ),
 });
 

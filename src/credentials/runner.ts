@@ -1,5 +1,3 @@
-import { isNone, some } from "effect/Option";
-
 import type { BrokerCredentials } from "./broker";
 import { resolveBrokerCredentials } from "./broker";
 import { applyCodexBrokerProvider } from "./codex-config";
@@ -74,19 +72,13 @@ const configureBrokerCredentials = (
 export const prepareOpencodeCredentials = (
   options: PrepareOpencodeCredentialsOptions = {}
 ): PrepareOpencodeCredentialsResult => {
-  const broker =
-    options.broker === undefined
-      ? resolveBrokerCredentials()
-      : some(options.broker);
-  if (isNone(broker)) {
+  const broker = options.broker ?? resolveBrokerCredentials();
+  if (broker === undefined) {
     throw new Error(
       "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker."
     );
   }
   return {
-    brokerConfigured: configureBrokerCredentials(
-      broker.value,
-      options.brokerPaths
-    ),
+    brokerConfigured: configureBrokerCredentials(broker, options.brokerPaths),
   };
 };

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 
 import { loadPipelineConfig } from "../config";
 import type { PipelineConfig } from "../config";
@@ -134,10 +134,7 @@ const plannedRunStoreNodeIds = (
     inputs.workflow,
     inputs.entrypoint
   );
-  const plan = compileWorkflowPlan(
-    inputs.config,
-    Option.getOrUndefined(workflowId)
-  );
+  const plan = compileWorkflowPlan(inputs.config, workflowId);
   return flattenNodes(plan.topologicalOrder, (node) => node.children).map(
     (node) => node.id
   );

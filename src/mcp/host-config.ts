@@ -92,9 +92,12 @@ const codexGatewayConfigPath = (
 const GATEWAY_HOST_CONFIGS: Record<GatewayHost, GatewayHostConfigAdapter> = {
   "claude-code": {
     configureContent: (config, current) => {
-      const merged = replaceClaudeUserMcpServers(current, {
-        mcpServers: renderClaudeGatewayMcpServers(config),
-      });
+      const merged = replaceClaudeUserMcpServers(
+        {
+          mcpServers: renderClaudeGatewayMcpServers(config),
+        },
+        current
+      );
       if (!merged.ok) {
         throw new PipelineMcpGatewayError(
           "Cannot parse Claude Code user config."

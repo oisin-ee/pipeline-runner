@@ -1,3 +1,4 @@
+import * as Option from "effect/Option";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -142,7 +143,7 @@ describe("recordSubmitResult — AC2: malformed or mismatched submit rejected; s
       });
     }).toThrow(z.ZodError);
 
-    expect(store.get(RUN_ID, "plan")).toBeUndefined();
+    expect(Option.isNone(store.get(RUN_ID, "plan"))).toBe(true);
   });
 
   it("rejects a result.nodeId ≠ nodeId mismatch with ZodError (structured rejection)", () => {
@@ -159,7 +160,7 @@ describe("recordSubmitResult — AC2: malformed or mismatched submit rejected; s
       });
     }).toThrow(z.ZodError);
 
-    expect(store.get(RUN_ID, "plan")).toBeUndefined();
+    expect(Option.isNone(store.get(RUN_ID, "plan"))).toBe(true);
   });
 
   it("rejects invalid JSON with a SyntaxError", () => {
@@ -174,6 +175,6 @@ describe("recordSubmitResult — AC2: malformed or mismatched submit rejected; s
       });
     }).toThrow(SyntaxError);
 
-    expect(store.get(RUN_ID, "plan")).toBeUndefined();
+    expect(Option.isNone(store.get(RUN_ID, "plan"))).toBe(true);
   });
 });

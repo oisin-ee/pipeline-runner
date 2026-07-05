@@ -44,9 +44,6 @@
     "effect/prefer-namespace-imports": {
       "count": 1
     },
-    "effect/require-effect-concurrency": {
-      "count": 1
-    },
     "effect/use-clock-service": {
       "count": 1
     },
@@ -58,9 +55,6 @@
     },
     "typescript/no-deprecated": {
       "count": 2
-    },
-    "unicorn/no-array-method-this-argument": {
-      "count": 1
     }
   },
   "src/argo-workflow.ts": {
@@ -68,10 +62,10 @@
       "count": 2
     },
     "effect/no-length-comparison": {
-      "count": 6
+      "count": 3
     },
     "effect/prefer-arr-match": {
-      "count": 6
+      "count": 3
     }
   },
   "src/backlog.ts": {
@@ -114,9 +108,6 @@
     }
   },
   "src/claude-user-config.ts": {
-    "default-param-last": {
-      "count": 2
-    },
     "effect/avoid-native-object-helpers": {
       "count": 1
     },
@@ -299,17 +290,11 @@
     "effect/imperative-loops": {
       "count": 1
     },
-    "effect/no-barrel-imports": {
-      "count": 1
-    },
     "effect/no-length-comparison": {
       "count": 6
     },
     "effect/prefer-arr-match": {
       "count": 6
-    },
-    "effect/prefer-namespace-imports": {
-      "count": 1
     },
     "effect/use-console-service": {
       "count": 3
@@ -386,9 +371,6 @@
       "count": 3
     },
     "effect/no-barrel-imports": {
-      "count": 1
-    },
-    "effect/prefer-namespace-imports": {
       "count": 1
     },
     "effect/use-console-service": {
@@ -695,11 +677,8 @@
     "default-param-last": {
       "count": 1
     },
-    "effect/casting-awareness": {
-      "count": 2
-    },
     "effect/imperative-loops": {
-      "count": 3
+      "count": 2
     },
     "effect/no-barrel-imports": {
       "count": 1
@@ -718,12 +697,6 @@
     },
     "no-console": {
       "count": 1
-    },
-    "no-unused-vars": {
-      "count": 1
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 2
     },
     "typescript/no-dynamic-delete": {
       "count": 1
@@ -863,9 +836,6 @@
   "src/credentials/broker.ts": {
     "effect/avoid-process-env": {
       "count": 1
-    },
-    "effect/prefer-namespace-imports": {
-      "count": 2
     }
   },
   "src/credentials/codex-config.ts": {
@@ -892,9 +862,6 @@
       "count": 7
     },
     "effect/avoid-try-catch": {
-      "count": 1
-    },
-    "effect/prefer-namespace-imports": {
       "count": 1
     },
     "effect/use-filesystem-service": {
@@ -953,9 +920,6 @@
   "src/credentials/runner.ts": {
     "effect/avoid-untagged-errors": {
       "count": 2
-    },
-    "effect/prefer-namespace-imports": {
-      "count": 1
     }
   },
   "src/factory/create-experiment.ts": {
@@ -1080,10 +1044,10 @@
       "count": 2
     },
     "effect/no-length-comparison": {
-      "count": 7
+      "count": 4
     },
     "effect/prefer-arr-match": {
-      "count": 7
+      "count": 4
     },
     "effect/use-filesystem-service": {
       "count": 1
@@ -2110,9 +2074,6 @@
     },
     "effect/prefer-arr-match": {
       "count": 7
-    },
-    "typescript/no-invalid-void-type": {
-      "count": 2
     }
   },
   "src/planning/dependency-refs.ts": {
@@ -2490,9 +2451,6 @@
     "effect/avoid-native-object-helpers": {
       "count": 3
     },
-    "effect/avoid-node-imports": {
-      "count": 1
-    },
     "effect/imperative-loops": {
       "count": 1
     },
@@ -2558,9 +2516,6 @@
     },
     "effect/avoid-native-object-helpers": {
       "count": 2
-    },
-    "effect/avoid-node-imports": {
-      "count": 1
     },
     "effect/avoid-untagged-errors": {
       "count": 3
@@ -2971,9 +2926,6 @@
     }
   },
   "src/runner-command-contract.ts": {
-    "effect/avoid-data-tagged-error": {
-      "count": 1
-    },
     "effect/avoid-direct-json": {
       "count": 1
     },
@@ -2984,10 +2936,7 @@
       "count": 1
     },
     "effect/avoid-try-catch": {
-      "count": 3
-    },
-    "effect/avoid-untagged-errors": {
-      "count": 3
+      "count": 2
     },
     "effect/no-barrel-imports": {
       "count": 1
@@ -3002,7 +2951,7 @@
       "count": 2
     },
     "effect/prefer-match-over-switch": {
-      "count": 6
+      "count": 5
     },
     "effect/prefer-namespace-imports": {
       "count": 1
@@ -3017,7 +2966,7 @@
       "count": 1
     },
     "typescript/switch-exhaustiveness-check": {
-      "count": 6
+      "count": 5
     }
   },
   "src/runner-command/dynamic-command.ts": {
@@ -3735,11 +3684,8 @@
     "effect/prefer-arr-match": {
       "count": 1
     },
-    "effect/prefer-effect-is": {
-      "count": 4
-    },
     "effect/prefer-namespace-imports": {
-      "count": 2
+      "count": 1
     }
   },
   "src/runtime/command-executor/index.ts": {
@@ -3768,17 +3714,11 @@
     "effect/avoid-untagged-errors": {
       "count": 3
     },
-    "effect/no-barrel-imports": {
-      "count": 1
-    },
     "effect/no-length-comparison": {
       "count": 3
     },
     "effect/prefer-arr-match": {
       "count": 3
-    },
-    "effect/prefer-namespace-imports": {
-      "count": 1
     }
   },
   "src/runtime/context/index.ts": {
@@ -4370,9 +4310,6 @@
     }
   },
   "src/runtime/goal-state/goal-state.ts": {
-    "complexity": {
-      "count": 1
-    },
     "effect/avoid-direct-json": {
       "count": 2
     },
@@ -4383,7 +4320,7 @@
       "count": 3
     },
     "effect/avoid-untagged-errors": {
-      "count": 13
+      "count": 2
     },
     "effect/imperative-loops": {
       "count": 2
@@ -4399,9 +4336,6 @@
     },
     "effect/prefer-effect-is": {
       "count": 4
-    },
-    "effect/prefer-match-over-switch": {
-      "count": 1
     },
     "effect/prefer-namespace-imports": {
       "count": 1
@@ -5523,9 +5457,6 @@
     "effect/prefer-arr-match": {
       "count": 1
     },
-    "effect/prefer-effect-is": {
-      "count": 2
-    },
     "effect/prefer-namespace-imports": {
       "count": 2
     },
@@ -5735,9 +5666,6 @@
       "count": 1
     },
     "effect/no-barrel-imports": {
-      "count": 1
-    },
-    "effect/prefer-namespace-imports": {
       "count": 1
     },
     "prefer-destructuring": {

@@ -393,101 +393,140 @@ const recordStructuredVerdicts = (
   }
 };
 
+type RuntimeEventType = PipelineRuntimeEvent["type"];
+type RuntimeEventOf<Type extends RuntimeEventType> = Extract<
+  PipelineRuntimeEvent,
+  { type: Type }
+>;
+type GoalStateEventHandler<Type extends RuntimeEventType> = (
+  state: PipelineGoalState,
+  event: RuntimeEventOf<Type>
+) => void;
+type AnyGoalStateEventHandler = (
+  state: PipelineGoalState,
+  event: PipelineRuntimeEvent
+) => void;
+
+const noGoalStateChange: AnyGoalStateEventHandler = (state) => {
+  void state;
+};
+
+const isRuntimeEventOfType = <Type extends RuntimeEventType>(
+  event: PipelineRuntimeEvent,
+  type: Type
+): event is RuntimeEventOf<Type> => event.type === type;
+
+const goalStateEventHandler =
+  <Type extends RuntimeEventType>(
+    type: Type,
+    handler: GoalStateEventHandler<Type>
+  ): AnyGoalStateEventHandler =>
+  (state, event) => {
+    if (!isRuntimeEventOfType(event, type)) {
+      throw new Error(`Goal-state handler mismatch for event type ${type}`);
+    }
+    handler(state, event);
+  };
+
+const recordPendingWorkflowNodes: GoalStateEventHandler<"workflow.planned"> = (
+  state,
+  event
+) => {
+  for (const node of event.nodes) {
+    upsertNode(state, node.id, {
+      profile: node.profile,
+      runnerId: node.runnerId,
+      status: "pending",
+    });
+  }
+};
+
+const recordStartedNode = (
+  state: PipelineGoalState,
+  event: RuntimeEventOf<"agent.start" | "node.start">
+): void => {
+  upsertNode(state, event.nodeId, {
+    attempts: event.attempt,
+    profile: event.profile,
+    runnerId: event.runnerId,
+    status: "running",
+  });
+};
+
+const recordFinishedNode: GoalStateEventHandler<"node.finish"> = (
+  state,
+  event
+) => {
+  upsertNode(state, event.nodeId, {
+    attempts: event.attempt,
+    exitCode: event.exitCode,
+    profile: event.profile,
+    runnerId: event.runnerId,
+    status: event.status === "passed" ? "passed" : "failed",
+  });
+};
+
+const recordFinishedGate: GoalStateEventHandler<"gate.finish"> = (
+  state,
+  event
+) => {
+  recordGateAttempt(state, {
+    evidence: safeEvidence(event.evidence),
+    gateId: event.gateId,
+    kind: event.kind,
+    nodeId: event.nodeId,
+    passed: event.passed,
+    ...(isNonEmptyString(event.reason) ? { reason: event.reason } : {}),
+  });
+};
+
+const recordTerminalOutcome: GoalStateEventHandler<"workflow.finish"> = (
+  state,
+  event
+) => {
+  state.terminalOutcome = event.outcome;
+};
+
+const GOAL_STATE_EVENT_HANDLERS: Record<
+  RuntimeEventType,
+  AnyGoalStateEventHandler
+> = {
+  "agent.finish": noGoalStateChange,
+  "agent.start": goalStateEventHandler("agent.start", recordStartedNode),
+  "artifact.check.finish": noGoalStateChange,
+  "artifact.check.start": noGoalStateChange,
+  "delivery.pull-request": noGoalStateChange,
+  "gate.finish": goalStateEventHandler("gate.finish", recordFinishedGate),
+  "gate.start": noGoalStateChange,
+  "hook.finish": noGoalStateChange,
+  "hook.result": noGoalStateChange,
+  "hook.start": noGoalStateChange,
+  "node.finish": goalStateEventHandler("node.finish", recordFinishedNode),
+  "node.output.recorded": goalStateEventHandler(
+    "node.output.recorded",
+    recordStructuredVerdicts
+  ),
+  "node.session": noGoalStateChange,
+  "node.start": goalStateEventHandler("node.start", recordStartedNode),
+  "output.repair": noGoalStateChange,
+  "runtime.observability": noGoalStateChange,
+  "workflow.finish": goalStateEventHandler(
+    "workflow.finish",
+    recordTerminalOutcome
+  ),
+  "workflow.planned": goalStateEventHandler(
+    "workflow.planned",
+    recordPendingWorkflowNodes
+  ),
+  "workflow.start": noGoalStateChange,
+};
+
 export const applyGoalStateEvent = (
   state: PipelineGoalState,
   event: PipelineRuntimeEvent
 ): PipelineGoalState => {
   const next = cloneGoalState(state);
-  switch (event.type) {
-    case "workflow.planned": {
-      for (const node of event.nodes) {
-        upsertNode(next, node.id, {
-          profile: node.profile,
-          runnerId: node.runnerId,
-          status: "pending",
-        });
-      }
-      break;
-    }
-    case "node.start":
-    case "agent.start": {
-      upsertNode(next, event.nodeId, {
-        attempts: event.attempt,
-        profile: event.profile,
-        runnerId: event.runnerId,
-        status: "running",
-      });
-      break;
-    }
-    case "node.finish": {
-      upsertNode(next, event.nodeId, {
-        attempts: event.attempt,
-        exitCode: event.exitCode,
-        profile: event.profile,
-        runnerId: event.runnerId,
-        status: event.status === "passed" ? "passed" : "failed",
-      });
-      break;
-    }
-    case "gate.finish": {
-      recordGateAttempt(next, {
-        evidence: safeEvidence(event.evidence),
-        gateId: event.gateId,
-        kind: event.kind,
-        nodeId: event.nodeId,
-        passed: event.passed,
-        ...(isNonEmptyString(event.reason) ? { reason: event.reason } : {}),
-      });
-      break;
-    }
-    case "node.output.recorded": {
-      recordStructuredVerdicts(next, event);
-      break;
-    }
-    case "workflow.finish": {
-      next.terminalOutcome = event.outcome;
-      break;
-    }
-    case "agent.finish": {
-      throw new Error('Not implemented yet: "agent.finish" case');
-    }
-    case "artifact.check.finish": {
-      throw new Error('Not implemented yet: "artifact.check.finish" case');
-    }
-    case "artifact.check.start": {
-      throw new Error('Not implemented yet: "artifact.check.start" case');
-    }
-    case "delivery.pull-request": {
-      throw new Error('Not implemented yet: "delivery.pull-request" case');
-    }
-    case "gate.start": {
-      throw new Error('Not implemented yet: "gate.start" case');
-    }
-    case "hook.finish": {
-      throw new Error('Not implemented yet: "hook.finish" case');
-    }
-    case "hook.result": {
-      throw new Error('Not implemented yet: "hook.result" case');
-    }
-    case "hook.start": {
-      throw new Error('Not implemented yet: "hook.start" case');
-    }
-    case "node.session": {
-      throw new Error('Not implemented yet: "node.session" case');
-    }
-    case "output.repair": {
-      throw new Error('Not implemented yet: "output.repair" case');
-    }
-    case "runtime.observability": {
-      throw new Error('Not implemented yet: "runtime.observability" case');
-    }
-    case "workflow.start": {
-      throw new Error('Not implemented yet: "workflow.start" case');
-    }
-    default: {
-      break;
-    }
-  }
+  GOAL_STATE_EVENT_HANDLERS[event.type](next, event);
   return parseGoalState(next);
 };
 

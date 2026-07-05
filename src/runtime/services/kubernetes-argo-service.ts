@@ -12,6 +12,7 @@ import { execa } from "execa";
 
 import type { WorkflowPhase, WorkflowReadApi } from "../../loop/argo-poll";
 import { classifyArgoPhase, extractArgoRawPhase } from "../../loop/argo-poll";
+import { stringField } from "../../unknown-fields";
 
 export type { WorkflowReadApi } from "../../loop/argo-poll";
 export interface CoreApi {
@@ -73,17 +74,6 @@ export interface KubectlResult {
   stderr: string;
   stdout: string;
 }
-
-const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const stringField = (value: unknown, field: string): Option<string> => {
-  if (!isUnknownRecord(value)) {
-    return none();
-  }
-  const fieldValue = value[field];
-  return typeof fieldValue === "string" ? some(fieldValue) : none();
-};
 
 const textOption = (value?: string): Option<string> =>
   value === undefined || value.length === 0 ? none() : some(value);

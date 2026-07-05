@@ -67,7 +67,7 @@ const generatedCoverageGates = (
   { id: `${nodeId}-verdict`, kind: "verdict", target: "stdout" },
 ];
 
-const hasDownstreamCoverage = (
+export const hasDownstreamCoverage = (
   config: PipelineConfig,
   nodeId: string,
   index: Map<string, WorkflowNode[]>

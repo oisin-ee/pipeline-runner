@@ -1,5 +1,4 @@
-import { none, some } from "effect/Option";
-import type { Option } from "effect/Option";
+import * as Option from "effect/Option";
 import { z } from "zod";
 
 const DEFAULT_BROKER_URL = "https://cliproxy.momokaya.ee";
@@ -34,19 +33,21 @@ export type BrokerAuthOption = z.input<typeof brokerAuthOptionSchema>;
  * only from env or test injection, and exits only through credential file/env
  * writers in this module family.
  */
-export const resolveBrokerCredentials = (
-  env: NodeJS.ProcessEnv = process.env
-): Option<BrokerCredentials> => {
+const brokerCredentialsOption = (env: NodeJS.ProcessEnv) => {
   const apiKey = env[BROKER_API_KEY_ENV];
   if (apiKey === undefined || apiKey === "") {
-    return none();
+    return Option.none<BrokerCredentials>();
   }
   const baseUrl = (env[BROKER_URL_ENV] ?? DEFAULT_BROKER_URL).replace(
     TRAILING_SLASH_RE,
     ""
   );
-  return some({ apiKey, baseUrl });
+  return Option.some({ apiKey, baseUrl });
 };
+
+export const resolveBrokerCredentials = (
+  env: NodeJS.ProcessEnv = process.env
+) => Option.getOrUndefined(brokerCredentialsOption(env));
 
 /** The broker's OpenAI-compatible endpoint (`<baseUrl>/v1`). */
 export const brokerV1Url = (credentials: BrokerCredentials): string =>

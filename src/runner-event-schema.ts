@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { hookArtifactSchema } from "./hooks";
 import type { RunnerEventRecord } from "./runner-command-contract";
 import {
   loopStateSchema,
@@ -84,15 +85,7 @@ const runnerGateDetailsSchema = z.object({
 });
 
 const runnerHookResultDetailsSchema = z.object({
-  artifacts: z
-    .array(
-      z.object({
-        contentType: z.string().optional(),
-        name: z.string().min(1),
-        path: z.string().min(1),
-      })
-    )
-    .optional(),
+  artifacts: z.array(hookArtifactSchema).optional(),
   event: z.string().min(1),
   functionId: z.string().min(1),
   gateId: z.string().optional(),

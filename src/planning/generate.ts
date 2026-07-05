@@ -18,7 +18,10 @@ import { normalizeRunnerOutput } from "../runner-output";
 import { runLaunchPlan } from "../runner/subprocess";
 import { loadBacklogPlanningContext } from "../schedule/backlog-context";
 import { baselineScheduleArtifact } from "../schedule/baseline";
-import { addGeneratedImplementationCoverage } from "../schedule/passes/coverage";
+import {
+  addGeneratedImplementationCoverage,
+  hasDownstreamCoverage,
+} from "../schedule/passes/coverage";
 import { integrateParallelWriteFanout } from "../schedule/passes/drain-merge";
 import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
 import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
@@ -30,7 +33,6 @@ import {
 import { namespaceScheduleWorkflows } from "../schedule/passes/references";
 import { plannerPrompt, plannerRepairPrompt } from "../schedule/prompts";
 import {
-  isCoverageNode,
   isImplementationNode,
   isWriteCapableParallelChild,
 } from "../schedule/scheduling-roles";
@@ -736,13 +738,6 @@ const nodesByAssignedWorkUnit = (
   }
   return grouped;
 };
-
-const hasDownstreamCoverage = (
-  config: PipelineConfig,
-  nodeId: string,
-  index: Map<string, WorkflowNode[]>
-): boolean =>
-  hasReachableDependent(nodeId, index, (node) => isCoverageNode(config, node));
 
 const flattenWorkflowNodes = (nodes: WorkflowNode[]): WorkflowNode[] =>
   flattenNodes(nodes, (node) =>

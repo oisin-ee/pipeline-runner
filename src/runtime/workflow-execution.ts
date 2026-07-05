@@ -161,16 +161,22 @@ const finishRuntime = (
   return result;
 };
 
-export const runPipelineWithContext = (
+const skipRunValidation = (): Effect.Effect<void, unknown> => Effect.void;
+
+const runWorkflowWithContext = (
   context: RuntimeContext,
-  dbUrl?: string
+  dbUrl: Option.Option<string>,
+  validateRun: (
+    journal: Option.Option<RunJournal>
+  ) => Effect.Effect<void, unknown> = skipRunValidation
 ): Effect.Effect<PipelineRuntimeResult, unknown> =>
   Effect.scoped(
     Effect.gen(function* effectBody() {
       const journal = yield* acquireRunJournal(
         Option.fromUndefinedOr(context.runId),
-        Option.fromUndefinedOr(dbUrl)
+        dbUrl
       );
+      yield* validateRun(journal);
       const scheduler = buildPipelineScheduler(
         context,
         Option.getOrUndefined(journal)
@@ -182,24 +188,16 @@ export const runPipelineWithContext = (
     })
   );
 
+export const runPipelineWithContext = (
+  context: RuntimeContext,
+  dbUrl?: string
+): Effect.Effect<PipelineRuntimeResult, unknown> =>
+  runWorkflowWithContext(context, Option.fromUndefinedOr(dbUrl));
+
 export const resumeRunWithContext = (
   context: RuntimeContext,
   dbUrl?: string
 ): Effect.Effect<PipelineRuntimeResult, unknown> =>
-  Effect.scoped(
-    Effect.gen(function* effectBody() {
-      const journal = yield* acquireRunJournal(
-        Option.fromUndefinedOr(context.runId),
-        Option.fromUndefinedOr(dbUrl)
-      );
-      yield* requireResumableRun(context.runId, Option.getOrUndefined(journal));
-      const scheduler = buildPipelineScheduler(
-        context,
-        Option.getOrUndefined(journal)
-      );
-      const result = yield* Effect.tryPromise(
-        async () => await scheduler.runWorkflow(context.plan, context)
-      );
-      return finishRuntime(context, result);
-    })
+  runWorkflowWithContext(context, Option.fromUndefinedOr(dbUrl), (journal) =>
+    requireResumableRun(context.runId, Option.getOrUndefined(journal))
   );

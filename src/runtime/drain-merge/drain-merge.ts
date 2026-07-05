@@ -254,9 +254,7 @@ const drainMergeChildren = (
   }
   const upstream = context.plan.graph.node(upstreamNodeId.value);
   const output = parseJsonObject(
-    fromUndefinedOr(
-      context.nodeStateStore.lastOutputByNode.get(upstreamNodeId.value)
-    )
+    context.nodeStateStore.lastOutputByNode.get(upstreamNodeId.value)
   );
   const childrenOutput = parseJsonObject(output.children);
   return (upstream.children ?? []).flatMap((child) => {

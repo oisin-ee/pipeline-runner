@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 
-import { Data, Option } from "effect";
+import { Option, Schema } from "effect";
 import parseGitUrl from "git-url-parse";
 import { z } from "zod";
 
 import type { PipelineRuntimeEvent } from "./pipeline-runtime";
 import type { HookRuntimePolicy } from "./runtime/contracts";
-import { parseJson } from "./safe-json";
+import { parseJsonResult } from "./safe-json";
 
 const RUNNER_COMMAND_CONTRACT_VERSION = "1";
 
@@ -180,12 +180,22 @@ interface RecoverableRunnerCommandPayloadEnvelope {
   run: RunnerRunIdentity;
 }
 
-export class RunnerCommandPayloadValidationError extends Data.TaggedError(
-  "RunnerCommandPayloadValidationError"
-)<{
-  readonly message: string;
-  readonly issues: RunnerCommandPayloadValidationIssue[];
-}> {
+const runnerCommandPayloadValidationIssue =
+  Schema.Class<RunnerCommandPayloadValidationIssue>(
+    "RunnerCommandPayloadValidationIssue"
+  )({
+    code: Schema.String,
+    message: Schema.String,
+    path: Schema.String,
+  });
+
+export class RunnerCommandPayloadValidationError extends Schema.TaggedErrorClass<RunnerCommandPayloadValidationError>()(
+  "RunnerCommandPayloadValidationError",
+  {
+    issues: Schema.Array(runnerCommandPayloadValidationIssue),
+    message: Schema.String,
+  }
+) {
   constructor(message: string, issues: RunnerCommandPayloadValidationIssue[]) {
     super({ issues, message });
   }
@@ -452,8 +462,16 @@ export const resolveRunnerEventSinkAuthToken = (
     return readFile(options.authTokenFile).trim();
   }
 
-  throw new Error(
-    "Runner event auth token is required. Set events.authTokenFile in the runner payload."
+  throw new RunnerCommandPayloadValidationError(
+    "Runner event auth token is required. Set events.authTokenFile in the runner payload.",
+    [
+      {
+        code: "missing_runner_event_auth_token",
+        message:
+          "Runner event auth token is required. Set events.authTokenFile in the runner payload.",
+        path: "events.authTokenFile",
+      },
+    ]
   );
 };
 
@@ -631,93 +649,59 @@ const omitUndefined = (
     Object.entries(value).filter(([, item]) => item !== undefined)
   );
 
+type NodeRuntimeEvent = Extract<
+  PipelineRuntimeEvent,
+  { type: "agent.finish" | "agent.start" | "node.finish" | "node.start" }
+>;
+
+const NODE_EVENT_STATUSES: Record<NodeRuntimeEvent["type"], RunnerNodeStatus> =
+  {
+    "agent.finish": "agent-finished",
+    "agent.start": "agent-running",
+    "node.finish": "passed",
+    "node.start": "running",
+  };
+
+const isNodeRuntimeEvent = (
+  event: PipelineRuntimeEvent
+): event is NodeRuntimeEvent => Object.hasOwn(NODE_EVENT_STATUSES, event.type);
+
+const nodeEventStatus = (event: NodeRuntimeEvent): RunnerNodeStatus =>
+  event.type === "node.finish" ? event.status : NODE_EVENT_STATUSES[event.type];
+
+const nodeEventDetails = (event: NodeRuntimeEvent): RunnerNodeDetails => ({
+  attempt: event.attempt,
+  ...("exitCode" in event ? { exitCode: event.exitCode } : {}),
+  nodeId: event.nodeId,
+  ...(event.profile === undefined ? {} : { profile: event.profile }),
+  ...(event.runnerId === undefined ? {} : { runnerId: event.runnerId }),
+  status: nodeEventStatus(event),
+});
+
+const nodeEventRecord = (
+  event: NodeRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord => ({
+  ...record,
+  node: nodeEventDetails(event),
+  type: event.type,
+});
+
 const mapNodeRunnerEvent = (
   event: PipelineRuntimeEvent,
   record: RunnerEventRecordBase
 ): Option.Option<RunnerEventRecord[]> => {
-  switch (event.type) {
-    case "node.session": {
-      // node.session associates a node with its agent session id. It is an
-      // in-process run-control/projection concern (see projectNodeSession in
-      // run-control/runtime-reporter) with no representation in the
-      // runner -> event-sink wire contract, so it maps to no records rather
-      // than falling through to throwUnhandledRuntimeEvent.
-      return Option.some([]);
-    }
-    case "node.start": {
-      return Option.some([
-        {
-          ...record,
-          node: {
-            attempt: event.attempt,
-            nodeId: event.nodeId,
-            ...(event.profile === undefined ? {} : { profile: event.profile }),
-            ...(event.runnerId === undefined
-              ? {}
-              : { runnerId: event.runnerId }),
-            status: "running",
-          },
-          type: event.type,
-        },
-      ]);
-    }
-    case "node.finish": {
-      return Option.some([
-        {
-          ...record,
-          node: {
-            attempt: event.attempt,
-            exitCode: event.exitCode,
-            nodeId: event.nodeId,
-            ...(event.profile === undefined ? {} : { profile: event.profile }),
-            ...(event.runnerId === undefined
-              ? {}
-              : { runnerId: event.runnerId }),
-            status: event.status,
-          },
-          type: event.type,
-        },
-      ]);
-    }
-    case "agent.start": {
-      return Option.some([
-        {
-          ...record,
-          node: {
-            attempt: event.attempt,
-            nodeId: event.nodeId,
-            ...(event.profile === undefined ? {} : { profile: event.profile }),
-            ...(event.runnerId === undefined
-              ? {}
-              : { runnerId: event.runnerId }),
-            status: "agent-running",
-          },
-          type: event.type,
-        },
-      ]);
-    }
-    case "agent.finish": {
-      return Option.some([
-        {
-          ...record,
-          node: {
-            attempt: event.attempt,
-            exitCode: event.exitCode,
-            nodeId: event.nodeId,
-            ...(event.profile === undefined ? {} : { profile: event.profile }),
-            ...(event.runnerId === undefined
-              ? {}
-              : { runnerId: event.runnerId }),
-            status: "agent-finished",
-          },
-          type: event.type,
-        },
-      ]);
-    }
-    default: {
-      return Option.none();
-    }
+  if (event.type === "node.session") {
+    // node.session associates a node with its agent session id. It is an
+    // in-process run-control/projection concern (see projectNodeSession in
+    // run-control/runtime-reporter) with no representation in the
+    // runner -> event-sink wire contract, so it maps to no records rather
+    // than falling through to throwUnhandledRuntimeEvent.
+    return Option.some([]);
   }
+  return isNodeRuntimeEvent(event)
+    ? Option.some([nodeEventRecord(event, record)])
+    : Option.none();
 };
 
 const mapGateRunnerEvent = (
@@ -766,104 +750,55 @@ const mapGateRunnerEvent = (
   }
 };
 
+type ArtifactRuntimeEvent = Extract<
+  PipelineRuntimeEvent,
+  { type: "artifact.check.finish" | "artifact.check.start" }
+>;
+
+const artifactEventStatus = (
+  event: ArtifactRuntimeEvent
+): RunnerArtifactStatus => {
+  if (!("passed" in event)) {
+    return "running";
+  }
+  return event.passed ? "passed" : "failed";
+};
+
+const artifactEventDetails = (
+  event: ArtifactRuntimeEvent
+): RunnerArtifactDetails => ({
+  kind: "artifact",
+  label: event.path,
+  nodeId: event.nodeId,
+  ...("passed" in event ? { passed: event.passed } : {}),
+  path: event.path,
+  ...("reason" in event && event.reason !== undefined
+    ? { reason: event.reason }
+    : {}),
+  required: event.required,
+  status: artifactEventStatus(event),
+  uri: event.path,
+});
+
+const artifactEventRecord = (
+  event: ArtifactRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord => ({
+  ...record,
+  artifact: artifactEventDetails(event),
+  type: event.type,
+});
+
 const mapArtifactRunnerEvent = (
   event: PipelineRuntimeEvent,
   record: RunnerEventRecordBase
 ): Option.Option<RunnerEventRecord[]> => {
   switch (event.type) {
     case "artifact.check.start": {
-      return Option.some([
-        {
-          ...record,
-          artifact: {
-            kind: "artifact",
-            label: event.path,
-            nodeId: event.nodeId,
-            path: event.path,
-            required: event.required,
-            status: "running",
-            uri: event.path,
-          },
-          type: event.type,
-        },
-      ]);
+      return Option.some([artifactEventRecord(event, record)]);
     }
     case "artifact.check.finish": {
-      return Option.some([
-        {
-          ...record,
-          artifact: {
-            kind: "artifact",
-            label: event.path,
-            nodeId: event.nodeId,
-            passed: event.passed,
-            path: event.path,
-            ...(event.reason === undefined ? {} : { reason: event.reason }),
-            required: event.required,
-            status: event.passed ? "passed" : "failed",
-            uri: event.path,
-          },
-          type: event.type,
-        },
-      ]);
-    }
-    case "hook.start": {
-      return Option.some([
-        {
-          ...record,
-          gate: {
-            event: event.event,
-            ...(event.gateId === undefined ? {} : { gateId: event.gateId }),
-            hookId: event.hookId,
-            ...(event.nodeId === undefined ? {} : { nodeId: event.nodeId }),
-            required: event.required,
-            status: "running",
-            workflowId: event.workflowId,
-          },
-          type: event.type,
-        },
-      ]);
-    }
-    case "hook.finish": {
-      return Option.some([
-        {
-          ...record,
-          gate: {
-            event: event.event,
-            ...(event.gateId === undefined ? {} : { gateId: event.gateId }),
-            hookId: event.hookId,
-            ...(event.nodeId === undefined ? {} : { nodeId: event.nodeId }),
-            passed: event.passed,
-            ...(event.reason === undefined ? {} : { reason: event.reason }),
-            required: event.required,
-            status: event.passed ? "passed" : "failed",
-            workflowId: event.workflowId,
-          },
-          type: event.type,
-        },
-      ]);
-    }
-    case "hook.result": {
-      return Option.some([
-        {
-          ...record,
-          hookResult: {
-            ...(event.artifacts === undefined
-              ? {}
-              : { artifacts: event.artifacts }),
-            event: event.event,
-            functionId: event.functionId,
-            ...(event.gateId === undefined ? {} : { gateId: event.gateId }),
-            hookId: event.hookId,
-            ...(event.nodeId === undefined ? {} : { nodeId: event.nodeId }),
-            ...(event.outputs === undefined ? {} : { outputs: event.outputs }),
-            status: event.status,
-            ...(event.summary === undefined ? {} : { summary: event.summary }),
-            workflowId: event.workflowId,
-          },
-          type: event.type,
-        },
-      ]);
+      return Option.some([artifactEventRecord(event, record)]);
     }
     default: {
       return Option.none();
@@ -871,66 +806,216 @@ const mapArtifactRunnerEvent = (
   }
 };
 
-const mapLogRunnerEvent = (
+type HookGateRuntimeEvent = Extract<
+  PipelineRuntimeEvent,
+  { type: "hook.finish" | "hook.start" }
+>;
+
+const hookGateStatus = (event: HookGateRuntimeEvent): RunnerGateStatus => {
+  if (!("passed" in event)) {
+    return "running";
+  }
+  return event.passed ? "passed" : "failed";
+};
+
+const hookGateDetails = (event: HookGateRuntimeEvent): RunnerGateDetails => ({
+  event: event.event,
+  ...(event.gateId === undefined ? {} : { gateId: event.gateId }),
+  hookId: event.hookId,
+  ...(event.nodeId === undefined ? {} : { nodeId: event.nodeId }),
+  ...("passed" in event ? { passed: event.passed } : {}),
+  ...("reason" in event && event.reason !== undefined
+    ? { reason: event.reason }
+    : {}),
+  required: event.required,
+  status: hookGateStatus(event),
+  workflowId: event.workflowId,
+});
+
+const hookGateRecord = (
+  event: HookGateRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord => ({
+  ...record,
+  gate: hookGateDetails(event),
+  type: event.type,
+});
+
+type HookResultRuntimeEvent = Extract<
+  PipelineRuntimeEvent,
+  { type: "hook.result" }
+>;
+
+const hookResultDetails = (
+  event: HookResultRuntimeEvent
+): RunnerHookResultDetails => ({
+  ...(event.artifacts === undefined ? {} : { artifacts: event.artifacts }),
+  event: event.event,
+  functionId: event.functionId,
+  ...(event.gateId === undefined ? {} : { gateId: event.gateId }),
+  hookId: event.hookId,
+  ...(event.nodeId === undefined ? {} : { nodeId: event.nodeId }),
+  ...(event.outputs === undefined ? {} : { outputs: event.outputs }),
+  status: event.status,
+  ...(event.summary === undefined ? {} : { summary: event.summary }),
+  workflowId: event.workflowId,
+});
+
+const hookResultRecord = (
+  event: HookResultRuntimeEvent,
+  record: RunnerEventRecordBase
+): RunnerEventRecord => ({
+  ...record,
+  hookResult: hookResultDetails(event),
+  type: event.type,
+});
+
+const mapHookRunnerEvent = (
   event: PipelineRuntimeEvent,
   record: RunnerEventRecordBase
 ): Option.Option<RunnerEventRecord[]> => {
   switch (event.type) {
-    case "node.output.recorded": {
-      return Option.some([
-        {
-          ...record,
-          log: {
-            format: event.format,
-            level:
-              event.parseError !== undefined && event.parseError.length > 0
-                ? "warn"
-                : "info",
-            message: formatLogMessage(event.output),
-            nodeId: event.nodeId,
-            output: event.output,
-          },
-          type: event.type,
-        },
-      ]);
+    case "hook.start": {
+      return Option.some([hookGateRecord(event, record)]);
     }
-    case "output.repair": {
-      return Option.some([
-        {
-          ...record,
-          log: {
-            attempt: event.attempt,
-            level: event.passed ? "info" : "warn",
-            message:
-              event.reason ??
-              `Output repair ${event.passed ? "passed" : "failed"}`,
-            nodeId: event.nodeId,
-            passed: event.passed,
-            ...(event.reason === undefined ? {} : { reason: event.reason }),
-          },
-          type: event.type,
-        },
-      ]);
+    case "hook.finish": {
+      return Option.some([hookGateRecord(event, record)]);
     }
-    case "runtime.observability": {
-      return Option.some([
-        {
-          ...record,
-          log: {
-            level: event.level,
-            message: `Runtime observed: ${event.name} - ${event.summary}`,
-            nodeId: event.nodeId,
-            workflowId: event.workflowId,
-          },
-          type: event.type,
-        },
-      ]);
+    case "hook.result": {
+      return Option.some([hookResultRecord(event, record)]);
     }
     default: {
       return Option.none();
     }
   }
 };
+
+type LogRuntimeEvent = Extract<
+  PipelineRuntimeEvent,
+  {
+    type: "node.output.recorded" | "output.repair" | "runtime.observability";
+  }
+>;
+type LogRuntimeEventType = LogRuntimeEvent["type"];
+type LogRuntimeEventOf<Type extends LogRuntimeEventType> = Extract<
+  LogRuntimeEvent,
+  { type: Type }
+>;
+type LogRunnerEventMapper<Type extends LogRuntimeEventType> = (
+  event: LogRuntimeEventOf<Type>,
+  record: RunnerEventRecordBase
+) => RunnerEventRecord;
+type AnyLogRunnerEventMapper = (
+  event: PipelineRuntimeEvent,
+  record: RunnerEventRecordBase
+) => RunnerEventRecord;
+
+const isRuntimeEventOfType = <Type extends PipelineRuntimeEvent["type"]>(
+  event: PipelineRuntimeEvent,
+  type: Type
+): event is Extract<PipelineRuntimeEvent, { type: Type }> =>
+  event.type === type;
+
+const logRunnerEventMapper =
+  <Type extends LogRuntimeEventType>(
+    type: Type,
+    mapper: LogRunnerEventMapper<Type>
+  ): AnyLogRunnerEventMapper =>
+  (event, record) => {
+    if (!isRuntimeEventOfType(event, type)) {
+      throw new RunnerCommandPayloadValidationError(
+        `Log runner-event mapper mismatch for event type ${type}`,
+        [
+          {
+            code: "runner_event_mapper_mismatch",
+            message: `Log runner-event mapper mismatch for event type ${type}`,
+            path: "event.type",
+          },
+        ]
+      );
+    }
+    return mapper(event, record);
+  };
+
+const logEventRecord = (
+  event: LogRuntimeEvent,
+  record: RunnerEventRecordBase,
+  log: RunnerLogDetails
+): RunnerEventRecord => ({
+  ...record,
+  log,
+  type: event.type,
+});
+
+const nodeOutputLogRecord: LogRunnerEventMapper<"node.output.recorded"> = (
+  event,
+  record
+) =>
+  logEventRecord(event, record, {
+    format: event.format,
+    level:
+      event.parseError !== undefined && event.parseError.length > 0
+        ? "warn"
+        : "info",
+    message: formatLogMessage(event.output),
+    nodeId: event.nodeId,
+    output: event.output,
+  });
+
+const outputRepairLogMessage = (
+  event: LogRuntimeEventOf<"output.repair">
+): string =>
+  event.reason ?? `Output repair ${event.passed ? "passed" : "failed"}`;
+
+const outputRepairLogRecord: LogRunnerEventMapper<"output.repair"> = (
+  event,
+  record
+) =>
+  logEventRecord(event, record, {
+    attempt: event.attempt,
+    level: event.passed ? "info" : "warn",
+    message: outputRepairLogMessage(event),
+    nodeId: event.nodeId,
+    passed: event.passed,
+    ...(event.reason === undefined ? {} : { reason: event.reason }),
+  });
+
+const runtimeObservabilityLogRecord: LogRunnerEventMapper<
+  "runtime.observability"
+> = (event, record) =>
+  logEventRecord(event, record, {
+    level: event.level,
+    message: `Runtime observed: ${event.name} - ${event.summary}`,
+    nodeId: event.nodeId,
+    workflowId: event.workflowId,
+  });
+
+const LOG_EVENT_RECORDERS: Record<
+  LogRuntimeEventType,
+  AnyLogRunnerEventMapper
+> = {
+  "node.output.recorded": logRunnerEventMapper(
+    "node.output.recorded",
+    nodeOutputLogRecord
+  ),
+  "output.repair": logRunnerEventMapper("output.repair", outputRepairLogRecord),
+  "runtime.observability": logRunnerEventMapper(
+    "runtime.observability",
+    runtimeObservabilityLogRecord
+  ),
+};
+
+const isLogRuntimeEvent = (
+  event: PipelineRuntimeEvent
+): event is LogRuntimeEvent => Object.hasOwn(LOG_EVENT_RECORDERS, event.type);
+
+const mapLogRunnerEvent = (
+  event: PipelineRuntimeEvent,
+  record: RunnerEventRecordBase
+): Option.Option<RunnerEventRecord[]> =>
+  isLogRuntimeEvent(event)
+    ? Option.some([LOG_EVENT_RECORDERS[event.type](event, record)])
+    : Option.none();
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -963,12 +1048,9 @@ const recoverablePayloadEnvelope = (
 const parseRunnerCommandPayloadWithIssues = (
   rawPayload: string
 ): RunnerCommandPayloadParseResult => {
-  let parsed: unknown;
-  try {
-    parsed = parseJson(rawPayload, "runner payload JSON");
-  } catch (parseError) {
-    const message =
-      parseError instanceof Error ? parseError.message : String(parseError);
+  const parsedJson = parseJsonResult(rawPayload, "runner payload JSON");
+  if (parsedJson.error !== undefined) {
+    const { error: message } = parsedJson;
     const error = new RunnerCommandPayloadValidationError(
       `Malformed runner payload JSON: ${message}`,
       [
@@ -981,6 +1063,7 @@ const parseRunnerCommandPayloadWithIssues = (
     );
     return { error, ok: false };
   }
+  const { value: parsed } = parsedJson;
   const result = runnerCommandPayloadSchema.safeParse(parsed);
   if (!result.success) {
     const issues = runnerCommandPayloadIssues(result.error);
@@ -1008,7 +1091,16 @@ export const parseRunnerCommandPayload = (
 };
 
 const throwUnhandledRuntimeEvent = (value: PipelineRuntimeEvent): never => {
-  throw new Error(`Unhandled runtime event: ${value.type}`);
+  throw new RunnerCommandPayloadValidationError(
+    `Unhandled runtime event: ${value.type}`,
+    [
+      {
+        code: "unhandled_runtime_event",
+        message: `Unhandled runtime event: ${value.type}`,
+        path: "event.type",
+      },
+    ]
+  );
 };
 
 export const mapRuntimeEventToRunnerEventRecords = (
@@ -1025,6 +1117,7 @@ export const mapRuntimeEventToRunnerEventRecords = (
     mapNodeRunnerEvent(event, record),
     mapGateRunnerEvent(event, record),
     mapArtifactRunnerEvent(event, record),
+    mapHookRunnerEvent(event, record),
     mapDeliveryRunnerEvent(event, record),
     mapLogRunnerEvent(event, record),
   ]);

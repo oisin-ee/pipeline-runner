@@ -1,4 +1,5 @@
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
+import * as Option from "effect/Option";
 
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
 import type { DurableRunStore } from "../durable-store/durable-store";
@@ -69,13 +70,10 @@ export const collectStoredResults = (
  * outputs of the node's direct `needs` — a failed upstream has no meaningful
  * output to hand the next executor. Pure: all store reads come from `input.store`.
  */
-export const buildEnvelopeForNode = (
-  input: NextNodeInput,
-  nodeId: string
-): Option.Option<NextNodeEnvelope> => {
+const buildEnvelopeForNodeOption = (input: NextNodeInput, nodeId: string) => {
   const node = input.nodes.find((candidate) => candidate.id === nodeId);
   if (node === undefined) {
-    return Option.none();
+    return Option.none<NextNodeEnvelope>();
   }
   const meta = input.nodeMetadata.get(nodeId);
   const prompt = meta?.prompt ?? "";
@@ -99,6 +97,9 @@ export const buildEnvelopeForNode = (
     upstreamOutputs,
   });
 };
+
+export const buildEnvelopeForNode = (input: NextNodeInput, nodeId: string) =>
+  Option.getOrUndefined(buildEnvelopeForNodeOption(input, nodeId));
 
 /**
  * The single durable write path for a node's terminal result, keyed
@@ -146,7 +147,7 @@ export const stepNode = (
 ): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
     const envelope = buildEnvelopeForNode(deps, nodeId);
-    if (Option.isNone(envelope)) {
+    if (envelope === undefined) {
       return yield* Effect.fail(
         new Error(
           `Cannot step node '${nodeId}': it is not present in run ${deps.runId}'s graph.`
@@ -155,7 +156,7 @@ export const stepNode = (
     }
     const result = yield* Effect.tryPromise({
       catch: (error) => error,
-      try: async () => await deps.executeNode(envelope.value),
+      try: async () => await deps.executeNode(envelope),
     });
     recordNodeResult({ result, runId: deps.runId, store: deps.store });
     return result;

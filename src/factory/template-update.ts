@@ -31,6 +31,9 @@ const ANSWERS_FILE = ".copier-answers.yml";
 
 const registryEntryRepoSchema = z.object({ repo: z.string() }).passthrough();
 
+const isNonEmptyString = (value?: string): value is string =>
+  value !== undefined && value.length > 0;
+
 export interface TemplateUpdateOptions extends FactorySeams {
   readonly infraRepoUrl?: string;
   readonly org?: string;
@@ -101,6 +104,9 @@ const listRejectFiles = (cloneDir: string, porcelainStatus: string): string[] =>
     .filter((file) => file.endsWith(".rej") && existsSync(join(cloneDir, file)))
     .map((file) => basename(file));
 
+const templateRefArgs = (templateRef?: string): string[] =>
+  isNonEmptyString(templateRef) ? ["--vcs-ref", templateRef] : [];
+
 const updateRepo = async (input: {
   readonly org: string;
   readonly repo: string;
@@ -139,9 +145,7 @@ const updateRepo = async (input: {
         "update",
         "--trust",
         "--defaults",
-        ...(input.templateRef !== undefined && input.templateRef.length > 0
-          ? ["--vcs-ref", input.templateRef]
-          : []),
+        ...templateRefArgs(input.templateRef),
       ],
       // copier re-fetches the private template with its own git subprocess.
       { cwd: cloneDir, env: githubGitCredentialEnv() }
@@ -206,46 +210,90 @@ const updateRepo = async (input: {
   }
 };
 
+interface TemplateUpdateRunContext {
+  readonly org: string;
+  readonly seams: ReturnType<typeof resolveFactorySeams>;
+  readonly templateMatch: string;
+  readonly templateRef?: string;
+  readonly workRoot: string;
+}
+
+const templateUpdateWorkRoot = (workRoot?: string): string =>
+  workRoot ?? mkdtempSync(join(tmpdir(), "template-update-"));
+
+const discoverTemplateUpdateRepos = async (
+  options: TemplateUpdateOptions,
+  context: TemplateUpdateRunContext
+): Promise<string[]> => {
+  if (options.repos !== undefined && options.repos.length > 0) {
+    return [...options.repos];
+  }
+  return await discoverRegistryRepos({
+    git: context.seams.git,
+    infraRepoUrl: options.infraRepoUrl ?? DEFAULT_INFRA_REPO_URL,
+    workRoot: context.workRoot,
+  });
+};
+
+const optionalTemplateRef = (
+  templateRef?: string
+): { readonly templateRef?: string } =>
+  isNonEmptyString(templateRef) ? { templateRef } : {};
+
+const updateTemplateRepos = async (
+  context: TemplateUpdateRunContext,
+  repos: readonly string[]
+): Promise<TemplateUpdateRepoResult[]> => {
+  const results: TemplateUpdateRepoResult[] = [];
+  for (const repo of repos) {
+    results.push(
+      await updateRepo({
+        org: context.org,
+        repo,
+        seams: context.seams,
+        ...optionalTemplateRef(context.templateRef),
+        templateMatch: context.templateMatch,
+        workRoot: context.workRoot,
+      })
+    );
+  }
+  return results;
+};
+
+const templateUpdateResultLogLine = (
+  entry: TemplateUpdateRepoResult
+): string => {
+  const prUrl = isNonEmptyString(entry.prUrl) ? ` ${entry.prUrl}` : "";
+  const message = isNonEmptyString(entry.message) ? ` (${entry.message})` : "";
+  return `template-update: ${entry.repo} -> ${entry.status}${prUrl}${message}`;
+};
+
+const logTemplateUpdateResults = (
+  log: ReturnType<typeof resolveFactorySeams>["log"],
+  results: readonly TemplateUpdateRepoResult[]
+): void => {
+  for (const entry of results) {
+    log(templateUpdateResultLogLine(entry));
+  }
+};
+
 export const runTemplateUpdate = async (
   options: TemplateUpdateOptions
 ): Promise<TemplateUpdateResult> => {
   const seams = resolveFactorySeams(options);
   const { log } = seams;
-  const org = options.org ?? DEFAULT_ORG;
-  const templateMatch = options.templateMatch ?? DEFAULT_TEMPLATE_MATCH;
-  const workRoot =
-    options.workRoot ?? mkdtempSync(join(tmpdir(), "template-update-"));
+  const context: TemplateUpdateRunContext = {
+    org: options.org ?? DEFAULT_ORG,
+    seams,
+    templateMatch: options.templateMatch ?? DEFAULT_TEMPLATE_MATCH,
+    ...optionalTemplateRef(options.templateRef),
+    workRoot: templateUpdateWorkRoot(options.workRoot),
+  };
 
-  const repos =
-    options.repos !== undefined && options.repos.length > 0
-      ? [...options.repos]
-      : await discoverRegistryRepos({
-          git: seams.git,
-          infraRepoUrl: options.infraRepoUrl ?? DEFAULT_INFRA_REPO_URL,
-          workRoot,
-        });
+  const repos = await discoverTemplateUpdateRepos(options, context);
   log(`template-update: candidates [${repos.join(", ")}]`);
 
-  const results: TemplateUpdateRepoResult[] = [];
-  for (const repo of repos) {
-    results.push(
-      await updateRepo({
-        org,
-        repo,
-        seams,
-        ...(options.templateRef !== undefined && options.templateRef.length > 0
-          ? { templateRef: options.templateRef }
-          : {}),
-        templateMatch,
-        workRoot,
-      })
-    );
-  }
-
-  for (const entry of results) {
-    log(
-      `template-update: ${entry.repo} -> ${entry.status}${entry.prUrl !== undefined && entry.prUrl.length > 0 ? ` ${entry.prUrl}` : ""}${entry.message !== undefined && entry.message.length > 0 ? ` (${entry.message})` : ""}`
-    );
-  }
+  const results = await updateTemplateRepos(context, repos);
+  logTemplateUpdateResults(log, results);
   return { results };
 };

@@ -61,7 +61,7 @@ const buildNextNodeEnvelopeOption = (
   const completed = collectStoredResults(input);
   const nodeId = computeReadyNodeIds({ completed, nodes: input.nodes })[0];
   return Option.flatMap(Option.fromUndefinedOr(nodeId), (value) =>
-    buildEnvelopeForNode(input, value)
+    Option.fromUndefinedOr(buildEnvelopeForNode(input, value))
   );
 };
 

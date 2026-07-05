@@ -15,7 +15,6 @@ import {
 } from "./argo-workflow";
 import type { ArgoWorkflowManifest } from "./argo-workflow";
 import type { PipelineConfig } from "./config";
-import { brokerAuthOptionSchema } from "./credentials/broker";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
 import {
   compileScheduleArtifact,
@@ -25,14 +24,8 @@ import type {
   CompiledScheduleArtifact,
   ScheduleArtifact,
 } from "./planning/generate";
-import {
-  argoWorkflowActiveDeadlineSecondsSchema,
-  argoWorkflowPodGcSchema,
-  argoWorkflowTtlStrategySchema,
-  dbAuthOptionSchema,
-  mcpGatewayAuthOptionSchema,
-} from "./remote/argo/model";
 import type { ArgoWorkflowPodGC } from "./remote/argo/model";
+import { runnerPodSubmitOptionShape } from "./remote/submit/options";
 import {
   parseRunnerCommandPayload,
   runnerCommandPayloadSchema,
@@ -102,32 +95,10 @@ const createdWorkflowSchema = z
   .passthrough();
 
 const submitRunnerArgoWorkflowBaseOptionShape = {
-  activeDeadlineSeconds: argoWorkflowActiveDeadlineSecondsSchema.optional(),
-  brokerAuth: brokerAuthOptionSchema,
-  // PIPE-94.4: optional secret ref for MOKA_DB_URL injection in runner pods.
-  // Shared shape (single owner in remote/argo/model). Absent → no MOKA_DB_URL.
-  dbAuth: dbAuthOptionSchema.optional(),
-  eventAuthSecretKey: z.string().min(1).optional(),
-  eventAuthSecretName: z.string().min(1).optional(),
-  generateName: z.string().min(1).optional(),
-  gitCredentialsSecretName: z.string().min(1).optional(),
-  githubAuthSecretName: z.string().min(1).optional(),
-  image: z.string().min(1).optional(),
+  ...runnerPodSubmitOptionShape,
   imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]).optional(),
-  imagePullSecretName: z.string().min(1).optional(),
-  kubeContext: z.string().min(1).optional(),
-  kubeconfigPath: z.string().min(1).optional(),
-  // Optional secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection in
-  // runner pods. Shared shape (single owner in remote/argo/model). Absent →
-  // no PIPELINE_MCP_GATEWAY_AUTHORIZATION.
-  mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
-  name: z.string().min(1).optional(),
   namespace: z.string().min(1),
-  npmRegistryAuthSecretName: z.string().min(1).optional(),
   payloadJson: z.string().min(1),
-  podGC: argoWorkflowPodGcSchema.optional(),
-  serviceAccountName: z.string().min(1).optional(),
-  ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
 };
 
 const commandScheduleOptionsSchema = z
@@ -194,6 +165,17 @@ type ConfigMapManifest = z.infer<typeof configMapSchema>;
 interface RunConfigMapSpec {
   readonly body: ConfigMapManifest;
   readonly name: string;
+}
+
+interface RunConfigMapOperationInput {
+  configMapNames: readonly string[];
+  dependencies: SubmitRunnerArgoWorkflowDependencies;
+  namespace: string;
+  options: KubernetesArgoClientOptions;
+}
+
+interface PatchRunConfigMapOwnerReferencesInput extends RunConfigMapOperationInput {
+  body: ConfigMapOwnerReferencesPatch;
 }
 
 const runConfigMap = (input: {
@@ -264,47 +246,40 @@ const dynamicRunConfigMaps = (input: {
   }),
 ];
 
-const patchRunConfigMapOwnerReferences = (input: {
-  body: ConfigMapOwnerReferencesPatch;
-  configMapNames: readonly string[];
-  dependencies: SubmitRunnerArgoWorkflowDependencies;
-  namespace: string;
-  options: KubernetesArgoClientOptions;
-}): Effect.Effect<unknown, unknown, KubernetesArgoService> =>
+const runConfigMapEffects = (
+  configMapNames: readonly string[],
+  effectForName: (name: string) => Effect.Effect<unknown, unknown>
+): Effect.Effect<unknown, unknown> =>
+  Effect.all(configMapNames.map(effectForName), { concurrency: "unbounded" });
+
+const patchRunConfigMapOwnerReferences = (
+  input: PatchRunConfigMapOwnerReferencesInput
+): Effect.Effect<unknown, unknown, KubernetesArgoService> =>
   Effect.gen(function* effectBody() {
     const service = yield* KubernetesArgoService;
-    return yield* Effect.all(
-      input.configMapNames.map((name) =>
-        service.patchConfigMapOwnerReferences({
-          body: input.body,
-          dependencies: input.dependencies,
-          name,
-          namespace: input.namespace,
-          options: input.options,
-        })
-      ),
-      { concurrency: "unbounded" }
+    yield* runConfigMapEffects(input.configMapNames, (name) =>
+      service.patchConfigMapOwnerReferences({
+        body: input.body,
+        dependencies: input.dependencies,
+        name,
+        namespace: input.namespace,
+        options: input.options,
+      })
     );
   });
 
-const deleteRunConfigMaps = (input: {
-  configMapNames: readonly string[];
-  dependencies: SubmitRunnerArgoWorkflowDependencies;
-  namespace: string;
-  options: KubernetesArgoClientOptions;
-}): Effect.Effect<unknown, unknown, KubernetesArgoService> =>
+const deleteRunConfigMaps = (
+  input: RunConfigMapOperationInput
+): Effect.Effect<unknown, unknown, KubernetesArgoService> =>
   Effect.gen(function* effectBody() {
     const service = yield* KubernetesArgoService;
-    return yield* Effect.all(
-      input.configMapNames.map((name) =>
-        service.deleteConfigMap({
-          dependencies: input.dependencies,
-          name,
-          namespace: input.namespace,
-          options: input.options,
-        })
-      ),
-      { concurrency: "unbounded" }
+    yield* runConfigMapEffects(input.configMapNames, (name) =>
+      service.deleteConfigMap({
+        dependencies: input.dependencies,
+        name,
+        namespace: input.namespace,
+        options: input.options,
+      })
     );
   });
 
@@ -432,21 +407,24 @@ const createRunConfigMaps = (input: {
   const createdConfigMapNames: string[] = [];
   return Effect.gen(function* effectBody() {
     const service = yield* KubernetesArgoService;
-    yield* Effect.forEach(input.configMaps, (configMap) =>
-      service
-        .createConfigMap({
-          body: configMap.body,
-          dependencies: input.dependencies,
-          namespace: input.namespace,
-          options: input.options,
-        })
-        .pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              createdConfigMapNames.push(configMap.name);
-            })
+    yield* Effect.all(
+      input.configMaps.map((configMap) =>
+        service
+          .createConfigMap({
+            body: configMap.body,
+            dependencies: input.dependencies,
+            namespace: input.namespace,
+            options: input.options,
+          })
+          .pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                createdConfigMapNames.push(configMap.name);
+              })
+            )
           )
-        )
+      ),
+      { concurrency: "unbounded" }
     );
     return createdConfigMapNames;
   }).pipe(

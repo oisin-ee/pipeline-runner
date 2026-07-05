@@ -571,10 +571,15 @@ const nonEmptyJson = (error: unknown): Option.Option<string> => {
 const requestTarget = (request?: Request): string =>
   `${request?.method ?? "?"} ${request?.url ?? "?"}`;
 
+const hasRequestTarget = (request?: Request): boolean =>
+  (request?.method !== undefined && request.method.length > 0) ||
+  (request?.url !== undefined && request.url.length > 0);
+
+const isHttpStatus = (status?: number): status is number =>
+  status !== undefined && status !== 0 && !Number.isNaN(status);
+
 const statusSuffix = (status?: number): string =>
-  status === undefined || status === 0 || Number.isNaN(status)
-    ? ""
-    : ` → HTTP ${status}`;
+  isHttpStatus(status) ? ` → HTTP ${status}` : "";
 
 /*
  * Status CODE + target only — deliberately NOT statusText. statusText like
@@ -586,12 +591,7 @@ const statusSuffix = (status?: number): string =>
 const httpStatusLine = <T>(result: ResultTuple<T>): Option.Option<string> => {
   const status = result.response?.status;
   const { request } = result;
-  const hasRequestTarget =
-    (request?.method !== undefined && request.method.length > 0) ||
-    (request?.url !== undefined && request.url.length > 0);
-  const hasStatus =
-    status !== undefined && status !== 0 && !Number.isNaN(status);
-  if (!hasRequestTarget && !hasStatus) {
+  if (!(hasRequestTarget(request) || isHttpStatus(status))) {
     return Option.none();
   }
   return Option.some(`${requestTarget(request)}${statusSuffix(status)}`);

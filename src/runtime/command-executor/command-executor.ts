@@ -1,7 +1,7 @@
-import { getOrElse, none, some } from "effect/Option";
-import type { Option } from "effect/Option";
+import { getOrElse } from "effect/Option";
 import { execa } from "execa";
 
+import { booleanField, numberField, stringField } from "../../unknown-fields";
 import type { CommandExecutionOptions, NodeAttemptResult } from "../contracts";
 
 export interface CommandExecutionContext {
@@ -15,33 +15,6 @@ interface CommandErrorFields {
   stdout: string;
   timedOut: boolean;
 }
-
-const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const stringField = (value: unknown, field: string): Option<string> => {
-  if (!isUnknownRecord(value)) {
-    return none();
-  }
-  const fieldValue = value[field];
-  return typeof fieldValue === "string" ? some(fieldValue) : none();
-};
-
-const numberField = (value: unknown, field: string): Option<number> => {
-  if (!isUnknownRecord(value)) {
-    return none();
-  }
-  const fieldValue = value[field];
-  return typeof fieldValue === "number" ? some(fieldValue) : none();
-};
-
-const booleanField = (value: unknown, field: string): Option<boolean> => {
-  if (!isUnknownRecord(value)) {
-    return none();
-  }
-  const fieldValue = value[field];
-  return typeof fieldValue === "boolean" ? some(fieldValue) : none();
-};
 
 const commandErrorFields = (error: unknown): CommandErrorFields => ({
   exitCode: getOrElse(numberField(error, "exitCode"), () => 1),

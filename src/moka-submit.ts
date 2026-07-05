@@ -1,16 +1,9 @@
 import { z } from "zod";
 
 import type { PipelineConfig } from "./config";
-import { brokerAuthOptionSchema } from "./credentials/broker";
-import {
-  argoWorkflowActiveDeadlineSecondsSchema,
-  argoWorkflowPodGcSchema,
-  argoWorkflowTtlStrategySchema,
-  dbAuthOptionSchema,
-  mcpGatewayAuthOptionSchema,
-} from "./remote/argo/model";
 import { configWithSubmitHooks } from "./remote/submit/event-boundary";
 import { MOKA_SUBMIT_HOOK_EVENTS } from "./remote/submit/hook-events";
+import { runnerPodSubmitOptionShape } from "./remote/submit/options";
 import { submitParsedMoka } from "./remote/submit/service";
 import type { SubmitMokaDependencies } from "./remote/submit/service";
 import {
@@ -90,44 +83,20 @@ export const mokaSubmitResultSchema = workflowSubmitResultSchema;
 
 const mokaSubmitBaseOptionsSchema = z
   .object({
-    activeDeadlineSeconds: argoWorkflowActiveDeadlineSecondsSchema.optional(),
-    brokerAuth: brokerAuthOptionSchema,
-    // PIPE-94.4: optional durable-substrate secret ref threaded to runner pods
-    // so MOKA_DB_URL is injected as a secretKeyRef. Shared shape (single owner in
-    // remote/argo/model); a k8s submission concern, alongside brokerAuth.
-    dbAuth: dbAuthOptionSchema.optional(),
+    ...runnerPodSubmitOptionShape,
     delivery: runnerDeliverySchema.default({
       mode: "create-new-pr",
       pullRequest: false,
     }),
-    eventAuthSecretKey: z.string().min(1).optional(),
-    eventAuthSecretName: z.string().min(1).optional(),
     eventSink: mokaSubmitEventsSchema.optional(),
     eventUrl: z.string().url().optional(),
     events: mokaSubmitEventsSchema.optional(),
-    generateName: z.string().min(1).optional(),
-    gitCredentialsSecretName: z.string().min(1).optional(),
-    githubAuthSecretName: z.string().min(1).optional(),
     hookPolicy: mokaSubmitHookPolicySchema.optional(),
     hooks: mokaSubmitDirectHooksSchema.optional(),
-    image: z.string().min(1).optional(),
     imagePullPolicy: imagePullPolicySchema,
-    imagePullSecretName: z.string().min(1).optional(),
-    kubeContext: z.string().min(1).optional(),
-    kubeconfigPath: z.string().min(1).optional(),
-    // Optional secret ref threaded to runner pods so the gateway basic-auth
-    // header reaches PIPELINE_MCP_GATEWAY_AUTHORIZATION via secretKeyRef. Shared
-    // shape (single owner in remote/argo/model); a k8s submission concern,
-    // alongside brokerAuth/dbAuth.
-    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
-    name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
-    npmRegistryAuthSecretName: z.string().min(1).optional(),
-    podGC: argoWorkflowPodGcSchema.optional(),
     repository: runnerRepositoryContextSchema.optional(),
     run: runnerRunIdentitySchema.optional(),
-    serviceAccountName: z.string().min(1).optional(),
-    ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
   })
   .strict();
 

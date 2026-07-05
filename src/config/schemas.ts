@@ -657,61 +657,45 @@ const deliverySchema = z
   })
   .strict();
 
+const pipelineConfigCoreShape = {
+  context_handoff: contextHandoffSchema.optional(),
+  default_workflow: z.string(),
+  delivery: deliverySchema.optional(),
+  entrypoints: strictRecord(entrypointSchema).default({}),
+  hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
+  orchestrator: orchestratorSchema.optional(),
+  parallel_worktrees: parallelWorktreesSchema.optional(),
+  repo_map: repoMapSchema.optional(),
+  runner_command: runnerCommandConfigSchema.default({
+    environment: { setup: [], smoke: [] },
+    git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
+  }),
+  scheduler: schedulerConfigSchema.default({
+    commands: {},
+    node_catalogs: {},
+  }),
+  schedules: strictRecord(schedulePolicySchema).default({}),
+  task_context: taskContextResolverSchema.optional(),
+  token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
+  version: z.literal(1),
+  workflows: strictRecord(workflowSchema).default({}),
+};
+
 export const pipelineFileSchema = z
   .object({
-    context_handoff: contextHandoffSchema.optional(),
-    default_workflow: z.string(),
-    delivery: deliverySchema.optional(),
-    entrypoints: strictRecord(entrypointSchema).default({}),
-    hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
-    orchestrator: orchestratorSchema.optional(),
-    parallel_worktrees: parallelWorktreesSchema.optional(),
-    repo_map: repoMapSchema.optional(),
-    runner_command: runnerCommandConfigSchema.default({
-      environment: { setup: [], smoke: [] },
-      git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
-    }),
-    scheduler: schedulerConfigSchema.default({
-      commands: {},
-      node_catalogs: {},
-    }),
-    schedules: strictRecord(schedulePolicySchema).default({}),
-    task_context: taskContextResolverSchema.optional(),
-    token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
-    version: z.literal(1),
-    workflows: strictRecord(workflowSchema).default({}),
+    ...pipelineConfigCoreShape,
   })
   .strict();
 
 const configSchemaBase = z
   .object({
-    context_handoff: contextHandoffSchema.optional(),
-    default_workflow: z.string(),
-    delivery: deliverySchema.optional(),
-    entrypoints: strictRecord(entrypointSchema).default({}),
-    hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
+    ...pipelineConfigCoreShape,
     mcp_gateway: mcpGatewaySchema.optional(),
     mcp_servers: strictRecord(mcpServerSchema).default({}),
-    orchestrator: orchestratorSchema.optional(),
-    parallel_worktrees: parallelWorktreesSchema.optional(),
     profiles: strictRecord(profileSchema).default({}),
-    repo_map: repoMapSchema.optional(),
     rules: strictRecord(pathRefSchema).default({}),
-    runner_command: runnerCommandConfigSchema.default({
-      environment: { setup: [], smoke: [] },
-      git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
-    }),
     runners: strictRecord(runnerSchema).default({}),
-    scheduler: schedulerConfigSchema.default({
-      commands: {},
-      node_catalogs: {},
-    }),
-    schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
-    task_context: taskContextResolverSchema.optional(),
-    token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
-    version: z.literal(1),
-    workflows: strictRecord(workflowSchema).default({}),
   })
   .strict();
 

@@ -1,5 +1,4 @@
 import { stat } from "node:fs/promises";
-import { setTimeout as delay } from "node:timers/promises";
 
 import { Effect, Option } from "effect";
 
@@ -217,14 +216,6 @@ export const printRunsEffect = (
     Effect.flatMap(logEffect)
   );
 
-const delayEffect = (milliseconds: number): Effect.Effect<void, unknown> =>
-  Effect.tryPromise({
-    catch: (error) => error,
-    try: async () => {
-      await delay(milliseconds);
-    },
-  });
-
 export const printStatusEffect = function printStatusEffect(input: {
   flags: StatusFlags;
   runId?: string;
@@ -242,7 +233,7 @@ export const printStatusEffect = function printStatusEffect(input: {
       logStatusEffect(input.flags, run).pipe(
         Effect.andThen(
           shouldWatchStatus(input.flags, run)
-            ? delayEffect(WATCH_INTERVAL_MS).pipe(
+            ? Effect.sleep(WATCH_INTERVAL_MS).pipe(
                 Effect.flatMap(() => printStatusEffect(input))
               )
             : Effect.void

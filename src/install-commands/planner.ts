@@ -273,7 +273,7 @@ const parseClaudeUserConfigProjection = (source: string) =>
 const CONFIG_MERGES: Partial<Record<string, DefinitionMerge>> = {
   [CLAUDE_USER_CONFIG_PATH]: (currentContent, projectionContent) => {
     const projection = parseClaudeUserConfigProjection(projectionContent);
-    const merged = mergeClaudeUserConfig(currentContent, projection);
+    const merged = mergeClaudeUserConfig(projection, currentContent);
     return merged.ok
       ? { conflict: false, content: merged.content }
       : { conflict: true, content: projectionContent };
