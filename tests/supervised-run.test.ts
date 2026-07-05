@@ -1,18 +1,18 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { parsePipelineConfigParts } from "../src/config";
 import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
   PipelineRuntimeResult,
 } from "../src/pipeline-runtime";
-import {
-  type MokaRunManifest,
-  parseMokaRunManifest,
-} from "../src/run-control/contracts";
+import { parseMokaRunManifest } from "../src/run-control/contracts";
+import type { MokaRunManifest } from "../src/run-control/contracts";
 import { buildNextNodeEnvelopeFromRunStore } from "../src/run-control/next-node";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
 import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
@@ -35,6 +35,8 @@ interface RuntimeObservation {
 
 const mockState = vi.hoisted(() => ({
   runtimeCalls: [] as RuntimeObservation[],
+  stderr: [] as string[],
+  stdout: [] as string[],
   supervisedScheduleYaml: (input: {
     command: string;
     nodeId: string;
@@ -58,8 +60,6 @@ const mockState = vi.hoisted(() => ({
       `        command: [node, -e, "${input.command}"]`,
       "",
     ].join("\n"),
-  stderr: [] as string[],
-  stdout: [] as string[],
 }));
 
 const NEXT_NODE_CONFIG = parsePipelineConfigParts({
@@ -111,19 +111,146 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
         runId: string;
         task: string;
         worktreePath: string;
-      }) =>
-        Promise.resolve({
-          yaml: mockState.supervisedScheduleYaml({
-            command: "console.log('writer')",
-            nodeId: "writer",
-            rootWorkflowId: "supervised-root",
-            runId: input.runId,
-            task: input.task,
-          }),
-        })
+      }) => ({
+        yaml: mockState.supervisedScheduleYaml({
+          command: "console.log('writer')",
+          nodeId: "writer",
+          rootWorkflowId: "supervised-root",
+          runId: input.runId,
+          task: input.task,
+        }),
+      })
     ),
   };
 });
+
+// The foreground run resolves the run-control store via withRunControlStoreScoped,
+// which requires db.url (PIPE-91.18, Postgres-only). These tests exercise the
+// supervisor orchestration against the file store double — the same DI-via-mock
+// pattern detached-run/cli use — so no live Postgres is needed.
+vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/run-control/run-control-store")
+    >();
+
+  return {
+    ...actual,
+    withRunControlStoreScoped: vi.fn(
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => use(actual.fileRunControlStore(workspaceRoot))
+    ),
+  };
+});
+
+const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
+
+const runMokaInTarget = async (workspaceRoot: string, args: string[]) =>
+  await runMokaCliInTarget({
+    args,
+    buffers: mockState,
+    originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
+    workspaceRoot,
+  });
+
+const buildLocalRunFirstNextNode = async (input: {
+  readonly runId: string;
+  readonly workspaceRoot: string;
+}) =>
+  await Effect.runPromise(
+    buildNextNodeEnvelopeFromRunStore({
+      config: NEXT_NODE_CONFIG,
+      durableStore: inMemoryDurableRunStore(),
+      runControlStore: fileRunControlStore(input.workspaceRoot),
+      runId: input.runId,
+      worktreePath: input.workspaceRoot,
+    })
+  );
+
+const supervisedFailureEvents = (): PipelineRuntimeEvent[] => [
+  {
+    edges: [],
+    nodes: [{ id: "writer", kind: "command", needs: [] }],
+    type: "workflow.planned",
+    workflowId: "supervised-root",
+  },
+  {
+    nodeIds: ["writer"],
+    type: "workflow.start",
+    workflowId: "supervised-root",
+  },
+  {
+    attempt: 1,
+    nodeId: "writer",
+    type: "node.start",
+  },
+  {
+    attempt: 1,
+    format: "text",
+    nodeId: "writer",
+    output: "mock durable stdout\n",
+    type: "node.output.recorded",
+  },
+  {
+    attempt: 1,
+    exitCode: 1,
+    nodeId: "writer",
+    status: "failed",
+    type: "node.finish",
+  },
+  {
+    outcome: "FAIL",
+    type: "workflow.finish",
+    workflowId: "supervised-root",
+  },
+];
+
+const supervisedFailureResult = (): PipelineRuntimeResult => {
+  const failure = {
+    evidence: ["mock runtime failure evidence"],
+    gate: "runtime",
+    nodeId: "writer",
+    reason: "mock runtime failed",
+  };
+
+  return {
+    agentInvocations: [],
+    failureDetails: [failure],
+    gates: [],
+    hookFailures: [],
+    nodeStates: {
+      writer: {
+        attempts: 1,
+        evidence: ["mock runtime failure evidence"],
+        exitCode: 1,
+        failure,
+        gates: [],
+        id: "writer",
+        output: "mock runtime output\n",
+        status: "failed",
+      },
+    },
+    nodes: [
+      {
+        attempts: 1,
+        evidence: ["mock runtime failure evidence"],
+        exitCode: 1,
+        nodeId: "writer",
+        output: "mock runtime output\n",
+        status: "failed",
+      },
+    ],
+    outcome: "FAIL",
+    plan: {
+      parallelBatches: [],
+      topologicalOrder: [],
+      workflowId: "supervised-root",
+    } as unknown as PipelineRuntimeResult["plan"],
+    structuredOutputs: [],
+  };
+};
 
 vi.mock("../src/pipeline-runtime", () => ({
   runPipelineFromConfig: vi.fn((options: PipelineRuntimeOptions) => {
@@ -162,32 +289,28 @@ vi.mock("../src/pipeline-runtime", () => ({
       options.reporter?.(event);
     }
 
-    return Promise.resolve(supervisedFailureResult());
+    return supervisedFailureResult();
   }),
 }));
 
-// The foreground run resolves the run-control store via withRunControlStoreScoped,
-// which requires db.url (PIPE-91.18, Postgres-only). These tests exercise the
-// supervisor orchestration against the file store double — the same DI-via-mock
-// pattern detached-run/cli use — so no live Postgres is needed.
-vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("../src/run-control/run-control-store")
-    >();
-
-  return {
-    ...actual,
-    withRunControlStoreScoped: vi.fn(
-      (
-        workspaceRoot: string,
-        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
-      ) => use(actual.fileRunControlStore(workspaceRoot))
-    ),
-  };
+const supervisedPassResult = (): PipelineRuntimeResult => ({
+  agentInvocations: [],
+  failureDetails: [],
+  gates: [],
+  hookFailures: [],
+  nodeStates: {},
+  nodes: [],
+  outcome: "PASS",
+  plan: {
+    parallelBatches: [],
+    topologicalOrder: [],
+    workflowId: "inspect",
+  } as unknown as PipelineRuntimeResult["plan"],
+  structuredOutputs: [],
 });
 
-const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
+const errorMessage = (value: unknown): string =>
+  value instanceof Error ? value.message : String(value);
 
 describe("foreground supervised moka run", () => {
   let workspaceRoot: string;
@@ -278,7 +401,7 @@ describe("foreground supervised moka run", () => {
 
     expect(capture.thrown).toBeInstanceOf(Error);
     expect(mockState.runtimeCalls).toHaveLength(1);
-    const runId = mockState.runtimeCalls[0].runId;
+    const { runId } = mockState.runtimeCalls[0];
     const run = await readRun({ runId, workspaceRoot });
     const commandOutput = [
       capture.stdout,
@@ -351,8 +474,9 @@ describe("foreground supervised moka run", () => {
 
     await expect(
       execute("programmatic supervised run", {
-        pipelineRunner: (options) => {
+        pipelineRunner: async (options) => {
           runtimeCalls.push(options);
+          await Promise.resolve();
           options.reporter?.({
             nodeIds: ["programmatic"],
             type: "workflow.start",
@@ -363,7 +487,7 @@ describe("foreground supervised moka run", () => {
             type: "workflow.finish",
             workflowId: "inspect",
           });
-          return Promise.resolve(supervisedPassResult());
+          return supervisedPassResult();
         },
         workflow: "inspect",
       })
@@ -377,134 +501,3 @@ describe("foreground supervised moka run", () => {
     });
   });
 });
-
-function runMokaInTarget(workspaceRoot: string, args: string[]) {
-  return runMokaCliInTarget({
-    args,
-    buffers: mockState,
-    originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
-    workspaceRoot,
-  });
-}
-
-function buildLocalRunFirstNextNode(input: {
-  readonly runId: string;
-  readonly workspaceRoot: string;
-}) {
-  return Effect.runPromise(
-    buildNextNodeEnvelopeFromRunStore({
-      config: NEXT_NODE_CONFIG,
-      durableStore: inMemoryDurableRunStore(),
-      runControlStore: fileRunControlStore(input.workspaceRoot),
-      runId: input.runId,
-      worktreePath: input.workspaceRoot,
-    })
-  );
-}
-
-function supervisedFailureEvents(): PipelineRuntimeEvent[] {
-  return [
-    {
-      edges: [],
-      nodes: [{ id: "writer", kind: "command", needs: [] }],
-      type: "workflow.planned",
-      workflowId: "supervised-root",
-    },
-    {
-      nodeIds: ["writer"],
-      type: "workflow.start",
-      workflowId: "supervised-root",
-    },
-    {
-      attempt: 1,
-      nodeId: "writer",
-      type: "node.start",
-    },
-    {
-      attempt: 1,
-      format: "text",
-      nodeId: "writer",
-      output: "mock durable stdout\n",
-      type: "node.output.recorded",
-    },
-    {
-      attempt: 1,
-      exitCode: 1,
-      nodeId: "writer",
-      status: "failed",
-      type: "node.finish",
-    },
-    {
-      outcome: "FAIL",
-      type: "workflow.finish",
-      workflowId: "supervised-root",
-    },
-  ];
-}
-
-function supervisedFailureResult(): PipelineRuntimeResult {
-  const failure = {
-    evidence: ["mock runtime failure evidence"],
-    gate: "runtime",
-    nodeId: "writer",
-    reason: "mock runtime failed",
-  };
-
-  return {
-    agentInvocations: [],
-    failureDetails: [failure],
-    gates: [],
-    hookFailures: [],
-    nodeStates: {
-      writer: {
-        attempts: 1,
-        evidence: ["mock runtime failure evidence"],
-        exitCode: 1,
-        failure,
-        gates: [],
-        id: "writer",
-        output: "mock runtime output\n",
-        status: "failed",
-      },
-    },
-    nodes: [
-      {
-        attempts: 1,
-        evidence: ["mock runtime failure evidence"],
-        exitCode: 1,
-        nodeId: "writer",
-        output: "mock runtime output\n",
-        status: "failed",
-      },
-    ],
-    outcome: "FAIL",
-    plan: {
-      parallelBatches: [],
-      topologicalOrder: [],
-      workflowId: "supervised-root",
-    } as unknown as PipelineRuntimeResult["plan"],
-    structuredOutputs: [],
-  };
-}
-
-function supervisedPassResult(): PipelineRuntimeResult {
-  return {
-    agentInvocations: [],
-    failureDetails: [],
-    gates: [],
-    hookFailures: [],
-    nodeStates: {},
-    nodes: [],
-    outcome: "PASS",
-    plan: {
-      parallelBatches: [],
-      topologicalOrder: [],
-      workflowId: "inspect",
-    } as unknown as PipelineRuntimeResult["plan"],
-    structuredOutputs: [],
-  };
-}
-
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
-}

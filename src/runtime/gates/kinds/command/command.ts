@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+
 import type { CommandExecutionContext } from "../../../command-executor";
 import type { CommandGateSpec, RuntimeGateResult } from "../../../contracts";
 import type { CommandExecutorService } from "../../contract";
@@ -8,15 +9,15 @@ import type { CommandExecutorService } from "../../contract";
  * pass/fail result. Context is narrowed to {@link CommandExecutionContext}
  * (worktreePath + signal) — the only fields the executor needs.
  */
-export async function evaluateCommandGate(
+export const evaluateCommandGate = async (
   gate: CommandGateSpec,
   gateId: string,
   nodeId: string,
   context: CommandExecutionContext,
   executor: CommandExecutorService
-): Promise<RuntimeGateResult> {
+): Promise<RuntimeGateResult> => {
   const result = await Effect.runPromise(
-    executor.execute(gate.command ?? [], context, { timeout: gate.timeout_ms })
+    executor.execute(gate.command, context, { timeout: gate.timeout_ms })
   );
   const expected = gate.expect_exit_code ?? 0;
   return {
@@ -30,4 +31,4 @@ export async function evaluateCommandGate(
         ? undefined
         : `expected exit ${expected}, got ${result.exitCode}`,
   };
-}
+};

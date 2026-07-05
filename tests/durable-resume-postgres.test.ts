@@ -1,12 +1,13 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { acquireRunJournal } from "../src/pipeline-runtime";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
 import type { RunJournal } from "../src/runtime/run-journal";
-import {
-  runWorkflowScheduler,
-  type WorkflowScheduleNode,
-  type WorkflowSchedulerInput,
+import { runWorkflowScheduler } from "../src/runtime/scheduler";
+import type {
+  WorkflowScheduleNode,
+  WorkflowSchedulerInput,
 } from "../src/runtime/scheduler";
 import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 
@@ -17,90 +18,84 @@ import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
 
-function scheduleNode(
+const scheduleNode = (
   id: string,
   index: number,
   needs: string[] = []
-): WorkflowScheduleNode {
-  return { dependents: [], id, index, needs };
-}
+): WorkflowScheduleNode => ({ dependents: [], id, index, needs });
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
-function schedulerInput(
+const schedulerInput = (
   overrides: Partial<WorkflowSchedulerInput> &
     Pick<WorkflowSchedulerInput, "nodes" | "runNode">
-): WorkflowSchedulerInput {
-  return {
-    failFast: false,
-    isCancelled: () => false,
-    markNodeReady: () => undefined,
-    shouldContinueAfterNodeResult: (result) => result.status !== "failed",
-    skipNode: () => undefined,
-    ...overrides,
-  };
-}
+): WorkflowSchedulerInput => ({
+  failFast: false,
+  isCancelled: () => false,
+  markNodeReady: () => {},
+  shouldContinueAfterNodeResult: (result) => result.status !== "failed",
+  skipNode: () => {},
+  ...overrides,
+});
 
 // Drive one scheduler pass with a freshly-acquired run journal. The journal is a
 // scoped resource: its Postgres store is closed (and its writes flushed) when
 // this Effect's scope exits, exactly as a real `moka run` invocation does.
-async function runWithRunJournal(
+const runWithRunJournal = async (
   runId: string,
   dbUrl: string,
   run: (journal: RunJournal | undefined) => Promise<unknown>
-): Promise<void> {
+): Promise<void> => {
   await Effect.runPromise(
     Effect.scoped(
-      Effect.gen(function* () {
+      Effect.gen(function* effectBody() {
         const journal = yield* acquireRunJournal(runId, dbUrl);
-        yield* Effect.promise(() => run(journal));
+        yield* Effect.promise(
+          async () => await run(Option.getOrUndefined(journal))
+        );
       })
     )
   );
-}
+};
 
 type SchedulerResult = Awaited<ReturnType<typeof runWorkflowScheduler>>;
 
 // Summarise a resumed run into a single comparable shape so each test asserts
 // the resume outcome with one `expect` (the rerun set, the terminal outcome, and
 // the completed-node order) rather than a repeated block of assertions.
-function resumeSummary(
+const resumeSummary = (
   resumed: SchedulerResult | undefined,
   reran: string[]
 ): {
   completed: string[] | undefined;
   outcome: string | undefined;
   reran: string[];
-} {
-  return {
-    completed: resumed?.completed.map((node) => node.nodeId),
-    outcome: resumed?.outcome,
-    reran,
-  };
-}
+} => ({
+  completed: resumed?.completed.map((node) => node.nodeId),
+  outcome: resumed?.outcome,
+  reran,
+});
 
 describe("acquireRunJournal selection (no infra)", () => {
   it("resolves no journal when db.url is absent (byte-identical default)", async () => {
     const journal = await Effect.runPromise(
-      Effect.scoped(acquireRunJournal("run-1", undefined))
+      Effect.scoped(acquireRunJournal("run-1"))
     );
-    expect(journal).toBeUndefined();
+    expect(Option.isNone(journal)).toBe(true);
   });
 
   it("resolves no journal when runId is absent", async () => {
     const journal = await Effect.runPromise(
       Effect.scoped(acquireRunJournal(undefined, "postgres://unused"))
     );
-    expect(journal).toBeUndefined();
+    expect(Option.isNone(journal)).toBe(true);
   });
 });
 
@@ -115,18 +110,21 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
     // before "b" by cancelling once the first node finishes. Scope exit flushes
     // the write to Postgres and closes the connection.
     const firstRan: string[] = [];
-    await runWithRunJournal(id, dbUrl, (journal) =>
-      runWorkflowScheduler(
-        schedulerInput({
-          isCancelled: () => firstRan.length >= 1,
-          journal,
-          nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
-          runNode: (nodeId) => {
-            firstRan.push(nodeId);
-            return Promise.resolve(passedResult(nodeId));
-          },
-        })
-      )
+    await runWithRunJournal(
+      id,
+      dbUrl,
+      async (journal) =>
+        await runWorkflowScheduler(
+          schedulerInput({
+            isCancelled: () => firstRan.length >= 1,
+            journal,
+            nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
+            runNode: async (nodeId) => {
+              firstRan.push(nodeId);
+              return passedResult(nodeId);
+            },
+          })
+        )
     );
     expect(firstRan).toEqual(["a"]);
 
@@ -139,9 +137,9 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
         schedulerInput({
           journal,
           nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
-          runNode: (nodeId) => {
+          runNode: async (nodeId) => {
             resumedRan.push(nodeId);
-            return Promise.resolve(passedResult(nodeId));
+            return passedResult(nodeId);
           },
         })
       );
@@ -163,31 +161,37 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
     // Kill both runs after their first node, concurrently. Run A's graph is a,b;
     // run B's graph is p,q — disjoint node ids so cross-run leakage is visible.
     await Promise.all([
-      runWithRunJournal(idA, dbUrl, (journal) =>
-        runWorkflowScheduler(
-          schedulerInput({
-            isCancelled: () => firstA.length >= 1,
-            journal,
-            nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
-            runNode: (nodeId) => {
-              firstA.push(nodeId);
-              return Promise.resolve(passedResult(nodeId));
-            },
-          })
-        )
+      runWithRunJournal(
+        idA,
+        dbUrl,
+        async (journal) =>
+          await runWorkflowScheduler(
+            schedulerInput({
+              isCancelled: () => firstA.length >= 1,
+              journal,
+              nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
+              runNode: async (nodeId) => {
+                firstA.push(nodeId);
+                return passedResult(nodeId);
+              },
+            })
+          )
       ),
-      runWithRunJournal(idB, dbUrl, (journal) =>
-        runWorkflowScheduler(
-          schedulerInput({
-            isCancelled: () => firstB.length >= 1,
-            journal,
-            nodes: [scheduleNode("p", 0), scheduleNode("q", 1, ["p"])],
-            runNode: (nodeId) => {
-              firstB.push(nodeId);
-              return Promise.resolve(passedResult(nodeId));
-            },
-          })
-        )
+      runWithRunJournal(
+        idB,
+        dbUrl,
+        async (journal) =>
+          await runWorkflowScheduler(
+            schedulerInput({
+              isCancelled: () => firstB.length >= 1,
+              journal,
+              nodes: [scheduleNode("p", 0), scheduleNode("q", 1, ["p"])],
+              runNode: async (nodeId) => {
+                firstB.push(nodeId);
+                return passedResult(nodeId);
+              },
+            })
+          )
       ),
     ]);
     expect(firstA).toEqual(["a"]);
@@ -202,9 +206,9 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
         schedulerInput({
           journal,
           nodes: [scheduleNode("a", 0), scheduleNode("b", 1, ["a"])],
-          runNode: (nodeId) => {
+          runNode: async (nodeId) => {
             resumedA.push(nodeId);
-            return Promise.resolve(passedResult(nodeId));
+            return passedResult(nodeId);
           },
         })
       );
@@ -217,17 +221,20 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
 
     // Resume run B independently: only "p" hydrated, only "q" re-run.
     const resumedB: string[] = [];
-    await runWithRunJournal(idB, dbUrl, (journal) =>
-      runWorkflowScheduler(
-        schedulerInput({
-          journal,
-          nodes: [scheduleNode("p", 0), scheduleNode("q", 1, ["p"])],
-          runNode: (nodeId) => {
-            resumedB.push(nodeId);
-            return Promise.resolve(passedResult(nodeId));
-          },
-        })
-      )
+    await runWithRunJournal(
+      idB,
+      dbUrl,
+      async (journal) =>
+        await runWorkflowScheduler(
+          schedulerInput({
+            journal,
+            nodes: [scheduleNode("p", 0), scheduleNode("q", 1, ["p"])],
+            runNode: async (nodeId) => {
+              resumedB.push(nodeId);
+              return passedResult(nodeId);
+            },
+          })
+        )
     );
     expect(resumedB).toEqual(["q"]);
   });

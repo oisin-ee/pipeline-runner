@@ -1,17 +1,17 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import type { V1ConfigMap } from "@kubernetes/client-node";
 import { afterAll, describe, expect, it, vi } from "vitest";
+
 import {
   buildCommandScheduleYaml,
   submitDynamicRunnerArgoWorkflow,
   submitRunnerArgoWorkflow,
 } from "../src/argo-submit";
-import {
-  type ArgoWorkflowManifest,
-  runnerArgoWorkflowManifestSchema,
-} from "../src/argo-workflow";
+import { runnerArgoWorkflowManifestSchema } from "../src/argo-workflow";
+import type { ArgoWorkflowManifest } from "../src/argo-workflow";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
 import { parseScheduleArtifact } from "../src/planning/generate";
 
@@ -19,9 +19,9 @@ const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-submit-"));
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {
   allowMissingLintFileReferences: true,
 });
-const PAYLOAD_CONFIG_MAP_RE = /^pipeline-payload-/;
-const SCHEDULE_CONFIG_MAP_RE = /^pipeline-schedule-/;
-const TASK_DESCRIPTOR_CONFIG_MAP_RE = /^pipeline-task-descriptors-/;
+const PAYLOAD_CONFIG_MAP_RE = /^pipeline-payload-/u;
+const SCHEDULE_CONFIG_MAP_RE = /^pipeline-schedule-/u;
+const TASK_DESCRIPTOR_CONFIG_MAP_RE = /^pipeline-task-descriptors-/u;
 const BROKER_AUTH = {
   secretKey: "api-key",
   secretName: "broker-api-key",
@@ -52,40 +52,54 @@ interface DeleteConfigMapRequest {
 interface ConfigMapApiOverrides {
   readonly createNamespacedConfigMap: (input: {
     readonly body: V1ConfigMap;
-  }) => Promise<unknown>;
+  }) => unknown;
   readonly deleteNamespacedConfigMap?: (
     input: DeleteConfigMapRequest
-  ) => Promise<unknown>;
-  readonly patchNamespacedConfigMap?: (
-    input: PatchConfigMapRequest
-  ) => Promise<unknown>;
+  ) => unknown;
+  readonly patchNamespacedConfigMap?: (input: PatchConfigMapRequest) => unknown;
 }
 
-function configMapApi(overrides: ConfigMapApiOverrides) {
-  return {
-    createNamespacedConfigMap: overrides.createNamespacedConfigMap,
-    deleteNamespacedConfigMap:
-      overrides.deleteNamespacedConfigMap ??
-      ((input: DeleteConfigMapRequest) =>
-        Promise.resolve({
+interface WorkflowApiInput {
+  readonly body: unknown;
+}
+
+const configMapApi = (overrides: ConfigMapApiOverrides) => ({
+  createNamespacedConfigMap: async (input: { readonly body: V1ConfigMap }) =>
+    await Promise.resolve(overrides.createNamespacedConfigMap(input)),
+  deleteNamespacedConfigMap: async (input: DeleteConfigMapRequest) =>
+    await Promise.resolve(
+      (
+        overrides.deleteNamespacedConfigMap ??
+        ((request: DeleteConfigMapRequest) => ({
           apiVersion: "v1",
           kind: "Status",
-          metadata: { name: input.name },
-        })),
-    patchNamespacedConfigMap:
-      overrides.patchNamespacedConfigMap ??
-      ((input: PatchConfigMapRequest) =>
-        Promise.resolve({
+          metadata: { name: request.name },
+        }))
+      )(input)
+    ),
+  patchNamespacedConfigMap: async (input: PatchConfigMapRequest) =>
+    await Promise.resolve(
+      (
+        overrides.patchNamespacedConfigMap ??
+        ((request: PatchConfigMapRequest) => ({
           apiVersion: "v1",
           kind: "ConfigMap",
           metadata: {
-            name: input.name,
-            namespace: input.namespace,
-            ownerReferences: input.body.metadata.ownerReferences,
+            name: request.name,
+            namespace: request.namespace,
+            ownerReferences: request.body.metadata.ownerReferences,
           },
-        })),
-  };
-}
+        }))
+      )(input)
+    ),
+});
+
+const customObjectsApi = (
+  createNamespacedCustomObject: (input: WorkflowApiInput) => unknown
+) => ({
+  createNamespacedCustomObject: async (input: WorkflowApiInput) =>
+    await Promise.resolve(createNamespacedCustomObject(input)),
+});
 
 afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });
@@ -128,13 +142,13 @@ const PAYLOAD = JSON.stringify({
     id: "run-1",
     project: "rondo",
   },
-  task: {
-    kind: "prompt",
-    prompt: "Submit smoke",
-  },
   submission: {
     kind: "graph",
     mode: "quick",
+  },
+  task: {
+    kind: "prompt",
+    prompt: "Submit smoke",
   },
   workflow: {
     id: "schedule-submit-smoke-root",
@@ -163,23 +177,20 @@ describe("submitRunnerArgoWorkflow", () => {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             createdConfigMaps.push(input.body);
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(input.body);
-            return Promise.resolve({
-              ...(input.body as Record<string, unknown>),
-              metadata: {
-                ...(input.body as { metadata: Record<string, unknown> })
-                  .metadata,
-                name: "pipeline-run-abcde",
-                uid: "workflow-uid-1",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(input.body);
+          return {
+            ...(input.body as Record<string, unknown>),
+            metadata: {
+              ...(input.body as { metadata: Record<string, unknown> }).metadata,
+              name: "pipeline-run-abcde",
+              uid: "workflow-uid-1",
+            },
+          };
+        }),
       }
     );
 
@@ -272,32 +283,28 @@ describe("submitRunnerArgoWorkflow", () => {
         coreApi: configMapApi({
           createNamespacedConfigMap(input: { body: V1ConfigMap }) {
             createdConfigMaps.push(input.body);
-            return Promise.resolve(input.body);
+            return input.body;
           },
           deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
-            return Promise.resolve({ metadata: { name: input.name } });
+            return { metadata: { name: input.name } };
           },
           patchNamespacedConfigMap(input: PatchConfigMapRequest) {
             patchedConfigMaps.push(input);
-            return Promise.resolve({
+            return {
               metadata: {
                 name: input.name,
                 namespace: input.namespace,
                 ownerReferences: input.body.metadata.ownerReferences,
               },
-            });
+            };
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject() {
-            return Promise.resolve({
-              metadata: {
-                name: WORKFLOW_OWNER_REFERENCE.name,
-                uid: WORKFLOW_OWNER_REFERENCE.uid,
-              },
-            });
+        workflowApi: customObjectsApi(() => ({
+          metadata: {
+            name: WORKFLOW_OWNER_REFERENCE.name,
+            uid: WORKFLOW_OWNER_REFERENCE.uid,
           },
-        },
+        })),
       }
     );
 
@@ -350,32 +357,28 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input: { body: V1ConfigMap }) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
           deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
-            return Promise.resolve({ metadata: { name: input.name } });
+            return { metadata: { name: input.name } };
           },
           patchNamespacedConfigMap(input: PatchConfigMapRequest) {
             patchedConfigMaps.push(input);
-            return Promise.resolve({
+            return {
               metadata: {
                 name: input.name,
                 namespace: input.namespace,
                 ownerReferences: input.body.metadata.ownerReferences,
               },
-            });
+            };
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject() {
-            return Promise.resolve({
-              metadata: {
-                name: WORKFLOW_OWNER_REFERENCE.name,
-                uid: WORKFLOW_OWNER_REFERENCE.uid,
-              },
-            });
+        workflowApi: customObjectsApi(() => ({
+          metadata: {
+            name: WORKFLOW_OWNER_REFERENCE.name,
+            uid: WORKFLOW_OWNER_REFERENCE.uid,
           },
-        },
+        })),
       }
     );
 
@@ -411,26 +414,22 @@ describe("submitRunnerArgoWorkflow", () => {
           {
             coreApi: configMapApi({
               createNamespacedConfigMap(input: { body: V1ConfigMap }) {
-                return Promise.resolve(input.body);
+                return input.body;
               },
               deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
                 deletedConfigMaps.push(input);
-                return Promise.resolve({ metadata: { name: input.name } });
+                return { metadata: { name: input.name } };
               },
               patchNamespacedConfigMap() {
-                return Promise.reject(new Error("patch failed"));
+                throw new Error("patch failed");
               },
             }),
-            workflowApi: {
-              createNamespacedCustomObject() {
-                return Promise.resolve({
-                  metadata: {
-                    name: WORKFLOW_OWNER_REFERENCE.name,
-                    uid: WORKFLOW_OWNER_REFERENCE.uid,
-                  },
-                });
+            workflowApi: customObjectsApi(() => ({
+              metadata: {
+                name: WORKFLOW_OWNER_REFERENCE.name,
+                uid: WORKFLOW_OWNER_REFERENCE.uid,
               },
-            },
+            })),
           }
         );
 
@@ -476,28 +475,26 @@ describe("submitRunnerArgoWorkflow", () => {
         {
           coreApi: configMapApi({
             createNamespacedConfigMap(input: { body: V1ConfigMap }) {
-              return Promise.resolve(input.body);
+              return input.body;
             },
             deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
               deletedConfigMaps.push(input);
-              return Promise.resolve({ metadata: { name: input.name } });
+              return { metadata: { name: input.name } };
             },
             patchNamespacedConfigMap(input: PatchConfigMapRequest) {
               patchedConfigMaps.push(input);
-              return Promise.resolve({
+              return {
                 metadata: {
                   name: input.name,
                   namespace: input.namespace,
                   ownerReferences: input.body.metadata.ownerReferences,
                 },
-              });
+              };
             },
           }),
-          workflowApi: {
-            createNamespacedCustomObject() {
-              return Promise.reject(new Error("workflow create failed"));
-            },
-          },
+          workflowApi: customObjectsApi(() => {
+            throw new Error("workflow create failed");
+          }),
         }
       )
     ).rejects.toThrow("workflow create failed");
@@ -541,32 +538,28 @@ describe("submitRunnerArgoWorkflow", () => {
         {
           coreApi: configMapApi({
             createNamespacedConfigMap(input: { body: V1ConfigMap }) {
-              return Promise.resolve(input.body);
+              return input.body;
             },
             deleteNamespacedConfigMap(input: DeleteConfigMapRequest) {
               deletedConfigMaps.push(input);
-              return Promise.resolve({ metadata: { name: input.name } });
+              return { metadata: { name: input.name } };
             },
             patchNamespacedConfigMap(input: PatchConfigMapRequest) {
               patchedConfigMaps.push(input);
-              return Promise.resolve({
+              return {
                 metadata: {
                   name: input.name,
                   namespace: input.namespace,
                   ownerReferences: input.body.metadata.ownerReferences,
                 },
-              });
+              };
             },
           }),
-          workflowApi: {
-            createNamespacedCustomObject() {
-              return Promise.resolve({
-                metadata: {
-                  name: WORKFLOW_OWNER_REFERENCE.name,
-                },
-              });
+          workflowApi: customObjectsApi(() => ({
+            metadata: {
+              name: WORKFLOW_OWNER_REFERENCE.name,
             },
-          },
+          })),
         }
       );
 
@@ -586,10 +579,10 @@ describe("submitRunnerArgoWorkflow", () => {
   });
 
   it("normalizes GitHub SSH repository URLs in persisted runner payloads", async () => {
-    const createdConfigMaps: Array<{
+    const createdConfigMaps: {
       data?: Record<string, string>;
       metadata?: { name?: string };
-    }> = [];
+    }[] = [];
     const payload = JSON.stringify({
       ...JSON.parse(PAYLOAD),
       repository: {
@@ -614,31 +607,27 @@ describe("submitRunnerArgoWorkflow", () => {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             createdConfigMaps.push(input.body);
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            return Promise.resolve({
-              ...(input.body as Record<string, unknown>),
-              metadata: {
-                ...(input.body as { metadata: Record<string, unknown> })
-                  .metadata,
-                name: "pipeline-run-normalized",
-                uid: "workflow-normalized-uid",
-              },
-            });
+        workflowApi: customObjectsApi((input) => ({
+          ...(input.body as Record<string, unknown>),
+          metadata: {
+            ...(input.body as { metadata: Record<string, unknown> }).metadata,
+            name: "pipeline-run-normalized",
+            uid: "workflow-normalized-uid",
           },
-        },
+        })),
       }
     );
 
-    const payloadConfigMap = createdConfigMaps.find((configMap) =>
-      configMap.metadata?.name?.startsWith("pipeline-payload-")
+    const payloadConfigMap = createdConfigMaps.find(
+      (configMap) =>
+        configMap.metadata?.name?.startsWith("pipeline-payload-") === true
     );
     const payloadJson = payloadConfigMap?.data?.["payload.json"];
     expect(payloadJson).toBeDefined();
-    if (!payloadJson) {
+    if (payloadJson === undefined || payloadJson.length === 0) {
       throw new Error("Expected payload ConfigMap to include payload.json");
     }
     const persistedPayload = JSON.parse(payloadJson);
@@ -671,22 +660,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-lifecycle",
-                uid: "workflow-lifecycle-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-lifecycle",
+              uid: "workflow-lifecycle-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -728,22 +715,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-dynamic-lifecycle",
-                uid: "workflow-dynamic-lifecycle-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-dynamic-lifecycle",
+              uid: "workflow-dynamic-lifecycle-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -776,22 +761,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-no-lifecycle",
-                uid: "workflow-no-lifecycle-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-no-lifecycle",
+              uid: "workflow-no-lifecycle-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -827,23 +810,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(input.body);
-            return Promise.resolve({
-              ...(input.body as Record<string, unknown>),
-              metadata: {
-                ...(input.body as { metadata: Record<string, unknown> })
-                  .metadata,
-                name: "pipeline-run-ticket",
-                uid: "workflow-ticket-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(input.body);
+          return {
+            ...(input.body as Record<string, unknown>),
+            metadata: {
+              ...(input.body as { metadata: Record<string, unknown> }).metadata,
+              name: "pipeline-run-ticket",
+              uid: "workflow-ticket-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -872,7 +852,7 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         brokerAuth: BROKER_AUTH,
         config: DEFAULT_CONFIG,
-        dbAuth: { secretName: "momokaya-db", secretKey: "db-url" },
+        dbAuth: { secretKey: "db-url", secretName: "momokaya-db" },
         generateName: "pipeline-run-",
         namespace,
         payloadJson: PAYLOAD,
@@ -881,23 +861,21 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            // Parse through the manifest schema — type-safe, no casts.
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-dbauth",
-                uid: "workflow-dbauth-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          // Parse through the manifest schema — type-safe, no casts.
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-dbauth",
+              uid: "workflow-dbauth-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -929,22 +907,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-no-dbauth",
-                uid: "workflow-no-dbauth-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-no-dbauth",
+              uid: "workflow-no-dbauth-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -964,11 +940,11 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         brokerAuth: BROKER_AUTH,
         config: DEFAULT_CONFIG,
-        mcpGatewayAuth: {
-          secretName: "pipeline-runner-mcp-auth",
-          secretKey: "pipeline-mcp-gateway-authorization",
-        },
         generateName: "pipeline-run-",
+        mcpGatewayAuth: {
+          secretKey: "pipeline-mcp-gateway-authorization",
+          secretName: "pipeline-runner-mcp-auth",
+        },
         namespace,
         payloadJson: PAYLOAD,
         scheduleYaml: SCHEDULE,
@@ -976,22 +952,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-mcpgateway",
-                uid: "workflow-mcpgateway-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-mcpgateway",
+              uid: "workflow-mcpgateway-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -1028,22 +1002,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-no-mcpgateway",
-                uid: "workflow-no-mcpgateway-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-no-mcpgateway",
+              uid: "workflow-no-mcpgateway-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -1063,11 +1035,11 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         brokerAuth: BROKER_AUTH,
         config: DEFAULT_CONFIG,
-        mcpGatewayAuth: {
-          secretName: "pipeline-runner-mcp-auth",
-          secretKey: "pipeline-mcp-gateway-authorization",
-        },
         generateName: "pipeline-run-",
+        mcpGatewayAuth: {
+          secretKey: "pipeline-mcp-gateway-authorization",
+          secretName: "pipeline-runner-mcp-auth",
+        },
         namespace,
         payloadJson: PAYLOAD,
         workflowId: "schedule-submit-smoke-root",
@@ -1075,22 +1047,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-dynamic-mcpgateway",
-                uid: "workflow-dynamic-mcpgateway-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-dynamic-mcpgateway",
+              uid: "workflow-dynamic-mcpgateway-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -1128,22 +1098,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-npm-registry",
-                uid: "workflow-npm-registry-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-npm-registry",
+              uid: "workflow-npm-registry-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -1181,22 +1149,20 @@ describe("submitRunnerArgoWorkflow", () => {
       {
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            createdWorkflows.push(
-              runnerArgoWorkflowManifestSchema.parse(input.body)
-            );
-            return Promise.resolve({
-              metadata: {
-                name: "pipeline-run-dynamic-npm-registry",
-                uid: "workflow-dynamic-npm-registry-uid",
-              },
-            });
-          },
-        },
+        workflowApi: customObjectsApi((input) => {
+          createdWorkflows.push(
+            runnerArgoWorkflowManifestSchema.parse(input.body)
+          );
+          return {
+            metadata: {
+              name: "pipeline-run-dynamic-npm-registry",
+              uid: "workflow-dynamic-npm-registry-uid",
+            },
+          };
+        }),
       }
     );
 
@@ -1257,7 +1223,7 @@ describe("submitRunnerArgoWorkflow", () => {
       })
     );
 
-    const nodes = schedule.workflows.root.nodes;
+    const { nodes } = schedule.workflows.root;
     expect(nodes).toHaveLength(1);
     expect(nodes[0].kind).toBe("command");
   });
@@ -1272,7 +1238,7 @@ describe("submitRunnerArgoWorkflow", () => {
       })
     );
 
-    const nodes = schedule.workflows.root.nodes;
+    const { nodes } = schedule.workflows.root;
     expect(nodes).toHaveLength(2);
     const prNode = nodes.find(
       (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
@@ -1290,26 +1256,6 @@ describe("submitRunnerArgoWorkflow", () => {
      * agent-kind nodes.
      */
     const config = parsePipelineConfigParts({
-      runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-  impl:
-    runner: opencode
-    instructions: { inline: Implement }
-`,
       pipeline: `
 version: 1
 default_workflow: root
@@ -1325,6 +1271,26 @@ workflows:
         kind: agent
         profile: impl
         needs: [plan]
+`,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  impl:
+    runner: opencode
+    instructions: { inline: Implement }
+`,
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
 `,
     });
 
@@ -1366,7 +1332,7 @@ workflows:
       workflow: { id: "schedule-agent-test-root" },
     });
 
-    const createdConfigMaps: Array<{ data?: Record<string, string> }> = [];
+    const createdConfigMaps: { data?: Record<string, string> }[] = [];
     await submitRunnerArgoWorkflow(
       {
         brokerAuth: BROKER_AUTH,
@@ -1380,22 +1346,17 @@ workflows:
         coreApi: configMapApi({
           createNamespacedConfigMap(input) {
             createdConfigMaps.push(input.body);
-            return Promise.resolve(input.body);
+            return input.body;
           },
         }),
-        workflowApi: {
-          createNamespacedCustomObject(input) {
-            return Promise.resolve({
-              ...(input.body as Record<string, unknown>),
-              metadata: {
-                ...(input.body as { metadata: Record<string, unknown> })
-                  .metadata,
-                name: "moka-full-agent",
-                uid: "workflow-moka-full-agent-uid",
-              },
-            });
+        workflowApi: customObjectsApi((input) => ({
+          ...(input.body as Record<string, unknown>),
+          metadata: {
+            ...(input.body as { metadata: Record<string, unknown> }).metadata,
+            name: "moka-full-agent",
+            uid: "workflow-moka-full-agent-uid",
           },
-        },
+        })),
       }
     );
 
@@ -1403,9 +1364,9 @@ workflows:
       Object.keys(cm.data ?? {}).some((key) => key.startsWith("node-"))
     );
     expect(descriptorConfigMap?.data).toMatchObject({
+      "node-impl.json": '{"nodeId":"impl"}\n',
       // nodeId-only descriptors: runner loads agent profile from schedule
       "node-plan.json": '{"nodeId":"plan"}\n',
-      "node-impl.json": '{"nodeId":"impl"}\n',
     });
   });
 });

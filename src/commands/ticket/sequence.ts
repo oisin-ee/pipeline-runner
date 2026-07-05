@@ -1,5 +1,6 @@
 import type { Command } from "commander";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import { sequenceTicketBatchesEffect } from "../../tickets/ticket-graph";
 import type { TicketCommandOptions } from "./shared";
 import {
@@ -14,38 +15,41 @@ interface TicketSequenceFlags {
   root?: string;
 }
 
-function formatSequence(batches: readonly (readonly string[])[]): string {
-  return batches
+const formatSequence = (batches: readonly (readonly string[])[]): string =>
+  batches
     .map((batch, index) =>
       [`Sequence ${index + 1}:`, ...batch.map((id) => `  ${id}`)].join("\n")
     )
     .join("\n\n");
-}
 
-function printTicketSequenceEffect(
+const printTicketSequenceEffect = (
   worktreePath: string,
   flags: TicketSequenceFlags
-) {
-  return Effect.gen(function* () {
-    const loaded = yield* loadTicketGraphEffect(worktreePath, flags.root);
+) =>
+  Effect.gen(function* effectBody() {
+    const loaded = yield* loadTicketGraphEffect(
+      worktreePath,
+      Option.fromUndefinedOr(flags.root)
+    );
     const batches = yield* sequenceTicketBatchesEffect(
       loaded.graph,
       loaded.scopedIds
     );
     yield* writeLineEffect(formatSequence(batches));
   });
-}
 
-export function registerSequenceSubcommand(
+export const registerSequenceSubcommand = (
   ticketCommand: Command,
   _options: TicketCommandOptions
-): void {
+): void => {
   ticketCommand
     .command("sequence")
     .description("Print dependency execution batches for Backlog tickets")
     .option("--root <ticket-id>", "sequence one ticket tree")
     .option("--plain", "print plain text output")
-    .action((flags: TicketSequenceFlags) =>
-      runTicketProgram(printTicketSequenceEffect(currentWorktreePath(), flags))
-    );
-}
+    .action(async (flags: TicketSequenceFlags) => {
+      await runTicketProgram(
+        printTicketSequenceEffect(currentWorktreePath(), flags)
+      );
+    });
+};

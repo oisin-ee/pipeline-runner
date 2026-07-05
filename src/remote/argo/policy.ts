@@ -50,77 +50,73 @@ export interface RunnerContainerPolicyOptions {
   resources?: ArgoWorkflowResourceRequirements;
 }
 
-export function runnerContainerEnv(
+export const runnerContainerEnv = (
   options: RunnerContainerPolicyOptions
-): ArgoWorkflowEnvVar[] {
-  return [
-    ...RUNNER_OPENCODE_ENV,
-    { name: "BROKER_URL", value: options.brokerAuth.url },
-    {
-      name: "PIPELINE_BROKER_SECRET_NAME",
-      value: options.brokerAuth.secretName,
-    },
-    {
-      name: "PIPELINE_BROKER_SECRET_KEY",
-      value: options.brokerAuth.secretKey,
-    },
-    {
-      name: "BROKER_API_KEY",
-      valueFrom: {
-        secretKeyRef: {
-          key: options.brokerAuth.secretKey,
-          name: options.brokerAuth.secretName,
-        },
+): ArgoWorkflowEnvVar[] => [
+  ...RUNNER_OPENCODE_ENV,
+  { name: "BROKER_URL", value: options.brokerAuth.url },
+  {
+    name: "PIPELINE_BROKER_SECRET_NAME",
+    value: options.brokerAuth.secretName,
+  },
+  {
+    name: "PIPELINE_BROKER_SECRET_KEY",
+    value: options.brokerAuth.secretKey,
+  },
+  {
+    name: "BROKER_API_KEY",
+    valueFrom: {
+      secretKeyRef: {
+        key: options.brokerAuth.secretKey,
+        name: options.brokerAuth.secretName,
       },
     },
-    // PIPE-94.3: expose db.url to in-cluster runner pods via secretKeyRef so
-    // loadMokaDbUrl() resolves from MOKA_DB_URL without a config-file mount.
-    // Absent when dbAuth is not configured — cluster without the secret still
-    // renders a valid workflow.
-    ...(options.dbAuth === undefined
-      ? []
-      : [
-          {
-            name: "MOKA_DB_URL",
-            valueFrom: {
-              secretKeyRef: {
-                key: options.dbAuth.secretKey,
-                name: options.dbAuth.secretName,
-              },
+  },
+  // PIPE-94.3: expose db.url to in-cluster runner pods via secretKeyRef so
+  // loadMokaDbUrl() resolves from MOKA_DB_URL without a config-file mount.
+  // Absent when dbAuth is not configured — cluster without the secret still
+  // renders a valid workflow.
+  ...(options.dbAuth === undefined
+    ? []
+    : [
+        {
+          name: "MOKA_DB_URL",
+          valueFrom: {
+            secretKeyRef: {
+              key: options.dbAuth.secretKey,
+              name: options.dbAuth.secretName,
             },
           },
-        ]),
-    // Expose the pipeline-gateway basic-auth header to in-cluster runner pods via
-    // secretKeyRef so dotfiles' opencode pipeline-gateway MCP entry resolves
-    // PIPELINE_MCP_GATEWAY_AUTHORIZATION without any plaintext in the manifest.
-    // Absent when mcpGatewayAuth is not configured — cluster without the secret
-    // still renders a valid workflow.
-    ...(options.mcpGatewayAuth === undefined
-      ? []
-      : [
-          {
-            name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
-            valueFrom: {
-              secretKeyRef: {
-                key: options.mcpGatewayAuth.secretKey,
-                name: options.mcpGatewayAuth.secretName,
-              },
+        },
+      ]),
+  // Expose the pipeline-gateway basic-auth header to in-cluster runner pods via
+  // secretKeyRef so dotfiles' opencode pipeline-gateway MCP entry resolves
+  // PIPELINE_MCP_GATEWAY_AUTHORIZATION without any plaintext in the manifest.
+  // Absent when mcpGatewayAuth is not configured — cluster without the secret
+  // still renders a valid workflow.
+  ...(options.mcpGatewayAuth === undefined
+    ? []
+    : [
+        {
+          name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+          valueFrom: {
+            secretKeyRef: {
+              key: options.mcpGatewayAuth.secretKey,
+              name: options.mcpGatewayAuth.secretName,
             },
           },
-        ]),
-  ];
-}
+        },
+      ]),
+];
 
-export function runnerRetryStrategy(): ArgoWorkflowRetryStrategy {
-  return { ...RUNNER_RETRY_STRATEGY };
-}
+export const runnerRetryStrategy = (): ArgoWorkflowRetryStrategy => ({
+  ...RUNNER_RETRY_STRATEGY,
+});
 
-export function runnerTemplateResources(
+export const runnerTemplateResources = (
   options: RunnerContainerPolicyOptions
-): ArgoWorkflowResourceRequirements {
-  return options.resources ?? DEFAULT_RUNNER_RESOURCES;
-}
+): ArgoWorkflowResourceRequirements =>
+  options.resources ?? DEFAULT_RUNNER_RESOURCES;
 
-export function runnerTemplateDeadlineSeconds(): number {
-  return DEFAULT_RUNNER_DEADLINE_SECONDS;
-}
+export const runnerTemplateDeadlineSeconds = (): number =>
+  DEFAULT_RUNNER_DEADLINE_SECONDS;

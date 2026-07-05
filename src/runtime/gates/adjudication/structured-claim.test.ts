@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { AcceptanceCriterion, CompletionClaim } from "../../contracts";
 import { structuredClaimUnmet } from "./structured-claim";
 

@@ -6,7 +6,9 @@ import {
   setHeaderOptions,
 } from "@kubernetes/client-node";
 import { Context, Effect, Layer } from "effect";
+import { getOrElse, isSome, none, some, type Option } from "effect/Option";
 import { execa } from "execa";
+
 import type { WorkflowPhase, WorkflowReadApi } from "../../loop/argo-poll";
 import { classifyArgoPhase, extractArgoRawPhase } from "../../loop/argo-poll";
 
@@ -25,10 +27,15 @@ export interface CoreApi {
     options?: Parameters<CoreV1Api["patchNamespacedConfigMap"]>[1]
   ) => Promise<unknown>;
 }
-export type WorkflowApi = Pick<
-  CustomObjectsApi,
-  "createNamespacedCustomObject"
->;
+export interface WorkflowApi {
+  readonly createNamespacedCustomObject: (param: {
+    readonly body: unknown;
+    readonly group: string;
+    readonly namespace: string;
+    readonly plural: string;
+    readonly version: string;
+  }) => Promise<unknown>;
+}
 
 export interface KubernetesOwnerReference {
   readonly apiVersion: string;
@@ -65,6 +72,20 @@ export interface KubectlResult {
   stderr: string;
   stdout: string;
 }
+
+const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const stringField = (value: unknown, field: string): Option<string> => {
+  if (!isUnknownRecord(value)) {
+    return none();
+  }
+  const fieldValue = value[field];
+  return typeof fieldValue === "string" ? some(fieldValue) : none();
+};
+
+const textOption = (value?: string): Option<string> =>
+  value === undefined || value.length === 0 ? none() : some(value);
 
 export class KubernetesArgoService extends Context.Service<
   KubernetesArgoService,
@@ -111,102 +132,171 @@ export class KubernetesArgoService extends Context.Service<
   }
 >()("KubernetesArgoService") {}
 
+export const resolveKubeConfig = (
+  options: KubernetesArgoClientOptions,
+  dependencies: KubernetesArgoIoDependencies
+): KubeConfig => {
+  if (dependencies.kubeConfig !== undefined) {
+    return dependencies.kubeConfig;
+  }
+  const kubeConfig = new KubeConfig();
+  const kubeconfigPath = textOption(options.kubeconfigPath);
+  if (isSome(kubeconfigPath)) {
+    kubeConfig.loadFromFile(kubeconfigPath.value);
+  } else {
+    kubeConfig.loadFromDefault();
+  }
+  const kubeContext = textOption(options.kubeContext);
+  if (isSome(kubeContext)) {
+    const contextObject = kubeConfig.getContextObject(kubeContext.value);
+    if (contextObject === null) {
+      throw new Error(
+        `Kube context '${kubeContext.value}' was not found in the resolved kubeconfig`
+      );
+    }
+    kubeConfig.setCurrentContext(kubeContext.value);
+  }
+  return kubeConfig;
+};
+
+const buildApiClients = (
+  kubeConfig: KubeConfig,
+  dependencies: KubernetesArgoIoDependencies
+): { coreApi: CoreApi; workflowApi: WorkflowApi } => ({
+  coreApi: dependencies.coreApi ?? kubeConfig.makeApiClient(CoreV1Api),
+  workflowApi:
+    dependencies.workflowApi ?? kubeConfig.makeApiClient(CustomObjectsApi),
+});
+
+const apiClients = (
+  options: KubernetesArgoClientOptions,
+  dependencies: KubernetesArgoIoDependencies
+): { coreApi: CoreApi; workflowApi: WorkflowApi } => {
+  if (
+    dependencies.coreApi !== undefined &&
+    dependencies.workflowApi !== undefined
+  ) {
+    return {
+      coreApi: dependencies.coreApi,
+      workflowApi: dependencies.workflowApi,
+    };
+  }
+  return buildApiClients(
+    resolveKubeConfig(options, dependencies),
+    dependencies
+  );
+};
+
+const readApiClient = (
+  options: KubernetesArgoClientOptions,
+  dependencies: KubernetesArgoIoDependencies
+): WorkflowReadApi => {
+  if (dependencies.workflowReadApi !== undefined) {
+    return dependencies.workflowReadApi;
+  }
+  return resolveKubeConfig(options, dependencies).makeApiClient(
+    CustomObjectsApi
+  );
+};
+
+const kubectlArgs = (
+  args: readonly string[],
+  kubeContext?: string
+): string[] => {
+  const context = textOption(kubeContext);
+  return isSome(context) ? ["--context", context.value, ...args] : [...args];
+};
+
+const kubectlErrorStderr = (error: unknown): string => {
+  const stderr = stringField(error, "stderr");
+  if (isSome(stderr)) {
+    return stderr.value.trim();
+  }
+  const shortMessage = stringField(error, "shortMessage");
+  return getOrElse(shortMessage, () => "kubectl failed").trim();
+};
+
+const kubectlErrorStdout = (error: unknown): string =>
+  getOrElse(stringField(error, "stdout"), () => "").trim();
+
 export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
   createConfigMap: ({ body, dependencies, namespace, options }) =>
     Effect.try({
-      try: () => apiClients(options, dependencies),
       catch: (error) => error,
+      try: () => apiClients(options, dependencies),
     }).pipe(
       Effect.flatMap(({ coreApi }) =>
         Effect.tryPromise({
-          try: () => coreApi.createNamespacedConfigMap({ body, namespace }),
           catch: (error) => error,
-        })
-      )
-    ),
-  deleteConfigMap: ({ dependencies, name, namespace, options }) =>
-    Effect.try({
-      try: () => apiClients(options, dependencies),
-      catch: (error) => error,
-    }).pipe(
-      Effect.flatMap(({ coreApi }) =>
-        Effect.tryPromise({
-          try: () => coreApi.deleteNamespacedConfigMap({ name, namespace }),
-          catch: (error) => error,
+          try: async () =>
+            await coreApi.createNamespacedConfigMap({ body, namespace }),
         })
       )
     ),
   createWorkflow: ({ body, dependencies, namespace, options }) =>
     Effect.try({
-      try: () => apiClients(options, dependencies),
       catch: (error) => error,
+      try: () => apiClients(options, dependencies),
     }).pipe(
       Effect.flatMap(({ workflowApi }) =>
         Effect.tryPromise({
-          try: () =>
-            workflowApi.createNamespacedCustomObject({
+          catch: (error) => error,
+          try: async () =>
+            await workflowApi.createNamespacedCustomObject({
               body,
               group: "argoproj.io",
               namespace,
               plural: "workflows",
               version: "v1alpha1",
             }),
+        })
+      )
+    ),
+  deleteConfigMap: ({ dependencies, name, namespace, options }) =>
+    Effect.try({
+      catch: (error) => error,
+      try: () => apiClients(options, dependencies),
+    }).pipe(
+      Effect.flatMap(({ coreApi }) =>
+        Effect.tryPromise({
           catch: (error) => error,
+          try: async () =>
+            await coreApi.deleteNamespacedConfigMap({ name, namespace }),
         })
       )
     ),
   getWorkflowPhase: ({ dependencies, name, namespace, options }) =>
     Effect.try({
-      try: () => readApiClient(options, dependencies),
       catch: (error) => error,
+      try: () => readApiClient(options, dependencies),
     }).pipe(
       Effect.flatMap((workflowReadApi) =>
         Effect.tryPromise({
-          try: () =>
-            workflowReadApi.getNamespacedCustomObject({
+          catch: (error) => error,
+          try: async () =>
+            await workflowReadApi.getNamespacedCustomObject({
               group: "argoproj.io",
               name,
               namespace,
               plural: "workflows",
               version: "v1alpha1",
             }),
-          catch: (error) => error,
         })
       ),
       Effect.map((resource) => classifyArgoPhase(extractArgoRawPhase(resource)))
     ),
-  patchConfigMapOwnerReferences: ({
-    body,
-    dependencies,
-    name,
-    namespace,
-    options,
-  }) =>
-    Effect.try({
-      try: () => apiClients(options, dependencies),
-      catch: (error) => error,
-    }).pipe(
-      Effect.flatMap(({ coreApi }) =>
-        Effect.tryPromise({
-          try: () =>
-            coreApi.patchNamespacedConfigMap(
-              { body, name, namespace },
-              setHeaderOptions("Content-Type", PatchStrategy.MergePatch)
-            ),
-          catch: (error) => error,
-        })
-      )
-    ),
   kubectl: (args, options) =>
     Effect.tryPromise({
-      try: () =>
-        execa("kubectl", kubectlArgs(args, options.kubeContext), {
-          env: options.kubeconfigPath
-            ? { KUBECONFIG: options.kubeconfigPath }
+      catch: (error) => error,
+      try: async () => {
+        const kubeconfigPath = textOption(options.kubeconfigPath);
+        return await execa("kubectl", kubectlArgs(args, options.kubeContext), {
+          env: isSome(kubeconfigPath)
+            ? { KUBECONFIG: kubeconfigPath.value }
             : undefined,
           stdin: "ignore",
-        }),
-      catch: (error) => error,
+        });
+      },
     }).pipe(
       Effect.map((result) => ({
         ok: true,
@@ -221,87 +311,26 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
         })
       )
     ),
+  patchConfigMapOwnerReferences: ({
+    body,
+    dependencies,
+    name,
+    namespace,
+    options,
+  }) =>
+    Effect.try({
+      catch: (error) => error,
+      try: () => apiClients(options, dependencies),
+    }).pipe(
+      Effect.flatMap(({ coreApi }) =>
+        Effect.tryPromise({
+          catch: (error) => error,
+          try: async () =>
+            await coreApi.patchNamespacedConfigMap(
+              { body, name, namespace },
+              setHeaderOptions("Content-Type", PatchStrategy.MergePatch)
+            ),
+        })
+      )
+    ),
 });
-
-export function resolveKubeConfig(
-  options: KubernetesArgoClientOptions,
-  dependencies: KubernetesArgoIoDependencies
-): KubeConfig {
-  if (dependencies.kubeConfig) {
-    return dependencies.kubeConfig;
-  }
-  const kubeConfig = new KubeConfig();
-  if (options.kubeconfigPath) {
-    kubeConfig.loadFromFile(options.kubeconfigPath);
-  } else {
-    kubeConfig.loadFromDefault();
-  }
-  if (options.kubeContext) {
-    if (!kubeConfig.getContextObject(options.kubeContext)) {
-      throw new Error(
-        `Kube context '${options.kubeContext}' was not found in the resolved kubeconfig`
-      );
-    }
-    kubeConfig.setCurrentContext(options.kubeContext);
-  }
-  return kubeConfig;
-}
-
-function apiClients(
-  options: KubernetesArgoClientOptions,
-  dependencies: KubernetesArgoIoDependencies
-): { coreApi: CoreApi; workflowApi: WorkflowApi } {
-  if (dependencies.coreApi && dependencies.workflowApi) {
-    return {
-      coreApi: dependencies.coreApi,
-      workflowApi: dependencies.workflowApi,
-    };
-  }
-  return buildApiClients(
-    resolveKubeConfig(options, dependencies),
-    dependencies
-  );
-}
-
-function buildApiClients(
-  kubeConfig: KubeConfig,
-  dependencies: KubernetesArgoIoDependencies
-): { coreApi: CoreApi; workflowApi: WorkflowApi } {
-  return {
-    coreApi: dependencies.coreApi ?? kubeConfig.makeApiClient(CoreV1Api),
-    workflowApi:
-      dependencies.workflowApi ?? kubeConfig.makeApiClient(CustomObjectsApi),
-  };
-}
-
-function readApiClient(
-  options: KubernetesArgoClientOptions,
-  dependencies: KubernetesArgoIoDependencies
-): WorkflowReadApi {
-  if (dependencies.workflowReadApi) {
-    return dependencies.workflowReadApi;
-  }
-  return resolveKubeConfig(options, dependencies).makeApiClient(
-    CustomObjectsApi
-  );
-}
-
-function kubectlArgs(
-  args: readonly string[],
-  kubeContext: string | undefined
-): string[] {
-  return kubeContext ? ["--context", kubeContext, ...args] : [...args];
-}
-
-function kubectlErrorStderr(error: unknown): string {
-  const parsed = error as {
-    readonly shortMessage?: string;
-    readonly stderr?: string;
-  };
-  return (parsed.stderr || parsed.shortMessage || "kubectl failed").trim();
-}
-
-function kubectlErrorStdout(error: unknown): string {
-  const parsed = error as { readonly stdout?: string };
-  return (parsed.stdout || "").trim();
-}

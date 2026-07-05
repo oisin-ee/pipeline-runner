@@ -3,14 +3,20 @@ import {
   configuredGateway,
   gatewayAuthorizationHeader,
   gatewayUrl,
-  type McpGatewayConfig,
   PIPELINE_GATEWAY_SERVER_ID,
 } from "./gateway-config";
+import type { McpGatewayConfig } from "./gateway-config";
 
-export function renderOpenCodeGatewayConfig(
+const gatewayOpenCodeHeaders = (
+  gateway: McpGatewayConfig
+): Record<string, string> => ({
+  Authorization: gatewayAuthorizationHeader(gateway),
+});
+
+export const renderOpenCodeGatewayConfig = (
   config: PipelineConfig,
   env: NodeJS.ProcessEnv = process.env
-): string {
+): string => {
   const gateway = configuredGateway(config);
   return `${JSON.stringify(
     {
@@ -28,12 +34,18 @@ export function renderOpenCodeGatewayConfig(
     null,
     2
   )}\n`;
-}
+};
 
-export function renderClaudeGatewayMcpServers(
+const gatewayClaudeHeaders = (
+  gateway: McpGatewayConfig
+): Record<string, string> => ({
+  Authorization: `\${${gateway.authorization_env}}`,
+});
+
+export const renderClaudeGatewayMcpServers = (
   config: PipelineConfig,
   env: NodeJS.ProcessEnv = process.env
-): Record<string, unknown> {
+): Record<string, unknown> => {
   const gateway = configuredGateway(config);
   return {
     [PIPELINE_GATEWAY_SERVER_ID]: {
@@ -42,25 +54,26 @@ export function renderClaudeGatewayMcpServers(
       url: gatewayUrl(gateway, env),
     },
   };
-}
+};
 
-export function renderClaudeGatewayUserConfig(
+export const renderClaudeGatewayUserConfig = (
   config: PipelineConfig,
   env: NodeJS.ProcessEnv = process.env
-): string {
-  return `${JSON.stringify(
+): string =>
+  `${JSON.stringify(
     {
       mcpServers: renderClaudeGatewayMcpServers(config, env),
     },
     null,
     2
   )}\n`;
-}
 
-export function renderCodexGatewayConfig(
+const tomlString = (value: string): string => JSON.stringify(value);
+
+export const renderCodexGatewayConfig = (
   config: PipelineConfig,
   env: NodeJS.ProcessEnv = process.env
-): string {
+): string => {
   const gateway = configuredGateway(config);
   return [
     `[mcp_servers.${PIPELINE_GATEWAY_SERVER_ID}]`,
@@ -70,24 +83,4 @@ export function renderCodexGatewayConfig(
     `Authorization = ${tomlString(gateway.authorization_env)}`,
     "",
   ].join("\n");
-}
-
-function gatewayOpenCodeHeaders(
-  gateway: McpGatewayConfig
-): Record<string, string> {
-  return {
-    Authorization: gatewayAuthorizationHeader(gateway),
-  };
-}
-
-function gatewayClaudeHeaders(
-  gateway: McpGatewayConfig
-): Record<string, string> {
-  return {
-    Authorization: `\${${gateway.authorization_env}}`,
-  };
-}
-
-function tomlString(value: string): string {
-  return JSON.stringify(value);
-}
+};

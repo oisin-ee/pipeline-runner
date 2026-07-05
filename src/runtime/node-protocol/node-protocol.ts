@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
 
 /**
@@ -107,14 +108,12 @@ export type SubmitResult = z.infer<typeof submitResultSchema>;
  * plug). Throws a structured {@link z.ZodError} on malformed input — never
  * swallows it.
  */
-export function parseNextNodeEnvelope(value: unknown): NextNodeEnvelope {
-  return nextNodeEnvelopeSchema.parse(value);
-}
+export const parseNextNodeEnvelope = (value: unknown): NextNodeEnvelope =>
+  nextNodeEnvelopeSchema.parse(value);
 
 /**
  * Parse + validate a {@link SubmitResult}. Throws a structured
  * {@link z.ZodError} on malformed input or a `(runId, nodeId)` key mismatch.
  */
-export function parseSubmitResult(value: unknown): SubmitResult {
-  return submitResultSchema.parse(value);
-}
+export const parseSubmitResult = (value: unknown): SubmitResult =>
+  submitResultSchema.parse(value);

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+
 import type { PipelineRuntimeEvent } from "../src/pipeline-runtime";
 import type { MokaNodeStatus } from "../src/run-control/contracts";
 import {
   createRuntimeEventProjectionState,
   projectRuntimeEvent,
-  type RuntimeEventProjectionState,
-  type RuntimeEventStoreWriteIntent,
+} from "../src/run-control/runtime-event-projection";
+import type {
+  RuntimeEventProjectionState,
+  RuntimeEventStoreWriteIntent,
 } from "../src/run-control/runtime-event-projection";
 
 interface ProjectionCase {
@@ -32,10 +35,10 @@ const hookStart: PipelineRuntimeEvent = {
   workflowId: "runtime-bridge",
 };
 
-function projectEvents(
+const projectEvents = (
   events: PipelineRuntimeEvent[],
   initialState = createRuntimeEventProjectionState()
-) {
+) => {
   let state = initialState;
   const writes: RuntimeEventStoreWriteIntent[] = [];
 
@@ -46,17 +49,15 @@ function projectEvents(
   }
 
   return { state, writes };
-}
+};
 
-function stateWithObservedStatus(
+const stateWithObservedStatus = (
   nodeId: string,
   status: MokaNodeStatus
-): RuntimeEventProjectionState {
-  return {
-    activeHookPreviousStatuses: new Map(),
-    observedNodeStatuses: new Map([[nodeId, status]]),
-  };
-}
+): RuntimeEventProjectionState => ({
+  activeHookPreviousStatuses: new Map(),
+  observedNodeStatuses: new Map([[nodeId, status]]),
+});
 
 const projectionCases: ProjectionCase[] = [
   {
@@ -234,40 +235,41 @@ const projectionCases: ProjectionCase[] = [
 ];
 
 describe("projectRuntimeEvent", () => {
-  it.each(projectionCases)("$name", ({
-    events,
-    expectedObservedNodeStatuses,
-    expectedWrites,
-    initialState,
-  }) => {
-    const projection = projectEvents(events, initialState);
+  it.each(projectionCases)(
+    "$name",
+    ({
+      events,
+      expectedObservedNodeStatuses,
+      expectedWrites,
+      initialState,
+    }) => {
+      const projection = projectEvents(events, initialState);
 
-    expect(projection.writes).toEqual(expectedWrites);
-    expect(
-      Array.from(projection.state.activeHookPreviousStatuses.entries())
-    ).toEqual([]);
-    expect(Array.from(projection.state.observedNodeStatuses.entries())).toEqual(
-      expectedObservedNodeStatuses ?? []
-    );
-  });
+      expect(projection.writes).toEqual(expectedWrites);
+      expect([
+        ...projection.state.activeHookPreviousStatuses.entries(),
+      ]).toEqual([]);
+      expect([...projection.state.observedNodeStatuses.entries()]).toEqual(
+        expectedObservedNodeStatuses ?? []
+      );
+    }
+  );
 
   it("returns next state without mutating the input state", () => {
     const initialState = stateWithObservedStatus("hooked", "passed");
 
     const projection = projectRuntimeEvent(hookStart, initialState);
 
-    expect(
-      Array.from(initialState.activeHookPreviousStatuses.entries())
-    ).toEqual([]);
-    expect(Array.from(initialState.observedNodeStatuses.entries())).toEqual([
+    expect([...initialState.activeHookPreviousStatuses.entries()]).toEqual([]);
+    expect([...initialState.observedNodeStatuses.entries()]).toEqual([
       ["hooked", "passed"],
     ]);
-    expect(
-      Array.from(projection.state.activeHookPreviousStatuses.entries())
-    ).toEqual([["notify-hooked", "passed"]]);
-    expect(Array.from(projection.state.observedNodeStatuses.entries())).toEqual(
-      [["hooked", "running"]]
-    );
+    expect([...projection.state.activeHookPreviousStatuses.entries()]).toEqual([
+      ["notify-hooked", "passed"],
+    ]);
+    expect([...projection.state.observedNodeStatuses.entries()]).toEqual([
+      ["hooked", "running"],
+    ]);
     expect(projection.writes).toEqual([
       { nodeId: "hooked", status: "running", type: "node.status" },
     ]);

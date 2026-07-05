@@ -65,6 +65,88 @@ const NODE_FINISH_STATUSES: Record<
 
 const noStoreWriteHandler: AnyProjectionHandler = () => [];
 
+export const createRuntimeEventProjectionState =
+  (): RuntimeEventProjectionState => ({
+    activeHookPreviousStatuses: new Map(),
+    observedNodeStatuses: new Map(),
+  });
+
+const isRuntimeEventOfType = <Type extends RuntimeEventType>(
+  event: PipelineRuntimeEvent,
+  type: Type
+): event is RuntimeEventOf<Type> => event.type === type;
+
+const eventHandler =
+  <Type extends RuntimeEventType>(
+    type: Type,
+    handler: ProjectionHandler<Type>
+  ): AnyProjectionHandler =>
+  (event, state) => {
+    if (!isRuntimeEventOfType(event, type)) {
+      throw new Error(`Projection handler mismatch for event type ${type}`);
+    }
+    return handler(event, state);
+  };
+
+const nodeStatusIntent = (
+  state: MutableProjectionState,
+  nodeId: string,
+  status: MokaNodeStatus
+): RuntimeEventStoreWriteIntent[] => {
+  state.observedNodeStatuses.set(nodeId, status);
+  return [
+    {
+      nodeId,
+      status,
+      type: "node.status",
+    },
+  ];
+};
+
+const projectHookStart = (
+  event: RuntimeEventOf<"hook.start">,
+  state: MutableProjectionState
+): RuntimeEventStoreWriteIntent[] => {
+  if (event.nodeId === undefined || event.nodeId.length === 0) {
+    return [];
+  }
+
+  const previous = state.observedNodeStatuses.get(event.nodeId);
+  if (previous) {
+    state.activeHookPreviousStatuses.set(event.hookId, previous);
+  }
+
+  return nodeStatusIntent(state, event.nodeId, "running");
+};
+
+const projectHookFinish = (
+  event: RuntimeEventOf<"hook.finish">,
+  state: MutableProjectionState
+): RuntimeEventStoreWriteIntent[] => {
+  if (event.nodeId === undefined || event.nodeId.length === 0) {
+    return [];
+  }
+
+  const previousStatus = state.activeHookPreviousStatuses.get(event.hookId);
+  state.activeHookPreviousStatuses.delete(event.hookId);
+
+  if (!event.passed && event.required) {
+    return nodeStatusIntent(state, event.nodeId, "blocked");
+  }
+
+  return nodeStatusIntent(state, event.nodeId, previousStatus ?? "running");
+};
+
+const cloneProjectionState = (
+  state: RuntimeEventProjectionState
+): MutableProjectionState => ({
+  activeHookPreviousStatuses: new Map(state.activeHookPreviousStatuses),
+  observedNodeStatuses: new Map(state.observedNodeStatuses),
+});
+
+const agentFinishStatus = (exitCode: number): MokaNodeStatus =>
+  exitCode === 0 ? "running" : "failed";
+
 const EVENT_PROJECTION_HANDLERS: Record<
   RuntimeEventType,
   AnyProjectionHandler
@@ -118,109 +200,20 @@ const EVENT_PROJECTION_HANDLERS: Record<
   ]),
 };
 
-export function createRuntimeEventProjectionState(): RuntimeEventProjectionState {
-  return {
-    activeHookPreviousStatuses: new Map(),
-    observedNodeStatuses: new Map(),
-  };
-}
+const projectRuntimeEventWrites = (
+  event: PipelineRuntimeEvent,
+  state: MutableProjectionState
+): RuntimeEventStoreWriteIntent[] =>
+  EVENT_PROJECTION_HANDLERS[event.type](event, state);
 
-export function projectRuntimeEvent(
+export const projectRuntimeEvent = (
   event: PipelineRuntimeEvent,
   state: RuntimeEventProjectionState
-): RuntimeEventProjection {
+): RuntimeEventProjection => {
   const nextState = cloneProjectionState(state);
 
   return {
     state: nextState,
     writes: projectRuntimeEventWrites(event, nextState),
   };
-}
-
-function projectRuntimeEventWrites(
-  event: PipelineRuntimeEvent,
-  state: MutableProjectionState
-): RuntimeEventStoreWriteIntent[] {
-  return EVENT_PROJECTION_HANDLERS[event.type](event, state);
-}
-
-function eventHandler<Type extends RuntimeEventType>(
-  type: Type,
-  handler: ProjectionHandler<Type>
-): AnyProjectionHandler {
-  return (event, state) => {
-    if (!isRuntimeEventOfType(event, type)) {
-      throw new Error(`Projection handler mismatch for event type ${type}`);
-    }
-    return handler(event, state);
-  };
-}
-
-function isRuntimeEventOfType<Type extends RuntimeEventType>(
-  event: PipelineRuntimeEvent,
-  type: Type
-): event is RuntimeEventOf<Type> {
-  return event.type === type;
-}
-
-function projectHookStart(
-  event: RuntimeEventOf<"hook.start">,
-  state: MutableProjectionState
-): RuntimeEventStoreWriteIntent[] {
-  if (!event.nodeId) {
-    return [];
-  }
-
-  const previous = state.observedNodeStatuses.get(event.nodeId);
-  if (previous) {
-    state.activeHookPreviousStatuses.set(event.hookId, previous);
-  }
-
-  return nodeStatusIntent(state, event.nodeId, "running");
-}
-
-function projectHookFinish(
-  event: RuntimeEventOf<"hook.finish">,
-  state: MutableProjectionState
-): RuntimeEventStoreWriteIntent[] {
-  if (!event.nodeId) {
-    return [];
-  }
-
-  const previousStatus = state.activeHookPreviousStatuses.get(event.hookId);
-  state.activeHookPreviousStatuses.delete(event.hookId);
-
-  if (!event.passed && event.required) {
-    return nodeStatusIntent(state, event.nodeId, "blocked");
-  }
-
-  return nodeStatusIntent(state, event.nodeId, previousStatus ?? "running");
-}
-
-function nodeStatusIntent(
-  state: MutableProjectionState,
-  nodeId: string,
-  status: MokaNodeStatus
-): RuntimeEventStoreWriteIntent[] {
-  state.observedNodeStatuses.set(nodeId, status);
-  return [
-    {
-      nodeId,
-      status,
-      type: "node.status",
-    },
-  ];
-}
-
-function cloneProjectionState(
-  state: RuntimeEventProjectionState
-): MutableProjectionState {
-  return {
-    activeHookPreviousStatuses: new Map(state.activeHookPreviousStatuses),
-    observedNodeStatuses: new Map(state.observedNodeStatuses),
-  };
-}
-
-function agentFinishStatus(exitCode: number): MokaNodeStatus {
-  return exitCode === 0 ? "running" : "failed";
-}
+};

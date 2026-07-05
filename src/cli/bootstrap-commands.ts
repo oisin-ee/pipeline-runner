@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
+
 import type { Command } from "commander";
+
 import {
   formatCodexAuthSyncResult,
   syncLocalCodexAuth,
@@ -8,7 +10,8 @@ import {
   formatPipelineInitResult,
   initPipelineProject,
 } from "../pipeline-init";
-import { type DoctorFlags, runDoctor as runDoctorChecks } from "./doctor";
+import { runDoctor as runDoctorChecks } from "./doctor";
+import type { DoctorFlags } from "./doctor";
 import { formatDoctorResult } from "./format";
 
 interface InitFlags {
@@ -23,7 +26,7 @@ interface CodexAuthSyncLocalFlags {
   root?: string;
 }
 
-export function registerBootstrapCommands(program: Command): void {
+export const registerBootstrapCommands = (program: Command): void => {
   program
     .command("doctor")
     .description("Check local prerequisites for pipeline init and execution")
@@ -38,7 +41,9 @@ export function registerBootstrapCommands(program: Command): void {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const result = await runDoctorChecks(cwd, flags);
       console.log(
-        flags.json ? JSON.stringify(result) : formatDoctorResult(result)
+        flags.json === true
+          ? JSON.stringify(result)
+          : formatDoctorResult(result)
       );
       if (!result.passed) {
         throw new Error("Doctor checks failed.");
@@ -99,4 +104,4 @@ export function registerBootstrapCommands(program: Command): void {
         process.exitCode = 1;
       }
     });
-}
+};

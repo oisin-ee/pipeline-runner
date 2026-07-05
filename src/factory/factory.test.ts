@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+
 import { describe, expect, it } from "vitest";
+
 import {
   buildCopierCopyArgs,
   committerConfigArgs,
@@ -13,16 +15,16 @@ import { githubGitCredentialEnv } from "./git-credentials";
 import { isStampOf, parseCopierAnswers } from "./stamp-answers";
 import { runTemplateUpdate, summarizeTemplateUpdate } from "./template-update";
 
-const KEBAB_ERROR = /kebab-case/;
-const ALREADY_EXISTS_ERROR = /already exists/;
-const SIDE_EFFECT_CALLS = /^(copier copy|gh repo create|git push|git clone)/;
-const COPIER_COPY_CALL = /^copier copy/;
-const GH_REPO_CREATE_CALL = /^gh repo create oisin-ee\/scratch-app --private/;
-const APP_PUSH_CALL = /^git push -u origin main/;
-const GIT_CLONE_CALL = /^git clone/;
-const INFRA_PUSH_CALL = /^git push origin HEAD:main/;
-const REPO_DIR_PREFIX = /^update-/;
-const STORE_FILE_RE = /^store --file=(.+)$/;
+const KEBAB_ERROR = /kebab-case/u;
+const ALREADY_EXISTS_ERROR = /already exists/u;
+const SIDE_EFFECT_CALLS = /^(copier copy|gh repo create|git push|git clone)/u;
+const COPIER_COPY_CALL = /^copier copy/u;
+const GH_REPO_CREATE_CALL = /^gh repo create oisin-ee\/scratch-app --private/u;
+const APP_PUSH_CALL = /^git push -u origin main/u;
+const GIT_CLONE_CALL = /^git clone/u;
+const INFRA_PUSH_CALL = /^git push origin HEAD:main/u;
+const REPO_DIR_PREFIX = /^update-/u;
+const STORE_FILE_RE = /^store --file=(.+)$/u;
 
 const MOMOKAYA_ANSWERS = [
   "_commit: v1.0.2",
@@ -95,100 +97,21 @@ describe("buildCopierCopyArgs", () => {
   });
 });
 
-describe("runCreateExperiment", () => {
-  it("rejects a non-kebab-case name before any side effect", async () => {
-    await expect(
-      runCreateExperiment({
-        exec: failingExec,
-        git: failingGit,
-        name: "Bad_Name",
-      })
-    ).rejects.toThrow(KEBAB_ERROR);
-  });
-
-  it("runs stamp -> repo create -> push -> registry commit in order", async () => {
-    const workRoot = mkdtempSync(join(tmpdir(), "factory-test-"));
-    const calls: string[] = [];
-    const exec: FactoryExec = (command, args) => {
-      calls.push([command, ...args].join(" "));
-      if (command === "gh" && args[0] === "repo" && args[1] === "view") {
-        return Promise.reject(new Error("not found"));
-      }
-      if (command === "copier") {
-        const registryDir = join(
-          workRoot,
-          "scratch-app",
-          "infra-registry",
-          "config"
-        );
-        mkdirSync(registryDir, { recursive: true });
-        writeFileSync(
-          join(registryDir, "scratch-app.yaml"),
-          "repo: scratch-app\n"
-        );
-      }
-      return Promise.resolve({ stdout: "" });
-    };
-    const git: FactoryGit = (_cwd, args) => {
-      calls.push(["git", ...args].join(" "));
-      if (args[0] === "clone") {
-        mkdirSync(join(String(args.at(-1)), "k8s"), { recursive: true });
-      }
-      return Promise.resolve(args[0] === "rev-parse" ? "abc123\n" : "");
-    };
-
-    const result = await runCreateExperiment({
-      exec,
-      git,
-      log: () => undefined,
-      name: "scratch-app",
-      workRoot,
-    });
-
-    expect(result.repoUrl).toBe("https://github.com/oisin-ee/scratch-app");
-    expect(result.registryPath).toBe(
-      "k8s/apps/platform-fleet/config/scratch-app.yaml"
-    );
-    expect(result.infraCommitSha).toBe("abc123");
-    const sequence = calls.filter((call) => SIDE_EFFECT_CALLS.test(call));
-    expect(sequence[0]).toMatch(COPIER_COPY_CALL);
-    expect(sequence[1]).toMatch(GH_REPO_CREATE_CALL);
-    expect(sequence[2]).toMatch(APP_PUSH_CALL);
-    expect(sequence[3]).toMatch(GIT_CLONE_CALL);
-    expect(sequence[4]).toMatch(INFRA_PUSH_CALL);
-  });
-
-  it("refuses to overwrite an existing repo", async () => {
-    const exec: FactoryExec = (command, args) =>
-      command === "gh" && args[1] === "view"
-        ? Promise.resolve({ stdout: "{}" })
-        : Promise.reject(new Error("unexpected exec"));
-    await expect(
-      runCreateExperiment({
-        exec,
-        git: failingGit,
-        log: () => undefined,
-        name: "taken",
-      })
-    ).rejects.toThrow(ALREADY_EXISTS_ERROR);
-  });
-});
-
 describe("runTemplateUpdate", () => {
   it("filters non-momokaya stamps and aggregates per-repo results", async () => {
     const workRoot = mkdtempSync(join(tmpdir(), "factory-update-"));
-    const exec: FactoryExec = (command, args) => {
+    const exec: FactoryExec = async (command, args) => {
       if (command === "copier") {
-        return Promise.resolve({ stdout: "" });
+        return { stdout: "" };
       }
       if (command === "gh" && args[0] === "pr") {
-        return Promise.resolve({
+        return {
           stdout: "https://github.com/oisin-ee/stamped/pull/1\n",
-        });
+        };
       }
-      return Promise.reject(new Error(`unexpected exec ${command}`));
+      throw new Error(`unexpected exec ${command}`);
     };
-    const git: FactoryGit = (_cwd, args) => {
+    const git: FactoryGit = async (_cwd, args) => {
       if (args[0] === "clone") {
         const dir = String(args.at(-1));
         mkdirSync(dir, { recursive: true });
@@ -202,18 +125,18 @@ describe("runTemplateUpdate", () => {
             OTHER_TEMPLATE_ANSWERS
           );
         }
-        return Promise.resolve("");
+        return "";
       }
       if (args[0] === "status") {
-        return Promise.resolve(" M mise.toml\n");
+        return " M mise.toml\n";
       }
-      return Promise.resolve("");
+      return "";
     };
 
     const { results } = await runTemplateUpdate({
       exec,
       git,
-      log: () => undefined,
+      log: () => {},
       repos: ["stamped", "other", "bare"],
       workRoot,
     });
@@ -238,19 +161,19 @@ describe("runTemplateUpdate", () => {
 
   it("reports a clean tree as up-to-date", async () => {
     const workRoot = mkdtempSync(join(tmpdir(), "factory-clean-"));
-    const git: FactoryGit = (_cwd, args) => {
+    const git: FactoryGit = async (_cwd, args) => {
       if (args[0] === "clone") {
         const dir = String(args.at(-1));
         mkdirSync(dir, { recursive: true });
         writeFileSync(join(dir, ".copier-answers.yml"), MOMOKAYA_ANSWERS);
-        return Promise.resolve("");
+        return "";
       }
-      return Promise.resolve("");
+      return "";
     };
     const { results } = await runTemplateUpdate({
-      exec: () => Promise.resolve({ stdout: "" }),
+      exec: async () => ({ stdout: "" }),
       git,
-      log: () => undefined,
+      log: () => {},
       repos: ["stamped"],
       workRoot,
     });
@@ -275,19 +198,19 @@ describe("buildFactoryLaneJob", () => {
     expect(job.metadata.labels[FACTORY_LANE_LABEL]).toBe("create-experiment");
     const podSpec = job.spec.template.spec;
     const container = podSpec.containers[0];
-    expect(container?.args).toEqual([
+    expect(container.args).toEqual([
       "create-experiment",
       "--name",
       "scratch-app",
     ]);
-    expect(container && "command" in container).toBe(false);
+    expect("command" in container).toBe(false);
     expect(podSpec.restartPolicy).toBe("Never");
     expect(job.spec.backoffLimit).toBe(0);
     expect(podSpec.volumes.map((volume) => volume.name)).toEqual([
       "runner-git-credentials",
       "github-auth",
     ]);
-    expect(container?.volumeMounts).toEqual([
+    expect(container.volumeMounts).toEqual([
       {
         mountPath: "/etc/pipeline/git-credentials",
         name: "runner-git-credentials",
@@ -344,15 +267,99 @@ describe("githubGitCredentialEnv", () => {
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");
     const storeMatch = STORE_FILE_RE.exec(env.GIT_CONFIG_VALUE_0 ?? "");
     expect(storeMatch).not.toBeNull();
-    const storePath = storeMatch?.[1] ?? "";
+    if (storeMatch === null) {
+      throw new Error("Expected credential.helper store file path");
+    }
+    const storePath = storeMatch[1];
     // The token lands only in the 0600 store file, never in a URL/argv.
-    expect(readFileSync(storePath, "utf8")).toBe(
+    expect(readFileSync(storePath, "utf-8")).toBe(
       "https://oisin-bot:ghp_secrettoken@github.com\n"
     );
   });
 });
 
-const failingExec: FactoryExec = () =>
-  Promise.reject(new Error("exec must not run"));
-const failingGit: FactoryGit = () =>
-  Promise.reject(new Error("git must not run"));
+const failingExec: FactoryExec = () => {
+  throw new Error("exec must not run");
+};
+const failingGit: FactoryGit = () => {
+  throw new Error("git must not run");
+};
+
+describe("runCreateExperiment", () => {
+  it("rejects a non-kebab-case name before any side effect", async () => {
+    await expect(
+      runCreateExperiment({
+        exec: failingExec,
+        git: failingGit,
+        name: "Bad_Name",
+      })
+    ).rejects.toThrow(KEBAB_ERROR);
+  });
+
+  it("runs stamp -> repo create -> push -> registry commit in order", async () => {
+    const workRoot = mkdtempSync(join(tmpdir(), "factory-test-"));
+    const calls: string[] = [];
+    const exec: FactoryExec = async (command, args) => {
+      calls.push([command, ...args].join(" "));
+      if (command === "gh" && args[0] === "repo" && args[1] === "view") {
+        throw new Error("not found");
+      }
+      if (command === "copier") {
+        const registryDir = join(
+          workRoot,
+          "scratch-app",
+          "infra-registry",
+          "config"
+        );
+        mkdirSync(registryDir, { recursive: true });
+        writeFileSync(
+          join(registryDir, "scratch-app.yaml"),
+          "repo: scratch-app\n"
+        );
+      }
+      return { stdout: "" };
+    };
+    const git: FactoryGit = async (_cwd, args) => {
+      calls.push(["git", ...args].join(" "));
+      if (args[0] === "clone") {
+        mkdirSync(join(String(args.at(-1)), "k8s"), { recursive: true });
+      }
+      return args[0] === "rev-parse" ? "abc123\n" : "";
+    };
+
+    const result = await runCreateExperiment({
+      exec,
+      git,
+      log: () => {},
+      name: "scratch-app",
+      workRoot,
+    });
+
+    expect(result.repoUrl).toBe("https://github.com/oisin-ee/scratch-app");
+    expect(result.registryPath).toBe(
+      "k8s/apps/platform-fleet/config/scratch-app.yaml"
+    );
+    expect(result.infraCommitSha).toBe("abc123");
+    const sequence = calls.filter((call) => SIDE_EFFECT_CALLS.test(call));
+    expect(sequence[0]).toMatch(COPIER_COPY_CALL);
+    expect(sequence[1]).toMatch(GH_REPO_CREATE_CALL);
+    expect(sequence[2]).toMatch(APP_PUSH_CALL);
+    expect(sequence[3]).toMatch(GIT_CLONE_CALL);
+    expect(sequence[4]).toMatch(INFRA_PUSH_CALL);
+  });
+
+  it("refuses to overwrite an existing repo", async () => {
+    const exec: FactoryExec = async (command, args) =>
+      command === "gh" && args[1] === "view"
+        ? await Promise.resolve({ stdout: "{}" })
+        : await Promise.reject(new Error("unexpected exec"));
+    await expect(
+      runCreateExperiment({
+        exec,
+        git: failingGit,
+        log: () => {},
+        name: "taken",
+      })
+    ).rejects.toThrow(ALREADY_EXISTS_ERROR);
+  });
+});

@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock execa
@@ -36,14 +37,14 @@ const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 detectMock = vi.fn();
 const tempDirs: string[] = [];
 
-function tempWorktree(scripts?: Record<string, string>): string {
+const tempWorktree = (scripts?: Record<string, string>): string => {
   const dir = mkdtempSync(join(tmpdir(), "pipeline-gates-"));
   tempDirs.push(dir);
   if (scripts) {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts }));
   }
   return dir;
-}
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -56,7 +57,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 // ─── runTests ───────────────────────────────────────────────────────────────
@@ -66,8 +67,8 @@ describe("runTests", () => {
     const worktree = tempWorktree({ test: "custom-test-runner" });
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "All tests passed",
       stderr: "",
+      stdout: "All tests passed",
     } as any);
 
     const result = await runTests(worktree);
@@ -92,8 +93,8 @@ describe("runTests", () => {
     mockExeca.mockRejectedValueOnce(
       Object.assign(new Error("exit 1"), {
         exitCode: 1,
-        stdout: fakeOutput,
         stderr: "",
+        stdout: fakeOutput,
       })
     );
 
@@ -109,8 +110,8 @@ describe("runTests", () => {
     const worktree = tempWorktree();
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "ok",
       stderr: "",
+      stdout: "ok",
     } as any);
 
     const result = await runTests(worktree);
@@ -150,8 +151,8 @@ describe("runTypecheck", () => {
     const worktree = tempWorktree({ typecheck: "custom-typecheck" });
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "",
       stderr: "",
+      stdout: "",
     } as any);
 
     const result = await runTypecheck(worktree);
@@ -168,8 +169,8 @@ describe("runTypecheck", () => {
     const worktree = tempWorktree({ typecheck: "custom-typecheck" });
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "ok",
       stderr: "",
+      stdout: "ok",
     } as any);
 
     const result = await runTypecheck(worktree);
@@ -188,8 +189,8 @@ describe("runTypecheck", () => {
     mockExeca.mockRejectedValueOnce(
       Object.assign(new Error("typecheck error"), {
         exitCode: 1,
-        stdout: "typecheck failed",
         stderr: "",
+        stdout: "typecheck failed",
       })
     );
 
@@ -203,8 +204,8 @@ describe("runTypecheck", () => {
     const worktree = tempWorktree();
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "ok",
       stderr: "",
+      stdout: "ok",
     } as any);
 
     const result = await runTypecheck(worktree);
@@ -227,8 +228,8 @@ describe("runSemgrep", () => {
     writeFileSync(join(worktree, "src/app.ts"), "export const app = true;\n");
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "semgrep ok",
       stderr: "",
+      stdout: "semgrep ok",
     } as any);
 
     const result = await runSemgrep(worktree, undefined, ["src/app.ts"]);
@@ -259,8 +260,8 @@ describe("runSemgrep", () => {
     const worktree = tempWorktree();
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "ok",
       stderr: "",
+      stdout: "ok",
     } as any);
 
     const result = await runSemgrep(worktree);
@@ -278,8 +279,8 @@ describe("runSemgrep", () => {
     mockExeca.mockRejectedValueOnce(
       Object.assign(new Error("semgrep failed"), {
         exitCode: 2,
-        stdout: "finding",
         stderr: "",
+        stdout: "finding",
       })
     );
 
@@ -297,8 +298,8 @@ describe("runFallow", () => {
     const worktree = tempWorktree();
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "fallow ok",
       stderr: "",
+      stdout: "fallow ok",
     } as any);
 
     const result = await runFallow(worktree);
@@ -317,8 +318,8 @@ describe("runFallow", () => {
     const worktree = tempWorktree({ lint: "custom-lint" });
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "fallow ok",
       stderr: "",
+      stdout: "fallow ok",
     } as any);
 
     const result = await runFallow(worktree);
@@ -337,8 +338,8 @@ describe("runFallow", () => {
     const worktree = tempWorktree();
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "ok",
       stderr: "",
+      stdout: "ok",
     } as any);
 
     const result = await runFallow(worktree);
@@ -406,7 +407,7 @@ describe("artifactExists", () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { force: true, recursive: true });
   });
 
   it("returns true when file exists", () => {
@@ -425,8 +426,8 @@ describe("runJscpd", () => {
   it("excludes dependency and generated pipeline directories from the default scan", async () => {
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: JSON.stringify({ duplicates: [] }),
       stderr: "",
+      stdout: JSON.stringify({ duplicates: [] }),
     } as any);
 
     await runJscpd("/fake/worktree");
@@ -461,17 +462,17 @@ describe("runJscpd", () => {
     const jscpdOutput = JSON.stringify({
       duplicates: [
         {
+          firstFile: { end: 10, name: "src/a.ts", start: 1 },
           format: "typescript",
-          firstFile: { name: "src/a.ts", start: 1, end: 10 },
-          secondFile: { name: "src/b.ts", start: 5, end: 14 },
           fragment: "const x = 1",
+          secondFile: { end: 14, name: "src/b.ts", start: 5 },
         },
       ],
     });
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: jscpdOutput,
       stderr: "",
+      stdout: jscpdOutput,
     } as any);
 
     const result = await runJscpd("/fake/worktree");
@@ -482,8 +483,8 @@ describe("runJscpd", () => {
   it("returns empty violations when no duplicates", async () => {
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: JSON.stringify({ duplicates: [] }),
       stderr: "",
+      stdout: JSON.stringify({ duplicates: [] }),
     } as any);
 
     const result = await runJscpd("/fake/worktree");
@@ -493,8 +494,8 @@ describe("runJscpd", () => {
   it("returns empty violations when jscpd output is unparseable", async () => {
     mockExeca.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "not json at all",
       stderr: "",
+      stdout: "not json at all",
     } as any);
 
     const result = await runJscpd("/fake/worktree");

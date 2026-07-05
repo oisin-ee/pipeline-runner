@@ -1,6 +1,9 @@
 // fallow-ignore-file unused-file
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
+
 import type { PipelineGoalState } from "../goal-state/goal-state";
+
+const NO_PROMPT_PATH: Option.Option<string> = Option.none();
 
 // fallow-ignore-next-line unused-type
 export type GoalLoopTerminalState =
@@ -56,31 +59,30 @@ export class GoalLoopService extends Context.Service<
       attempt: number,
       prompt: string,
       state: PipelineGoalState
-    ) => Effect.Effect<string | undefined, unknown>;
+    ) => Effect.Effect<Option.Option<string>, unknown>;
   }
 >()("GoalLoopService") {}
+
+const optionalWritePromptEffect = (
+  writer: GoalLoopOptions["writePrompt"],
+  attempt: number,
+  prompt: string,
+  state: PipelineGoalState
+): Effect.Effect<Option.Option<string>, unknown> =>
+  writer !== undefined
+    ? Effect.tryPromise({
+        catch: (error) => error,
+        try: async () => Option.some(await writer(attempt, prompt, state)),
+      })
+    : Effect.succeed(NO_PROMPT_PATH);
 
 // fallow-ignore-next-line unused-export
 export const GoalLoopServiceLive = Layer.succeed(GoalLoopService, {
   runContinuation: (runner, input) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => Promise.resolve(runner(input)),
+      try: async () => await runner(input),
     }),
   writePrompt: (writer, attempt, prompt, state) =>
     optionalWritePromptEffect(writer, attempt, prompt, state),
 });
-
-function optionalWritePromptEffect(
-  writer: GoalLoopOptions["writePrompt"],
-  attempt: number,
-  prompt: string,
-  state: PipelineGoalState
-): Effect.Effect<string | undefined, unknown> {
-  return writer
-    ? Effect.tryPromise({
-        catch: (error) => error,
-        try: () => Promise.resolve(writer(attempt, prompt, state)),
-      })
-    : Effect.succeed(undefined);
-}

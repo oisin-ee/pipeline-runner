@@ -3,8 +3,10 @@ import { forKind } from "../../contract";
 import { evaluateBuiltinGate } from "./builtin";
 
 export const builtinModule: GateKindModule = {
-  kind: "builtin",
-  evaluate: forKind("builtin", (gate, input) =>
-    evaluateBuiltinGate(gate, input.gateId, input.nodeId, input.context)
+  evaluate: forKind(
+    "builtin",
+    async (gate, input) =>
+      await evaluateBuiltinGate(gate, input.gateId, input.nodeId, input.context)
   ),
+  kind: "builtin",
 };

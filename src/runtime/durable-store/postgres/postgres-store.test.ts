@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
+
+import { Option } from "effect";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../../contracts";
 import {
   migratePostgresDurableStore,
-  type PostgresDurableRunStore,
   postgresDurableRunStore,
 } from "./postgres-store";
+import type { PostgresDurableRunStore } from "./postgres-store";
 import { MOKA_POSTGRES_SCHEMA } from "./schema";
 
 // PIPE-91.4: integration test against the REAL cluster Postgres (no
@@ -16,27 +19,23 @@ import { MOKA_POSTGRES_SCHEMA } from "./schema";
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
-function failedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 1"],
-    exitCode: 1,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "failed",
-  };
-}
+const failedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 1"],
+  exitCode: 1,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "failed",
+});
 
 describePg("postgresDurableRunStore (live cluster PG)", () => {
   const dbUrl = PG_URL;
@@ -47,15 +46,14 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
   const openStores: PostgresDurableRunStore[] = [];
   let admin: postgres.Sql;
 
-  function runId(label: string): string {
-    return `${suitePrefix}:${label}:${randomUUID()}`;
-  }
+  const runId = (label: string): string =>
+    `${suitePrefix}:${label}:${randomUUID()}`;
 
-  async function newStore(): Promise<PostgresDurableRunStore> {
+  const newStore = async (): Promise<PostgresDurableRunStore> => {
     const store = await postgresDurableRunStore(dbUrl);
     openStores.push(store);
     return store;
-  }
+  };
 
   beforeAll(async () => {
     await migratePostgresDurableStore(dbUrl);
@@ -89,16 +87,16 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
 
     // A fresh instance hydrates from Postgres — proves the read came through PG.
     const reader = await newStore();
-    const got = reader.get(id, "build");
-    expect(got?.result).toEqual(result);
-    expect(got?.criteria).toEqual(criteria);
-    expect(got?.inputs).toEqual(inputs);
-    expect(typeof got?.recordedAt).toBe("string");
+    const got = Option.getOrThrow(reader.get(id, "build"));
+    expect(got.result).toEqual(result);
+    expect(got.criteria).toEqual(criteria);
+    expect(got.inputs).toEqual(inputs);
+    expect(typeof got.recordedAt).toBe("string");
   });
 
   it("returns undefined for an unrecorded (runId, nodeId) pair", async () => {
     const store = await newStore();
-    expect(store.get(runId("missing"), "nope")).toBeUndefined();
+    expect(Option.isNone(store.get(runId("missing"), "nope"))).toBe(true);
   });
 
   it("overwrites an existing record on re-record (ON CONFLICT DO UPDATE)", async () => {
@@ -117,7 +115,9 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
     await writer.flush();
 
     const reader = await newStore();
-    expect(reader.get(id, "node")?.result.output).toBe("second run");
+    expect(Option.getOrThrow(reader.get(id, "node")).result.output).toBe(
+      "second run"
+    );
   });
 
   it("resumeCompleted returns only passed results, read back from PG (AC1)", async () => {
@@ -143,7 +143,7 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
     const reader = await newStore();
     const resumed = reader.resumeCompleted(id);
     expect(resumed).toHaveLength(2);
-    expect(resumed.map((r) => r.nodeId).sort()).toEqual(["a", "b"]);
+    expect(resumed.map((r) => r.nodeId).toSorted()).toEqual(["a", "b"]);
     expect(resumed.every((r) => r.status === "passed")).toBe(true);
   });
 
@@ -159,7 +159,7 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
     const resumed = reader.toRunJournal(id).resumeCompleted();
     expect(resumed).toHaveLength(1);
     expect(resumed[0]?.nodeId).toBe("x");
-    expect(reader.get(id, "x")?.result.status).toBe("passed");
+    expect(Option.getOrThrow(reader.get(id, "x")).result.status).toBe("passed");
   });
 
   it("applies migrations idempotently on the live DB (AC2)", async () => {
@@ -198,8 +198,12 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
     await Promise.all([storeA.flush(), storeB.flush()]);
 
     const reader = await newStore();
-    expect(reader.get(idA, "shared")?.inputs).toEqual({ run: "A" });
-    expect(reader.get(idB, "shared")?.inputs).toEqual({ run: "B" });
+    expect(Option.getOrThrow(reader.get(idA, "shared")).inputs).toEqual({
+      run: "A",
+    });
+    expect(Option.getOrThrow(reader.get(idB, "shared")).inputs).toEqual({
+      run: "B",
+    });
     // Each run reads only its own records.
     expect(reader.resumeCompleted(idA).map((r) => r.nodeId)).toEqual([
       "shared",
@@ -207,6 +211,6 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
     expect(reader.resumeCompleted(idB).map((r) => r.nodeId)).toEqual([
       "shared",
     ]);
-    expect(reader.get(idA, "absent")).toBeUndefined();
+    expect(Option.isNone(reader.get(idA, "absent"))).toBe(true);
   });
 });

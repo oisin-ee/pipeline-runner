@@ -1,5 +1,8 @@
-import { Cause, Effect, Option } from "effect";
+import { Cause } from "effect";
+import { Effect } from "effect";
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
 import type { TicketSelectionStrategy } from "../tickets/ticket-selection";
 import type {
@@ -18,21 +21,19 @@ import type { GhRunner, PrResolution } from "./gh-checks";
 // ---------------------------------------------------------------------------
 
 /** Minimal task record factory — only fields the controller reads. */
-function task(
+const task = (
   id: string,
   dependencies: readonly string[] = []
-): BacklogTaskRecord {
-  return {
-    acceptanceCriteria: [],
-    dependencies,
-    filePath: `backlog/tasks/${id}.md`,
-    id,
-    modifiedFiles: [],
-    references: [],
-    status: "To Do",
-    title: `Ticket ${id}`,
-  };
-}
+): BacklogTaskRecord => ({
+  acceptanceCriteria: [],
+  dependencies,
+  filePath: `backlog/tasks/${id}.md`,
+  id,
+  modifiedFiles: [],
+  references: [],
+  status: "To Do",
+  title: `Ticket ${id}`,
+});
 
 /** A gh runner that never resolves anything by itself — the loop only calls
  * resolvePr / classifyChecks via injected seams in these tests, so the raw gh
@@ -68,10 +69,12 @@ interface Recorder {
   readonly submits: SubmitRunInput[];
 }
 
-function buildDeps(config: ScriptedDepsConfig): {
+const buildDeps = (
+  config: ScriptedDepsConfig
+): {
   deps: ControllerDeps;
   recorder: Recorder;
-} {
+} => {
   const events: LoopControllerEvent[] = [];
   const submits: SubmitRunInput[] = [];
   let classifyCount = 0;
@@ -79,16 +82,24 @@ function buildDeps(config: ScriptedDepsConfig): {
   const phases = config.phases ?? [];
 
   const deps: ControllerDeps = {
+    classifyChecks: (_pr, _gh) => {
+      const response = classifyResponses[classifyCount] ?? "indeterminate";
+      classifyCount += 1;
+      return Effect.succeed(response);
+    },
+    emit: (event) => {
+      events.push(event);
+      return Effect.void;
+    },
+    gh: unusedGh,
     loadGraph: () => Effect.succeed(config.tasks),
-    refreshBacklog: () => Effect.succeed(config.tasks),
-    submitRun: (input: SubmitRunInput) => {
-      submits.push(input);
-      const runId = `run-${input.ticketId}`;
-      const result: SubmitRunResult = {
-        runId,
-        workflowName: `wf-${runId}`,
-      };
-      return Effect.succeed(result);
+    maxMergePolls: config.maxMergePolls ?? 5,
+    maxRemediationAttempts: config.maxRemediationAttempts ?? 2,
+    merge: ({ classification, pr }) => {
+      if (classification === "infra-down") {
+        return Effect.succeed(Option.some({ _tag: "merged", pr: pr.number }));
+      }
+      return Effect.succeed(Option.none());
     },
     pollPhase: ({ workflowName }) => {
       // phase is keyed by submit order — find this submit's index by its runId.
@@ -98,44 +109,33 @@ function buildDeps(config: ScriptedDepsConfig): {
       const phase = phases[index] ?? "Succeeded";
       return Effect.succeed(phase);
     },
-    gh: unusedGh,
-    resolvePr: (_runId, _gh) => Effect.succeed(FOUND_PR),
-    classifyChecks: (_pr, _gh) => {
-      const response = classifyResponses[classifyCount] ?? "indeterminate";
-      classifyCount += 1;
-      return Effect.succeed(response);
-    },
-    merge: ({ classification, pr }) => {
-      if (classification === "infra-down") {
-        return Effect.succeed({ _tag: "merged", pr: pr.number });
-      }
-      return Effect.succeed(null);
-    },
     projectId: "project-demo",
-    emit: (event) => {
-      events.push(event);
-      return Effect.void;
-    },
-    sleep: () => Effect.void,
-    maxRemediationAttempts: config.maxRemediationAttempts ?? 2,
-    maxMergePolls: config.maxMergePolls ?? 5,
+    refreshBacklog: () => Effect.succeed(config.tasks),
+    resolvePr: (_runId, _gh) => Effect.succeed(FOUND_PR),
     rootId: config.rootId,
+    sleep: () => Effect.void,
     strategy: config.strategy ?? "bfs",
+    submitRun: (input: SubmitRunInput) => {
+      submits.push(input);
+      const runId = `run-${input.ticketId}`;
+      const result: SubmitRunResult = {
+        runId,
+        workflowName: `wf-${runId}`,
+      };
+      return Effect.succeed(result);
+    },
   };
 
   return {
     deps,
     recorder: { events, submits },
   };
-}
+};
 
-function transitions(events: LoopControllerEvent[]): string[] {
-  return events
+const transitions = (events: LoopControllerEvent[]): string[] =>
+  events
     .filter((e) => e.type === "loop.node.transition")
-    .map((e) =>
-      e.type === "loop.node.transition" ? `${e.ticketId}:${e.loopState}` : ""
-    );
-}
+    .map((e) => `${e.ticketId}:${e.loopState}`);
 
 // ---------------------------------------------------------------------------
 // AC1 — 3-node chain drains in dependency order; each ends passed.
@@ -144,10 +144,10 @@ function transitions(events: LoopControllerEvent[]): string[] {
 describe("runLoopController — AC1 dependency chain", () => {
   it("drains A->B->C in order with each node passed and merged", async () => {
     const { deps, recorder } = buildDeps({
-      tasks: [task("A"), task("B", ["A"]), task("C", ["B"])],
       // Happy auto-merge path: each ticket's merge poll observes the PR landed,
       // signalled by classifyChecks returning "merged".
       classifyResponses: ["merged", "merged", "merged"],
+      tasks: [task("A"), task("B", ["A"]), task("C", ["B"])],
     });
 
     const summary = await Effect.runPromise(runLoopController(deps));
@@ -192,10 +192,10 @@ describe("runLoopController — AC1 dependency chain", () => {
 describe("runLoopController — AC2 remediation loop", () => {
   it("remediates a fixable failure on the PR branch then merges", async () => {
     const { deps, recorder } = buildDeps({
-      tasks: [task("A")],
       // first classify -> fixable (remediate), second -> merged.
       classifyResponses: ["fixable", "merged"],
       maxRemediationAttempts: 3,
+      tasks: [task("A")],
     });
 
     const summary = await Effect.runPromise(runLoopController(deps));
@@ -216,7 +216,6 @@ describe("runLoopController — AC2 remediation loop", () => {
 
   it("caps remediation attempts and blocks when never green", async () => {
     const { deps, recorder } = buildDeps({
-      tasks: [task("A")],
       // always fixable -> exhausts attempts.
       classifyResponses: [
         "fixable",
@@ -226,6 +225,7 @@ describe("runLoopController — AC2 remediation loop", () => {
         "fixable",
       ],
       maxRemediationAttempts: 2,
+      tasks: [task("A")],
     });
 
     const summary = await Effect.runPromise(runLoopController(deps));
@@ -247,8 +247,8 @@ describe("runLoopController — AC2 remediation loop", () => {
 describe("runLoopController — AC3 classification outcomes", () => {
   it("admin-merges on infra-down and passes", async () => {
     const { deps } = buildDeps({
-      tasks: [task("A")],
       classifyResponses: ["infra-down"],
+      tasks: [task("A")],
     });
     const summary = await Effect.runPromise(runLoopController(deps));
     expect(summary.passed).toBe(1);
@@ -257,7 +257,6 @@ describe("runLoopController — AC3 classification outcomes", () => {
 
   it("blocks on indeterminate after bounded waiting (never merges)", async () => {
     const { deps, recorder } = buildDeps({
-      tasks: [task("A")],
       classifyResponses: [
         "indeterminate",
         "indeterminate",
@@ -266,6 +265,7 @@ describe("runLoopController — AC3 classification outcomes", () => {
         "indeterminate",
       ],
       maxMergePolls: 3,
+      tasks: [task("A")],
     });
     const summary = await Effect.runPromise(runLoopController(deps));
     expect(summary.passed).toBe(0);
@@ -277,8 +277,8 @@ describe("runLoopController — AC3 classification outcomes", () => {
 
   it("blocks when the pipeline phase is Failed (no PR resolution)", async () => {
     const { deps, recorder } = buildDeps({
-      tasks: [task("A")],
       phases: ["Failed"],
+      tasks: [task("A")],
     });
     const summary = await Effect.runPromise(runLoopController(deps));
     expect(summary.passed).toBe(0);
@@ -289,9 +289,9 @@ describe("runLoopController — AC3 classification outcomes", () => {
   it("continues to an independent ready ticket after one blocks", async () => {
     // A and B independent; A's pipeline fails (blocked), B passes.
     const { deps, recorder } = buildDeps({
-      tasks: [task("A"), task("B")],
-      phases: ["Failed", "Succeeded"],
       classifyResponses: ["merged"],
+      phases: ["Failed", "Succeeded"],
+      tasks: [task("A"), task("B")],
     });
     const summary = await Effect.runPromise(runLoopController(deps));
     expect(summary.passed).toBe(1);
@@ -306,8 +306,8 @@ describe("runLoopController — AC3 classification outcomes", () => {
   it("leaves a blocked node's dependents unreached", async () => {
     // A fails; B depends on A and is never ready -> never submitted.
     const { deps, recorder } = buildDeps({
-      tasks: [task("A"), task("B", ["A"])],
       phases: ["Failed"],
+      tasks: [task("A"), task("B", ["A"])],
     });
     const summary = await Effect.runPromise(runLoopController(deps));
     expect(summary.blocked).toBe(1);
@@ -325,12 +325,12 @@ describe("runLoopController — AC3 classification outcomes", () => {
 describe("runLoopController — configurable strategy", () => {
   it("emits the configured strategy in loop.start", async () => {
     const { deps, recorder } = buildDeps({
-      tasks: [task("A")],
       classifyResponses: ["merged"],
       strategy: "priority",
+      tasks: [task("A")],
     });
     await Effect.runPromise(runLoopController(deps));
-    const start = recorder.events[0];
+    const start = recorder.events.at(0);
     expect(start?.type).toBe("loop.start");
     if (start?.type === "loop.start") {
       expect(start).toMatchObject({
@@ -346,9 +346,9 @@ describe("runLoopController — configurable strategy", () => {
     const high: BacklogTaskRecord = { ...task("Z"), priority: "high" };
     const low: BacklogTaskRecord = { ...task("A"), priority: "low" };
     const { deps, recorder } = buildDeps({
-      tasks: [low, high],
       classifyResponses: ["merged", "merged"],
       strategy: "priority",
+      tasks: [low, high],
     });
     await Effect.runPromise(runLoopController(deps));
     const order = recorder.submits.map((s) => s.ticketId);

@@ -1,11 +1,10 @@
 import type { Command } from "commander";
 import { Context, Effect, Layer } from "effect";
+
 import { runRunnerFinalize } from "../runner-command/finalize";
 import { runRunnerLifecycle } from "../runner-command/lifecycle";
-import {
-  type PreSchedulePhase,
-  runPreSchedulePhase,
-} from "../runner-command/pre-schedule";
+import { runPreSchedulePhase } from "../runner-command/pre-schedule";
+import type { PreSchedulePhase } from "../runner-command/pre-schedule";
 import { runRunnerCommand } from "../runner-command/run";
 import { runSelectReadyWave } from "../runner-command/select-ready-wave";
 
@@ -55,27 +54,27 @@ const RunnerCommandServiceLive = Layer.succeed(RunnerCommandService, {
   finalize: (options) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => runRunnerFinalize(options),
+      try: async () => await runRunnerFinalize(options),
     }),
   lifecycle: (options) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => runRunnerLifecycle(options),
+      try: async () => await runRunnerLifecycle(options),
     }),
   preSchedule: (options) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => runPreSchedulePhase(options),
+      try: async () => await runPreSchedulePhase(options),
     }),
   run: (options) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => runRunnerCommand(options),
+      try: async () => await runRunnerCommand(options),
     }),
   selectReadyWave: (options) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => runSelectReadyWave(options),
+      try: async () => await runSelectReadyWave(options),
     }),
 });
 
@@ -85,28 +84,28 @@ const setProcessExitCode = (exitCode: number) =>
   });
 
 const runRunnerCommandEffect = (options: RunnerCommandOptions) =>
-  Effect.gen(function* () {
+  Effect.gen(function* runRunnerCommandEffect() {
     const service = yield* RunnerCommandService;
     const exitCode = yield* service.run(options);
     yield* setProcessExitCode(exitCode);
   });
 
 const runRunnerLifecycleEffect = (options: RunnerLifecycleOptions) =>
-  Effect.gen(function* () {
+  Effect.gen(function* runRunnerLifecycleEffect() {
     const service = yield* RunnerCommandService;
     const exitCode = yield* service.lifecycle(options);
     yield* setProcessExitCode(exitCode);
   });
 
 const runRunnerFinalizeEffect = (options: RunnerFinalizeOptions) =>
-  Effect.gen(function* () {
+  Effect.gen(function* runRunnerFinalizeEffect() {
     const service = yield* RunnerCommandService;
     const exitCode = yield* service.finalize(options);
     yield* setProcessExitCode(exitCode);
   });
 
 const runPreScheduleEffect = (options: PreScheduleOptions) =>
-  Effect.gen(function* () {
+  Effect.gen(function* runPreScheduleEffect() {
     const service = yield* RunnerCommandService;
     const exitCode = yield* service.preSchedule(options);
     yield* setProcessExitCode(exitCode);
@@ -116,17 +115,17 @@ const runSelectReadyWaveEffect = (options: {
   outputFile: string;
   payloadFile: string;
 }) =>
-  Effect.gen(function* () {
+  Effect.gen(function* runSelectReadyWaveEffect() {
     const service = yield* RunnerCommandService;
     const exitCode = yield* service.selectReadyWave(options);
     yield* setProcessExitCode(exitCode);
   });
 
-const runRunnerProgram = <A>(
+const runRunnerProgram = async <A>(
   program: Effect.Effect<A, unknown, RunnerCommandService>
-) => Effect.runPromise(Effect.provide(program, RunnerCommandServiceLive));
+) => await Effect.runPromise(Effect.provide(program, RunnerCommandServiceLive));
 
-export function registerRunnerCommandCommand(program: Command): void {
+export const registerRunnerCommandCommand = (program: Command): void => {
   program
     .command("runner-command")
     .description("Run one scheduled Argo Workflow task")
@@ -134,9 +133,9 @@ export function registerRunnerCommandCommand(program: Command): void {
     .option("--node-id <id>", "Node id to execute without a task descriptor")
     .option("--schedule-file <path>", "Path to the schedule artifact YAML")
     .option("--schedule-source <source>", "Schedule source: file or db")
-    .action((options: RunnerCommandOptions) =>
-      runRunnerProgram(runRunnerCommandEffect(options))
-    );
+    .action(async (options: RunnerCommandOptions) => {
+      await runRunnerProgram(runRunnerCommandEffect(options));
+    });
 
   program
     .command("runner-lifecycle")
@@ -147,9 +146,9 @@ export function registerRunnerCommandCommand(program: Command): void {
       "--schedule-file <path>",
       "Path to the schedule artifact YAML"
     )
-    .action((options: RunnerLifecycleOptions) =>
-      runRunnerProgram(runRunnerLifecycleEffect(options))
-    );
+    .action(async (options: RunnerLifecycleOptions) => {
+      await runRunnerProgram(runRunnerLifecycleEffect(options));
+    });
 
   program
     .command("runner-pre-schedule")
@@ -159,9 +158,9 @@ export function registerRunnerCommandCommand(program: Command): void {
       "pre-research, pre-planning, or generate-schedule"
     )
     .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
-    .action((options: PreScheduleOptions) =>
-      runRunnerProgram(runPreScheduleEffect(options))
-    );
+    .action(async (options: PreScheduleOptions) => {
+      await runRunnerProgram(runPreScheduleEffect(options));
+    });
 
   program
     .command("runner-finalize")
@@ -171,9 +170,9 @@ export function registerRunnerCommandCommand(program: Command): void {
     .option("--schedule-source <source>", "Schedule source: file or db")
     .requiredOption("--argo-status <status>", "Argo Workflow status")
     .option("--argo-failures <json>", "Argo Workflow failure details JSON")
-    .action((options: RunnerFinalizeOptions) =>
-      runRunnerProgram(runRunnerFinalizeEffect(options))
-    );
+    .action(async (options: RunnerFinalizeOptions) => {
+      await runRunnerProgram(runRunnerFinalizeEffect(options));
+    });
 
   program
     .command("runner-select-ready-wave")
@@ -183,7 +182,7 @@ export function registerRunnerCommandCommand(program: Command): void {
       "--output-file <path>",
       "Path where the ready node id JSON array is written"
     )
-    .action((options: { outputFile: string; payloadFile: string }) =>
-      runRunnerProgram(runSelectReadyWaveEffect(options))
-    );
-}
+    .action(async (options: { outputFile: string; payloadFile: string }) => {
+      await runRunnerProgram(runSelectReadyWaveEffect(options));
+    });
+};

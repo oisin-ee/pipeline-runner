@@ -15,7 +15,7 @@ interface WriteFailure {
  * writes after a failure; flush reports the first failure from the drained
  * sequence range while leaving caller-specific error policy to the caller.
  */
-export function createSerializedWriteQueue(): SerializedWriteQueue {
+export const createSerializedWriteQueue = (): SerializedWriteQueue => {
   let nextSequence = 0;
   let tail: Promise<void> = Promise.resolve();
   const failures: WriteFailure[] = [];
@@ -51,4 +51,4 @@ export function createSerializedWriteQueue(): SerializedWriteQueue {
       }
     },
   };
-}
+};

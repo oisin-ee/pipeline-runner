@@ -1,10 +1,10 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-export function resolveFileReference(
+export const resolveFileReference = (
   basePath: string,
   pathRef: string
-): string {
+): string => {
   if (pathRef === "~") {
     return homedir();
   }
@@ -15,4 +15,4 @@ export function resolveFileReference(
     return pathRef;
   }
   return join(basePath, pathRef);
-}
+};

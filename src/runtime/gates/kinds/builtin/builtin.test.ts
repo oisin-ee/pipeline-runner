@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import {
   baseGateRuntimeFields,
   gateNodeStateStore,
@@ -15,7 +16,7 @@ vi.mock("../../../builtins", () => ({
 import { executeBuiltin } from "../../../builtins";
 import { evaluateBuiltinGate } from "./builtin";
 
-function testContext(): RuntimeContext {
+const testContext = (): RuntimeContext => {
   const config = parsePipelineConfigParts(
     {
       pipeline:
@@ -36,10 +37,10 @@ function testContext(): RuntimeContext {
     workflowId: "smoke",
     worktreePath: process.cwd(),
   };
-}
+};
 
 const gate: BuiltinGateSpec = { builtin: "test", kind: "builtin" };
-const BUILTIN_FAILED_RE = /builtin 'test' failed/;
+const BUILTIN_FAILED_RE = /builtin 'test' failed/u;
 
 describe("evaluateBuiltinGate", () => {
   it("passes when builtin exits 0", async () => {

@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
+
 import type { ChangedFilesGateSpec, RuntimeContext } from "../../../contracts";
 import { NodeStateStore } from "../../../node-state-store";
 import { evaluateChangedFilesGate } from "./changed-files";
 
-function ctx(files: string[]): Pick<RuntimeContext, "nodeStateStore"> {
-  return {
-    nodeStateStore: new NodeStateStore({
-      nodeSnapshots: new Map([
-        ["node-a", { files: new Set(files), fingerprints: new Map() }],
-      ]),
-    }),
-  };
-}
+const ctx = (files: string[]): Pick<RuntimeContext, "nodeStateStore"> => ({
+  nodeStateStore: new NodeStateStore({
+    nodeSnapshots: new Map([
+      ["node-a", { files: new Set(files), fingerprints: new Map() }],
+    ]),
+  }),
+});
 
 describe("evaluateChangedFilesGate", () => {
   it("passes when changed files match allow + require_any policies", () => {

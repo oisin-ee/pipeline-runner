@@ -1,5 +1,6 @@
 import { Duration, Effect } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { raceDetached } from "./detached-race";
 
 describe("raceDetached", () => {

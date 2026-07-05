@@ -1,15 +1,17 @@
 import { inspect } from "node:util";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { CheckClassification, GhRunner, PrResolution } from "./gh-checks";
 import {
   adminMerge,
   enableAutoMerge,
   mergeForClassification,
-  type SecretFileReader,
   secretToken,
   selectMergeAction,
 } from "./merge";
+import type { SecretFileReader } from "./merge";
 
 // ---------------------------------------------------------------------------
 // Test doubles — record gh calls; never touch real GitHub or real secrets.
@@ -17,17 +19,17 @@ import {
 
 interface RecordingGh extends GhRunner {
   readonly jsonCalls: string[][];
-  readonly secretEnvCalls: (Readonly<Record<string, string>> | undefined)[];
+  readonly secretEnvCalls: Option.Option<Readonly<Record<string, string>>>[];
   readonly textCalls: string[][];
 }
 
-function recordingGh(
+const recordingGh = (
   text: (args: string[]) => Effect.Effect<string, Error> = () =>
     Effect.succeed("")
-): RecordingGh {
+): RecordingGh => {
   const jsonCalls: string[][] = [];
   const textCalls: string[][] = [];
-  const secretEnvCalls: (Readonly<Record<string, string>> | undefined)[] = [];
+  const secretEnvCalls: Option.Option<Readonly<Record<string, string>>>[] = [];
   return {
     json: (args) => {
       jsonCalls.push(args);
@@ -37,12 +39,12 @@ function recordingGh(
     secretEnvCalls,
     text: (args, options) => {
       textCalls.push(args);
-      secretEnvCalls.push(options?.secretEnv);
+      secretEnvCalls.push(Option.fromNullishOr(options?.secretEnv));
       return text(args);
     },
     textCalls,
   };
-}
+};
 
 const PR: Extract<PrResolution, { found: true }> = {
   found: true,
@@ -51,28 +53,26 @@ const PR: Extract<PrResolution, { found: true }> = {
   url: "https://github.com/o/r/pull/99",
 };
 
-function tokenReader(rawToken: string | null): SecretFileReader {
-  return {
-    readBypassToken: () => (rawToken === null ? null : secretToken(rawToken)),
-  };
-}
+const tokenReader = (rawToken: Option.Option<string>): SecretFileReader => ({
+  readBypassToken: () => Option.map(rawToken, (value) => secretToken(value)),
+});
 
 /** Secret reader that records whether the token was read — proves gating. */
-function recordingTokenReader(): {
+const recordingTokenReader = (): {
   reader: SecretFileReader;
   wasRead: () => boolean;
-} {
+} => {
   let read = false;
   return {
     reader: {
       readBypassToken: () => {
         read = true;
-        return secretToken("super-secret");
+        return Option.some(secretToken("super-secret"));
       },
     },
     wasRead: () => read,
   };
-}
+};
 
 // ---------------------------------------------------------------------------
 // AC1: enableAutoMerge invokes `gh pr merge --auto` and returns pending.
@@ -119,29 +119,30 @@ describe("selectMergeAction (dispatch table is the single gating owner)", () => 
 describe("mergeForClassification gating", () => {
   // Both non-infra classifications must short-circuit before reading the token.
   const noMergeClasses: CheckClassification[] = ["fixable", "indeterminate"];
-  it.each(
-    noMergeClasses
-  )("performs NO merge and never reads the token for %s", async (classification) => {
-    const gh = recordingGh();
-    const secrets = recordingTokenReader();
+  it.each(noMergeClasses)(
+    "performs NO merge and never reads the token for %s",
+    async (classification) => {
+      const gh = recordingGh();
+      const secrets = recordingTokenReader();
 
-    const outcome = await Effect.runPromise(
-      mergeForClassification({
-        classification,
-        gh,
-        pr: PR,
-        secrets: secrets.reader,
-      })
-    );
+      const outcome = await Effect.runPromise(
+        mergeForClassification({
+          classification,
+          gh,
+          pr: PR,
+          secrets: secrets.reader,
+        })
+      );
 
-    expect(outcome).toBeNull();
-    expect(gh.textCalls).toEqual([]);
-    expect(secrets.wasRead()).toBe(false);
-  });
+      expect(Option.isNone(outcome)).toBe(true);
+      expect(gh.textCalls).toEqual([]);
+      expect(secrets.wasRead()).toBe(false);
+    }
+  );
 
   it("admin-merges ONLY on infra-down and reports merged", async () => {
     const gh = recordingGh();
-    const secrets = tokenReader("super-secret");
+    const secrets = tokenReader(Option.some("super-secret"));
 
     const outcome = await Effect.runPromise(
       mergeForClassification({
@@ -152,7 +153,7 @@ describe("mergeForClassification gating", () => {
       })
     );
 
-    expect(outcome).toEqual({ _tag: "merged", pr: 99 });
+    expect(outcome).toEqual(Option.some({ _tag: "merged", pr: 99 }));
     expect(gh.textCalls).toHaveLength(1);
     expect(gh.textCalls[0]).toContain("--admin");
   });
@@ -192,7 +193,7 @@ describe("adminMerge token confidentiality (AC2 redaction)", () => {
       expect(line).not.toContain(SECRET);
     }
     // the token IS delivered — but only through the env channel.
-    expect(gh.secretEnvCalls.at(-1)).toEqual({ GH_TOKEN: SECRET });
+    expect(gh.secretEnvCalls.at(-1)).toEqual(Option.some({ GH_TOKEN: SECRET }));
   });
 });
 
@@ -203,7 +204,7 @@ describe("adminMerge token confidentiality (AC2 redaction)", () => {
 describe("blocked outcomes (AC3 abuse/error paths)", () => {
   it("surfaces a missing bypass token as blocked, never a silent skip", async () => {
     const gh = recordingGh();
-    const secrets = tokenReader(null);
+    const secrets = tokenReader(Option.none());
 
     const outcome = await Effect.runPromise(
       mergeForClassification({
@@ -214,10 +215,9 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
       })
     );
 
-    expect(outcome).not.toBeNull();
-    expect(outcome?._tag).toBe("blocked");
-    if (outcome?._tag === "blocked") {
-      expect(outcome.reason).toBe("missing-token");
+    expect(Option.isSome(outcome)).toBe(true);
+    if (Option.isSome(outcome) && outcome.value._tag === "blocked") {
+      expect(outcome.value.reason).toBe("missing-token");
     }
     // No merge was attempted without a token.
     expect(gh.textCalls).toEqual([]);
@@ -227,7 +227,7 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
     const gh = recordingGh(() =>
       Effect.fail(new Error("merge conflict between head and base"))
     );
-    const secrets = tokenReader("super-secret");
+    const secrets = tokenReader(Option.some("super-secret"));
 
     const outcome = await Effect.runPromise(
       mergeForClassification({
@@ -238,10 +238,10 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
       })
     );
 
-    expect(outcome?._tag).toBe("blocked");
-    if (outcome?._tag === "blocked") {
-      expect(outcome.reason).toBe("merge-conflict");
-      expect(outcome.detail).toContain("merge conflict");
+    expect(Option.isSome(outcome)).toBe(true);
+    if (Option.isSome(outcome) && outcome.value._tag === "blocked") {
+      expect(outcome.value.reason).toBe("merge-conflict");
+      expect(outcome.value.detail).toContain("merge conflict");
     }
   });
 
@@ -249,7 +249,7 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
     const gh = recordingGh(() =>
       Effect.fail(new Error("GraphQL: protected branch update failed"))
     );
-    const secrets = tokenReader("super-secret");
+    const secrets = tokenReader(Option.some("super-secret"));
 
     const result = await Effect.runPromise(
       Effect.result(
@@ -264,8 +264,12 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
 
     // Surfaced as a value, not a thrown failure.
     expect(result._tag).toBe("Success");
-    if (result._tag === "Success" && result.success?._tag === "blocked") {
-      expect(result.success.reason).toBe("not-mergeable");
+    if (
+      result._tag === "Success" &&
+      Option.isSome(result.success) &&
+      result.success.value._tag === "blocked"
+    ) {
+      expect(result.success.value.reason).toBe("not-mergeable");
     }
   });
 });

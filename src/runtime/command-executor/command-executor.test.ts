@@ -1,13 +1,15 @@
 import { spawnSync } from "node:child_process";
+
 import { execa } from "execa";
 import { beforeEach, describe, expect, it } from "vitest";
+
 import { executeCommand } from "./command-executor";
 
 const maybeMockExeca = execa as unknown as {
   mockImplementation?: (implementation: unknown) => unknown;
 };
 
-function spawnResponse(
+const spawnResponse = (
   command: string,
   args: string[],
   options?: {
@@ -15,21 +17,21 @@ function spawnResponse(
     env?: Record<string, string>;
     maxBuffer?: number;
   }
-) {
+) => {
   const result = spawnSync(command, args, {
     cwd: options?.cwd,
-    encoding: "utf8",
-    env: { ...process.env, ...(options?.env ?? {}) },
+    encoding: "utf-8",
+    env: { ...process.env, ...options?.env },
     maxBuffer: options?.maxBuffer,
   });
   return {
     exitCode: result.status ?? 0,
-    stderr: result.stderr?.trim() ?? "",
-    stdout: result.stdout?.trim() ?? "",
+    stderr: result.stderr.trim(),
+    stdout: result.stdout.trim(),
   };
-}
+};
 
-function mockExecaWithSpawnSync(): void {
+const mockExecaWithSpawnSync = (): void => {
   maybeMockExeca.mockImplementation?.(
     (
       command: string,
@@ -42,12 +44,12 @@ function mockExecaWithSpawnSync(): void {
     ) => {
       const response = spawnResponse(command, args, options);
       if (response.exitCode !== 0) {
-        return Promise.reject(response);
+        throw response;
       }
-      return Promise.resolve(response);
+      return response;
     }
   );
-}
+};
 
 beforeEach(() => {
   mockExecaWithSpawnSync();
@@ -96,6 +98,6 @@ describe("executeCommand", () => {
     expect(result.evidence[0]).toBe(
       "command exited 0: node -e console.log('abcdef')"
     );
-    expect(Buffer.byteLength(result.output, "utf8")).toBeLessThanOrEqual(3);
+    expect(Buffer.byteLength(result.output, "utf-8")).toBeLessThanOrEqual(3);
   });
 });

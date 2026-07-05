@@ -1,22 +1,20 @@
 import { describe, expect, it } from "vitest";
+
 import type { PipelineConfig } from "../src/config";
 import { parsePipelineConfigParts } from "../src/config";
 import type { ScheduleArtifact } from "../src/planning/generate";
 import { integrateParallelWriteFanout } from "../src/schedule/passes/drain-merge";
 
-function config(): PipelineConfig {
-  return parsePipelineConfigParts({
-    runners: `
+const config = (): PipelineConfig =>
+  parsePipelineConfigParts({
+    pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      output_formats: [text]
+default_workflow: root
+orchestrator:
+  profile: reviewer
+workflows:
+  root:
+    nodes: []
 `,
     profiles: `
 version: 1
@@ -32,20 +30,22 @@ profiles:
     instructions: { inline: review }
     filesystem: { mode: read-only, allow: ["**/*"] }
 `,
-    pipeline: `
+    runners: `
 version: 1
-default_workflow: root
-orchestrator:
-  profile: reviewer
-workflows:
-  root:
-    nodes: []
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      output_formats: [text]
 `,
   });
-}
 
-function artifactWith(nodes: unknown[]): ScheduleArtifact {
-  return {
+const artifactWith = (nodes: unknown[]): ScheduleArtifact =>
+  ({
     generated_at: "2026-06-17T00:00:00.000Z",
     kind: "pipeline-schedule",
     root_workflow: "root",
@@ -54,8 +54,7 @@ function artifactWith(nodes: unknown[]): ScheduleArtifact {
     task: "test",
     version: 1,
     workflows: { root: { nodes } },
-  } as ScheduleArtifact;
-}
+  }) as ScheduleArtifact;
 
 const greenChild = (id: string) => ({
   id,
@@ -71,11 +70,11 @@ describe("integrateParallelWriteFanout", () => {
         kind: "parallel",
         nodes: [greenChild("green-a"), greenChild("green-b")],
       },
-      { id: "verify", kind: "agent", profile: "reviewer", needs: ["green"] },
+      { id: "verify", kind: "agent", needs: ["green"], profile: "reviewer" },
     ]);
 
     const result = integrateParallelWriteFanout(config(), artifact);
-    const nodes = result.workflows.root.nodes;
+    const { nodes } = result.workflows.root;
     const merge = nodes.find((node) => node.kind === "builtin");
 
     expect(merge).toBeDefined();

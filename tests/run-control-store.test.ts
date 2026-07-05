@@ -7,7 +7,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type {
   MokaNodeStatus,
   MokaRunController,
@@ -48,9 +50,7 @@ interface RunControlStoreModule {
     }
   ) => Awaitable<MokaRunManifest>;
   listRuns: (input: StoreContext) => Awaitable<MokaRunManifest[]>;
-  readRun: (
-    input: StoreContext & { runId: string }
-  ) => Awaitable<MokaRunManifest | undefined>;
+  readRun: typeof readRun;
   recordEvent: (
     input: StoreContext & { event: MokaRunEvent; runId: string }
   ) => Awaitable<void>;
@@ -102,16 +102,14 @@ const runStore: RunControlStoreModule = {
   writeNodeArtifact,
 };
 const WRITER_NODE_ARTIFACT_PATH =
-  /^\.pipeline\/runs\/run-layout\/nodes\/writer\//;
+  /^\.pipeline\/runs\/run-layout\/nodes\/writer\//u;
 
-function loadRunStore(): RunControlStoreModule {
-  return runStore;
-}
+const loadRunStore = (): RunControlStoreModule => runStore;
 
-function normalizeRelativePath(workspaceRoot: string, path: string): string {
+const normalizeRelativePath = (workspaceRoot: string, path: string): string => {
   const absolutePath = isAbsolute(path) ? path : join(workspaceRoot, path);
   return relative(workspaceRoot, absolutePath).split(sep).join("/");
-}
+};
 
 describe("file-backed run-control store", () => {
   let workspaceRoot: string;
@@ -185,7 +183,7 @@ describe("file-backed run-control store", () => {
     );
     expect(artifactRelativePath).toMatch(WRITER_NODE_ARTIFACT_PATH);
     expect(
-      readFileSync(join(workspaceRoot, artifactRelativePath), "utf8")
+      readFileSync(join(workspaceRoot, artifactRelativePath), "utf-8")
     ).toBe('{"result":"ok"}\n');
   });
 
@@ -221,18 +219,18 @@ describe("file-backed run-control store", () => {
 
     const beforeRecordedEvents = readFileSync(
       runPath(workspaceRoot, runId, "events.jsonl"),
-      "utf8"
+      "utf-8"
     );
     await store.recordEvent({ event: first, runId, workspaceRoot });
     await store.recordEvent({ event: second, runId, workspaceRoot });
     const beforeThirdAppend = readFileSync(
       runPath(workspaceRoot, runId, "events.jsonl"),
-      "utf8"
+      "utf-8"
     );
     await store.recordEvent({ event: third, runId, workspaceRoot });
 
     const eventsPath = runPath(workspaceRoot, runId, "events.jsonl");
-    const eventLog = readFileSync(eventsPath, "utf8");
+    const eventLog = readFileSync(eventsPath, "utf-8");
 
     expect(eventLog.startsWith(beforeThirdAppend)).toBe(true);
     expect(eventLog.endsWith("\n")).toBe(true);
@@ -299,34 +297,34 @@ describe("file-backed run-control store", () => {
     await store.updateRunStatus({
       at: events[0].at,
       runId: "run-a",
-      status: events[0].status as MokaRunStatus,
+      status: events[0].status,
       workspaceRoot,
     });
     await store.updateNodeStatus({
       at: events[1].at,
       nodeId: "planner",
       runId: "run-a",
-      status: events[1].status as MokaNodeStatus,
+      status: events[1].status,
       workspaceRoot,
     });
     await store.updateNodeStatus({
       at: events[2].at,
       nodeId: "planner",
       runId: "run-a",
-      status: events[2].status as MokaNodeStatus,
+      status: events[2].status,
       workspaceRoot,
     });
     await store.updateNodeStatus({
       at: events[3].at,
       nodeId: "writer",
       runId: "run-a",
-      status: events[3].status as MokaNodeStatus,
+      status: events[3].status,
       workspaceRoot,
     });
     await store.updateRunStatus({
       at: events[4].at,
       runId: "run-a",
-      status: events[4].status as MokaRunStatus,
+      status: events[4].status,
       workspaceRoot,
     });
 

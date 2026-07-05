@@ -1,6 +1,6 @@
 import { Data } from "effect";
 import { z } from "zod";
-import type { WorkflowNodeKind } from "./config";
+
 import type {
   PlannedWorkflowNode,
   WorkflowExecutionPlan,
@@ -20,8 +20,8 @@ const argoExecutableTaskSchema = z
 
 const argoExecutionGraphSchema = z
   .object({
-    terminalNodeIds: z.array(z.string().min(1)),
     tasks: z.array(argoExecutableTaskSchema).min(1),
+    terminalNodeIds: z.array(z.string().min(1)),
     terminalTaskNames: z.array(z.string().min(1)),
     workflowId: z.string().min(1),
   })
@@ -45,18 +45,15 @@ export class ArgoGraphCompilerError extends Data.TaggedError(
   constructor(kind: string, nodeId: string) {
     super({
       kind,
-      nodeId,
       message: `Argo graph compiler: node kind '${kind}' on node '${nodeId}' cannot be lowered to an Argo DAG task`,
+      nodeId,
     });
   }
 }
 
-export function compileArgoExecutionGraph(
-  plan: WorkflowExecutionPlan
-): ArgoExecutionGraph {
-  const compiler = new ArgoGraphCompiler(plan);
-  return argoExecutionGraphSchema.parse(compiler.compile());
-}
+const argoTaskName = (nodeId: string): string => `node-${nodeId}`;
+
+const argoTemplateName = (nodeId: string): string => `task-${nodeId}`;
 
 class ArgoGraphCompiler {
   private readonly nodeById = new Map<string, PlannedWorkflowNode>();
@@ -72,8 +69,8 @@ class ArgoGraphCompiler {
     this.compileNodes(this.plan.topologicalOrder, []);
     const terminalTasks = this.terminalTasks();
     return {
-      terminalNodeIds: terminalTasks.map((task) => task.nodeId),
       tasks: this.tasks,
+      terminalNodeIds: terminalTasks.map((task) => task.nodeId),
       terminalTaskNames: terminalTasks.map((task) => task.taskName),
       workflowId: this.plan.workflowId,
     };
@@ -110,23 +107,26 @@ class ArgoGraphCompiler {
      * `default` branch will produce a compile error (TypeScript narrows `kind`
      * to `never`), preventing silent drops in the Argo lowering path.
      */
-    const kind: WorkflowNodeKind = node.kind;
+    const { kind } = node;
     switch (kind) {
       case "agent":
       case "builtin":
-      case "command":
+      case "command": {
         this.compileExecutableNode(node, inheritedNeeds);
         return;
-      case "group":
+      }
+      case "group": {
         /*
          * Group nodes are structural dependency anchors. They produce no Argo
          * task; their members are resolved by resolveExecutableDependencyIds
          * when a downstream node lists the group in its needs.
          */
         return;
-      case "parallel":
+      }
+      case "parallel": {
         this.compileParallelNode(node, inheritedNeeds);
         return;
+      }
       default: {
         const exhaustive: never = kind;
         throw new ArgoGraphCompilerError(String(exhaustive), node.id);
@@ -195,10 +195,9 @@ class ArgoGraphCompiler {
   }
 }
 
-function argoTaskName(nodeId: string): string {
-  return `node-${nodeId}`;
-}
-
-function argoTemplateName(nodeId: string): string {
-  return `task-${nodeId}`;
-}
+export const compileArgoExecutionGraph = (
+  plan: WorkflowExecutionPlan
+): ArgoExecutionGraph => {
+  const compiler = new ArgoGraphCompiler(plan);
+  return argoExecutionGraphSchema.parse(compiler.compile());
+};

@@ -1,5 +1,7 @@
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2";
+import { createOpencodeClient } from "@opencode-ai/sdk/v2";
+import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import { Data, Effect } from "effect";
+
 import type { OpencodeServerSpawn } from "./services/opencode-sdk-service";
 import {
   OpencodeSdkService,
@@ -51,25 +53,95 @@ export class OpencodeServerStartupError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {
   constructor(message: string, options?: { cause?: unknown }) {
-    super({ message, cause: options?.cause });
+    super({ cause: options?.cause, message });
   }
 }
 
-export function openOpencodeServer(
-  options: OpencodeServerOptions
-): Promise<OpencodeServerHandle> {
-  return Effect.runPromise(
-    Effect.provide(openOpencodeServerEffect(options), OpencodeSdkServiceLive)
-  );
-}
+const connectExternalServer = (
+  url: string,
+  directory: string
+): Effect.Effect<OpencodeServerHandle, unknown, OpencodeSdkService> =>
+  Effect.gen(function* effectBody() {
+    const sdk = yield* OpencodeSdkService;
+    const client = yield* sdk.createClient({ baseUrl: url, directory });
+    return {
+      client,
+      close: async () => {
+        /* empty */
+      },
+      owned: false,
+      url,
+    };
+  });
 
-function openOpencodeServerEffect(
+const spawnArgs = (options: OpencodeServerOptions) => ({
+  // port 0 lets the OS assign a free port; the SDK parses the real URL from
+  // the server's startup line, so concurrent runs never collide on 4096.
+  port: 0,
+  ...(options.signal ? { signal: options.signal } : {}),
+  timeout: options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
+});
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const startupError = (error: unknown): OpencodeServerStartupError =>
+  new OpencodeServerStartupError(
+    `Failed to start opencode server: ${errorText(error)}`,
+    { cause: error }
+  );
+
+const withDirectory = (
+  fallback: OpencodeClient,
+  url: string,
+  directory: string
+): OpencodeClient => {
+  try {
+    return createOpencodeClient({ baseUrl: url, directory });
+  } catch {
+    return fallback;
+  }
+};
+
+const ownedHandle = (
+  client: OpencodeClient,
+  server: { close(): void; url: string },
+  directory: string
+): OpencodeServerHandle => ({
+  // Re-create a client carrying the run directory for GET requests (the event
+  // stream); POST requests pass directory per-request explicitly.
+  client: withDirectory(client, server.url, directory),
+  close: async () => {
+    server.close();
+    await Promise.resolve();
+  },
+  owned: true,
+  url: server.url,
+});
+
+const spawnOwnedServer = (
   options: OpencodeServerOptions
 ): Effect.Effect<
   OpencodeServerHandle,
   OpencodeServerStartupError,
   OpencodeSdkService
-> {
+> =>
+  Effect.gen(function* effectBody() {
+    const sdk = yield* OpencodeSdkService;
+    const { client, server } = yield* sdk.spawnServer(
+      spawnArgs(options),
+      options.spawn
+    );
+    return ownedHandle(client, server, options.directory);
+  }).pipe(Effect.catch((error) => Effect.fail(startupError(error))));
+
+const openOpencodeServerEffect = (
+  options: OpencodeServerOptions
+): Effect.Effect<
+  OpencodeServerHandle,
+  OpencodeServerStartupError,
+  OpencodeSdkService
+> => {
   const externalUrl =
     options.serverUrl ?? process.env.OPENCODE_SERVER_URL ?? "";
   if (externalUrl.length > 0) {
@@ -78,88 +150,11 @@ function openOpencodeServerEffect(
     );
   }
   return spawnOwnedServer(options);
-}
+};
 
-function connectExternalServer(
-  url: string,
-  directory: string
-): Effect.Effect<OpencodeServerHandle, unknown, OpencodeSdkService> {
-  return Effect.gen(function* () {
-    const sdk = yield* OpencodeSdkService;
-    const client = yield* sdk.createClient({ baseUrl: url, directory });
-    return {
-      close: () => Promise.resolve(),
-      client,
-      owned: false,
-      url,
-    };
-  });
-}
-
-function spawnOwnedServer(
+export const openOpencodeServer = async (
   options: OpencodeServerOptions
-): Effect.Effect<
-  OpencodeServerHandle,
-  OpencodeServerStartupError,
-  OpencodeSdkService
-> {
-  return Effect.gen(function* () {
-    const sdk = yield* OpencodeSdkService;
-    const { client, server } = yield* sdk.spawnServer(
-      spawnArgs(options),
-      options.spawn
-    );
-    return ownedHandle(client, server, options.directory);
-  }).pipe(Effect.catch((error) => Effect.fail(startupError(error))));
-}
-
-function startupError(error: unknown): OpencodeServerStartupError {
-  return new OpencodeServerStartupError(
-    `Failed to start opencode server: ${errorText(error)}`,
-    { cause: error }
+): Promise<OpencodeServerHandle> =>
+  await Effect.runPromise(
+    Effect.provide(openOpencodeServerEffect(options), OpencodeSdkServiceLive)
   );
-}
-
-function spawnArgs(options: OpencodeServerOptions) {
-  return {
-    // port 0 lets the OS assign a free port; the SDK parses the real URL from
-    // the server's startup line, so concurrent runs never collide on 4096.
-    port: 0,
-    ...(options.signal ? { signal: options.signal } : {}),
-    timeout: options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
-  };
-}
-
-function ownedHandle(
-  client: OpencodeClient,
-  server: { close(): void; url: string },
-  directory: string
-): OpencodeServerHandle {
-  return {
-    close: () => {
-      server.close();
-      return Promise.resolve();
-    },
-    // Re-create a client carrying the run directory for GET requests (the event
-    // stream); POST requests pass directory per-request explicitly.
-    client: withDirectory(client, server.url, directory),
-    owned: true,
-    url: server.url,
-  };
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function withDirectory(
-  fallback: OpencodeClient,
-  url: string,
-  directory: string
-): OpencodeClient {
-  try {
-    return createOpencodeClient({ baseUrl: url, directory });
-  } catch {
-    return fallback;
-  }
-}

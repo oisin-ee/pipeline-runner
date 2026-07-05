@@ -1,3 +1,6 @@
+import { getOrUndefined } from "effect/Option";
+import type { Option } from "effect/Option";
+
 import type { AgentResult } from "../runner";
 import type {
   ProtectedPathGuard,
@@ -17,50 +20,29 @@ interface SubprocessErrorDetails {
   timedOut?: boolean;
 }
 
-export function completedSubprocessResult(
+export const completedSubprocessResult = (
   argv: string[],
   result: SubprocessResultLike
-): AgentResult {
-  return {
-    argv,
-    exitCode: result.exitCode ?? 0,
-    stderr: result.stderr ?? "",
-    stdout: result.stdout ?? "",
-  };
-}
+): AgentResult => ({
+  argv,
+  exitCode: result.exitCode ?? 0,
+  stderr: result.stderr ?? "",
+  stdout: result.stdout ?? "",
+});
 
-export function failedSubprocessResult(
-  argv: string[],
-  error: unknown
-): AgentResult {
-  const details = subprocessErrorDetails(error);
-  return {
-    argv,
-    exitCode: details.exitCode ?? 1,
-    stderr: details.stderr ?? "",
-    stdout: details.stdout ?? "",
-    timedOut: details.timedOut === true,
-  };
-}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
-export function finalizeLaunchResult(
-  result: AgentResult,
-  guard: ProtectedPathGuard,
-  cleanupError: string | undefined
-): AgentResult {
-  const violations = guard.verifyAndRestore();
-  const violationMessage = protectedPathViolationMessage(violations);
-  const stderr = [result.stderr, violationMessage, cleanupError]
-    .filter(Boolean)
-    .join("\n");
-  const exitCode =
-    violations.length > 0 && result.exitCode === 0
-      ? PROTECTED_PATH_VIOLATION_EXIT_CODE
-      : result.exitCode;
-  return { ...result, exitCode, stderr };
-}
+const optionalNumber = (value: unknown) =>
+  typeof value === "number" ? value : undefined;
 
-function subprocessErrorDetails(error: unknown): SubprocessErrorDetails {
+const optionalString = (value: unknown) =>
+  typeof value === "string" ? value : undefined;
+
+const optionalBoolean = (value: unknown) =>
+  typeof value === "boolean" ? value : undefined;
+
+const subprocessErrorDetails = (error: unknown): SubprocessErrorDetails => {
   if (!isRecord(error)) {
     return {};
   }
@@ -70,31 +52,29 @@ function subprocessErrorDetails(error: unknown): SubprocessErrorDetails {
     stdout: optionalString(error.stdout),
     timedOut: optionalBoolean(error.timedOut),
   };
-}
+};
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function optionalNumber(value: unknown): number | undefined {
-  return typeof value === "number" ? value : undefined;
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function optionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
+export const failedSubprocessResult = (
+  argv: string[],
+  error: unknown
+): AgentResult => {
+  const details = subprocessErrorDetails(error);
+  return {
+    argv,
+    exitCode: details.exitCode ?? 1,
+    stderr: details.stderr ?? "",
+    stdout: details.stdout ?? "",
+    timedOut: details.timedOut === true,
+  };
+};
 
 // PIPE-90.12: a protected-path tampering attempt is a genuine task failure
 // (reward-hacking), not an infra fault -- exit 1 so Argo does not reschedule.
 const PROTECTED_PATH_VIOLATION_EXIT_CODE = 1;
 
-function protectedPathViolationMessage(
+const protectedPathViolationMessage = (
   violations: readonly ProtectedPathViolation[]
-): string {
+): string => {
   if (violations.length === 0) {
     return "";
   }
@@ -102,4 +82,21 @@ function protectedPathViolationMessage(
     .map((violation) => `${violation.path} (${violation.kind})`)
     .join(", ");
   return `Protected-path violation: the agent modified read-only acceptance criteria or adjudicating tests (${detail}); the changes were reverted and the node failed.`;
-}
+};
+
+export const finalizeLaunchResult = (
+  result: AgentResult,
+  guard: ProtectedPathGuard,
+  cleanupError: Option<string>
+): AgentResult => {
+  const violations = guard.verifyAndRestore();
+  const violationMessage = protectedPathViolationMessage(violations);
+  const stderr = [result.stderr, violationMessage, getOrUndefined(cleanupError)]
+    .filter(Boolean)
+    .join("\n");
+  const exitCode =
+    violations.length > 0 && result.exitCode === 0
+      ? PROTECTED_PATH_VIOLATION_EXIT_CODE
+      : result.exitCode;
+  return { ...result, exitCode, stderr };
+};

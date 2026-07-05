@@ -1,18 +1,21 @@
-import { type Command, Option } from "commander";
-import { dispatchMokaRunCommand, type RunCommand } from "./run-command";
+import { Option } from "commander";
+import type { Command } from "commander";
+
+import { dispatchMokaRunCommand } from "./run-command";
+import type { RunCommand } from "./run-command";
 import {
   MOKA_RUN_EFFORTS,
   MOKA_RUN_TARGETS,
-  type RemoteSubmitExecution,
-  type RunResolverFlags,
   resolveMokaRun,
 } from "./run-resolver";
+import type { RemoteSubmitExecution, RunResolverFlags } from "./run-resolver";
 import {
   execute,
   runDetachedResolvedTask,
   runLocalResolvedTask,
 } from "./run-service";
-import { type MokaSubmitFlags, runMokaSubmitFromCli } from "./submit-options";
+import { runMokaSubmitFromCli } from "./submit-options";
+import type { MokaSubmitFlags } from "./submit-options";
 
 type RunFlags = RunResolverFlags;
 
@@ -27,10 +30,50 @@ export interface RegisterRunCommandsOptions {
   readonly runCommand?: RunCommand;
 }
 
-export function registerRunCommands(
+const remoteSubmitFlags = (
+  execution: RemoteSubmitExecution
+): MokaSubmitFlags => ({
+  command: execution.command,
+  quick: execution.mode === "quick",
+  schedule: execution.schedule,
+});
+
+export const printMokaSubmitResult = (
+  result: Awaited<ReturnType<typeof runMokaSubmitFromCli>>
+): void => {
+  console.log(
+    `Workflow submitted: ${result.workflowName} in ${result.namespace}`
+  );
+  if (result.workflowUid !== undefined && result.workflowUid !== "") {
+    console.log(`Workflow UID: ${result.workflowUid}`);
+  }
+};
+
+const createResolvedRunCommand =
+  (options: RegisterRunCommandsOptions): RunCommand =>
+  async (call) => {
+    await dispatchMokaRunCommand(call, {
+      runCommand: options.runCommand,
+      runDetached: async ({ execution, runControl, task: resolvedTask }) => {
+        await runDetachedResolvedTask(resolvedTask, execution, runControl);
+      },
+      runLocal: async ({ execution, runControl, task: resolvedTask }) => {
+        await runLocalResolvedTask(resolvedTask, execution, runControl);
+      },
+      runRemoteSubmit: async ({ descriptionParts: parts, execution }) => {
+        const result = await runMokaSubmitFromCli(
+          parts,
+          remoteSubmitFlags(execution)
+        );
+        printMokaSubmitResult(result);
+      },
+    });
+  };
+
+export const registerRunCommands = (
   program: Command,
   options: RegisterRunCommandsOptions = {}
-): RunCommand {
+): RunCommand => {
   const dispatchResolvedRunCommand = createResolvedRunCommand(options);
   program
     .command("run")
@@ -92,44 +135,4 @@ export function registerRunCommands(
     });
 
   return dispatchResolvedRunCommand;
-}
-
-function createResolvedRunCommand(
-  options: RegisterRunCommandsOptions
-): RunCommand {
-  return async (call) => {
-    await dispatchMokaRunCommand(call, {
-      runCommand: options.runCommand,
-      runDetached: ({ execution, runControl, task: resolvedTask }) =>
-        runDetachedResolvedTask(resolvedTask, execution, runControl),
-      runLocal: ({ execution, runControl, task: resolvedTask }) =>
-        runLocalResolvedTask(resolvedTask, execution, runControl),
-      runRemoteSubmit: async ({ descriptionParts: parts, execution }) => {
-        const result = await runMokaSubmitFromCli(
-          parts,
-          remoteSubmitFlags(execution)
-        );
-        printMokaSubmitResult(result);
-      },
-    });
-  };
-}
-
-function remoteSubmitFlags(execution: RemoteSubmitExecution): MokaSubmitFlags {
-  return {
-    command: execution.command,
-    quick: execution.mode === "quick",
-    schedule: execution.schedule,
-  };
-}
-
-export function printMokaSubmitResult(
-  result: Awaited<ReturnType<typeof runMokaSubmitFromCli>>
-): void {
-  console.log(
-    `Workflow submitted: ${result.workflowName} in ${result.namespace}`
-  );
-  if (result.workflowUid) {
-    console.log(`Workflow UID: ${result.workflowUid}`);
-  }
-}
+};

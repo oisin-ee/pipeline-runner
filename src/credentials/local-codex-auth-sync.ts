@@ -7,6 +7,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+
+import { isSome, some } from "effect/Option";
+
 import type { BrokerCredentials } from "./broker";
 import { resolveBrokerCredentials } from "./broker";
 import { applyOpencodeBrokerProvider } from "./opencode-config";
@@ -35,84 +38,58 @@ export interface SyncLocalCodexAuthResult {
   ok: boolean;
 }
 
-/**
- * Point each local dev repo's opencode openai provider at the central
- * CLIProxyAPI broker. codex + opencode authenticate through the broker
- * (which owns OAuth refresh / rotation / failover), so there is no per-project
- * account pool to declare.
- */
-export function syncLocalCodexAuth(
-  options: SyncLocalCodexAuthOptions
-): SyncLocalCodexAuthResult {
-  const broker =
-    options.broker === undefined ? resolveBrokerCredentials() : options.broker;
-  return broker
-    ? syncLocalCodexAuthWithBroker(options, broker)
-    : brokerRequiredResult(options.root);
-}
+type CurrentProjectConfig =
+  | { content: string; kind: "present" }
+  | { kind: "missing" };
 
-function brokerRequiredResult(root: string): SyncLocalCodexAuthResult {
-  return {
-    items: [
-      {
-        action: "error",
-        message:
-          "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
-        path: root,
-      },
-    ],
-    ok: false,
-  };
-}
+const brokerRequiredResult = (root: string): SyncLocalCodexAuthResult => ({
+  items: [
+    {
+      action: "error",
+      message:
+        "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
+      path: root,
+    },
+  ],
+  ok: false,
+});
 
-function syncLocalCodexAuthWithBroker(
-  options: SyncLocalCodexAuthOptions,
-  broker: BrokerCredentials
-): SyncLocalCodexAuthResult {
-  const items = discoverGitRepositories(options.root).map((repo) =>
-    syncProjectBrokerConfig(repo, broker, options)
-  );
-  const hasRequiredChanges = items.some(
-    (item) => item.action === "create" || item.action === "update"
-  );
-  const hasErrors = items.some((item) => item.action === "error");
-  const checkFailed = options.check === true && hasRequiredChanges;
-  return { items, ok: !(hasErrors || checkFailed) };
-}
-
-export function formatCodexAuthSyncResult(
+export const formatCodexAuthSyncResult = (
   result: SyncLocalCodexAuthResult
-): string {
+): string => {
   const lines = result.items.map((item) => {
-    const suffix = item.message ? `: ${item.message}` : "";
+    const suffix =
+      item.message !== undefined && item.message !== ""
+        ? `: ${item.message}`
+        : "";
     return `${item.action} ${item.path}${suffix}`;
   });
   if (!result.ok) {
     lines.push("codex-auth sync-local check failed");
   }
   return lines.join("\n");
-}
+};
 
-function syncProjectBrokerConfig(
-  repo: string,
-  broker: BrokerCredentials,
-  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
-): CodexAuthSyncItem {
-  const path = join(repo, ".opencode/opencode.json");
-  const currentText = existsSync(path) ? readFileSync(path, "utf8") : undefined;
-  const result = applyOpencodeBrokerProvider(currentText, broker);
-  if ("error" in result) {
-    return { action: "error", message: result.error, path };
+const changedAction = (
+  currentText: CurrentProjectConfig,
+  nextText: string
+): Exclude<CodexAuthSyncAction, "error"> => {
+  if (currentText.kind === "present" && currentText.content === nextText) {
+    return "unchanged";
   }
-  return writeIfChanged(path, currentText, result.content, options);
-}
+  return currentText.kind === "missing" ? "create" : "update";
+};
 
-function writeIfChanged(
+const writesEnabled = (
+  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
+): boolean => !(options.check === true || options.dryRun === true);
+
+const writeIfChanged = (
   path: string,
-  currentText: string | undefined,
+  currentText: CurrentProjectConfig,
   nextText: string,
   options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
-): CodexAuthSyncItem {
+): CodexAuthSyncItem => {
   const action = changedAction(currentText, nextText);
   if (action === "unchanged") {
     return { action: "unchanged", path };
@@ -122,35 +99,70 @@ function writeIfChanged(
     writeFileSync(path, nextText);
   }
   return { action, path };
-}
+};
 
-function changedAction(
-  currentText: string | undefined,
-  nextText: string
-): Exclude<CodexAuthSyncAction, "error"> {
-  if (currentText === nextText) {
-    return "unchanged";
-  }
-  return currentText === undefined ? "create" : "update";
-}
-
-function writesEnabled(
+const syncProjectBrokerConfig = (
+  repo: string,
+  broker: BrokerCredentials,
   options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
-): boolean {
-  return !(options.check || options.dryRun);
-}
+): CodexAuthSyncItem => {
+  const path = join(repo, ".opencode/opencode.json");
+  const currentText = existsSync(path)
+    ? { content: readFileSync(path, "utf-8"), kind: "present" as const }
+    : { kind: "missing" as const };
+  const result =
+    currentText.kind === "present"
+      ? applyOpencodeBrokerProvider(currentText.content, broker)
+      : applyOpencodeBrokerProvider(undefined, broker);
+  if ("error" in result) {
+    return { action: "error", message: result.error, path };
+  }
+  return writeIfChanged(path, currentText, result.content, options);
+};
 
-function discoverGitRepositories(root: string): string[] {
-  return readdirSync(root)
-    .map((name) => join(root, name))
-    .filter((path) => isDirectory(path) && existsSync(join(path, ".git")))
-    .sort((a, b) => a.localeCompare(b));
-}
-
-function isDirectory(path: string): boolean {
+const isDirectory = (path: string): boolean => {
   try {
     return statSync(path).isDirectory();
   } catch {
     return false;
   }
-}
+};
+
+const discoverGitRepositories = (root: string): string[] =>
+  readdirSync(root)
+    .map((name) => join(root, name))
+    .filter((path) => isDirectory(path) && existsSync(join(path, ".git")))
+    .toSorted((a, b) => a.localeCompare(b));
+
+const syncLocalCodexAuthWithBroker = (
+  options: SyncLocalCodexAuthOptions,
+  broker: BrokerCredentials
+): SyncLocalCodexAuthResult => {
+  const items = discoverGitRepositories(options.root).map((repo) =>
+    syncProjectBrokerConfig(repo, broker, options)
+  );
+  const hasRequiredChanges = items.some(
+    (item) => item.action === "create" || item.action === "update"
+  );
+  const hasErrors = items.some((item) => item.action === "error");
+  const checkFailed = options.check === true && hasRequiredChanges;
+  return { items, ok: !(hasErrors || checkFailed) };
+};
+
+/**
+ * Point each local dev repo's opencode openai provider at the central
+ * CLIProxyAPI broker. codex + opencode authenticate through the broker
+ * (which owns OAuth refresh / rotation / failover), so there is no per-project
+ * account pool to declare.
+ */
+export const syncLocalCodexAuth = (
+  options: SyncLocalCodexAuthOptions
+): SyncLocalCodexAuthResult => {
+  const broker =
+    options.broker === undefined
+      ? resolveBrokerCredentials()
+      : some(options.broker);
+  return isSome(broker)
+    ? syncLocalCodexAuthWithBroker(options, broker.value)
+    : brokerRequiredResult(options.root);
+};

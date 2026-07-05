@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import type { PipelineConfig } from "./config";
 import { brokerAuthOptionSchema } from "./credentials/broker";
 import {
@@ -10,10 +11,8 @@ import {
 } from "./remote/argo/model";
 import { configWithSubmitHooks } from "./remote/submit/event-boundary";
 import { MOKA_SUBMIT_HOOK_EVENTS } from "./remote/submit/hook-events";
-import {
-  type SubmitMokaDependencies,
-  submitParsedMoka,
-} from "./remote/submit/service";
+import { submitParsedMoka } from "./remote/submit/service";
+import type { SubmitMokaDependencies } from "./remote/submit/service";
 import {
   runnerDeliverySchema,
   runnerHookPolicySchema,
@@ -97,11 +96,6 @@ const mokaSubmitBaseOptionsSchema = z
     // so MOKA_DB_URL is injected as a secretKeyRef. Shared shape (single owner in
     // remote/argo/model); a k8s submission concern, alongside brokerAuth.
     dbAuth: dbAuthOptionSchema.optional(),
-    // Optional secret ref threaded to runner pods so the gateway basic-auth
-    // header reaches PIPELINE_MCP_GATEWAY_AUTHORIZATION via secretKeyRef. Shared
-    // shape (single owner in remote/argo/model); a k8s submission concern,
-    // alongside brokerAuth/dbAuth.
-    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     delivery: runnerDeliverySchema.default({
       mode: "create-new-pr",
       pullRequest: false,
@@ -121,6 +115,11 @@ const mokaSubmitBaseOptionsSchema = z
     imagePullSecretName: z.string().min(1).optional(),
     kubeContext: z.string().min(1).optional(),
     kubeconfigPath: z.string().min(1).optional(),
+    // Optional secret ref threaded to runner pods so the gateway basic-auth
+    // header reaches PIPELINE_MCP_GATEWAY_AUTHORIZATION via secretKeyRef. Shared
+    // shape (single owner in remote/argo/model); a k8s submission concern,
+    // alongside brokerAuth/dbAuth.
+    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     name: z.string().min(1).optional(),
     namespace: z.string().min(1).optional(),
     npmRegistryAuthSecretName: z.string().min(1).optional(),
@@ -243,10 +242,10 @@ export type MokaSubmitDirectHooks = z.output<
 >;
 export type MokaSubmitDirectHook = z.output<typeof mokaSubmitDirectHookSchema>;
 
-export function submitMoka(
+export const submitMoka = async (
   rawOptions: MokaSubmitInput,
   dependencies: SubmitMokaDependencies = {}
-): Promise<MokaSubmitOutput> {
+): Promise<MokaSubmitOutput> => {
   const { config, worktreePath, ...schemaOptions } = rawOptions;
   const options = mokaSubmitOptionsSchema.parse(schemaOptions);
   const parsedOptions: ParsedMokaSubmitOptions = {
@@ -254,5 +253,5 @@ export function submitMoka(
     config: configWithSubmitHooks(config, options.hooks),
     worktreePath,
   };
-  return submitParsedMoka(parsedOptions, dependencies);
-}
+  return await submitParsedMoka(parsedOptions, dependencies);
+};

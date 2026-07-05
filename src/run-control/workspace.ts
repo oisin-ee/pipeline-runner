@@ -13,7 +13,7 @@ const GITIGNORE_CONTENT = "*\n";
  * Idempotent: creates the file only if it does not already exist; never
  * overwrites an existing `.pipeline/.gitignore`.
  */
-export function ensurePipelineWorkspaceIgnore(worktreePath: string): void {
+export const ensurePipelineWorkspaceIgnore = (worktreePath: string): void => {
   const pipelineDir = join(worktreePath, PIPELINE_DIR);
   const gitignorePath = join(worktreePath, GITIGNORE_PATH);
 
@@ -23,4 +23,4 @@ export function ensurePipelineWorkspaceIgnore(worktreePath: string): void {
 
   mkdirSync(pipelineDir, { recursive: true });
   writeFileSync(gitignorePath, GITIGNORE_CONTENT);
-}
+};

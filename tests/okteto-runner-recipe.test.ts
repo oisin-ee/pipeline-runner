@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -12,8 +13,8 @@ const RUNNER_MANIFEST_PATH = join(
   "deployment.yaml"
 );
 const DOCS_DIR = join(REPO_ROOT, "docs");
-const SECRET_AUTH_CREDENTIAL_RE = /secret|auth|credential/i;
-const CAVEAT_LIMITATION_WARNING_RE = /caveat|limitation|warning/i;
+const SECRET_AUTH_CREDENTIAL_RE = /secret|auth|credential/iu;
+const CAVEAT_LIMITATION_WARNING_RE = /caveat|limitation|warning/iu;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -29,7 +30,7 @@ const readMarkdownDocs = (directory: string): string[] => {
     }
 
     if (entry.isFile() && entry.name.endsWith(".md")) {
-      return [readFileSync(path, "utf8")];
+      return [readFileSync(path, "utf-8")];
     }
 
     return [];
@@ -38,7 +39,7 @@ const readMarkdownDocs = (directory: string): string[] => {
 
 describe("Okteto runner recipe", () => {
   it("defines a single `runner` dev block with no Platform-only deploy/destroy", () => {
-    const oktetoConfig = parse(readFileSync(OKTETO_PATH, "utf8"));
+    const oktetoConfig = parse(readFileSync(OKTETO_PATH, "utf-8"));
 
     expect(isRecord(oktetoConfig)).toBe(true);
     if (!isRecord(oktetoConfig)) {
@@ -50,7 +51,7 @@ describe("Okteto runner recipe", () => {
     expect(oktetoConfig.deploy).toBeUndefined();
     expect(oktetoConfig.destroy).toBeUndefined();
 
-    const dev = oktetoConfig.dev;
+    const { dev } = oktetoConfig;
     expect(isRecord(dev)).toBe(true);
     if (!isRecord(dev)) {
       return;
@@ -58,7 +59,7 @@ describe("Okteto runner recipe", () => {
 
     expect(Object.keys(dev)).toEqual(["runner"]);
 
-    const runner = dev.runner;
+    const { runner } = dev;
     expect(isRecord(runner)).toBe(true);
     if (!isRecord(runner)) {
       return;
@@ -81,7 +82,7 @@ describe("Okteto runner recipe", () => {
     // Parity target: buildRunnerArgoWorkflowManifest in src/argo-workflow.ts —
     // same image / service account / env / secret mounts ("dev pod == prod
     // runner pod", PIPE-62 intent).
-    const manifestYaml = readFileSync(RUNNER_MANIFEST_PATH, "utf8");
+    const manifestYaml = readFileSync(RUNNER_MANIFEST_PATH, "utf-8");
     const manifest = parse(manifestYaml);
 
     expect(isRecord(manifest)).toBe(true);

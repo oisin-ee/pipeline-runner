@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
 import postgres from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
+
 import { resolveRunControlStore } from "../src/run-control/run-control-store";
 import { resolveDurableStore } from "../src/runtime/durable-store/acquisition";
 import { migratePostgresSubstrate } from "../src/runtime/durable-store/postgres/migrate-substrate";
@@ -41,29 +43,30 @@ const LEGACY_DURABLE_RECORD = {
   },
 };
 
-function testRoleName(): string {
-  return `moka_acl_${randomUUID().replaceAll("-", "_")}`;
-}
+const testRoleName = (): string =>
+  `moka_acl_${randomUUID().replaceAll("-", "_")}`;
 
-function postgresErrorCode(error: unknown): string | undefined {
+const postgresErrorCode = (error: unknown): Option.Option<string> => {
   if (!(error instanceof Error)) {
-    return;
+    return Option.none();
   }
   const code = Reflect.get(error, "code");
-  return typeof code === "string" ? code : undefined;
-}
+  return typeof code === "string" ? Option.some(code) : Option.none();
+};
 
-function assertPostgresCode(error: unknown, code: string): void {
+const assertPostgresCode = (error: unknown, code: string): void => {
   if (!(error instanceof Error)) {
     throw new Error(`Expected Postgres error ${code}, got non-Error value.`);
   }
-  const actual = postgresErrorCode(error);
+  const actual = Option.getOrUndefined(postgresErrorCode(error));
   if (actual !== code) {
     throw new Error(`Expected Postgres error ${code}, got ${actual}.`);
   }
-}
+};
 
-async function expectPermissionDenied(query: Promise<unknown>): Promise<void> {
+const expectPermissionDenied = async (
+  query: Promise<unknown>
+): Promise<void> => {
   let thrown: unknown;
   try {
     await query;
@@ -74,41 +77,38 @@ async function expectPermissionDenied(query: Promise<unknown>): Promise<void> {
     throw new Error("Expected Postgres permission denial.");
   }
   assertPostgresCode(thrown, "42501");
-}
+};
 
-async function resetSubstrateSchemas(admin: postgres.Sql): Promise<void> {
+const resetSubstrateSchemas = async (admin: postgres.Sql): Promise<void> => {
   await admin`drop schema if exists ${admin(MOKA_POSTGRES_SCHEMA)} cascade`;
   await admin`drop schema if exists drizzle cascade`;
   await admin`drop schema public cascade`;
   await admin`create schema public`;
   await admin`revoke create on schema public from public`;
-}
+};
 
-async function currentUser(admin: postgres.Sql): Promise<string> {
+const currentUser = async (admin: postgres.Sql): Promise<string> => {
   const rows = await admin<{ current_user: string }[]>`select current_user`;
-  const row = rows[0];
-  if (row === undefined) {
-    throw new Error("Could not read current Postgres user.");
-  }
+  const [row] = rows;
   return row.current_user;
-}
+};
 
-async function runWithRole(
+const runWithRole = async (
   admin: postgres.Sql,
   roleName: string,
   operation: () => Promise<void>
-): Promise<void> {
+): Promise<void> => {
   await admin`set role ${admin(roleName)}`;
   try {
     await operation();
   } finally {
     await admin`reset role`;
   }
-}
+};
 
-async function readSubstrateTableSchemas(
+const readSubstrateTableSchemas = async (
   admin: postgres.Sql
-): Promise<Map<string, string>> {
+): Promise<Map<string, string>> => {
   const rows = await admin<{ table_name: string; table_schema: string }[]>`
     select table_name, table_schema
     from information_schema.tables
@@ -116,9 +116,9 @@ async function readSubstrateTableSchemas(
     order by table_name
   `;
   return new Map(rows.map((row) => [row.table_name, row.table_schema]));
-}
+};
 
-async function seedLegacyPublicLayout(admin: postgres.Sql): Promise<void> {
+const seedLegacyPublicLayout = async (admin: postgres.Sql): Promise<void> => {
   await admin`
     create table public.moka_durable_run (
       created_at timestamp with time zone default now() not null,
@@ -216,19 +216,33 @@ async function seedLegacyPublicLayout(admin: postgres.Sql): Promise<void> {
     insert into public.moka_run_control_node_session (node_id, run_id, session_id)
     values ('legacy-node', 'legacy-upgrade-run', 'legacy-session')
   `;
-}
+};
 
 describePg("Postgres substrate auto-migrates on store resolution", () => {
   const dbUrl = PG_URL;
-  let admin: postgres.Sql;
+  let admin = Option.none<postgres.Sql>();
+
+  const openAdmin = (): postgres.Sql => {
+    const client = postgres(dbUrl, { max: 1 });
+    admin = Option.some(client);
+    return client;
+  };
+
+  const adminConnection = (): postgres.Sql =>
+    Option.match(admin, {
+      onNone: openAdmin,
+      onSome: (client) => client,
+    });
 
   afterAll(async () => {
-    await admin?.end();
+    if (Option.isSome(admin)) {
+      await admin.value.end();
+    }
   });
 
   it("resolveRunControlStore provisions the schema from an empty database", async () => {
-    admin = postgres(dbUrl, { max: 1 });
-    await resetSubstrateSchemas(admin);
+    const adminClient = openAdmin();
+    await resetSubstrateSchemas(adminClient);
 
     const run = await Effect.runPromise(
       Effect.scoped(
@@ -254,20 +268,20 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
 
     expect(run?.runId).toBe("auto-migrate-rc-check");
 
-    const schemas = await readSubstrateTableSchemas(admin);
+    const schemas = await readSubstrateTableSchemas(adminClient);
     expect(schemas).toEqual(
       new Map(SUBSTRATE_TABLES.map((table) => [table, MOKA_POSTGRES_SCHEMA]))
     );
     expect(schemas.get("moka_run_control_run")).toBe(MOKA_POSTGRES_SCHEMA);
-    const publicTables = await admin<{ table_name: string }[]>`
+    const publicTables = await adminClient<{ table_name: string }[]>`
       select table_name
       from information_schema.tables
       where table_schema = 'public' and table_name like 'moka_%'
     `;
     expect(publicTables).toEqual([]);
 
-    await admin`
-      delete from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_run
+    await adminClient`
+      delete from ${adminClient(MOKA_POSTGRES_SCHEMA)}.moka_run_control_run
       where run_id = 'auto-migrate-rc-check'
     `;
   });
@@ -289,71 +303,71 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
   });
 
   it("dedicated moka role cannot create, alter, or drop public tables", async () => {
-    admin ??= postgres(dbUrl, { max: 1 });
-    await resetSubstrateSchemas(admin);
+    const adminClient = adminConnection();
+    await resetSubstrateSchemas(adminClient);
     const roleName = testRoleName();
     const publicTable = "pipeline_console_owned";
-    await admin`create role ${admin(roleName)}`;
+    await adminClient`create role ${adminClient(roleName)}`;
     try {
-      await admin`grant ${admin(roleName)} to ${admin(await currentUser(admin))}`;
-      await admin`create table public.pipeline_console_owned (id integer primary key)`;
-      await admin`create schema ${admin(MOKA_POSTGRES_SCHEMA)} authorization ${admin(roleName)}`;
-      await admin`grant usage on schema public to ${admin(roleName)}`;
-      await admin`grant usage, create on schema ${admin(MOKA_POSTGRES_SCHEMA)} to ${admin(roleName)}`;
-      await admin`revoke create on schema public from public`;
-      await admin`revoke create on schema public from ${admin(roleName)}`;
+      await adminClient`grant ${adminClient(roleName)} to ${adminClient(await currentUser(adminClient))}`;
+      await adminClient`create table public.pipeline_console_owned (id integer primary key)`;
+      await adminClient`create schema ${adminClient(MOKA_POSTGRES_SCHEMA)} authorization ${adminClient(roleName)}`;
+      await adminClient`grant usage on schema public to ${adminClient(roleName)}`;
+      await adminClient`grant usage, create on schema ${adminClient(MOKA_POSTGRES_SCHEMA)} to ${adminClient(roleName)}`;
+      await adminClient`revoke create on schema public from public`;
+      await adminClient`revoke create on schema public from ${adminClient(roleName)}`;
 
-      await runWithRole(admin, roleName, async () => {
+      await runWithRole(adminClient, roleName, async () => {
         await expectPermissionDenied(
-          admin`create table public.moka_forbidden_create (id integer)`
+          adminClient`create table public.moka_forbidden_create (id integer)`
         );
         await expectPermissionDenied(
-          admin`
+          adminClient`
             alter table public.pipeline_console_owned
             add column touched_by_moka integer
           `
         );
         await expectPermissionDenied(
-          admin`drop table public.pipeline_console_owned`
+          adminClient`drop table public.pipeline_console_owned`
         );
       });
 
-      const rows = await admin<{ table_name: string }[]>`
+      const rows = await adminClient<{ table_name: string }[]>`
         select table_name from information_schema.tables
         where table_schema = 'public' and table_name = ${publicTable}
       `;
       expect(rows.map((row) => row.table_name)).toEqual([publicTable]);
     } finally {
-      await admin`drop owned by ${admin(roleName)}`;
-      await admin`drop schema if exists ${admin(MOKA_POSTGRES_SCHEMA)} cascade`;
-      await admin`drop table if exists public.pipeline_console_owned`;
-      await admin`drop role if exists ${admin(roleName)}`;
+      await adminClient`drop owned by ${adminClient(roleName)}`;
+      await adminClient`drop schema if exists ${adminClient(MOKA_POSTGRES_SCHEMA)} cascade`;
+      await adminClient`drop table if exists public.pipeline_console_owned`;
+      await adminClient`drop role if exists ${adminClient(roleName)}`;
     }
   });
 
   it("moves existing public moka tables into the moka schema without data loss", async () => {
-    admin ??= postgres(dbUrl, { max: 1 });
-    await resetSubstrateSchemas(admin);
-    await seedLegacyPublicLayout(admin);
+    const adminClient = adminConnection();
+    await resetSubstrateSchemas(adminClient);
+    await seedLegacyPublicLayout(adminClient);
 
     await migratePostgresSubstrate(dbUrl);
 
-    const schemas = await readSubstrateTableSchemas(admin);
+    const schemas = await readSubstrateTableSchemas(adminClient);
     expect(schemas).toEqual(
       new Map(SUBSTRATE_TABLES.map((table) => [table, MOKA_POSTGRES_SCHEMA]))
     );
-    const publicTables = await admin<{ table_name: string }[]>`
+    const publicTables = await adminClient<{ table_name: string }[]>`
       select table_name
       from information_schema.tables
       where table_schema = 'public' and table_name like 'moka_%'
     `;
     expect(publicTables).toEqual([]);
 
-    const durableRows = await admin<
+    const durableRows = await adminClient<
       { criteria: unknown; inputs: unknown; result: unknown; run_id: string }[]
     >`
       select criteria, inputs, result, run_id
-      from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_durable_node_record
+      from ${adminClient(MOKA_POSTGRES_SCHEMA)}.moka_durable_node_record
       where run_id = 'legacy-upgrade-run' and node_id = 'legacy-node'
     `;
     expect(durableRows).toEqual([
@@ -364,9 +378,9 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
         run_id: "legacy-upgrade-run",
       },
     ]);
-    const sessionRows = await admin<{ session_id: string }[]>`
+    const sessionRows = await adminClient<{ session_id: string }[]>`
       select session_id
-      from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_session
+      from ${adminClient(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_session
       where run_id = 'legacy-upgrade-run' and node_id = 'legacy-node'
     `;
     expect(sessionRows).toEqual([{ session_id: "legacy-session" }]);

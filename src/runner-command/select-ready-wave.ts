@@ -1,19 +1,22 @@
 import { writeFileSync } from "node:fs";
-import { Effect, type Scope } from "effect";
+
+import { Effect, Option } from "effect";
+import type { Scope } from "effect";
 import { z } from "zod";
+
 import { readyNodeIdsFromRunStore } from "../run-control/next-node";
-import {
-  isOutputStream,
-  type OutputStream,
-  type RunnerCommandIoService,
+import { isOutputStream } from "../runtime/services/runner-command-io-service";
+import type {
+  OutputStream,
+  RunnerCommandIoService,
 } from "../runtime/services/runner-command-io-service";
 import {
   DYNAMIC_COMMAND_EXIT,
   dynamicRunnerCommandErrorExit,
   dynamicRunnerContextEffect,
-  type ResolveDynamicRunnerPersistence,
   runScopedDynamicRunnerCommand,
 } from "./dynamic-command";
+import type { ResolveDynamicRunnerPersistence } from "./dynamic-command";
 
 const selectReadyWaveOptionsSchema = z
   .object({
@@ -39,20 +42,10 @@ export type SelectReadyWaveOptions = z.input<
   typeof selectReadyWaveOptionsSchema
 >;
 
-export function runSelectReadyWave(
-  rawOptions: Partial<SelectReadyWaveOptions> = {}
-): Promise<number> {
-  return runScopedDynamicRunnerCommand(
-    selectReadyWaveOptionsSchema,
-    rawOptions,
-    runSelectReadyWaveEffect
-  );
-}
-
-function runSelectReadyWaveEffect(
+const runSelectReadyWaveEffect = (
   options: z.output<typeof selectReadyWaveOptionsSchema>
-): Effect.Effect<number, never, RunnerCommandIoService | Scope.Scope> {
-  return Effect.gen(function* () {
+): Effect.Effect<number, never, RunnerCommandIoService | Scope.Scope> =>
+  Effect.gen(function* effectBody() {
     const { config, payload, persistence, worktreePath } =
       yield* dynamicRunnerContextEffect(options);
     const readyNodeIds = yield* readyNodeIdsFromRunStore({
@@ -66,7 +59,20 @@ function runSelectReadyWaveEffect(
     return DYNAMIC_COMMAND_EXIT.pass;
   }).pipe(
     Effect.catch((error) =>
-      Effect.sync(() => dynamicRunnerCommandErrorExit(error, options.stderr))
+      Effect.sync(() =>
+        dynamicRunnerCommandErrorExit(
+          error,
+          Option.fromNullishOr(options.stderr)
+        )
+      )
     )
   );
-}
+
+export const runSelectReadyWave = async (
+  rawOptions: Partial<SelectReadyWaveOptions> = {}
+): Promise<number> =>
+  await runScopedDynamicRunnerCommand(
+    selectReadyWaveOptionsSchema,
+    rawOptions,
+    runSelectReadyWaveEffect
+  );

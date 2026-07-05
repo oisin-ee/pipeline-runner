@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type {
   AcceptanceCriterion,
   AcceptanceGateSpec,
@@ -12,9 +13,11 @@ const ctx: AcceptanceContext = {
   worktreePath: process.cwd(),
 };
 
-function attempt(output: unknown): NodeAttemptResult {
-  return { evidence: [], exitCode: 0, output: JSON.stringify(output) };
-}
+const attempt = (output: unknown): NodeAttemptResult => ({
+  evidence: [],
+  exitCode: 0,
+  output: JSON.stringify(output),
+});
 
 describe("evaluateAcceptanceGate", () => {
   it("passes when all criteria are covered with PASS verdicts and evidence", () => {

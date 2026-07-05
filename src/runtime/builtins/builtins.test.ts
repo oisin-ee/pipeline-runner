@@ -1,29 +1,13 @@
 import { describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../planning/compile";
 import type { RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { executeBuiltin } from "./builtins";
 
-function contextForBuiltins(): RuntimeContext {
+const contextForBuiltins = (): RuntimeContext => {
   const config = parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-    profiles: `
-version: 1
-profiles:
-  a:
-    runner: opencode
-    instructions: { inline: A }
-`,
     pipeline: `
 version: 1
 default_workflow: default
@@ -35,6 +19,23 @@ workflows:
       - id: merge
         kind: builtin
         builtin: drain-merge
+`,
+    profiles: `
+version: 1
+profiles:
+  a:
+    runner: opencode
+    instructions: { inline: A }
+`,
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
 `,
   });
   return {
@@ -59,7 +60,7 @@ workflows:
     workflowId: "default",
     worktreePath: process.cwd(),
   };
-}
+};
 
 describe("runtime builtins", () => {
   it("fails unsupported builtins with evidence", async () => {

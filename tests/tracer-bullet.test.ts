@@ -9,7 +9,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+
+import { Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { parsePipelineConfigParts } from "../src/config";
 import { execute } from "../src/index";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
@@ -50,13 +53,17 @@ interface TracerEnvironment {
   worktreePath: string;
 }
 
-function writeExecutable(binPath: string, name: string, source: string): void {
+const writeExecutable = (
+  binPath: string,
+  name: string,
+  source: string
+): void => {
   const scriptPath = join(binPath, name);
   writeFileSync(scriptPath, source);
   chmodSync(scriptPath, 0o755);
-}
+};
 
-function writeFixtureWorktree(worktreePath: string): void {
+const writeFixtureWorktree = (worktreePath: string): void => {
   writeFileSync(
     join(worktreePath, "package.json"),
     JSON.stringify({
@@ -176,9 +183,9 @@ workflows:
 `
   );
   execFileSync("git", ["init"], { cwd: worktreePath, stdio: "ignore" });
-}
+};
 
-function writeFakeExecutables(env: TracerEnvironment): void {
+const writeFakeExecutables = (env: TracerEnvironment): void => {
   mkdirSync(env.binPath, { recursive: true });
 
   // Fake backlog: logs every invocation and, for "task create" calls, emits
@@ -415,14 +422,24 @@ fs.appendFileSync(
 );
 `
   );
-}
+};
 
-function readCommandLog(logPath: string): LoggedCommand[] {
-  return readFileSync(logPath, "utf8")
+const readCommandLog = (logPath: string): LoggedCommand[] =>
+  readFileSync(logPath, "utf-8")
     .split("\n")
-    .filter(Boolean)
+    .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as LoggedCommand);
-}
+
+const restoreEnvValue = (key: string, value: Option.Option<string>): void => {
+  Option.match(value, {
+    onNone: () => {
+      delete process.env[key];
+    },
+    onSome: (saved) => {
+      process.env[key] = saved;
+    },
+  });
+};
 
 /**
  * Fake executor for tracer-bullet tests: bypasses the opencode serve + SDK
@@ -433,10 +450,9 @@ function readCommandLog(logPath: string): LoggedCommand[] {
  * PIPELINE_TRACER_LOG, PIPELINE_TRACER_STATE, and other test env vars reach
  * the fake binary.
  */
-function makeTracerExecutor(
-  binPath: string
-): (plan: RunnerLaunchPlan) => AgentResult {
-  return (plan: RunnerLaunchPlan): AgentResult => {
+const makeTracerExecutor =
+  (binPath: string): ((plan: RunnerLaunchPlan) => AgentResult) =>
+  (plan: RunnerLaunchPlan): AgentResult => {
     const result = spawnSync(plan.command, plan.args, {
       cwd: plan.cwd,
       env: {
@@ -444,8 +460,8 @@ function makeTracerExecutor(
         PATH: `${binPath}${delimiter}${process.env.PATH ?? ""}`,
       },
     });
-    const stdout = result.stdout ? result.stdout.toString() : "";
-    const stderr = result.stderr ? result.stderr.toString() : "";
+    const stdout = result.stdout.toString();
+    const stderr = result.stderr.toString();
     return {
       argv: plan.args,
       exitCode: result.status ?? 1,
@@ -453,46 +469,45 @@ function makeTracerExecutor(
       stdout,
     };
   };
-}
 
-function runTracerPipeline(
+const runTracerPipeline = async (
   env: TracerEnvironment,
   task: string
-): Promise<void> {
+): Promise<void> => {
   const config = parsePipelineConfigParts(
     {
       pipeline: readFileSync(
         join(env.worktreePath, ".pipeline/pipeline.yaml"),
-        "utf8"
+        "utf-8"
       ),
       profiles: readFileSync(
         join(env.worktreePath, ".pipeline/profiles.yaml"),
-        "utf8"
+        "utf-8"
       ),
       runners: readFileSync(
         join(env.worktreePath, ".pipeline/runners.yaml"),
-        "utf8"
+        "utf-8"
       ),
     },
     env.worktreePath
   );
   const executor = makeTracerExecutor(env.binPath);
-  return execute(task, {
-    pipelineRunner: (input) =>
-      runPipelineFromConfig({ ...input, config, executor }),
+  await execute(task, {
+    pipelineRunner: async (input) =>
+      await runPipelineFromConfig({ ...input, config, executor }),
     workflow: "default",
   });
-}
+};
 
 describe("PIPE-14 tracer-bullet pipeline", () => {
   let env: TracerEnvironment;
-  let originalPath: string | undefined;
-  let originalTargetPath: string | undefined;
-  let originalTracerLog: string | undefined;
-  let originalTracerState: string | undefined;
-  let originalTracerVerdict: string | undefined;
-  let originalTestCommand: string | undefined;
-  let originalTypecheckCommand: string | undefined;
+  let originalPath = Option.none<string>();
+  let originalTargetPath = Option.none<string>();
+  let originalTracerLog = Option.none<string>();
+  let originalTracerState = Option.none<string>();
+  let originalTracerVerdict = Option.none<string>();
+  let originalTestCommand = Option.none<string>();
+  let originalTypecheckCommand = Option.none<string>();
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -508,13 +523,21 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     writeFakeExecutables(env);
     writeFileSync(env.logPath, "");
 
-    originalPath = process.env.PATH;
-    originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    originalTracerLog = process.env.PIPELINE_TRACER_LOG;
-    originalTracerState = process.env.PIPELINE_TRACER_STATE;
-    originalTracerVerdict = process.env.PIPELINE_TRACER_VERDICT;
-    originalTestCommand = process.env.PIPELINE_TEST_COMMAND;
-    originalTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
+    originalPath = Option.fromNullishOr(process.env.PATH);
+    originalTargetPath = Option.fromNullishOr(process.env.PIPELINE_TARGET_PATH);
+    originalTracerLog = Option.fromNullishOr(process.env.PIPELINE_TRACER_LOG);
+    originalTracerState = Option.fromNullishOr(
+      process.env.PIPELINE_TRACER_STATE
+    );
+    originalTracerVerdict = Option.fromNullishOr(
+      process.env.PIPELINE_TRACER_VERDICT
+    );
+    originalTestCommand = Option.fromNullishOr(
+      process.env.PIPELINE_TEST_COMMAND
+    );
+    originalTypecheckCommand = Option.fromNullishOr(
+      process.env.PIPELINE_TYPECHECK_COMMAND
+    );
 
     process.env.PATH = `${env.binPath}${delimiter}${process.env.PATH ?? ""}`;
     process.env.PIPELINE_TARGET_PATH = env.worktreePath;
@@ -524,47 +547,17 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     process.env.PIPELINE_TYPECHECK_COMMAND = "project-typecheck";
 
     vi.spyOn(Date, "now").mockReturnValue(14);
-    consoleLogSpy = vi
-      .spyOn(console, "log")
-      .mockImplementation(() => undefined);
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
-    if (originalPath === undefined) {
-      delete process.env.PATH;
-    } else {
-      process.env.PATH = originalPath;
-    }
-    if (originalTargetPath === undefined) {
-      delete process.env.PIPELINE_TARGET_PATH;
-    } else {
-      process.env.PIPELINE_TARGET_PATH = originalTargetPath;
-    }
-    if (originalTracerLog === undefined) {
-      delete process.env.PIPELINE_TRACER_LOG;
-    } else {
-      process.env.PIPELINE_TRACER_LOG = originalTracerLog;
-    }
-    if (originalTracerState === undefined) {
-      delete process.env.PIPELINE_TRACER_STATE;
-    } else {
-      process.env.PIPELINE_TRACER_STATE = originalTracerState;
-    }
-    if (originalTracerVerdict === undefined) {
-      delete process.env.PIPELINE_TRACER_VERDICT;
-    } else {
-      process.env.PIPELINE_TRACER_VERDICT = originalTracerVerdict;
-    }
-    if (originalTestCommand === undefined) {
-      delete process.env.PIPELINE_TEST_COMMAND;
-    } else {
-      process.env.PIPELINE_TEST_COMMAND = originalTestCommand;
-    }
-    if (originalTypecheckCommand === undefined) {
-      delete process.env.PIPELINE_TYPECHECK_COMMAND;
-    } else {
-      process.env.PIPELINE_TYPECHECK_COMMAND = originalTypecheckCommand;
-    }
+    restoreEnvValue("PATH", originalPath);
+    restoreEnvValue("PIPELINE_TARGET_PATH", originalTargetPath);
+    restoreEnvValue("PIPELINE_TRACER_LOG", originalTracerLog);
+    restoreEnvValue("PIPELINE_TRACER_STATE", originalTracerState);
+    restoreEnvValue("PIPELINE_TRACER_VERDICT", originalTracerVerdict);
+    restoreEnvValue("PIPELINE_TEST_COMMAND", originalTestCommand);
+    restoreEnvValue("PIPELINE_TYPECHECK_COMMAND", originalTypecheckCommand);
 
     consoleLogSpy.mockRestore();
     vi.restoreAllMocks();

@@ -10,18 +10,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 const PUBLIC_MISSING_CONFIG_API_RE =
-  /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/i;
+  /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/iu;
 const STALE_DOC_RUNTIME_SOURCE_RE =
-  /\.pipeline\/pipeline\.yaml[\s\S]{0,120}(source of truth|required|fails without|runtime|runner jobs)|source of truth[\s\S]{0,120}\.pipeline\/pipeline\.yaml|runs a static workflow from `.pipeline\/pipeline\.yaml`/i;
+  /\.pipeline\/pipeline\.yaml[\s\S]{0,120}(source of truth|required|fails without|runtime|runner jobs)|source of truth[\s\S]{0,120}\.pipeline\/pipeline\.yaml|runs a static workflow from `.pipeline\/pipeline\.yaml`/iu;
 const STALE_GENERATED_RUNTIME_SOURCE_RE =
-  /source of truth[\s\S]{0,160}\.pipeline\/pipeline\.yaml|\.pipeline\/pipeline\.yaml[\s\S]{0,160}(source of truth|blocking|authoritative|declares a gate|declared a gate)/i;
+  /source of truth[\s\S]{0,160}\.pipeline\/pipeline\.yaml|\.pipeline\/pipeline\.yaml[\s\S]{0,160}(source of truth|blocking|authoritative|declares a gate|declared a gate)/iu;
 const MISSING_EVENT_URL_FAILURE_DOC_RE =
-  /without (the private config|it)[^\n.]*fails|fails with a validation error/i;
+  /without (the private config|it)[^\n.]*fails|fails with a validation error/iu;
 const CLUSTER_SCOPED_CRD_PREFLIGHT_RE =
-  /customresourcedefinitions|CustomResourceDefinition|\bcrds?\b|kubectl\s+get\s+crd/i;
+  /customresourcedefinitions|CustomResourceDefinition|\bcrds?\b|kubectl\s+get\s+crd/iu;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -30,7 +31,7 @@ afterEach(() => {
   }
 });
 
-function tempConsumerApp(): string {
+const tempConsumerApp = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "pipeline-config-contract-"));
   tempDirs.push(dir);
 
@@ -61,17 +62,17 @@ function tempConsumerApp(): string {
   );
 
   return dir;
-}
+};
 
-function runChecked(
+const runChecked = (
   command: string,
   args: string[],
   options: { cwd: string }
-): string {
+): string => {
   try {
     return execFileSync(command, args, {
       cwd: options.cwd,
-      encoding: "utf8",
+      encoding: "utf-8",
       stdio: "pipe",
     });
   } catch (error) {
@@ -83,20 +84,21 @@ function runChecked(
     throw new Error(
       [output.message, output.stdout?.toString(), output.stderr?.toString()]
         .filter(Boolean)
-        .join("\n")
+        .join("\n"),
+      { cause: error }
     );
   }
-}
+};
 
-function expectCommandToFail(
+const expectCommandToFail = (
   command: string,
   args: string[],
   options: { cwd: string }
-): string {
+): string => {
   try {
     execFileSync(command, args, {
       cwd: options.cwd,
-      encoding: "utf8",
+      encoding: "utf-8",
       stdio: "pipe",
     });
   } catch (error) {
@@ -114,7 +116,7 @@ function expectCommandToFail(
       .join("\n");
   }
   throw new Error(`Expected ${command} ${args.join(" ")} to fail`);
-}
+};
 
 describe("package-owned config runtime contract", () => {
   it("does not keep the old runner-job command implementation", () => {
@@ -139,7 +141,7 @@ import { PipelineConfigError, tryLoadPipelineConfig } from "@oisincoveney/pipeli
 void tryLoadPipelineConfig;
 void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
 `,
-      "utf8"
+      "utf-8"
     );
 
     const output = expectCommandToFail(
@@ -171,7 +173,7 @@ if (config.skills.inspect.source_root !== "package") {
   throw new Error("inspect skill is not package-scoped");
 }
 `,
-      "utf8"
+      "utf-8"
     );
 
     runChecked("node", ["usage.mjs"], { cwd: consumer });
@@ -185,7 +187,7 @@ if (config.skills.inspect.source_root !== "package") {
       "docs/pipeline-console-runner-contract.md",
     ];
     for (const path of docs) {
-      expect(readFileSync(join(process.cwd(), path), "utf8")).not.toMatch(
+      expect(readFileSync(join(process.cwd(), path), "utf-8")).not.toMatch(
         STALE_DOC_RUNTIME_SOURCE_RE
       );
     }
@@ -194,7 +196,7 @@ if (config.skills.inspect.source_root !== "package") {
   it("documents Kubernetes runner prerequisites and quick/execute Argo default", () => {
     const guide = readFileSync(
       join(process.cwd(), "docs/operator-guide.md"),
-      "utf8"
+      "utf-8"
     );
 
     expect(guide).toContain("submits Argo Workflows by default");
@@ -221,7 +223,7 @@ if (config.skills.inspect.source_root !== "package") {
 
   it("keeps submit code free of cluster-scoped CRD preflight checks", () => {
     const submitSources = ["src/moka-submit.ts", "src/argo-submit.ts"]
-      .map((path) => readFileSync(join(process.cwd(), path), "utf8"))
+      .map((path) => readFileSync(join(process.cwd(), path), "utf-8"))
       .join("\n");
 
     expect(submitSources).not.toMatch(CLUSTER_SCOPED_CRD_PREFLIGHT_RE);
@@ -229,10 +231,10 @@ if (config.skills.inspect.source_root !== "package") {
 
   it("keeps generated prompts and command text from naming repo-local YAML as the runtime source", () => {
     const generatedText = [
-      `src/config.ts\n${readFileSync(join(process.cwd(), "src/config.ts"), "utf8")}`,
+      `src/config.ts\n${readFileSync(join(process.cwd(), "src/config.ts"), "utf-8")}`,
       `src/install-commands.ts\n${readFileSync(
         join(process.cwd(), "src/install-commands.ts"),
-        "utf8"
+        "utf-8"
       )}`,
     ];
     for (const content of generatedText) {

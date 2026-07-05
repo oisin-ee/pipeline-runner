@@ -1,52 +1,49 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
 import {
-  type NextNodeEnvelope,
   nextNodeEnvelopeSchema,
   parseNextNodeEnvelope,
   parseSubmitResult,
-  type SubmitResult,
   submitResultSchema,
 } from "./node-protocol";
+import type { NextNodeEnvelope, SubmitResult } from "./node-protocol";
 
 // A representative envelope for one node: a prompt, two read-only acceptance
 // criteria, and two upstream dependency outputs.
-function sampleEnvelope(): NextNodeEnvelope {
-  return {
-    criteria: [
-      { id: "ac-1", text: "compiles" },
-      { id: "ac-2", text: "tests pass" },
-    ],
-    nodeId: "implement",
-    prompt: "Implement the feature described by the criteria.",
-    runId: "run-123",
-    upstreamOutputs: [
-      { nodeId: "plan", output: "plan summary" },
-      { nodeId: "scaffold", output: "scaffold summary" },
-    ],
-  };
-}
+const sampleEnvelope = (): NextNodeEnvelope => ({
+  criteria: [
+    { id: "ac-1", text: "compiles" },
+    { id: "ac-2", text: "tests pass" },
+  ],
+  nodeId: "implement",
+  prompt: "Implement the feature described by the criteria.",
+  runId: "run-123",
+  upstreamOutputs: [
+    { nodeId: "plan", output: "plan summary" },
+    { nodeId: "scaffold", output: "scaffold summary" },
+  ],
+});
 
-function sampleResult(): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["pnpm test: 0"],
-    exitCode: 0,
-    nodeId: "implement",
-    output: "done",
-    status: "passed",
-  };
-}
+const sampleResult = (): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["pnpm test: 0"],
+  exitCode: 0,
+  nodeId: "implement",
+  output: "done",
+  status: "passed",
+});
 
-function sampleSubmit(): SubmitResult {
-  return { nodeId: "implement", result: sampleResult(), runId: "run-123" };
-}
+const sampleSubmit = (): SubmitResult => ({
+  nodeId: "implement",
+  result: sampleResult(),
+  runId: "run-123",
+});
 
 // JSON round-trip: serialize, re-parse the raw JSON text, validate via schema.
-function roundTrip<T>(schema: z.ZodType<T>, value: T): T {
-  return schema.parse(JSON.parse(JSON.stringify(value)));
-}
+const roundTrip = <T>(schema: z.ZodType<T>, value: T): T =>
+  schema.parse(structuredClone(value));
 
 describe("NextNodeEnvelope", () => {
   it("round-trips through JSON including criteria and upstream outputs (AC#1)", () => {

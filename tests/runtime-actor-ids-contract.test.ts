@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import {
-  type NodeRetryPolicyContract,
-  type RetryReason,
-  type RuntimeActorDescriptor,
-  type RuntimeActorIdParts,
-  type RuntimeActorKind,
-  type RuntimeObservabilityEmitter,
-  type RuntimeObservabilityEvent,
-  runtimeActorId,
+
+import { runtimeActorId } from "../src/runtime/actor-ids";
+import type {
+  NodeRetryPolicyContract,
+  RetryReason,
+  RuntimeActorDescriptor,
+  RuntimeActorIdParts,
+  RuntimeActorKind,
+  RuntimeObservabilityEmitter,
+  RuntimeObservabilityEvent,
 } from "../src/runtime/actor-ids";
 
 describe("public runtime actor/retry contracts", () => {

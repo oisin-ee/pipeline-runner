@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+
 import {
   DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST,
   OPENCODE_ECOSYSTEM_MANIFEST_PATH,
@@ -12,8 +14,8 @@ describe("OpenCode ecosystem manifest", () => {
 
     expect(manifest.version).toBe(1);
     expect(manifest.runtime).toMatchObject({
-      default_runner: "opencode",
       compatibility_runners: [],
+      default_runner: "opencode",
       default_stack_direct: true,
       state_authority: "pipeline",
     });
@@ -36,8 +38,8 @@ describe("OpenCode ecosystem manifest", () => {
       "opencode-mem",
       "cupcake",
     ]);
-    expect(manifest.ecosystem_code.every((item) => item.default_stack)).toBe(
-      true
+    expect(manifest.ecosystem_code.map((item) => item.default_stack)).toEqual(
+      manifest.ecosystem_code.map(() => true)
     );
     expect(
       manifest.ecosystem_code.find((item) => item.id === "dcp-code")
@@ -123,7 +125,7 @@ describe("OpenCode ecosystem manifest", () => {
   });
 
   it("parses the checked-in manifest through the exported schema", () => {
-    const source = readFileSync(OPENCODE_ECOSYSTEM_MANIFEST_PATH, "utf8");
+    const source = readFileSync(OPENCODE_ECOSYSTEM_MANIFEST_PATH, "utf-8");
 
     expect(parseOpenCodeEcosystemManifest(source)).toEqual(
       DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST

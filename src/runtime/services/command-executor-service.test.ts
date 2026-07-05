@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+
 import type { CommandExecutionContext } from "../command-executor";
 import type { NodeAttemptResult } from "../contracts";
 import { CommandExecutor } from "./command-executor-service";
@@ -24,7 +25,7 @@ describe("CommandExecutor service (Layer injection)", () => {
   it.effect(
     "resolves execute from the provided Layer, not a real process",
     () =>
-      Effect.gen(function* () {
+      Effect.gen(function* effectBody() {
         const executor = yield* CommandExecutor;
         const result = yield* executor.execute(
           ["noop"],

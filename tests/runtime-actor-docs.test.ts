@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const EXPECTED_WORKFLOW_STATES = [
@@ -58,7 +59,17 @@ const EXPECTED_GATE_STATES = [
   "timedOut",
   "cancelled",
 ] as const;
-const XSTATE_BRAND_RE = /\bXState\b|\bxstate\b/;
+const XSTATE_BRAND_RE = /\bXState\b|\bxstate\b/u;
+
+const documentedStates = (doc: string, label: string): string[] => {
+  const line = doc
+    .split("\n")
+    .find((candidate) => candidate.startsWith(`${label} states:`));
+  if (!line) {
+    throw new Error(`Missing ${label} states line`);
+  }
+  return Array.from(line.matchAll(/`([^`]+)`/gu), (match) => match[1]);
+};
 
 describe("runtime actor documentation", () => {
   it("uses the non-XState runtime actor model document", () => {
@@ -75,7 +86,7 @@ describe("runtime actor documentation", () => {
   it("keeps documented state taxonomy without importing runtime-machine contracts", () => {
     const doc = readFileSync(
       join(process.cwd(), "docs/runtime-actor-model.md"),
-      "utf8"
+      "utf-8"
     );
 
     expect(doc).not.toMatch(XSTATE_BRAND_RE);
@@ -87,13 +98,3 @@ describe("runtime actor documentation", () => {
     expect(documentedStates(doc, "Gate")).toEqual([...EXPECTED_GATE_STATES]);
   });
 });
-
-function documentedStates(doc: string, label: string): string[] {
-  const line = doc
-    .split("\n")
-    .find((candidate) => candidate.startsWith(`${label} states:`));
-  if (!line) {
-    throw new Error(`Missing ${label} states line`);
-  }
-  return Array.from(line.matchAll(/`([^`]+)`/g), (match) => match[1]);
-}

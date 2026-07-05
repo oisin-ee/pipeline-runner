@@ -1,5 +1,7 @@
 import type { Command } from "commander";
-import { Effect, type Scope } from "effect";
+import { Effect, Option } from "effect";
+import type { Scope } from "effect";
+
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config/load";
 import { loadMokaDbUrl } from "../moka-global-config";
@@ -15,12 +17,10 @@ import { computeReadyNodeIds } from "../runtime/scheduler";
 import {
   buildEnvelopeForNode,
   collectStoredResults,
-  type NextNodeInput,
 } from "../runtime/step/step-node";
-import {
-  type RunControlStore,
-  resolveRunControlStore,
-} from "./run-control-store";
+import type { NextNodeInput } from "../runtime/step/step-node";
+import { resolveRunControlStore } from "./run-control-store";
+import type { RunControlStore } from "./run-control-store";
 
 // PIPE-94.2: the envelope-build input types now live with the shared stepping
 // core (`src/runtime/step/step-node.ts`); re-exported here so existing callers
@@ -51,58 +51,54 @@ export interface NextNodeRunStoreInput {
  * meaningful output to hand the next executor. Pure function: store reads are
  * injected via `input.store`.
  */
-export function buildNextNodeEnvelope(
+const buildNextNodeEnvelopeOption = (
   input: NextNodeInput
-): NextNodeEnvelope | undefined {
+): Option.Option<NextNodeEnvelope> => {
   // Selection: gather all stored results (any status — both passed and failed
   // are "settled") and pick the first ready node. Execution-core envelope
   // assembly is delegated to the shared stepping module so the local run, the
   // Argo runner, and this CLI all build envelopes the same way (PIPE-94.2).
   const completed = collectStoredResults(input);
   const nodeId = computeReadyNodeIds({ completed, nodes: input.nodes })[0];
-  if (nodeId === undefined) {
-    return;
-  }
-  return buildEnvelopeForNode(input, nodeId);
-}
+  return Option.flatMap(Option.fromUndefinedOr(nodeId), (value) =>
+    buildEnvelopeForNode(input, value)
+  );
+};
 
-export function buildNextNodeEnvelopeFromRunStore(
-  input: NextNodeRunStoreInput
-): Effect.Effect<NextNodeEnvelope | undefined, unknown> {
-  return Effect.gen(function* () {
-    const { nodeMetadata, nodes } = yield* scheduleNodesFromRunStore(input);
-    return buildNextNodeEnvelope({
-      nodeMetadata,
-      nodes,
-      runId: input.runId,
-      store: input.durableStore,
-    });
+export const buildNextNodeEnvelope = (input: NextNodeInput) =>
+  Option.getOrUndefined(buildNextNodeEnvelopeOption(input));
+
+export const readPersistedScheduleEffect = (
+  store: RunControlStore,
+  runId: string
+): Effect.Effect<string, unknown> =>
+  Effect.gen(function* effectBody() {
+    const manifest = yield* store.readRun({ runId });
+    if (manifest === undefined) {
+      return yield* Effect.fail(
+        new Error(`Run ${runId} does not exist in the Moka DB.`)
+      );
+    }
+    if (manifest.schedule === undefined || manifest.schedule.length === 0) {
+      return yield* Effect.fail(
+        new Error(
+          `Run ${runId} has no persisted schedule. moka next node reads schedules from the Moka DB; start the run with moka run so manifest.schedule is persisted.`
+        )
+      );
+    }
+    return manifest.schedule;
   });
-}
 
-export function readyNodeIdsFromRunStore(
+const scheduleNodesFromRunStore = (
   input: NextNodeRunStoreInput
-): Effect.Effect<string[], unknown> {
-  return Effect.gen(function* () {
-    const { nodes } = yield* scheduleNodesFromRunStore(input);
-    const completed = collectStoredResults({
-      nodeMetadata: new Map(),
-      nodes,
-      runId: input.runId,
-      store: input.durableStore,
-    });
-    return computeReadyNodeIds({ completed, nodes });
-  });
-}
-
-function scheduleNodesFromRunStore(input: NextNodeRunStoreInput): Effect.Effect<
+): Effect.Effect<
   {
     nodeMetadata: NextNodeInput["nodeMetadata"];
     nodes: WorkflowScheduleNode[];
   },
   unknown
-> {
-  return Effect.gen(function* () {
+> =>
+  Effect.gen(function* effectBody() {
     const scheduleRaw = yield* readPersistedScheduleEffect(
       input.runControlStore,
       input.runId
@@ -119,7 +115,7 @@ function scheduleNodesFromRunStore(input: NextNodeRunStoreInput): Effect.Effect<
           input.worktreePath
         ),
     });
-    const plan = compiled.plan;
+    const { plan } = compiled;
     // PlannedWorkflowNode carries all fields WorkflowScheduleNode requires and
     // TypeScript's structural typing accepts the assignment without any cast.
     const nodes: WorkflowScheduleNode[] = plan.topologicalOrder;
@@ -134,59 +130,38 @@ function scheduleNodesFromRunStore(input: NextNodeRunStoreInput): Effect.Effect<
     );
     return { nodeMetadata, nodes };
   });
-}
 
-export function readPersistedScheduleEffect(
-  store: RunControlStore,
-  runId: string
-): Effect.Effect<string, unknown> {
-  return Effect.gen(function* () {
-    const manifest = yield* store.readRun({ runId });
-    if (manifest === undefined) {
-      return yield* Effect.fail(
-        new Error(`Run ${runId} does not exist in the Moka DB.`)
-      );
-    }
-    if (!manifest.schedule) {
-      return yield* Effect.fail(
-        new Error(
-          `Run ${runId} has no persisted schedule. moka next node reads schedules from the Moka DB; start the run with moka run so manifest.schedule is persisted.`
-        )
-      );
-    }
-    return manifest.schedule;
-  });
-}
-
-/**
- * Register `moka next node <run-id>` under the `next` command group. The
- * schedule is read from the run-control manifest in the Moka DB by run id.
- */
-export function registerNextNodeSubcommand(nextCommand: Command): void {
-  nextCommand
-    .command("node")
-    .description(
-      "Emit the next ready node envelope from a persisted run without executing it"
-    )
-    .argument("<run-id>", "the run id to query")
-    .showHelpAfterError(
-      "Remove --schedule-file; moka next node reads schedules from the Moka DB by run id."
-    )
-    .action(async (runId: string) => {
-      await Effect.runPromise(printNextNodeEnvelopeEffect(runId));
+export const buildNextNodeEnvelopeFromRunStore = (
+  input: NextNodeRunStoreInput
+) =>
+  Effect.gen(function* effectBody() {
+    const { nodeMetadata, nodes } = yield* scheduleNodesFromRunStore(input);
+    return buildNextNodeEnvelope({
+      nodeMetadata,
+      nodes,
+      runId: input.runId,
+      store: input.durableStore,
     });
-}
+  });
 
-function printNextNodeEnvelopeEffect(
-  runId: string
-): Effect.Effect<void, unknown> {
-  return Effect.scoped(printNextNodeEnvelopeScoped(runId));
-}
+export const readyNodeIdsFromRunStore = (
+  input: NextNodeRunStoreInput
+): Effect.Effect<string[], unknown> =>
+  Effect.gen(function* effectBody() {
+    const { nodes } = yield* scheduleNodesFromRunStore(input);
+    const completed = collectStoredResults({
+      nodeMetadata: new Map(),
+      nodes,
+      runId: input.runId,
+      store: input.durableStore,
+    });
+    return computeReadyNodeIds({ completed, nodes });
+  });
 
-function printNextNodeEnvelopeScoped(
+const printNextNodeEnvelopeScoped = (
   runId: string
-): Effect.Effect<void, unknown, Scope.Scope> {
-  return Effect.gen(function* () {
+): Effect.Effect<void, unknown, Scope.Scope> =>
+  Effect.gen(function* effectBody() {
     const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
     const config = yield* Effect.try({
       catch: (error) => error,
@@ -211,4 +186,27 @@ function printNextNodeEnvelopeScoped(
     }
     process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
   });
-}
+
+const printNextNodeEnvelopeEffect = (
+  runId: string
+): Effect.Effect<void, unknown> =>
+  Effect.scoped(printNextNodeEnvelopeScoped(runId));
+
+/**
+ * Register `moka next node <run-id>` under the `next` command group. The
+ * schedule is read from the run-control manifest in the Moka DB by run id.
+ */
+export const registerNextNodeSubcommand = (nextCommand: Command): void => {
+  nextCommand
+    .command("node")
+    .description(
+      "Emit the next ready node envelope from a persisted run without executing it"
+    )
+    .argument("<run-id>", "the run id to query")
+    .showHelpAfterError(
+      "Remove --schedule-file; moka next node reads schedules from the Moka DB by run id."
+    )
+    .action(async (runId: string) => {
+      await Effect.runPromise(printNextNodeEnvelopeEffect(runId));
+    });
+};

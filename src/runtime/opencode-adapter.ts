@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import { jsonLineValues } from "../json-line-values";
 import type { AgentResult, RunnerLaunchPlan } from "../runner";
 import { isRecord } from "../safe-json";
@@ -7,7 +8,7 @@ export interface RuntimeLaunchCommand {
   args: string[];
   command: string;
   cwd: string;
-  env: Record<string, string | undefined>;
+  env: RunnerLaunchPlan["env"];
   timeoutMs?: number;
 }
 
@@ -65,6 +66,43 @@ export interface RuntimeCapabilityAdapter {
   ): RuntimeSessionMetadata;
 }
 
+const continuationEffect = (
+  request: RuntimeContinuationRequest
+): Effect.Effect<RuntimeSessionSnapshot> =>
+  Effect.succeed({
+    metadata: {
+      adapterId: "opencode-sdk",
+      continuationApi: "session-reuse",
+      nodeId: request.sessionId,
+      outputFormat: "text",
+      pluginEvents: "server-event-stream",
+      runnerId: "opencode",
+      sessionInspectionApi: "sdk",
+      worktreePath: "",
+    },
+  });
+
+const assertOpenCodePlan = (plan: RunnerLaunchPlan): void => {
+  if (plan.type !== "opencode") {
+    throw new Error(
+      `OpenCode runtime adapter cannot handle runner type '${plan.type}'`
+    );
+  }
+};
+
+const opencodeTextPart = (value: unknown): Option.Option<string> => {
+  if (!isRecord(value)) {
+    return Option.none();
+  }
+  const { part } = value;
+  if (isRecord(part) && part.type === "text") {
+    return typeof part.text === "string"
+      ? Option.some(part.text)
+      : Option.none();
+  }
+  return Option.none();
+};
+
 /**
  * Output-parsing seam for opencode runner output. The SDK executor
  * (opencode-session-executor.ts) re-serializes assistant text parts into the
@@ -77,10 +115,10 @@ export interface RuntimeCapabilityAdapter {
  * adapter only normalizes output and reports capabilities.
  */
 export const opencodeSdkRuntimeAdapter: RuntimeCapabilityAdapter = {
-  continuation(request) {
+  async continuation(request) {
     // Continuation reuses the recorded session id at the goal-loop layer; there
     // is no separate native call to make here.
-    return Effect.runPromise(continuationEffect(request));
+    return await Effect.runPromise(continuationEffect(request));
   },
 
   id: "opencode-sdk",
@@ -99,7 +137,7 @@ export const opencodeSdkRuntimeAdapter: RuntimeCapabilityAdapter = {
   normalizeOutput(stdout) {
     const candidates = this.outputCandidates(stdout);
     const latest = candidates.at(-1);
-    if (!latest) {
+    if (latest === undefined) {
       return { evidence: [], output: stdout };
     }
     return {
@@ -130,38 +168,3 @@ export const opencodeSdkRuntimeAdapter: RuntimeCapabilityAdapter = {
     };
   },
 };
-
-function continuationEffect(
-  request: RuntimeContinuationRequest
-): Effect.Effect<RuntimeSessionSnapshot> {
-  return Effect.succeed({
-    metadata: {
-      adapterId: "opencode-sdk",
-      continuationApi: "session-reuse",
-      nodeId: request.sessionId,
-      outputFormat: "text",
-      pluginEvents: "server-event-stream",
-      runnerId: "opencode",
-      sessionInspectionApi: "sdk",
-      worktreePath: "",
-    },
-  });
-}
-
-function assertOpenCodePlan(plan: RunnerLaunchPlan): void {
-  if (plan.type !== "opencode") {
-    throw new Error(
-      `OpenCode runtime adapter cannot handle runner type '${plan.type}'`
-    );
-  }
-}
-
-function opencodeTextPart(value: unknown): string | undefined {
-  if (!isRecord(value)) {
-    return;
-  }
-  const part = value.part;
-  if (isRecord(part) && part.type === "text") {
-    return typeof part.text === "string" ? part.text : undefined;
-  }
-}

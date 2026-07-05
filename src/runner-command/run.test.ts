@@ -1,20 +1,19 @@
 import { describe, expect, it } from "vitest";
+
 import type { RuntimeNodeResult } from "../runtime/contracts";
 import { nodeProcessExitCode } from "./run";
 
-function nodeResult(
+const nodeResult = (
   overrides: Partial<RuntimeNodeResult> = {}
-): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: [],
-    exitCode: 0,
-    nodeId: "n",
-    output: "",
-    status: "passed",
-    ...overrides,
-  };
-}
+): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: [],
+  exitCode: 0,
+  nodeId: "n",
+  output: "",
+  status: "passed",
+  ...overrides,
+});
 
 describe("nodeProcessExitCode", () => {
   it("maps a passed node to exit 0", () => {

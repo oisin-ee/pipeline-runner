@@ -1,5 +1,6 @@
 // fallow-ignore-file unused-export complexity
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
@@ -8,9 +9,9 @@ import { createSerializedWriteQueue } from "../serialized-write-queue";
 import {
   DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS,
   DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS,
-  type MokaNodeStatus,
   parseRunControlStaleDetection,
 } from "./contracts";
+import type { MokaNodeStatus } from "./contracts";
 import type { RunControlStore } from "./run-control-store";
 import { createRunStoreRuntimeReporter } from "./runtime-reporter";
 
@@ -48,34 +49,61 @@ interface NodeActivity {
   status: MokaNodeStatus;
 }
 
-const RUNNING_NODE_EVENT_TYPES = new Set<PipelineRuntimeEvent["type"]>([
-  "agent.start",
-  "artifact.check.start",
-  "gate.start",
-  "hook.result",
-  "hook.start",
-  "node.output.recorded",
-  "node.session",
-  "node.start",
-  "output.repair",
-  "runtime.observability",
-]);
+type EventPredicate = (event: PipelineRuntimeEvent) => boolean;
 
-export function createRunControlSupervisor(
-  input: CreateRunControlSupervisorInput
-): RunControlSupervisor {
-  return Effect.runSync(createRunControlSupervisorEffect(input));
-}
+const isRunningNodeEvent: EventPredicate = (event) =>
+  [
+    "agent.start",
+    "artifact.check.start",
+    "gate.start",
+    "hook.result",
+    "hook.start",
+    "node.output.recorded",
+    "node.session",
+    "node.start",
+    "output.repair",
+    "runtime.observability",
+  ].includes(event.type);
 
-export function createRunControlSupervisorEffect(
-  input: CreateRunControlSupervisorInput
-): Effect.Effect<RunControlSupervisor> {
-  return Effect.sync(() => createRunControlSupervisorRuntime(input));
-}
+const CLEAR_NODE_ACTIVITY: readonly EventPredicate[] = [
+  (event) => event.type === "node.finish",
+  (event) => event.type === "agent.finish" && event.exitCode !== 0,
+  (event) =>
+    (event.type === "artifact.check.finish" || event.type === "hook.finish") &&
+    event.required &&
+    !event.passed,
+  (event) => event.type === "gate.finish" && !event.passed,
+];
 
-function createRunControlSupervisorRuntime(
+const MARK_NODE_RUNNING: readonly EventPredicate[] = [
+  isRunningNodeEvent,
+  (event) => event.type === "agent.finish" && event.exitCode === 0,
+  (event) =>
+    (event.type === "artifact.check.finish" || event.type === "hook.finish") &&
+    (event.passed || !event.required),
+  (event) => event.type === "gate.finish" && event.passed,
+];
+
+const timestamp = (now: () => Date): string => now().toISOString();
+
+const nodeIdFromEvent = (
+  event: PipelineRuntimeEvent
+): Option.Option<string> => {
+  if (!("nodeId" in event)) {
+    return Option.none();
+  }
+  return Option.fromUndefinedOr(event.nodeId);
+};
+
+const shouldClearNodeActivity = (event: PipelineRuntimeEvent): boolean =>
+  CLEAR_NODE_ACTIVITY.some((predicate) => predicate(event));
+
+const shouldMarkNodeRunning = (event: PipelineRuntimeEvent): boolean =>
+  MARK_NODE_RUNNING.some((predicate) => predicate(event));
+
+const createRunControlSupervisorRuntime = (
   input: CreateRunControlSupervisorInput
-): RunControlSupervisor {
+): RunControlSupervisor => {
   const now = input.now ?? (() => new Date());
   const staleDetection = parseRunControlStaleDetection({
     heartbeatIntervalMs:
@@ -83,7 +111,7 @@ function createRunControlSupervisorRuntime(
     nodeStaleAfterMs:
       input.nodeStaleAfterMs ?? DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS,
   });
-  const store = input.store;
+  const { store } = input;
   const bridge = createRunStoreRuntimeReporter({
     now,
     reporter: input.reporter,
@@ -93,27 +121,31 @@ function createRunControlSupervisorRuntime(
   });
   const nodeActivity = new Map<string, NodeActivity>();
   const controlWrites = createSerializedWriteQueue();
-  let heartbeatTimer: TimerHandle | undefined;
+  let heartbeatTimer = Option.none<TimerHandle>();
   let runActive = false;
   let stopped = false;
 
   const flushControlWritesEffect = (): Effect.Effect<void, unknown> =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => controlWrites.flush(),
+      try: async () => {
+        await controlWrites.flush();
+      },
     });
 
   const enqueueControlWriteEffect = (
     write: Effect.Effect<void, unknown>
   ): Effect.Effect<void> =>
     Effect.sync(() => {
-      controlWrites.enqueue(() =>
-        Effect.runPromise(bridge.flushEffect().pipe(Effect.andThen(write)))
-      );
+      controlWrites.enqueue(async () => {
+        await Effect.runPromise(
+          bridge.flushEffect().pipe(Effect.andThen(write))
+        );
+      });
     });
 
   const enqueueHeartbeatEffect = (): Effect.Effect<void> =>
-    Effect.gen(function* () {
+    Effect.gen(function* enqueueHeartbeatProgram() {
       if (!(runActive && !stopped)) {
         return;
       }
@@ -134,20 +166,8 @@ function createRunControlSupervisorRuntime(
     Effect.runSync(enqueueHeartbeatEffect());
   };
 
-  const scheduleStaleTimerEffect = (
-    nodeId: string,
-    activity: NodeActivity,
-    delayMs = staleDetection.nodeStaleAfterMs
-  ): Effect.Effect<void> =>
-    Effect.sync(() => {
-      if (activity.staleTimer) {
-        clearTimeout(activity.staleTimer);
-      }
-      activity.staleTimer = setTimeout(() => markNodeStalled(nodeId), delayMs);
-    });
-
   const markNodeStalledEffect = (nodeId: string): Effect.Effect<void> =>
-    Effect.gen(function* () {
+    Effect.gen(function* effectBody() {
       const activity = nodeActivity.get(nodeId);
       if (
         !(activity && runActive && !stopped && activity.status === "running")
@@ -157,11 +177,15 @@ function createRunControlSupervisorRuntime(
 
       const elapsedMs = now().getTime() - activity.lastActivityMs;
       if (elapsedMs < staleDetection.nodeStaleAfterMs) {
-        yield* scheduleStaleTimerEffect(
-          nodeId,
-          activity,
-          staleDetection.nodeStaleAfterMs - elapsedMs
-        );
+        const delayMs = staleDetection.nodeStaleAfterMs - elapsedMs;
+        yield* Effect.sync(() => {
+          if (activity.staleTimer) {
+            clearTimeout(activity.staleTimer);
+          }
+          activity.staleTimer = setTimeout(() => {
+            Effect.runSync(markNodeStalledEffect(nodeId));
+          }, delayMs);
+        });
         return;
       }
 
@@ -178,12 +202,22 @@ function createRunControlSupervisorRuntime(
       );
     });
 
-  const markNodeStalled = (nodeId: string): void => {
-    Effect.runSync(markNodeStalledEffect(nodeId));
-  };
+  const scheduleStaleTimerEffect = (
+    nodeId: string,
+    activity: NodeActivity,
+    delayMs = staleDetection.nodeStaleAfterMs
+  ): Effect.Effect<void> =>
+    Effect.sync(() => {
+      if (activity.staleTimer) {
+        clearTimeout(activity.staleTimer);
+      }
+      activity.staleTimer = setTimeout(() => {
+        Effect.runSync(markNodeStalledEffect(nodeId));
+      }, delayMs);
+    });
 
   const markNodeRunningEffect = (nodeId: string): Effect.Effect<void> =>
-    Effect.gen(function* () {
+    Effect.gen(function* markNodeRunningProgram() {
       if (!(runActive && !stopped)) {
         return;
       }
@@ -220,14 +254,14 @@ function createRunControlSupervisorRuntime(
     });
 
   const clearAllNodesEffect = (): Effect.Effect<void> =>
-    Effect.forEach([...nodeActivity.keys()], clearNodeEffect).pipe(
-      Effect.asVoid
-    );
+    Effect.forEach([...nodeActivity.keys()], clearNodeEffect, {
+      concurrency: 1,
+    }).pipe(Effect.asVoid);
 
   const observeRuntimeEventEffect = (
     event: PipelineRuntimeEvent
   ): Effect.Effect<void> =>
-    Effect.gen(function* () {
+    Effect.gen(function* observeRuntimeEventProgram() {
       if (event.type === "workflow.start") {
         runActive = true;
         return;
@@ -239,35 +273,34 @@ function createRunControlSupervisorRuntime(
       }
 
       const nodeId = nodeIdFromEvent(event);
-      if (!nodeId) {
+      if (Option.isNone(nodeId) || nodeId.value.length === 0) {
         return;
       }
       if (shouldClearNodeActivity(event)) {
-        yield* clearNodeEffect(nodeId);
+        yield* clearNodeEffect(nodeId.value);
         return;
       }
       if (shouldMarkNodeRunning(event)) {
-        yield* markNodeRunningEffect(nodeId);
+        yield* markNodeRunningEffect(nodeId.value);
       }
     });
 
   const startEffect = (): Effect.Effect<void> =>
     Effect.sync(() => {
-      if (heartbeatTimer || stopped) {
+      if (Option.isSome(heartbeatTimer) || stopped) {
         return;
       }
-      heartbeatTimer = setInterval(
-        enqueueHeartbeat,
-        staleDetection.heartbeatIntervalMs
+      heartbeatTimer = Option.some(
+        setInterval(enqueueHeartbeat, staleDetection.heartbeatIntervalMs)
       );
     });
 
   const stopEffect = (): Effect.Effect<void, unknown> =>
-    Effect.gen(function* () {
+    Effect.gen(function* stopProgram() {
       stopped = true;
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = undefined;
+      if (Option.isSome(heartbeatTimer)) {
+        clearInterval(heartbeatTimer.value);
+        heartbeatTimer = Option.none();
       }
       yield* clearAllNodesEffect();
       yield* bridge.flushEffect();
@@ -275,13 +308,15 @@ function createRunControlSupervisorRuntime(
     });
 
   const flushEffect = (): Effect.Effect<void, unknown> =>
-    Effect.gen(function* () {
+    Effect.gen(function* flushProgram() {
       yield* bridge.flushEffect();
       yield* flushControlWritesEffect();
     });
 
   return {
-    flush: () => Effect.runPromise(flushEffect()),
+    flush: async () => {
+      await Effect.runPromise(flushEffect());
+    },
     flushEffect,
     reporter(event) {
       bridge.reporter(event);
@@ -291,51 +326,19 @@ function createRunControlSupervisorRuntime(
       Effect.runSync(startEffect());
     },
     startEffect,
-    stop: () => Effect.runPromise(stopEffect()),
+    stop: async () => {
+      await Effect.runPromise(stopEffect());
+    },
     stopEffect,
   };
-}
+};
 
-function timestamp(now: () => Date): string {
-  return now().toISOString();
-}
+export const createRunControlSupervisorEffect = (
+  input: CreateRunControlSupervisorInput
+): Effect.Effect<RunControlSupervisor> =>
+  Effect.sync(() => createRunControlSupervisorRuntime(input));
 
-function nodeIdFromEvent(event: PipelineRuntimeEvent): string | undefined {
-  if (!("nodeId" in event)) {
-    return;
-  }
-  return event.nodeId;
-}
-
-function shouldClearNodeActivity(event: PipelineRuntimeEvent): boolean {
-  switch (event.type) {
-    case "node.finish":
-      return true;
-    case "agent.finish":
-      return event.exitCode !== 0;
-    case "artifact.check.finish":
-    case "hook.finish":
-      return event.required && !event.passed;
-    case "gate.finish":
-      return !event.passed;
-    default:
-      return false;
-  }
-}
-
-function shouldMarkNodeRunning(event: PipelineRuntimeEvent): boolean {
-  if (RUNNING_NODE_EVENT_TYPES.has(event.type)) {
-    return true;
-  }
-  switch (event.type) {
-    case "agent.finish":
-      return event.exitCode === 0;
-    case "artifact.check.finish":
-    case "hook.finish":
-      return event.passed || !event.required;
-    case "gate.finish":
-      return event.passed;
-    default:
-      return false;
-  }
-}
+export const createRunControlSupervisor = (
+  input: CreateRunControlSupervisorInput
+): RunControlSupervisor =>
+  Effect.runSync(createRunControlSupervisorEffect(input));

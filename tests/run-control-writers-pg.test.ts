@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect } from "effect";
 import postgres from "postgres";
 import {
@@ -13,11 +14,12 @@ import {
   it,
   vi,
 } from "vitest";
+
 import {
   migratePostgresRunControlStore,
-  type PostgresRunControlStore,
   postgresRunControlStore,
 } from "../src/run-control/postgres/postgres-run-control-store";
+import type { PostgresRunControlStore } from "../src/run-control/postgres/postgres-run-control-store";
 import { resolveRunControlStore } from "../src/run-control/run-control-store";
 import { createRunStoreRuntimeReporter } from "../src/run-control/runtime-reporter";
 import { createRunControlSupervisor } from "../src/run-control/supervisor";
@@ -31,14 +33,14 @@ import { createRunControlSupervisor } from "../src/run-control/supervisor";
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
 
-function stateFilesExist(workspaceRoot: string, runId: string): boolean {
+const stateFilesExist = (workspaceRoot: string, runId: string): boolean => {
   const runRoot = join(workspaceRoot, ".pipeline", "runs", runId);
   return (
     existsSync(join(runRoot, "manifest.json")) ||
     existsSync(join(runRoot, "status.json")) ||
     existsSync(join(runRoot, "events.jsonl"))
   );
-}
+};
 
 describePg(
   "run-control writers route through the db.url seam (live cluster PG)",
@@ -52,28 +54,27 @@ describePg(
     let workspaceRoot: string;
     let counter = 0;
 
-    function runId(label: string): string {
+    const runId = (label: string): string => {
       counter += 1;
       return `${suitePrefix}-${label}-${counter}`;
-    }
+    };
 
-    function pgStore(): PostgresRunControlStore {
+    const pgStore = (): PostgresRunControlStore => {
       const store = postgresRunControlStore(dbUrl);
       openStores.push(store);
       return store;
-    }
+    };
 
     // AC2: read back from a FRESH seam resolution (the command path), proving
     // the writer-written state is visible exactly as `moka status/runs` see it.
-    function readBackFromFreshResolution(id: string, root: string) {
-      return Effect.runPromise(
+    const readBackFromFreshResolution = async (id: string, root: string) =>
+      await Effect.runPromise(
         Effect.scoped(
           resolveRunControlStore(dbUrl, root).pipe(
             Effect.flatMap((store) => store.readRun({ runId: id }))
           )
         )
       );
-    }
 
     beforeAll(async () => {
       vi.setConfig({ hookTimeout: 30_000, testTimeout: 20_000 });

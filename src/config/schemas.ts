@@ -1,15 +1,11 @@
 import { Data } from "effect";
 import { z } from "zod";
+
 import {
   BUILTIN_GATES,
   DEFAULT_RUNNER_COMMAND_GIT_COMMITTER,
   FILESYSTEM_MODES,
-  type GATE_KINDS,
-  type HOOK_EVENTS,
-  type MCP_GATEWAY_BACKEND_LOCALITIES,
-  type MCP_GATEWAY_WORKSPACE_PATH_SOURCES,
   NETWORK_MODES,
-  type NODE_KINDS,
   OUTPUT_FORMATS,
   REASONING_EFFORTS,
   RETRY_REASONS,
@@ -18,6 +14,13 @@ import {
   SCHEDULE_STRATEGIES,
   SCHEDULING_ROLES,
   TOOL_NAMES,
+} from "./schema/catalog";
+import type {
+  GATE_KINDS,
+  HOOK_EVENTS,
+  MCP_GATEWAY_BACKEND_LOCALITIES,
+  MCP_GATEWAY_WORKSPACE_PATH_SOURCES,
+  NODE_KINDS,
 } from "./schema/catalog";
 import { mcpGatewaySchema, mcpServerSchema } from "./schema/mcp";
 import { validateConfigReferences } from "./schema/reference-validation";
@@ -46,7 +49,7 @@ export class PipelineConfigError extends Data.TaggedError(
     message: string,
     issues: PipelineConfigIssue[] = []
   ) {
-    super({ code, message, issues });
+    super({ code, issues, message });
   }
 }
 
@@ -390,8 +393,8 @@ const entrypointSchema = z.union([
 
 const schedulePolicySchema = z
   .object({
-    description: z.string().optional(),
     baseline: z.enum(SCHEDULE_BASELINES),
+    description: z.string().optional(),
     max_parallel_nodes: z.number().int().positive().optional(),
     node_catalog: z.string().min(1).optional(),
     planner_profile: z.string().optional(),
@@ -581,27 +584,27 @@ export const profilesFileSchema = z
 
 const fanOutWidthSchema = z
   .object({
-    default: z.number().int().positive().default(4),
     by_category: strictRecord(z.number().int().positive()).default({}),
+    default: z.number().int().positive().default(4),
   })
   .strict();
 
 const tokenBudgetSchema = z
   .object({
     default_context_window: z.number().int().positive().default(200_000),
+    fan_out_width: fanOutWidthSchema.default({ by_category: {}, default: 4 }),
     max_context_pct: z.number().positive().max(100).default(50),
     model_context_windows: strictRecord(z.number().int().positive()).default(
       {}
     ),
-    fan_out_width: fanOutWidthSchema.default({ default: 4, by_category: {} }),
   })
   .strict();
 
 const DEFAULT_TOKEN_BUDGET = {
   default_context_window: 200_000,
+  fan_out_width: { by_category: {}, default: 4 },
   max_context_pct: 50,
   model_context_windows: {},
-  fan_out_width: { default: 4, by_category: {} },
 } as const;
 
 // PIPE-83.1: opt-in derivation of structured NodeHandoffs between nodes. Default
@@ -656,8 +659,8 @@ const deliverySchema = z
 
 export const pipelineFileSchema = z
   .object({
-    default_workflow: z.string(),
     context_handoff: contextHandoffSchema.optional(),
+    default_workflow: z.string(),
     delivery: deliverySchema.optional(),
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
@@ -675,25 +678,29 @@ export const pipelineFileSchema = z
     schedules: strictRecord(schedulePolicySchema).default({}),
     task_context: taskContextResolverSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
-    workflows: strictRecord(workflowSchema).default({}),
     version: z.literal(1),
+    workflows: strictRecord(workflowSchema).default({}),
   })
   .strict();
 
 const configSchemaBase = z
   .object({
+    context_handoff: contextHandoffSchema.optional(),
     default_workflow: z.string(),
+    delivery: deliverySchema.optional(),
     entrypoints: strictRecord(entrypointSchema).default({}),
     hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
     mcp_gateway: mcpGatewaySchema.optional(),
     mcp_servers: strictRecord(mcpServerSchema).default({}),
     orchestrator: orchestratorSchema.optional(),
+    parallel_worktrees: parallelWorktreesSchema.optional(),
     profiles: strictRecord(profileSchema).default({}),
+    repo_map: repoMapSchema.optional(),
+    rules: strictRecord(pathRefSchema).default({}),
     runner_command: runnerCommandConfigSchema.default({
       environment: { setup: [], smoke: [] },
       git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
     }),
-    rules: strictRecord(pathRefSchema).default({}),
     runners: strictRecord(runnerSchema).default({}),
     scheduler: schedulerConfigSchema.default({
       commands: {},
@@ -702,10 +709,6 @@ const configSchemaBase = z
     schedules: strictRecord(schedulePolicySchema).default({}),
     skills: strictRecord(pathRefSchema).default({}),
     task_context: taskContextResolverSchema.optional(),
-    context_handoff: contextHandoffSchema.optional(),
-    delivery: deliverySchema.optional(),
-    parallel_worktrees: parallelWorktreesSchema.optional(),
-    repo_map: repoMapSchema.optional(),
     token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
     version: z.literal(1),
     workflows: strictRecord(workflowSchema).default({}),
@@ -741,26 +744,26 @@ export interface PipelineConfigValidationOptions {
   allowMissingLintFileReferences?: boolean;
 }
 
-export function validationError(
+export const validationError = (
   issues: PipelineConfigIssue[]
-): PipelineConfigError {
-  return new PipelineConfigError(
+): PipelineConfigError =>
+  new PipelineConfigError(
     "PIPELINE_CONFIG_VALIDATION_ERROR",
     [
       "Invalid pipeline config:",
       ...issues.map((issue) =>
-        issue.path ? `- ${issue.path}: ${issue.message}` : `- ${issue.message}`
+        issue.path === ""
+          ? `- ${issue.message}`
+          : `- ${issue.path}: ${issue.message}`
       ),
     ].join("\n"),
     issues
   );
-}
 
-export function configIssuesFromZodError(
+export const configIssuesFromZodError = (
   error: z.ZodError
-): PipelineConfigIssue[] {
-  return error.issues.map((issue) => ({
-    path: issue.path.join("."),
+): PipelineConfigIssue[] =>
+  error.issues.map((issue) => ({
     message: issue.message,
+    path: issue.path.join("."),
   }));
-}

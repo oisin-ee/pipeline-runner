@@ -45,7 +45,7 @@ export type FactoryLaneJobOptions = z.output<
 
 export const FACTORY_LANE_LABEL = "pipeline.oisin.dev/factory-lane";
 
-export function buildFactoryLaneJob(input: FactoryLaneJobOptionsInput) {
+export const buildFactoryLaneJob = (input: FactoryLaneJobOptionsInput) => {
   const options = factoryLaneJobOptionsSchema.parse(input);
   const lane = options.argv[0] ?? "unknown";
 
@@ -72,7 +72,8 @@ export function buildFactoryLaneJob(input: FactoryLaneJobOptionsInput) {
             {
               args: [...options.argv],
               image: options.image,
-              ...(options.imagePullPolicy
+              ...(options.imagePullPolicy !== undefined &&
+              options.imagePullPolicy.length > 0
                 ? { imagePullPolicy: options.imagePullPolicy }
                 : {}),
               name: "lane",
@@ -92,11 +93,13 @@ export function buildFactoryLaneJob(input: FactoryLaneJobOptionsInput) {
               ],
             },
           ],
-          ...(options.imagePullSecretName
+          ...(options.imagePullSecretName !== undefined &&
+          options.imagePullSecretName.length > 0
             ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
             : {}),
           restartPolicy: "Never",
-          ...(options.serviceAccountName
+          ...(options.serviceAccountName !== undefined &&
+          options.serviceAccountName.length > 0
             ? { serviceAccountName: options.serviceAccountName }
             : {}),
           volumes: [
@@ -119,4 +122,4 @@ export function buildFactoryLaneJob(input: FactoryLaneJobOptionsInput) {
       },
     },
   };
-}
+};

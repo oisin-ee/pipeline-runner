@@ -1,3 +1,5 @@
+import { Option } from "effect";
+
 import type { PipelineConfig } from "../../config";
 import { selectNodeModelCandidates } from "../../model-resolver";
 import type { PlannedWorkflowNode } from "../../planning/compile";
@@ -5,7 +7,7 @@ import type { AgentResult } from "../../runner";
 import { estimateTokens } from "../../token-estimator";
 
 export interface NodeModelDecision {
-  candidates: (string | undefined)[];
+  candidates: Option.Option<string>[];
   estimatedTokens: number;
   overBudget: boolean;
   reason: string;
@@ -17,54 +19,60 @@ interface TokenSizing {
   estimatedTokens: number;
 }
 
-export function decideNodeModel(
+const tokenSizing = (
+  estimatedTokens: number,
+  budget?: PipelineConfig["token_budget"]
+): Partial<TokenSizing> =>
+  budget === undefined ? {} : { budget, estimatedTokens };
+
+const selectedCandidates = (models: string[]): Option.Option<string>[] =>
+  models.length > 0 ? models.map(Option.some) : [Option.none()];
+
+const noCandidateFitsBudget = (
+  node: PlannedWorkflowNode,
+  models: string[],
+  budget?: PipelineConfig["token_budget"]
+): boolean =>
+  budget !== undefined &&
+  node.models !== undefined &&
+  node.models.length > 0 &&
+  models.length === 0;
+
+export const decideNodeModel = (
   prompt: string,
   node: PlannedWorkflowNode,
-  budget: PipelineConfig["token_budget"] | undefined,
-  availableModels: ReadonlySet<string> | undefined
-): NodeModelDecision {
+  availableModels?: ReadonlySet<string>,
+  budget?: PipelineConfig["token_budget"]
+): NodeModelDecision => {
   const estimatedTokens = estimateTokens(prompt);
   const candidates = selectNodeModelCandidates(node, {
     available: availableModels,
-    ...tokenSizing(budget, estimatedTokens),
+    ...tokenSizing(estimatedTokens, budget),
   });
   return {
     candidates: selectedCandidates(candidates.models),
     estimatedTokens,
-    overBudget: noCandidateFitsBudget(budget, node, candidates.models),
+    overBudget: noCandidateFitsBudget(node, candidates.models, budget),
     reason: candidates.reason,
     skipped: candidates.skipped,
   };
-}
+};
 
-function tokenSizing(
-  budget: PipelineConfig["token_budget"] | undefined,
-  estimatedTokens: number
-): Partial<TokenSizing> {
-  return budget ? { budget, estimatedTokens } : {};
-}
+export const modelLabel = (model: Option.Option<string>): string =>
+  Option.match(model, {
+    onNone: () => "profile/default",
+    onSome: (value) => value,
+  });
 
-function selectedCandidates(models: string[]): (string | undefined)[] {
-  return models.length ? models : [undefined];
-}
-
-function noCandidateFitsBudget(
-  budget: PipelineConfig["token_budget"] | undefined,
-  node: PlannedWorkflowNode,
-  models: string[]
-): boolean {
-  return Boolean(budget && node.models?.length) && models.length === 0;
-}
-
-export function modelLabel(model: string | undefined): string {
-  return model ?? "profile/default";
-}
-
-export function fallbackNote(
-  failed: string | undefined,
-  next: string | undefined,
-  result: AgentResult
-): string {
-  const detail = result.stderr ? `: ${result.stderr}` : "";
+export const fallbackNote = (input: {
+  failed: Option.Option<string>;
+  next: Option.Option<string>;
+  result: AgentResult;
+}): string => {
+  const { failed, next, result } = input;
+  const detail =
+    result.stderr === undefined || result.stderr.length === 0
+      ? ""
+      : `: ${result.stderr}`;
   return `model ${modelLabel(failed)} failed (infra exit ${result.exitCode}${detail}); falling back to ${modelLabel(next)}`;
-}
+};

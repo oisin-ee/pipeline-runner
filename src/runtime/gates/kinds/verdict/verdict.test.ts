@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
+
 import type { NodeAttemptResult, VerdictGateSpec } from "../../../contracts";
 import type { JsonSourceContext } from "../../gates";
 import { evaluateVerdictGate } from "./verdict";
 
 const ctx: JsonSourceContext = { worktreePath: process.cwd() };
 
-function attempt(output: string): NodeAttemptResult {
-  return { evidence: [], exitCode: 0, output };
-}
+const attempt = (output: string): NodeAttemptResult => ({
+  evidence: [],
+  exitCode: 0,
+  output,
+});
 
 describe("evaluateVerdictGate", () => {
   it("passes when the verdict field equals the expected value", () => {

@@ -30,29 +30,28 @@ export interface NodeRetryDecision {
  * contract or the abortable delay boundary used by the scheduler.
  */
 
-export function nodeRetryPolicy(node: PlannedWorkflowNode): NodeRetryPolicy {
+export const nodeRetryPolicy = (node: PlannedWorkflowNode): NodeRetryPolicy => {
   let retryOn: RetryReason[] = ["exit_nonzero", "gate_failure", "timeout"];
   if (node.retries?.retry_on) {
     retryOn = [...node.retries.retry_on];
   }
   return {
-    backoffMs: node.retries?.backoff_ms ? node.retries.backoff_ms : 0,
-    maxAttempts: node.retries?.max_attempts ? node.retries.max_attempts : 1,
-    multiplier: node.retries?.multiplier ? node.retries.multiplier : 1,
+    backoffMs: node.retries?.backoff_ms ?? 0,
+    maxAttempts: node.retries?.max_attempts ?? 1,
+    multiplier: node.retries?.multiplier ?? 1,
     retryOn,
   };
-}
+};
 
-export function retryDelayMs(policy: NodeRetryPolicy, attempt: number): number {
-  return (
-    policy.backoffMs *
-    Math.max(1, policy.multiplier) ** Math.max(0, attempt - 1)
-  );
-}
+export const retryDelayMs = (
+  policy: NodeRetryPolicy,
+  attempt: number
+): number =>
+  policy.backoffMs * Math.max(1, policy.multiplier) ** Math.max(0, attempt - 1);
 
-export function decideNodeRetry(
+export const decideNodeRetry = (
   input: NodeRetryDecisionInput
-): NodeRetryDecision {
+): NodeRetryDecision => {
   const scheduled =
     input.policy.retryOn.includes(input.retryReason) &&
     input.attempt < input.policy.maxAttempts;
@@ -67,4 +66,4 @@ export function decideNodeRetry(
     retryReason: input.retryReason,
     scheduled,
   };
-}
+};

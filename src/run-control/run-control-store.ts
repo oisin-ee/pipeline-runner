@@ -1,4 +1,6 @@
-import { Effect, type Scope } from "effect";
+import { Effect } from "effect";
+import type { Scope } from "effect";
+
 import { loadMokaDbUrl, requireMokaDbUrl } from "../moka-global-config";
 import { migratePostgresSubstrate } from "../runtime/durable-store/postgres/migrate-substrate";
 import type { MokaRunManifest } from "./contracts";
@@ -59,9 +61,7 @@ export interface RunControlStore {
     input: PublishScheduleRequest
   ): Effect.Effect<MokaRunManifest, unknown>;
   /** A single run's manifest reconstructed by replaying its event log. */
-  readRun(
-    input: ReadRunRequest
-  ): Effect.Effect<MokaRunManifest | undefined, unknown>;
+  readRun(input: ReadRunRequest): ReturnType<typeof readRunEffect>;
   /** Append one event to the run's log (the event-sourcing write path). */
   recordEvent(input: RecordEventRequest): Effect.Effect<void, unknown>;
   /** Storage locators (events/manifest/status) recorded in the controller. */
@@ -120,7 +120,7 @@ export type WriteNodeArtifactRequest = Omit<
  * `workspaceRoot` so every call keeps the existing `.pipeline/runs` on-disk
  * behaviour byte-identical.
  */
-export function fileRunControlStore(workspaceRoot: string): RunControlStore {
+export const fileRunControlStore = (workspaceRoot: string): RunControlStore => {
   const withRoot = <T>(input: T): T & { workspaceRoot: string } => ({
     ...input,
     workspaceRoot,
@@ -139,7 +139,7 @@ export function fileRunControlStore(workspaceRoot: string): RunControlStore {
     updateRunStatus: (input) => updateRunStatusEffect(withRoot(input)),
     writeNodeArtifact: (input) => writeNodeArtifactEffect(withRoot(input)),
   };
-}
+};
 
 /**
  * PIPE-91.12/91.18: the single store-selection point. `db.url` presence is the
@@ -155,26 +155,30 @@ export function fileRunControlStore(workspaceRoot: string): RunControlStore {
  * once, exactly as `acquireRunJournal` does for the durable journal. The
  * filesystem store holds no resources, so it is returned directly.
  */
-export function resolveRunControlStore(
-  dbUrl: string | undefined,
+export const resolveRunControlStore = (
+  dbUrl: ReturnType<typeof loadMokaDbUrl>,
   _workspaceRoot: string
-): Effect.Effect<RunControlStore, unknown, Scope.Scope> {
-  return requireMokaDbUrl(dbUrl).pipe(
+): Effect.Effect<RunControlStore, unknown, Scope.Scope> =>
+  requireMokaDbUrl(dbUrl).pipe(
     Effect.flatMap((requiredDbUrl) =>
       Effect.tryPromise({
         catch: (error) => error,
-        try: () => migratePostgresSubstrate(requiredDbUrl),
+        try: async () => {
+          await migratePostgresSubstrate(requiredDbUrl);
+        },
       }).pipe(
         Effect.flatMap(() =>
           Effect.acquireRelease(
             Effect.sync(() => postgresRunControlStore(requiredDbUrl)),
-            (store) => Effect.promise(() => store.close())
+            (store) =>
+              Effect.promise(async () => {
+                await store.close();
+              })
           )
         )
       )
     )
   );
-}
 
 /**
  * PIPE-91.14: the single store-lifecycle wrapper shared by every run-control
@@ -187,13 +191,12 @@ export function resolveRunControlStore(
  * whole run inside this so the resolved store stays alive across the run and is
  * closed exactly once afterwards, with no per-writer `db.url` branching.
  */
-export function withRunControlStoreScoped<A>(
+export const withRunControlStoreScoped = <A>(
   workspaceRoot: string,
   use: (store: RunControlStore) => Effect.Effect<A, unknown>
-): Effect.Effect<A, unknown> {
-  return Effect.scoped(
+): Effect.Effect<A, unknown> =>
+  Effect.scoped(
     resolveRunControlStore(loadMokaDbUrl(), workspaceRoot).pipe(
       Effect.flatMap(use)
     )
   );
-}

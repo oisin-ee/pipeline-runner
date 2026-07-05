@@ -1,4 +1,5 @@
 import { stringify } from "yaml";
+
 import type { PipelineConfig } from "../config";
 import type { RepoLocalBackendSpec } from "./repo-local-backends";
 
@@ -42,12 +43,60 @@ export interface ToolHiveWorkload {
   url?: string;
 }
 
-export function renderToolHiveVmcpInventory(
+const toolHiveBackend = (
+  id: string,
+  backend: McpGatewayBackend,
+  repoLocalBackend: RepoLocalBackendSpec | void,
+  workload: ToolHiveWorkload | void
+): ToolHiveVmcpBackend => {
+  if (backend.locality !== "repo-local") {
+    return {
+      enabled: true,
+      locality: backend.locality,
+      name: id,
+      required: backend.required,
+      toolPrefixes: backend.tool_prefixes,
+      transport: workload?.transport,
+      type: "entry",
+      url: workload?.url,
+      workloadName: workload?.name,
+    };
+  }
+  return {
+    args: repoLocalBackend?.args ?? [],
+    command: repoLocalBackend?.command ?? id,
+    cwd: repoLocalBackend?.cwd,
+    enabled: repoLocalBackend?.enabled ?? backend.required,
+    env: repoLocalBackend?.env,
+    locality: backend.locality,
+    mount: repoLocalBackend?.mount,
+    name: id,
+    required: backend.required,
+    toolPrefixes: backend.tool_prefixes,
+    transport: workload?.transport,
+    type: "stdio",
+    url: workload?.url,
+    workloadName: workload?.name,
+  };
+};
+
+const matchingWorkload = (
+  backendId: string,
+  workloads: ToolHiveWorkload[]
+): ToolHiveWorkload | void => {
+  const expectedPackageOwnedName = `oisin-pipeline-${backendId}`;
+  return workloads.find(
+    (workload) =>
+      workload.name === backendId || workload.name === expectedPackageOwnedName
+  );
+};
+
+export const renderToolHiveVmcpInventory = (
   config: PipelineConfig,
   options: RenderToolHiveVmcpInventoryOptions = {}
-): ToolHiveVmcpInventory {
+): ToolHiveVmcpInventory => {
   const gateway = config.mcp_gateway;
-  if (!gateway) {
+  if (gateway === undefined) {
     return {
       backends: [],
       group: "default",
@@ -67,7 +116,7 @@ export function renderToolHiveVmcpInventory(
         matchingWorkload(id, toolHiveWorkloads)
       )
     )
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .toSorted((left, right) => left.name.localeCompare(right.name));
   const group = gateway.default_profile ?? "default";
   return {
     backends,
@@ -81,8 +130,12 @@ export function renderToolHiveVmcpInventory(
       },
       backends: backends.map((backend) => ({
         name: backend.name,
-        ...(backend.transport ? { transport: backend.transport } : {}),
-        ...(backend.url ? { url: backend.url } : {}),
+        ...(backend.transport !== undefined && backend.transport !== ""
+          ? { transport: backend.transport }
+          : {}),
+        ...(backend.url !== undefined && backend.url !== ""
+          ? { url: backend.url }
+          : {}),
       })),
       groupRef: group,
       incomingAuth: {
@@ -94,52 +147,4 @@ export function renderToolHiveVmcpInventory(
       },
     }),
   };
-}
-
-function toolHiveBackend(
-  id: string,
-  backend: McpGatewayBackend,
-  repoLocalBackend: RepoLocalBackendSpec | undefined,
-  workload: ToolHiveWorkload | undefined
-): ToolHiveVmcpBackend {
-  if (backend.locality !== "repo-local") {
-    return {
-      enabled: true,
-      locality: backend.locality,
-      name: id,
-      required: backend.required,
-      transport: workload?.transport,
-      toolPrefixes: backend.tool_prefixes,
-      type: "entry",
-      url: workload?.url,
-      workloadName: workload?.name,
-    };
-  }
-  return {
-    args: repoLocalBackend?.args ?? [],
-    command: repoLocalBackend?.command ?? id,
-    cwd: repoLocalBackend?.cwd,
-    enabled: repoLocalBackend?.enabled ?? backend.required,
-    env: repoLocalBackend?.env,
-    locality: backend.locality,
-    mount: repoLocalBackend?.mount,
-    name: id,
-    required: backend.required,
-    transport: workload?.transport,
-    toolPrefixes: backend.tool_prefixes,
-    type: "stdio",
-    url: workload?.url,
-    workloadName: workload?.name,
-  };
-}
-
-function matchingWorkload(
-  backendId: string,
-  workloads: ToolHiveWorkload[]
-): ToolHiveWorkload | undefined {
-  const expectedPackageOwnedName = `oisin-pipeline-${backendId}`;
-  return workloads.find(
-    (workload) =>
-      workload.name === backendId || workload.name === expectedPackageOwnedName
-  );
-}
+};

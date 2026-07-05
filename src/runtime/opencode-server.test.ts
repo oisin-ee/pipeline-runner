@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+
 import { openOpencodeServer } from "./opencode-server";
 
 const ORIGINAL_URL = process.env.OPENCODE_SERVER_URL;
@@ -20,7 +21,7 @@ describe("opencode server lifecycle", () => {
       serverUrl: "http://127.0.0.1:9999",
       spawn: () => {
         spawnCalled = true;
-        return Promise.reject(new Error("should not spawn"));
+        throw new Error("should not spawn");
       },
     });
 
@@ -43,16 +44,15 @@ describe("opencode server lifecycle", () => {
     const handle = await openOpencodeServer({
       directory: "/repo",
       serverUrl: "",
-      spawn: () =>
-        Promise.resolve({
-          client: {} as never,
-          server: {
-            close: () => {
-              closed = true;
-            },
-            url: "http://127.0.0.1:4096",
+      spawn: async () => ({
+        client: {} as never,
+        server: {
+          close: () => {
+            closed = true;
           },
-        }),
+          url: "http://127.0.0.1:4096",
+        },
+      }),
     });
 
     expect(handle.owned).toBe(true);
@@ -65,7 +65,9 @@ describe("opencode server lifecycle", () => {
       openOpencodeServer({
         directory: "/repo",
         serverUrl: "",
-        spawn: () => Promise.reject(new Error("port in use")),
+        spawn: () => {
+          throw new Error("port in use");
+        },
       })
     ).rejects.toThrow("Failed to start opencode server: port in use");
   });

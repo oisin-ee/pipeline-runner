@@ -1,16 +1,93 @@
 import { describe, expect, it } from "vitest";
+
 import { loadPipelineConfig } from "../../config";
 import {
   applyGoalStateEvent,
   createGoalState,
-  type PipelineGoalState,
   recordGoalStateChangedFiles,
 } from "../goal-state/goal-state";
+import type { PipelineGoalState } from "../goal-state/goal-state";
 import { renderContinuationPrompt } from "./continuation-prompt";
 import {
   createGoalContinuationLaunchPlan,
   runBoundedGoalLoop,
 } from "./goal-loop";
+
+const verifierFailureState = (
+  options: { priorAttempt?: boolean } = {}
+): PipelineGoalState => {
+  const initial = createGoalState({
+    runId: "run-1",
+    scheduleId: "schedule-1",
+    schedulePath: ".pipeline/runs/run-1/schedule.yaml",
+    task: "Ship PIPE-52",
+    taskContext: {
+      acceptanceCriteria: [{ id: "AC1", text: "CLI evidence is present" }],
+      description: "Build the continuation loop.",
+      id: "PIPE-52",
+      title: "OpenCode first goal loop",
+    },
+    workflowId: "root",
+  });
+  const planned = applyGoalStateEvent(initial, {
+    edges: [],
+    nodes: [
+      {
+        id: "verify",
+        kind: "agent",
+        needs: [],
+        profile: "moka-verifier",
+        runnerId: "opencode",
+      },
+    ],
+    type: "workflow.planned",
+    workflowId: "root",
+  });
+  const failed = applyGoalStateEvent(
+    applyGoalStateEvent(planned, {
+      attempt: 1,
+      nodeId: "verify",
+      profile: "moka-verifier",
+      runnerId: "opencode",
+      type: "node.start",
+    }),
+    {
+      evidence: ["verifier found missing CLI evidence"],
+      gateId: "verify-verdict",
+      kind: "verdict",
+      nodeId: "verify",
+      passed: false,
+      reason: "verdict requirement failed",
+      type: "gate.finish",
+    }
+  );
+  const finished = applyGoalStateEvent(failed, {
+    attempt: 1,
+    exitCode: 1,
+    nodeId: "verify",
+    profile: "moka-verifier",
+    runnerId: "opencode",
+    status: "failed",
+    type: "node.finish",
+  });
+  const withFiles = recordGoalStateChangedFiles(finished, "green", [
+    "src/feature.ts",
+  ]);
+  if (options.priorAttempt === false) {
+    return withFiles;
+  }
+  return {
+    ...withFiles,
+    continuationAttempts: [
+      {
+        attempt: 1,
+        promptPath: ".pipeline/runs/run-1/continue-1.md",
+        reason: "verifier requested fixes",
+        verifierNodeId: "verify",
+      },
+    ],
+  };
+};
 
 describe("pipeline goal loop", () => {
   it("renders a continuation prompt with task, node, failures, evidence, files, attempts, and next requirement", () => {
@@ -149,79 +226,3 @@ describe("pipeline goal loop", () => {
     expect(plan.args).toContain("Continue PIPE-52");
   });
 });
-
-function verifierFailureState(
-  options: { priorAttempt?: boolean } = {}
-): PipelineGoalState {
-  const initial = createGoalState({
-    runId: "run-1",
-    scheduleId: "schedule-1",
-    schedulePath: ".pipeline/runs/run-1/schedule.yaml",
-    task: "Ship PIPE-52",
-    taskContext: {
-      acceptanceCriteria: [{ id: "AC1", text: "CLI evidence is present" }],
-      description: "Build the continuation loop.",
-      id: "PIPE-52",
-      title: "OpenCode first goal loop",
-    },
-    workflowId: "root",
-  });
-  const planned = applyGoalStateEvent(initial, {
-    edges: [],
-    nodes: [
-      {
-        id: "verify",
-        kind: "agent",
-        needs: [],
-        profile: "moka-verifier",
-        runnerId: "opencode",
-      },
-    ],
-    type: "workflow.planned",
-    workflowId: "root",
-  });
-  const failed = applyGoalStateEvent(
-    applyGoalStateEvent(planned, {
-      attempt: 1,
-      nodeId: "verify",
-      profile: "moka-verifier",
-      runnerId: "opencode",
-      type: "node.start",
-    }),
-    {
-      evidence: ["verifier found missing CLI evidence"],
-      gateId: "verify-verdict",
-      kind: "verdict",
-      nodeId: "verify",
-      passed: false,
-      reason: "verdict requirement failed",
-      type: "gate.finish",
-    }
-  );
-  const finished = applyGoalStateEvent(failed, {
-    attempt: 1,
-    exitCode: 1,
-    nodeId: "verify",
-    profile: "moka-verifier",
-    runnerId: "opencode",
-    status: "failed",
-    type: "node.finish",
-  });
-  const withFiles = recordGoalStateChangedFiles(finished, "green", [
-    "src/feature.ts",
-  ]);
-  if (options.priorAttempt === false) {
-    return withFiles;
-  }
-  return {
-    ...withFiles,
-    continuationAttempts: [
-      {
-        attempt: 1,
-        promptPath: ".pipeline/runs/run-1/continue-1.md",
-        reason: "verifier requested fixes",
-        verifierNodeId: "verify",
-      },
-    ],
-  };
-}

@@ -2,7 +2,9 @@ import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
+
 import { logEffect } from "./command-context";
 import type { MokaRunManifest } from "./contracts";
 import { isNotFound } from "./file-errors";
@@ -23,93 +25,144 @@ interface ArtifactSnapshot {
   path: string;
 }
 
-const PATH_SEPARATOR_RE = /[\\/]/;
+const PATH_SEPARATOR_RE = /[\\/]/u;
 const WATCH_INTERVAL_MS = 1000;
 const SENSITIVE_BASENAME_PARTS = ["prompt", "session"];
 const SENSITIVE_BASENAME_PREFIXES = ["body."];
 const SENSITIVE_PATH_PARTS = ["session-body", "session_body"];
 const SENSITIVE_BASENAMES = new Set(["body"]);
 
-export function printLogsEffect(input: {
-  flags: LogsFlags;
-  nodeId?: string;
-  runId: string;
-  store: RunControlStore;
-  workspaceRoot: string;
-}): Effect.Effect<void, unknown> {
-  return Effect.gen(function* () {
-    const run = yield* requireRunEffect(input.store, input.runId);
-    const artifacts = yield* readArtifactsEffect(
-      input.workspaceRoot,
-      run,
-      input.nodeId
+const formatArtifacts = (artifacts: ArtifactSnapshot[]): string => {
+  if (artifacts.length === 0) {
+    return "No artifacts found.";
+  }
+
+  return artifacts
+    .map((artifact) => {
+      const content = artifact.content.endsWith("\n")
+        ? artifact.content
+        : `${artifact.content}\n`;
+      return `== ${artifact.nodeId}/${artifact.name} ==\n${content}`;
+    })
+    .join("\n");
+};
+
+const artifactKey = (artifact: ArtifactSnapshot): string =>
+  `${artifact.nodeId}/${artifact.name}`;
+
+const artifactDelta = (
+  artifact: ArtifactSnapshot,
+  printedLengths: Map<string, number>
+): Option.Option<ArtifactSnapshot> => {
+  const key = artifactKey(artifact);
+  const previousLength = printedLengths.get(key) ?? 0;
+  printedLengths.set(key, artifact.content.length);
+  if (artifact.content.length <= previousLength) {
+    return Option.none();
+  }
+
+  return Option.some({
+    ...artifact,
+    content: artifact.content.slice(previousLength),
+  });
+};
+
+const logArtifactDeltasEffect = (
+  artifacts: ArtifactSnapshot[],
+  printedLengths: Map<string, number>
+): Effect.Effect<void> => {
+  const deltas = artifacts.flatMap((artifact) =>
+    Option.match(artifactDelta(artifact, printedLengths), {
+      onNone: () => [],
+      onSome: (value) => [value],
+    })
+  );
+  return deltas.length === 0 ? Effect.void : logEffect(formatArtifacts(deltas));
+};
+
+const artifactLengths = (artifacts: ArtifactSnapshot[]): Map<string, number> =>
+  new Map(
+    artifacts.map((artifact) => [
+      artifactKey(artifact),
+      artifact.content.length,
+    ])
+  );
+
+const isSensitiveArtifactName = (name: string): boolean => {
+  const normalized = name.toLowerCase();
+  const basename = normalized.split(PATH_SEPARATOR_RE).pop() ?? normalized;
+  return [
+    SENSITIVE_BASENAME_PARTS.some((part) => basename.includes(part)),
+    SENSITIVE_BASENAME_PREFIXES.some((prefix) => basename.startsWith(prefix)),
+    SENSITIVE_BASENAMES.has(basename),
+    SENSITIVE_PATH_PARTS.some((part) => normalized.includes(part)),
+  ].some(Boolean);
+};
+
+const shouldFollowArtifacts = (
+  flags: LogsFlags,
+  run: MokaRunManifest
+): boolean => flags.follow === true && isRunActive(run);
+
+const readDirectoryEntriesEffect = (
+  current: string
+): Effect.Effect<Dirent[], unknown> =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: async () => await readdir(current, { withFileTypes: true }),
+  }).pipe(
+    Effect.catch((error) =>
+      isNotFound(error) ? Effect.succeed([]) : Effect.fail(error)
+    )
+  );
+
+const readArtifactPathsEffect = function readArtifactPathsEffect(
+  current: string
+): Effect.Effect<string[], unknown> {
+  return Effect.gen(function* effectBody() {
+    const entries = yield* readDirectoryEntriesEffect(current);
+    const paths = yield* Effect.forEach(
+      entries.toSorted((left, right) => left.name.localeCompare(right.name)),
+      (entry) => {
+        const path = join(current, entry.name);
+        if (entry.isDirectory()) {
+          return readArtifactPathsEffect(path);
+        }
+        return entry.isFile() ? Effect.succeed([path]) : Effect.succeed([]);
+      }
     );
-    yield* logEffect(formatArtifacts(artifacts));
 
-    if (!shouldFollowArtifacts(input.flags, run)) {
-      return;
-    }
-
-    yield* followArtifactsEffect(input, artifactLengths(artifacts));
+    return paths.flat();
   });
-}
+};
 
-export function exportSanitizedRunBundleEffect(input: {
-  runId: string;
-  store: RunControlStore;
-  workspaceRoot: string;
-}): Effect.Effect<
-  {
-    artifacts: ArtifactSnapshot[];
-    run: MokaRunManifest;
-    version: 1;
-  },
-  unknown
-> {
-  return Effect.gen(function* () {
-    const run = yield* requireRunEffect(input.store, input.runId);
-    const artifacts = (yield* readArtifactsEffect(
-      input.workspaceRoot,
-      run
-    )).filter((artifact) => !isSensitiveArtifactName(artifact.name));
-
-    return { artifacts, run, version: 1 };
+const readFileUtf8Effect = (path: string): Effect.Effect<string, unknown> =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: async () => await readFile(path, "utf-8"),
   });
-}
 
-function readArtifactsEffect(
-  workspaceRoot: string,
-  run: MokaRunManifest,
-  nodeId?: string
-): Effect.Effect<ArtifactSnapshot[], unknown> {
-  return Effect.gen(function* () {
-    const nodeIds = nodeId
-      ? [yield* requireKnownNodeEffect(run, nodeId)]
-      : Object.keys(run.nodes).sort((left, right) => left.localeCompare(right));
-    const artifacts = yield* Effect.forEach(nodeIds, (id) =>
-      readNodeArtifactsEffect(workspaceRoot, run.runId, id)
-    );
-
-    return artifacts
-      .flat()
-      .sort((left, right) =>
-        `${left.nodeId}/${left.name}`.localeCompare(
-          `${right.nodeId}/${right.name}`
-        )
-      );
+const delayEffect = (milliseconds: number): Effect.Effect<void, unknown> =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: async () => {
+      await delay(milliseconds);
+    },
   });
-}
 
-function readNodeArtifactsEffect(
+const normalizeRelative = (from: string, path: string): string =>
+  relative(from, path).split(sep).join("/");
+
+const readNodeArtifactsEffect = (
   workspaceRoot: string,
   runId: string,
   nodeId: string
-): Effect.Effect<ArtifactSnapshot[], unknown> {
+): Effect.Effect<ArtifactSnapshot[], unknown> => {
   const nodeRoot = join(
     runPaths(workspaceRoot, parseLogicalSegment("runId", runId)).nodesRoot,
     parseLogicalSegment("nodeId", nodeId)
   );
-  return Effect.gen(function* () {
+  return Effect.gen(function* effectBody() {
     const artifactPaths = yield* readArtifactPathsEffect(nodeRoot);
 
     return yield* Effect.forEach(artifactPaths, (path) =>
@@ -123,51 +176,38 @@ function readNodeArtifactsEffect(
       )
     );
   });
-}
+};
 
-function readArtifactPathsEffect(
-  current: string
-): Effect.Effect<string[], unknown> {
-  return Effect.gen(function* () {
-    const entries = yield* readDirectoryEntriesEffect(current);
-    const paths = yield* Effect.forEach(
-      entries.sort((left, right) => left.name.localeCompare(right.name)),
-      (entry) => artifactPathEffect(current, entry)
+const readArtifactsEffect = (
+  workspaceRoot: string,
+  run: MokaRunManifest,
+  nodeId: Option.Option<string> = Option.none()
+): Effect.Effect<ArtifactSnapshot[], unknown> =>
+  Effect.gen(function* effectBody() {
+    const nodeIds = yield* Option.match(nodeId, {
+      onNone: () =>
+        Effect.succeed(
+          Object.keys(run.nodes).toSorted((left, right) =>
+            left.localeCompare(right)
+          )
+        ),
+      onSome: (value) =>
+        requireKnownNodeEffect(run, value).pipe(Effect.map((id) => [id])),
+    });
+    const artifacts = yield* Effect.forEach(nodeIds, (id) =>
+      readNodeArtifactsEffect(workspaceRoot, run.runId, id)
     );
 
-    return paths.flat();
+    return artifacts
+      .flat()
+      .toSorted((left, right) =>
+        `${left.nodeId}/${left.name}`.localeCompare(
+          `${right.nodeId}/${right.name}`
+        )
+      );
   });
-}
 
-function artifactPathEffect(
-  current: string,
-  entry: Dirent
-): Effect.Effect<string[], unknown> {
-  const path = join(current, entry.name);
-  if (entry.isDirectory()) {
-    return readArtifactPathsEffect(path);
-  }
-  return entry.isFile() ? Effect.succeed([path]) : Effect.succeed([]);
-}
-
-function artifactDelta(
-  artifact: ArtifactSnapshot,
-  printedLengths: Map<string, number>
-): ArtifactSnapshot | undefined {
-  const key = artifactKey(artifact);
-  const previousLength = printedLengths.get(key) ?? 0;
-  printedLengths.set(key, artifact.content.length);
-  if (artifact.content.length <= previousLength) {
-    return;
-  }
-
-  return {
-    ...artifact,
-    content: artifact.content.slice(previousLength),
-  };
-}
-
-function followArtifactsEffect(
+const followArtifactsEffect = (
   input: {
     nodeId?: string;
     runId: string;
@@ -175,15 +215,15 @@ function followArtifactsEffect(
     workspaceRoot: string;
   },
   printedLengths: Map<string, number>
-): Effect.Effect<void, unknown> {
-  return Effect.gen(function* () {
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* effectBody() {
     for (;;) {
       yield* delayEffect(WATCH_INTERVAL_MS);
       const latestRun = yield* requireRunEffect(input.store, input.runId);
       const artifacts = yield* readArtifactsEffect(
         input.workspaceRoot,
         latestRun,
-        input.nodeId
+        Option.fromNullishOr(input.nodeId)
       );
       yield* logArtifactDeltasEffect(artifacts, printedLengths);
 
@@ -192,91 +232,48 @@ function followArtifactsEffect(
       }
     }
   });
-}
 
-function logArtifactDeltasEffect(
-  artifacts: ArtifactSnapshot[],
-  printedLengths: Map<string, number>
-): Effect.Effect<void> {
-  const deltas = artifacts.flatMap(
-    (artifact) => artifactDelta(artifact, printedLengths) ?? []
-  );
-  return deltas.length === 0 ? Effect.void : logEffect(formatArtifacts(deltas));
-}
+export const printLogsEffect = (input: {
+  flags: LogsFlags;
+  nodeId?: string;
+  runId: string;
+  store: RunControlStore;
+  workspaceRoot: string;
+}): Effect.Effect<void, unknown> =>
+  Effect.gen(function* effectBody() {
+    const run = yield* requireRunEffect(input.store, input.runId);
+    const artifacts = yield* readArtifactsEffect(
+      input.workspaceRoot,
+      run,
+      Option.fromNullishOr(input.nodeId)
+    );
+    yield* logEffect(formatArtifacts(artifacts));
 
-function artifactLengths(artifacts: ArtifactSnapshot[]): Map<string, number> {
-  return new Map(
-    artifacts.map((artifact) => [
-      artifactKey(artifact),
-      artifact.content.length,
-    ])
-  );
-}
+    if (!shouldFollowArtifacts(input.flags, run)) {
+      return;
+    }
 
-function formatArtifacts(artifacts: ArtifactSnapshot[]): string {
-  if (artifacts.length === 0) {
-    return "No artifacts found.";
-  }
-
-  return artifacts
-    .map((artifact) => {
-      const content = artifact.content.endsWith("\n")
-        ? artifact.content
-        : `${artifact.content}\n`;
-      return `== ${artifact.nodeId}/${artifact.name} ==\n${content}`;
-    })
-    .join("\n");
-}
-
-function artifactKey(artifact: ArtifactSnapshot): string {
-  return `${artifact.nodeId}/${artifact.name}`;
-}
-
-function isSensitiveArtifactName(name: string): boolean {
-  const normalized = name.toLowerCase();
-  const basename = normalized.split(PATH_SEPARATOR_RE).pop() ?? normalized;
-  return [
-    SENSITIVE_BASENAME_PARTS.some((part) => basename.includes(part)),
-    SENSITIVE_BASENAME_PREFIXES.some((prefix) => basename.startsWith(prefix)),
-    SENSITIVE_BASENAMES.has(basename),
-    SENSITIVE_PATH_PARTS.some((part) => normalized.includes(part)),
-  ].some(Boolean);
-}
-
-function shouldFollowArtifacts(
-  flags: LogsFlags,
-  run: MokaRunManifest
-): boolean {
-  return Boolean(flags.follow && isRunActive(run));
-}
-
-function readDirectoryEntriesEffect(
-  current: string
-): Effect.Effect<Dirent[], unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => readdir(current, { withFileTypes: true }),
-  }).pipe(
-    Effect.catch((error) =>
-      isNotFound(error) ? Effect.succeed([]) : Effect.fail(error)
-    )
-  );
-}
-
-function readFileUtf8Effect(path: string): Effect.Effect<string, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => readFile(path, "utf8"),
+    yield* followArtifactsEffect(input, artifactLengths(artifacts));
   });
-}
 
-function delayEffect(milliseconds: number): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => delay(milliseconds),
+export const exportSanitizedRunBundleEffect = (input: {
+  runId: string;
+  store: RunControlStore;
+  workspaceRoot: string;
+}): Effect.Effect<
+  {
+    artifacts: ArtifactSnapshot[];
+    run: MokaRunManifest;
+    version: 1;
+  },
+  unknown
+> =>
+  Effect.gen(function* effectBody() {
+    const run = yield* requireRunEffect(input.store, input.runId);
+    const artifacts = (yield* readArtifactsEffect(
+      input.workspaceRoot,
+      run
+    )).filter((artifact) => !isSensitiveArtifactName(artifact.name));
+
+    return { artifacts, run, version: 1 };
   });
-}
-
-function normalizeRelative(from: string, path: string): string {
-  return relative(from, path).split(sep).join("/");
-}

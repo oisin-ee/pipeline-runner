@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
+
 import type { PlannedWorkflowNode } from "../src/planning/compile";
 import {
   indexPlannedNodesById,
   resolveExecutableDependencyIds,
 } from "../src/planning/dependency-refs";
 
-function node(
+const node = (
   id: string,
   kind: PlannedWorkflowNode["kind"],
   extra: Partial<PlannedWorkflowNode> = {}
-): PlannedWorkflowNode {
-  return { dependents: [], id, index: 0, kind, needs: [], ...extra };
-}
+): PlannedWorkflowNode => ({
+  dependents: [],
+  id,
+  index: 0,
+  kind,
+  needs: [],
+  ...extra,
+});
 
 const mechanicalChecks = node("mechanical-checks", "parallel", {
   children: [

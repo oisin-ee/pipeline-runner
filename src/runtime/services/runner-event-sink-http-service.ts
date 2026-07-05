@@ -1,5 +1,6 @@
 import { Context, Data, Effect, Layer } from "effect";
 import ky, { isHTTPError } from "ky";
+
 import type { RunnerEventRecord } from "../../runner-command-contract";
 
 export type RunnerEventSinkFetch = (
@@ -22,7 +23,7 @@ class EventSinkHttpError extends Data.TaggedError("EventSinkHttpError")<{
   readonly message: string;
 }> {
   constructor(status: number, message: string) {
-    super({ status, message });
+    super({ message, status });
   }
 }
 
@@ -31,58 +32,62 @@ const RETRYABLE_STATUS_CODES = [
 ];
 const REQUEST_TIMEOUT_MS = 10_000;
 
-function authHeaderName(request: RunnerEventSinkPostBatchRequest): string {
-  return request.authHeader ?? "Authorization";
-}
+const authHeaderName = (request: RunnerEventSinkPostBatchRequest): string =>
+  request.authHeader ?? "Authorization";
 
-function httpErrorData(error: unknown): string {
-  const data = isHTTPError(error) ? error.data : undefined;
-  return formatHttpErrorData(data);
-}
-
-function formatHttpErrorData(data: unknown): string {
+const formatHttpErrorData = (data: unknown): string => {
   if (typeof data === "string") {
     return data;
   }
   return data === undefined ? "" : JSON.stringify(data);
-}
+};
 
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
-}
+const httpErrorData = (error: unknown): string => {
+  const data = isHTTPError(error) ? error.data : undefined;
+  return formatHttpErrorData(data);
+};
 
-function toHttpError(error: unknown): EventSinkHttpError {
+const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
+
+const toHttpError = (error: unknown): EventSinkHttpError => {
   const data = httpErrorData(error);
   const status = isHTTPError(error) ? error.response.status : 0;
   return new EventSinkHttpError(
     status,
     `Event sink responded with ${status}${data ? `: ${data}` : ""}`
   );
-}
+};
 
-function mapPostError(error: unknown): Error {
-  return isHTTPError(error) ? toHttpError(error) : toError(error);
-}
+const mapPostError = (error: unknown): Error =>
+  isHTTPError(error) ? toHttpError(error) : toError(error);
 
-function kyFetchAdapter(fetchImpl: RunnerEventSinkFetch): typeof fetch {
-  return async (input, init) => {
+const kyFetchAdapter =
+  (fetchImpl: RunnerEventSinkFetch): typeof fetch =>
+  async (input, init) => {
     const request = new Request(input, init);
-    return fetchImpl(request.url, {
+    return await fetchImpl(request.url, {
       body: await request.clone().text(),
       headers: request.headers,
       method: request.method,
       signal: request.signal,
     });
   };
-}
 
-function postBatch(
+const totalTimeoutMs = (request: RunnerEventSinkPostBatchRequest): number => {
+  const attempts = request.maxRetries + 1;
+  return (
+    attempts * REQUEST_TIMEOUT_MS + request.maxRetries * request.retryDelayMs
+  );
+};
+
+const postBatch = (
   request: RunnerEventSinkPostBatchRequest
-): Effect.Effect<void, Error> {
-  return Effect.tryPromise({
+): Effect.Effect<void, Error> =>
+  Effect.tryPromise({
     catch: mapPostError,
-    try: () =>
-      ky
+    try: async () => {
+      await ky
         .post(request.url, {
           fetch: kyFetchAdapter(request.fetch),
           headers: {
@@ -99,16 +104,11 @@ function postBatch(
           timeout: REQUEST_TIMEOUT_MS,
           totalTimeout: totalTimeoutMs(request),
         })
-        .then(() => undefined),
+        .then(() => {
+          /* empty */
+        });
+    },
   });
-}
-
-function totalTimeoutMs(request: RunnerEventSinkPostBatchRequest): number {
-  const attempts = request.maxRetries + 1;
-  return (
-    attempts * REQUEST_TIMEOUT_MS + request.maxRetries * request.retryDelayMs
-  );
-}
 
 export class RunnerEventSinkHttpService extends Context.Service<
   RunnerEventSinkHttpService,

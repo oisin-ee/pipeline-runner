@@ -1,9 +1,8 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Option } from "effect";
+
 import { parseBacklogTaskId } from "../backlog";
-import {
-  type BacklogCommandError,
-  BacklogService,
-} from "../runtime/services/backlog-service";
+import { BacklogService } from "../runtime/services/backlog-service";
+import type { BacklogCommandError } from "../runtime/services/backlog-service";
 import type { TicketPlan } from "./ticket-plan";
 import {
   formatBacklogCommand,
@@ -27,43 +26,59 @@ class ApplyTicketPlanError extends Data.TaggedError("ApplyTicketPlanError")<{
   readonly stdout?: string;
 }> {}
 
-export function applyTicketPlanEffect(
-  plan: TicketPlan,
-  worktreePath: string,
-  options: ApplyTicketPlanOptions
-): Effect.Effect<AppliedTicketPlan, ApplyTicketPlanError, BacklogService> {
-  return Effect.gen(function* () {
-    const backlog = yield* BacklogService;
-    const createdIds: string[] = [];
-    const parentId = yield* resolveParentId(
-      plan,
-      options,
-      worktreePath,
-      backlog,
-      createdIds
-    );
-    const taskIdsByKey = yield* createChildTickets(
-      plan,
-      parentId,
-      worktreePath,
-      backlog,
-      createdIds
-    );
-    return { createdIds, parentId, taskIdsByKey };
-  });
-}
+const formatCreatedIds = (createdIds: readonly string[]): string =>
+  createdIds.length > 0 ? createdIds.join(", ") : "none";
 
-function resolveParentId(
+const commandFailure = (
+  args: readonly string[],
+  createdIds: readonly string[],
+  error: BacklogCommandError
+): ApplyTicketPlanError =>
+  new ApplyTicketPlanError({
+    command: formatBacklogCommand(args),
+    createdIds,
+    message: `backlog command failed after created ids: ${formatCreatedIds(createdIds)}; failed command: ${formatBacklogCommand(args)}; ${error.message}`,
+    stdout: error.stdout,
+  });
+
+const runCreateAndParseId = (
+  args: readonly string[],
+  worktreePath: string,
+  backlog: typeof BacklogService.Service,
+  createdIds: string[]
+): Effect.Effect<string, ApplyTicketPlanError> =>
+  Effect.gen(function* effectBody() {
+    const stdout = yield* backlog
+      .run(args, worktreePath)
+      .pipe(
+        Effect.mapError((error) => commandFailure(args, createdIds, error))
+      );
+    const taskId = parseBacklogTaskId(stdout);
+    if (Option.isNone(taskId)) {
+      return yield* Effect.fail(
+        new ApplyTicketPlanError({
+          command: formatBacklogCommand(args),
+          createdIds,
+          message: `could not parse created task id from Backlog output; created ids: ${formatCreatedIds(createdIds)}; failed command: ${formatBacklogCommand(args)}`,
+          stdout,
+        })
+      );
+    }
+    createdIds.push(taskId.value);
+    return taskId.value;
+  });
+
+const resolveParentId = (
   plan: TicketPlan,
   options: ApplyTicketPlanOptions,
   worktreePath: string,
   backlog: typeof BacklogService.Service,
   createdIds: string[]
-): Effect.Effect<string, ApplyTicketPlanError> {
-  if (options.parentId) {
+): Effect.Effect<string, ApplyTicketPlanError> => {
+  if (options.parentId !== undefined && options.parentId.length > 0) {
     return Effect.succeed(options.parentId);
   }
-  if (!plan.epic) {
+  if (plan.epic === undefined) {
     return Effect.fail(
       new ApplyTicketPlanError({
         createdIds,
@@ -78,16 +93,16 @@ function resolveParentId(
     backlog,
     createdIds
   );
-}
+};
 
-function createChildTickets(
+const createChildTickets = (
   plan: TicketPlan,
   parentId: string,
   worktreePath: string,
   backlog: typeof BacklogService.Service,
   createdIds: string[]
-): Effect.Effect<Record<string, string>, ApplyTicketPlanError> {
-  return Effect.gen(function* () {
+): Effect.Effect<Record<string, string>, ApplyTicketPlanError> =>
+  Effect.gen(function* effectBody() {
     const remaining = new Map(
       plan.tickets.map((ticket) => [ticket.key, ticket])
     );
@@ -119,49 +134,28 @@ function createChildTickets(
     }
     return taskIdsByKey;
   });
-}
 
-function runCreateAndParseId(
-  args: readonly string[],
+export const applyTicketPlanEffect = (
+  plan: TicketPlan,
   worktreePath: string,
-  backlog: typeof BacklogService.Service,
-  createdIds: string[]
-): Effect.Effect<string, ApplyTicketPlanError> {
-  return Effect.gen(function* () {
-    const stdout = yield* backlog
-      .run(args, worktreePath)
-      .pipe(
-        Effect.mapError((error) => commandFailure(args, createdIds, error))
-      );
-    const taskId = parseBacklogTaskId(stdout);
-    if (!taskId) {
-      return yield* Effect.fail(
-        new ApplyTicketPlanError({
-          command: formatBacklogCommand(args),
-          createdIds,
-          message: `could not parse created task id from Backlog output; created ids: ${formatCreatedIds(createdIds)}; failed command: ${formatBacklogCommand(args)}`,
-          stdout,
-        })
-      );
-    }
-    createdIds.push(taskId);
-    return taskId;
+  options: ApplyTicketPlanOptions
+): Effect.Effect<AppliedTicketPlan, ApplyTicketPlanError, BacklogService> =>
+  Effect.gen(function* effectBody() {
+    const backlog = yield* BacklogService;
+    const createdIds: string[] = [];
+    const parentId = yield* resolveParentId(
+      plan,
+      options,
+      worktreePath,
+      backlog,
+      createdIds
+    );
+    const taskIdsByKey = yield* createChildTickets(
+      plan,
+      parentId,
+      worktreePath,
+      backlog,
+      createdIds
+    );
+    return { createdIds, parentId, taskIdsByKey };
   });
-}
-
-function commandFailure(
-  args: readonly string[],
-  createdIds: readonly string[],
-  error: BacklogCommandError
-): ApplyTicketPlanError {
-  return new ApplyTicketPlanError({
-    command: formatBacklogCommand(args),
-    createdIds,
-    message: `backlog command failed after created ids: ${formatCreatedIds(createdIds)}; failed command: ${formatBacklogCommand(args)}; ${error.message}`,
-    stdout: error.stdout,
-  });
-}
-
-function formatCreatedIds(createdIds: readonly string[]): string {
-  return createdIds.length > 0 ? createdIds.join(", ") : "none";
-}

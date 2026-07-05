@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { createCliProgram } from "../src/cli/program";
 import type { submitMoka } from "../src/moka-submit";
 import { runnerCommandPayloadSchema } from "../src/runner-command-contract";
@@ -35,12 +37,12 @@ vi.mock("../src/moka-global-config", () => ({
 }));
 
 vi.mock("../src/moka-submit", () => ({
-  submitMoka: vi.fn((input: unknown) => {
+  submitMoka: vi.fn(async (input: unknown) => {
     mockState.submitInputs.push(input);
-    return Promise.resolve({
+    return {
       namespace: "test-runners",
       workflowName: "submitted-run",
-    });
+    };
   }),
 }));
 
@@ -49,7 +51,7 @@ const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
 beforeEach(() => {
   mockState.submitInputs.length = 0;
   vi.clearAllMocks();
-  vi.spyOn(console, "log").mockImplementation(() => undefined);
+  vi.spyOn(console, "log").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -61,7 +63,7 @@ afterEach(() => {
   }
 });
 
-async function withTempWorktree(run: () => Promise<void>): Promise<void> {
+const withTempWorktree = async (run: () => Promise<void>): Promise<void> => {
   const dir = mkdtempSync(join(tmpdir(), "moka-run-remote-compat-"));
   process.env.PIPELINE_TARGET_PATH = dir;
   try {
@@ -69,25 +71,25 @@ async function withTempWorktree(run: () => Promise<void>): Promise<void> {
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
-}
+};
 
-async function parseMoka(args: string[]): Promise<void> {
+const parseMoka = async (args: string[]): Promise<void> => {
   await createCliProgram().parseAsync(
     ["node", "/repo/node_modules/.bin/moka", ...args],
     { from: "node" }
   );
-}
+};
 
-function onlySubmitInput(): CapturedMokaSubmitInput {
+const onlySubmitInput = (): CapturedMokaSubmitInput => {
   if (mockState.submitInputs.length !== 1) {
     throw new Error(
       `Expected exactly one moka submit input, received ${mockState.submitInputs.length}`
     );
   }
   return mockState.submitInputs[0] as CapturedMokaSubmitInput;
-}
+};
 
-function graphSubmitShape(input: CapturedMokaSubmitInput) {
+const graphSubmitShape = (input: CapturedMokaSubmitInput) => {
   if (input.type !== "graph") {
     throw new Error(`Expected graph submit input, received ${input.type}`);
   }
@@ -98,25 +100,23 @@ function graphSubmitShape(input: CapturedMokaSubmitInput) {
     type: input.type,
     worktreePath: input.worktreePath,
   };
-}
+};
 
-function baseRunnerPayload(mode: "execute" | "full" | "quick") {
-  return {
-    events: {
-      authTokenFile: "/etc/pipeline/event-auth/token",
-      url: "https://console.example/api/pipeline/runner-events",
-    },
-    repository: {
-      baseBranch: "main",
-      sha: "0123456789abcdef0123456789abcdef01234567",
-      url: "https://github.com/oisin-ee/rondo.git",
-    },
-    run: { id: "run-remote-compat", project: "rondo" },
-    submission: { kind: "graph", mode },
-    task: { kind: "prompt", prompt: "Ship remote compatibility" },
-    workflow: { id: "schedule-run-remote-compat-root" },
-  };
-}
+const baseRunnerPayload = (mode: "execute" | "full" | "quick") => ({
+  events: {
+    authTokenFile: "/etc/pipeline/event-auth/token",
+    url: "https://console.example/api/pipeline/runner-events",
+  },
+  repository: {
+    baseBranch: "main",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+    url: "https://github.com/oisin-ee/rondo.git",
+  },
+  run: { id: "run-remote-compat", project: "rondo" },
+  submission: { kind: "graph", mode },
+  task: { kind: "prompt", prompt: "Ship remote compatibility" },
+  workflow: { id: "schedule-run-remote-compat-root" },
+});
 
 describe("moka run remote submit compatibility", () => {
   it("submits the same quick graph shape as the existing moka submit --quick path", async () => {

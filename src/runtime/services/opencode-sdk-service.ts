@@ -78,26 +78,29 @@ export class OpencodeSdkService extends Context.Service<
 >()("OpencodeSdkService") {}
 
 export const OpencodeSdkServiceLive = Layer.succeed(OpencodeSdkService, {
+  abortSession: (client, args) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: async () =>
+        await (client.session.abort?.(args) ?? Promise.resolve()),
+    }),
   createClient: (opts) => Effect.try(() => createOpencodeClient(opts)),
   createSession: (client, args) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => client.session.create(args) as Promise<CreateSessionResponse>,
+      try: async () =>
+        await (client.session.create(args) as Promise<CreateSessionResponse>),
     }),
   promptSession: (client, args) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => client.session.prompt(args) as Promise<PromptSessionResponse>,
+      try: async () =>
+        await (client.session.prompt(args) as Promise<PromptSessionResponse>),
     }),
   spawnServer: (args, spawn = createOpencode as OpencodeServerSpawn) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => spawn(args),
-    }),
-  abortSession: (client, args) =>
-    Effect.tryPromise({
-      catch: (error) => error,
-      try: () => client.session.abort?.(args) ?? Promise.resolve(undefined),
+      try: async () => await spawn(args),
     }),
   subscribeEvents: (client) =>
     Effect.tryPromise({

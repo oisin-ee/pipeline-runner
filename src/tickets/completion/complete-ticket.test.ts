@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+
 import {
   baseGateRuntimeFields,
   gateNodeStateStore,
@@ -18,32 +19,30 @@ import {
   completeTicket,
   conservativeLayerAJudge,
   TicketCompletionError,
-  type TicketCompletionStore,
-  type TicketCompletionTarget,
+} from "./complete-ticket";
+import type {
+  TicketCompletionStore,
+  TicketCompletionTarget,
 } from "./complete-ticket";
 
 const A: AcceptanceCriterion = { id: "1", text: "Alpha" };
 
-function recordingStore(
+const recordingStore = (
   target: TicketCompletionTarget,
   markDoneCalls: string[]
-): TicketCompletionStore {
-  return {
-    loadTarget: () => Effect.succeed(target),
-    markDone: (ticketId) =>
-      Effect.sync(() => {
-        markDoneCalls.push(ticketId);
-      }),
-  };
-}
+): TicketCompletionStore => ({
+  loadTarget: () => Effect.succeed(target),
+  markDone: (ticketId) =>
+    Effect.sync(() => {
+      markDoneCalls.push(ticketId);
+    }),
+});
 
-function claimFor(...ids: string[]): CompletionClaim {
-  return {
-    criteria: ids.map((id) => ({ criterion: id, evidence: [`${id} works`] })),
-  };
-}
+const claimFor = (...ids: string[]): CompletionClaim => ({
+  criteria: ids.map((id) => ({ criterion: id, evidence: [`${id} works`] })),
+});
 
-function runtimeContext(): RuntimeContext {
+const runtimeContext = (): RuntimeContext => {
   const config = parsePipelineConfigParts(
     {
       pipeline:
@@ -64,12 +63,12 @@ function runtimeContext(): RuntimeContext {
     workflowId: "smoke",
     worktreePath: process.cwd(),
   };
-}
+};
 
 /** A passing deterministic acceptance gate that covers `criterion`. */
-function passingAcceptanceGate(
+const passingAcceptanceGate = (
   criterion: AcceptanceCriterion
-): DeterministicGate {
+): DeterministicGate => {
   const input: GateEvaluationInput = {
     attempt: {
       evidence: [],
@@ -90,7 +89,7 @@ function passingAcceptanceGate(
     nodeId: "node-a",
   };
   return { covers: [criterion.id], input };
-}
+};
 
 describe("completeTicket", () => {
   it("refuses without marking Done when the conservative judge cannot honor a residue criterion", async () => {

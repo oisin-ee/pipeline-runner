@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { buildCommandScheduleYaml } from "../src/argo-submit";
 
 const RUNNER_COMMAND = ["node", "-e", "console.log('runner command ok')"];
@@ -29,15 +30,15 @@ interface RunnerCommandFixture {
   schedulePath: string;
 }
 
-export function cleanupRunnerCommandFixtures(): void {
+export const cleanupRunnerCommandFixtures = (): void => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
   }
-}
+};
 
-export function writeRunnerCommandFixture(
+export const writeRunnerCommandFixture = (
   options: RunnerCommandFixtureOptions = {}
-): RunnerCommandFixture {
+): RunnerCommandFixture => {
   const runId = options.runId ?? "run-1";
   const scheduleId = options.scheduleId ?? runId;
   const workflowId = options.workflowId ?? `schedule-${runId}-root`;
@@ -97,9 +98,66 @@ export function writeRunnerCommandFixture(
   );
 
   return { descriptorPath, dir, payloadPath, schedulePath };
-}
+};
 
-export function writeLifecycleConfig(project: string, events: string[]): void {
+export const commandHookResult =
+  (options: { failEvent?: string } = {}) =>
+  (_command: string, _args: string[], execaOptions?: unknown) => {
+    const env = (execaOptions as { env?: Record<string, string> } | undefined)
+      ?.env;
+    const inputPath = env?.PIPELINE_HOOK_INPUT ?? "";
+    const resultPath = env?.PIPELINE_HOOK_RESULT ?? "";
+    if (inputPath.length === 0 || resultPath.length === 0) {
+      return { exitCode: 1, stderr: "missing hook env", stdout: "" };
+    }
+    const input = JSON.parse(readFileSync(inputPath, "utf-8")) as {
+      event: { type: string };
+    };
+    const status = input.event.type === options.failEvent ? "fail" : "pass";
+    writeFileSync(
+      resultPath,
+      JSON.stringify({
+        status,
+        summary: `${input.event.type} ${status}`,
+      })
+    );
+    return { exitCode: 0, stderr: "", stdout: "" };
+  };
+
+export const captureEventBatches =
+  (batches: unknown[][]) =>
+  async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      events?: unknown[];
+    };
+    batches.push(body.events ?? []);
+    return new Response(null, { status: 200 });
+  };
+
+const writeProjectFile = (
+  root: string,
+  path: string,
+  content: string
+): void => {
+  const fullPath = join(root, path);
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, content);
+};
+
+const lifecycleHookYaml = (event: string): string => {
+  const id = event.slice(event.indexOf(".") + 1);
+  return `    ${event}:
+      - id: ${id}
+        function: lifecycle
+        failure: fail
+        result: { publish: true }
+`;
+};
+
+export const writeLifecycleConfig = (
+  project: string,
+  events: string[]
+): void => {
   writeProjectFile(
     project,
     ".pipeline/runners.yaml",
@@ -145,82 +203,26 @@ ${events.map((event) => lifecycleHookYaml(event)).join("")}workflows:
         command: [node, -e, "console.log('ok')"]
 `
   );
-}
+};
 
-export function commandHookResult(options: { failEvent?: string } = {}) {
-  return (_command: string, _args: string[], execaOptions?: unknown) => {
-    const env = (execaOptions as { env?: Record<string, string> } | undefined)
-      ?.env;
-    const inputPath = env?.PIPELINE_HOOK_INPUT ?? "";
-    const resultPath = env?.PIPELINE_HOOK_RESULT ?? "";
-    if (inputPath.length === 0 || resultPath.length === 0) {
-      return { exitCode: 1, stderr: "missing hook env", stdout: "" };
-    }
-    const input = JSON.parse(readFileSync(inputPath, "utf8")) as {
-      event: { type: string };
-    };
-    const status = input.event.type === options.failEvent ? "fail" : "pass";
-    writeFileSync(
-      resultPath,
-      JSON.stringify({
-        status,
-        summary: `${input.event.type} ${status}`,
-      })
-    );
-    return { exitCode: 0, stderr: "", stdout: "" };
-  };
-}
+const flattenedEvents = (batches: unknown[][]): RunnerEvent[] =>
+  batches.flat() as RunnerEvent[];
 
-export function captureEventBatches(batches: unknown[][]) {
-  return (_input: RequestInfo | URL, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? "{}")) as {
-      events?: unknown[];
-    };
-    batches.push(body.events ?? []);
-    return Promise.resolve(new Response(null, { status: 200 }));
-  };
-}
+export const eventTypes = (batches: unknown[][]): string[] =>
+  flattenedEvents(batches).map((event) => event.type);
 
-export function eventTypes(batches: unknown[][]): string[] {
-  return flattenedEvents(batches).map((event) => event.type);
-}
+export const hookResultEvents = (batches: unknown[][]): RunnerEvent[] =>
+  flattenedEvents(batches).filter((event) => event.type === "hook.result");
 
-export function hookResultEvents(batches: unknown[][]): RunnerEvent[] {
-  return flattenedEvents(batches).filter(
-    (event) => event.type === "hook.result"
-  );
-}
-
-export function finalResults(
+export const finalResults = (
   batches: unknown[][]
-): Array<{ outcome: string; workflowId: string }> {
-  return flattenedEvents(batches)
+): { outcome: string; workflowId: string }[] =>
+  flattenedEvents(batches)
     .filter((event) => event.type === "workflow.finish")
     .map((event) => event.finalResult)
     .filter((result): result is { outcome: string; workflowId: string } =>
       Boolean(result)
     );
-}
-
-function writeProjectFile(root: string, path: string, content: string): void {
-  const fullPath = join(root, path);
-  mkdirSync(dirname(fullPath), { recursive: true });
-  writeFileSync(fullPath, content);
-}
-
-function lifecycleHookYaml(event: string): string {
-  const id = event.slice(event.indexOf(".") + 1);
-  return `    ${event}:
-      - id: ${id}
-        function: lifecycle
-        failure: fail
-        result: { publish: true }
-`;
-}
-
-function flattenedEvents(batches: unknown[][]): RunnerEvent[] {
-  return batches.flat() as RunnerEvent[];
-}
 
 interface RunnerEvent {
   finalResult?: { outcome: string; workflowId: string };

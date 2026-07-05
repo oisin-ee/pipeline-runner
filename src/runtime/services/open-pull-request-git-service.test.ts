@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+
 import { runAuthenticatedGit } from "../../run-state/git-refs";
 import {
   OpenPullRequestGitService,
@@ -7,7 +8,7 @@ import {
 } from "./open-pull-request-git-service";
 
 vi.mock("../../run-state/git-refs", () => ({
-  runAuthenticatedGit: vi.fn(() => Promise.resolve("ok")),
+  runAuthenticatedGit: vi.fn(() => "ok"),
 }));
 
 const mockedRunAuthenticatedGit = vi.mocked(runAuthenticatedGit);
@@ -16,7 +17,7 @@ describe("OpenPullRequestGitServiceLive", () => {
   it("routes every git op through the authenticated runner (no naked git)", async () => {
     mockedRunAuthenticatedGit.mockClear();
 
-    const program = Effect.gen(function* () {
+    const program = Effect.gen(function* program() {
       const service = yield* OpenPullRequestGitService;
       const git = yield* service.create("/workspace");
       return yield* git.raw([

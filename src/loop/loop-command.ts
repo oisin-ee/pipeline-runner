@@ -1,12 +1,11 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { MokaSubmitInput, MokaSubmitResult } from "../moka-submit";
 import { submitMoka } from "../moka-submit";
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
 import { buildTicketGraphEffect } from "../tickets/ticket-graph";
-import {
-  selectReadyTickets,
-  type TicketSelectionStrategy,
-} from "../tickets/ticket-selection";
+import { selectReadyTickets } from "../tickets/ticket-selection";
+import type { TicketSelectionStrategy } from "../tickets/ticket-selection";
 import { loadBacklogRecords } from "./backlog-records";
 
 // ===========================================================================
@@ -65,48 +64,61 @@ export interface LoopSubmitInput {
   readonly worktreePath: string;
 }
 
+const parseStrategy = (value: Option.Option<string>): TicketSelectionStrategy =>
+  Option.match(value, {
+    onNone: () => DEFAULT_STRATEGY,
+    onSome: (selected) => {
+      const match = LOOP_STRATEGIES.find((strategy) => strategy === selected);
+      if (match === undefined) {
+        throw new Error(
+          `--strategy must be one of ${LOOP_STRATEGIES.join(", ")} (got "${selected}")`
+        );
+      }
+      return match;
+    },
+  });
+
+const parsePositiveInt = (
+  value: Option.Option<string>,
+  flag: string
+): Option.Option<number> =>
+  Option.match(value, {
+    onNone: () => Option.none(),
+    onSome: (raw) => {
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new Error(`${flag} must be a positive integer (got "${raw}")`);
+      }
+      return Option.some(parsed);
+    },
+  });
+
 // ---------------------------------------------------------------------------
 // Flag parsing — strict, with clear errors (no silent fallback to a default).
 // ---------------------------------------------------------------------------
 
-export function parseLoopFlags(options: LoopCommandOptions): LoopFlags {
+export const parseLoopFlags = (options: LoopCommandOptions): LoopFlags => {
+  const maxMergePolls = parsePositiveInt(
+    Option.fromNullishOr(options.mergeTimeout),
+    "--merge-timeout"
+  );
+  const maxRemediationAttempts = parsePositiveInt(
+    Option.fromNullishOr(options.maxRemediationAttempts),
+    "--max-remediation-attempts"
+  );
   return {
-    maxMergePolls: parsePositiveInt(options.mergeTimeout, "--merge-timeout"),
-    maxRemediationAttempts: parsePositiveInt(
-      options.maxRemediationAttempts,
-      "--max-remediation-attempts"
-    ),
+    ...Option.match(maxMergePolls, {
+      onNone: () => ({}),
+      onSome: (value) => ({ maxMergePolls: value }),
+    }),
+    ...Option.match(maxRemediationAttempts, {
+      onNone: () => ({}),
+      onSome: (value) => ({ maxRemediationAttempts: value }),
+    }),
     rootId: options.root,
-    strategy: parseStrategy(options.strategy),
+    strategy: parseStrategy(Option.fromNullishOr(options.strategy)),
   };
-}
-
-function parseStrategy(value: string | undefined): TicketSelectionStrategy {
-  if (value === undefined) {
-    return DEFAULT_STRATEGY;
-  }
-  const match = LOOP_STRATEGIES.find((strategy) => strategy === value);
-  if (match === undefined) {
-    throw new Error(
-      `--strategy must be one of ${LOOP_STRATEGIES.join(", ")} (got "${value}")`
-    );
-  }
-  return match;
-}
-
-function parsePositiveInt(
-  value: string | undefined,
-  flag: string
-): number | undefined {
-  if (value === undefined) {
-    return;
-  }
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${flag} must be a positive integer (got "${value}")`);
-  }
-  return parsed;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Backlog precondition — cyclic or empty backlog refuses to start.
@@ -118,11 +130,11 @@ function parsePositiveInt(
  * fully-blocked backlog has no ready ticket and is refused — submitting a
  * controller with nothing to do is a user error, not a no-op success.
  */
-function assertStartableBacklog(
+const assertStartableBacklog = (
   tasks: readonly BacklogTaskRecord[],
   flags: LoopFlags
-): Effect.Effect<void, Error> {
-  return buildTicketGraphEffect([...tasks]).pipe(
+): Effect.Effect<void, Error> =>
+  buildTicketGraphEffect([...tasks]).pipe(
     Effect.mapError((error) => new Error(error.message)),
     Effect.flatMap((graph) => {
       const ready = selectReadyTickets(graph, {
@@ -139,41 +151,9 @@ function assertStartableBacklog(
       return Effect.void;
     })
   );
-}
-
-// ---------------------------------------------------------------------------
-// Cloud submission — submit the controller as a long-running command workflow.
-// ---------------------------------------------------------------------------
-
-/**
- * Validate the backlog, then submit `moka loop-controller <flags>` as a cloud
- * command workflow. Returns the submitted workflow name.
- */
-export function runLoopSubmit(
-  input: LoopSubmitInput,
-  seams: LoopCommandSeams = {}
-): Promise<MokaSubmitResult> {
-  const loadTasks = seams.loadTasks ?? loadBacklogRecords;
-  const submit = seams.submitMoka ?? submitMoka;
-  return Effect.runPromise(
-    loadTasks(input.worktreePath).pipe(
-      Effect.flatMap((tasks) =>
-        assertStartableBacklog(tasks, input.flags).pipe(
-          Effect.flatMap(() =>
-            Effect.tryPromise({
-              catch: (error) =>
-                error instanceof Error ? error : new Error(String(error)),
-              try: () => submit(loopControllerSubmitInput(input)),
-            })
-          )
-        )
-      )
-    )
-  );
-}
 
 /** The argv the in-cluster pod runs to drive the loop. */
-export function loopControllerArgv(flags: LoopFlags): string[] {
+export const loopControllerArgv = (flags: LoopFlags): string[] => {
   const argv = ["moka", "loop-controller", "--strategy", flags.strategy];
   if (flags.rootId !== undefined) {
     argv.push("--root", flags.rootId);
@@ -188,22 +168,53 @@ export function loopControllerArgv(flags: LoopFlags): string[] {
     argv.push("--merge-timeout", String(flags.maxMergePolls));
   }
   return argv;
-}
+};
 
-function loopControllerSubmitInput(input: LoopSubmitInput): MokaSubmitInput {
-  return {
-    commandArgv: loopControllerArgv(input.flags),
-    config: input.config,
-    eventUrl: input.eventUrl,
-    gitCredentialsSecretName: input.gitCredentialsSecretName,
-    githubAuthSecretName: input.githubAuthSecretName,
-    image: input.image,
-    kubeconfigPath: input.kubeconfigPath,
-    namespace: input.namespace,
-    brokerAuth: input.brokerAuth,
-    serviceAccountName: input.serviceAccountName,
-    task: `moka loop (${input.flags.strategy})`,
-    type: "command",
-    worktreePath: input.worktreePath,
-  };
-}
+const loopControllerSubmitInput = (
+  input: LoopSubmitInput
+): MokaSubmitInput => ({
+  brokerAuth: input.brokerAuth,
+  commandArgv: loopControllerArgv(input.flags),
+  config: input.config,
+  eventUrl: input.eventUrl,
+  gitCredentialsSecretName: input.gitCredentialsSecretName,
+  githubAuthSecretName: input.githubAuthSecretName,
+  image: input.image,
+  kubeconfigPath: input.kubeconfigPath,
+  namespace: input.namespace,
+  serviceAccountName: input.serviceAccountName,
+  task: `moka loop (${input.flags.strategy})`,
+  type: "command",
+  worktreePath: input.worktreePath,
+});
+
+// ---------------------------------------------------------------------------
+// Cloud submission — submit the controller as a long-running command workflow.
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate the backlog, then submit `moka loop-controller <flags>` as a cloud
+ * command workflow. Returns the submitted workflow name.
+ */
+export const runLoopSubmit = async (
+  input: LoopSubmitInput,
+  seams: LoopCommandSeams = {}
+): Promise<MokaSubmitResult> => {
+  const loadTasks = seams.loadTasks ?? loadBacklogRecords;
+  const submit = seams.submitMoka ?? submitMoka;
+  return await Effect.runPromise(
+    loadTasks(input.worktreePath).pipe(
+      Effect.flatMap((tasks) =>
+        assertStartableBacklog(tasks, input.flags).pipe(
+          Effect.flatMap(() =>
+            Effect.tryPromise({
+              catch: (error) =>
+                error instanceof Error ? error : new Error(String(error)),
+              try: async () => await submit(loopControllerSubmitInput(input)),
+            })
+          )
+        )
+      )
+    )
+  );
+};

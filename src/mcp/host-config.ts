@@ -7,6 +7,10 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+import type { Option } from "effect/Option";
+import { isSome, none, some } from "effect/Option";
+
 import { replaceClaudeUserMcpServers } from "../claude-user-config";
 import { mergeCodexConfig } from "../codex-config";
 import type { PipelineConfig } from "../config";
@@ -20,6 +24,7 @@ import {
 export type GatewayHost = "opencode" | "claude-code" | "codex";
 export type GatewayHostSelection = "all" | GatewayHost;
 export type GatewayHostScope = "global" | "project";
+type OptionalText = NodeJS.ProcessEnv[string];
 
 export interface GatewayHostConfigResult {
   backupPath?: string;
@@ -33,33 +38,56 @@ export interface GatewayConfigureHostOptions {
   scope: GatewayHostScope;
 }
 
-export function configureGatewayHosts(
-  config: PipelineConfig,
-  options: GatewayConfigureHostOptions
-): GatewayHostConfigResult[] {
-  return selectedGatewayHosts(options.host).map((host) => {
-    const adapter = GATEWAY_HOST_CONFIGS[host];
-    const path = adapter.path(options.scope, options.cwd);
-    const current = existsSync(path) ? readFileSync(path, "utf8") : undefined;
-    const content = adapter.configureContent(config, current);
-    const backupPath = backupIfExists(path);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content);
-    return { backupPath, host, path };
-  });
-}
-
-function selectedGatewayHosts(host: GatewayHostSelection): GatewayHost[] {
-  return host === "all" ? ["opencode", "claude-code", "codex"] : [host];
-}
+const selectedGatewayHosts = (host: GatewayHostSelection): GatewayHost[] =>
+  host === "all" ? ["opencode", "claude-code", "codex"] : [host];
 
 interface GatewayHostConfigAdapter {
-  configureContent: (
-    config: PipelineConfig,
-    current: string | undefined
-  ) => string;
+  configureContent: (config: PipelineConfig, current: OptionalText) => string;
   path: (scope: GatewayHostScope, cwd: string) => string;
 }
+
+const opencodeGatewayConfigPath = (
+  scope: GatewayHostScope,
+  cwd: string
+): string => {
+  if (scope === "project") {
+    return join(cwd, ".opencode", "opencode.json");
+  }
+  return join(
+    process.env.OPENCODE_CONFIG_DIR ??
+      join(
+        process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+        "opencode"
+      ),
+    "opencode.json"
+  );
+};
+
+const claudeGatewayConfigPath = (
+  scope: GatewayHostScope,
+  cwd: string
+): string => {
+  if (scope === "project") {
+    return join(cwd, ".mcp.json");
+  }
+  return join(
+    dirname(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")),
+    ".claude.json"
+  );
+};
+
+const codexGatewayConfigPath = (
+  scope: GatewayHostScope,
+  cwd: string
+): string => {
+  if (scope === "project") {
+    return join(cwd, ".codex", "config.toml");
+  }
+  return join(
+    process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+    "config.toml"
+  );
+};
 
 const GATEWAY_HOST_CONFIGS: Record<GatewayHost, GatewayHostConfigAdapter> = {
   "claude-code": {
@@ -87,48 +115,30 @@ const GATEWAY_HOST_CONFIGS: Record<GatewayHost, GatewayHostConfigAdapter> = {
   },
 };
 
-function opencodeGatewayConfigPath(
-  scope: GatewayHostScope,
-  cwd: string
-): string {
-  if (scope === "project") {
-    return join(cwd, ".opencode", "opencode.json");
-  }
-  return join(
-    process.env.OPENCODE_CONFIG_DIR ??
-      join(
-        process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
-        "opencode"
-      ),
-    "opencode.json"
-  );
-}
-
-function claudeGatewayConfigPath(scope: GatewayHostScope, cwd: string): string {
-  if (scope === "project") {
-    return join(cwd, ".mcp.json");
-  }
-  return join(
-    dirname(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")),
-    ".claude.json"
-  );
-}
-
-function codexGatewayConfigPath(scope: GatewayHostScope, cwd: string): string {
-  if (scope === "project") {
-    return join(cwd, ".codex", "config.toml");
-  }
-  return join(
-    process.env.CODEX_HOME ?? join(homedir(), ".codex"),
-    "config.toml"
-  );
-}
-
-function backupIfExists(path: string): string | undefined {
+const backupIfExists = (path: string): Option<string> => {
   if (!existsSync(path)) {
-    return;
+    return none();
   }
   const backupPath = `${path}.bak-${Date.now()}`;
   copyFileSync(path, backupPath);
-  return backupPath;
-}
+  return some(backupPath);
+};
+
+export const configureGatewayHosts = (
+  config: PipelineConfig,
+  options: GatewayConfigureHostOptions
+): GatewayHostConfigResult[] =>
+  selectedGatewayHosts(options.host).map((host) => {
+    const adapter = GATEWAY_HOST_CONFIGS[host];
+    const path = adapter.path(options.scope, options.cwd);
+    const current = existsSync(path) ? readFileSync(path, "utf-8") : undefined;
+    const content = adapter.configureContent(config, current);
+    const backupPath = backupIfExists(path);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+    return {
+      ...(isSome(backupPath) ? { backupPath: backupPath.value } : {}),
+      host,
+      path,
+    };
+  });

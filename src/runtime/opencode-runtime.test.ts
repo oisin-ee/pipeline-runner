@@ -1,5 +1,7 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2";
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { PipelineConfig } from "../config";
 import type { RunnerLaunchPlan } from "../runner";
 import { NodeStateStore } from "./node-state-store";
@@ -15,71 +17,66 @@ import type { OpencodeServerHandle } from "./opencode-server";
 
 const CONFIG = {} as unknown as PipelineConfig;
 
-function fakeHandle(
+const fakeHandle = (
   client: OpencodeServerHandle["client"] = {} as never
-): OpencodeServerHandle {
+): OpencodeServerHandle => {
   let closed = false;
   return {
     client,
     close: () => {
       closed = true;
-      return Promise.resolve();
+      return;
     },
     get owned() {
       return closed;
     },
     url: "http://127.0.0.1:0",
   } as OpencodeServerHandle;
-}
+};
 
-function fakeOpencodeClient(sessionId = "ses_runtime"): OpencodeClient {
-  return {
+const fakeOpencodeClient = (sessionId = "ses_runtime"): OpencodeClient =>
+  ({
     session: {
-      create: () =>
-        Promise.resolve({ data: { id: sessionId }, error: undefined }),
-      prompt: () =>
-        Promise.resolve({
-          data: {
-            info: {},
-            parts: [
-              {
-                sessionID: sessionId,
-                text: "done; ignore cli-looking session ses_from_text",
-                type: "text",
-              },
-            ],
-          },
-          error: undefined,
-        }),
+      create: () => ({ data: { id: sessionId }, error: undefined }),
+      prompt: () => ({
+        data: {
+          info: {},
+          parts: [
+            {
+              sessionID: sessionId,
+              text: "done; ignore cli-looking session ses_from_text",
+              type: "text",
+            },
+          ],
+        },
+        error: undefined,
+      }),
     },
-  } as unknown as OpencodeClient;
-}
+  }) as unknown as OpencodeClient;
 
-function opencodePlan(): RunnerLaunchPlan {
-  return {
-    args: ["run", "--format", "json", "do the task"],
-    command: "opencode",
-    cwd: "/repo",
-    env: {},
-    model: "openai/gpt-5.5-low",
-    nodeId: "node-a",
-    outputFormat: "text",
-    profileId: "moka-code-writer",
-    runnerId: "opencode",
-    type: "opencode",
-  };
-}
+const opencodePlan = (): RunnerLaunchPlan => ({
+  args: ["run", "--format", "json", "do the task"],
+  command: "opencode",
+  cwd: "/repo",
+  env: {},
+  model: "openai/gpt-5.5-low",
+  nodeId: "node-a",
+  outputFormat: "text",
+  profileId: "moka-code-writer",
+  runnerId: "opencode",
+  type: "opencode",
+});
 
 describe("leaseOpencodeRuntime lazy server startup", () => {
   it("does not open a server when the lease is created", async () => {
     let opens = 0;
     const lease = await leaseOpencodeRuntime({
       config: CONFIG,
-      worktreePath: "/repo",
-      openServer: () => {
+      openServer: async () => {
         opens += 1;
-        return Promise.resolve(fakeHandle());
+        return fakeHandle();
       },
+      worktreePath: "/repo",
     });
 
     expect(opens).toBe(0);
@@ -92,24 +89,24 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
     let opens = 0;
     const lease = await leaseOpencodeRuntime({
       config: CONFIG,
-      worktreePath: "/repo",
-      openServer: () => {
+      openServer: async () => {
         opens += 1;
-        return Promise.resolve(fakeHandle());
+        return fakeHandle();
       },
+      worktreePath: "/repo",
     });
 
     // The fake client cannot answer a real prompt; we only assert that
     // invoking the executor triggers exactly one lazy server open.
     await Promise.resolve(
-      lease.executor({ command: "opencode", args: [] } as never, {} as never)
+      lease.executor({ args: [], command: "opencode" } as never, {} as never)
     ).catch(() => {
       // expected: the stub client has no session API
     });
     expect(opens).toBe(1);
 
     await Promise.resolve(
-      lease.executor({ command: "opencode", args: [] } as never, {} as never)
+      lease.executor({ args: [], command: "opencode" } as never, {} as never)
     ).catch(() => {
       // second call must reuse the same server, not open another
     });
@@ -133,14 +130,14 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
         ],
       ]),
     });
-    const observedSessions: Array<{ nodeId: string; sessionId: string }> = [];
+    const observedSessions: { nodeId: string; sessionId: string }[] = [];
     const leaseInput = {
       config: CONFIG,
       onSession: (nodeId: string, sessionId: string) => {
         observedSessions.push({ nodeId, sessionId });
         nodeStateStore.recordSessionId(nodeId, sessionId);
       },
-      openServer: () => Promise.resolve(fakeHandle(fakeOpencodeClient())),
+      openServer: async () => fakeHandle(fakeOpencodeClient()),
       worktreePath: "/repo",
     } satisfies Parameters<typeof leaseOpencodeRuntime>[0] & {
       onSession: (nodeId: string, sessionId: string) => void;
@@ -158,36 +155,35 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
     expect(observedSessions).toEqual([
       { nodeId: "node-a", sessionId: "ses_runtime" },
     ]);
-    expect(nodeStateStore.getNodeState("node-a")?.sessionId).toBe(
-      "ses_runtime"
-    );
+    expect(
+      Option.getOrUndefined(nodeStateStore.getNodeState("node-a"))?.sessionId
+    ).toBe("ses_runtime");
   });
 
   it("resolves available models from the server's authenticated providers", async () => {
     const client = {
       config: {
-        providers: () =>
-          Promise.resolve({
-            data: {
-              providers: [
-                {
-                  id: "openai",
-                  models: { "gpt-5.5-high": {}, "gpt-5.5-low": {} },
-                },
-                { id: "opencode-go", models: { "qwen3.7-max": {} } },
-              ],
-            },
-            error: undefined,
-          }),
+        providers: () => ({
+          data: {
+            providers: [
+              {
+                id: "openai",
+                models: { "gpt-5.5-high": {}, "gpt-5.5-low": {} },
+              },
+              { id: "opencode-go", models: { "qwen3.7-max": {} } },
+            ],
+          },
+          error: undefined,
+        }),
       },
     } as unknown as OpencodeServerHandle["client"];
     const lease = await leaseOpencodeRuntime({
       config: CONFIG,
-      openServer: () => Promise.resolve(fakeHandle(client)),
+      openServer: async () => fakeHandle(client),
       worktreePath: "/repo",
     });
 
-    expect(await lease.availableModels()).toEqual(
+    expect(Option.getOrUndefined(await lease.availableModels())).toEqual(
       new Set([
         "openai/gpt-5.5-high",
         "openai/gpt-5.5-low",
@@ -198,14 +194,20 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
 
   it("returns undefined available models when provider listing fails (best-effort)", async () => {
     const client = {
-      config: { providers: () => Promise.reject(new Error("boom")) },
+      config: {
+        providers: () => {
+          throw new Error("boom");
+        },
+      },
     } as unknown as OpencodeServerHandle["client"];
     const lease = await leaseOpencodeRuntime({
       config: CONFIG,
-      openServer: () => Promise.resolve(fakeHandle(client)),
+      openServer: async () => fakeHandle(client),
       worktreePath: "/repo",
     });
 
-    expect(await lease.availableModels()).toBeUndefined();
+    expect(
+      Option.getOrUndefined(await lease.availableModels())
+    ).toBeUndefined();
   });
 });

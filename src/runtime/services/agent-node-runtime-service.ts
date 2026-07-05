@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+
 import { Context, Effect, Layer } from "effect";
+
 import { buildRepoMapContext } from "../../context/repo-map";
 import type { RunnerExecutionOptions, RunnerLaunchPlan } from "../../runner";
 import type { RuntimeContext } from "../contracts";
@@ -27,8 +29,8 @@ export const AgentNodeRuntimeServiceLive = Layer.succeed(
     executeRunner: (executor, plan, options) =>
       Effect.tryPromise({
         catch: (error) => error,
-        try: () => Promise.resolve(executor(plan, options)),
+        try: async () => await executor(plan, options),
       }),
-    readText: (path) => Effect.sync(() => readFileSync(path, "utf8")),
+    readText: (path) => Effect.sync(() => readFileSync(path, "utf-8")),
   }
 );

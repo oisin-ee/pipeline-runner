@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect } from "effect";
 import postgres from "postgres";
 import {
@@ -13,7 +14,9 @@ import {
   it,
   vi,
 } from "vitest";
-import { type PipelineConfig, parsePipelineConfigParts } from "../src/config";
+
+import { parsePipelineConfigParts } from "../src/config";
+import type { PipelineConfig } from "../src/config";
 import { resumeRun } from "../src/pipeline-runtime";
 import {
   compileScheduleArtifact,
@@ -21,9 +24,9 @@ import {
 } from "../src/planning/generate";
 import {
   migratePostgresRunControlStore,
-  type PostgresRunControlStore,
   postgresRunControlStore,
 } from "../src/run-control/postgres/postgres-run-control-store";
+import type { PostgresRunControlStore } from "../src/run-control/postgres/postgres-run-control-store";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
 import { postgresDurableRunStore } from "../src/runtime/durable-store/postgres/postgres-store";
 
@@ -36,24 +39,23 @@ const describePg = PG_URL ? describe : describe.skip;
 
 const tempDirs: string[] = [];
 
-function tempDir(prefix: string): string {
+const tempDir = (prefix: string): string => {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
-}
+};
 
-function initGitRepo(worktreePath: string): void {
+const initGitRepo = (worktreePath: string): void => {
   execFileSync("git", ["init", "--quiet"], { cwd: worktreePath });
-}
+};
 
-function gitStatusPorcelain(worktreePath: string): string[] {
-  return execFileSync("git", ["status", "--porcelain"], {
+const gitStatusPorcelain = (worktreePath: string): string[] =>
+  execFileSync("git", ["status", "--porcelain"], {
     cwd: worktreePath,
-    encoding: "utf8",
+    encoding: "utf-8",
   })
     .split("\n")
     .filter(Boolean);
-}
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -65,27 +67,8 @@ afterEach(() => {
 // If resume recompiled from this config instead of the persisted schedule, it
 // would run `pkg-default` — the marker assertion below would then fail. The only
 // runner is `command`, so resume never tries to lease an opencode server.
-function packageConfig(markerDir: string): PipelineConfig {
-  return parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  command:
-    type: command
-    command: node
-    args: ["-e", "{{prompt}}"]
-    capabilities:
-      native_subagents: false
-      output_formats: [text]
-`,
-    profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: command
-    instructions: { inline: Orchestrate }
-    tools: []
-`,
+const packageConfig = (markerDir: string): PipelineConfig =>
+  parsePipelineConfigParts({
     pipeline: `
 version: 1
 default_workflow: default
@@ -98,14 +81,32 @@ workflows:
         kind: command
         command: ["sh", "-c", "echo wrong > '${markerDir}/pkg-default'"]
 `,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: command
+    instructions: { inline: Orchestrate }
+    tools: []
+`,
+    runners: `
+version: 1
+runners:
+  command:
+    type: command
+    command: node
+    args: ["-e", "{{prompt}}"]
+    capabilities:
+      native_subagents: false
+      output_formats: [text]
+`,
   });
-}
 
 // A custom three-node sequential schedule (step-one -> step-two -> step-three),
 // distinct from the package default workflow. Each node drops a marker file so
 // the test can assert exactly which nodes the resumed run executed.
-function customScheduleYaml(markerDir: string): string {
-  return [
+const customScheduleYaml = (markerDir: string): string =>
+  [
     "kind: pipeline-schedule",
     "version: 1",
     "schedule_id: custom-graph",
@@ -129,34 +130,31 @@ function customScheduleYaml(markerDir: string): string {
     "        needs: [step-two]",
     "",
   ].join("\n");
-}
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
 // Seed a node's terminal result into the cluster Postgres durable journal for
 // `runId`, then close so the write flushes — exactly what a process that ran the
 // node and then died leaves behind.
-async function seedPersistedNodes(
+const seedPersistedNodes = async (
   dbUrl: string,
   runId: string,
   nodeIds: string[]
-): Promise<void> {
+): Promise<void> => {
   const store = await postgresDurableRunStore(dbUrl, runId);
   const journal = store.toRunJournal(runId);
   for (const nodeId of nodeIds) {
     journal.record(passedResult(nodeId));
   }
   await store.close();
-}
+};
 
 describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
   vi.setConfig({ hookTimeout: 90_000, testTimeout: 90_000 });
@@ -166,16 +164,16 @@ describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
   let admin: postgres.Sql;
   let counter = 0;
 
-  function runId(label: string): string {
+  const runId = (label: string): string => {
     counter += 1;
     return `${suitePrefix}-${label}-${counter}`;
-  }
+  };
 
-  function pgStore(): PostgresRunControlStore {
+  const pgStore = (): PostgresRunControlStore => {
     const store = postgresRunControlStore(dbUrl);
     openStores.push(store);
     return store;
-  }
+  };
 
   beforeAll(async () => {
     await migratePostgresRunControlStore(dbUrl);
@@ -252,8 +250,8 @@ describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
     // replayed from the journal (skipped, no marker); `pkg-default` never ran.
     expect({
       gitStatus: gitStatusPorcelain(worktreePath),
-      markers: readdirSync(markerDir).sort(),
-      nodes: result.nodes.map((node) => node.nodeId).sort(),
+      markers: readdirSync(markerDir).toSorted(),
+      nodes: result.nodes.map((node) => node.nodeId).toSorted(),
       outcome: result.outcome,
       workflowId: compiled.workflowId,
     }).toEqual({

@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+
+import type { Option } from "effect/Option";
+import { fromUndefinedOr, match } from "effect/Option";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("execa", () => ({
@@ -6,13 +9,14 @@ vi.mock("execa", () => ({
 }));
 
 import { execa } from "execa";
+
 import { parsePipelineConfigParts } from "../src/config.ts";
 import {
   createOrchestratorLaunchPlan,
   createRunnerLaunchPlan,
 } from "../src/runner";
-import { runLaunchPlan } from "../src/runner/subprocess";
 import { normalizeRunnerOutput } from "../src/runner-output.ts";
+import { runLaunchPlan } from "../src/runner/subprocess";
 import { opencodeSdkRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
@@ -20,9 +24,8 @@ const originalPipelineAgentTimeoutMs = process.env.PIPELINE_AGENT_TIMEOUT_MS;
 const originalPipelineMcpGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
 const originalPipelineMcpGatewayAuthorization =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
-function makeSimpleResult(stdout = "output", exitCode = 0) {
-  return Promise.resolve({ stdout, exitCode }) as any;
-}
+const makeSimpleResult = async (stdout = "output", exitCode = 0) =>
+  await Promise.resolve({ exitCode, stdout });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -31,33 +34,61 @@ beforeEach(() => {
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "test-gateway-token";
 });
 
+const restoreEnv = (key: string, value: Option<string>): void => {
+  match(value, {
+    onNone: () => {
+      delete process.env[key];
+    },
+    onSome: (envValue) => {
+      process.env[key] = envValue;
+    },
+  });
+};
+
 afterEach(() => {
-  restoreEnv("PIPELINE_AGENT_TIMEOUT_MS", originalPipelineAgentTimeoutMs);
-  restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalPipelineMcpGatewayUrl);
+  restoreEnv(
+    "PIPELINE_AGENT_TIMEOUT_MS",
+    fromUndefinedOr(originalPipelineAgentTimeoutMs)
+  );
+  restoreEnv(
+    "PIPELINE_MCP_GATEWAY_URL",
+    fromUndefinedOr(originalPipelineMcpGatewayUrl)
+  );
   restoreEnv(
     "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
-    originalPipelineMcpGatewayAuthorization
+    fromUndefinedOr(originalPipelineMcpGatewayAuthorization)
   );
 });
 
-function restoreEnv(key: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[key];
-    return;
-  }
-  process.env[key] = value;
-}
-
-function parseTestConfig(parts: {
+const parseTestConfig = (parts: {
   pipeline: string;
   profiles: string;
   runners: string;
-}) {
-  return parsePipelineConfigParts(parts);
-}
+}) => parsePipelineConfigParts(parts);
 
 describe("createRunnerLaunchPlan", () => {
   const CONFIG = parseTestConfig({
+    pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: opencode-agent }
+`,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    model: orchestrator-model
+    instructions: { inline: Orchestrate }
+    tools: []
+  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, output: { format: json } }
+  command-agent: { runner: shell, instructions: { inline: Shell }, output: { format: text } }
+`,
     runners: `
 version: 1
 runners:
@@ -76,59 +107,40 @@ runners:
       native_subagents: false
       output_formats: [text]
 `,
-    profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    model: orchestrator-model
-    instructions: { inline: Orchestrate }
-    tools: []
-  opencode-agent: { runner: opencode, instructions: { inline: OpenCode }, output: { format: json } }
-  command-agent: { runner: shell, instructions: { inline: Shell }, output: { format: text } }
-`,
-    pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: opencode-agent }
-`,
   });
 
   it.each([
     ["opencode-agent", "opencode", "opencode"],
     ["command-agent", "shell", "node"],
-  ])("creates a deterministic launch plan for %s", (profileId, runnerId, command) => {
-    const plan = createRunnerLaunchPlan(CONFIG, {
-      profileId,
-      nodeId: "node",
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-
-    expect(plan).toEqual(
-      expect.objectContaining({
-        command,
-        cwd: "/tmp/wt",
+  ])(
+    "creates a deterministic launch plan for %s",
+    (profileId, runnerId, command) => {
+      const plan = createRunnerLaunchPlan(CONFIG, {
         nodeId: "node",
         profileId,
-        runnerId,
-      })
-    );
-    expect(plan.args.join(" ")).toContain(
-      profileId === "command-agent" ? "/tmp/wt" : "do work"
-    );
-  });
+        prompt: "do work",
+        worktreePath: "/tmp/wt",
+      });
+
+      expect(plan).toEqual(
+        expect.objectContaining({
+          command,
+          cwd: "/tmp/wt",
+          nodeId: "node",
+          profileId,
+          runnerId,
+        })
+      );
+      expect(plan.args.join(" ")).toContain(
+        profileId === "command-agent" ? "/tmp/wt" : "do work"
+      );
+    }
+  );
 
   it("adds git info excludes before opencode launch plans run", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
-    const { mkdirSync, readFileSync, rmSync, writeFileSync } = await import(
-      "node:fs"
-    );
+    const { mkdirSync, readFileSync, rmSync, writeFileSync } =
+      await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const dir = await import("node:fs").then(({ mkdtempSync }) =>
@@ -141,21 +153,21 @@ workflows:
 
       await runLaunchPlan(
         createRunnerLaunchPlan(CONFIG, {
-          profileId: "opencode-agent",
           nodeId: "node",
+          profileId: "opencode-agent",
           prompt: "verify things",
           worktreePath: dir,
         })
       );
 
       const exclude = readFileSync(join(dir, ".git", "info", "exclude"), {
-        encoding: "utf8",
+        encoding: "utf-8",
       });
       expect(exclude).toContain("node_modules/");
       expect(exclude).toContain(".opencode/node_modules/");
       expect(exclude).toContain(".mastra/");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -164,8 +176,8 @@ workflows:
     config.profiles["opencode-agent"].timeout_ms = 900_000;
 
     const plan = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
       nodeId: "research-current-club",
+      profileId: "opencode-agent",
       prompt: "research current club",
       worktreePath: "/tmp/wt",
     });
@@ -180,8 +192,8 @@ workflows:
 
   it("does not invent a native runner timeout when config and env omit one", () => {
     const plan = createRunnerLaunchPlan(CONFIG, {
-      profileId: "opencode-agent",
       nodeId: "research-current-club",
+      profileId: "opencode-agent",
       prompt: "research current club",
       worktreePath: "/tmp/wt",
     });
@@ -192,8 +204,8 @@ workflows:
   it("keeps the OpenCode SDK adapter launch plan and output parsing behavior-compatible", () => {
     const plan = createRunnerLaunchPlan(CONFIG, {
       contextFile: "/tmp/context.md",
-      profileId: "opencode-agent",
       nodeId: "opencode-node",
+      profileId: "opencode-agent",
       prompt: "do OpenCode work",
       worktreePath: "/tmp/wt",
     });
@@ -235,15 +247,15 @@ workflows:
 
   it("normalizes OpenCode JSON event output through the runtime adapter", () => {
     const plan = createRunnerLaunchPlan(CONFIG, {
-      profileId: "opencode-agent",
       nodeId: "opencode-node",
+      profileId: "opencode-agent",
       prompt: "do OpenCode work",
       worktreePath: "/tmp/wt",
     });
     const stdout = [
       "debug line",
-      JSON.stringify({ part: { type: "text", text: "first" } }),
-      JSON.stringify({ part: { type: "text", text: "final" } }),
+      JSON.stringify({ part: { text: "first", type: "text" } }),
+      JSON.stringify({ part: { text: "final", type: "text" } }),
     ].join("\n");
 
     expect(opencodeSdkRuntimeAdapter.outputCandidates(stdout)).toEqual([
@@ -266,8 +278,8 @@ workflows:
     process.env.PIPELINE_AGENT_TIMEOUT_MS = "123456";
 
     const plan = createRunnerLaunchPlan(CONFIG, {
-      profileId: "opencode-agent",
       nodeId: "research-current-club",
+      profileId: "opencode-agent",
       prompt: "research current club",
       worktreePath: "/tmp/wt",
     });
@@ -282,8 +294,8 @@ workflows:
 
     expect(() =>
       createRunnerLaunchPlan(bad, {
-        profileId: "opencode-agent",
         nodeId: "node",
+        profileId: "opencode-agent",
         prompt: "do work",
         worktreePath: "/tmp/wt",
       })
@@ -292,19 +304,15 @@ workflows:
 
   it("hydrates tools and skills without injecting MCP into native runner launch plans", () => {
     const config = parseTestConfig({
-      runners: `
+      pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    model: openai/gpt-5.5
-    capabilities:
-      native_subagents: true
-      skills: true
-      mcp_servers: true
-      tools: [read]
-      output_formats: [text]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: opencode-agent }
 `,
       profiles: `
 version: 1
@@ -326,21 +334,25 @@ profiles:
     tools: [read]
   opencode-agent: { runner: opencode, model: agent-model, instructions: { inline: OpenCode }, skills: [research], mcp_servers: [pipeline-gateway] }
 `,
-      pipeline: `
+      runners: `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: opencode-agent }
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.5
+    capabilities:
+      native_subagents: true
+      skills: true
+      mcp_servers: true
+      tools: [read]
+      output_formats: [text]
 `,
     });
 
     const agent = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
       nodeId: "agent",
+      profileId: "opencode-agent",
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });
@@ -367,16 +379,15 @@ workflows:
     const project = "/tmp/pipeline-runner-mcp";
     const config = parsePipelineConfigParts(
       {
-        runners: `
+        pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      mcp_servers: true
-      output_formats: [text]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: opencode-agent }
 `,
         profiles: `
 version: 1
@@ -395,23 +406,24 @@ profiles:
     instructions: { inline: OpenCode }
     mcp_servers: [pipeline-gateway]
 `,
-        pipeline: `
+        runners: `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: opencode-agent }
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      mcp_servers: true
+      output_formats: [text]
 `,
       },
       project
     );
 
     const agent = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
       nodeId: "agent",
+      profileId: "opencode-agent",
       prompt: "do work",
       worktreePath: project,
     });
@@ -428,8 +440,8 @@ workflows:
     config.profiles.orchestrator.model = undefined;
 
     const agent = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
       nodeId: "agent",
+      profileId: "opencode-agent",
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });
@@ -445,8 +457,8 @@ workflows:
 
   it("uses explicit actor and runner models only", () => {
     const agent = createRunnerLaunchPlan(CONFIG, {
-      profileId: "opencode-agent",
       nodeId: "agent",
+      profileId: "opencode-agent",
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });
@@ -465,8 +477,8 @@ workflows:
     config.profiles["opencode-agent"].filesystem = { mode: "read-only" };
 
     const plan = createRunnerLaunchPlan(config, {
-      profileId: "opencode-agent",
       nodeId: "node",
+      profileId: "opencode-agent",
       prompt: "inspect",
       worktreePath: "/tmp/wt",
     });
@@ -478,7 +490,7 @@ workflows:
 
   it("streams subprocess stdout chunks before returning the final buffered result", async () => {
     const stdout = new EventEmitter();
-    let resolveSubprocess: (result: unknown) => void = () => undefined;
+    let resolveSubprocess: (result: unknown) => void = () => {};
     const subprocess = new Promise((resolve) => {
       resolveSubprocess = resolve;
     }) as Promise<unknown> & { stdout: EventEmitter };
@@ -486,8 +498,8 @@ workflows:
     mockExeca.mockReturnValue(subprocess);
 
     const plan = createRunnerLaunchPlan(CONFIG, {
-      profileId: "opencode-agent",
       nodeId: "agent",
+      profileId: "opencode-agent",
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });

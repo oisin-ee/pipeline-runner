@@ -22,17 +22,15 @@ export interface CopierStampReceipt {
   readonly srcPath?: string;
 }
 
-export function parseCopierAnswers(source: string): CopierStampReceipt {
+export const parseCopierAnswers = (source: string): CopierStampReceipt => {
   const parsed = copierAnswersSchema.parse(parseYaml(source));
   return {
     ...(parsed._commit === undefined ? {} : { commit: parsed._commit }),
     ...(parsed._src_path === undefined ? {} : { srcPath: parsed._src_path }),
   };
-}
+};
 
-export function isStampOf(
+export const isStampOf = (
   receipt: CopierStampReceipt,
   templateMatch: string
-): boolean {
-  return receipt.srcPath?.includes(templateMatch) ?? false;
-}
+): boolean => receipt.srcPath?.includes(templateMatch) ?? false;

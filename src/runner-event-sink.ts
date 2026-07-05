@@ -1,14 +1,15 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { PipelineRuntimeEvent } from "./pipeline-runtime";
+import { mapRuntimeEventToRunnerEventRecords as mapRuntimeEventRecords } from "./runner-command-contract";
+import type { RunnerEventRecord } from "./runner-command-contract";
 import {
-  mapRuntimeEventToRunnerEventRecords as mapRuntimeEventRecords,
-  type RunnerEventRecord,
-} from "./runner-command-contract";
-import {
-  type RunnerEventSinkFetch,
   RunnerEventSinkHttpService,
   RunnerEventSinkHttpServiceLive,
-  type RunnerEventSinkPostBatchRequest,
+} from "./runtime/services/runner-event-sink-http-service";
+import type {
+  RunnerEventSinkFetch,
+  RunnerEventSinkPostBatchRequest,
 } from "./runtime/services/runner-event-sink-http-service";
 
 type FetchLike = RunnerEventSinkFetch;
@@ -41,7 +42,7 @@ export interface RunnerEventSink {
   recordRuntimeEvent: (event: PipelineRuntimeEvent) => void;
   recordSchemaValidationFailure: (
     message: string,
-    issues: Array<{ message: string; path: string }>,
+    issues: { message: string; path: string }[],
     workflowId: string
   ) => void;
 }
@@ -55,6 +56,66 @@ export const RUNNER_EVENT_SINK_RETRY_POLICY = {
   retryDelayMs: DEFAULT_RETRY_DELAY_MS,
 } as const;
 
+const hasQueuedEvents = (queue: RunnerEventRecord[]): boolean =>
+  queue.length > 0;
+
+const positiveOrDefault = (
+  value: Option.Option<number>,
+  fallback: number
+): number =>
+  Math.max(
+    1,
+    Option.getOrElse(value, () => fallback)
+  );
+
+const nonNegativeOrDefault = (
+  value: Option.Option<number>,
+  fallback: number
+): number =>
+  Math.max(
+    0,
+    Option.getOrElse(value, () => fallback)
+  );
+
+const resolveFetch = (fetchImpl: Option.Option<FetchLike>): FetchLike => {
+  if (Option.isSome(fetchImpl)) {
+    return fetchImpl.value;
+  }
+  if (!Object.hasOwn(globalThis, "fetch")) {
+    throw new Error("Runner event sink requires fetch support");
+  }
+  return globalThis.fetch.bind(globalThis);
+};
+
+const assertAuthToken = (authToken: string): void => {
+  if (!authToken.trim()) {
+    throw new Error("Runner event sink requires an auth token");
+  }
+};
+
+const postBatchRequest = (
+  options: RunnerEventSinkOptions,
+  fetchImpl: FetchLike,
+  events: RunnerEventRecord[]
+): RunnerEventSinkPostBatchRequest => ({
+  authHeader: options.authHeader,
+  authToken: options.authToken,
+  events,
+  fetch: fetchImpl,
+  maxRetries: nonNegativeOrDefault(
+    Option.fromUndefinedOr(options.maxRetries),
+    RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
+  ),
+  retryDelayMs: nonNegativeOrDefault(
+    Option.fromUndefinedOr(options.retryDelayMs),
+    RUNNER_EVENT_SINK_RETRY_POLICY.retryDelayMs
+  ),
+  url: options.url,
+});
+
+const timestamp = (now: RunnerEventSinkOptions["now"]): string =>
+  (now === undefined ? new Date() : now()).toISOString();
+
 /*
  * Keep the custom event sink HTTP batching and retry path. Kubernetes events are
  * useful for humans, but they are not the automation contract; the console needs
@@ -62,11 +123,14 @@ export const RUNNER_EVENT_SINK_RETRY_POLICY = {
  * failure handling.
  */
 
-export function createRunnerEventSink(
+export const createRunnerEventSink = (
   options: RunnerEventSinkOptions
-): RunnerEventSink {
-  const batchSize = positiveOrDefault(options.batchSize, DEFAULT_BATCH_SIZE);
-  const fetchImpl = resolveFetch(options.fetch);
+): RunnerEventSink => {
+  const batchSize = positiveOrDefault(
+    Option.fromUndefinedOr(options.batchSize),
+    DEFAULT_BATCH_SIZE
+  );
+  const fetchImpl = resolveFetch(Option.fromUndefinedOr(options.fetch));
   assertAuthToken(options.authToken);
   const queue: RunnerEventRecord[] = [];
   // PIPE-92.1: intentionally not replaced by the serialized write queue. The
@@ -94,7 +158,7 @@ export function createRunnerEventSink(
     Error,
     RunnerEventSinkHttpService
   > =>
-    Effect.gen(function* () {
+    Effect.gen(function* flushQueueEffect() {
       const service = yield* RunnerEventSinkHttpService;
       while (hasQueuedEvents(queue)) {
         const batch = queue.slice(0, batchSize);
@@ -103,15 +167,18 @@ export function createRunnerEventSink(
       }
     });
 
-  const runFlush = (): Promise<void> =>
-    Effect.runPromise(
+  const runFlush = async (): Promise<void> => {
+    await Effect.runPromise(
       Effect.provide(flushQueueEffect(), RunnerEventSinkHttpServiceLive)
     );
+  };
 
-  const runSerializedFlush = (): Promise<void> => {
+  const runSerializedFlush = async (): Promise<void> => {
     const nextFlush = flushChain.then(runFlush, runFlush);
-    flushChain = nextFlush.catch(() => undefined);
-    return nextFlush;
+    flushChain = nextFlush.catch(() => {
+      /* empty */
+    });
+    await nextFlush;
   };
 
   const scheduleFlush = (): void => {
@@ -122,7 +189,9 @@ export function createRunnerEventSink(
     scheduledFlush = true;
     queueMicrotask(() => {
       scheduledFlush = false;
-      runSerializedFlush().catch(() => undefined);
+      runSerializedFlush().catch(() => {
+        /* empty */
+      });
     });
   };
 
@@ -137,7 +206,9 @@ export function createRunnerEventSink(
     scheduleFlush();
   };
 
-  const flush = (): Promise<void> => runSerializedFlush();
+  const flush = async (): Promise<void> => {
+    await runSerializedFlush();
+  };
 
   return {
     fail: flush,
@@ -200,62 +271,4 @@ export function createRunnerEventSink(
       scheduleFlush();
     },
   };
-}
-
-function hasQueuedEvents(queue: RunnerEventRecord[]): boolean {
-  return queue.length > 0;
-}
-
-function positiveOrDefault(
-  value: number | undefined,
-  fallback: number
-): number {
-  return Math.max(1, value ?? fallback);
-}
-
-function nonNegativeOrDefault(
-  value: number | undefined,
-  fallback: number
-): number {
-  return Math.max(0, value ?? fallback);
-}
-
-function resolveFetch(fetchImpl: FetchLike | undefined): FetchLike {
-  const resolved = fetchImpl ?? globalThis.fetch?.bind(globalThis);
-  if (!resolved) {
-    throw new Error("Runner event sink requires fetch support");
-  }
-  return resolved;
-}
-
-function assertAuthToken(authToken: string): void {
-  if (!authToken.trim()) {
-    throw new Error("Runner event sink requires an auth token");
-  }
-}
-
-function postBatchRequest(
-  options: RunnerEventSinkOptions,
-  fetchImpl: FetchLike,
-  events: RunnerEventRecord[]
-): RunnerEventSinkPostBatchRequest {
-  return {
-    authHeader: options.authHeader,
-    authToken: options.authToken,
-    events,
-    fetch: fetchImpl,
-    maxRetries: nonNegativeOrDefault(
-      options.maxRetries,
-      RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
-    ),
-    retryDelayMs: nonNegativeOrDefault(
-      options.retryDelayMs,
-      RUNNER_EVENT_SINK_RETRY_POLICY.retryDelayMs
-    ),
-    url: options.url,
-  };
-}
-
-function timestamp(now: RunnerEventSinkOptions["now"]): string {
-  return (now?.() ?? new Date()).toISOString();
-}
+};

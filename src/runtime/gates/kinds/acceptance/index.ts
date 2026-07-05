@@ -3,7 +3,6 @@ import { forKind } from "../../contract";
 import { evaluateAcceptanceGate } from "./acceptance";
 
 export const acceptanceModule: GateKindModule = {
-  kind: "acceptance",
   evaluate: forKind("acceptance", (gate, input) =>
     evaluateAcceptanceGate(
       gate,
@@ -14,4 +13,5 @@ export const acceptanceModule: GateKindModule = {
       input.node
     )
   ),
+  kind: "acceptance",
 };

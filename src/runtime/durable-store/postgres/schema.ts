@@ -6,6 +6,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
+
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../../contracts";
 
 export const MOKA_POSTGRES_SCHEMA = "moka";

@@ -43,8 +43,6 @@ export const gateRegistry: Record<GateKind, GateEvaluator> = {
  * Resolves a gate to its registered evaluator and runs it. Single table lookup
  * replaces the former kind-discriminated branch ladder.
  */
-export function evaluateGate(
+export const evaluateGate = (
   input: Parameters<GateEvaluator>[0]
-): ReturnType<GateEvaluator> {
-  return gateRegistry[input.gate.kind](input);
-}
+): ReturnType<GateEvaluator> => gateRegistry[input.gate.kind](input);

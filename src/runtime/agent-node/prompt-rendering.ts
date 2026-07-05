@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { PipelineConfig } from "../../config";
 import { gatewayServerForProfile } from "../../mcp/gateway-config";
 import { resolvePackageAssetPath } from "../../package-assets";
@@ -22,14 +23,14 @@ const OPEN_PULL_REQUEST_BUILTIN = "open-pull-request";
 
 interface ProfileGrantDescriptor {
   label: string;
-  values: (profile: AgentProfile | undefined) => string[] | undefined;
+  values: (profile?: AgentProfile) => string[];
 }
 
 const PROFILE_GRANT_DESCRIPTORS: readonly ProfileGrantDescriptor[] = [
-  { label: "tools", values: (profile) => profile?.tools },
-  { label: "rules", values: (profile) => profile?.rules },
-  { label: "skills", values: (profile) => profile?.skills },
-  { label: "mcp_servers", values: (profile) => profile?.mcp_servers },
+  { label: "tools", values: (profile) => profile?.tools ?? [] },
+  { label: "rules", values: (profile) => profile?.rules ?? [] },
+  { label: "skills", values: (profile) => profile?.skills ?? [] },
+  { label: "mcp_servers", values: (profile) => profile?.mcp_servers ?? [] },
 ];
 
 const RUNTIME_PATH_RESOLVERS: Record<
@@ -40,51 +41,25 @@ const RUNTIME_PATH_RESOLVERS: Record<
   project: (worktreePath, path) => resolveFileReference(worktreePath, path),
 };
 
-export function renderAgentPromptEffect(
+const repoMapSectionEffect = (
   node: PlannedWorkflowNode,
   context: RuntimeContext
-): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
-  return Effect.gen(function* () {
-    const profile = node.profile
-      ? context.config.profiles[node.profile]
-      : undefined;
-    const instructions = profile
-      ? yield* readInstructionsEffect(
-          context.worktreePath,
-          profile.instructions
-        )
-      : "";
-    const repoMap = yield* repoMapSectionEffect(node, context);
-    const pathReferences = yield* renderProfilePathReferences(profile, context);
-    return agentPromptSections({
-      context,
-      instructions,
-      node,
-      pathReferences,
-      profile,
-      repoMap,
-    })
-      .filter(Boolean)
-      .join("\n");
-  });
-}
-
-function repoMapSectionEffect(
-  node: PlannedWorkflowNode,
-  context: RuntimeContext
-): Effect.Effect<string, never, AgentNodeRuntimeService> {
+): Effect.Effect<string, never, AgentNodeRuntimeService> => {
   const repoMap = context.config.repo_map;
-  if (!repoMap?.enabled) {
+  if (repoMap === undefined || !repoMap.enabled) {
     return Effect.succeed("");
   }
-  return Effect.gen(function* () {
+  return Effect.gen(function* effectBody() {
     const service = yield* AgentNodeRuntimeService;
     const result = yield* Effect.tryPromise({
       catch: () => "",
-      try: () =>
-        service.buildRepoMap({
-          artifacts: node.needs.flatMap(
-            (need) => context.nodeStateStore.handoff(need)?.artifacts ?? []
+      try: async () =>
+        await service.buildRepoMap({
+          artifacts: node.needs.flatMap((need) =>
+            Option.match(context.nodeStateStore.handoff(need), {
+              onNone: () => [],
+              onSome: (handoff) => handoff.artifacts,
+            })
           ),
           taskText: context.task,
           tokenBudget: repoMap.token_budget,
@@ -93,122 +68,57 @@ function repoMapSectionEffect(
     });
     return result.context;
   }).pipe(Effect.catch(() => Effect.succeed("")));
-}
+};
 
-function agentPromptSections(inputs: {
-  context: RuntimeContext;
-  instructions: string;
-  node: PlannedWorkflowNode;
-  pathReferences: string[];
-  profile: AgentProfile | undefined;
-  repoMap: string;
-}): string[] {
-  const { context, instructions, node, pathReferences, profile, repoMap } =
-    inputs;
-  return [
-    ...runtimeInstructionSections(instructions, repoMap),
-    ...nodeIdentitySections(context, node),
-    renderTaskContext(effectiveTaskContext(node, context)),
-    renderDeferredDeliverySection(node, context),
-    renderProfileOutputContract(profile, context.worktreePath),
-    renderGateOutputContract(node),
-    "",
-    "Declared grants:",
-    ...profileGrantLines(profile),
-    ...pathReferences,
-    renderMcpReferences(context.config, profile),
-    "",
-    ...dependencyOutputSections(node, context),
-  ];
-}
-
-function runtimeInstructionSections(
+const runtimeInstructionSections = (
   instructions: string,
   repoMap: string
-): string[] {
-  return [instructions.trim(), "", repoMap];
-}
+): string[] => [instructions.trim(), "", repoMap];
 
-function nodeIdentitySections(
+const profileSection = (profileId?: string): string =>
+  profileId === undefined || profileId.length === 0
+    ? ""
+    : `Profile: ${profileId}`;
+
+const nodeIdentitySections = (
   context: RuntimeContext,
   node: PlannedWorkflowNode
-): string[] {
-  return [
-    `Task: ${context.task}`,
-    `Workflow: ${context.workflowId}`,
-    `Node: ${node.id}`,
-    profileSection(node.profile),
-  ];
-}
+): string[] => [
+  `Task: ${context.task}`,
+  `Workflow: ${context.workflowId}`,
+  `Node: ${node.id}`,
+  profileSection(node.profile),
+];
 
-function profileSection(profileId: string | undefined): string {
-  return profileId ? `Profile: ${profileId}` : "";
-}
+const grantLine = (label: string, values: string[]): string => {
+  const rendered = values.length > 0 ? values.join(", ") : "none";
+  return `- ${label}: ${rendered}`;
+};
 
-function profileGrantLines(profile: AgentProfile | undefined): string[] {
-  return PROFILE_GRANT_DESCRIPTORS.map((descriptor) =>
+const profileGrantLines = (profile?: AgentProfile): string[] =>
+  PROFILE_GRANT_DESCRIPTORS.map((descriptor) =>
     grantLine(descriptor.label, descriptor.values(profile))
   );
-}
 
-function grantLine(label: string, values: string[] | undefined): string {
-  const rendered = values?.join(", ") || "none";
-  return `- ${label}: ${rendered}`;
-}
-
-function renderProfilePathReferences(
-  profile: AgentProfile | undefined,
-  context: RuntimeContext
-): Effect.Effect<string[], unknown, AgentNodeRuntimeService> {
-  return Effect.all([
-    renderPathReferencesEffect(
-      "Loaded rules",
-      profile?.rules,
-      context.config.rules,
-      context.worktreePath
-    ),
-    renderPathReferencesEffect(
-      "Loaded skills",
-      profile?.skills,
-      context.config.skills,
-      context.worktreePath
-    ),
-  ]);
-}
-
-function renderDependencySection(
+const renderDependencySection = (
   nodeId: string,
   context: Pick<RuntimeContext, "nodeStateStore">
-): string {
-  const handoff = context.nodeStateStore.handoff(nodeId);
-  return handoff
-    ? renderHandoff(nodeId, handoff)
-    : `## ${nodeId}\n${context.nodeStateStore.outputText(nodeId)}`;
-}
+): string => {
+  return Option.match(context.nodeStateStore.handoff(nodeId), {
+    onNone: () => `## ${nodeId}\n${context.nodeStateStore.outputText(nodeId)}`,
+    onSome: (handoff) => renderHandoff(nodeId, handoff),
+  });
+};
 
-function renderGateOutputContract(node: PlannedWorkflowNode): string {
-  if (hasStdoutAcceptanceGate(node)) {
-    return acceptanceGateOutputContract();
-  }
-  const gates = node.gates ?? [];
-  const hasVerdictGate = gates.some(
-    (gate) =>
-      gate.kind === "verdict" &&
-      (gate.target === undefined || gate.target === "stdout")
-  );
-  return hasVerdictGate ? verdictGateOutputContract() : "";
-}
-
-function hasStdoutAcceptanceGate(node: PlannedWorkflowNode): boolean {
-  return (node.gates ?? []).some(
+const hasStdoutAcceptanceGate = (node: PlannedWorkflowNode): boolean =>
+  (node.gates ?? []).some(
     (gate) =>
       gate.kind === "acceptance" &&
       (gate.target === undefined || gate.target === "stdout")
   );
-}
 
-function acceptanceGateOutputContract(): string {
-  return [
+const acceptanceGateOutputContract = (): string =>
+  [
     "",
     "Gate output contract:",
     "Return only valid JSON. Do not use Markdown fences or add prose outside the JSON object.",
@@ -216,12 +126,40 @@ function acceptanceGateOutputContract(): string {
     'Each "acceptance" entry must include "id", "verdict" ("PASS" or "FAIL"), and non-empty "evidence" (string array) for every canonical acceptance criterion id.',
     'Use top-level "verdict":"PASS" only when every required acceptance criterion passes with evidence.',
   ].join("\n");
-}
 
-function renderDeferredDeliverySection(
+const downstreamBuiltinIds = (
+  node: PlannedWorkflowNode,
+  topologicalOrder: readonly PlannedWorkflowNode[],
+  builtin: string
+): string[] => {
+  const nodesById = new Map(
+    topologicalOrder.map((candidate) => [candidate.id, candidate])
+  );
+  const seen = new Set<string>();
+  const pending = [...node.dependents];
+  const matches: string[] = [];
+  while (pending.length > 0) {
+    const id = pending.shift();
+    if (id === undefined || id.length === 0 || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const candidate = nodesById.get(id);
+    if (!candidate) {
+      continue;
+    }
+    if (candidate.kind === "builtin" && candidate.builtin === builtin) {
+      matches.push(candidate.id);
+    }
+    pending.push(...candidate.dependents);
+  }
+  return matches;
+};
+
+const renderDeferredDeliverySection = (
   node: PlannedWorkflowNode,
   context: Pick<RuntimeContext, "plan">
-): string {
+): string => {
   if (hasStdoutAcceptanceGate(node)) {
     return "";
   }
@@ -241,82 +179,57 @@ function renderDeferredDeliverySection(
     "- Verify only code, tests, review evidence, and artifacts available before delivery.",
     "- Leave PR existence/URL evidence to downstream delivery or acceptance nodes.",
   ].join("\n");
-}
+};
 
-function downstreamBuiltinIds(
-  node: PlannedWorkflowNode,
-  topologicalOrder: readonly PlannedWorkflowNode[],
-  builtin: string
-): string[] {
-  const nodesById = new Map(
-    topologicalOrder.map((candidate) => [candidate.id, candidate])
-  );
-  const seen = new Set<string>();
-  const pending = [...node.dependents];
-  const matches: string[] = [];
-  while (pending.length > 0) {
-    const id = pending.shift();
-    if (!id || seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    const candidate = nodesById.get(id);
-    if (!candidate) {
-      continue;
-    }
-    if (candidate.kind === "builtin" && candidate.builtin === builtin) {
-      matches.push(candidate.id);
-    }
-    pending.push(...candidate.dependents);
-  }
-  return matches;
-}
-
-function verdictGateOutputContract(): string {
-  return [
+const verdictGateOutputContract = (): string =>
+  [
     "",
     "Gate output contract:",
     "Return only valid JSON. Do not use Markdown fences or add prose outside the JSON object.",
     'Top-level fields: "verdict" ("PASS" or "FAIL"), "evidence" (string array), optional "violations" (string array).',
     'Use "verdict":"PASS" only when the verification or review passes.',
   ].join("\n");
-}
 
-function renderProfileOutputContract(
-  profile: AgentProfile | undefined,
-  worktreePath: string
-): string {
-  const schema = profileOutputSchemaSource(profile, worktreePath);
-  return schema ? profileOutputContract(schema) : "";
-}
-
-function profileOutputSchemaSource(
-  profile: AgentProfile | undefined,
-  worktreePath: string
-): string | undefined {
-  if (!profile) {
-    return;
+const renderGateOutputContract = (node: PlannedWorkflowNode): string => {
+  if (hasStdoutAcceptanceGate(node)) {
+    return acceptanceGateOutputContract();
   }
-  return outputSchemaSource(profile.output, worktreePath);
-}
+  const gates = node.gates ?? [];
+  const hasVerdictGate = gates.some(
+    (gate) =>
+      gate.kind === "verdict" &&
+      (gate.target === undefined || gate.target === "stdout")
+  );
+  return hasVerdictGate ? verdictGateOutputContract() : "";
+};
 
-function outputSchemaSource(
-  output: AgentProfile["output"] | undefined,
-  worktreePath: string
-): string | undefined {
-  if (!output) {
-    return;
+const outputSchemaSource = (
+  worktreePath: string,
+  output?: AgentProfile["output"]
+): Option.Option<string> => {
+  if (output === undefined) {
+    return Option.none();
   }
   if (output.format !== "json_schema") {
-    return;
+    return Option.none();
   }
-  return output.schema_path
-    ? readJsonSchemaSource(output.schema_path, worktreePath)
-    : undefined;
-}
+  return output.schema_path === undefined || output.schema_path.length === 0
+    ? Option.none()
+    : Option.some(readJsonSchemaSource(output.schema_path, worktreePath));
+};
 
-function profileOutputContract(schema: string): string {
-  return [
+const profileOutputSchemaSource = (
+  worktreePath: string,
+  profile?: AgentProfile
+): Option.Option<string> => {
+  if (profile === undefined) {
+    return Option.none();
+  }
+  return outputSchemaSource(worktreePath, profile.output);
+};
+
+const profileOutputContract = (schema: string): string =>
+  [
     "",
     "Profile output contract:",
     "Return only valid JSON matching the expected schema.",
@@ -325,19 +238,30 @@ function profileOutputContract(schema: string): string {
     "Expected schema:",
     schema,
   ].join("\n");
-}
 
-function effectiveTaskContext(
+const renderProfileOutputContract = (
+  worktreePath: string,
+  profile?: AgentProfile
+): string => {
+  const schema = profileOutputSchemaSource(worktreePath, profile);
+  return Option.match(schema, {
+    onNone: () => "",
+    onSome: profileOutputContract,
+  });
+};
+
+const effectiveTaskContext = (
   node: PlannedWorkflowNode,
   context: Pick<RuntimeContext, "taskContext">
-): PipelineTaskContext | undefined {
-  return node.taskContext ?? context.taskContext;
-}
+): Option.Option<PipelineTaskContext> =>
+  Option.orElse(Option.fromUndefinedOr(node.taskContext), () =>
+    Option.fromUndefinedOr(context.taskContext)
+  );
 
-function inheritedOutputSections(
+const inheritedOutputSections = (
   node: PlannedWorkflowNode,
   context: Pick<RuntimeContext, "nodeStateStore">
-): string[] {
+): string[] => {
   const inherited = context.nodeStateStore.inheritedOutputIdsExcluding(
     node.needs
   );
@@ -349,50 +273,33 @@ function inheritedOutputSections(
     ...inherited.map((id) => renderDependencySection(id, context)),
     "",
   ];
-}
+};
 
-function dependencyOutputSections(
+const dependencyOutputSections = (
   node: PlannedWorkflowNode,
   context: Pick<RuntimeContext, "nodeStateStore">
-): string[] {
-  return [
-    ...inheritedOutputSections(node, context),
-    "Dependency outputs:",
-    ...node.needs.map((need) => renderDependencySection(need, context)),
-  ];
-}
+): string[] => [
+  ...inheritedOutputSections(node, context),
+  "Dependency outputs:",
+  ...node.needs.map((need) => renderDependencySection(need, context)),
+];
 
-function renderTaskContext(
-  taskContext: PipelineTaskContext | undefined
-): string {
-  if (!taskContext) {
-    return "";
-  }
-  return [
-    "",
-    "Canonical task context:",
-    ...taskContextSummaryLines(taskContext),
-    ...acceptanceCriterionLines(taskContext),
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
+const optionalLine = (label: string, value?: string): string =>
+  value === undefined || value.length === 0 ? "" : `${label}: ${value}`;
 
-function taskContextSummaryLines(taskContext: PipelineTaskContext): string[] {
-  return [
-    optionalLine("ID", taskContext.id),
-    optionalLine("Title", taskContext.title),
-    optionalLine("Description", taskContext.description),
-  ];
-}
+const taskContextSummaryLines = (
+  taskContext: PipelineTaskContext
+): string[] => [
+  optionalLine("ID", taskContext.id),
+  optionalLine("Title", taskContext.title),
+  optionalLine("Description", taskContext.description),
+];
 
-function optionalLine(label: string, value: string | undefined): string {
-  return value ? `${label}: ${value}` : "";
-}
-
-function acceptanceCriterionLines(taskContext: PipelineTaskContext): string[] {
+const acceptanceCriterionLines = (
+  taskContext: PipelineTaskContext
+): string[] => {
   const acceptance = taskContext.acceptanceCriteria ?? [];
-  return acceptance.length
+  return acceptance.length > 0
     ? [
         "Acceptance criteria:",
         ...acceptance.map(
@@ -400,16 +307,32 @@ function acceptanceCriterionLines(taskContext: PipelineTaskContext): string[] {
         ),
       ]
     : [];
-}
+};
 
-function readInstructionsEffect(
+const renderTaskContext = (
+  taskContext: Option.Option<PipelineTaskContext>
+): string =>
+  Option.match(taskContext, {
+    onNone: () => "",
+    onSome: (value) =>
+      [
+        "",
+        "Canonical task context:",
+        ...taskContextSummaryLines(value),
+        ...acceptanceCriterionLines(value),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+  });
+
+const readInstructionsEffect = (
   worktreePath: string,
   instructions: AgentProfile["instructions"]
-): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
-  if (instructions.inline) {
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> => {
+  if (instructions.inline !== undefined && instructions.inline.length > 0) {
     return Effect.succeed(instructions.inline);
   }
-  if (instructions.path) {
+  if (instructions.path !== undefined && instructions.path.length > 0) {
     const instructionPath = instructions.path;
     return AgentNodeRuntimeService.pipe(
       Effect.flatMap((service) =>
@@ -418,36 +341,30 @@ function readInstructionsEffect(
     );
   }
   return Effect.succeed("");
-}
+};
 
-function renderPathReferencesEffect(
-  heading: string,
-  ids: string[] | undefined,
-  registry: Record<
-    string,
-    { path: string; source_root?: "package" | "project" }
-  >,
-  worktreePath: string
-): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
-  if (!ids?.length) {
-    return Effect.succeed("");
-  }
-  return Effect.gen(function* () {
-    const sections = yield* Effect.all(
-      ids.map((id) => renderPathReferenceEffect(id, registry, worktreePath))
-    );
-    return ["", `${heading}:`, ...sections].join("\n");
-  });
-}
+const pathSourceRoot = (
+  ref?: PathReference
+): NonNullable<PathReference["source_root"]> => ref?.source_root ?? "project";
 
-function renderPathReferenceEffect(
+const pathReferenceValue = (ref?: PathReference): string => ref?.path ?? "";
+
+const resolveRuntimePathReference = (
+  worktreePath: string,
+  ref?: PathReference
+): string =>
+  RUNTIME_PATH_RESOLVERS[pathSourceRoot(ref)](
+    worktreePath,
+    pathReferenceValue(ref)
+  );
+
+const renderPathReferenceEffect = (
   id: string,
-  registry: Record<
-    string,
-    { path: string; source_root?: "package" | "project" }
+  registry: Partial<
+    Record<string, { path: string; source_root?: "package" | "project" }>
   >,
   worktreePath: string
-): Effect.Effect<string, unknown, AgentNodeRuntimeService> {
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> => {
   const ref = registry[id];
   const path = ref?.path ?? "";
   const resolved = resolveRuntimePathReference(worktreePath, ref);
@@ -467,32 +384,113 @@ function renderPathReferenceEffect(
       )
     )
   );
-}
+};
 
-function resolveRuntimePathReference(
+const renderPathReferencesEffect = (
+  heading: string,
+  registry: Partial<
+    Record<string, { path: string; source_root?: "package" | "project" }>
+  >,
   worktreePath: string,
-  ref: PathReference | undefined
-): string {
-  return RUNTIME_PATH_RESOLVERS[pathSourceRoot(ref)](
-    worktreePath,
-    pathReferenceValue(ref)
-  );
-}
+  ids?: string[]
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> => {
+  if (ids === undefined || ids.length === 0) {
+    return Effect.succeed("");
+  }
+  return Effect.gen(function* effectBody() {
+    const sections = yield* Effect.all(
+      ids.map((id) => renderPathReferenceEffect(id, registry, worktreePath))
+    );
+    return ["", `${heading}:`, ...sections].join("\n");
+  });
+};
 
-function pathSourceRoot(
-  ref: PathReference | undefined
-): NonNullable<PathReference["source_root"]> {
-  return ref?.source_root ?? "project";
-}
+const renderProfilePathReferences = (
+  context: RuntimeContext,
+  profile?: AgentProfile
+): Effect.Effect<string[], unknown, AgentNodeRuntimeService> =>
+  Effect.all([
+    renderPathReferencesEffect(
+      "Loaded rules",
+      context.config.rules,
+      context.worktreePath,
+      profile?.rules
+    ),
+    renderPathReferencesEffect(
+      "Loaded skills",
+      context.config.skills,
+      context.worktreePath,
+      profile?.skills
+    ),
+  ]);
 
-function pathReferenceValue(ref: PathReference | undefined): string {
-  return ref?.path ?? "";
-}
+const isHttpMcpServer = (
+  server: McpServer
+): server is NonNullable<McpServer> & { url: string } =>
+  typeof server.url === "string" && server.url.length > 0;
 
-function renderMcpReferences(
+const renderList = (values?: string[]): string => values?.join(" ") ?? "none";
+
+const renderObjectKeys = (value?: Record<string, unknown>): string =>
+  Object.keys(value ?? {}).join(", ") || "none";
+
+const renderHttpMcpServerReference = (
+  id: string,
+  server: NonNullable<McpServer> & { url: string }
+): string =>
+  [
+    `## ${id}`,
+    "transport: http",
+    `url: ${server.url}`,
+    `headers: ${renderObjectKeys(server.headers)}`,
+    `bearer_token_env_var: ${server.bearer_token_env_var ?? "none"}`,
+  ].join("\n");
+
+const populatedStdioMcpServerFields = (
+  server: NonNullable<McpServer>
+): {
+  args: string;
+  command: string;
+  env: string;
+} => ({
+  args: renderList(server.args),
+  command: server.command ?? "",
+  env: renderObjectKeys(server.env),
+});
+
+const stdioMcpServerFields = (
+  server: McpServer
+): {
+  args: string;
+  command: string;
+  env: string;
+} => populatedStdioMcpServerFields(server);
+
+const renderStdioMcpServerReference = (
+  id: string,
+  server: McpServer
+): string => {
+  const fields = stdioMcpServerFields(server);
+  return [
+    `## ${id}`,
+    "transport: stdio",
+    `command: ${fields.command}`,
+    `args: ${fields.args}`,
+    `env: ${fields.env}`,
+  ].join("\n");
+};
+
+const renderMcpServerReference = (id: string, server: McpServer): string => {
+  if (isHttpMcpServer(server)) {
+    return renderHttpMcpServerReference(id, server);
+  }
+  return renderStdioMcpServerReference(id, server);
+};
+
+const renderMcpReferences = (
   config: PipelineConfig,
-  profile: AgentProfile | undefined
-): string {
+  profile?: AgentProfile
+): string => {
   const servers = gatewayServerForProfile(config, profile);
   if (Object.keys(servers).length === 0) {
     return "";
@@ -504,72 +502,61 @@ function renderMcpReferences(
       renderMcpServerReference(id, server)
     ),
   ].join("\n");
-}
+};
 
-function renderMcpServerReference(id: string, server: McpServer): string {
-  if (isHttpMcpServer(server)) {
-    return renderHttpMcpServerReference(id, server);
-  }
-  return renderStdioMcpServerReference(id, server);
-}
-
-function isHttpMcpServer(
-  server: McpServer
-): server is NonNullable<McpServer> & { url: string } {
-  return typeof server?.url === "string" && server.url.length > 0;
-}
-
-function renderHttpMcpServerReference(
-  id: string,
-  server: NonNullable<McpServer> & { url: string }
-): string {
+const agentPromptSections = (inputs: {
+  context: RuntimeContext;
+  instructions: string;
+  node: PlannedWorkflowNode;
+  pathReferences: string[];
+  profile?: AgentProfile;
+  repoMap: string;
+}): string[] => {
+  const { context, instructions, node, pathReferences, profile, repoMap } =
+    inputs;
   return [
-    `## ${id}`,
-    "transport: http",
-    `url: ${server.url}`,
-    `headers: ${renderObjectKeys(server.headers)}`,
-    `bearer_token_env_var: ${server.bearer_token_env_var ?? "none"}`,
-  ].join("\n");
-}
+    ...runtimeInstructionSections(instructions, repoMap),
+    ...nodeIdentitySections(context, node),
+    renderTaskContext(effectiveTaskContext(node, context)),
+    renderDeferredDeliverySection(node, context),
+    renderProfileOutputContract(context.worktreePath, profile),
+    renderGateOutputContract(node),
+    "",
+    "Declared grants:",
+    ...profileGrantLines(profile),
+    ...pathReferences,
+    renderMcpReferences(context.config, profile),
+    "",
+    ...dependencyOutputSections(node, context),
+  ];
+};
 
-function renderStdioMcpServerReference(id: string, server: McpServer): string {
-  const fields = stdioMcpServerFields(server);
-  return [
-    `## ${id}`,
-    "transport: stdio",
-    `command: ${fields.command}`,
-    `args: ${fields.args}`,
-    `env: ${fields.env}`,
-  ].join("\n");
-}
-
-function stdioMcpServerFields(server: McpServer): {
-  args: string;
-  command: string;
-  env: string;
-} {
-  if (!server) {
-    return { args: "none", command: "", env: "none" };
-  }
-  return populatedStdioMcpServerFields(server);
-}
-
-function populatedStdioMcpServerFields(server: NonNullable<McpServer>): {
-  args: string;
-  command: string;
-  env: string;
-} {
-  return {
-    args: renderList(server.args),
-    command: server.command ?? "",
-    env: renderObjectKeys(server.env),
-  };
-}
-
-function renderList(values: string[] | undefined): string {
-  return values?.join(" ") || "none";
-}
-
-function renderObjectKeys(value: Record<string, unknown> | undefined): string {
-  return Object.keys(value ?? {}).join(", ") || "none";
-}
+export const renderAgentPromptEffect = (
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): Effect.Effect<string, unknown, AgentNodeRuntimeService> =>
+  Effect.gen(function* effectBody() {
+    const profile =
+      node.profile !== undefined && node.profile.length > 0
+        ? context.config.profiles[node.profile]
+        : undefined;
+    const instructions =
+      profile === undefined
+        ? ""
+        : yield* readInstructionsEffect(
+            context.worktreePath,
+            profile.instructions
+          );
+    const repoMap = yield* repoMapSectionEffect(node, context);
+    const pathReferences = yield* renderProfilePathReferences(context, profile);
+    return agentPromptSections({
+      context,
+      instructions,
+      node,
+      pathReferences,
+      profile,
+      repoMap,
+    })
+      .filter(Boolean)
+      .join("\n");
+  });

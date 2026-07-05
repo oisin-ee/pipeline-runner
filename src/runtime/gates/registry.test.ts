@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+
 import {
   baseGateRuntimeFields,
   gateNodeStateStore,
@@ -25,7 +26,7 @@ const EXPECTED_KINDS: GateKind[] = [
   "verdict",
 ];
 
-function runtimeContext(): RuntimeContext {
+const runtimeContext = (): RuntimeContext => {
   const config = parsePipelineConfigParts(
     {
       pipeline:
@@ -46,20 +47,18 @@ function runtimeContext(): RuntimeContext {
     workflowId: "smoke",
     worktreePath: process.cwd(),
   };
-}
+};
 
-function dispatchInput(gate: GateSpec): GateEvaluationInput {
-  return {
-    attempt: { evidence: [], exitCode: 0, output: "" },
-    context: runtimeContext(),
-    executor: {
-      execute: () => Effect.succeed({ evidence: [], exitCode: 0, output: "" }),
-    },
-    gate,
-    gateId: gate.id ?? `${gate.kind}:node-a`,
-    nodeId: "node-a",
-  };
-}
+const dispatchInput = (gate: GateSpec): GateEvaluationInput => ({
+  attempt: { evidence: [], exitCode: 0, output: "" },
+  context: runtimeContext(),
+  executor: {
+    execute: () => Effect.succeed({ evidence: [], exitCode: 0, output: "" }),
+  },
+  gate,
+  gateId: gate.id ?? `${gate.kind}:node-a`,
+  nodeId: "node-a",
+});
 
 const denyMarkdownGate: ChangedFilesGateSpec = {
   changed_files: { deny: ["**/*.md"] },
@@ -69,8 +68,8 @@ const denyMarkdownGate: ChangedFilesGateSpec = {
 
 describe("gate registry", () => {
   it("registers exactly one evaluator for every declared gate kind", () => {
-    expect(Object.keys(gateRegistry).sort()).toEqual(
-      [...EXPECTED_KINDS].sort()
+    expect(Object.keys(gateRegistry).toSorted()).toEqual(
+      [...EXPECTED_KINDS].toSorted()
     );
     for (const kind of EXPECTED_KINDS) {
       expect(typeof gateRegistry[kind]).toBe("function");
@@ -99,15 +98,15 @@ describe("gate registry", () => {
     });
   });
 
-  it("binds each registry slot to its own kind and fails loud on a foreign gate", () => {
+  it("binds each registry slot to its own kind and fails loud on a foreign gate", async () => {
     const input = dispatchInput(denyMarkdownGate);
 
     for (const kind of EXPECTED_KINDS) {
       if (kind === "changed_files") {
         continue;
       }
-      expect(() => gateRegistry[kind](input)).toThrow(
-        new RegExp(`gate registry mismatch: handler '${kind}'`)
+      await expect(gateRegistry[kind](input)).rejects.toThrow(
+        new RegExp(`gate registry mismatch: handler '${kind}'`, "u")
       );
     }
   });

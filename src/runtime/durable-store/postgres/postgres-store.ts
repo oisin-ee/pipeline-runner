@@ -1,9 +1,12 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
+import { Option } from "effect";
 import pino from "pino";
 import postgres from "postgres";
+
 import { createSerializedWriteQueue } from "../../../serialized-write-queue";
-import { buildRunJournal, type RunJournal } from "../../run-journal";
+import { buildRunJournal } from "../../run-journal";
+import type { RunJournal } from "../../run-journal";
 import type { DurableNodeRecord, DurableRunStore } from "../durable-store";
 import { migratePostgresSubstrate } from "./migrate-substrate";
 import { durableNodeRecord, durableRun } from "./schema";
@@ -31,39 +34,38 @@ const logger = pino({ name: "postgres-durable-store" });
 
 type DurableDb = ReturnType<typeof drizzle>;
 
-function openClient(dbUrl: string): postgres.Sql {
+const openClient = (dbUrl: string): postgres.Sql =>
   // max: 1 — the migrator requires a single connection, and the store's writes
   // are serialized, so a larger pool buys nothing here.
-  return postgres(dbUrl, { max: 1 });
-}
+  postgres(dbUrl, { max: 1 });
 
 /**
  * Apply the Drizzle migrations to `dbUrl`. Delegates to
  * {@link migratePostgresSubstrate} (shared with the run-control store, lock-
  * guarded for concurrent callers).
  */
-export async function migratePostgresDurableStore(
+export const migratePostgresDurableStore = async (
   dbUrl: string
-): Promise<void> {
+): Promise<void> => {
   await migratePostgresSubstrate(dbUrl);
-}
+};
 
-function makeBucket(
+const makeBucket = (
   mirror: Map<string, Map<string, DurableNodeRecord>>,
   runId: string
-): Map<string, DurableNodeRecord> {
+): Map<string, DurableNodeRecord> => {
   let bucket = mirror.get(runId);
   if (!bucket) {
     bucket = new Map();
     mirror.set(runId, bucket);
   }
   return bucket;
-}
+};
 
-async function hydrate(
+const hydrate = async (
   db: DurableDb,
-  runId: string | undefined
-): Promise<Map<string, Map<string, DurableNodeRecord>>> {
+  runId?: string
+): Promise<Map<string, Map<string, DurableNodeRecord>>> => {
   const mirror = new Map<string, Map<string, DurableNodeRecord>>();
   const query = db.select().from(durableNodeRecord);
   // PIPE-91.5: scope hydration to a single run when the cutover resolves one
@@ -83,14 +85,14 @@ async function hydrate(
     });
   }
   return mirror;
-}
+};
 
-async function persist(
+const persist = async (
   db: DurableDb,
   runId: string,
   nodeId: string,
   record: DurableNodeRecord
-): Promise<void> {
+): Promise<void> => {
   const recordedAt = new Date(record.recordedAt);
   const values = {
     criteria: record.criteria,
@@ -115,17 +117,17 @@ async function persist(
       },
       target: [durableNodeRecord.runId, durableNodeRecord.nodeId],
     });
-}
+};
 
 /**
  * Construct the Postgres-backed store. Pass `runId` to hydrate only that run's
  * records (the PIPE-91.5 cutover, which resolves a single run); omit it for the
  * full-table hydrate the cross-run step CLIs need.
  */
-export async function postgresDurableRunStore(
+export const postgresDurableRunStore = async (
   dbUrl: string,
   runId?: string
-): Promise<PostgresDurableRunStore> {
+): Promise<PostgresDurableRunStore> => {
   const client = openClient(dbUrl);
   const db = drizzle(client);
   const mirror = await hydrate(db, runId);
@@ -136,11 +138,11 @@ export async function postgresDurableRunStore(
   const writes = createSerializedWriteQueue();
   const writeErrors: unknown[] = [];
 
-  function enqueueWrite(
+  const enqueueWrite = (
     runId: string,
     nodeId: string,
     record: DurableNodeRecord
-  ): void {
+  ): void => {
     writes.enqueue(async () => {
       try {
         await persist(db, runId, nodeId, record);
@@ -152,9 +154,9 @@ export async function postgresDurableRunStore(
         writeErrors.push(error);
       }
     });
-  }
+  };
 
-  function passedResultsForRun(runId: string) {
+  const passedResultsForRun = (runId: string) => {
     const bucket = mirror.get(runId);
     if (!bucket) {
       return [];
@@ -162,15 +164,15 @@ export async function postgresDurableRunStore(
     return [...bucket.values()]
       .filter((entry) => entry.result.status === "passed")
       .map((entry) => entry.result);
-  }
+  };
 
-  async function flush(): Promise<void> {
+  const flush = async (): Promise<void> => {
     await writes.flush();
     const failure = writeErrors[0];
     if (failure !== undefined) {
       throw failure instanceof Error ? failure : new Error(String(failure));
     }
-  }
+  };
 
   const runStore: PostgresDurableRunStore = {
     async close() {
@@ -184,7 +186,7 @@ export async function postgresDurableRunStore(
     flush,
 
     get(runId, nodeId) {
-      return mirror.get(runId)?.get(nodeId);
+      return Option.fromUndefinedOr(mirror.get(runId)?.get(nodeId));
     },
 
     record(runId, nodeId, entry) {
@@ -208,4 +210,4 @@ export async function postgresDurableRunStore(
     },
   };
   return runStore;
-}
+};

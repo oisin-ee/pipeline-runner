@@ -8,7 +8,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type {
   MokaNodeStatus,
   MokaRunStatus,
@@ -48,9 +50,13 @@ interface DetachedManifest {
 }
 
 const DETACHED_CONTROLLER_PID = 42_424;
-const CONTROLLER_ARGV_RE = /controller/i;
-const RAW_OPENCODE_RUN_RE = /\bopencode\s+run\b/i;
-const RUN_ID_OUTPUT_RE = /Run id:\s*(run-[\w.-]+)/i;
+const CONTROLLER_ARGV_RE = /controller/iu;
+const RAW_OPENCODE_RUN_RE = /\bopencode\s+run\b/iu;
+const RUN_ID_OUTPUT_RE = /Run id:\s*(run-[\w.-]+)/iu;
+
+const isSpawnArgs = (
+  value: readonly string[] | SpawnOptions | undefined
+): value is readonly string[] => Array.isArray(value);
 
 const mockState = vi.hoisted(() => ({
   runtimeCalls: [] as unknown[],
@@ -71,10 +77,10 @@ vi.mock("node:child_process", async (importOriginal) => {
         argsOrOptions?: readonly string[] | SpawnOptions,
         maybeOptions?: SpawnOptions
       ) => {
-        const args = Array.isArray(argsOrOptions) ? [...argsOrOptions] : [];
-        const options: SpawnOptions | undefined = Array.isArray(argsOrOptions)
+        const args = isSpawnArgs(argsOrOptions) ? [...argsOrOptions] : [];
+        const options = isSpawnArgs(argsOrOptions)
           ? maybeOptions
-          : (argsOrOptions as SpawnOptions | undefined);
+          : argsOrOptions;
         const child = new EventEmitter() as InstanceType<
           typeof EventEmitter
         > & {
@@ -93,7 +99,7 @@ vi.mock("node:child_process", async (importOriginal) => {
           args,
           command,
           options: {
-            cwd: options?.cwd ? String(options.cwd) : undefined,
+            cwd: options?.cwd === undefined ? undefined : String(options.cwd),
             detached: options?.detached,
             stdio: options?.stdio,
           },
@@ -130,6 +136,121 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
   };
 });
 
+const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
+
+const runMokaInTarget = async (workspaceRoot: string, args: string[]) => {
+  const stdoutWrite = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      mockState.stdout.push(String(chunk));
+      return true;
+    });
+  const stderrWrite = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      mockState.stderr.push(String(chunk));
+      return true;
+    });
+  try {
+    return await runMokaCliInTarget({
+      args,
+      buffers: mockState,
+      originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
+      workspaceRoot,
+    });
+  } finally {
+    stdoutWrite.mockRestore();
+    stderrWrite.mockRestore();
+  }
+};
+
+const seedDetachedRun = (
+  workspaceRoot: string,
+  input: {
+    nodes: Record<string, MokaNodeStatus>;
+    pid: number;
+    runId: string;
+    status: MokaRunStatus;
+  }
+): void => {
+  const runRoot = join(workspaceRoot, ".pipeline", "runs", input.runId);
+  mkdirSync(join(runRoot, "nodes"), { recursive: true });
+  for (const nodeId of Object.keys(input.nodes)) {
+    mkdirSync(join(runRoot, "nodes", nodeId), { recursive: true });
+  }
+
+  const paths = {
+    events: `.pipeline/runs/${input.runId}/events.jsonl`,
+    manifest: `.pipeline/runs/${input.runId}/manifest.json`,
+    status: `.pipeline/runs/${input.runId}/status.json`,
+  };
+  const controllerArgv = [
+    process.execPath,
+    "/repo/dist/index.js",
+    "run-controller",
+    "--run-id",
+    input.runId,
+  ];
+  writeJson(join(runRoot, "manifest.json"), {
+    controller: {
+      argv: controllerArgv,
+      cwd: workspaceRoot,
+      paths,
+      pid: input.pid,
+      startedAt: "2026-06-17T12:00:00.000Z",
+    },
+    effort: "normal",
+    events: [],
+    mode: "write",
+    nodes: input.nodes,
+    runId: input.runId,
+    status: input.status,
+    target: "local",
+  });
+  writeJson(join(runRoot, "status.json"), {
+    nodes: input.nodes,
+    status: input.status,
+  });
+  writeFileSync(join(runRoot, "events.jsonl"), "", "utf-8");
+};
+
+const extractRunId = (output: string): string => {
+  const match = RUN_ID_OUTPUT_RE.exec(output);
+  if (!match) {
+    throw new Error(`Detached run output did not include a run id: ${output}`);
+  }
+  return match[1];
+};
+
+const workspaceRelative = (workspaceRoot: string, value: string): string => {
+  const fullPath = isAbsolute(value) ? value : join(workspaceRoot, value);
+  return relative(workspaceRoot, fullPath).split(sep).join("/");
+};
+
+const detachedScheduleYaml = (input: {
+  command: string;
+  nodeId: string;
+  rootWorkflowId: string;
+  runId: string;
+  task: string;
+}): string =>
+  [
+    "version: 1",
+    "kind: pipeline-schedule",
+    `schedule_id: ${input.runId}`,
+    "source_entrypoint: execute",
+    `task: ${input.task}`,
+    "generated_at: 2026-06-17T00:00:00.000Z",
+    `root_workflow: ${input.rootWorkflowId}`,
+    "workflows:",
+    `  ${input.rootWorkflowId}:`,
+    "    nodes:",
+    `      - id: ${input.nodeId}`,
+    "        kind: command",
+    `        command: [node, -e, "${input.command}"]`,
+    "",
+  ].join("\n");
+
 vi.mock("../src/planning/generate", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/planning/generate")>();
@@ -142,21 +263,18 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
         runId: string;
         task: string;
         worktreePath: string;
-      }) =>
-        Promise.resolve({
-          yaml: detachedScheduleYaml({
-            command: "console.log('detached writer')",
-            nodeId: "writer",
-            rootWorkflowId: "detached-root",
-            runId: input.runId,
-            task: input.task,
-          }),
-        })
+      }) => ({
+        yaml: detachedScheduleYaml({
+          command: "console.log('detached writer')",
+          nodeId: "writer",
+          rootWorkflowId: "detached-root",
+          runId: input.runId,
+          task: input.task,
+        }),
+      })
     ),
   };
 });
-
-const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
 
 describe("detached moka run", () => {
   let workspaceRoot: string;
@@ -245,7 +363,7 @@ describe("detached moka run", () => {
         runId: "approved-detached",
         task: "Ticket 8 detached explicit schedule",
       }),
-      "utf8"
+      "utf-8"
     );
 
     const capture = await runMokaInTarget(workspaceRoot, [
@@ -306,7 +424,7 @@ describe("detached moka run", () => {
       expect(capture.thrown).toBeUndefined();
       expect(
         kill.mock.calls.some(
-          ([pid]) => Math.abs(Number(pid)) === DETACHED_CONTROLLER_PID
+          ([pid]) => Math.abs(pid) === DETACHED_CONTROLLER_PID
         )
       ).toBe(true);
       expect(capture.stdout).toContain(runId);
@@ -326,100 +444,3 @@ describe("detached moka run", () => {
     });
   });
 });
-
-function runMokaInTarget(workspaceRoot: string, args: string[]) {
-  return runMokaCliInTarget({
-    args,
-    buffers: mockState,
-    originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
-    workspaceRoot,
-  });
-}
-
-function seedDetachedRun(
-  workspaceRoot: string,
-  input: {
-    nodes: Record<string, MokaNodeStatus>;
-    pid: number;
-    runId: string;
-    status: MokaRunStatus;
-  }
-): void {
-  const runRoot = join(workspaceRoot, ".pipeline", "runs", input.runId);
-  mkdirSync(join(runRoot, "nodes"), { recursive: true });
-  for (const nodeId of Object.keys(input.nodes)) {
-    mkdirSync(join(runRoot, "nodes", nodeId), { recursive: true });
-  }
-
-  const paths = {
-    events: `.pipeline/runs/${input.runId}/events.jsonl`,
-    manifest: `.pipeline/runs/${input.runId}/manifest.json`,
-    status: `.pipeline/runs/${input.runId}/status.json`,
-  };
-  const controllerArgv = [
-    process.execPath,
-    "/repo/dist/index.js",
-    "run-controller",
-    "--run-id",
-    input.runId,
-  ];
-  writeJson(join(runRoot, "manifest.json"), {
-    controller: {
-      argv: controllerArgv,
-      cwd: workspaceRoot,
-      paths,
-      pid: input.pid,
-      startedAt: "2026-06-17T12:00:00.000Z",
-    },
-    effort: "normal",
-    events: [],
-    mode: "write",
-    nodes: input.nodes,
-    runId: input.runId,
-    status: input.status,
-    target: "local",
-  });
-  writeJson(join(runRoot, "status.json"), {
-    nodes: input.nodes,
-    status: input.status,
-  });
-  writeFileSync(join(runRoot, "events.jsonl"), "", "utf8");
-}
-
-function extractRunId(output: string): string {
-  const match = output.match(RUN_ID_OUTPUT_RE);
-  if (!match) {
-    throw new Error(`Detached run output did not include a run id: ${output}`);
-  }
-  return match[1];
-}
-
-function workspaceRelative(workspaceRoot: string, value: string): string {
-  const fullPath = isAbsolute(value) ? value : join(workspaceRoot, value);
-  return relative(workspaceRoot, fullPath).split(sep).join("/");
-}
-
-function detachedScheduleYaml(input: {
-  command: string;
-  nodeId: string;
-  rootWorkflowId: string;
-  runId: string;
-  task: string;
-}): string {
-  return [
-    "version: 1",
-    "kind: pipeline-schedule",
-    `schedule_id: ${input.runId}`,
-    "source_entrypoint: execute",
-    `task: ${input.task}`,
-    "generated_at: 2026-06-17T00:00:00.000Z",
-    `root_workflow: ${input.rootWorkflowId}`,
-    "workflows:",
-    `  ${input.rootWorkflowId}:`,
-    "    nodes:",
-    `      - id: ${input.nodeId}`,
-    "        kind: command",
-    `        command: [node, -e, "${input.command}"]`,
-    "",
-  ].join("\n");
-}

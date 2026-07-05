@@ -56,9 +56,9 @@ export interface AdjudicationInput {
  * The union is deduped by criterion id (earliest layer wins) so every distinct
  * failing criterion appears exactly once. `passed` is true iff `unmet` is empty.
  */
-export async function adjudicate(
+export const adjudicate = async (
   input: AdjudicationInput
-): Promise<GateVerdict> {
+): Promise<GateVerdict> => {
   const deterministic = await runDeterministicLayer(
     input.deterministicGates ?? []
   );
@@ -80,4 +80,4 @@ export async function adjudicate(
     ...judged,
   ]);
   return { passed: unmet.length === 0, unmet };
-}
+};

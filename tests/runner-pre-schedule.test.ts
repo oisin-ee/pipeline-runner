@@ -1,10 +1,12 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { fileRunControlStore } from "../src/run-control/run-control-store";
 import type { RunnerLaunchPlan } from "../src/runner";
-import { runPreSchedulePhase } from "../src/runner-command/pre-schedule";
 import { parseRunnerCommandPayload } from "../src/runner-command-contract";
+import { runPreSchedulePhase } from "../src/runner-command/pre-schedule";
 import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
 import {
   cleanupRunnerCommandFixtures,
@@ -13,12 +15,12 @@ import {
 
 vi.mock("../src/run-state/git-refs", () => ({
   prepareRunnerGitWorkspace: vi.fn(
-    async (_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"
+    (_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"
   ),
 }));
 
 vi.mock("../src/runner/subprocess", () => ({
-  runLaunchPlan: vi.fn(async () => ({
+  runLaunchPlan: vi.fn(() => ({
     exitCode: 0,
     stdout: JSON.stringify({ ac: [], findings: [] }),
   })),
@@ -37,7 +39,7 @@ describe("runner-pre-schedule", () => {
       tempPrefix: "runner-pre-schedule-",
     });
     const payload = parseRunnerCommandPayload(
-      readFileSync(fixture.payloadPath, "utf8")
+      readFileSync(fixture.payloadPath, "utf-8")
     );
     writeFileSync(
       fixture.payloadPath,
@@ -65,9 +67,9 @@ describe("runner-pre-schedule", () => {
       "pre-planning": "queued",
       "pre-research": "passed",
     });
-    expect(durableStore.get(runId, "pre-research")?.result.status).toBe(
-      "passed"
-    );
+    expect(
+      Option.getOrThrow(durableStore.get(runId, "pre-research")).result.status
+    ).toBe("passed");
   });
 
   it("embeds a bounded remote phase contract and canonicalizes JSON output", async () => {
@@ -77,7 +79,7 @@ describe("runner-pre-schedule", () => {
       tempPrefix: "runner-pre-schedule-",
     });
     const payload = parseRunnerCommandPayload(
-      readFileSync(fixture.payloadPath, "utf8")
+      readFileSync(fixture.payloadPath, "utf-8")
     );
     writeFileSync(
       fixture.payloadPath,
@@ -89,11 +91,11 @@ describe("runner-pre-schedule", () => {
 
     const runControlStore = fileRunControlStore(fixture.dir);
     const durableStore = inMemoryDurableRunStore();
-    let launchPlan: RunnerLaunchPlan | undefined;
+    let launchPlan = Option.none<RunnerLaunchPlan>();
     const exitCode = await runPreSchedulePhase({
       cwd: fixture.dir,
       executor: (plan) => {
-        launchPlan = plan;
+        launchPlan = Option.some(plan);
         return {
           exitCode: 0,
           stdout: [
@@ -112,14 +114,14 @@ describe("runner-pre-schedule", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(launchPlan?.args.join("\n")).toContain(
+    expect(Option.getOrThrow(launchPlan).args.join("\n")).toContain(
       "Automated remote pre-schedule research phase."
     );
-    expect(launchPlan?.args.join("\n")).toContain(
+    expect(Option.getOrThrow(launchPlan).args.join("\n")).toContain(
       "Do not spawn subagents or delegate to task tools."
     );
-    expect(durableStore.get(runId, "pre-research")?.result.output).toBe(
-      JSON.stringify({ ac: [], findings: [] })
-    );
+    expect(
+      Option.getOrThrow(durableStore.get(runId, "pre-research")).result.output
+    ).toBe(JSON.stringify({ ac: [], findings: [] }));
   });
 });

@@ -1,15 +1,11 @@
-import { type Command, Option } from "commander";
+import { Option } from "commander";
+import type { Command } from "commander";
+
 import { loadPipelineConfig } from "../config";
-import {
-  type LoopCommandOptions,
-  parseLoopFlags,
-  runLoopSubmit,
-} from "../loop/loop-command";
+import { parseLoopFlags, runLoopSubmit } from "../loop/loop-command";
+import type { LoopCommandOptions } from "../loop/loop-command";
 import { runLoopControllerEntrypoint } from "../loop/loop-controller-entrypoint";
-import {
-  loadMokaGlobalConfig,
-  type MokaGlobalConfig,
-} from "../moka-global-config";
+import { loadMokaGlobalConfig } from "../moka-global-config";
 
 interface LoopControllerEntrypointFlags {
   maxRemediationAttempts?: string;
@@ -19,7 +15,35 @@ interface LoopControllerEntrypointFlags {
   strategy?: string;
 }
 
-export function registerLoopCommand(program: Command): void {
+const buildLoopSubmitInput = (
+  options: LoopCommandOptions
+): Parameters<typeof runLoopSubmit>[0] => {
+  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+  const config = loadPipelineConfig(cwd, {
+    allowMissingLintFileReferences: true,
+  });
+  const globalConfig = loadMokaGlobalConfig();
+  if (globalConfig === null) {
+    throw new Error(
+      "momokaya.submit.brokerAuth is required for moka loop submit"
+    );
+  }
+  const { momokaya } = globalConfig;
+  return {
+    brokerAuth: momokaya.submit.brokerAuth,
+    config,
+    eventUrl: momokaya.submit.eventUrl,
+    flags: parseLoopFlags(options),
+    gitCredentialsSecretName: momokaya.submit.gitCredentialsSecretName,
+    githubAuthSecretName: momokaya.submit.githubAuthSecretName,
+    kubeconfigPath: momokaya.kubernetes.kubeconfig,
+    namespace: momokaya.kubernetes.namespace,
+    serviceAccountName: momokaya.submit.serviceAccountName,
+    worktreePath: cwd,
+  };
+};
+
+export const registerLoopCommand = (program: Command): void => {
   program
     .command("loop")
     .description(
@@ -65,34 +89,4 @@ export function registerLoopCommand(program: Command): void {
         worktreePath: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
       });
     });
-}
-
-function buildLoopSubmitInput(
-  options: LoopCommandOptions
-): Parameters<typeof runLoopSubmit>[0] {
-  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-  const config = loadPipelineConfig(cwd, {
-    allowMissingLintFileReferences: true,
-  });
-  const globalConfig = loadMokaGlobalConfig();
-  const momokaya: MokaGlobalConfig["momokaya"] | undefined =
-    globalConfig?.momokaya;
-  const brokerAuth = momokaya?.submit.brokerAuth;
-  if (!brokerAuth) {
-    throw new Error(
-      "momokaya.submit.brokerAuth is required for moka loop submit"
-    );
-  }
-  return {
-    brokerAuth,
-    config,
-    eventUrl: momokaya?.submit.eventUrl,
-    flags: parseLoopFlags(options),
-    gitCredentialsSecretName: momokaya?.submit.gitCredentialsSecretName,
-    githubAuthSecretName: momokaya?.submit.githubAuthSecretName,
-    kubeconfigPath: momokaya?.kubernetes.kubeconfig,
-    namespace: momokaya?.kubernetes.namespace,
-    serviceAccountName: momokaya?.submit.serviceAccountName,
-    worktreePath: cwd,
-  };
-}
+};

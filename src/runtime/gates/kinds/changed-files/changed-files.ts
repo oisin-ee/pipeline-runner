@@ -1,4 +1,5 @@
 import micromatch from "micromatch";
+
 import type {
   ChangedFilesGateSpec,
   RuntimeContext,
@@ -6,19 +7,53 @@ import type {
 } from "../../../contracts";
 
 /**
+ * Supervisor-owned run-state the run-control store and journal write into the
+ * worktree's .pipeline/ during a run (src/run-control/store.ts RUNS_DIRECTORY
+ * and src/runtime/run-journal.ts). These are never node-authored content under
+ * test, so the changed_files gate must not attribute them to a node. Narrowly
+ * scoped to run-state, NOT a blanket .pipeline/ bypass, so a node that writes
+ * real output under .pipeline/ is still gated.
+ */
+const SUPERVISOR_RUN_STATE_GLOBS = [
+  "**/.pipeline/runs/**",
+  "**/.pipeline/journal/**",
+  "**/.pipeline/runtime-events.jsonl",
+  "**/.pipeline/**/status.json",
+];
+
+/**
+ * Snapshot entries are repo-relative paths (the porcelain parser already strips
+ * the status code), but some fixtures and untracked entries carry a leading
+ * "XY " status prefix. Strip it before matching run-state globs so both shapes
+ * resolve to the same path; non-prefixed paths (".pipeline/...") are unchanged.
+ */
+const PORCELAIN_STATUS_PREFIX = /^.{2} /u;
+
+const stripPorcelainStatusPrefix = (file: string): string =>
+  PORCELAIN_STATUS_PREFIX.test(file) ? file.slice(3) : file;
+
+const globMatch = (pattern: string, value: string): boolean =>
+  micromatch.isMatch(value, pattern, { dot: true });
+
+const isSupervisorRunStatePath = (file: string): boolean => {
+  const path = stripPorcelainStatusPrefix(file);
+  return SUPERVISOR_RUN_STATE_GLOBS.some((pattern) => globMatch(pattern, path));
+};
+
+/**
  * Evaluates changed-file allow/deny/require_any/include_untracked policies
  * against the set of files the node wrote during its run. Supervisor-owned
  * run-state writes (journal, run-control) are excluded before policy evaluation
  * so nodes are not penalised for bookkeeping they did not author.
  */
-export function evaluateChangedFilesGate(
+export const evaluateChangedFilesGate = (
   gate: ChangedFilesGateSpec,
   gateId: string,
   nodeId: string,
   context: Pick<RuntimeContext, "nodeStateStore">
-): RuntimeGateResult {
+): RuntimeGateResult => {
   const changed = context.nodeStateStore.changedFiles(nodeId);
-  const policy = gate.changed_files ?? {};
+  const policy = gate.changed_files;
   const evidence: string[] = [];
   const untrackedFiltered =
     policy.include_untracked === false
@@ -68,40 +103,4 @@ export function evaluateChangedFilesGate(
     passed,
     reason: passed ? undefined : "changed-file policy failed",
   };
-}
-
-/**
- * Supervisor-owned run-state the run-control store and journal write into the
- * worktree's .pipeline/ during a run (src/run-control/store.ts RUNS_DIRECTORY
- * and src/runtime/run-journal.ts). These are never node-authored content under
- * test, so the changed_files gate must not attribute them to a node. Narrowly
- * scoped to run-state, NOT a blanket .pipeline/ bypass, so a node that writes
- * real output under .pipeline/ is still gated.
- */
-const SUPERVISOR_RUN_STATE_GLOBS = [
-  "**/.pipeline/runs/**",
-  "**/.pipeline/journal/**",
-  "**/.pipeline/runtime-events.jsonl",
-  "**/.pipeline/**/status.json",
-];
-
-function isSupervisorRunStatePath(file: string): boolean {
-  const path = stripPorcelainStatusPrefix(file);
-  return SUPERVISOR_RUN_STATE_GLOBS.some((pattern) => globMatch(pattern, path));
-}
-
-/**
- * Snapshot entries are repo-relative paths (the porcelain parser already strips
- * the status code), but some fixtures and untracked entries carry a leading
- * "XY " status prefix. Strip it before matching run-state globs so both shapes
- * resolve to the same path; non-prefixed paths (".pipeline/...") are unchanged.
- */
-const PORCELAIN_STATUS_PREFIX = /^.{2} /;
-
-function stripPorcelainStatusPrefix(file: string): string {
-  return PORCELAIN_STATUS_PREFIX.test(file) ? file.slice(3) : file;
-}
-
-function globMatch(pattern: string, value: string): boolean {
-  return micromatch.isMatch(value, pattern, { dot: true });
-}
+};

@@ -1,5 +1,6 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { buildNextNodeEnvelope } from "../src/run-control/next-node";
 import type { RuntimeNodeResult } from "../src/runtime/contracts/contracts";
 import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
@@ -8,13 +9,13 @@ import type { WorkflowScheduleNode } from "../src/runtime/scheduler";
 import {
   buildEnvelopeForNode,
   recordNodeResult,
-  type StepNodeDeps,
   stepNode,
   stepRun,
 } from "../src/runtime/step/step-node";
+import type { StepNodeDeps } from "../src/runtime/step/step-node";
 
 const RUN_ID = "step-run-001";
-const MISSING_NODE_RE = /ghost/;
+const MISSING_NODE_RE = /ghost/u;
 
 // Two-node graph: plan → implement (implement depends on plan).
 const nodes: WorkflowScheduleNode[] = [
@@ -36,32 +37,30 @@ const nodeMetadata = new Map([
   ],
 ]);
 
-function passedResult(
+const passedResult = (
   nodeId: string,
   output = `output of ${nodeId}`
-): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output,
-    status: "passed",
-  };
-}
+): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output,
+  status: "passed",
+});
 
 // A fake executor that records which envelopes it saw and returns a passed
 // result for each. Stands in for the local/Argo node executors.
-function recordingExecutor() {
+const recordingExecutor = () => {
   const seen: NextNodeEnvelope[] = [];
-  const executeNode = (
+  const executeNode = async (
     envelope: NextNodeEnvelope
   ): Promise<RuntimeNodeResult> => {
     seen.push(envelope);
-    return Promise.resolve(passedResult(envelope.nodeId));
+    return passedResult(envelope.nodeId);
   };
   return { executeNode, seen };
-}
+};
 
 describe("buildEnvelopeForNode", () => {
   it("builds the envelope for a specific given node, folding in passed upstream outputs", () => {
@@ -112,10 +111,12 @@ describe("toRunJournal record path — PIPE-94.7: one record owner", () => {
 
     const viaJournal = viaJournalStore.get(RUN_ID, "plan");
     const viaCore = viaCoreStore.get(RUN_ID, "plan");
-    expect(viaJournal?.criteria).toEqual(viaCore?.criteria);
-    expect(viaJournal?.inputs).toEqual(viaCore?.inputs);
-    expect(viaJournal?.result).toEqual(viaCore?.result);
-    expect(viaJournal?.result).toEqual(result);
+    const viaJournalRecord = Option.getOrThrow(viaJournal);
+    const viaCoreRecord = Option.getOrThrow(viaCore);
+    expect(viaJournalRecord.criteria).toEqual(viaCoreRecord.criteria);
+    expect(viaJournalRecord.inputs).toEqual(viaCoreRecord.inputs);
+    expect(viaJournalRecord.result).toEqual(viaCoreRecord.result);
+    expect(viaJournalRecord.result).toEqual(result);
   });
 });
 
@@ -135,7 +136,9 @@ describe("stepNode — AC1: build → execute (injected) → record", () => {
 
     expect(result).toEqual(passedResult("plan"));
     // The result is persisted under (runId, nodeId).
-    expect(store.get(RUN_ID, "plan")?.result).toEqual(passedResult("plan"));
+    expect(Option.getOrThrow(store.get(RUN_ID, "plan")).result).toEqual(
+      passedResult("plan")
+    );
     // The executor received the envelope built for that node.
     expect(executor.seen).toHaveLength(1);
     expect(executor.seen[0]?.nodeId).toBe("plan");

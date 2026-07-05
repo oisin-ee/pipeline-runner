@@ -1,88 +1,86 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { PipelineConfig } from "../config";
 import type { MokaSubmitInput, MokaSubmitResult } from "../moka-submit";
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
 import {
-  type LoopSubmitInput,
   loopControllerArgv,
   parseLoopFlags,
   runLoopSubmit,
 } from "./loop-command";
+import type { LoopSubmitInput } from "./loop-command";
 
 const UNUSED_CONFIG = {} as PipelineConfig; // quality-gate:allow test fixture: config flows untouched through the injected submit seam
 
-const STRATEGY_ERROR = /--strategy/;
-const MERGE_TIMEOUT_ERROR = /--merge-timeout/;
-const CYCLE_ERROR = /cycle/i;
-const NO_READY_TICKET_ERROR = /no ready ticket/;
+const STRATEGY_ERROR = /--strategy/u;
+const MERGE_TIMEOUT_ERROR = /--merge-timeout/u;
+const CYCLE_ERROR = /cycle/iu;
+const NO_READY_TICKET_ERROR = /no ready ticket/u;
 
-function task(
+const task = (
   id: string,
   dependencies: readonly string[] = [],
   status: BacklogTaskRecord["status"] = "To Do"
-): BacklogTaskRecord {
-  return {
-    acceptanceCriteria: [],
-    dependencies,
-    filePath: `backlog/tasks/${id}.md`,
-    id,
-    modifiedFiles: [],
-    references: [],
-    status,
-    title: id,
-  };
-}
+): BacklogTaskRecord => ({
+  acceptanceCriteria: [],
+  dependencies,
+  filePath: `backlog/tasks/${id}.md`,
+  id,
+  modifiedFiles: [],
+  references: [],
+  status,
+  title: id,
+});
 
 /** A ticket parented under an epic so root-scoped selection can reach it. */
-function child(id: string, parentTaskId: string): BacklogTaskRecord {
-  return { ...task(id), parentTaskId };
-}
+const child = (id: string, parentTaskId: string): BacklogTaskRecord => ({
+  ...task(id),
+  parentTaskId,
+});
 
-function submitResult(workflowName: string): MokaSubmitResult {
-  return {
-    namespace: "moka",
-    payloadConfigMapName: "p",
-    scheduleConfigMapName: "s",
-    taskDescriptorConfigMapName: "t",
-    workflowName,
-  };
-}
+const submitResult = (workflowName: string): MokaSubmitResult => ({
+  namespace: "moka",
+  payloadConfigMapName: "p",
+  scheduleConfigMapName: "s",
+  taskDescriptorConfigMapName: "t",
+  workflowName,
+});
 
-function submitInput(
+const submitInput = (
   flags: LoopSubmitInput["flags"],
   overrides: Partial<LoopSubmitInput> = {}
-): LoopSubmitInput {
-  return {
-    brokerAuth: {
-      secretKey: "api-key",
-      secretName: "broker-api-key",
-      url: "https://cliproxy.momokaya.ee",
-    },
-    config: UNUSED_CONFIG,
-    eventUrl: "https://console/api/pipeline/runner-events",
-    flags,
-    gitCredentialsSecretName: "git-creds",
-    namespace: "moka",
-    worktreePath: "/work",
-    ...overrides,
-  };
-}
+): LoopSubmitInput => ({
+  brokerAuth: {
+    secretKey: "api-key",
+    secretName: "broker-api-key",
+    url: "https://cliproxy.momokaya.ee",
+  },
+  config: UNUSED_CONFIG,
+  eventUrl: "https://console/api/pipeline/runner-events",
+  flags,
+  gitCredentialsSecretName: "git-creds",
+  namespace: "moka",
+  worktreePath: "/work",
+  ...overrides,
+});
 
 /** A submit seam that records inputs and flips a flag when called. */
-function recordingSubmit(workflowName: string): {
+const recordingSubmit = (
+  workflowName: string
+): {
   submit: (input: MokaSubmitInput) => Promise<MokaSubmitResult>;
   submits: MokaSubmitInput[];
-} {
+} => {
   const submits: MokaSubmitInput[] = [];
   return {
-    submits,
-    submit: (input) => {
+    submit: async (input) => {
       submits.push(input);
-      return Promise.resolve(submitResult(workflowName));
+      return await Promise.resolve(submitResult(workflowName));
     },
+    submits,
   };
-}
+};
 
 // ---------------------------------------------------------------------------
 // Flag parsing.
@@ -101,10 +99,10 @@ describe("parseLoopFlags", () => {
   it("parses all flags", () => {
     expect(
       parseLoopFlags({
-        strategy: "dfs",
-        root: "PIPE-88",
         maxRemediationAttempts: "3",
         mergeTimeout: "30",
+        root: "PIPE-88",
+        strategy: "dfs",
       })
     ).toEqual({
       maxMergePolls: 30,
@@ -134,10 +132,10 @@ describe("parseLoopFlags", () => {
 describe("loopControllerArgv — AC2 flag forwarding", () => {
   it("forwards strategy/root/max-remediation/merge-timeout to the controller", () => {
     const argv = loopControllerArgv({
-      strategy: "dfs",
-      rootId: "PIPE-88",
-      maxRemediationAttempts: 3,
       maxMergePolls: 30,
+      maxRemediationAttempts: 3,
+      rootId: "PIPE-88",
+      strategy: "dfs",
     });
     expect(argv).toEqual([
       "moka",
@@ -172,10 +170,10 @@ describe("runLoopSubmit — AC1 cloud submission", () => {
     const { submit, submits } = recordingSubmit("moka-loop-abc");
     const result = await runLoopSubmit(
       submitInput({
-        strategy: "bfs",
-        rootId: "PIPE-88",
-        maxRemediationAttempts: 4,
         maxMergePolls: 25,
+        maxRemediationAttempts: 4,
+        rootId: "PIPE-88",
+        strategy: "bfs",
       }),
       {
         // Epic PIPE-88 with one ready child so the --root scope has work.

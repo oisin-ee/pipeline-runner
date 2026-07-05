@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { RuntimeContext, RuntimeNodeResult } from "../contracts";
@@ -37,7 +38,7 @@ vi.mock("../opencode-runtime", async (importOriginal) => {
         ...input,
         openServer: async () => ({
           client: {} as never,
-          close: async () => undefined,
+          close: async () => {},
           owned: true,
           url: "http://127.0.0.1:0",
         }),
@@ -54,6 +55,108 @@ vi.mock("../opencode-runtime", async (importOriginal) => {
   };
 });
 
+const passedNodeResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: [],
+  exitCode: 0,
+  nodeId,
+  output: "ok",
+  status: "passed",
+});
+
+const plannedNode = (
+  id: string,
+  kind: PlannedWorkflowNode["kind"]
+): PlannedWorkflowNode => ({
+  dependents: [],
+  id,
+  index: 0,
+  kind,
+  needs: [],
+});
+
+const parallelNode = (): PlannedWorkflowNode => {
+  const child = plannedNode("green-candidate-1", "agent");
+  return { ...plannedNode("green", "parallel"), children: [child] };
+};
+
+const parallelWith = (childIds: string[]): PlannedWorkflowNode => ({
+  ...plannedNode("green", "parallel"),
+  children: childIds.map((id) => plannedNode(id, "agent")),
+});
+
+const opencodeConfig = (): PipelineConfig =>
+  ({
+    default_workflow: "workflow",
+    hooks: { functions: {}, on: {} },
+    parallel_worktrees: { enabled: true },
+    runner_command: {
+      environment: { setup: [], smoke: [] },
+      git: { committer: { email: "bot@example.com", name: "Bot" } },
+    },
+    runners: {
+      opencode: { capabilities: {}, type: "opencode" },
+    },
+    scheduler: { commands: {}, node_catalogs: {} },
+    token_budget: {
+      default_context_window: 200_000,
+      fan_out_width: { by_category: {}, default: 4 },
+      max_context_pct: 50,
+      model_context_windows: {},
+    },
+    workflows: {},
+  }) as unknown as PipelineConfig;
+
+const plainConfig = (byCategory: Record<string, number> = {}): PipelineConfig =>
+  ({
+    ...opencodeConfig(),
+    parallel_worktrees: { enabled: false },
+    token_budget: {
+      default_context_window: 200_000,
+      fan_out_width: { by_category: byCategory, default: 4 },
+      max_context_pct: 50,
+      model_context_windows: {},
+    },
+  }) as unknown as PipelineConfig;
+
+const runtimeContext = (
+  executor: RuntimeContext["executor"]
+): Parameters<typeof executeParallelNode>[1] => ({
+  agentInvocations: [],
+  config: opencodeConfig(),
+  executor,
+  gates: [],
+  hookFailures: [],
+  hookPolicy: {
+    allowCommandHooks: false,
+    allowUntrustedCommandHooks: false,
+    env: {},
+    envPassthrough: [],
+    outputLimitBytes: 0,
+    timeoutMs: 0,
+  },
+  hookResults: new Map(),
+  nodeStateStore: new NodeStateStore(),
+  plan: {
+    execution: { failFast: false },
+    graph: {} as never,
+    parallelBatches: [],
+    topologicalOrder: [],
+    workflowId: "workflow",
+  },
+  task: "task",
+  workflowId: "workflow",
+  worktreePath: "/repo",
+});
+
+const runtimeContextWith = (
+  executor: RuntimeContext["executor"],
+  config: PipelineConfig
+): Parameters<typeof executeParallelNode>[1] => ({
+  ...runtimeContext(executor),
+  config,
+});
+
 describe("runtime parallel node", () => {
   it("uses a per-worktree opencode executor for isolated opencode children", async () => {
     worktreeRecords.creates = 0;
@@ -68,11 +171,11 @@ describe("runtime parallel node", () => {
       parallelNode(),
       runtimeContext(parentExecutor),
       {
-        executeNode: (_child, context) => {
+        executeNode: async (_child, context) => {
           childExecutor = context.executor;
-          return Promise.resolve(passedNodeResult(_child.id));
+          return passedNodeResult(_child.id);
         },
-        markNodeReady: () => undefined,
+        markNodeReady: () => {},
       }
     );
 
@@ -90,8 +193,8 @@ describe("runtime parallel node", () => {
       parallelWith(["green-a", "green-b"]),
       runtimeContextWith(vi.fn(), plainConfig()),
       {
-        executeNode: (child) => Promise.resolve(passedNodeResult(child.id)),
-        markNodeReady: () => undefined,
+        executeNode: async (child) => passedNodeResult(child.id),
+        markNodeReady: () => {},
       }
     );
 
@@ -106,20 +209,18 @@ describe("runtime parallel node", () => {
       parallelWith(["green-a", "green-b"]),
       runtimeContextWith(vi.fn(), plainConfig()),
       {
-        executeNode: (child) =>
-          Promise.resolve(
-            child.id === "green-b"
-              ? {
-                  attempts: 1,
-                  evidence: ["green-b failed"],
-                  exitCode: 1,
-                  nodeId: child.id,
-                  output: "",
-                  status: "failed",
-                }
-              : passedNodeResult(child.id)
-          ),
-        markNodeReady: () => undefined,
+        executeNode: async (child) =>
+          child.id === "green-b"
+            ? {
+                attempts: 1,
+                evidence: ["green-b failed"],
+                exitCode: 1,
+                nodeId: child.id,
+                output: "",
+                status: "failed",
+              }
+            : passedNodeResult(child.id),
+        markNodeReady: () => {},
       }
     );
 
@@ -135,12 +236,11 @@ describe("runtime parallel node", () => {
       parallelWith(["left", "right"]),
       runtimeContextWith(vi.fn(), plainConfig()),
       {
-        executeNode: (child) =>
-          Promise.resolve({
-            ...passedNodeResult(child.id),
-            output: child.id === "left" ? "L" : "R",
-          }),
-        markNodeReady: () => undefined,
+        executeNode: async (child) => ({
+          ...passedNodeResult(child.id),
+          output: child.id === "left" ? "L" : "R",
+        }),
+        markNodeReady: () => {},
       }
     );
 
@@ -163,7 +263,7 @@ describe("runtime parallel node", () => {
           active -= 1;
           return passedNodeResult(child.id);
         },
-        markNodeReady: () => undefined,
+        markNodeReady: () => {},
       }
     );
 
@@ -185,121 +285,10 @@ describe("runtime parallel node", () => {
           active -= 1;
           return passedNodeResult(child.id);
         },
-        markNodeReady: () => undefined,
+        markNodeReady: () => {},
       }
     );
 
     expect(maxActive).toBe(2);
   });
 });
-
-function passedNodeResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: [],
-    exitCode: 0,
-    nodeId,
-    output: "ok",
-    status: "passed",
-  };
-}
-
-function parallelNode(): PlannedWorkflowNode {
-  const child = plannedNode("green-candidate-1", "agent");
-  return { ...plannedNode("green", "parallel"), children: [child] };
-}
-
-function parallelWith(childIds: string[]): PlannedWorkflowNode {
-  return {
-    ...plannedNode("green", "parallel"),
-    children: childIds.map((id) => plannedNode(id, "agent")),
-  };
-}
-
-function plannedNode(
-  id: string,
-  kind: PlannedWorkflowNode["kind"]
-): PlannedWorkflowNode {
-  return {
-    dependents: [],
-    id,
-    index: 0,
-    kind,
-    needs: [],
-  };
-}
-
-function runtimeContextWith(
-  executor: RuntimeContext["executor"],
-  config: PipelineConfig
-): Parameters<typeof executeParallelNode>[1] {
-  return { ...runtimeContext(executor), config };
-}
-
-function plainConfig(byCategory: Record<string, number> = {}): PipelineConfig {
-  return {
-    ...opencodeConfig(),
-    parallel_worktrees: { enabled: false },
-    token_budget: {
-      default_context_window: 200_000,
-      fan_out_width: { by_category: byCategory, default: 4 },
-      max_context_pct: 50,
-      model_context_windows: {},
-    },
-  } as unknown as PipelineConfig;
-}
-
-function runtimeContext(
-  executor: RuntimeContext["executor"]
-): Parameters<typeof executeParallelNode>[1] {
-  return {
-    agentInvocations: [],
-    config: opencodeConfig(),
-    executor,
-    gates: [],
-    hookFailures: [],
-    hookPolicy: {
-      allowCommandHooks: false,
-      allowUntrustedCommandHooks: false,
-      env: {},
-      envPassthrough: [],
-      outputLimitBytes: 0,
-      timeoutMs: 0,
-    },
-    hookResults: new Map(),
-    nodeStateStore: new NodeStateStore(),
-    plan: {
-      execution: { failFast: false },
-      graph: {} as never,
-      parallelBatches: [],
-      topologicalOrder: [],
-      workflowId: "workflow",
-    },
-    task: "task",
-    workflowId: "workflow",
-    worktreePath: "/repo",
-  };
-}
-
-function opencodeConfig(): PipelineConfig {
-  return {
-    default_workflow: "workflow",
-    hooks: { functions: {}, on: {} },
-    parallel_worktrees: { enabled: true },
-    runner_command: {
-      environment: { setup: [], smoke: [] },
-      git: { committer: { email: "bot@example.com", name: "Bot" } },
-    },
-    runners: {
-      opencode: { capabilities: {}, type: "opencode" },
-    },
-    scheduler: { commands: {}, node_catalogs: {} },
-    token_budget: {
-      default_context_window: 200_000,
-      fan_out_width: { by_category: {}, default: 4 },
-      max_context_pct: 50,
-      model_context_windows: {},
-    },
-    workflows: {},
-  } as unknown as PipelineConfig;
-}

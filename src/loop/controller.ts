@@ -1,9 +1,8 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
-import {
-  buildTicketGraphEffect,
-  type TicketGraph,
-} from "../tickets/ticket-graph";
+import { buildTicketGraphEffect } from "../tickets/ticket-graph";
+import type { TicketGraph } from "../tickets/ticket-graph";
 import type { LoopState } from "../tickets/ticket-graph-dto";
 import { serializeTicketGraph } from "../tickets/ticket-graph-dto";
 import type { TicketSelectionStrategy } from "../tickets/ticket-selection";
@@ -70,7 +69,7 @@ export interface ControllerDeps {
     gh: GhRunner
   ) => Effect.Effect<MergePollSignal, Error>;
   /** Emit a loop.* lifecycle event. */
-  readonly emit: (event: LoopControllerEvent) => Effect.Effect<void, never>;
+  readonly emit: (event: LoopControllerEvent) => Effect.Effect<void>;
   /** Raw gh runner passed to resolvePr / classifyChecks. */
   readonly gh: GhRunner;
   /** Load the backlog task records for the initial graph build. */
@@ -82,7 +81,7 @@ export interface ControllerDeps {
   /** Perform the merge action for a classification (admin-merge for infra-down). */
   readonly merge: (
     input: MergeInput
-  ) => Effect.Effect<MergeOutcome | null, Error>;
+  ) => Effect.Effect<Option.Option<MergeOutcome>, Error>;
   /** Poll the child workflow until terminal (Succeeded / Failed / Error). */
   readonly pollPhase: (input: {
     readonly workflowName: string;
@@ -103,7 +102,7 @@ export interface ControllerDeps {
   /** Optional epic/root scope: traversal is restricted to this subtree. */
   readonly rootId?: string;
   /** Clock seam — bounded idle-wait between merge polls. */
-  readonly sleep: (ms: number) => Effect.Effect<void, never>;
+  readonly sleep: (ms: number) => Effect.Effect<void>;
   /** Ready-ticket ordering strategy at the selection call site. */
   readonly strategy: TicketSelectionStrategy;
   /** Launch a child run (create-new-pr or update-existing-pr). */
@@ -159,10 +158,10 @@ type PollAction =
   | { readonly kind: "wait" };
 
 const POLL_ACTION: Readonly<Record<MergePollSignal, PollAction>> = {
-  merged: { kind: "passed" },
   fixable: { kind: "remediate" },
-  "infra-down": { kind: "admin-merge" },
   indeterminate: { kind: "wait" },
+  "infra-down": { kind: "admin-merge" },
+  merged: { kind: "passed" },
 };
 
 // ---------------------------------------------------------------------------
@@ -174,38 +173,6 @@ type NodeResolution = "passed" | "blocked";
 
 const PASSED: NodeResolution = "passed";
 const BLOCKED: NodeResolution = "blocked";
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
-export function runLoopController(
-  deps: ControllerDeps
-): Effect.Effect<LoopSummary, Error> {
-  return Effect.gen(function* () {
-    const initialTasks = yield* deps.loadGraph();
-    const graph = yield* buildTicketGraphEffect([...initialTasks]).pipe(
-      Effect.mapError((error) => new Error(error.message))
-    );
-
-    yield* deps.emit({
-      type: "loop.start",
-      projectId: deps.projectId,
-      strategy: deps.strategy,
-    });
-    const snapshot = yield* serializeTicketGraph(graph);
-    yield* deps.emit({ type: "loop.graph.snapshot", snapshot });
-
-    const summary = yield* drain(deps, [...initialTasks]);
-
-    yield* deps.emit({
-      type: "loop.finish",
-      passed: summary.passed,
-      blocked: summary.blocked,
-    });
-    return summary;
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Outer drain — strict sequential traversal with a passed/blocked overlay.
@@ -231,95 +198,15 @@ interface SelectionOptions {
   readonly strategy: TicketSelectionStrategy;
 }
 
-function drain(
-  deps: ControllerDeps,
-  tasks: readonly BacklogTaskRecord[]
-): Effect.Effect<LoopSummary, Error> {
-  return drainStep(deps, {
-    passed: new Set(),
-    blocked: new Set(),
-    selection: { rootId: deps.rootId, strategy: deps.strategy },
-    tasks,
-  });
-}
-
-function drainStep(
-  deps: ControllerDeps,
-  state: DrainState
-): Effect.Effect<LoopSummary, Error> {
-  return Effect.gen(function* () {
-    const next = yield* selectReadyExcluding(state);
-    if (next === undefined) {
-      return { passed: state.passed.size, blocked: state.blocked.size };
-    }
-
-    const resolution = yield* resolveTicket(deps, next.id);
-
-    if (resolution === PASSED) {
-      const refreshed = yield* deps.refreshBacklog();
-      return yield* drainStep(deps, {
-        passed: withId(state.passed, next.id),
-        blocked: state.blocked,
-        selection: state.selection,
-        tasks: [...refreshed],
-      });
-    }
-
-    return yield* drainStep(deps, {
-      passed: state.passed,
-      blocked: withId(state.blocked, next.id),
-      selection: state.selection,
-      tasks: state.tasks,
-    });
-  });
-}
-
-/**
- * Build the graph from current records and select the next ready ticket,
- * skipping any id already in the passed- or blocked-overlay. The passed
- * overlay is the durable source of truth: a stale backlog cannot re-surface a
- * ticket whose run already passed.
- */
-function selectReadyExcluding(
-  state: DrainState
-): Effect.Effect<BacklogTaskRecord | undefined, Error> {
-  return buildTicketGraphEffect([...state.tasks]).pipe(
-    Effect.mapError((error) => new Error(error.message)),
-    Effect.map((graph) =>
-      selectReadyChain(overlayGraph(graph, state.passed), state)
-    )
-  );
-}
-
-/**
- * Overlay the passed-set onto a fresh graph by marking passed tickets Done.
- * selectNextTicket's readiness treats a dependency as satisfied iff its status
- * is "Done"; marking passed tickets Done makes their dependents become ready
- * without mutating the original records. Returns a NEW graph view.
- */
-function overlayGraph(
-  graph: TicketGraph,
-  passed: ReadonlySet<string>
-): TicketGraph {
-  if (passed.size === 0) {
-    return graph;
-  }
-  const overlaidTasks = [...graph.tasksById.values()].map(
-    (task): BacklogTaskRecord =>
-      passed.has(task.id) ? { ...task, status: "Done" } : task
-  );
-  return overlaidGraphFromTasks(graph, overlaidTasks);
-}
-
 /**
  * Rebuild a TicketGraph-shaped view from overlaid records. The dependency graph
  * edges are unchanged by a status flip, so we reuse the original dependencyGraph
  * and only swap the tasksById / childrenByParentId indexes that selection reads.
  */
-function overlaidGraphFromTasks(
+const overlaidGraphFromTasks = (
   graph: TicketGraph,
   overlaidTasks: readonly BacklogTaskRecord[]
-): TicketGraph {
+): TicketGraph => {
   const tasksById = new Map<string, BacklogTaskRecord>();
   for (const task of overlaidTasks) {
     tasksById.set(task.id, task);
@@ -339,76 +226,237 @@ function overlaidGraphFromTasks(
     dependencyGraph: graph.dependencyGraph,
     tasksById,
   };
-}
+};
+
+/**
+ * Overlay the passed-set onto a fresh graph by marking passed tickets Done.
+ * selectNextTicket's readiness treats a dependency as satisfied iff its status
+ * is "Done"; marking passed tickets Done makes their dependents become ready
+ * without mutating the original records. Returns a NEW graph view.
+ */
+const overlayGraph = (
+  graph: TicketGraph,
+  passed: ReadonlySet<string>
+): TicketGraph => {
+  if (passed.size === 0) {
+    return graph;
+  }
+  const overlaidTasks = [...graph.tasksById.values()].map(
+    (task): BacklogTaskRecord =>
+      passed.has(task.id) ? { ...task, status: "Done" } : task
+  );
+  return overlaidGraphFromTasks(graph, overlaidTasks);
+};
 
 /**
  * Select the next genuinely-actionable ready ticket, skipping ids already in
  * the passed/blocked overlay (a blocked ticket stays "To Do" in records but
  * must not be retried within this run).
  */
-function selectReadyChain(
+const selectReadyChain = (
   graph: TicketGraph,
   state: DrainState
-): BacklogTaskRecord | undefined {
+): Option.Option<BacklogTaskRecord> => {
+  /**
+   * The top candidate is already resolved (passed or blocked). Drop it from a
+   * throwaway overlay so the next-best ready ticket surfaces. A blocked node's
+   * true dependents remain unready because the blocked node is only removed from
+   * THIS local selection view, never marked Done in the durable passed-set.
+   */
+  const selectAfterSkip = (
+    skipId: string
+  ): Option.Option<BacklogTaskRecord> => {
+    const remaining = [...graph.tasksById.values()].filter(
+      (task) => task.id !== skipId
+    );
+    if (remaining.length === graph.tasksById.size) {
+      return Option.none();
+    }
+    return selectReadyChain(overlaidGraphFromTasks(graph, remaining), state);
+  };
+
   const candidate = selectNextTicket(graph, {
     rootId: state.selection.rootId,
     strategy: state.selection.strategy,
   });
-  if (candidate === undefined) {
-    return;
+  if (Option.isNone(candidate)) {
+    return Option.none();
   }
-  if (state.passed.has(candidate.id)) {
-    return selectAfterSkip(graph, state, candidate.id);
+  if (state.passed.has(candidate.value.id)) {
+    return selectAfterSkip(candidate.value.id);
   }
-  if (state.blocked.has(candidate.id)) {
-    return selectAfterSkip(graph, state, candidate.id);
+  if (state.blocked.has(candidate.value.id)) {
+    return selectAfterSkip(candidate.value.id);
   }
   return candidate;
-}
+};
 
 /**
- * The top candidate is already resolved (passed or blocked). Drop it from a
- * throwaway overlay so the next-best ready ticket surfaces. A blocked node's
- * true dependents remain unready because the blocked node is only removed from
- * THIS local selection view, never marked Done in the durable passed-set.
+ * Build the graph from current records and select the next ready ticket,
+ * skipping any id already in the passed- or blocked-overlay. The passed
+ * overlay is the durable source of truth: a stale backlog cannot re-surface a
+ * ticket whose run already passed.
  */
-function selectAfterSkip(
-  graph: TicketGraph,
-  state: DrainState,
-  skipId: string
-): BacklogTaskRecord | undefined {
-  const remaining = [...graph.tasksById.values()].filter(
-    (task) => task.id !== skipId
+const selectReadyExcluding = (
+  state: DrainState
+): Effect.Effect<Option.Option<BacklogTaskRecord>, Error> =>
+  buildTicketGraphEffect([...state.tasks]).pipe(
+    Effect.mapError((error) => new Error(error.message)),
+    Effect.map((graph) =>
+      selectReadyChain(overlayGraph(graph, state.passed), state)
+    )
   );
-  if (remaining.length === graph.tasksById.size) {
-    return;
-  }
-  return selectReadyChain(overlaidGraphFromTasks(graph, remaining), state);
-}
 
-function withId(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
+const withId = (set: ReadonlySet<string>, id: string): ReadonlySet<string> => {
   const next = new Set(set);
   next.add(id);
   return next;
+};
+
+interface MergeLoopState {
+  readonly mergePolls: number;
+  readonly pr: OpenPr;
+  readonly remediationAttempts: number;
+  readonly runId: string;
+  readonly ticketId: string;
 }
+
+type DrainStep = (
+  deps: ControllerDeps,
+  state: DrainState
+) => Effect.Effect<LoopSummary, Error>;
+
+type PollHandlerTable = Readonly<
+  Record<
+    PollAction["kind"],
+    (
+      deps: ControllerDeps,
+      state: MergeLoopState
+    ) => Effect.Effect<NodeResolution, Error>
+  >
+>;
+
+const MERGE_POLL_INTERVAL_MS = 5000;
+
+let drainStep: DrainStep;
+
+let pollHandlers: PollHandlerTable;
+
+const transition = (
+  deps: ControllerDeps,
+  ticketId: string,
+  loopState: LoopState
+): Effect.Effect<void> =>
+  deps.emit({ loopState, ticketId, type: "loop.node.transition" });
+
+const passNode = (
+  deps: ControllerDeps,
+  ticketId: string
+): Effect.Effect<NodeResolution, Error> =>
+  transition(deps, ticketId, "passed").pipe(Effect.map(() => PASSED));
+
+const blockNode = (
+  deps: ControllerDeps,
+  ticketId: string
+): Effect.Effect<NodeResolution, Error> =>
+  transition(deps, ticketId, "blocked").pipe(Effect.map(() => BLOCKED));
+
+const drain = (
+  deps: ControllerDeps,
+  tasks: readonly BacklogTaskRecord[]
+): Effect.Effect<LoopSummary, Error> =>
+  drainStep(deps, {
+    blocked: new Set(),
+    passed: new Set(),
+    selection: { rootId: deps.rootId, strategy: deps.strategy },
+    tasks,
+  });
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+export const runLoopController = (
+  deps: ControllerDeps
+): Effect.Effect<LoopSummary, Error> =>
+  Effect.gen(function* effectBody() {
+    const initialTasks = yield* deps.loadGraph();
+    const graph = yield* buildTicketGraphEffect([...initialTasks]).pipe(
+      Effect.mapError((error) => new Error(error.message))
+    );
+
+    yield* deps.emit({
+      projectId: deps.projectId,
+      strategy: deps.strategy,
+      type: "loop.start",
+    });
+    const snapshot = yield* serializeTicketGraph(graph);
+    yield* deps.emit({ snapshot, type: "loop.graph.snapshot" });
+
+    const summary = yield* drain(deps, [...initialTasks]);
+
+    yield* deps.emit({
+      blocked: summary.blocked,
+      passed: summary.passed,
+      type: "loop.finish",
+    });
+    return summary;
+  });
+
+const adminMergeNode = (
+  deps: ControllerDeps,
+  state: MergeLoopState
+): Effect.Effect<NodeResolution, Error> =>
+  Effect.gen(function* effectBody() {
+    const outcome = yield* deps.merge({
+      classification: "infra-down",
+      pr: state.pr,
+    });
+    if (Option.isSome(outcome) && outcome.value._tag === "merged") {
+      return yield* passNode(deps, state.ticketId);
+    }
+    // Admin-merge could not land (missing token / conflict) → blocked, surfaced.
+    return yield* blockNode(deps, state.ticketId);
+  });
+
+const dispatchPollAction = (
+  deps: ControllerDeps,
+  state: MergeLoopState,
+  action: PollAction
+): Effect.Effect<NodeResolution, Error> =>
+  pollHandlers[action.kind](deps, state);
+
+/**
+ * Inner merge-resolution loop. Each iteration classifies the PR's required
+ * checks and dispatches on the signal via POLL_ACTION (the single owner). The
+ * handlers advance bounded counters; exhaustion is the only path to blocked.
+ */
+const resolveMerge = (
+  deps: ControllerDeps,
+  state: MergeLoopState
+): Effect.Effect<NodeResolution, Error> =>
+  Effect.gen(function* effectBody() {
+    const signal = yield* deps.classifyChecks(state.pr, deps.gh);
+    return yield* dispatchPollAction(deps, state, POLL_ACTION[signal]);
+  });
 
 // ---------------------------------------------------------------------------
 // Per-ticket resolution — running -> (poll pipeline) -> merging -> passed/blocked.
 // ---------------------------------------------------------------------------
 
-function resolveTicket(
+const resolveTicket = (
   deps: ControllerDeps,
   ticketId: string
-): Effect.Effect<NodeResolution, Error> {
-  return Effect.gen(function* () {
+): Effect.Effect<NodeResolution, Error> =>
+  Effect.gen(function* effectBody() {
     yield* transition(deps, ticketId, "running");
     const run = yield* deps.submitRun({
-      ticketId,
       deliveryMode: "create-new-pr",
+      ticketId,
     });
     const phase = yield* deps.pollPhase({
-      workflowName: run.workflowName,
       runId: run.runId,
+      workflowName: run.workflowName,
     });
 
     if (phase !== "Succeeded") {
@@ -428,95 +476,49 @@ function resolveTicket(
     yield* deps.merge({ classification: "fixable", pr: resolution });
 
     return yield* resolveMerge(deps, {
-      ticketId,
-      runId: run.runId,
+      mergePolls: 0,
       pr: resolution,
       remediationAttempts: 0,
-      mergePolls: 0,
+      runId: run.runId,
+      ticketId,
     });
   });
-}
 
-interface MergeLoopState {
-  readonly mergePolls: number;
-  readonly pr: OpenPr;
-  readonly remediationAttempts: number;
-  readonly runId: string;
-  readonly ticketId: string;
-}
-
-/**
- * Inner merge-resolution loop. Each iteration classifies the PR's required
- * checks and dispatches on the signal via POLL_ACTION (the single owner). The
- * handlers advance bounded counters; exhaustion is the only path to blocked.
- */
-function resolveMerge(
+drainStep = (
   deps: ControllerDeps,
-  state: MergeLoopState
-): Effect.Effect<NodeResolution, Error> {
-  return Effect.gen(function* () {
-    const signal = yield* deps.classifyChecks(state.pr, deps.gh);
-    return yield* dispatchPollAction(deps, state, POLL_ACTION[signal]);
-  });
-}
-
-/**
- * Handler table keyed on the poll action kind — the single owner of the inner
- * resolution dispatch. Each handler returns the node's next Effect; there is no
- * branch ladder.
- */
-const POLL_HANDLER: Readonly<
-  Record<
-    PollAction["kind"],
-    (
-      deps: ControllerDeps,
-      state: MergeLoopState
-    ) => Effect.Effect<NodeResolution, Error>
-  >
-> = {
-  passed: (deps, state) => passNode(deps, state.ticketId),
-  "admin-merge": (deps, state) => adminMergeNode(deps, state),
-  remediate: (deps, state) => remediateNode(deps, state),
-  wait: (deps, state) => waitNode(deps, state),
-};
-
-function dispatchPollAction(
-  deps: ControllerDeps,
-  state: MergeLoopState,
-  action: PollAction
-): Effect.Effect<NodeResolution, Error> {
-  return POLL_HANDLER[action.kind](deps, state);
-}
-
-function passNode(
-  deps: ControllerDeps,
-  ticketId: string
-): Effect.Effect<NodeResolution, Error> {
-  return transition(deps, ticketId, "passed").pipe(Effect.map(() => PASSED));
-}
-
-function adminMergeNode(
-  deps: ControllerDeps,
-  state: MergeLoopState
-): Effect.Effect<NodeResolution, Error> {
-  return Effect.gen(function* () {
-    const outcome = yield* deps.merge({
-      classification: "infra-down",
-      pr: state.pr,
-    });
-    if (outcome !== null && outcome._tag === "merged") {
-      return yield* passNode(deps, state.ticketId);
+  state: DrainState
+): Effect.Effect<LoopSummary, Error> =>
+  Effect.gen(function* effectBody() {
+    const next = yield* selectReadyExcluding(state);
+    if (Option.isNone(next)) {
+      return { blocked: state.blocked.size, passed: state.passed.size };
     }
-    // Admin-merge could not land (missing token / conflict) → blocked, surfaced.
-    return yield* blockNode(deps, state.ticketId);
-  });
-}
 
-function remediateNode(
+    const resolution = yield* resolveTicket(deps, next.value.id);
+
+    if (resolution === PASSED) {
+      const refreshed = yield* deps.refreshBacklog();
+      return yield* drainStep(deps, {
+        blocked: state.blocked,
+        passed: withId(state.passed, next.value.id),
+        selection: state.selection,
+        tasks: [...refreshed],
+      });
+    }
+
+    return yield* drainStep(deps, {
+      blocked: withId(state.blocked, next.value.id),
+      passed: state.passed,
+      selection: state.selection,
+      tasks: state.tasks,
+    });
+  });
+
+const remediateNode = (
   deps: ControllerDeps,
   state: MergeLoopState
-): Effect.Effect<NodeResolution, Error> {
-  return Effect.gen(function* () {
+): Effect.Effect<NodeResolution, Error> =>
+  Effect.gen(function* effectBody() {
     if (state.remediationAttempts >= deps.maxRemediationAttempts) {
       return yield* blockNode(deps, state.ticketId);
     }
@@ -524,23 +526,22 @@ function remediateNode(
     // MUST be the PR branch (moka/run/<originalRunId>) at the PR head sha so
     // fix-commits APPEND — the open-pull-request builtin owns no basing.
     yield* deps.submitRun({
-      ticketId: state.ticketId,
       deliveryMode: "update-existing-pr",
-      repositorySha: state.pr.headRefName,
       headBranch: `moka/run/${state.runId}`,
+      repositorySha: state.pr.headRefName,
+      ticketId: state.ticketId,
     });
     return yield* resolveMerge(deps, {
       ...state,
       remediationAttempts: state.remediationAttempts + 1,
     });
   });
-}
 
-function waitNode(
+const waitNode = (
   deps: ControllerDeps,
   state: MergeLoopState
-): Effect.Effect<NodeResolution, Error> {
-  return Effect.gen(function* () {
+): Effect.Effect<NodeResolution, Error> =>
+  Effect.gen(function* effectBody() {
     if (state.mergePolls >= deps.maxMergePolls) {
       // Bounded wait exhausted with no positive signal → blocked. NEVER merge
       // an indeterminate state.
@@ -552,21 +553,15 @@ function waitNode(
       mergePolls: state.mergePolls + 1,
     });
   });
-}
 
-const MERGE_POLL_INTERVAL_MS = 5000;
-
-function blockNode(
-  deps: ControllerDeps,
-  ticketId: string
-): Effect.Effect<NodeResolution, Error> {
-  return transition(deps, ticketId, "blocked").pipe(Effect.map(() => BLOCKED));
-}
-
-function transition(
-  deps: ControllerDeps,
-  ticketId: string,
-  loopState: LoopState
-): Effect.Effect<void, never> {
-  return deps.emit({ type: "loop.node.transition", ticketId, loopState });
-}
+/**
+ * Handler table keyed on the poll action kind — the single owner of the inner
+ * resolution dispatch. Each handler returns the node's next Effect; there is no
+ * branch ladder.
+ */
+pollHandlers = {
+  "admin-merge": (deps, state) => adminMergeNode(deps, state),
+  passed: (deps, state) => passNode(deps, state.ticketId),
+  remediate: (deps, state) => remediateNode(deps, state),
+  wait: (deps, state) => waitNode(deps, state),
+};

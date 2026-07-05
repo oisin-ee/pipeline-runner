@@ -1,4 +1,5 @@
 import { execa } from "execa";
+
 import { runAuthenticatedGit } from "../run-state/git-refs";
 
 /**
@@ -26,17 +27,19 @@ export type FactoryGit = (cwd: string, args: string[]) => Promise<string>;
 
 export type FactoryLog = (line: string) => void;
 
-export const defaultFactoryExec: FactoryExec = (command, args, options) =>
+export const defaultFactoryExec: FactoryExec = async (command, args, options) =>
   // extendEnv defaults to true, so options.env is merged onto process.env for
   // the child only (and inherited by grandchildren — copier's git subprocess).
-  execa(command, [...args], {
-    ...(options?.cwd ? { cwd: options.cwd } : {}),
-    ...(options?.env ? { env: options.env } : {}),
+  await execa(command, [...args], {
+    ...(options?.cwd !== undefined && options.cwd.length > 0
+      ? { cwd: options.cwd }
+      : {}),
+    ...(options?.env === undefined ? {} : { env: options.env }),
     stdin: "ignore",
   });
 
-export const defaultFactoryGit: FactoryGit = (cwd, args) =>
-  runAuthenticatedGit(cwd, args);
+export const defaultFactoryGit: FactoryGit = async (cwd, args) =>
+  await runAuthenticatedGit(cwd, args);
 
 export interface FactorySeams {
   readonly exec?: FactoryExec;
@@ -50,13 +53,11 @@ export interface ResolvedFactorySeams {
   readonly log: FactoryLog;
 }
 
-export function resolveFactorySeams(
+export const resolveFactorySeams = (
   seams: FactorySeams = {}
-): ResolvedFactorySeams {
-  return {
-    exec: seams.exec ?? defaultFactoryExec,
-    git: seams.git ?? defaultFactoryGit,
-    // Lane progress lines ARE the runner Job log — the acceptance-evidence channel.
-    log: seams.log ?? ((line: string) => console.log(line)),
-  };
-}
+): ResolvedFactorySeams => ({
+  exec: seams.exec ?? defaultFactoryExec,
+  git: seams.git ?? defaultFactoryGit,
+  // Lane progress lines ARE the runner Job log — the acceptance-evidence channel.
+  log: seams.log ?? ((line: string) => {}),
+});

@@ -1,9 +1,8 @@
 import { Effect } from "effect";
+
 import { RepoIoServiceLive } from "../runtime/services/repo-io-service";
-import {
-  type BacklogTaskRecord,
-  loadBacklogTaskStoreEffect,
-} from "../tickets/backlog-task-store";
+import { loadBacklogTaskStoreEffect } from "../tickets/backlog-task-store";
+import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
 
 // ===========================================================================
 // PIPE-88.8 — shared backlog record loader
@@ -14,12 +13,11 @@ import {
 // plain Error, and provides the RepoIo layer so callers stay layer-free.
 // ===========================================================================
 
-export function loadBacklogRecords(
+export const loadBacklogRecords = (
   worktreePath: string
-): Effect.Effect<readonly BacklogTaskRecord[], Error> {
-  return loadBacklogTaskStoreEffect(worktreePath).pipe(
+): Effect.Effect<readonly BacklogTaskRecord[], Error> =>
+  loadBacklogTaskStoreEffect(worktreePath).pipe(
     Effect.map((store) => store.tasks),
     Effect.mapError((error) => new Error(error.message)),
     Effect.provide(RepoIoServiceLive)
   );
-}

@@ -1,4 +1,6 @@
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import {
   handoffFinalizerPrompt,
   parseHandoff,
@@ -8,7 +10,7 @@ import {
 
 describe("parseHandoff", () => {
   it("defaults arrays when only a summary is provided", () => {
-    expect(parseHandoff('{"summary":"x"}')).toEqual({
+    expect(Option.getOrThrow(parseHandoff('{"summary":"x"}'))).toEqual({
       artifacts: [],
       decisions: [],
       openQuestions: [],
@@ -19,13 +21,14 @@ describe("parseHandoff", () => {
 
   it("parses a Markdown-fenced JSON handoff", () => {
     const raw = '```json\n{"summary":"done","decisions":["a"]}\n```';
-    expect(parseHandoff(raw)?.summary).toBe("done");
-    expect(parseHandoff(raw)?.decisions).toEqual(["a"]);
+    const handoff = Option.getOrThrow(parseHandoff(raw));
+    expect(handoff.summary).toBe("done");
+    expect(handoff.decisions).toEqual(["a"]);
   });
 
   it("returns null on non-JSON or when the required summary is missing", () => {
-    expect(parseHandoff("not json at all")).toBeNull();
-    expect(parseHandoff('{"decisions":[]}')).toBeNull();
+    expect(Option.isNone(parseHandoff("not json at all"))).toBe(true);
+    expect(Option.isNone(parseHandoff('{"decisions":[]}'))).toBe(true);
   });
 });
 

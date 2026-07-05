@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   baseGateRuntimeFields,
   gateNodeStateStore,
@@ -17,22 +18,21 @@ import { acceptanceUnmetCriteria } from "./kinds/acceptance/acceptance";
 import { evaluateChangedFilesGate } from "./kinds/changed-files/changed-files";
 import { evaluateNodeGates } from "./orchestrator";
 
-function changedFilesContext(
+const changedFilesContext = (
   files: string[]
-): Pick<RuntimeContext, "nodeStateStore"> {
-  return {
+): Pick<RuntimeContext, "nodeStateStore"> =>
+  ({
     nodeStateStore: new NodeStateStore({
       nodeSnapshots: new Map([
         ["node-a", { files: new Set(files), fingerprints: new Map() }],
       ]),
     }),
-  } satisfies Pick<RuntimeContext, "nodeStateStore">;
-}
+  }) satisfies Pick<RuntimeContext, "nodeStateStore">;
 
-function directGateRuntimeContext(
+const directGateRuntimeContext = (
   observability: RuntimeObservabilityEvent[],
   reporterEvents: PipelineRuntimeEvent[]
-): RuntimeContext {
+): RuntimeContext => {
   const config = parsePipelineConfigParts(
     {
       pipeline: `
@@ -83,7 +83,7 @@ runners:
     workflowId: "direct-gates",
     worktreePath: process.cwd(),
   };
-}
+};
 
 describe("runtime gates", () => {
   it("reports structured unmet criteria for missing, duplicate, extra, failing, and unevidenced acceptance coverage", () => {

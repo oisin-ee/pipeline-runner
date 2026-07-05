@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
+
 import type { CheckClassification, GhRunner, PrResolution } from "./gh-checks";
 
 // ---------------------------------------------------------------------------
@@ -38,18 +40,21 @@ export interface SecretToken {
 }
 
 /** Wrap a raw secret string so it can never be rendered, only revealed. */
-export function secretToken(value: string): SecretToken {
-  return { reveal: () => value };
-}
+export const secretToken = (value: string): SecretToken => ({
+  reveal: () => value,
+});
 
 // ---------------------------------------------------------------------------
 // Secret-file reader seam — injected so tests never touch a real mount.
 // ---------------------------------------------------------------------------
 
 export interface SecretFileReader {
-  /** Read the bypass token from its mounted file, or `null` if absent. */
-  readBypassToken: () => SecretToken | null;
+  /** Read the bypass token from its mounted file. */
+  readBypassToken: () => Option.Option<SecretToken>;
 }
+
+const mergeSecretsDir = (): string =>
+  process.env.PIPELINE_MERGE_BYPASS_DIR ?? DEFAULT_MERGE_SECRETS_DIR;
 
 /**
  * Production reader: follows the git-refs secret-from-file pattern —
@@ -62,16 +67,12 @@ const fileSecretReader: SecretFileReader = {
   readBypassToken: () => {
     const path = resolve(mergeSecretsDir(), MERGE_BYPASS_TOKEN_FILENAME);
     if (!existsSync(path)) {
-      return null;
+      return Option.none();
     }
-    const value = readFileSync(path, "utf8").trim();
-    return value.length === 0 ? null : secretToken(value);
+    const value = readFileSync(path, "utf-8").trim();
+    return value.length === 0 ? Option.none() : Option.some(secretToken(value));
   },
 };
-
-function mergeSecretsDir(): string {
-  return process.env.PIPELINE_MERGE_BYPASS_DIR ?? DEFAULT_MERGE_SECRETS_DIR;
-}
 
 // ---------------------------------------------------------------------------
 // Outcome types — a discriminated union; no nullable/throw-and-swallow paths.
@@ -117,12 +118,22 @@ const CONFLICT_MARKERS: readonly string[] = [
   "conflicts with the base branch",
 ];
 
-function blockedReasonForGhError(message: string): BlockedReason {
+const blockedReasonForGhError = (message: string): BlockedReason => {
   const lower = message.toLowerCase();
   return CONFLICT_MARKERS.some((marker) => lower.includes(marker))
     ? "merge-conflict"
     : "not-mergeable";
-}
+};
+
+const toBlocked = (pr: OpenPr, error: unknown): MergeBlocked => {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    _tag: "blocked",
+    detail: message,
+    pr: pr.number,
+    reason: blockedReasonForGhError(message),
+  };
+};
 
 // ---------------------------------------------------------------------------
 // AC1: enableAutoMerge — honors branch protection; returns PENDING (not merged).
@@ -133,16 +144,16 @@ function blockedReasonForGhError(message: string): BlockedReason {
  * PR until required CI is green, so this returns a PENDING status — the merge
  * is not terminal here. A non-mergeable PR (conflict) surfaces as `blocked`.
  */
-export function enableAutoMerge(
+export const enableAutoMerge = (
   pr: OpenPr,
   gh: GhRunner
-): Effect.Effect<MergePending | MergeBlocked, Error> {
+): Effect.Effect<MergePending | MergeBlocked, Error> => {
   const args = ["pr", "merge", String(pr.number), "--auto", "--squash"];
   return gh.text(args).pipe(
     Effect.map((): MergePending => ({ _tag: "pending", pr: pr.number })),
     Effect.catch((error) => Effect.succeed(toBlocked(pr, error)))
   );
-}
+};
 
 // ---------------------------------------------------------------------------
 // AC2/AC3: adminMerge — ONLY callable for infra-down (enforced by dispatch).
@@ -157,11 +168,11 @@ export function enableAutoMerge(
  * the only caller, and it only routes `infra-down` here. Exported for testing
  * the gating + redaction contract in isolation.
  */
-export function adminMerge(
+export const adminMerge = (
   pr: OpenPr,
   token: SecretToken,
   gh: GhRunner
-): Effect.Effect<Merged | MergeBlocked, Error> {
+): Effect.Effect<Merged | MergeBlocked, Error> => {
   const args = ["pr", "merge", String(pr.number), "--admin", "--squash"];
   // The token is revealed ONCE, here at the auth-injection boundary, and handed
   // to the gh runner via `secretEnv` (child-process env), NOT via argv. The raw
@@ -171,17 +182,7 @@ export function adminMerge(
     Effect.map((): Merged => ({ _tag: "merged", pr: pr.number })),
     Effect.catch((error) => Effect.succeed(toBlocked(pr, error)))
   );
-}
-
-function toBlocked(pr: OpenPr, error: unknown): MergeBlocked {
-  const message = error instanceof Error ? error.message : String(error);
-  return {
-    _tag: "blocked",
-    detail: message,
-    pr: pr.number,
-    reason: blockedReasonForGhError(message),
-  };
-}
+};
 
 // ---------------------------------------------------------------------------
 // Action selection — ONE owner: a data table keyed on the classification.
@@ -199,16 +200,14 @@ const ACTION_FOR_CLASSIFICATION: Readonly<
   Record<CheckClassification, MergeActionKind>
 > = {
   fixable: "none",
-  "infra-down": "admin-merge",
   indeterminate: "none",
+  "infra-down": "admin-merge",
 };
 
 /** Pure lookup of the action a classification maps to. */
-export function selectMergeAction(
+export const selectMergeAction = (
   classification: CheckClassification
-): MergeActionKind {
-  return ACTION_FOR_CLASSIFICATION[classification];
-}
+): MergeActionKind => ACTION_FOR_CLASSIFICATION[classification];
 
 // ---------------------------------------------------------------------------
 // mergeForClassification — the orchestrated entrypoint.
@@ -221,30 +220,34 @@ export function selectMergeAction(
  *   - `infra-down` → admin-merge with the bypass token (read once from file).
  *     A missing token surfaces as a typed `blocked`, never a silent skip.
  */
-export function mergeForClassification(input: {
+export const mergeForClassification = (input: {
   classification: CheckClassification;
   gh: GhRunner;
   pr: OpenPr;
   /** Secret reader; defaults to the mounted-file reader, overridden in tests. */
   secrets?: SecretFileReader;
-}): Effect.Effect<MergeOutcome | null, Error> {
+}): Effect.Effect<Option.Option<MergeOutcome>, Error> => {
   const action = selectMergeAction(input.classification);
   if (action === "none") {
-    return Effect.succeed(null);
+    return Effect.succeed(Option.none());
   }
   if (action === "auto-merge") {
-    return enableAutoMerge(input.pr, input.gh);
+    return enableAutoMerge(input.pr, input.gh).pipe(Effect.map(Option.some));
   }
   // action === "admin-merge" → infra-down only. Read the token at this boundary.
   const secrets = input.secrets ?? fileSecretReader;
   const token = secrets.readBypassToken();
-  if (token === null) {
-    return Effect.succeed<MergeBlocked>({
-      _tag: "blocked",
-      detail: "admin-merge requires a bypass token but none was mounted",
-      pr: input.pr.number,
-      reason: "missing-token",
-    });
-  }
-  return adminMerge(input.pr, token, input.gh);
-}
+  return Option.match(token, {
+    onNone: () =>
+      Effect.succeed(
+        Option.some<MergeOutcome>({
+          _tag: "blocked",
+          detail: "admin-merge requires a bypass token but none was mounted",
+          pr: input.pr.number,
+          reason: "missing-token",
+        })
+      ),
+    onSome: (value) =>
+      adminMerge(input.pr, value, input.gh).pipe(Effect.map(Option.some)),
+  });
+};

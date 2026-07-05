@@ -1,30 +1,24 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import {
-  type CheckClassification,
-  classifyRequiredChecks,
-  type GhRunner,
-  type PrResolution,
-  resolvePrForRun,
-} from "./gh-checks";
+
+import { classifyRequiredChecks, resolvePrForRun } from "./gh-checks";
+import type { CheckClassification, GhRunner, PrResolution } from "./gh-checks";
 
 // ---------------------------------------------------------------------------
 // GhRunner stubs
 // ---------------------------------------------------------------------------
 
-function stubGhRunner(responses: Record<string, unknown>): GhRunner {
-  return {
-    json: (args: string[]) => {
-      const key = args.join(" ");
-      if (key in responses) {
-        return Effect.succeed(responses[key]);
-      }
-      return Effect.fail(new Error(`unexpected gh call: ${key}`));
-    },
-    text: (args: string[]) =>
-      Effect.fail(new Error(`unexpected gh text call: ${args.join(" ")}`)),
-  };
-}
+const stubGhRunner = (responses: Record<string, unknown>): GhRunner => ({
+  json: (args: string[]) => {
+    const key = args.join(" ");
+    if (key in responses) {
+      return Effect.succeed(responses[key]);
+    }
+    return Effect.fail(new Error(`unexpected gh call: ${key}`));
+  },
+  text: (args: string[]) =>
+    Effect.fail(new Error(`unexpected gh text call: ${args.join(" ")}`)),
+});
 
 // ---------------------------------------------------------------------------
 // AC1: resolvePrForRun
@@ -38,8 +32,8 @@ describe("resolvePrForRun", () => {
     const gh = stubGhRunner({
       [PR_LIST_ARGS]: [
         {
-          number: 42,
           headRefName: "moka/run/run-abc",
+          number: 42,
           url: "https://github.com/o/r/pull/42",
         },
       ],
@@ -90,27 +84,33 @@ const PR_REF: Extract<PrResolution, { found: true }> = {
 };
 
 interface ChecksPayload {
-  checkRuns: {
-    conclusion: string | null;
-    name: string;
-    required: boolean;
-    status: string;
-  }[];
+  checkRuns: (
+    | {
+        conclusion: string;
+        name: string;
+        required: boolean;
+        status: string;
+      }
+    | {
+        conclusion: null;
+        name: string;
+        required: boolean;
+        status: string;
+      }
+  )[];
   statuses: {
     required: boolean;
     state: string;
   }[];
 }
 
-function stubChecks(payload: ChecksPayload): GhRunner {
-  return stubGhRunner({
+const stubChecks = (payload: ChecksPayload): GhRunner =>
+  stubGhRunner({
     "pr checks 7 --json name,conclusion,status,required,startedAt": payload,
   });
-}
 
-function classify(gh: GhRunner): Promise<CheckClassification> {
-  return Effect.runPromise(classifyRequiredChecks(PR_REF, gh));
-}
+const classify = async (gh: GhRunner): Promise<CheckClassification> =>
+  await Effect.runPromise(classifyRequiredChecks(PR_REF, gh));
 
 describe("classifyRequiredChecks", () => {
   // failure conclusion → fixable

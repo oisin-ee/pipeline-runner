@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+
 import { vi } from "vitest";
 
 export interface CliCapture {
@@ -20,46 +21,43 @@ export interface ScheduleArtifactInput {
   worktreePath: string;
 }
 
-export function runPath(
+export const runPath = (
   workspaceRoot: string,
   runId: string,
   ...parts: string[]
-): string {
-  return join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
-}
+): string => join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
 
-export function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
+export const readJson = (path: string): unknown =>
+  JSON.parse(readFileSync(path, "utf-8"));
 
-export function readJsonl(path: string): unknown[] {
+export const readJsonl = (path: string): unknown[] => {
   if (!existsSync(path)) {
     return [];
   }
-  return readFileSync(path, "utf8")
+  return readFileSync(path, "utf-8")
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line));
-}
+};
 
-export function writeJson(path: string, value: unknown): void {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
+export const writeJson = (path: string, value: unknown): void => {
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
+};
 
-export function restoreEnv(key: string, value: string | undefined): void {
+export const restoreEnv = (key: string, value: string | undefined): void => {
   if (value === undefined) {
     delete process.env[key];
     return;
   }
   process.env[key] = value;
-}
+};
 
-export async function runMokaCliInTarget(input: {
+export const runMokaCliInTarget = async (input: {
   args: string[];
   buffers: CliOutputBuffers;
   originalPipelineTargetPath: string | undefined;
   workspaceRoot: string;
-}): Promise<CliCapture> {
+}): Promise<CliCapture> => {
   const { createCliProgram } = await import("../src/cli/program");
   const log = vi.spyOn(console, "log").mockImplementation((...messages) => {
     input.buffers.stdout.push(`${messages.map(String).join(" ")}\n`);
@@ -80,8 +78,8 @@ export async function runMokaCliInTarget(input: {
       ["node", "/repo/node_modules/.bin/moka", ...input.args],
       { from: "node" }
     );
-  } catch (err) {
-    thrown = err;
+  } catch (error) {
+    thrown = error;
   } finally {
     log.mockRestore();
     error.mockRestore();
@@ -93,16 +91,16 @@ export async function runMokaCliInTarget(input: {
     stdout: input.buffers.stdout.join(""),
     thrown,
   };
-}
+};
 
-export function writeMockScheduleArtifact(
+export const writeMockScheduleArtifact = (
   input: ScheduleArtifactInput,
   options: {
     command: string;
     nodeId: string;
     rootWorkflowId: string;
   }
-): string {
+): string => {
   const schedulePath = `.pipeline/runs/${input.runId}/schedule.yaml`;
   const fullPath = join(input.worktreePath, schedulePath);
   mkdirSync(dirname(fullPath), { recursive: true });
@@ -126,4 +124,4 @@ export function writeMockScheduleArtifact(
     ].join("\n")
   );
   return schedulePath;
-}
+};

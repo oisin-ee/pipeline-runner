@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { Option } from "commander";
+
 import { runCreateExperiment } from "../factory/create-experiment";
 import {
   runTemplateUpdate,
@@ -25,7 +26,10 @@ interface TemplateUpdateFlags {
   templateRef?: string;
 }
 
-export function registerFactoryCommands(program: Command): void {
+const hasText = (value: unknown): value is string =>
+  typeof value === "string" && value !== "";
+
+export const registerFactoryCommands = (program: Command): void => {
   program
     .command("create-experiment")
     .description(
@@ -47,12 +51,18 @@ export function registerFactoryCommands(program: Command): void {
       const result = await runCreateExperiment({
         db: flags.db,
         flavor: flags.flavor,
-        ...(flags.infraRepoUrl ? { infraRepoUrl: flags.infraRepoUrl } : {}),
+        ...(hasText(flags.infraRepoUrl)
+          ? { infraRepoUrl: flags.infraRepoUrl }
+          : {}),
         name: flags.name,
-        ...(flags.org ? { org: flags.org } : {}),
+        ...(hasText(flags.org) ? { org: flags.org } : {}),
         previews: flags.previews,
-        ...(flags.templateRef ? { templateRef: flags.templateRef } : {}),
-        ...(flags.templateSrc ? { templateSource: flags.templateSrc } : {}),
+        ...(hasText(flags.templateRef)
+          ? { templateRef: flags.templateRef }
+          : {}),
+        ...(hasText(flags.templateSrc)
+          ? { templateSource: flags.templateSrc }
+          : {}),
       });
       console.log(
         `Experiment born: ${result.repoUrl} (registry ${result.registryPath} @ infra ${result.infraCommitSha})`
@@ -77,9 +87,11 @@ export function registerFactoryCommands(program: Command): void {
     .option("--infra-repo-url <url>", "infra repo used for discovery")
     .action(async (flags: TemplateUpdateFlags) => {
       const { results } = await runTemplateUpdate({
-        ...(flags.infraRepoUrl ? { infraRepoUrl: flags.infraRepoUrl } : {}),
-        ...(flags.org ? { org: flags.org } : {}),
-        ...(flags.repos
+        ...(hasText(flags.infraRepoUrl)
+          ? { infraRepoUrl: flags.infraRepoUrl }
+          : {}),
+        ...(hasText(flags.org) ? { org: flags.org } : {}),
+        ...(hasText(flags.repos)
           ? {
               repos: flags.repos
                 .split(",")
@@ -87,8 +99,12 @@ export function registerFactoryCommands(program: Command): void {
                 .filter((repo) => repo.length > 0),
             }
           : {}),
-        ...(flags.templateMatch ? { templateMatch: flags.templateMatch } : {}),
-        ...(flags.templateRef ? { templateRef: flags.templateRef } : {}),
+        ...(hasText(flags.templateMatch)
+          ? { templateMatch: flags.templateMatch }
+          : {}),
+        ...(hasText(flags.templateRef)
+          ? { templateRef: flags.templateRef }
+          : {}),
       });
       const { failed, opened } = summarizeTemplateUpdate(results);
       console.log(
@@ -98,4 +114,4 @@ export function registerFactoryCommands(program: Command): void {
         process.exitCode = 1;
       }
     });
-}
+};

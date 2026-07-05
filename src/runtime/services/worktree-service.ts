@@ -1,10 +1,13 @@
 import { Context, Effect, Layer } from "effect";
+
 import {
-  type CreateWorktreeOptions,
   createChildWorktree,
   gcParallelWorktrees,
-  type WorktreeLease,
-  type WorktreeState,
+} from "../parallel-worktrees/parallel-worktrees";
+import type {
+  CreateWorktreeOptions,
+  WorktreeLease,
+  WorktreeState,
 } from "../parallel-worktrees/parallel-worktrees";
 
 /**

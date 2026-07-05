@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+
 import postgres from "postgres";
 import { afterAll, beforeAll } from "vitest";
+
 import { migratePostgresDurableStore } from "../src/runtime/durable-store/postgres/postgres-store";
 
 export interface LivePgDurableSuite {
@@ -16,10 +18,10 @@ export interface LivePgDurableSuite {
  *
  * Call inside a `describe` block (it registers `beforeAll`/`afterAll`).
  */
-export function setupLivePgDurableSuite(
+export const setupLivePgDurableSuite = (
   dbUrl: string,
   prefix: string
-): LivePgDurableSuite {
+): LivePgDurableSuite => {
   const suitePrefix = `${prefix}-${randomUUID()}`;
   let admin: postgres.Sql;
 
@@ -37,4 +39,4 @@ export function setupLivePgDurableSuite(
   return {
     runId: (label) => `${suitePrefix}:${label}:${randomUUID()}`,
   };
-}
+};

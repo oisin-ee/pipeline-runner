@@ -9,12 +9,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 const tempDirs: string[] = [];
 const MISSING_CONFIG_AFFORDANCE_RE =
-  /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/i;
+  /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/iu;
 const packageExportSchema = z
   .object({
     import: z.string(),
@@ -38,13 +39,13 @@ const EXPECTED_PUBLIC_EXPORTS = {
     types: "./dist/argo-workflow.d.ts",
   },
   "./config": { import: "./dist/config.js", types: "./dist/config.d.ts" },
-  "./factory-lane": {
-    import: "./dist/factory-lane.js",
-    types: "./dist/factory-lane.d.ts",
-  },
   "./events": {
     import: "./dist/runner-event-schema.js",
     types: "./dist/runner-event-schema.d.ts",
+  },
+  "./factory-lane": {
+    import: "./dist/factory-lane.js",
+    types: "./dist/factory-lane.d.ts",
   },
   "./hooks": { import: "./dist/hooks.js", types: "./dist/hooks.d.ts" },
   "./moka-global-config": {
@@ -64,10 +65,6 @@ const EXPECTED_PUBLIC_EXPORTS = {
     import: "./dist/runner-command-contract.js",
     types: "./dist/runner-command-contract.d.ts",
   },
-  "./tickets": {
-    import: "./dist/tickets/ticket-graph-dto.js",
-    types: "./dist/tickets/ticket-graph-dto.d.ts",
-  },
   "./runtime": {
     import: "./dist/pipeline-runtime.js",
     types: "./dist/pipeline-runtime.d.ts",
@@ -75,6 +72,10 @@ const EXPECTED_PUBLIC_EXPORTS = {
   "./schedule": {
     import: "./dist/planning/generate.js",
     types: "./dist/planning/generate.d.ts",
+  },
+  "./tickets": {
+    import: "./dist/tickets/ticket-graph-dto.js",
+    types: "./dist/tickets/ticket-graph-dto.d.ts",
   },
 } as const;
 
@@ -84,7 +85,7 @@ afterEach(() => {
   }
 });
 
-function tempConsumerApp(): string {
+const tempConsumerApp = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "pipeline-public-api-consumer-"));
   tempDirs.push(dir);
 
@@ -119,17 +120,17 @@ function tempConsumerApp(): string {
   );
 
   return dir;
-}
+};
 
-function runChecked(
+const runChecked = (
   command: string,
   args: string[],
   options: { cwd: string }
-): string {
+): string => {
   try {
     return execFileSync(command, args, {
       cwd: options.cwd,
-      encoding: "utf8",
+      encoding: "utf-8",
       stdio: "pipe",
     });
   } catch (error) {
@@ -141,20 +142,21 @@ function runChecked(
     throw new Error(
       [output.message, output.stdout?.toString(), output.stderr?.toString()]
         .filter(Boolean)
-        .join("\n")
+        .join("\n"),
+      { cause: error }
     );
   }
-}
+};
 
-function expectCommandToFail(
+const expectCommandToFail = (
   command: string,
   args: string[],
   options: { cwd: string }
-): string {
+): string => {
   try {
     execFileSync(command, args, {
       cwd: options.cwd,
-      encoding: "utf8",
+      encoding: "utf-8",
       stdio: "pipe",
     });
   } catch (error) {
@@ -172,20 +174,20 @@ function expectCommandToFail(
       .join("\n");
   }
   throw new Error(`Expected ${command} ${args.join(" ")} to fail`);
-}
+};
 
-function packJson(output: string): string {
+const packJson = (output: string): string => {
   const start = output.lastIndexOf("[\n  {");
   if (start === -1) {
     throw new Error(`Expected npm pack JSON output, got:\n${output}`);
   }
   return output.slice(start);
-}
+};
 
 describe("package public app-facing API", () => {
   it("pins the package export map and CLI bin surface before structural cleanup", () => {
     const packageJson = packageJsonSchema.parse(
-      JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"))
+      JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf-8"))
     );
 
     expect(packageJson.bin).toEqual({ moka: "dist/index.js" });
@@ -197,7 +199,7 @@ describe("package public app-facing API", () => {
       cwd: process.cwd(),
     });
     const [{ files }] = JSON.parse(packJson(output)) as [
-      { files: Array<{ path: string }> },
+      { files: { path: string }[] },
     ];
     const packedPaths = files.map((file) => file.path);
 
@@ -216,7 +218,7 @@ describe("package public app-facing API", () => {
   }, 30_000);
 
   it("documents stable app-facing config, planner, and runtime imports", () => {
-    const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
+    const readme = readFileSync(join(process.cwd(), "README.md"), "utf-8");
 
     expect(readme).toContain("@oisincoveney/pipeline/config");
     expect(readme).toContain("@oisincoveney/pipeline/planner");
@@ -561,7 +563,7 @@ void runnerManifest;
 void staticSubmitOptions;
 void dynamicSubmitOptions;
 `,
-      "utf8"
+      "utf-8"
     );
 
     runChecked(
@@ -587,7 +589,7 @@ void dynamicSubmitOptions;
 	void tryLoadPipelineConfig;
 	void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
 	`,
-      "utf8"
+      "utf-8"
     );
 
     const output = expectCommandToFail(
@@ -648,7 +650,7 @@ if (typeof mokaSubmitResultSchema.parse !== "function") {
   throw new Error("moka submit result schema was not exported");
 }
 `,
-      "utf8"
+      "utf-8"
     );
 
     runChecked("node", ["runtime-smoke.mjs"], {

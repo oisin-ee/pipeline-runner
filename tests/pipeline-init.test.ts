@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -21,18 +22,17 @@ import {
 // via chezmoi, not Moka, so this suite asserts an adapter-only install with no
 // network side effects.
 
-function bootstrappedHostFilesExist(home: string): boolean {
-  return [
+const bootstrappedHostFilesExist = (home: string): boolean =>
+  [
     join(home, ".config", "opencode", "commands", "moka-execute.md"),
     join(home, ".config", "opencode", "opencode.json"),
     join(home, ".claude", "commands", "moka-execute.md"),
   ].every((absolutePath) => existsSync(absolutePath));
-}
 
 describe("initPipelineProject (global scope)", () => {
   let dir: string;
   let home: string;
-  const savedEnv: Record<string, string | undefined> = {};
+  const savedEnv: NodeJS.ProcessEnv = {};
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "pipeline-init-repo-"));
@@ -63,8 +63,8 @@ describe("initPipelineProject (global scope)", () => {
         process.env[key] = value;
       }
     }
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(home, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
+    rmSync(home, { force: true, recursive: true });
   });
 
   it("installs host adapters without repo-local pipeline config", async () => {
@@ -79,7 +79,7 @@ describe("initPipelineProject (global scope)", () => {
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(bootstrappedHostFilesExist(home)).toBe(true);
     const opencode = JSON.parse(
-      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8")
+      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf-8")
     );
     expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
       type: "remote",
@@ -122,7 +122,7 @@ describe("initPipelineProject (global scope)", () => {
 
     await initPipelineProject({ cwd: dir });
 
-    expect(readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf8")).toBe(
+    expect(readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf-8")).toBe(
       "custom: true\n"
     );
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
@@ -142,7 +142,7 @@ describe("initPipelineProject (global scope)", () => {
 
     await initPipelineProject({ cwd: dir });
 
-    expect(readFileSync(commandPath, "utf8")).not.toBe(
+    expect(readFileSync(commandPath, "utf-8")).not.toBe(
       "manual stale command\n"
     );
   });

@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
+
 import { Effect } from "effect";
+
 import { BUILTIN_PIPE_COMMANDS } from "../commands/pipeline-command";
 import { resolvePackageAssetPath } from "../package-assets";
 import {
@@ -17,67 +19,30 @@ export interface ConfigLintWarning {
   ruleId: string;
 }
 
-export function lintPipelineConfig(
-  config: PipelineConfig,
-  projectRoot: string
-): ConfigLintWarning[] {
-  return runFileSystemSync(
-    lintPipelineConfigEffect(config, projectRoot),
-    FileSystemServiceLive
-  );
-}
-
-function lintPipelineConfigEffect(
-  config: PipelineConfig,
-  projectRoot: string
-): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> {
-  return Effect.gen(function* () {
-    const missingFiles = yield* lintMissingFileReferencesEffect(
-      config,
-      projectRoot
-    );
-    return [
-      ...lintShadowedEntrypoints(config),
-      ...missingFiles,
-      ...lintWorkflowNodes(config),
-    ];
-  });
-}
-
-function lintShadowedEntrypoints(config: PipelineConfig): ConfigLintWarning[] {
-  return Object.keys(config.entrypoints)
+const lintShadowedEntrypoints = (config: PipelineConfig): ConfigLintWarning[] =>
+  Object.keys(config.entrypoints)
     .filter((id) => BUILTIN_PIPE_COMMANDS.has(id))
     .map((id) => ({
-      ruleId: "entrypoint-shadowed",
       message: `entrypoint '${id}' is shadowed by the builtin subcommand; invoke via 'moka run --entrypoint ${id} ...'`,
+      ruleId: "entrypoint-shadowed",
     }));
-}
 
-function lintMissingFileReferencesEffect(
-  config: PipelineConfig,
-  projectRoot: string
-): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystemService;
-    const warnings: ConfigLintWarning[] = [];
-    for (const ref of lintFileReferences(config)) {
-      const exists = yield* lintFileReferenceExists(
-        projectRoot,
-        ref,
-        fileSystem.exists
-      );
-      if (!exists) {
-        warnings.push(missingFileReferenceWarning(ref.path, ref.ref.path));
-      }
-    }
-    return warnings;
-  });
-}
+const pushLintPathRef = (
+  refs: ReturnType<typeof lintFileReferences>,
+  path: string,
+  ref: { path?: string; source_root?: "package" | "project" }
+): void => {
+  if (ref.path !== undefined && ref.path !== "") {
+    refs.push({ path, ref: { ...ref, path: ref.path } });
+  }
+};
 
-function lintFileReferences(config: PipelineConfig): Array<{
+const lintFileReferences = (
+  config: PipelineConfig
+): {
   path: string;
   ref: { path: string; source_root?: "package" | "project" };
-}> {
+}[] => {
   const refs: ReturnType<typeof lintFileReferences> = [];
   // Skill bodies are shared harness assets installed from oisin-ee/agent, so a
   // missing skill body is not a config defect and must not produce a
@@ -92,58 +57,83 @@ function lintFileReferences(config: PipelineConfig): Array<{
     });
   }
   return refs;
-}
+};
 
-function pushLintPathRef(
-  refs: ReturnType<typeof lintFileReferences>,
-  path: string,
-  ref: { path?: string; source_root?: "package" | "project" }
-): void {
-  if (ref.path) {
-    refs.push({ path, ref: { ...ref, path: ref.path } });
-  }
-}
-
-function lintFileReferenceExists(
-  projectRoot: string,
-  ref: ReturnType<typeof lintFileReferences>[number],
-  exists: (path: string) => Effect.Effect<boolean>
-): Effect.Effect<boolean> {
-  if (standardOutputSchemaNameFromPath(ref.ref.path)) {
-    return Effect.succeed(true);
-  }
-  return exists(resolveLintPathReference(projectRoot, ref.ref));
-}
-
-function missingFileReferenceWarning(
-  path: string,
-  value: string
-): ConfigLintWarning {
-  return {
-    ruleId: "missing-file-reference",
-    message: missingFileReferenceMessage(path, value),
-  };
-}
-
-function missingFileReferenceMessage(path: string, value: string): string {
+const missingFileReferenceMessage = (path: string, value: string): string => {
   const base = `${path} references missing file '${value}'`;
   if (path.startsWith("skills.") && value.startsWith(".agents/skills/")) {
     return `${base}. Run \`chezmoi apply --refresh-externals always\` to install shared harness skills from oisin-ee/agent.`;
   }
   return base;
-}
+};
 
-function resolveLintPathReference(
+const missingFileReferenceWarning = (
+  path: string,
+  value: string
+): ConfigLintWarning => ({
+  message: missingFileReferenceMessage(path, value),
+  ruleId: "missing-file-reference",
+});
+
+const resolveLintPathReference = (
   projectRoot: string,
-  ref: { path?: string; source_root?: "package" | "project" } | undefined
-): string {
-  if (ref?.source_root === "package") {
+  ref: { path: string; source_root?: "package" | "project" }
+): string => {
+  if (ref.source_root === "package") {
     return resolvePackageAssetPath(ref.path);
   }
-  return resolve(projectRoot, ref?.path ?? "");
-}
+  return resolve(projectRoot, ref.path);
+};
 
-function lintWorkflowNodes(config: PipelineConfig): ConfigLintWarning[] {
+const lintFileReferenceExists = (
+  projectRoot: string,
+  ref: ReturnType<typeof lintFileReferences>[number],
+  exists: (path: string) => Effect.Effect<boolean>
+): Effect.Effect<boolean> => {
+  if (standardOutputSchemaNameFromPath(ref.ref.path)) {
+    return Effect.succeed(true);
+  }
+  return exists(resolveLintPathReference(projectRoot, ref.ref));
+};
+
+const lintMissingFileReferencesEffect = (
+  config: PipelineConfig,
+  projectRoot: string
+): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> =>
+  Effect.gen(function* effectBody() {
+    const fileSystem = yield* FileSystemService;
+    const warnings: ConfigLintWarning[] = [];
+    for (const ref of lintFileReferences(config)) {
+      const exists = yield* lintFileReferenceExists(
+        projectRoot,
+        ref,
+        fileSystem.exists
+      );
+      if (!exists) {
+        warnings.push(missingFileReferenceWarning(ref.path, ref.ref.path));
+      }
+    }
+    return warnings;
+  });
+
+const lintWorkflowNode = (
+  warnings: ConfigLintWarning[],
+  node: ConfigWorkflowNode
+): void => {
+  if (node.kind === "parallel") {
+    if (node.nodes.length === 1) {
+      warnings.push({
+        message: `node '${node.id}' is a parallel container with only one child; remove the wrapper`,
+        ruleId: "singleton-parallel",
+      });
+    }
+    for (const child of node.nodes) {
+      lintWorkflowNode(warnings, child);
+    }
+  }
+};
+
+const lintWorkflowNodes = (config: PipelineConfig): ConfigLintWarning[] => {
   const warnings: ConfigLintWarning[] = [];
   for (const workflow of Object.values(config.workflows)) {
     for (const node of workflow.nodes) {
@@ -151,25 +141,32 @@ function lintWorkflowNodes(config: PipelineConfig): ConfigLintWarning[] {
     }
   }
   return warnings;
-}
+};
 
-function lintWorkflowNode(
-  warnings: ConfigLintWarning[],
-  node: ConfigWorkflowNode
-): void {
-  if (node.kind === "parallel") {
-    if (node.nodes.length === 1) {
-      warnings.push({
-        ruleId: "singleton-parallel",
-        message: `node '${node.id}' is a parallel container with only one child; remove the wrapper`,
-      });
-    }
-    for (const child of node.nodes) {
-      lintWorkflowNode(warnings, child);
-    }
-  }
-}
+const lintPipelineConfigEffect = (
+  config: PipelineConfig,
+  projectRoot: string
+): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> =>
+  Effect.gen(function* effectBody() {
+    const missingFiles = yield* lintMissingFileReferencesEffect(
+      config,
+      projectRoot
+    );
+    return [
+      ...lintShadowedEntrypoints(config),
+      ...missingFiles,
+      ...lintWorkflowNodes(config),
+    ];
+  });
 
-export function formatConfigLintWarning(warning: ConfigLintWarning): string {
-  return `WARN ${warning.ruleId}: ${warning.message}`;
-}
+export const lintPipelineConfig = (
+  config: PipelineConfig,
+  projectRoot: string
+): ConfigLintWarning[] =>
+  runFileSystemSync(
+    lintPipelineConfigEffect(config, projectRoot),
+    FileSystemServiceLive
+  );
+
+export const formatConfigLintWarning = (warning: ConfigLintWarning): string =>
+  `WARN ${warning.ruleId}: ${warning.message}`;

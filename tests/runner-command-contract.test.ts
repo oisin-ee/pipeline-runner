@@ -3,61 +3,56 @@ import { describe, expect, it } from "vitest";
 const TIMESTAMP = "2026-06-02T09:00:00.000Z";
 const RUNNER_COMMAND_CONTRACT_VERSION = "1";
 const EVENT_URL = "https://console.example.test/api/pipeline/runner-events";
-const MISSING_RUN_ID_RE = /run\.id.*required/i;
-const INVALID_REPOSITORY_URL_RE = /repository\.url.*valid URL/i;
-const PROTOTYPE_POLLUTION_RE = /proto/i;
-const CONTRACT_VERSION_RE = /contract version/i;
-const AUTH_TOKEN_FILE_RE = /authTokenFile/i;
-const INVALID_SUBMISSION_MODE_RE = /submission\.mode/i;
+const MISSING_RUN_ID_RE = /run\.id.*required/iu;
+const INVALID_REPOSITORY_URL_RE = /repository\.url.*valid URL/iu;
+const PROTOTYPE_POLLUTION_RE = /proto/iu;
+const CONTRACT_VERSION_RE = /contract version/iu;
+const AUTH_TOKEN_FILE_RE = /authTokenFile/iu;
+const INVALID_SUBMISSION_MODE_RE = /submission\.mode/iu;
 
-function validEvents(): Record<string, unknown> {
-  return {
-    authHeader: "Authorization",
-    authTokenFile: "/etc/pipeline/event-auth/token",
-    url: EVENT_URL,
-  };
-}
+const validEvents = (): Record<string, unknown> => ({
+  authHeader: "Authorization",
+  authTokenFile: "/etc/pipeline/event-auth/token",
+  url: EVENT_URL,
+});
 
-function validPayload(): Record<string, unknown> {
-  return {
-    contractVersion: RUNNER_COMMAND_CONTRACT_VERSION,
-    delivery: { mode: "create-new-pr", pullRequest: false },
-    events: validEvents(),
-    repository: {
-      baseBranch: "main",
-      sha: "0123456789abcdef0123456789abcdef01234567",
-      url: "https://github.com/oisin-ee/pipeline-runner.git",
-    },
-    run: {
-      id: "run_123",
-      project: "project_123",
-      requestedBy: "user_456",
-    },
-    task: {
-      kind: "prompt",
-      prompt: "Ship PIPE-38",
-    },
-    submission: {
-      kind: "graph",
-      mode: "full",
-    },
-    workflow: {
-      id: "schedule-run-123-root",
-    },
-  };
-}
+const validPayload = (): Record<string, unknown> => ({
+  contractVersion: RUNNER_COMMAND_CONTRACT_VERSION,
+  delivery: { mode: "create-new-pr", pullRequest: false },
+  events: validEvents(),
+  repository: {
+    baseBranch: "main",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+    url: "https://github.com/oisin-ee/pipeline-runner.git",
+  },
+  run: {
+    id: "run_123",
+    project: "project_123",
+    requestedBy: "user_456",
+  },
+  submission: {
+    kind: "graph",
+    mode: "full",
+  },
+  task: {
+    kind: "prompt",
+    prompt: "Ship PIPE-38",
+  },
+  workflow: {
+    id: "schedule-run-123-root",
+  },
+});
 
-function loadContractModule(): Promise<Record<string, any>> {
-  return import("../src/runner-command-contract");
-}
+const loadContractModule = async (): Promise<Record<string, any>> =>
+  await import("../src/runner-command-contract");
 
 describe("runner-command payload contract", () => {
   it("builds the public console-to-runner payload contract with hook policy defaults", async () => {
     const { buildRunnerCommandPayload } = await loadContractModule();
 
     const payload = buildRunnerCommandPayload({
-      repository: validPayload().repository,
       events: validPayload().events,
+      repository: validPayload().repository,
       run: {
         id: "run_123",
         project: "project_123",
@@ -97,7 +92,7 @@ describe("runner-command payload contract", () => {
     const parsed = parseRunnerCommandPayload(JSON.stringify(validPayload()));
 
     expect(parsed).toEqual(validPayload());
-    expect(Object.keys(parsed).sort()).toEqual([
+    expect(Object.keys(parsed).toSorted()).toEqual([
       "contractVersion",
       "delivery",
       "events",
@@ -396,6 +391,7 @@ describe("runner-command payload contract", () => {
         type: "workflow.edge",
       },
       {
+        at: TIMESTAMP,
         node: {
           attempt: 1,
           nodeId: "red",
@@ -403,12 +399,12 @@ describe("runner-command payload contract", () => {
           runnerId: "opencode",
           status: "running",
         },
-        at: TIMESTAMP,
         runId: "run_123",
         sequence: 3,
         type: "node.start",
       },
       {
+        at: TIMESTAMP,
         gate: {
           evidence: ["RED failed as expected"],
           gateId: "RED",
@@ -419,7 +415,6 @@ describe("runner-command payload contract", () => {
           reason: "targeted tests failed",
           status: "failed",
         },
-        at: TIMESTAMP,
         runId: "run_123",
         sequence: 4,
         type: "gate.finish",
@@ -441,6 +436,7 @@ describe("runner-command payload contract", () => {
         type: "artifact.check.finish",
       },
       {
+        at: TIMESTAMP,
         log: {
           format: "text",
           level: "info",
@@ -448,17 +444,16 @@ describe("runner-command payload contract", () => {
           nodeId: "red",
           output: "failing-test evidence",
         },
-        at: TIMESTAMP,
         runId: "run_123",
         sequence: 6,
         type: "node.output.recorded",
       },
       {
+        at: TIMESTAMP,
         finalResult: {
           outcome: "PASS",
           workflowId: "default",
         },
-        at: TIMESTAMP,
         runId: "run_123",
         sequence: 7,
         type: "workflow.finish",

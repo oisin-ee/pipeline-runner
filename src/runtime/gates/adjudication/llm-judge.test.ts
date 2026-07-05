@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import type {
   AcceptanceCriterion,
   CompletionClaim,
@@ -14,32 +15,29 @@ const CRITERION: AcceptanceCriterion = {
 };
 const DETERMINISTIC = ["deterministic: tests pass"];
 
-function claimFor(...criteria: CriterionEvidence[]): CompletionClaim {
-  return { criteria };
-}
+const claimFor = (...criteria: CriterionEvidence[]): CompletionClaim => ({
+  criteria,
+});
 
-function verdict(overrides: Partial<LlmJudgeVerdict>): LlmJudgeVerdict {
-  return {
-    citedEvidence: [],
-    rationale: "stub",
-    satisfied: false,
-    ...overrides,
-  };
-}
+const verdict = (overrides: Partial<LlmJudgeVerdict>): LlmJudgeVerdict => ({
+  citedEvidence: [],
+  rationale: "stub",
+  satisfied: false,
+  ...overrides,
+});
 
 /** Adjudicate the single shared {@link CRITERION} against one claimed-evidence set. */
-function judgeResidue(
+const judgeResidue = (
   judge: LlmJudge,
   claimedEvidence: string[],
   deterministic: string[] = DETERMINISTIC
-): UnmetCriterion[] {
-  return llmJudgeUnmet(
+): UnmetCriterion[] =>
+  llmJudgeUnmet(
     [CRITERION],
     claimFor({ criterion: "A", evidence: claimedEvidence }),
     deterministic,
     judge
   );
-}
 
 describe("llmJudgeUnmet anti-gaming (trivial input refused without judge)", () => {
   it("refuses a criterion with no claimed evidence WITHOUT invoking the judge", () => {

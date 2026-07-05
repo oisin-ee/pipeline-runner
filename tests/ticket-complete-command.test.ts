@@ -7,8 +7,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { TicketCommandOptions } from "../src/commands/ticket-command";
 import { BacklogService } from "../src/runtime/services/backlog-service";
 
@@ -23,7 +25,7 @@ interface BacklogCall {
 }
 
 beforeEach(() => {
-  logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   process.exitCode = undefined;
 });
 
@@ -40,10 +42,10 @@ afterEach(() => {
   }
 });
 
-function writeTicket(
+const writeTicket = (
   root: string,
   input: { acceptanceCriteria: readonly string[]; id: string; title: string }
-): string {
+): string => {
   mkdirSync(join(root, "backlog", "tasks"), { recursive: true });
   const acceptanceBlock =
     input.acceptanceCriteria.length > 0
@@ -76,39 +78,38 @@ function writeTicket(
     ].join("\n")
   );
   return path;
-}
+};
 
-function recordingBacklogLayer(
+const recordingBacklogLayer = (
   calls: BacklogCall[]
-): NonNullable<TicketCommandOptions["backlogLayer"]> {
-  return Layer.succeed(BacklogService, {
+): NonNullable<TicketCommandOptions["backlogLayer"]> =>
+  Layer.succeed(BacklogService, {
     run: (args, cwd) =>
       Effect.sync(() => {
         calls.push({ args: [...args], cwd });
         return `Task ${args[2] ?? ""}`;
       }),
   });
-}
 
-async function runComplete(
+const runComplete = async (
   root: string,
   args: readonly string[],
   backlogLayer: NonNullable<TicketCommandOptions["backlogLayer"]>
-): Promise<void> {
+): Promise<void> => {
   process.env.PIPELINE_TARGET_PATH = root;
   const { createCliProgram } = await import("../src/cli/program");
   await createCliProgram({ ticketCommand: { backlogLayer } }).parseAsync(
     ["node", "/repo/node_modules/.bin/moka", "ticket", "complete", ...args],
     { from: "node" }
   );
-}
+};
 
-function loggedOutput(): string {
+const loggedOutput = (): string => {
   if (!logSpy) {
     throw new Error("console.log spy was not initialized");
   }
   return logSpy.mock.calls.map(([line]) => String(line)).join("\n");
-}
+};
 
 describe("moka ticket complete", () => {
   it("refuses with a structured unmet list, nonzero exit, and unchanged status", async () => {
@@ -119,7 +120,7 @@ describe("moka ticket complete", () => {
       id: "PIPE-1",
       title: "Refusable",
     });
-    const before = readFileSync(path, "utf8");
+    const before = readFileSync(path, "utf-8");
     const calls: BacklogCall[] = [];
 
     await runComplete(
@@ -134,7 +135,7 @@ describe("moka ticket complete", () => {
     expect(process.exitCode).toBe(1);
     // Status write never happened: no backlog calls, markdown unchanged.
     expect(calls).toEqual([]);
-    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(readFileSync(path, "utf-8")).toBe(before);
   });
 
   it("sets Done through the backlog store on an adjudicator pass and exits zero", async () => {
@@ -145,7 +146,7 @@ describe("moka ticket complete", () => {
       id: "PIPE-2",
       title: "Passable",
     });
-    const before = readFileSync(path, "utf8");
+    const before = readFileSync(path, "utf-8");
     const calls: BacklogCall[] = [];
 
     await runComplete(root, ["PIPE-2"], recordingBacklogLayer(calls));
@@ -159,7 +160,7 @@ describe("moka ticket complete", () => {
       },
     ]);
     // The status write goes through the backlog CLI seam, not a markdown hand-edit.
-    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(readFileSync(path, "utf-8")).toBe(before);
   });
 
   it("emits machine-readable refusal output with --json", async () => {

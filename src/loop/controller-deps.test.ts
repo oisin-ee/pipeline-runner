@@ -1,14 +1,13 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+
 import type { PipelineConfig } from "../config";
 import type { MokaSubmitInput, MokaSubmitResult } from "../moka-submit";
 import type { RunnerEventRecord } from "../runner-command-contract";
 import { RUNNER_EVENT_SINK_RETRY_POLICY } from "../runner-event-sink";
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
-import {
-  buildControllerDeps,
-  type LoopControllerContext,
-} from "./controller-deps";
+import { buildControllerDeps } from "./controller-deps";
+import type { LoopControllerContext } from "./controller-deps";
 import type { GhRunner, PrResolution } from "./gh-checks";
 
 // ---------------------------------------------------------------------------
@@ -19,31 +18,29 @@ import type { GhRunner, PrResolution } from "./gh-checks";
 
 const UNUSED_CONFIG = {} as PipelineConfig; // quality-gate:allow test fixture: config is never read because every test injects the submit seam
 
-function context(
+const context = (
   overrides: Partial<LoopControllerContext> = {}
-): LoopControllerContext {
-  return {
-    baseBranch: "main",
-    brokerAuth: {
-      secretKey: "api-key",
-      secretName: "broker-api-key",
-      url: "https://cliproxy.momokaya.ee",
-    },
-    config: UNUSED_CONFIG,
-    eventAuthToken: "loop-token",
-    eventUrl: "https://console.example/api/pipeline/runner-events",
-    gitCredentialsSecretName: "git-creds",
-    maxMergePolls: 5,
-    maxRemediationAttempts: 2,
-    namespace: "moka",
-    project: "demo",
-    runId: "loop-run-1",
-    strategy: "priority",
-    url: "https://github.com/o/r.git",
-    worktreePath: "/work",
-    ...overrides,
-  };
-}
+): LoopControllerContext => ({
+  baseBranch: "main",
+  brokerAuth: {
+    secretKey: "api-key",
+    secretName: "broker-api-key",
+    url: "https://cliproxy.momokaya.ee",
+  },
+  config: UNUSED_CONFIG,
+  eventAuthToken: "loop-token",
+  eventUrl: "https://console.example/api/pipeline/runner-events",
+  gitCredentialsSecretName: "git-creds",
+  maxMergePolls: 5,
+  maxRemediationAttempts: 2,
+  namespace: "moka",
+  project: "demo",
+  runId: "loop-run-1",
+  strategy: "priority",
+  url: "https://github.com/o/r.git",
+  worktreePath: "/work",
+  ...overrides,
+});
 
 const FOUND_PR: Extract<PrResolution, { found: true }> = {
   found: true,
@@ -52,21 +49,21 @@ const FOUND_PR: Extract<PrResolution, { found: true }> = {
   url: "https://github.com/o/r/pull/42",
 };
 
-function submitResult(workflowName: string): MokaSubmitResult {
-  return {
-    namespace: "moka",
-    payloadConfigMapName: "p",
-    scheduleConfigMapName: "s",
-    taskDescriptorConfigMapName: "t",
-    workflowName,
-  };
-}
+const submitResult = (workflowName: string): MokaSubmitResult => ({
+  namespace: "moka",
+  payloadConfigMapName: "p",
+  scheduleConfigMapName: "s",
+  taskDescriptorConfigMapName: "t",
+  workflowName,
+});
 
 /** A gh runner whose json returns queued responses; records every json call. */
-function scriptedGh(responses: Record<string, unknown>): {
+const scriptedGh = (
+  responses: Record<string, unknown>
+): {
   gh: GhRunner;
   jsonArgs: string[][];
-} {
+} => {
   const jsonArgs: string[][] = [];
   const gh: GhRunner = {
     json: (args) => {
@@ -82,7 +79,7 @@ function scriptedGh(responses: Record<string, unknown>): {
     text: () => Effect.succeed(""),
   };
   return { gh, jsonArgs };
-}
+};
 
 // ---------------------------------------------------------------------------
 // AC4 — remediation forwards update-existing-pr + sha + headBranch to submitMoka.
@@ -92,19 +89,19 @@ describe("buildControllerDeps — submitRun forwarding", () => {
   it("forwards update-existing-pr, repository.sha, and headBranch into submitMoka", async () => {
     const submits: MokaSubmitInput[] = [];
     const deps = buildControllerDeps(context(), {
-      submitMoka: (input) => {
-        submits.push(input);
-        return Promise.resolve(submitResult("moka-loop-child-xyz"));
-      },
       generateRunId: () => "child-1",
+      submitMoka: async (input) => {
+        submits.push(input);
+        return await Promise.resolve(submitResult("moka-loop-child-xyz"));
+      },
     });
 
     const result = await Effect.runPromise(
       deps.submitRun({
-        ticketId: "PIPE-1",
         deliveryMode: "update-existing-pr",
-        repositorySha: "moka/run/run-A",
         headBranch: "moka/run/run-A",
+        repositorySha: "moka/run/run-A",
+        ticketId: "PIPE-1",
       })
     );
 
@@ -130,15 +127,15 @@ describe("buildControllerDeps — submitRun forwarding", () => {
   it("omits sha/headBranch on the initial create-new-pr submit", async () => {
     const submits: MokaSubmitInput[] = [];
     const deps = buildControllerDeps(context(), {
-      submitMoka: (input) => {
-        submits.push(input);
-        return Promise.resolve(submitResult("wf"));
-      },
       generateRunId: () => "child-2",
+      submitMoka: async (input) => {
+        submits.push(input);
+        return await Promise.resolve(submitResult("wf"));
+      },
     });
 
     await Effect.runPromise(
-      deps.submitRun({ ticketId: "PIPE-2", deliveryMode: "create-new-pr" })
+      deps.submitRun({ deliveryMode: "create-new-pr", ticketId: "PIPE-2" })
     );
 
     expect(submits[0]?.delivery).toEqual({
@@ -172,7 +169,6 @@ describe("buildControllerDeps — classifyChecks widening", () => {
 
   it("falls through to classifyRequiredChecks when not merged", async () => {
     const { gh } = scriptedGh({
-      "pr view 42": { state: "OPEN" },
       "pr checks 42": {
         checkRuns: [
           {
@@ -184,6 +180,7 @@ describe("buildControllerDeps — classifyChecks widening", () => {
         ],
         statuses: [],
       },
+      "pr view 42": { state: "OPEN" },
     });
     const deps = buildControllerDeps(context(), { gh });
 
@@ -201,24 +198,24 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
   it("wraps each event with runId + monotonic sequence and maps the record", async () => {
     const posted: RunnerEventRecord[] = [];
     const deps = buildControllerDeps(context(), {
-      postEvent: (record) => {
+      postEvent: async (record) => {
         posted.push(record);
-        return Promise.resolve();
+        await Promise.resolve();
       },
     });
 
     await Effect.runPromise(
-      deps.emit({ type: "loop.start", projectId: "demo", strategy: "bfs" })
+      deps.emit({ projectId: "demo", strategy: "bfs", type: "loop.start" })
     );
     await Effect.runPromise(
       deps.emit({
-        type: "loop.node.transition",
-        ticketId: "PIPE-1",
         loopState: "running",
+        ticketId: "PIPE-1",
+        type: "loop.node.transition",
       })
     );
     await Effect.runPromise(
-      deps.emit({ type: "loop.finish", passed: 1, blocked: 0 })
+      deps.emit({ blocked: 0, passed: 1, type: "loop.finish" })
     );
 
     expect(posted.map((r) => r.sequence)).toEqual([1, 2, 3]);
@@ -246,18 +243,20 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
   it("posts loop events through the shared runner sink retry policy", async () => {
     const fetchMock = vi.fn(
       async () =>
-        new Response(
-          fetchMock.mock.calls.length <=
-            RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
-            ? "retry me"
-            : "",
-          {
-            status:
-              fetchMock.mock.calls.length <=
+        await Promise.resolve(
+          new Response(
+            fetchMock.mock.calls.length <=
               RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
-                ? 503
-                : 200,
-          }
+              ? "retry me"
+              : "",
+            {
+              status:
+                fetchMock.mock.calls.length <=
+                RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
+                  ? 503
+                  : 200,
+            }
+          )
         )
     );
     const originalFetch = globalThis.fetch;
@@ -266,7 +265,7 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
       const deps = buildControllerDeps(context());
 
       await Effect.runPromise(
-        deps.emit({ type: "loop.start", projectId: "demo", strategy: "bfs" })
+        deps.emit({ projectId: "demo", strategy: "bfs", type: "loop.start" })
       );
     } finally {
       globalThis.fetch = originalFetch;
@@ -280,9 +279,9 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
   it("maps a graph snapshot through the DTO schema", async () => {
     const posted: RunnerEventRecord[] = [];
     const deps = buildControllerDeps(context(), {
-      postEvent: (record) => {
+      postEvent: async (record) => {
         posted.push(record);
-        return Promise.resolve();
+        await Promise.resolve();
       },
     });
 
@@ -295,7 +294,7 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
       ],
     };
     await Effect.runPromise(
-      deps.emit({ type: "loop.graph.snapshot", snapshot })
+      deps.emit({ snapshot, type: "loop.graph.snapshot" })
     );
 
     const record = posted[0];
@@ -326,9 +325,9 @@ describe("buildControllerDeps — refreshBacklog", () => {
       },
     ];
     const deps = buildControllerDeps(context(), {
-      gitRefresh: (path) => {
+      gitRefresh: async (path) => {
         calls.push(`git:${path}`);
-        return Promise.resolve();
+        await Promise.resolve();
       },
       loadTasks: (path) => {
         calls.push(`load:${path}`);

@@ -1,10 +1,8 @@
+import { Option } from "effect";
 import { z } from "zod";
+
 import {
   DEFAULT_RUN_CONTROL_STALE_DETECTION,
-  type MokaNodeStatus,
-  type MokaRunControlEvent,
-  type MokaRunEvent,
-  type MokaRunManifest,
   mokaNodeStatusSchema,
   mokaRunStatusSchema,
   parseMokaRunManifest,
@@ -12,6 +10,12 @@ import {
   parseRunEffort,
   parseRunMode,
   parseRunTarget,
+} from "./contracts";
+import type {
+  MokaNodeStatus,
+  MokaRunControlEvent,
+  MokaRunEvent,
+  MokaRunManifest,
 } from "./contracts";
 import { parseLogicalSegment } from "./logical-segment";
 import type {
@@ -40,11 +44,13 @@ const runStatusSessionSchema = z
   .object({ sessionId: z.string().min(1) })
   .passthrough();
 
-export function createRunManifest(input: CreateRunInput): {
+export const createRunManifest = (
+  input: CreateRunInput
+): {
   manifest: MokaRunManifest;
   nodeIds: string[];
   runId: string;
-} {
+} => {
   const runId = parseLogicalSegment("runId", input.runId);
   const nodeIds = input.nodeIds.map((nodeId) =>
     parseLogicalSegment("nodeId", nodeId)
@@ -56,7 +62,9 @@ export function createRunManifest(input: CreateRunInput): {
     mode: parseRunMode(input.mode),
     nodes,
     runId,
-    ...(input.schedule ? { schedule: input.schedule } : {}),
+    ...(input.schedule !== undefined && input.schedule.length > 0
+      ? { schedule: input.schedule }
+      : {}),
     staleDetection: parseRunControlStaleDetection(
       input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION
     ),
@@ -65,13 +73,13 @@ export function createRunManifest(input: CreateRunInput): {
   });
 
   return { manifest, nodeIds, runId };
-}
+};
 
-export function publishScheduleManifest(input: {
+export const publishScheduleManifest = (input: {
   manifest: MokaRunManifest;
   nodeIds: string[];
   schedule: string;
-}): MokaRunManifest {
+}): MokaRunManifest => {
   if (input.schedule.length === 0) {
     throw new Error("schedule must be a non-empty string.");
   }
@@ -98,12 +106,80 @@ export function publishScheduleManifest(input: {
     },
     schedule: input.schedule,
   });
-}
+};
 
-export function replayEvents(
+export const parseRunStatusFile = (input: unknown): RunStatusFile =>
+  runStatusFileSchema.parse(input);
+
+const existingSessionId = (
+  node: Option.Option<RunStatusNode>
+): Option.Option<string> =>
+  Option.flatMap(node, (value) => {
+    const result = runStatusSessionSchema.safeParse(value);
+    return result.success ? Option.some(result.data.sessionId) : Option.none();
+  });
+
+const statusNodeWithMetadata = (
+  status: MokaNodeStatus,
+  existing: Option.Option<RunStatusNode>
+): RunStatusNode => {
+  const sessionId = existingSessionId(existing);
+
+  return Option.match(sessionId, {
+    onNone: () => status,
+    onSome: (value) => ({ sessionId: value, status }),
+  });
+};
+
+export const statusFromManifest = (
+  manifest: MokaRunManifest,
+  existing?: RunStatusFile
+): RunStatusFile => ({
+  nodes: Object.fromEntries(
+    Object.entries(manifest.nodes).map(([nodeId, status]) => [
+      nodeId,
+      statusNodeWithMetadata(
+        status,
+        Option.fromNullishOr(existing?.nodes[nodeId])
+      ),
+    ])
+  ),
+  status: manifest.status,
+});
+
+const isStatusEvent = (event: MokaRunControlEvent): event is MokaRunEvent =>
+  event.type !== "run.heartbeat";
+
+const assertNever = (value: never): never => {
+  throw new Error(`Unhandled run-control event: ${JSON.stringify(value)}`);
+};
+
+const applyRunControlEvent = (
+  manifest: MokaRunManifest,
+  event: MokaRunControlEvent
+): void => {
+  switch (event.type) {
+    case "run.heartbeat": {
+      return;
+    }
+    case "run.status": {
+      manifest.status = event.status;
+      return;
+    }
+    case "node.status": {
+      manifest.nodes[event.nodeId] = event.status;
+      return;
+    }
+    default: {
+      assertNever(event);
+    }
+  }
+};
+
+export const replayEvents = (
   manifest: MokaRunManifest,
   events: MokaRunControlEvent[]
-): MokaRunManifest {
+): MokaRunManifest => {
   const rebuilt: MokaRunManifest = {
     ...manifest,
     events: events.filter(isStatusEvent),
@@ -115,65 +191,4 @@ export function replayEvents(
   }
 
   return parseMokaRunManifest(rebuilt);
-}
-
-export function parseRunStatusFile(input: unknown): RunStatusFile {
-  return runStatusFileSchema.parse(input);
-}
-
-export function statusFromManifest(
-  manifest: MokaRunManifest,
-  existing?: RunStatusFile
-): RunStatusFile {
-  return {
-    nodes: Object.fromEntries(
-      Object.entries(manifest.nodes).map(([nodeId, status]) => [
-        nodeId,
-        statusNodeWithMetadata(status, existing?.nodes[nodeId]),
-      ])
-    ),
-    status: manifest.status,
-  };
-}
-
-function applyRunControlEvent(
-  manifest: MokaRunManifest,
-  event: MokaRunControlEvent
-): void {
-  switch (event.type) {
-    case "run.heartbeat":
-      return;
-    case "run.status":
-      manifest.status = event.status;
-      return;
-    case "node.status":
-      manifest.nodes[event.nodeId] = event.status;
-      return;
-    default:
-      assertNever(event);
-  }
-}
-
-function statusNodeWithMetadata(
-  status: MokaNodeStatus,
-  existing: RunStatusNode | undefined
-): RunStatusNode {
-  const sessionId = existingSessionId(existing);
-
-  return sessionId ? { sessionId, status } : status;
-}
-
-function existingSessionId(
-  node: RunStatusNode | undefined
-): string | undefined {
-  const result = runStatusSessionSchema.safeParse(node);
-  return result.success ? result.data.sessionId : undefined;
-}
-
-function isStatusEvent(event: MokaRunControlEvent): event is MokaRunEvent {
-  return event.type !== "run.heartbeat";
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled run-control event: ${JSON.stringify(value)}`);
-}
+};

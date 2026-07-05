@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { PlannedWorkflowNode } from "../src/planning/compile";
 import type { RetryReason } from "../src/runtime/actor-ids";
 import {
@@ -7,19 +8,17 @@ import {
   retryDelayMs,
 } from "../src/runtime/retry";
 
-function nodeWithRetries(
+const nodeWithRetries = (
   retries?: PlannedWorkflowNode["retries"]
-): PlannedWorkflowNode {
-  return {
-    command: ["false"],
-    dependents: [],
-    id: "flaky",
-    index: 0,
-    kind: "command",
-    needs: [],
-    retries,
-  };
-}
+): PlannedWorkflowNode => ({
+  command: ["false"],
+  dependents: [],
+  id: "flaky",
+  index: 0,
+  kind: "command",
+  needs: [],
+  retries,
+});
 
 describe("runtime retry policy", () => {
   it("preserves default retry reasons and configured retry_on overrides", () => {

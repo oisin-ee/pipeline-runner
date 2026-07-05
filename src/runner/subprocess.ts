@@ -1,5 +1,9 @@
 import { rmSync } from "node:fs";
+
+import { fromNullishOr, match as matchOption, none } from "effect/Option";
+import type { Option } from "effect/Option";
 import { execa } from "execa";
+
 import type {
   AgentResult,
   RunnerExecutionOptions,
@@ -14,43 +18,16 @@ import {
 } from "./subprocess-result";
 import { timeoutOption } from "./timeouts";
 
-export async function runLaunchPlan(
-  plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions = {}
-): Promise<AgentResult> {
-  prepareLaunchPlanWorktree(plan);
-  const guard = createProtectedPathGuard(plan.cwd, plan.protectedPaths);
-  const result = await executeLaunchPlanSubprocess(plan, options);
-  const cleanupError = cleanupOpencodeRuntimeDir(plan);
-  return finalizeLaunchResult(result, guard, cleanupError);
-}
-
-function prepareLaunchPlanWorktree(plan: RunnerLaunchPlan): void {
+const prepareLaunchPlanWorktree = (plan: RunnerLaunchPlan): void => {
   if (plan.type === "opencode") {
     ensureOpencodeGitExcludes(plan.cwd);
   }
-}
+};
 
-async function executeLaunchPlanSubprocess(
-  plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions
-): Promise<AgentResult> {
-  try {
-    const subprocess = execa(plan.command, plan.args, {
-      cancelSignal: options.signal,
-      cwd: plan.cwd,
-      env: plan.env,
-      stdin: "ignore",
-      ...timeoutOption(plan.timeoutMs),
-    });
-    streamSubprocessOutput(plan, subprocess, options);
-    return completedSubprocessResult(plan.args, await subprocess);
-  } catch (err) {
-    return failedSubprocessResult(plan.args, err);
-  }
-}
+const chunkToString = (chunk: unknown): string =>
+  Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk);
 
-function streamSubprocessOutput(
+const streamSubprocessOutput = (
   plan: RunnerLaunchPlan,
   subprocess: {
     stderr?: {
@@ -61,7 +38,7 @@ function streamSubprocessOutput(
     };
   },
   options: RunnerExecutionOptions
-): void {
+): void => {
   if (!options.onOutput) {
     return;
   }
@@ -79,36 +56,63 @@ function streamSubprocessOutput(
       stream: "stderr",
     });
   });
-}
+};
 
-function chunkToString(chunk: unknown): string {
-  return Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-}
-
-function cleanupOpencodeRuntimeDir(plan: RunnerLaunchPlan): string | undefined {
-  const runtimeDir = removableOpencodeRuntimeDir(plan);
-  if (!runtimeDir) {
-    return;
+const executeLaunchPlanSubprocess = async (
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions
+): Promise<AgentResult> => {
+  try {
+    const subprocess = execa(plan.command, plan.args, {
+      cancelSignal: options.signal,
+      cwd: plan.cwd,
+      env: plan.env,
+      stdin: "ignore",
+      ...timeoutOption(fromNullishOr(plan.timeoutMs)),
+    });
+    streamSubprocessOutput(plan, subprocess, options);
+    return completedSubprocessResult(plan.args, await subprocess);
+  } catch (error) {
+    return failedSubprocessResult(plan.args, error);
   }
-  return removeRuntimeDir(runtimeDir);
-}
+};
 
-function removableOpencodeRuntimeDir(
+const removableOpencodeRuntimeDir = (
   plan: RunnerLaunchPlan
-): string | undefined {
+): Option<string> => {
   if (process.env.PIPELINE_KEEP_OPENCODE_RUNTIME_DIR === "1") {
-    return;
+    return none();
   }
-  return plan.env.PIPELINE_OPENCODE_RUNTIME_DIR;
-}
+  return fromNullishOr(plan.env.PIPELINE_OPENCODE_RUNTIME_DIR);
+};
 
-function removeRuntimeDir(runtimeDir: string): string | undefined {
+const removeRuntimeDir = (runtimeDir: string): Option<string> => {
   try {
     rmSync(runtimeDir, { force: true, recursive: true });
-    return;
-  } catch (err) {
-    return `Failed to remove OpenCode runtime dir ${runtimeDir}: ${
-      err instanceof Error ? err.message : String(err)
-    }`;
+    return none();
+  } catch (error) {
+    return fromNullishOr(
+      `Failed to remove OpenCode runtime dir ${runtimeDir}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
   }
-}
+};
+
+const cleanupOpencodeRuntimeDir = (plan: RunnerLaunchPlan): Option<string> => {
+  const runtimeDir = removableOpencodeRuntimeDir(plan);
+  return matchOption(runtimeDir, {
+    onNone: () => none(),
+    onSome: removeRuntimeDir,
+  });
+};
+
+export const runLaunchPlan = async (
+  plan: RunnerLaunchPlan,
+  options: RunnerExecutionOptions = {}
+): Promise<AgentResult> => {
+  prepareLaunchPlanWorktree(plan);
+  const guard = createProtectedPathGuard(plan.cwd, plan.protectedPaths);
+  const result = await executeLaunchPlanSubprocess(plan, options);
+  return finalizeLaunchResult(result, guard, cleanupOpencodeRuntimeDir(plan));
+};

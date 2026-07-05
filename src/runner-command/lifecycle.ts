@@ -1,14 +1,11 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { z } from "zod";
+
 import { loadMokaDbUrl } from "../moka-global-config";
-import {
-  type CreateRunRequest,
-  resolveRunControlStore,
-} from "../run-control/run-control-store";
-import {
-  buildRemoteRunCreateRequest,
-  type RemoteRunRecordOptions,
-} from "../run-control/run-record";
+import { resolveRunControlStore } from "../run-control/run-control-store";
+import type { CreateRunRequest } from "../run-control/run-control-store";
+import { buildRemoteRunCreateRequest } from "../run-control/run-record";
+import type { RemoteRunRecordOptions } from "../run-control/run-record";
 import {
   emitWorkflowPlanned,
   emitWorkflowStarted,
@@ -17,9 +14,11 @@ import { dispatchHooks } from "../runtime/hooks";
 import {
   flushAndReport,
   isOutputStream,
-  type OutputStream,
-  type RunnerCommandIoService,
   runValidatedRunnerCommand,
+} from "../runtime/services/runner-command-io-service";
+import type {
+  OutputStream,
+  RunnerCommandIoService,
 } from "../runtime/services/runner-command-io-service";
 import { runWorkflowStartLifecycle } from "../runtime/workflow-lifecycle";
 import { createRunnerLifecycleContextEffect } from "./lifecycle-context";
@@ -62,21 +61,109 @@ const EXIT_FAIL = 1;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
 
-export function runRunnerLifecycle(
-  rawOptions: Partial<RunnerLifecycleOptions> = {}
-): Promise<number> {
-  return runValidatedRunnerCommand(
-    runnerLifecycleOptionsSchema,
-    rawOptions,
-    runRunnerLifecycleEffect
-  );
-}
+type LifecycleRunRecordWriter = (
+  request: CreateRunRequest
+) => Effect.Effect<unknown, unknown>;
 
-function runRunnerLifecycleEffect(
+/**
+ * Select the createRun write target: the injected override (test/custom seam),
+ * or the db.url-resolved run-control store. Returns undefined — and logs the
+ * deliberate skip — when no override is set and db.url is absent (no durable
+ * substrate configured for this pod).
+ */
+const resolveLifecycleRunRecordWriter = (
+  options: RemoteRunRecordOptions,
+  upsertOverride: Option.Option<LifecycleUpsertRunRecord>,
+  stderr: OutputStream
+): Effect.Effect<Option.Option<LifecycleRunRecordWriter>> =>
+  Effect.sync(() => {
+    if (Option.isSome(upsertOverride)) {
+      return Option.some((request: CreateRunRequest) =>
+        Effect.tryPromise({
+          catch: (error) => error,
+          try: async () => {
+            await upsertOverride.value(request);
+          },
+        })
+      );
+    }
+    const dbUrl = loadMokaDbUrl();
+    if (dbUrl === undefined) {
+      stderr.write(
+        `runner-lifecycle: db.url not configured — skipping createRun for run ${options.runId}\n`
+      );
+      return Option.none();
+    }
+    return Option.some((request: CreateRunRequest) =>
+      Effect.scoped(
+        resolveRunControlStore(dbUrl, options.worktreePath ?? "").pipe(
+          Effect.flatMap((store) => store.createRun(request))
+        )
+      )
+    );
+  });
+
+const logUpsertError = (
+  stderr: OutputStream,
+  runId: string,
+  error: unknown
+): void => {
+  const message = error instanceof Error ? error.message : String(error);
+  stderr.write(
+    `runner-lifecycle: createRun failed — run ${runId} will still execute: ${message}\n`
+  );
+};
+
+/**
+ * PIPE-94.5: attempt to upsert the run record into the durable store.
+ *
+ * Guard contract:
+ *  - injectable override present → delegate to it (tests / custom impls).
+ *  - db.url absent → log + skip (no substrate configured for this pod).
+ *  - schedule compile or store call fails → log + skip (run executes; status
+ *    just will not persist).
+ *  - Never throws / never fails the lifecycle.
+ */
+const upsertLifecycleRunRecordEffect = (
+  options: RemoteRunRecordOptions,
+  upsertOverride: Option.Option<LifecycleUpsertRunRecord>,
+  stderr: OutputStream
+): Effect.Effect<void> =>
+  Effect.gen(function* effectBody() {
+    const write = yield* resolveLifecycleRunRecordWriter(
+      options,
+      upsertOverride,
+      stderr
+    );
+    if (Option.isNone(write)) {
+      return;
+    }
+    // Effect.try keeps a schedule-compile throw in the typed error channel so
+    // the catch below logs it rather than crashing workflow.start as a defect.
+    const request = yield* Effect.try({
+      catch: (error) => error,
+      try: () => buildRemoteRunCreateRequest(options),
+    });
+    yield* write.value(request);
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        logUpsertError(stderr, options.runId, error);
+      })
+    )
+  );
+
+const lifecycleErrorExitCode = (error: unknown, stderr: OutputStream) => {
+  const message = error instanceof Error ? error.message : String(error);
+  stderr.write(`${message}\n`);
+  return error instanceof z.ZodError ? EXIT_VALIDATION : EXIT_STARTUP;
+};
+
+const runRunnerLifecycleEffect = (
   options: RunnerLifecycleOptions,
   stderr: OutputStream
-): Effect.Effect<number, never, RunnerCommandIoService> {
-  return Effect.gen(function* () {
+): Effect.Effect<number, never, RunnerCommandIoService> =>
+  Effect.gen(function* effectBody() {
     const { compiled, context, payload, scheduleYaml, sink, worktreePath } =
       yield* createRunnerLifecycleContextEffect(options);
 
@@ -91,118 +178,37 @@ function runRunnerLifecycleEffect(
         scheduleYaml,
         worktreePath,
       },
-      options.upsertRunRecord,
+      Option.fromNullishOr(options.upsertRunRecord),
       stderr
     );
 
     const failure = yield* Effect.tryPromise({
-      try: () =>
-        runWorkflowStartLifecycle({
-          emitWorkflowPlanned: () => emitWorkflowPlanned(context),
-          emitWorkflowStarted: () => emitWorkflowStarted(context),
-          runWorkflowHook: (event) => dispatchHooks(context, event),
-        }),
       catch: (error) => error,
+      try: async () =>
+        await runWorkflowStartLifecycle({
+          emitWorkflowPlanned: () => {
+            emitWorkflowPlanned(context);
+          },
+          emitWorkflowStarted: () => {
+            emitWorkflowStarted(context);
+          },
+          runWorkflowHook: async (event) =>
+            Option.fromNullishOr(await dispatchHooks(context, event)),
+        }),
     });
     yield* flushAndReport(sink, stderr);
-    return failure ? EXIT_FAIL : EXIT_PASS;
+    return Option.isSome(failure) ? EXIT_FAIL : EXIT_PASS;
   }).pipe(
     Effect.catch((error) =>
       Effect.sync(() => lifecycleErrorExitCode(error, stderr))
     )
   );
-}
 
-/**
- * PIPE-94.5: attempt to upsert the run record into the durable store.
- *
- * Guard contract:
- *  - injectable override present → delegate to it (tests / custom impls).
- *  - db.url absent → log + skip (no substrate configured for this pod).
- *  - schedule compile or store call fails → log + skip (run executes; status
- *    just will not persist).
- *  - Never throws / never fails the lifecycle.
- */
-function upsertLifecycleRunRecordEffect(
-  options: RemoteRunRecordOptions,
-  upsertOverride: LifecycleUpsertRunRecord | undefined,
-  stderr: OutputStream
-): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    const write = yield* resolveLifecycleRunRecordWriter(
-      options,
-      upsertOverride,
-      stderr
-    );
-    if (write === undefined) {
-      return;
-    }
-    // Effect.try keeps a schedule-compile throw in the typed error channel so
-    // the catch below logs it rather than crashing workflow.start as a defect.
-    const request = yield* Effect.try({
-      try: () => buildRemoteRunCreateRequest(options),
-      catch: (error) => error,
-    });
-    yield* write(request);
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.sync(() => logUpsertError(stderr, options.runId, error))
-    )
+export const runRunnerLifecycle = async (
+  rawOptions: Partial<RunnerLifecycleOptions> = {}
+): Promise<number> =>
+  await runValidatedRunnerCommand(
+    runnerLifecycleOptionsSchema,
+    rawOptions,
+    runRunnerLifecycleEffect
   );
-}
-
-type LifecycleRunRecordWriter = (
-  request: CreateRunRequest
-) => Effect.Effect<unknown, unknown>;
-
-/**
- * Select the createRun write target: the injected override (test/custom seam),
- * or the db.url-resolved run-control store. Returns undefined — and logs the
- * deliberate skip — when no override is set and db.url is absent (no durable
- * substrate configured for this pod).
- */
-function resolveLifecycleRunRecordWriter(
-  options: RemoteRunRecordOptions,
-  upsertOverride: LifecycleUpsertRunRecord | undefined,
-  stderr: OutputStream
-): Effect.Effect<LifecycleRunRecordWriter | undefined, never> {
-  return Effect.sync(() => {
-    if (upsertOverride !== undefined) {
-      return (request: CreateRunRequest) =>
-        Effect.tryPromise({
-          try: () => upsertOverride(request),
-          catch: (error) => error,
-        });
-    }
-    const dbUrl = loadMokaDbUrl();
-    if (dbUrl === undefined) {
-      stderr.write(
-        `runner-lifecycle: db.url not configured — skipping createRun for run ${options.runId}\n`
-      );
-      return;
-    }
-    return (request: CreateRunRequest) =>
-      Effect.scoped(
-        resolveRunControlStore(dbUrl, options.worktreePath ?? "").pipe(
-          Effect.flatMap((store) => store.createRun(request))
-        )
-      );
-  });
-}
-
-function logUpsertError(
-  stderr: OutputStream,
-  runId: string,
-  error: unknown
-): void {
-  const message = error instanceof Error ? error.message : String(error);
-  stderr.write(
-    `runner-lifecycle: createRun failed — run ${runId} will still execute: ${message}\n`
-  );
-}
-
-function lifecycleErrorExitCode(error: unknown, stderr: OutputStream) {
-  const message = error instanceof Error ? error.message : String(error);
-  stderr.write(`${message}\n`);
-  return error instanceof z.ZodError ? EXIT_VALIDATION : EXIT_STARTUP;
-}

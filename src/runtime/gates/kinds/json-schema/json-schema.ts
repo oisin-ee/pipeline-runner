@@ -1,4 +1,7 @@
 import { join } from "node:path";
+
+import { Option } from "effect";
+
 import type {
   JsonSchemaGateSpec,
   NodeAttemptResult,
@@ -19,19 +22,21 @@ export interface JsonSchemaContext {
  * in the worktree. Fails immediately if the source is missing or the schema
  * does not validate.
  */
-export function evaluateJsonSchemaGate(
+export const evaluateJsonSchemaGate = (
   gate: JsonSchemaGateSpec,
   gateId: string,
   nodeId: string,
   context: JsonSchemaContext,
   attempt: NodeAttemptResult
-): RuntimeGateResult {
-  const schemaPath = gate.schema_path ?? "";
+): RuntimeGateResult => {
+  const schemaPath = gate.schema_path;
   const source =
-    gate.target === "artifact" && gate.path
+    gate.target === "artifact" &&
+    gate.path !== undefined &&
+    gate.path.length > 0
       ? readOptionalFile(join(context.worktreePath, gate.path))
-      : attempt.output;
-  if (source === null) {
+      : Option.some(attempt.output);
+  if (Option.isNone(source)) {
     return {
       evidence: [`missing JSON artifact: ${gate.path ?? ""}`],
       gateId,
@@ -42,7 +47,7 @@ export function evaluateJsonSchemaGate(
     };
   }
   const result = validateJsonSchemaSource(
-    source,
+    source.value,
     schemaPath,
     context.worktreePath
   );
@@ -54,4 +59,4 @@ export function evaluateJsonSchemaGate(
     passed: result.passed,
     reason: result.reason,
   };
-}
+};

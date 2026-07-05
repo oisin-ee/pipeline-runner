@@ -1,11 +1,10 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 const FILE_SUPPRESSION_MARKER = ["fallow", "ignore", "file"].join("-");
 
-function source(path: string): string {
-  return readFileSync(path, "utf8");
-}
+const source = (path: string): string => readFileSync(path, "utf-8");
 
 describe("PIPE-45.7 run-control ownership boundaries", () => {
   it("keeps run-control command registration separate from command behavior", () => {

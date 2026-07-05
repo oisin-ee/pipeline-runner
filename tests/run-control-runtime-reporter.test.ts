@@ -1,7 +1,9 @@
 import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
@@ -30,22 +32,19 @@ interface RunStoreRuntimeReporterModule {
 
 const RUNTIME_REPORTER_MODULE_PATH = "../src/run-control/runtime-reporter";
 
-async function loadRuntimeReporter(): Promise<RunStoreRuntimeReporterModule> {
-  return (await import(
-    RUNTIME_REPORTER_MODULE_PATH
-  )) as RunStoreRuntimeReporterModule;
-}
+const loadRuntimeReporter = async (): Promise<RunStoreRuntimeReporterModule> =>
+  (await import(RUNTIME_REPORTER_MODULE_PATH)) as RunStoreRuntimeReporterModule;
 
-function sequentialClock(): () => Date {
+const sequentialClock = (): (() => Date) => {
   let seconds = 0;
   return () => {
     const next = new Date(Date.UTC(2026, 5, 17, 12, 0, seconds));
     seconds += 1;
     return next;
   };
-}
+};
 
-function statusProjection(event: MokaRunEvent) {
+const statusProjection = (event: MokaRunEvent) => {
   if (event.type === "run.status") {
     return {
       status: event.status,
@@ -58,7 +57,7 @@ function statusProjection(event: MokaRunEvent) {
     status: event.status,
     type: event.type,
   };
-}
+};
 
 describe("run-control runtime reporter bridge", () => {
   let workspaceRoot: string;
@@ -73,9 +72,8 @@ describe("run-control runtime reporter bridge", () => {
 
   it("serializes run-state persistence against a builtin hide window so the run survives parallel mechanical-checks", async () => {
     const { createRunStoreRuntimeReporter } = await loadRuntimeReporter();
-    const { acquireRunStateLock } = await import(
-      "../src/run-control/run-state-lock"
-    );
+    const { acquireRunStateLock } =
+      await import("../src/run-control/run-state-lock");
     const runId = "run-hide-window";
     await createRun({
       effort: "normal",
@@ -162,14 +160,13 @@ describe("run-control runtime reporter bridge", () => {
     const status = readJson(runPath(workspaceRoot, runId, "status.json")) as {
       nodes: Record<string, { sessionId?: string }>;
     };
-    expect(status.nodes.writer?.sessionId).toBe("ses_writer");
+    expect(status.nodes.writer.sessionId).toBe("ses_writer");
     expect(status.nodes["writer:handoff"]).toBeUndefined();
   });
 
   it("documents the hazard: a direct run-state write during a hide window fails", async () => {
-    const { updateRunStatus } = await import(
-      "./run-control-file-store-helpers"
-    );
+    const { updateRunStatus } =
+      await import("./run-control-file-store-helpers");
     const runId = "run-hide-hazard";
     await createRun({
       effort: "normal",

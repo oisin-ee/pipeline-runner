@@ -1,9 +1,16 @@
+import type { Option } from "effect/Option";
+import { getOrUndefined, none, some } from "effect/Option";
+
 import type { PlannedWorkflowNode } from "./planning/compile";
 import { findNode } from "./planning/graph";
 
-export function findPlannedNode(
+export const findPlannedNodeOption = (
   nodes: PlannedWorkflowNode[],
   nodeId: string
-): PlannedWorkflowNode | undefined {
-  return findNode(nodes, nodeId, (node) => node.children);
-}
+): Option<PlannedWorkflowNode> => {
+  const node = findNode(nodes, nodeId, (value) => value.children);
+  return node === undefined ? none() : some(node);
+};
+
+export const findPlannedNode = (nodes: PlannedWorkflowNode[], nodeId: string) =>
+  getOrUndefined(findPlannedNodeOption(nodes, nodeId));

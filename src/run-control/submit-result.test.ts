@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+
 import type { RuntimeNodeResult } from "../runtime/contracts";
 import { inMemoryDurableRunStore } from "../runtime/durable-store/durable-store";
 import type { WorkflowScheduleNode } from "../runtime/scheduler";
-import { buildNextNodeEnvelope, type NodeEnvelopeMetadata } from "./next-node";
+import { buildNextNodeEnvelope } from "./next-node";
+import type { NodeEnvelopeMetadata } from "./next-node";
 import { recordSubmitResult } from "./submit-result";
 
 const RUN_ID = "run-pipe91-test";
@@ -28,20 +30,20 @@ const nodeMetadata: ReadonlyMap<string, NodeEnvelopeMetadata> = new Map([
   ],
 ]);
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
-function failedResult(nodeId: string): RuntimeNodeResult {
-  return { ...passedResult(nodeId), exitCode: 1, status: "failed" };
-}
+const failedResult = (nodeId: string): RuntimeNodeResult => ({
+  ...passedResult(nodeId),
+  exitCode: 1,
+  status: "failed",
+});
 
 describe("recordSubmitResult — AC1: next-node → submit-result → next-node round-trip", () => {
   it("first next-node returns plan; after submit, second returns implement", () => {
@@ -131,14 +133,14 @@ describe("recordSubmitResult — AC2: malformed or mismatched submit rejected; s
       status: "passed",
     });
 
-    expect(() =>
+    expect(() => {
       recordSubmitResult({
         nodeId: "plan",
         resultJson: malformed,
         runId: RUN_ID,
         store,
-      })
-    ).toThrow(z.ZodError);
+      });
+    }).toThrow(z.ZodError);
 
     expect(store.get(RUN_ID, "plan")).toBeUndefined();
   });
@@ -148,14 +150,14 @@ describe("recordSubmitResult — AC2: malformed or mismatched submit rejected; s
     // result.nodeId is "implement" but we're submitting under "plan"
     const mismatch = JSON.stringify(passedResult("implement"));
 
-    expect(() =>
+    expect(() => {
       recordSubmitResult({
         nodeId: "plan",
         resultJson: mismatch,
         runId: RUN_ID,
         store,
-      })
-    ).toThrow(z.ZodError);
+      });
+    }).toThrow(z.ZodError);
 
     expect(store.get(RUN_ID, "plan")).toBeUndefined();
   });
@@ -163,14 +165,14 @@ describe("recordSubmitResult — AC2: malformed or mismatched submit rejected; s
   it("rejects invalid JSON with a SyntaxError", () => {
     const store = inMemoryDurableRunStore();
 
-    expect(() =>
+    expect(() => {
       recordSubmitResult({
         nodeId: "plan",
         resultJson: "{not-json}",
         runId: RUN_ID,
         store,
-      })
-    ).toThrow(SyntaxError);
+      });
+    }).toThrow(SyntaxError);
 
     expect(store.get(RUN_ID, "plan")).toBeUndefined();
   });

@@ -1,39 +1,36 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import type { BacklogTaskRecord } from "../src/tickets/backlog-task-store";
-import {
-  buildTicketGraphEffect,
-  type TicketGraph,
-} from "../src/tickets/ticket-graph";
 
-function task(
+import type { BacklogTaskRecord } from "../src/tickets/backlog-task-store";
+import { buildTicketGraphEffect } from "../src/tickets/ticket-graph";
+import type { TicketGraph } from "../src/tickets/ticket-graph";
+
+const task = (
   id: string,
   input: Partial<BacklogTaskRecord> = {}
-): BacklogTaskRecord {
-  return {
-    acceptanceCriteria: [],
-    dependencies: [],
-    filePath: `/tmp/${id}.md`,
-    id,
-    modifiedFiles: [],
-    ordinal: 0,
-    priority: "medium",
-    references: [],
-    status: "To Do",
-    title: id,
-    ...input,
-  };
-}
+): BacklogTaskRecord => ({
+  acceptanceCriteria: [],
+  dependencies: [],
+  filePath: `/tmp/${id}.md`,
+  id,
+  modifiedFiles: [],
+  ordinal: 0,
+  priority: "medium",
+  references: [],
+  status: "To Do",
+  title: id,
+  ...input,
+});
 
-function graph(tasks: readonly BacklogTaskRecord[]): Promise<TicketGraph> {
-  return Effect.runPromise(buildTicketGraphEffect(tasks));
-}
+const graph = async (
+  tasks: readonly BacklogTaskRecord[]
+): Promise<TicketGraph> =>
+  await Effect.runPromise(buildTicketGraphEffect(tasks));
 
 describe("ticket ready selection", () => {
   it("requires To Do status and Done dependencies", async () => {
-    const { selectReadyTickets } = await import(
-      "../src/tickets/ticket-selection"
-    );
+    const { selectReadyTickets } =
+      await import("../src/tickets/ticket-selection");
     const ticketGraph = await graph([
       task("PIPE-1", { status: "Done" }),
       task("PIPE-2", { dependencies: ["PIPE-1"] }),
@@ -47,9 +44,8 @@ describe("ticket ready selection", () => {
   });
 
   it("excludes parent epics with incomplete children unless explicitly included", async () => {
-    const { selectReadyTickets } = await import(
-      "../src/tickets/ticket-selection"
-    );
+    const { selectReadyTickets } =
+      await import("../src/tickets/ticket-selection");
     const ticketGraph = await graph([
       task("PIPE-84", { priority: "high" }),
       task("PIPE-84.1", { parentTaskId: "PIPE-84" }),
@@ -66,9 +62,8 @@ describe("ticket ready selection", () => {
   });
 
   it("orders by priority, ordinal, then natural Backlog id by default", async () => {
-    const { selectReadyTickets } = await import(
-      "../src/tickets/ticket-selection"
-    );
+    const { selectReadyTickets } =
+      await import("../src/tickets/ticket-selection");
     const ticketGraph = await graph([
       task("PIPE-10", { ordinal: 2, priority: "medium" }),
       task("PIPE-2", { ordinal: 2, priority: "medium" }),
@@ -87,9 +82,8 @@ describe("ticket ready selection", () => {
   });
 
   it("supports bfs and dfs strategies with natural sibling tie-breaking", async () => {
-    const { selectReadyTickets } = await import(
-      "../src/tickets/ticket-selection"
-    );
+    const { selectReadyTickets } =
+      await import("../src/tickets/ticket-selection");
     const ticketGraph = await graph([
       task("PIPE-84", { status: "Done" }),
       task("PIPE-84.1", { parentTaskId: "PIPE-84" }),
@@ -114,9 +108,8 @@ describe("ticket ready selection", () => {
   });
 
   it("is read-only and repeatable", async () => {
-    const { selectReadyTickets } = await import(
-      "../src/tickets/ticket-selection"
-    );
+    const { selectReadyTickets } =
+      await import("../src/tickets/ticket-selection");
     const ticketGraph = await graph([task("PIPE-1")]);
     const before = ticketGraph.tasksById.get("PIPE-1")?.status;
 

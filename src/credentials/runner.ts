@@ -1,13 +1,15 @@
+import { isNone, some } from "effect/Option";
+
 import type { BrokerCredentials } from "./broker";
 import { resolveBrokerCredentials } from "./broker";
 import { applyCodexBrokerProvider } from "./codex-config";
 import {
-  type BrokerConfigPaths,
   defaultBrokerConfigPaths,
   readTextIfExists,
   writeCredentialFile,
   writtenFileName,
 } from "./file-targets";
+import type { BrokerConfigPaths } from "./file-targets";
 import {
   applyOpencodeBrokerProvider,
   renderOpencodeBrokerAuthJson,
@@ -28,31 +30,10 @@ export interface PrepareOpencodeCredentialsResult {
   brokerConfigured: string[];
 }
 
-/**
- * Prepare codex + opencode runner credentials through the central broker: write
- * the broker provider config and api-key. Requires BROKER_API_KEY in the env (or
- * an explicit `broker` override); throws otherwise, since the runner has no
- * other auth path.
- */
-export function prepareOpencodeCredentials(
-  options: PrepareOpencodeCredentialsOptions = {}
-): PrepareOpencodeCredentialsResult {
-  const broker =
-    options.broker === undefined ? resolveBrokerCredentials() : options.broker;
-  if (!broker) {
-    throw new Error(
-      "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker."
-    );
-  }
-  return {
-    brokerConfigured: configureBrokerCredentials(broker, options.brokerPaths),
-  };
-}
-
-function configureBrokerCredentials(
+const configureBrokerCredentials = (
   broker: BrokerCredentials,
   pathsOverride?: BrokerConfigPaths
-): string[] {
+): string[] => {
   const paths = pathsOverride ?? defaultBrokerConfigPaths();
   const configured: string[] = [];
 
@@ -82,4 +63,30 @@ function configureBrokerCredentials(
   configured.push(writtenFileName(paths.opencodeConfigPath));
 
   return configured;
-}
+};
+
+/**
+ * Prepare codex + opencode runner credentials through the central broker: write
+ * the broker provider config and api-key. Requires BROKER_API_KEY in the env (or
+ * an explicit `broker` override); throws otherwise, since the runner has no
+ * other auth path.
+ */
+export const prepareOpencodeCredentials = (
+  options: PrepareOpencodeCredentialsOptions = {}
+): PrepareOpencodeCredentialsResult => {
+  const broker =
+    options.broker === undefined
+      ? resolveBrokerCredentials()
+      : some(options.broker);
+  if (isNone(broker)) {
+    throw new Error(
+      "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker."
+    );
+  }
+  return {
+    brokerConfigured: configureBrokerCredentials(
+      broker.value,
+      options.brokerPaths
+    ),
+  };
+};

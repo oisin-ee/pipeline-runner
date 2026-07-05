@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../../config";
 import type {
   PlannedWorkflowNode,
@@ -30,12 +31,12 @@ afterEach(() => {
   }
 });
 
-function directHookRuntimeContext(
+const directHookRuntimeContext = (
   node: PlannedWorkflowNode,
   observability: RuntimeObservabilityEvent[],
   reporterEvents: PipelineRuntimeEvent[],
   override?: Partial<RuntimeContext>
-): RuntimeContext {
+): RuntimeContext => {
   const config = parsePipelineConfigParts({
     pipeline: `
 version: 1
@@ -77,7 +78,7 @@ runners: {}
   return {
     agentInvocations: [],
     config,
-    executor: async () => ({ exitCode: 0, stdout: "" }),
+    executor: () => ({ exitCode: 0, stdout: "" }),
     gates: [],
     hookFailures: [],
     hookPolicy: {
@@ -99,16 +100,15 @@ runners: {}
     worktreePath: process.cwd(),
     ...override,
   };
-}
+};
 
-function reporterHookEvents(
+const reporterHookEvents = (
   events: PipelineRuntimeEvent[]
-): Extract<PipelineRuntimeEvent, { hookId: string }>[] {
-  return events.filter(
+): Extract<PipelineRuntimeEvent, { hookId: string }>[] =>
+  events.filter(
     (event): event is Extract<PipelineRuntimeEvent, { hookId: string }> =>
       "hookId" in event
   );
-}
 
 describe("runtime hooks", () => {
   it("dispatches hooks directly while preserving failure and observability contracts", async () => {

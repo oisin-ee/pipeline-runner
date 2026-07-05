@@ -1,2 +1,1 @@
-// biome-ignore lint/performance/noBarrelFile: Runtime modules intentionally expose colocated barrels.
-export * from "./contracts";
+export type * from "./contracts";

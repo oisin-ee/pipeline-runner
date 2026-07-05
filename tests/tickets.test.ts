@@ -1,41 +1,42 @@
 import { describe, expect, it } from "vitest";
+
 import { extractTicketIds, parseTicketAndDescription } from "../src/task-ref";
 
 describe("parseTicketAndDescription", () => {
   it("extracts ticket id and remainder", () => {
     expect(parseTicketAndDescription("PIPE-42 add NOOP fn")).toEqual({
-      ticketId: "PIPE-42",
       description: "add NOOP fn",
+      ticketId: "PIPE-42",
     });
   });
 
   it("extracts lowercase Backlog ticket ids", () => {
     expect(parseTicketAndDescription("jalgpall-2 Adopt pg-boss queue")).toEqual(
       {
-        ticketId: "jalgpall-2",
         description: "Adopt pg-boss queue",
+        ticketId: "jalgpall-2",
       }
     );
   });
 
   it("handles ticket-only input", () => {
     expect(parseTicketAndDescription("PIPE-42")).toEqual({
-      ticketId: "PIPE-42",
       description: "PIPE-42",
+      ticketId: "PIPE-42",
     });
   });
 
   it("keeps dotted child ticket ids intact", () => {
     expect(parseTicketAndDescription("PIPE-41.7 propagate context")).toEqual({
-      ticketId: "PIPE-41.7",
       description: "propagate context",
+      ticketId: "PIPE-41.7",
     });
   });
 
   it("returns null ticket id when no prefix", () => {
     expect(parseTicketAndDescription("ad-hoc task description")).toEqual({
-      ticketId: null,
       description: "ad-hoc task description",
+      ticketId: null,
     });
   });
 });

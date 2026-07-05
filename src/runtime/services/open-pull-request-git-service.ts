@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect";
+
 import { runAuthenticatedGit } from "../../run-state/git-refs";
 
 export interface OpenPullRequestGitClient {
@@ -23,11 +24,10 @@ export class OpenPullRequestGitService extends Context.Service<
  * here the runner's credential store + GIT_TERMINAL_PROMPT=0, fixing the hang
  * while keeping this service as the test-injection seam.
  */
-function authenticatedGitClient(baseDir: string): OpenPullRequestGitClient {
-  return {
-    raw: (args) => Effect.tryPromise(() => runAuthenticatedGit(baseDir, args)),
-  };
-}
+const authenticatedGitClient = (baseDir: string): OpenPullRequestGitClient => ({
+  raw: (args) =>
+    Effect.tryPromise(async () => await runAuthenticatedGit(baseDir, args)),
+});
 
 export const OpenPullRequestGitServiceLive = Layer.succeed(
   OpenPullRequestGitService,

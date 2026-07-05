@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
-import {
-  type NodeExecutionEvent,
-  NodeStateTracker,
-} from "../src/runtime/node-state-tracker";
+
+import { NodeStateTracker } from "../src/runtime/node-state-tracker";
+import type { NodeExecutionEvent } from "../src/runtime/node-state-tracker";
 
 const AT = "2026-06-03T00:00:00.000Z";
 
-function recordStartedAttempt(
+const recordStartedAttempt = (
   tracker: NodeStateTracker,
   attempt: number,
   runner: Extract<NodeExecutionEvent, { type: "RUNNER_FINISHED" }>
-): void {
+): void => {
   tracker.record({ at: AT, type: "READY" });
   tracker.record({ at: AT, attempt, type: "STARTED" });
   tracker.record({ at: AT, type: "START_HOOKS_FINISHED" });
@@ -21,74 +20,68 @@ function recordStartedAttempt(
   tracker.record({ at: AT, type: "SNAPSHOT_AFTER_FINISHED" });
   tracker.record({ at: AT, type: "GATES_STARTED" });
   tracker.record({ at: AT, gates: [], type: "GATES_FINISHED" });
-}
+};
 
-function passedEvent(
+const passedEvent = (
   nodeId = "worker",
   attempt = 1
-): Extract<NodeExecutionEvent, { type: "PASSED" }> {
-  return {
-    at: AT,
-    result: {
-      attempts: attempt,
-      evidence: ["ok"],
-      exitCode: 0,
-      nodeId,
-      output: "ok",
-      status: "passed",
-    },
-    type: "PASSED",
-  };
-}
+): Extract<NodeExecutionEvent, { type: "PASSED" }> => ({
+  at: AT,
+  result: {
+    attempts: attempt,
+    evidence: ["ok"],
+    exitCode: 0,
+    nodeId,
+    output: "ok",
+    status: "passed",
+  },
+  type: "PASSED",
+});
 
-function failedEvent(
+const failedEvent = (
   nodeId = "worker",
   attempt = 1
-): Extract<NodeExecutionEvent, { type: "FAILED" }> {
-  return {
-    at: AT,
-    failure: {
-      evidence: ["exit 1"],
-      gate: nodeId,
-      nodeId,
-      reason: "node exited with code 1",
-    },
-    result: {
-      attempts: attempt,
-      evidence: ["exit 1"],
-      exitCode: 1,
-      nodeId,
-      output: "bad",
-      status: "failed",
-    },
-    type: "FAILED",
-  };
-}
-
-function retryingEvent(
-  nodeId = "worker",
-  attempt = 1
-): Extract<NodeExecutionEvent, { type: "RETRYING" }> {
-  return {
-    at: AT,
-    attempt,
+): Extract<NodeExecutionEvent, { type: "FAILED" }> => ({
+  at: AT,
+  failure: {
     evidence: ["exit 1"],
     gate: nodeId,
+    nodeId,
     reason: "node exited with code 1",
-    retry: {
-      attempt,
-      delayMs: 100,
-      evidence: ["exit 1"],
-      exhausted: false,
-      gate: nodeId,
-      reason: "node exited with code 1",
-      retryReason: "exit_nonzero",
-      scheduled: true,
-    },
+  },
+  result: {
+    attempts: attempt,
+    evidence: ["exit 1"],
+    exitCode: 1,
+    nodeId,
+    output: "bad",
+    status: "failed",
+  },
+  type: "FAILED",
+});
+
+const retryingEvent = (
+  nodeId = "worker",
+  attempt = 1
+): Extract<NodeExecutionEvent, { type: "RETRYING" }> => ({
+  at: AT,
+  attempt,
+  evidence: ["exit 1"],
+  gate: nodeId,
+  reason: "node exited with code 1",
+  retry: {
+    attempt,
+    delayMs: 100,
+    evidence: ["exit 1"],
+    exhausted: false,
+    gate: nodeId,
+    reason: "node exited with code 1",
     retryReason: "exit_nonzero",
-    type: "RETRYING",
-  };
-}
+    scheduled: true,
+  },
+  retryReason: "exit_nonzero",
+  type: "RETRYING",
+});
 
 describe("NodeStateTracker", () => {
   it("accepts documented pass, fail, retry, remediation pass, cancel, and skip flows", () => {

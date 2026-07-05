@@ -55,12 +55,10 @@ const VALID_PLAN = {
 
 describe("ticket plan contract", () => {
   it("parses structured ticket plans and renders deterministic dry-run commands", async () => {
-    const { parseTicketPlanEffect } = await import(
-      "../src/tickets/ticket-plan"
-    );
-    const { renderTicketPlanDryRun } = await import(
-      "../src/tickets/ticket-plan-render"
-    );
+    const { parseTicketPlanEffect } =
+      await import("../src/tickets/ticket-plan");
+    const { renderTicketPlanDryRun } =
+      await import("../src/tickets/ticket-plan-render");
 
     const plan = await Effect.runPromise(
       parseTicketPlanEffect(JSON.stringify(VALID_PLAN))
@@ -79,9 +77,8 @@ describe("ticket plan contract", () => {
   });
 
   it("rejects missing acceptance evidence and unknown local dependency keys", async () => {
-    const { parseTicketPlanEffect } = await import(
-      "../src/tickets/ticket-plan"
-    );
+    const { parseTicketPlanEffect } =
+      await import("../src/tickets/ticket-plan");
 
     const missingEvidence = await Effect.runPromiseExit(
       parseTicketPlanEffect(

@@ -1,3 +1,5 @@
+import { Option } from "effect";
+
 import type { HookEvent, PipelineConfig } from "../../config";
 import type {
   MokaSubmitDirectHook,
@@ -18,17 +20,9 @@ type HookBindingConfig = PipelineConfig["hooks"]["on"][string][number];
 const submitHookId = (event: HookEvent) =>
   `moka-submit-${event.replaceAll(".", "-")}`;
 
-function hookFunctionForSubmitHook(
-  hook: MokaSubmitDirectHook
-): HookFunctionConfig {
-  return hook.kind === "module"
-    ? moduleHookFunctionForSubmitHook(hook)
-    : commandHookFunctionForSubmitHook(hook);
-}
-
-function moduleHookFunctionForSubmitHook(
+const moduleHookFunctionForSubmitHook = (
   hook: Extract<MokaSubmitDirectHook, { kind: "module" }>
-): ModuleHookFunctionConfig {
+): ModuleHookFunctionConfig => {
   const hookFunction: ModuleHookFunctionConfig = {
     kind: "module",
     module: hook.module,
@@ -37,11 +31,11 @@ function moduleHookFunctionForSubmitHook(
     hookFunction.timeout_ms = hook.timeoutMs;
   }
   return hookFunction;
-}
+};
 
-function commandHookFunctionForSubmitHook(
+const commandHookFunctionForSubmitHook = (
   hook: Extract<MokaSubmitDirectHook, { kind: "command" }>
-): CommandHookFunctionConfig {
+): CommandHookFunctionConfig => {
   const hookFunction: CommandHookFunctionConfig = {
     command: hook.command,
     kind: "command",
@@ -57,40 +51,46 @@ function commandHookFunctionForSubmitHook(
     hookFunction.trusted = hook.trusted;
   }
   return hookFunction;
-}
+};
 
-function submitHookBindingResult(
+const hookFunctionForSubmitHook = (
   hook: MokaSubmitDirectHook
-): HookBindingConfig["result"] {
-  if (!submitHookHasResult(hook)) {
-    return;
-  }
+): HookFunctionConfig =>
+  hook.kind === "module"
+    ? moduleHookFunctionForSubmitHook(hook)
+    : commandHookFunctionForSubmitHook(hook);
 
-  const result: NonNullable<HookBindingConfig["result"]> = {};
-  addSubmitHookResultFields(result, hook);
-  return result;
-}
+const submitHookHasResult = (hook: MokaSubmitDirectHook): boolean =>
+  hook.publishResult !== undefined || hook.saveResultAs !== undefined;
 
-function submitHookHasResult(hook: MokaSubmitDirectHook): boolean {
-  return hook.publishResult !== undefined || hook.saveResultAs !== undefined;
-}
-
-function addSubmitHookResultFields(
+const addSubmitHookResultFields = (
   result: NonNullable<HookBindingConfig["result"]>,
   hook: MokaSubmitDirectHook
-): void {
+): void => {
   if (hook.publishResult !== undefined) {
     result.publish = hook.publishResult;
   }
   if (hook.saveResultAs !== undefined) {
     result.save_as = hook.saveResultAs;
   }
-}
+};
 
-function hookBindingForSubmitHook(
+const submitHookBindingResult = (
+  hook: MokaSubmitDirectHook
+): Option.Option<NonNullable<HookBindingConfig["result"]>> => {
+  if (!submitHookHasResult(hook)) {
+    return Option.none();
+  }
+
+  const result: NonNullable<HookBindingConfig["result"]> = {};
+  addSubmitHookResultFields(result, hook);
+  return Option.some(result);
+};
+
+const hookBindingForSubmitHook = (
   event: HookEvent,
   hook: MokaSubmitDirectHook
-): HookBindingConfig {
+): HookBindingConfig => {
   const id = submitHookId(event);
   const binding: HookBindingConfig = {
     failure: hook.failure,
@@ -99,8 +99,8 @@ function hookBindingForSubmitHook(
   };
 
   const result = submitHookBindingResult(hook);
-  if (result !== undefined) {
-    binding.result = result;
+  if (Option.isSome(result)) {
+    binding.result = result.value;
   }
   if (hook.where !== undefined) {
     binding.where = hook.where;
@@ -109,39 +109,41 @@ function hookBindingForSubmitHook(
     binding.with = hook.input;
   }
   return binding;
-}
+};
 
-function submitHookEntries(hooks: MokaSubmitDirectHooks | undefined): Array<{
+const submitHookEntries = (
+  hooks: Option.Option<MokaSubmitDirectHooks>
+): {
   event: HookEvent;
   hook: MokaSubmitDirectHook;
-}> {
-  const entries: Array<{ event: HookEvent; hook: MokaSubmitDirectHook }> = [];
+}[] => {
+  const entries: { event: HookEvent; hook: MokaSubmitDirectHook }[] = [];
   for (const event of MOKA_SUBMIT_HOOK_EVENTS) {
-    const hook = hooks?.[event];
+    const hook = Option.isSome(hooks) ? hooks.value[event] : undefined;
     if (hook !== undefined) {
       entries.push({ event, hook });
     }
   }
   return entries;
-}
+};
 
-function cloneHookBindings(
+const cloneHookBindings = (
   on: PipelineConfig["hooks"]["on"]
-): PipelineConfig["hooks"]["on"] {
+): PipelineConfig["hooks"]["on"] => {
   const cloned: PipelineConfig["hooks"]["on"] = {};
   for (const [event, bindings] of Object.entries(on)) {
     cloned[event] = [...bindings];
   }
   return cloned;
-}
+};
 
-function appendSubmitHook(
+const appendSubmitHook = (
   event: HookEvent,
   hook: MokaSubmitDirectHook,
   target: Pick<PipelineConfig["hooks"], "functions" | "on">
-): void {
+): void => {
   const id = submitHookId(event);
-  if (target.functions[id] !== undefined) {
+  if (Object.hasOwn(target.functions, id)) {
     throw new Error(`Moka submit hook id already exists in config: ${id}`);
   }
   target.functions[id] = hookFunctionForSubmitHook(hook);
@@ -149,13 +151,13 @@ function appendSubmitHook(
     ...(target.on[event] ?? []),
     hookBindingForSubmitHook(event, hook),
   ];
-}
+};
 
-export function configWithSubmitHooks(
+export const configWithSubmitHooks = (
   config: PipelineConfig,
-  hooks: MokaSubmitDirectHooks | undefined
-): PipelineConfig {
-  const entries = submitHookEntries(hooks);
+  hooks?: MokaSubmitDirectHooks
+): PipelineConfig => {
+  const entries = submitHookEntries(Option.fromUndefinedOr(hooks));
   if (entries.length === 0) {
     return config;
   }
@@ -177,32 +179,33 @@ export function configWithSubmitHooks(
       on: target.on,
     },
   };
-}
+};
 
-export function runnerEvents(
-  options: ParsedMokaBaseOptions
-): RunnerCommandPayload["events"] {
-  const eventSink = options.eventSink ?? options.events;
-  return eventSink
-    ? runnerEventsFromSink(options, eventSink)
-    : runnerEventsFromUrl(options);
-}
+const eventAuthTokenFile = (options: ParsedMokaBaseOptions): string => {
+  if (
+    options.eventAuthSecretKey === undefined ||
+    options.eventAuthSecretKey.length === 0
+  ) {
+    throw new Error(
+      "eventAuthSecretKey is required unless eventSink.authTokenFile is provided"
+    );
+  }
+  return `/etc/pipeline/event-auth/${options.eventAuthSecretKey}`;
+};
 
-function runnerEventsFromSink(
+const runnerEventsFromSink = (
   options: ParsedMokaBaseOptions,
   eventSink: NonNullable<ParsedMokaBaseOptions["eventSink"]>
-): RunnerCommandPayload["events"] {
-  return {
-    authHeader: eventSink.authHeader,
-    authTokenFile: eventSink.authTokenFile ?? eventAuthTokenFile(options),
-    url: eventSink.url,
-  };
-}
+): RunnerCommandPayload["events"] => ({
+  authHeader: eventSink.authHeader,
+  authTokenFile: eventSink.authTokenFile ?? eventAuthTokenFile(options),
+  url: eventSink.url,
+});
 
-function runnerEventsFromUrl(
+const runnerEventsFromUrl = (
   options: ParsedMokaBaseOptions
-): RunnerCommandPayload["events"] {
-  if (!options.eventUrl) {
+): RunnerCommandPayload["events"] => {
+  if (options.eventUrl === undefined || options.eventUrl.length === 0) {
     throw new Error(
       "eventUrl is required unless eventSink or events is provided"
     );
@@ -212,13 +215,13 @@ function runnerEventsFromUrl(
     authTokenFile: eventAuthTokenFile(options),
     url: options.eventUrl,
   };
-}
+};
 
-function eventAuthTokenFile(options: ParsedMokaBaseOptions): string {
-  if (!options.eventAuthSecretKey) {
-    throw new Error(
-      "eventAuthSecretKey is required unless eventSink.authTokenFile is provided"
-    );
-  }
-  return `/etc/pipeline/event-auth/${options.eventAuthSecretKey}`;
-}
+export const runnerEvents = (
+  options: ParsedMokaBaseOptions
+): RunnerCommandPayload["events"] => {
+  const eventSink = options.eventSink ?? options.events;
+  return eventSink === undefined
+    ? runnerEventsFromUrl(options)
+    : runnerEventsFromSink(options, eventSink);
+};

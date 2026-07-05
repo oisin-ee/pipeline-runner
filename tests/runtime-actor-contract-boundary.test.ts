@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const PUBLIC_RUNTIME_CONTRACTS = [
@@ -32,31 +33,31 @@ const EXPECTED_PACKAGE_EXPORTS = [
 ] as const;
 
 const RUNTIME_MACHINE_CONTRACT_IMPORT_RE =
-  /import\s+(?:type\s+)?(?:\{(?<names>[\s\S]*?)\}|(?<defaultName>[A-Za-z_$][\w$]*))\s+from\s+["'][^"']*runtime-machines\/contracts["']/g;
-const XSTATE_IMPORT_RE = /from\s+["']xstate["']/;
+  /import\s+(?:type\s+)?(?:\{(?<names>[\s\S]*?)\}|(?<defaultName>[A-Za-z_$][\w$]*))\s+from\s+["'][^"']*runtime-machines\/contracts["']/gu;
+const XSTATE_IMPORT_RE = /from\s+["']xstate["']/u;
 const RUNTIME_OBSERVABILITY_INSPECTION_IMPORT_RE =
-  /from\s+["'][^"']*runtime-observability-inspection["']/;
-const RUNTIME_MACHINE_IMPORT_RE = /from\s+["'][^"']*runtime-machines\//;
+  /from\s+["'][^"']*runtime-observability-inspection["']/u;
+const RUNTIME_MACHINE_IMPORT_RE = /from\s+["'][^"']*runtime-machines\//u;
 const GATE_OR_HOOK_MACHINE_IMPORT_RE =
-  /from\s+["'][^"']*runtime-machines\/(?:gate-machine|hook-machine)["']/;
+  /from\s+["'][^"']*runtime-machines\/(?:gate-machine|hook-machine)["']/u;
 const NODE_MACHINE_IMPORT_RE =
-  /from\s+["'][^"']*runtime-machines\/node-machine["']/;
+  /from\s+["'][^"']*runtime-machines\/node-machine["']/u;
 const NODE_MACHINE_ACTOR_ROUND_TRIP_RE =
-  /RETRYING[\s\S]{0,800}(?:getSnapshot\(\)|nodeStates\.get)[\s\S]{0,200}\.retry|(?:getSnapshot\(\)|nodeStates\.get)[\s\S]{0,200}\.retry[\s\S]{0,800}RETRYING/;
-const LOCKFILE_XSTATE_RE = /\bxstate\b/;
-const NODE_EXECUTION_EVENT_EXPORT_RE = /export\s+type\s+NodeExecutionEvent\b/;
-const NODE_STATE_STORE_FIELD_RE = /nodeStateStore\s*:\s*NodeStateStore\b/;
+  /RETRYING[\s\S]{0,800}(?:getSnapshot\(\)|nodeStates\.get)[\s\S]{0,200}\.retry|(?:getSnapshot\(\)|nodeStates\.get)[\s\S]{0,200}\.retry[\s\S]{0,800}RETRYING/u;
+const LOCKFILE_XSTATE_RE = /\bxstate\b/u;
+const NODE_EXECUTION_EVENT_EXPORT_RE = /export\s+type\s+NodeExecutionEvent\b/u;
+const NODE_STATE_STORE_FIELD_RE = /nodeStateStore\s*:\s*NodeStateStore\b/u;
 const LEGACY_RUNTIME_CONTEXT_NODE_STATE_FIELDS_RE =
-  /\b(?:inheritedOutputNodeIds|lastOutputByNode|nodeSnapshots|nodeStates|structuredOutputs)\s*:/;
+  /\b(?:inheritedOutputNodeIds|lastOutputByNode|nodeSnapshots|nodeStates|structuredOutputs)\s*:/u;
 const RUNTIME_CONTEXT_INTERFACE_RE =
-  /export interface RuntimeContext \{[\s\S]*?\n\}/;
-const RUNTIME_MACHINES_CONTRACTS_TEXT_RE = /runtime-machines\/contracts/;
+  /export interface RuntimeContext \{[\s\S]*?\n\}/u;
+const RUNTIME_MACHINES_CONTRACTS_TEXT_RE = /runtime-machines\/contracts/u;
 const RUNTIME_ACTOR_DESCRIPTOR_EXPORT_RE =
-  /export\s+(?:type|interface)\s+RuntimeActorDescriptor\b/;
+  /export\s+(?:type|interface)\s+RuntimeActorDescriptor\b/u;
 const RUNTIME_MACHINES_PATH_SEGMENT = "runtime-machines";
-const PATH_SEPARATOR_RE = /[\\/]/;
-const TYPE_KEYWORD_RE = /\btype\b/g;
-const IMPORT_ALIAS_RE = /\s+as\s+/;
+const PATH_SEPARATOR_RE = /[\\/]/u;
+const TYPE_KEYWORD_RE = /\btype\b/gu;
+const IMPORT_ALIAS_RE = /\s+as\s+/u;
 const IGNORED_SCAN_DIRS = new Set([
   ".git",
   ".fallow",
@@ -65,7 +66,7 @@ const IGNORED_SCAN_DIRS = new Set([
   "node_modules",
 ]);
 
-function sourceFiles(dir: string): string[] {
+const sourceFiles = (dir: string): string[] => {
   if (!existsSync(dir)) {
     return [];
   }
@@ -79,10 +80,10 @@ function sourceFiles(dir: string): string[] {
 
     return [".ts", ".tsx"].includes(extname(entry.name)) ? [absolute] : [];
   });
-}
+};
 
-function repositoryFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+const repositoryFiles = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     if (IGNORED_SCAN_DIRS.has(entry.name)) {
       return [];
     }
@@ -97,9 +98,8 @@ function repositoryFiles(dir: string): string[] {
       ? [absolute]
       : [];
   });
-}
 
-function importsFromRuntimeMachineContracts(source: string): string[] {
+const importsFromRuntimeMachineContracts = (source: string): string[] => {
   const imports = source.matchAll(RUNTIME_MACHINE_CONTRACT_IMPORT_RE);
 
   return [...imports]
@@ -124,7 +124,7 @@ function importsFromRuntimeMachineContracts(source: string): string[] {
         name as (typeof PUBLIC_RUNTIME_CONTRACTS)[number]
       )
     );
-}
+};
 
 describe("runtime actor/retry contract module boundary", () => {
   it("removes the runtime-machines TypeScript surface and all runtime-machines imports", () => {
@@ -139,7 +139,7 @@ describe("runtime actor/retry contract module boundary", () => {
           .some((part) => part.includes(RUNTIME_MACHINES_PATH_SEGMENT))
       );
     const offenders = repositoryFiles(process.cwd()).flatMap((file) => {
-      const source = readFileSync(file, "utf8");
+      const source = readFileSync(file, "utf-8");
 
       return RUNTIME_MACHINE_IMPORT_RE.test(source)
         ? [{ file: relative(process.cwd(), file) }]
@@ -153,7 +153,7 @@ describe("runtime actor/retry contract module boundary", () => {
 
   it("removes legacy inspection-bridge imports and direct xstate imports from runtime and tests", () => {
     const offenders = repositoryFiles(process.cwd()).flatMap((file) => {
-      const source = readFileSync(file, "utf8");
+      const source = readFileSync(file, "utf-8");
       const violations = [
         RUNTIME_OBSERVABILITY_INSPECTION_IMPORT_RE.test(source)
           ? "runtime-observability-inspection"
@@ -174,7 +174,7 @@ describe("runtime actor/retry contract module boundary", () => {
 
   it("keeps xstate out of package metadata and lockfile", () => {
     const packageJson = JSON.parse(
-      readFileSync(join(process.cwd(), "package.json"), "utf8")
+      readFileSync(join(process.cwd(), "package.json"), "utf-8")
     ) as {
       dependencies?: Record<string, unknown>;
       devDependencies?: Record<string, unknown>;
@@ -187,7 +187,7 @@ describe("runtime actor/retry contract module boundary", () => {
       packageJson.peerDependencies,
       packageJson.optionalDependencies,
     ].filter(Boolean);
-    const lockfile = readFileSync(join(process.cwd(), "lock.yaml"), "utf8");
+    const lockfile = readFileSync(join(process.cwd(), "lock.yaml"), "utf-8");
 
     expect(
       dependencySections.flatMap((section) => Object.keys(section ?? {}))
@@ -202,7 +202,7 @@ describe("runtime actor/retry contract module boundary", () => {
     ];
 
     const offenders = runtimeModules.flatMap((file) => {
-      const source = readFileSync(join(process.cwd(), file), "utf8");
+      const source = readFileSync(join(process.cwd(), file), "utf-8");
       const forbiddenImports = [
         XSTATE_IMPORT_RE,
         GATE_OR_HOOK_MACHINE_IMPORT_RE,
@@ -227,7 +227,7 @@ describe("runtime actor/retry contract module boundary", () => {
     );
     const offenders = sourceFiles(join(process.cwd(), "src")).flatMap(
       (file) => {
-        const source = readFileSync(file, "utf8");
+        const source = readFileSync(file, "utf-8");
 
         return NODE_MACHINE_IMPORT_RE.test(source)
           ? [{ file: relative(process.cwd(), file) }]
@@ -242,7 +242,7 @@ describe("runtime actor/retry contract module boundary", () => {
   it("does not make retry observability depend on a RETRYING getSnapshot round trip", () => {
     const pipelineRuntime = readFileSync(
       join(process.cwd(), "src/pipeline-runtime.ts"),
-      "utf8"
+      "utf-8"
     );
 
     expect(pipelineRuntime).not.toMatch(NODE_MACHINE_ACTOR_ROUND_TRIP_RE);
@@ -253,7 +253,7 @@ describe("runtime actor/retry contract module boundary", () => {
       .map((file) => ({ file, relativeFile: relative(process.cwd(), file) }))
       .flatMap(({ file, relativeFile }) => {
         const importedContracts = importsFromRuntimeMachineContracts(
-          readFileSync(file, "utf8")
+          readFileSync(file, "utf-8")
         );
 
         return importedContracts.length
@@ -264,29 +264,29 @@ describe("runtime actor/retry contract module boundary", () => {
     expect(offenders).toEqual([]);
     const trackerSource = readFileSync(
       join(process.cwd(), "src/runtime/node-state-tracker.ts"),
-      "utf8"
+      "utf-8"
     );
     expect(trackerSource).toMatch(NODE_EXECUTION_EVENT_EXPORT_RE);
     expect(trackerSource).not.toMatch(RUNTIME_MACHINES_CONTRACTS_TEXT_RE);
     expect(
-      readFileSync(join(process.cwd(), "src/runtime/actor-ids.ts"), "utf8")
+      readFileSync(join(process.cwd(), "src/runtime/actor-ids.ts"), "utf-8")
     ).toMatch(RUNTIME_ACTOR_DESCRIPTOR_EXPORT_RE);
   });
 
   it("does not add or remove package export paths while introducing the internal actor id module", () => {
     const packageJson = JSON.parse(
-      readFileSync(join(process.cwd(), "package.json"), "utf8")
+      readFileSync(join(process.cwd(), "package.json"), "utf-8")
     ) as { exports: Record<string, unknown> };
 
-    expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [...EXPECTED_PACKAGE_EXPORTS].sort()
+    expect(Object.keys(packageJson.exports).toSorted()).toEqual(
+      [...EXPECTED_PACKAGE_EXPORTS].toSorted()
     );
   });
 
   it("does not build retired goal runtime entrypoints as standalone package surfaces", () => {
     const tsdownConfig = readFileSync(
       join(process.cwd(), "tsdown.config.ts"),
-      "utf8"
+      "utf-8"
     );
 
     expect(tsdownConfig).not.toContain('"runtime/goal-loop"');
@@ -296,11 +296,10 @@ describe("runtime actor/retry contract module boundary", () => {
   it("exposes runtime node execution state through the internal NodeStateStore field only", () => {
     const contractsSource = readFileSync(
       join(process.cwd(), "src/runtime/contracts/contracts.ts"),
-      "utf8"
+      "utf-8"
     );
-    const runtimeContextSource = contractsSource.match(
-      RUNTIME_CONTEXT_INTERFACE_RE
-    )?.[0];
+    const runtimeContextSource =
+      RUNTIME_CONTEXT_INTERFACE_RE.exec(contractsSource)?.[0];
 
     expect(runtimeContextSource).toBeDefined();
     expect(runtimeContextSource).toMatch(NODE_STATE_STORE_FIELD_RE);

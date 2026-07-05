@@ -22,6 +22,17 @@ interface PipelineInitInstallerFlags {
   force: boolean;
 }
 
+const initInstallerFlags = (
+  options: PipelineInitOptions
+): PipelineInitInstallerFlags => {
+  const { check, dryRun } = options;
+  return {
+    check,
+    dryRun,
+    force: options.force ?? !(check === true || dryRun === true),
+  };
+};
+
 /**
  * `moka init` installs only Moka's own host adapters
  * (`/moka-execute|inspect|quick` command surfaces, native-agent projections,
@@ -33,60 +44,49 @@ interface PipelineInitInstallerFlags {
  * host adapters here means the runner image (and local dev) still gets the
  * `/moka-*` entrypoints after `chezmoi apply` lays down the harness.
  */
-export async function initPipelineProject(
+export const initPipelineProject = async (
   options: PipelineInitOptions = {}
-): Promise<PipelineInitResult> {
+): Promise<PipelineInitResult> => {
   const cwd = options.cwd ?? process.cwd();
   const installerFlags = initInstallerFlags(options);
   const result = await installCommands({ cwd, host: "all", ...installerFlags });
   return { files: result.items.map((item) => item.path) };
-}
-
-function initInstallerFlags(
-  options: PipelineInitOptions
-): PipelineInitInstallerFlags {
-  const { check, dryRun } = options;
-  return {
-    check,
-    dryRun,
-    force: options.force ?? !(check || dryRun),
-  };
-}
+};
 
 const INIT_RESULT_COPY = {
-  install: {
-    headline: "Initialized Moka host adapters:",
-    fileVerb: "generated",
-    footer: "no repo-local pipeline config files were created",
-  },
   check: {
-    headline: "Verified Moka host adapters are current:",
     fileVerb: "current",
     footer: "adapters verified; no changes written",
+    headline: "Verified Moka host adapters are current:",
   },
   dryRun: {
-    headline: "Planned Moka host adapters:",
     fileVerb: "would generate",
     footer: "dry run; no changes written",
+    headline: "Planned Moka host adapters:",
+  },
+  install: {
+    fileVerb: "generated",
+    footer: "no repo-local pipeline config files were created",
+    headline: "Initialized Moka host adapters:",
   },
 } as const;
 
-function initResultMode(
+const initResultMode = (
   mode: PipelineInitFormatMode
-): keyof typeof INIT_RESULT_COPY {
-  if (mode.check) {
+): keyof typeof INIT_RESULT_COPY => {
+  if (mode.check === true) {
     return "check";
   }
-  if (mode.dryRun) {
+  if (mode.dryRun === true) {
     return "dryRun";
   }
   return "install";
-}
+};
 
-export function formatPipelineInitResult(
+export const formatPipelineInitResult = (
   result: PipelineInitResult,
   mode: PipelineInitFormatMode = {}
-): string {
+): string => {
   const copy = INIT_RESULT_COPY[initResultMode(mode)];
   return [
     copy.headline,
@@ -98,4 +98,4 @@ export function formatPipelineInitResult(
     ...result.files.map((path) => `${copy.fileVerb} ${path}`),
     copy.footer,
   ].join("\n");
-}
+};

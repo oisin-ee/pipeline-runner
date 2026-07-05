@@ -1,37 +1,35 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { BacklogTaskRecord } from "./backlog-task-store";
 import { buildTicketGraphEffect } from "./ticket-graph";
 import {
-  type LoopState,
   loopStateSchema,
   serializeTicketGraph,
   ticketGraphDtoSchema,
 } from "./ticket-graph-dto";
+import type { LoopState } from "./ticket-graph-dto";
 
 // Minimal task factory — only the fields ticket-graph cares about.
-function makeTask(
+const makeTask = (
   id: string,
   dependencies: string[] = [],
   overrides: Partial<BacklogTaskRecord> = {}
-): BacklogTaskRecord {
-  return {
-    acceptanceCriteria: [],
-    dependencies,
-    filePath: `/backlog/tasks/${id}.md`,
-    id,
-    modifiedFiles: [],
-    references: [],
-    status: "To Do",
-    title: `Task ${id}`,
-    ...overrides,
-  };
-}
+): BacklogTaskRecord => ({
+  acceptanceCriteria: [],
+  dependencies,
+  filePath: `/backlog/tasks/${id}.md`,
+  id,
+  modifiedFiles: [],
+  references: [],
+  status: "To Do",
+  title: `Task ${id}`,
+  ...overrides,
+});
 
 // Sync helper — our tasks have no cycles so this always succeeds.
-function buildGraph(tasks: BacklogTaskRecord[]) {
-  return Effect.runSync(buildTicketGraphEffect(tasks));
-}
+const buildGraph = (tasks: BacklogTaskRecord[]) =>
+  Effect.runSync(buildTicketGraphEffect(tasks));
 
 describe("loopStateSchema", () => {
   it("accepts all five lifecycle values", () => {
@@ -73,14 +71,14 @@ describe("serializeTicketGraph", () => {
 
     // nodes — all three present, no loopState defaults (queued)
     expect(dto.nodes).toHaveLength(3);
-    const nodeIds = dto.nodes.map((n) => n.id).sort();
+    const nodeIds = dto.nodes.map((n) => n.id).toSorted();
     expect(nodeIds).toStrictEqual(["A", "B", "C"]);
     for (const node of dto.nodes) {
       expect(node.loopState).toBe("queued");
     }
 
     // edges — A→B and B→C
-    const edgePairs = dto.edges.map((e) => `${e.from}→${e.to}`).sort();
+    const edgePairs = dto.edges.map((e) => `${e.from}→${e.to}`).toSorted();
     expect(edgePairs).toStrictEqual(["A→B", "B→C"]);
 
     // batches — three sequential batches: [A], [B], [C]
@@ -97,7 +95,7 @@ describe("serializeTicketGraph", () => {
 
     // Both tasks have no dependencies → one batch containing both (sorted)
     expect(dto.batches).toHaveLength(1);
-    expect([...dto.batches[0]].sort()).toStrictEqual(["X", "Y"]);
+    expect([...dto.batches[0]].toSorted()).toStrictEqual(["X", "Y"]);
   });
 
   it("surfaces dangling dependency strings", () => {

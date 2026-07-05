@@ -1,5 +1,6 @@
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { runRunnerFinalize } from "../src/runner-command/finalize";
 import {
   captureEventBatches,
@@ -18,9 +19,9 @@ vi.mock("execa", () => ({
 
 vi.mock("../src/run-state/git-refs", () => ({
   prepareRunnerGitWorkspace: vi.fn(
-    async (_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"
+    (_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"
   ),
-  promoteFinalRef: vi.fn(async () => "final-sha"),
+  promoteFinalRef: vi.fn(() => "final-sha"),
 }));
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
@@ -68,73 +69,76 @@ describe("runner-finalize lifecycle hooks", () => {
     ]);
   });
 
-  it.each([
-    "Failed",
-    "Error",
-  ])("runs workflow.failure before workflow.complete and records a failing final result for %s", async (argoStatus) => {
-    const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
-    writeLifecycleConfig(dir, [
-      "workflow.success",
-      "workflow.failure",
-      "workflow.complete",
-    ]);
-    const batches: unknown[][] = [];
-    mockExeca.mockImplementation(commandHookResult());
+  it.each(["Failed", "Error"])(
+    "runs workflow.failure before workflow.complete and records a failing final result for %s",
+    async (argoStatus) => {
+      const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
+      writeLifecycleConfig(dir, [
+        "workflow.success",
+        "workflow.failure",
+        "workflow.complete",
+      ]);
+      const batches: unknown[][] = [];
+      mockExeca.mockImplementation(commandHookResult());
 
-    const exitCode = await runRunnerFinalize({
-      argoStatus,
-      cwd: dir,
-      fetch: captureEventBatches(batches),
-      payloadFile: payloadPath,
-      scheduleFile: schedulePath,
-      stderr: { write: () => true },
-    });
+      const exitCode = await runRunnerFinalize({
+        argoStatus,
+        cwd: dir,
+        fetch: captureEventBatches(batches),
+        payloadFile: payloadPath,
+        scheduleFile: schedulePath,
+        stderr: { write: () => true },
+      });
 
-    expect(exitCode).toBe(1);
-    expect(
-      hookResultEvents(batches).map((event) => event.hookResult?.event)
-    ).toEqual(["workflow.failure", "workflow.complete"]);
-    expect(finalResults(batches)).toEqual([
-      { outcome: "FAIL", workflowId: "schedule-run-1-root" },
-    ]);
-  });
+      expect(exitCode).toBe(1);
+      expect(
+        hookResultEvents(batches).map((event) => event.hookResult?.event)
+      ).toEqual(["workflow.failure", "workflow.complete"]);
+      expect(finalResults(batches)).toEqual([
+        { outcome: "FAIL", workflowId: "schedule-run-1-root" },
+      ]);
+    }
+  );
 
   it.each([
     "Stopped with strategy 'Stop'",
     "workflow shutdown with strategy:  Stop",
-  ])("records cancellation when Argo reports shutdown Stop failure message %s", async (message) => {
-    const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
-    writeLifecycleConfig(dir, [
-      "workflow.success",
-      "workflow.failure",
-      "workflow.complete",
-    ]);
-    const batches: unknown[][] = [];
-    mockExeca.mockImplementation(commandHookResult());
+  ])(
+    "records cancellation when Argo reports shutdown Stop failure message %s",
+    async (message) => {
+      const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
+      writeLifecycleConfig(dir, [
+        "workflow.success",
+        "workflow.failure",
+        "workflow.complete",
+      ]);
+      const batches: unknown[][] = [];
+      mockExeca.mockImplementation(commandHookResult());
 
-    const exitCode = await runRunnerFinalize({
-      argoFailures: JSON.stringify([
-        {
-          displayName: "node-one",
-          message,
-          phase: "Failed",
-          templateName: "task-one",
-        },
-      ]),
-      argoStatus: "Failed",
-      cwd: dir,
-      fetch: captureEventBatches(batches),
-      payloadFile: payloadPath,
-      scheduleFile: schedulePath,
-      stderr: { write: () => true },
-    });
+      const exitCode = await runRunnerFinalize({
+        argoFailures: JSON.stringify([
+          {
+            displayName: "node-one",
+            message,
+            phase: "Failed",
+            templateName: "task-one",
+          },
+        ]),
+        argoStatus: "Failed",
+        cwd: dir,
+        fetch: captureEventBatches(batches),
+        payloadFile: payloadPath,
+        scheduleFile: schedulePath,
+        stderr: { write: () => true },
+      });
 
-    expect(exitCode).toBe(1);
-    expect(eventTypes(batches)).toEqual(["run.cancelled", "workflow.finish"]);
-    expect(finalResults(batches)).toEqual([
-      { outcome: "CANCELLED", workflowId: "schedule-run-1-root" },
-    ]);
-  });
+      expect(exitCode).toBe(1);
+      expect(eventTypes(batches)).toEqual(["run.cancelled", "workflow.finish"]);
+      expect(finalResults(batches)).toEqual([
+        { outcome: "CANCELLED", workflowId: "schedule-run-1-root" },
+      ]);
+    }
+  );
 
   it("turns a workflow.success hook failure into a failed final result before workflow.complete runs", async () => {
     const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();

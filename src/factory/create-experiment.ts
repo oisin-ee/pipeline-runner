@@ -2,8 +2,10 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
 import { DEFAULT_RUNNER_COMMAND_GIT_COMMITTER } from "../config/schema/catalog";
-import { type FactorySeams, resolveFactorySeams } from "./exec";
+import { resolveFactorySeams } from "./exec";
+import type { FactorySeams } from "./exec";
 import { githubGitCredentialEnv } from "./git-credentials";
 
 /**
@@ -22,7 +24,7 @@ import { githubGitCredentialEnv } from "./git-credentials";
  * (registry `lifecycle: retired` + repo deletion) is the documented cleanup.
  */
 
-export const EXPERIMENT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const EXPERIMENT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/u;
 
 const DEFAULT_ORG = "oisin-ee";
 const DEFAULT_TEMPLATE_SOURCE = "gh:oisin-ee/momokaya-template";
@@ -49,7 +51,7 @@ export interface CreateExperimentResult {
   readonly stampDir: string;
 }
 
-export function buildCopierCopyArgs(options: {
+export const buildCopierCopyArgs = (options: {
   readonly db: boolean;
   readonly destination: string;
   readonly flavor: "web" | "expo-web";
@@ -57,39 +59,54 @@ export function buildCopierCopyArgs(options: {
   readonly previews: boolean;
   readonly templateRef?: string;
   readonly templateSource: string;
-}): string[] {
-  return [
-    "copy",
-    "--trust",
-    "--defaults",
-    ...(options.templateRef ? ["--vcs-ref", options.templateRef] : []),
-    "--data",
-    `name=${options.name}`,
-    "--data",
-    `flavor=${options.flavor}`,
-    "--data",
-    `db=${options.db}`,
-    "--data",
-    `previews=${options.previews}`,
-    options.templateSource,
-    options.destination,
-  ];
-}
+}): string[] => [
+  "copy",
+  "--trust",
+  "--defaults",
+  ...(options.templateRef !== undefined && options.templateRef.length > 0
+    ? ["--vcs-ref", options.templateRef]
+    : []),
+  "--data",
+  `name=${options.name}`,
+  "--data",
+  `flavor=${options.flavor}`,
+  "--data",
+  `db=${options.db}`,
+  "--data",
+  `previews=${options.previews}`,
+  options.templateSource,
+  options.destination,
+];
 
-export function committerConfigArgs(): string[] {
-  return [
-    "-c",
-    `user.name=${DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.name}`,
-    "-c",
-    `user.email=${DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.email}`,
-  ];
-}
+export const committerConfigArgs = (): string[] => [
+  "-c",
+  `user.name=${DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.name}`,
+  "-c",
+  `user.email=${DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.email}`,
+];
 
-export async function runCreateExperiment(
+const assertRepoAbsent = async (input: {
+  readonly exec: NonNullable<FactorySeams["exec"]>;
+  readonly name: string;
+  readonly org: string;
+}): Promise<void> => {
+  const slug = `${input.org}/${input.name}`;
+  const exists = await input
+    .exec("gh", ["repo", "view", slug, "--json", "name"])
+    .then(() => true)
+    .catch(() => false);
+  if (exists) {
+    throw new Error(
+      `create-experiment: repo ${slug} already exists — pick another name or retire the old experiment first`
+    );
+  }
+};
+
+export const runCreateExperiment = async (
   options: CreateExperimentOptions
-): Promise<CreateExperimentResult> {
+): Promise<CreateExperimentResult> => {
   const { exec, git, log } = resolveFactorySeams(options);
-  const name = options.name;
+  const { name } = options;
   if (!EXPERIMENT_NAME_PATTERN.test(name)) {
     throw new Error(
       `create-experiment: name must be kebab-case (got ${JSON.stringify(name)})`
@@ -121,7 +138,9 @@ export async function runCreateExperiment(
       flavor,
       name,
       previews,
-      ...(options.templateRef ? { templateRef: options.templateRef } : {}),
+      ...(options.templateRef !== undefined && options.templateRef.length > 0
+        ? { templateRef: options.templateRef }
+        : {}),
       templateSource,
     }),
     // copier fetches the private template with its own git subprocess — give it
@@ -182,21 +201,4 @@ export async function runCreateExperiment(
     `create-experiment: done — repo=${repoUrl} registry=${registryPath} infraCommit=${infraCommitSha}`
   );
   return { infraCommitSha, registryPath, repoUrl, stampDir };
-}
-
-async function assertRepoAbsent(input: {
-  readonly exec: NonNullable<FactorySeams["exec"]>;
-  readonly name: string;
-  readonly org: string;
-}): Promise<void> {
-  const slug = `${input.org}/${input.name}`;
-  const exists = await input
-    .exec("gh", ["repo", "view", slug, "--json", "name"])
-    .then(() => true)
-    .catch(() => false);
-  if (exists) {
-    throw new Error(
-      `create-experiment: repo ${slug} already exists — pick another name or retire the old experiment first`
-    );
-  }
-}
+};

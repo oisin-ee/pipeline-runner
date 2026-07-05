@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+
 import type { JsonSchemaGateSpec, NodeAttemptResult } from "../../../contracts";
 import { evaluateJsonSchemaGate } from "./json-schema";
 
 const ctx = { worktreePath: process.cwd() };
 
-function attempt(output: string): NodeAttemptResult {
-  return { evidence: [], exitCode: 0, output };
-}
+const attempt = (output: string): NodeAttemptResult => ({
+  evidence: [],
+  exitCode: 0,
+  output,
+});
 
 describe("evaluateJsonSchemaGate", () => {
   it("passes when output matches the schema", () => {

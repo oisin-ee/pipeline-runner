@@ -30,23 +30,10 @@ export interface EvalReport {
   variants: VariantSummary[];
 }
 
-export function buildEvalReport(results: EvalRunResult[]): EvalReport {
-  const variants = [...new Set(results.map((r) => r.variant))].sort();
-  return {
-    tasks: new Set(results.map((r) => r.task)).size,
-    variants: variants.map((variant) =>
-      summarizeVariant(
-        variant,
-        results.filter((r) => r.variant === variant)
-      )
-    ),
-  };
-}
-
-function summarizeVariant(
+const summarizeVariant = (
   variant: string,
   runs: EvalRunResult[]
-): VariantSummary {
+): VariantSummary => {
   const resolved = runs.filter((r) => r.resolved).length;
   const totalWall = runs.reduce((sum, r) => sum + r.wallMs, 0);
   return {
@@ -57,9 +44,22 @@ function summarizeVariant(
     totalCostTokens: runs.reduce((sum, r) => sum + r.costTokens, 0),
     variant,
   };
-}
+};
 
-export function renderEvalReport(report: EvalReport): string {
+export const buildEvalReport = (results: EvalRunResult[]): EvalReport => {
+  const variants = [...new Set(results.map((r) => r.variant))].toSorted();
+  return {
+    tasks: new Set(results.map((r) => r.task)).size,
+    variants: variants.map((variant) =>
+      summarizeVariant(
+        variant,
+        results.filter((r) => r.variant === variant)
+      )
+    ),
+  };
+};
+
+export const renderEvalReport = (report: EvalReport): string => {
   const lines = [
     `Eval over ${report.tasks} task(s):`,
     "variant | resolved | rate | tokens | avg ms",
@@ -70,4 +70,4 @@ export function renderEvalReport(report: EvalReport): string {
     );
   }
   return lines.join("\n");
-}
+};

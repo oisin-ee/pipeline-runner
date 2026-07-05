@@ -8,6 +8,8 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
+import { Option } from "effect";
+
 /**
  * PIPE-90.12 — read-only criteria + adjudicating-tests boundary (orchestrator
  * design principle #7). The executing node agent is UNTRUSTED: it runs in the
@@ -56,35 +58,93 @@ interface ProtectedSnapshotEntry {
  * Keeping the pattern → action shaping here makes the protected set a single
  * owner rather than two ad-hoc maps.
  */
-export function protectedPermissionOverlay(
+export const protectedPermissionOverlay = (
   patterns: readonly string[]
-): Record<string, "deny"> {
-  return Object.fromEntries(patterns.map((pattern) => [pattern, "deny"]));
-}
+): Record<string, "deny"> =>
+  Object.fromEntries(patterns.map((pattern) => [pattern, "deny"]));
 
-/**
- * Snapshot the files matching `patterns` inside `worktreePath` and return a
- * guard that can later revert any tampering. Configuring no patterns yields a
- * no-op guard (no globbing, no filesystem reads).
- */
-export function createProtectedPathGuard(
-  worktreePath: string,
-  patterns: readonly string[] | undefined
-): ProtectedPathGuard {
-  const safePatterns = (patterns ?? []).filter(
-    (pattern) => pattern.trim().length > 0
-  );
-  const snapshot = snapshotProtectedFiles(worktreePath, safePatterns);
-  return {
-    patterns: safePatterns,
-    verifyAndRestore: () => verifyAndRestoreSnapshot(snapshot),
-  };
-}
+const restoreEntry = (entry: ProtectedSnapshotEntry): void => {
+  // Remove whatever now sits at the path (regular file, symlink, or directory
+  // the agent may have substituted) before writing the captured bytes back as a
+  // plain file, so symlink/`../` substitutions cannot survive the revert.
+  rmSync(entry.absPath, { force: true, recursive: true });
+  mkdirSync(dirname(entry.absPath), { recursive: true });
+  writeFileSync(entry.absPath, entry.bytes);
+};
 
-function snapshotProtectedFiles(
+const regularFileBytes = (absPath: string): Option.Option<Buffer> => {
+  let stats: ReturnType<typeof statSync>;
+  try {
+    stats = statSync(absPath);
+  } catch {
+    return Option.none();
+  }
+  if (!stats.isFile()) {
+    return Option.none();
+  }
+  try {
+    return Option.some(readFileSync(absPath));
+  } catch {
+    return Option.none();
+  }
+};
+
+const verifyEntry = (
+  entry: ProtectedSnapshotEntry
+): Option.Option<ProtectedPathViolation> => {
+  const current = regularFileBytes(entry.absPath);
+  if (Option.isNone(current)) {
+    restoreEntry(entry);
+    return Option.some({ kind: "deleted", path: entry.relPath });
+  }
+  if (current.value.equals(entry.bytes)) {
+    return Option.none();
+  }
+  restoreEntry(entry);
+  return Option.some({ kind: "modified", path: entry.relPath });
+};
+
+const verifyAndRestoreSnapshot = (
+  snapshot: readonly ProtectedSnapshotEntry[]
+): ProtectedPathViolation[] => {
+  const violations: ProtectedPathViolation[] = [];
+  for (const entry of snapshot) {
+    const violation = verifyEntry(entry);
+    if (Option.isSome(violation)) {
+      violations.push(violation.value);
+    }
+  }
+  return violations;
+};
+
+const isWithinRoot = (root: string, absPath: string): boolean => {
+  const rel = relative(root, absPath);
+  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+};
+
+const snapshotEntry = (
+  root: string,
+  match: string
+): Option.Option<ProtectedSnapshotEntry> => {
+  const absPath = resolve(root, match);
+  if (!isWithinRoot(root, absPath)) {
+    return Option.none();
+  }
+  const bytes = regularFileBytes(absPath);
+  if (Option.isNone(bytes)) {
+    return Option.none();
+  }
+  return Option.some({
+    absPath,
+    bytes: bytes.value,
+    relPath: relative(root, absPath),
+  });
+};
+
+const snapshotProtectedFiles = (
   worktreePath: string,
   patterns: readonly string[]
-): ProtectedSnapshotEntry[] {
+): ProtectedSnapshotEntry[] => {
   if (patterns.length === 0) {
     return [];
   }
@@ -93,84 +153,29 @@ function snapshotProtectedFiles(
   for (const pattern of patterns) {
     for (const match of globSync(pattern, { cwd: root })) {
       const entry = snapshotEntry(root, match);
-      if (entry) {
-        entries.set(entry.absPath, entry);
+      if (Option.isSome(entry)) {
+        entries.set(entry.value.absPath, entry.value);
       }
     }
   }
   return [...entries.values()];
-}
+};
 
-function snapshotEntry(
-  root: string,
-  match: string
-): ProtectedSnapshotEntry | undefined {
-  const absPath = resolve(root, match);
-  if (!isWithinRoot(root, absPath)) {
-    return;
-  }
-  const bytes = regularFileBytes(absPath);
-  if (!bytes) {
-    return;
-  }
-  return { absPath, bytes, relPath: relative(root, absPath) };
-}
-
-function verifyAndRestoreSnapshot(
-  snapshot: readonly ProtectedSnapshotEntry[]
-): ProtectedPathViolation[] {
-  const violations: ProtectedPathViolation[] = [];
-  for (const entry of snapshot) {
-    const violation = verifyEntry(entry);
-    if (violation) {
-      violations.push(violation);
-    }
-  }
-  return violations;
-}
-
-function verifyEntry(
-  entry: ProtectedSnapshotEntry
-): ProtectedPathViolation | undefined {
-  const current = regularFileBytes(entry.absPath);
-  if (!current) {
-    restoreEntry(entry);
-    return { kind: "deleted", path: entry.relPath };
-  }
-  if (current.equals(entry.bytes)) {
-    return;
-  }
-  restoreEntry(entry);
-  return { kind: "modified", path: entry.relPath };
-}
-
-function restoreEntry(entry: ProtectedSnapshotEntry): void {
-  // Remove whatever now sits at the path (regular file, symlink, or directory
-  // the agent may have substituted) before writing the captured bytes back as a
-  // plain file, so symlink/`../` substitutions cannot survive the revert.
-  rmSync(entry.absPath, { force: true, recursive: true });
-  mkdirSync(dirname(entry.absPath), { recursive: true });
-  writeFileSync(entry.absPath, entry.bytes);
-}
-
-function regularFileBytes(absPath: string): Buffer | undefined {
-  let stats: ReturnType<typeof statSync>;
-  try {
-    stats = statSync(absPath);
-  } catch {
-    return;
-  }
-  if (!stats.isFile()) {
-    return;
-  }
-  try {
-    return readFileSync(absPath);
-  } catch {
-    return;
-  }
-}
-
-function isWithinRoot(root: string, absPath: string): boolean {
-  const rel = relative(root, absPath);
-  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
-}
+/**
+ * Snapshot the files matching `patterns` inside `worktreePath` and return a
+ * guard that can later revert any tampering. Configuring no patterns yields a
+ * no-op guard (no globbing, no filesystem reads).
+ */
+export const createProtectedPathGuard = (
+  worktreePath: string,
+  patterns?: readonly string[]
+): ProtectedPathGuard => {
+  const safePatterns = (patterns ?? []).filter(
+    (pattern) => pattern.trim().length > 0
+  );
+  const snapshot = snapshotProtectedFiles(worktreePath, safePatterns);
+  return {
+    patterns: safePatterns,
+    verifyAndRestore: () => verifyAndRestoreSnapshot(snapshot),
+  };
+};

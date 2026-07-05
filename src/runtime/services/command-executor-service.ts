@@ -1,8 +1,7 @@
 import { Context, Effect, Layer } from "effect";
-import {
-  type CommandExecutionContext,
-  executeCommand,
-} from "../command-executor";
+
+import { executeCommand } from "../command-executor";
+import type { CommandExecutionContext } from "../command-executor";
 import type { CommandExecutionOptions, NodeAttemptResult } from "../contracts";
 
 export class CommandExecutor extends Context.Service<
@@ -18,5 +17,7 @@ export class CommandExecutor extends Context.Service<
 
 export const CommandExecutorLive = Layer.succeed(CommandExecutor, {
   execute: (command, context, options) =>
-    Effect.tryPromise(() => executeCommand(command, context, options)),
+    Effect.tryPromise(
+      async () => await executeCommand(command, context, options)
+    ),
 });

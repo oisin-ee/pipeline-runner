@@ -1,3 +1,4 @@
+import { Option } from "effect";
 import { z } from "zod";
 
 /**
@@ -11,7 +12,7 @@ import { z } from "zod";
  * is available so existing consumers keep working unchanged.
  */
 const MARKDOWN_JSON_FENCE_RE =
-  /^\s*```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i;
+  /^\s*```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/iu;
 const SUMMARY_FALLBACK_MAX_CHARS = 600;
 
 const handoffArtifactSchema = z.object({
@@ -36,39 +37,37 @@ export type NodeHandoff = z.infer<typeof nodeHandoffSchema>;
  * Returns null when the text is not JSON or does not satisfy the schema, so the
  * caller can fall back rather than throw.
  */
-export function parseHandoff(raw: string): NodeHandoff | null {
+export const parseHandoff = (raw: string): Option.Option<NodeHandoff> => {
   const fenced = MARKDOWN_JSON_FENCE_RE.exec(raw.trim());
   const source = fenced?.[1].trim() ?? raw.trim();
   let value: unknown;
   try {
     value = JSON.parse(source);
   } catch {
-    return null;
+    return Option.none();
   }
   const result = nodeHandoffSchema.safeParse(value);
-  return result.success ? result.data : null;
-}
+  return result.success ? Option.some(result.data) : Option.none();
+};
 
 /**
  * Minimal handoff synthesized from a node's raw output text. Used when no
  * structured handoff is derived, preserving the pre-PIPE-83 behaviour (the
  * summary stands in for the raw text downstream consumers used to receive).
  */
-export function synthesizeMinimalHandoff(outputText: string): NodeHandoff {
-  return {
-    artifacts: [],
-    decisions: [],
-    openQuestions: [],
-    summary: outputText.trim().slice(0, SUMMARY_FALLBACK_MAX_CHARS),
-    testNames: [],
-  };
-}
+export const synthesizeMinimalHandoff = (outputText: string): NodeHandoff => ({
+  artifacts: [],
+  decisions: [],
+  openQuestions: [],
+  summary: outputText.trim().slice(0, SUMMARY_FALLBACK_MAX_CHARS),
+  testNames: [],
+});
 
 /**
  * Render a handoff into the compact text a dependent node receives (PIPE-83.5):
  * the curated summary + non-empty sections, in place of the full raw transcript.
  */
-export function renderHandoff(nodeId: string, handoff: NodeHandoff): string {
+export const renderHandoff = (nodeId: string, handoff: NodeHandoff): string => {
   const sections: [string, string[]][] = [
     ["Decisions:", handoff.decisions],
     [
@@ -87,11 +86,11 @@ export function renderHandoff(nodeId: string, handoff: NodeHandoff): string {
     }
   }
   return lines.join("\n");
-}
+};
 
 /** Prompt for the cheap finalizer that derives a handoff from raw node output. */
-export function handoffFinalizerPrompt(rawOutput: string): string {
-  return [
+export const handoffFinalizerPrompt = (rawOutput: string): string =>
+  [
     "You are a handoff summarizer for a pipeline node.",
     "Read the agent output below and return ONLY a JSON object describing what a",
     "downstream node needs to continue — no Markdown fences, no prose outside JSON.",
@@ -107,4 +106,3 @@ export function handoffFinalizerPrompt(rawOutput: string): string {
     "Agent output:",
     rawOutput,
   ].join("\n");
-}

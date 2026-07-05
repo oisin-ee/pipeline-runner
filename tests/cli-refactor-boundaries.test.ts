@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
@@ -54,7 +55,7 @@ describe("PIPE-45.9 CLI app service boundaries", () => {
     const missingOwners = CLI_APP_SERVICE_FILES.filter(
       (path) => !existsSync(join(ROOT, path))
     );
-    const programText = readFileSync(join(ROOT, "src/cli/program.ts"), "utf8");
+    const programText = readFileSync(join(ROOT, "src/cli/program.ts"), "utf-8");
     const programLines = programText.split("\n").length;
 
     expect(missingOwners).toEqual([]);
@@ -270,7 +271,7 @@ describe("PIPE-65 moka submit option normalization", () => {
   });
 
   it("normalizes image pull policy the same way as the current CLI", () => {
-    expect(parseImagePullPolicy(undefined)).toBe("Always");
+    expect(parseImagePullPolicy()).toBe("Always");
     expect(parseImagePullPolicy("Always")).toBe("Always");
     expect(parseImagePullPolicy("IfNotPresent")).toBe("IfNotPresent");
     expect(parseImagePullPolicy("Never")).toBe("Never");

@@ -47,32 +47,13 @@ export type NodeExecutionEvent =
   | { at: string; failure: RuntimeFailure; type: "CANCELLED" }
   | { at: string; reason: string; type: "SKIPPED" };
 
-export class NodeStateTracker {
-  private state: NodeExecutionState;
-
-  constructor(nodeId: string, initialState?: NodeExecutionState) {
-    this.state = initialState ?? initialNodeExecutionState(nodeId);
-  }
-
-  getState(): NodeExecutionState {
-    return { ...this.state, gates: [...this.state.gates] };
-  }
-
-  record(event: NodeExecutionEvent): NodeExecutionState {
-    this.state = applyNodeExecutionEvent(this.state, event);
-    return this.getState();
-  }
-}
-
-function initialNodeExecutionState(nodeId: string): NodeExecutionState {
-  return {
-    attempts: 0,
-    evidence: [],
-    gates: [],
-    id: nodeId,
-    status: "pending",
-  };
-}
+const initialNodeExecutionState = (nodeId: string): NodeExecutionState => ({
+  attempts: 0,
+  evidence: [],
+  gates: [],
+  id: nodeId,
+  status: "pending",
+});
 
 type NodeExecutionEventHandler<T extends NodeExecutionEvent["type"]> = (
   state: NodeExecutionState,
@@ -96,12 +77,61 @@ interface RuntimeNodeExecutionTransition {
   statusAfter: NodeStatus;
 }
 
-type NodeExecutionTransitions = {
-  [K in NodeExecutionEventType]: RuntimeNodeExecutionTransition;
-};
+type NodeExecutionTransitions = Record<
+  NodeExecutionEventType,
+  RuntimeNodeExecutionTransition
+>;
 
 const unchangedNodeState = (state: NodeExecutionState): NodeExecutionState =>
   state;
+
+const isNodeExecutionEventType = <T extends NodeExecutionEventType>(
+  event: NodeExecutionEvent,
+  type: T
+): event is Extract<NodeExecutionEvent, { type: T }> => event.type === type;
+
+const defineNodeExecutionTransition = <T extends NodeExecutionEventType>(
+  type: T,
+  transition: NodeExecutionTransition<T>
+): RuntimeNodeExecutionTransition => ({
+  allowedFrom: transition.allowedFrom,
+  apply: (state, event) => {
+    if (!isNodeExecutionEventType(event, type)) {
+      throw new Error(
+        `NodeExecutionEvent handler ${type} received ${event.type}`
+      );
+    }
+    return transition.apply(state, event);
+  },
+  statusAfter: transition.statusAfter,
+});
+
+const assertNodeExecutionTransitionAllowed = (
+  state: NodeExecutionState,
+  event: NodeExecutionEvent,
+  transition: RuntimeNodeExecutionTransition
+): void => {
+  if (transition.allowedFrom.includes(state.status)) {
+    return;
+  }
+
+  throw new Error(
+    `Illegal NodeExecutionEvent ${event.type} from node status ${state.status}; allowed from: ${transition.allowedFrom.join(", ")}`
+  );
+};
+
+const stateFromResult = (
+  state: NodeExecutionState,
+  result: RuntimeNodeResult,
+  at: string
+): NodeExecutionState => ({
+  ...state,
+  attempts: result.attempts,
+  evidence: result.evidence,
+  exitCode: result.exitCode,
+  finishedAt: at,
+  output: result.output,
+});
 
 const nodeExecutionTransitions: NodeExecutionTransitions = {
   CANCELLED: defineNodeExecutionTransition("CANCELLED", {
@@ -228,68 +258,31 @@ const nodeExecutionTransitions: NodeExecutionTransitions = {
   ),
 };
 
-function applyNodeExecutionEvent(
+const applyNodeExecutionEvent = (
   state: NodeExecutionState,
   event: NodeExecutionEvent
-): NodeExecutionState {
+): NodeExecutionState => {
   const transition = nodeExecutionTransitions[event.type];
   assertNodeExecutionTransitionAllowed(state, event, transition);
   return {
     ...transition.apply(state, event),
     status: transition.statusAfter,
   };
-}
+};
 
-function defineNodeExecutionTransition<T extends NodeExecutionEventType>(
-  type: T,
-  transition: NodeExecutionTransition<T>
-): RuntimeNodeExecutionTransition {
-  return {
-    allowedFrom: transition.allowedFrom,
-    apply: (state, event) => {
-      if (!isNodeExecutionEventType(event, type)) {
-        throw new Error(
-          `NodeExecutionEvent handler ${type} received ${event.type}`
-        );
-      }
-      return transition.apply(state, event);
-    },
-    statusAfter: transition.statusAfter,
-  };
-}
+export class NodeStateTracker {
+  private state: NodeExecutionState;
 
-function isNodeExecutionEventType<T extends NodeExecutionEventType>(
-  event: NodeExecutionEvent,
-  type: T
-): event is Extract<NodeExecutionEvent, { type: T }> {
-  return event.type === type;
-}
-
-function assertNodeExecutionTransitionAllowed(
-  state: NodeExecutionState,
-  event: NodeExecutionEvent,
-  transition: RuntimeNodeExecutionTransition
-): void {
-  if (transition.allowedFrom.includes(state.status)) {
-    return;
+  constructor(nodeId: string, initialState?: NodeExecutionState) {
+    this.state = initialState ?? initialNodeExecutionState(nodeId);
   }
 
-  throw new Error(
-    `Illegal NodeExecutionEvent ${event.type} from node status ${state.status}; allowed from: ${transition.allowedFrom.join(", ")}`
-  );
-}
+  getState(): NodeExecutionState {
+    return { ...this.state, gates: [...this.state.gates] };
+  }
 
-function stateFromResult(
-  state: NodeExecutionState,
-  result: RuntimeNodeResult,
-  at: string
-): NodeExecutionState {
-  return {
-    ...state,
-    attempts: result.attempts,
-    evidence: result.evidence,
-    exitCode: result.exitCode,
-    finishedAt: at,
-    output: result.output,
-  };
+  record(event: NodeExecutionEvent): NodeExecutionState {
+    this.state = applyNodeExecutionEvent(this.state, event);
+    return this.getState();
+  }
 }

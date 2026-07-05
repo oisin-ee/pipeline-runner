@@ -51,12 +51,85 @@ export type MokaWorkflowSubmit = (
   options: MokaWorkflowSubmitOptions
 ) => Promise<MokaSubmitOutput>;
 
-export async function submitCompiledMokaWorkflow(input: {
+const requireStaticScheduleYaml = (plan: CompiledMokaSubmitPlan): string => {
+  if (plan.scheduleYaml !== undefined && plan.scheduleYaml.length > 0) {
+    return plan.scheduleYaml;
+  }
+  throw new Error(
+    `Static workflow submit requires scheduleYaml for run ${plan.runId}`
+  );
+};
+
+const runnerPayloadJson = (input: {
+  context: MokaSubmissionContext;
+  options: ParsedMokaBaseOptions;
+  plan: Pick<
+    CompiledMokaSubmitPlan,
+    "runId" | "submission" | "task" | "workflowId"
+  >;
+}): string =>
+  JSON.stringify(
+    buildRunnerCommandPayload({
+      delivery: input.options.delivery,
+      events: runnerEvents(input.options),
+      hookPolicy: input.options.hookPolicy,
+      repository: {
+        baseBranch: input.context.repository.baseBranch,
+        sha: input.context.repository.sha,
+        url: input.context.repository.url,
+      },
+      run: {
+        id: input.plan.runId,
+        project: input.context.run.project,
+        requestedBy: input.context.run.requestedBy,
+      },
+      submission: input.plan.submission,
+      task: input.plan.task,
+      workflow: { id: input.plan.workflowId },
+    })
+  );
+
+const requireSubmitOption = (value: string | void, name: string): string => {
+  if (value === undefined || value.length === 0) {
+    throw new Error(`${name} is required for moka submit`);
+  }
+  return value;
+};
+
+const workflowSubmitOptions = (
+  options: ParsedMokaBaseOptions
+): Omit<
+  MokaWorkflowSubmitOptions,
+  "config" | "payloadJson" | "scheduleYaml" | "workflowId"
+> => ({
+  activeDeadlineSeconds: options.activeDeadlineSeconds,
+  brokerAuth: options.brokerAuth,
+  dbAuth: options.dbAuth,
+  eventAuthSecretKey: options.eventAuthSecretKey,
+  eventAuthSecretName: options.eventAuthSecretName,
+  generateName: options.generateName,
+  gitCredentialsSecretName: options.gitCredentialsSecretName,
+  githubAuthSecretName: options.githubAuthSecretName,
+  image: options.image,
+  imagePullPolicy: options.imagePullPolicy,
+  imagePullSecretName: options.imagePullSecretName,
+  kubeContext: options.kubeContext,
+  kubeconfigPath: options.kubeconfigPath,
+  mcpGatewayAuth: options.mcpGatewayAuth,
+  name: options.name,
+  namespace: requireSubmitOption(options.namespace, "namespace"),
+  npmRegistryAuthSecretName: options.npmRegistryAuthSecretName,
+  podGC: options.podGC,
+  serviceAccountName: options.serviceAccountName,
+  ttlStrategy: options.ttlStrategy,
+});
+
+export const submitCompiledMokaWorkflow = async (input: {
   context: MokaSubmissionContext;
   options: ParsedMokaBaseOptions;
   plan: CompiledMokaSubmitPlan;
   submitWorkflow?: MokaWorkflowSubmit;
-}): Promise<MokaSubmitOutput> {
+}): Promise<MokaSubmitOutput> => {
   const payloadJson = runnerPayloadJson({
     context: input.context,
     options: input.options,
@@ -95,80 +168,4 @@ export async function submitCompiledMokaWorkflow(input: {
           workflowId: input.plan.workflowId,
         });
   return workflowSubmitResultSchema.parse(result);
-}
-
-function workflowSubmitOptions(
-  options: ParsedMokaBaseOptions
-): Omit<
-  MokaWorkflowSubmitOptions,
-  "config" | "payloadJson" | "scheduleYaml" | "workflowId"
-> {
-  return {
-    activeDeadlineSeconds: options.activeDeadlineSeconds,
-    brokerAuth: options.brokerAuth,
-    dbAuth: options.dbAuth,
-    mcpGatewayAuth: options.mcpGatewayAuth,
-    eventAuthSecretKey: options.eventAuthSecretKey,
-    eventAuthSecretName: options.eventAuthSecretName,
-    generateName: options.generateName,
-    gitCredentialsSecretName: options.gitCredentialsSecretName,
-    githubAuthSecretName: options.githubAuthSecretName,
-    image: options.image,
-    imagePullPolicy: options.imagePullPolicy,
-    imagePullSecretName: options.imagePullSecretName,
-    kubeContext: options.kubeContext,
-    kubeconfigPath: options.kubeconfigPath,
-    name: options.name,
-    namespace: requireSubmitOption(options.namespace, "namespace"),
-    npmRegistryAuthSecretName: options.npmRegistryAuthSecretName,
-    podGC: options.podGC,
-    serviceAccountName: options.serviceAccountName,
-    ttlStrategy: options.ttlStrategy,
-  };
-}
-
-function requireStaticScheduleYaml(plan: CompiledMokaSubmitPlan): string {
-  if (plan.scheduleYaml) {
-    return plan.scheduleYaml;
-  }
-  throw new Error(
-    `Static workflow submit requires scheduleYaml for run ${plan.runId}`
-  );
-}
-
-function runnerPayloadJson(input: {
-  context: MokaSubmissionContext;
-  options: ParsedMokaBaseOptions;
-  plan: Pick<
-    CompiledMokaSubmitPlan,
-    "runId" | "submission" | "task" | "workflowId"
-  >;
-}): string {
-  return JSON.stringify(
-    buildRunnerCommandPayload({
-      delivery: input.options.delivery,
-      events: runnerEvents(input.options),
-      hookPolicy: input.options.hookPolicy,
-      repository: {
-        baseBranch: input.context.repository.baseBranch,
-        sha: input.context.repository.sha,
-        url: input.context.repository.url,
-      },
-      run: {
-        id: input.plan.runId,
-        project: input.context.run.project,
-        requestedBy: input.context.run.requestedBy,
-      },
-      submission: input.plan.submission,
-      task: input.plan.task,
-      workflow: { id: input.plan.workflowId },
-    })
-  );
-}
-
-function requireSubmitOption(value: string | undefined, name: string): string {
-  if (!value) {
-    throw new Error(`${name} is required for moka submit`);
-  }
-  return value;
-}
+};

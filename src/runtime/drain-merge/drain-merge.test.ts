@@ -1,29 +1,13 @@
 import { describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../planning/compile";
 import type { RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { executeDrainMergeBuiltin } from "./drain-merge";
 
-function contextForDrainMerge(): RuntimeContext {
+const contextForDrainMerge = (): RuntimeContext => {
   const config = parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-    profiles: `
-version: 1
-profiles:
-  a:
-    runner: opencode
-    instructions: { inline: A }
-`,
     pipeline: `
 version: 1
 default_workflow: default
@@ -45,6 +29,23 @@ workflows:
         kind: builtin
         builtin: drain-merge
         needs: [fanout]
+`,
+    profiles: `
+version: 1
+profiles:
+  a:
+    runner: opencode
+    instructions: { inline: A }
+`,
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
 `,
   });
   return {
@@ -69,7 +70,7 @@ workflows:
     workflowId: "default",
     worktreePath: process.cwd(),
   };
-}
+};
 
 describe("drain-merge builtin", () => {
   it("returns an empty successful report when there is no upstream node", async () => {
@@ -108,10 +109,6 @@ describe("drain-merge builtin", () => {
         },
       })
     );
-    if (!node) {
-      throw new Error("expected merge node");
-    }
-
     const result = await executeDrainMergeBuiltin(context, node);
 
     expect(result.exitCode).toBe(0);

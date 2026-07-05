@@ -8,26 +8,122 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import Ajv from "ajv";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
+import { z } from "zod";
+
 import {
   DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST,
   loadPipelineConfig,
   PipelineConfigError,
-  type PipelineConfigParts,
   parsePipelineConfigParts,
   validatePipelineConfig,
   workflowSchema,
 } from "../src/config";
+import type { PipelineConfigParts } from "../src/config";
 import { PACKAGE_DEFAULT_PIPELINE_YAML } from "../src/config/defaults";
 import { lintPipelineConfig } from "../src/config/lint";
 import { loadPackagePipelineConfig } from "../src/config/load";
 import { configSchema } from "../src/config/schemas";
 import { validatePipelineConfig as validatePipelineConfigModule } from "../src/config/validate";
+import { parseJson } from "../src/safe-json";
 
-const MIN_ITEMS_MESSAGE_RE = /at least|>=1|too small/i;
-const LINE_RE = /\r?\n/;
+const MIN_ITEMS_MESSAGE_RE = /at least|>=1|too small/iu;
+const LINE_RE = /\r?\n/u;
+const repoEntrypointSchema = z.object({
+  schedule: z.string().optional(),
+  workflow: z.string().optional(),
+});
+const repoNodeSchema = z.object({
+  models: z.array(z.string()),
+});
+const repoNodeCatalogSchema = z.object({
+  nodes: z.record(z.string(), repoNodeSchema),
+  required_categories: z.array(z.string()),
+});
+const repoPipelineYamlSchema = z.object({
+  entrypoints: z.object({
+    epic: repoEntrypointSchema.optional(),
+    execute: repoEntrypointSchema,
+    inspect: repoEntrypointSchema,
+    pipe: repoEntrypointSchema.optional(),
+    quick: repoEntrypointSchema,
+  }),
+  scheduler: z.object({
+    commands: z.object({
+      execute: z.object({ catalog: z.string(), schedule: z.string() }),
+      quick: z.object({ catalog: z.string(), schedule: z.string() }),
+    }),
+    node_catalogs: z.object({
+      execute: repoNodeCatalogSchema,
+      quick: repoNodeCatalogSchema,
+    }),
+  }),
+  schedules: z.object({
+    "execute-schedule": z.record(z.string(), z.unknown()),
+    "quick-schedule": z.record(z.string(), z.unknown()),
+  }),
+  workflows: z
+    .object({
+      default: z.unknown().optional(),
+      "epic-drain": z.unknown().optional(),
+      infra: z.unknown().optional(),
+    })
+    .optional(),
+});
+const profileYamlSchema = z.object({
+  filesystem: z
+    .object({
+      allow: z.array(z.string()).optional(),
+      deny: z.array(z.string()).optional(),
+      mode: z.string().optional(),
+    })
+    .optional(),
+  instructions: z.object({ path: z.string().optional() }).optional(),
+  mcp_servers: z.array(z.string()).optional(),
+  network: z.object({ mode: z.string().optional() }).optional(),
+  output: z
+    .object({
+      format: z.string().optional(),
+      repair: z
+        .object({
+          enabled: z.boolean().optional(),
+          max_attempts: z.number().optional(),
+        })
+        .optional(),
+      schema_path: z.string().optional(),
+    })
+    .optional(),
+  runner: z.string().optional(),
+  skills: z.array(z.string()).optional(),
+  tools: z.array(z.string()).optional(),
+});
+const profilesYamlSchema = z.object({
+  profiles: z.record(z.string(), profileYamlSchema).optional(),
+  skills: z
+    .record(
+      z.string(),
+      z.object({
+        path: z.string().optional(),
+      })
+    )
+    .optional(),
+});
+const jsonSchemaValue = z.union([
+  z.boolean(),
+  z.record(z.string(), z.unknown()),
+]);
+
+const parseRepoPipelineYaml = (source: string) =>
+  repoPipelineYamlSchema.parse(parse(source));
+
+const parseProfilesYaml = (source: string) =>
+  profilesYamlSchema.parse(parse(source));
+
+const parseJsonSchemaValue = (source: string) =>
+  jsonSchemaValue.parse(parseJson(source, "JSON schema"));
 
 const VALID_RUNNERS_YAML = `
 version: 1
@@ -156,15 +252,29 @@ let tempDirs: string[] = [];
 
 afterEach(() => {
   for (const dir of tempDirs) {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   }
   tempDirs = [];
 });
 
-function makeProject(
+const ensureParentDirectory = (path: string): void => {
+  mkdirSync(dirname(path), { recursive: true });
+};
+
+const writeProjectFile = (
+  root: string,
+  path: string,
+  content: string
+): void => {
+  const fullPath = join(root, path);
+  ensureParentDirectory(fullPath);
+  writeFileSync(fullPath, content);
+};
+
+const makeProject = (
   parts: PipelineConfigParts = VALID_PARTS,
   writeReferencedFiles = true
-): string {
+): string => {
   const dir = mkdtempSync(join(tmpdir(), "pipeline-config-"));
   tempDirs.push(dir);
   writeProjectFile(dir, ".pipeline/pipeline.yaml", parts.pipeline);
@@ -194,61 +304,46 @@ function makeProject(
     );
   }
   return dir;
-}
+};
 
-function writeProjectFile(root: string, path: string, content: string): void {
-  const fullPath = join(root, path);
-  ensureParentDirectory(fullPath);
-  writeFileSync(fullPath, content);
-}
+const parseParts = (parts: Partial<PipelineConfigParts>) =>
+  parsePipelineConfigParts({ ...VALID_PARTS, ...parts });
 
-function ensureParentDirectory(path: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-}
-
-function parseParts(parts: Partial<PipelineConfigParts>) {
-  return parsePipelineConfigParts({ ...VALID_PARTS, ...parts });
-}
-
-function profilesWithGatewayBackends(backendsYaml: string): string {
-  return VALID_PROFILES_YAML.replace(
+const profilesWithGatewayBackends = (backendsYaml: string): string =>
+  VALID_PROFILES_YAML.replace(
     "  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION",
     `  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION\n${backendsYaml}`
   );
-}
 
-function parseProjectParts(
+const parseProjectParts = (
   projectRoot: string,
   parts: Partial<PipelineConfigParts> = {}
-) {
-  return parsePipelineConfigParts({ ...VALID_PARTS, ...parts }, projectRoot);
-}
+) => parsePipelineConfigParts({ ...VALID_PARTS, ...parts }, projectRoot);
 
-function captureConfigError(action: () => unknown): PipelineConfigError {
+const captureConfigError = (action: () => unknown): PipelineConfigError => {
   try {
     action();
-  } catch (err) {
-    if (err instanceof PipelineConfigError) {
-      return err;
+  } catch (error) {
+    if (error instanceof PipelineConfigError) {
+      return error;
     }
-    throw err;
+    throw error;
   }
   throw new Error("Expected PipelineConfigError");
-}
+};
 
-function captureGatewayBackendConfigError(backendsYaml: string) {
-  return captureConfigError(() =>
+const captureGatewayBackendConfigError = (backendsYaml: string) =>
+  captureConfigError(() =>
     parseParts({
       profiles: profilesWithGatewayBackends(backendsYaml),
     })
   );
-}
 
-function defaultWorkflowPipeline(
+const defaultWorkflowPipeline = (
   nodesYaml: string,
   extraWorkflowsYaml = ""
-): string {
-  return `
+): string =>
+  `
 version: 1
 default_workflow: default
 orchestrator:
@@ -258,14 +353,12 @@ workflows:
     nodes:
 ${nodesYaml}${extraWorkflowsYaml}
 `;
-}
 
-function activePackageProfilesYaml(): string {
-  return readFileSync(join(process.cwd(), ".pipeline/profiles.yaml"), "utf8")
+const activePackageProfilesYaml = (): string =>
+  readFileSync(join(process.cwd(), ".pipeline/profiles.yaml"), "utf-8")
     .split(LINE_RE)
     .filter((line) => line.trim() !== "skills: [execute, quick, inspect]")
     .join("\n");
-}
 
 const DEFAULT_PACKAGE_SKILLS = [
   "critique",
@@ -287,7 +380,7 @@ const DEFAULT_PACKAGE_SKILLS = [
   "verify",
 ];
 
-function writeDefaultPackageSkills(root: string): void {
+const writeDefaultPackageSkills = (root: string): void => {
   for (const skill of DEFAULT_PACKAGE_SKILLS) {
     writeProjectFile(
       root,
@@ -295,12 +388,12 @@ function writeDefaultPackageSkills(root: string): void {
       `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n`
     );
   }
-}
+};
 
-function makePackageDefaultProject(input: {
+const makePackageDefaultProject = (input: {
   config?: { content: string; path: string };
   prefix: string;
-}): string {
+}): string => {
   const project = mkdtempSync(join(tmpdir(), input.prefix));
   tempDirs.push(project);
   if (input.config) {
@@ -310,60 +403,56 @@ function makePackageDefaultProject(input: {
   }
   writeDefaultPackageSkills(project);
   return project;
-}
+};
 
-function loadPackageDefaults(project: string) {
-  return loadPipelineConfig(project);
-}
+const loadPackageDefaults = (project: string) => loadPipelineConfig(project);
 
-function expectedPackageScheduledEntrypoints(): Record<string, unknown> {
-  return {
-    execute: { schedule: "execute-schedule" },
-    quick: { schedule: "quick-schedule" },
-    inspect: { workflow: "inspect" },
-  };
-}
+const expectedPackageScheduledEntrypoints = (): Record<string, unknown> => ({
+  execute: { schedule: "execute-schedule" },
+  inspect: { workflow: "inspect" },
+  quick: { schedule: "quick-schedule" },
+});
 
-function expectedPackageSchedules(): Record<string, Record<string, string>> {
-  return {
-    "execute-schedule": {
-      baseline: "execute",
-      planner_profile: "moka-schedule-planner",
-      node_catalog: "execute",
-    },
-    "quick-schedule": {
-      baseline: "quick",
-      planner_profile: "moka-schedule-planner",
-      node_catalog: "quick",
-    },
-  };
-}
+const expectedPackageSchedules = (): Record<
+  string,
+  Record<string, string>
+> => ({
+  "execute-schedule": {
+    baseline: "execute",
+    node_catalog: "execute",
+    planner_profile: "moka-schedule-planner",
+  },
+  "quick-schedule": {
+    baseline: "quick",
+    node_catalog: "quick",
+    planner_profile: "moka-schedule-planner",
+  },
+});
 
-function expectedSchedulerCommands(): Record<string, Record<string, string>> {
-  return {
-    execute: {
-      catalog: "execute",
-      schedule: "execute-schedule",
-    },
-    quick: {
-      catalog: "quick",
-      schedule: "quick-schedule",
-    },
-  };
-}
+const expectedSchedulerCommands = (): Record<
+  string,
+  Record<string, string>
+> => ({
+  execute: {
+    catalog: "execute",
+    schedule: "execute-schedule",
+  },
+  quick: {
+    catalog: "quick",
+    schedule: "quick-schedule",
+  },
+});
 
-function expectedExecuteRequiredCategories(): string[] {
-  return [
-    "intake",
-    "research",
-    "red",
-    "green",
-    "mechanical",
-    "acceptance",
-    "verification",
-    "learn",
-  ];
-}
+const expectedExecuteRequiredCategories = (): string[] => [
+  "intake",
+  "research",
+  "red",
+  "green",
+  "mechanical",
+  "acceptance",
+  "verification",
+  "learn",
+];
 
 const EXPECTED_CONFIG_MODULES = [
   { exportValue: PACKAGE_DEFAULT_PIPELINE_YAML, name: "defaults" },
@@ -440,9 +529,9 @@ describe("loadPipelineConfig", () => {
     expect(config.scheduler.commands).toMatchObject(
       expectedSchedulerCommands()
     );
-    expect(
-      (config.scheduler.node_catalogs.execute as any).required_categories
-    ).toEqual(expectedExecuteRequiredCategories());
+    expect(config.scheduler.node_catalogs.execute.required_categories).toEqual(
+      expectedExecuteRequiredCategories()
+    );
     expect(
       config.scheduler.node_catalogs.execute.nodes["red-tests"].models
     ).toEqual(expect.any(Array));
@@ -457,11 +546,11 @@ describe("loadPipelineConfig", () => {
     ]);
     expect(config.profiles["moka-test-writer"].output).toMatchObject({
       format: "json_schema",
-      schema_path: ".pipeline/schemas/implementation.schema.json",
       repair: {
         enabled: true,
         max_attempts: 1,
       },
+      schema_path: ".pipeline/schemas/implementation.schema.json",
     });
     expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
       "Only edit files matching test paths"
@@ -512,7 +601,7 @@ describe("loadPipelineConfig", () => {
     // first setup step runs the repo's declared bootstrap (.moka/bootstrap.sh or
     // a "moka:setup" script) and fails loudly otherwise — moka never guesses it.
     // moka's own runtime provisioning is a single `moka init --force` step.
-    const setup = config.runner_command.environment.setup;
+    const { setup } = config.runner_command.environment;
     expect(setup).toHaveLength(2);
     expect(setup[0].command).toBe("sh");
     expect(setup[0].args[0]).toBe("-c");
@@ -825,12 +914,12 @@ workflows:
     expect(config.task_context?.type).toBe("markdown");
     expect(config.workflows.default.nodes[0]).toMatchObject({
       task_context: {
-        id: "PIPE-41.7",
-        title: "Propagate node-level task context",
-        description: "Carry child ticket context into this node.",
         acceptance_criteria: [
           { id: "1", text: "Agent prompts include node-specific context." },
         ],
+        description: "Carry child ticket context into this node.",
+        id: "PIPE-41.7",
+        title: "Propagate node-level task context",
       },
     });
     expect(
@@ -860,9 +949,9 @@ workflows:
     });
 
     expect(lintPipelineConfig(config, project)).toContainEqual({
-      ruleId: "entrypoint-shadowed",
       message:
         "entrypoint 'ticket' is shadowed by the builtin subcommand; invoke via 'moka run --entrypoint ticket ...'",
+      ruleId: "entrypoint-shadowed",
     });
   });
 
@@ -1110,21 +1199,21 @@ workflows:
     });
 
     expect(config.mcp_gateway?.backends).toMatchObject({
+      backlog: {
+        locality: "repo-local",
+        tool_prefixes: ["backlog"],
+        workspace_path_source: "PIPELINE_TARGET_PATH",
+      },
       context7: {
         locality: "shared-remote",
         required: true,
         tool_prefixes: ["context7"],
       },
-      backlog: {
-        locality: "repo-local",
-        workspace_path_source: "PIPELINE_TARGET_PATH",
-        tool_prefixes: ["backlog"],
-      },
       fallow: {
         locality: "repo-local",
-        workspace_path_source: "cwd",
         required: false,
         tool_prefixes: ["fallow"],
+        workspace_path_source: "cwd",
       },
     });
     expect(config.mcp_servers).toEqual({});
@@ -1298,15 +1387,19 @@ workflows:
     );
     const fanout = config.workflows.default.nodes.find(
       (node) => node.id === "fanout"
-    ) as unknown as {
-      kind: string;
-      nodes: Array<{ id: string; kind: string; nodes?: unknown[] }>;
-    };
+    );
 
     expect(grouped).toMatchObject({
       kind: "group",
       nodes: ["before"],
     });
+    expect(fanout).toMatchObject({ kind: "parallel" });
+    if (fanout?.kind !== "parallel") {
+      throw new PipelineConfigError(
+        "PIPELINE_CONFIG_VALIDATION_ERROR",
+        "expected fanout parallel node"
+      );
+    }
     expect(fanout.kind).toBe("parallel");
     expect(fanout.nodes.map((node) => node.id)).toEqual([
       "child-command",
@@ -1333,14 +1426,13 @@ workflows:
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.issues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          message: expect.stringMatching(MIN_ITEMS_MESSAGE_RE),
-          path: "workflows.default.nodes.0.nodes",
-        }),
-      ])
-    );
+    expect(
+      error.issues.some(
+        (issue) =>
+          issue.path === "workflows.default.nodes.0.nodes" &&
+          MIN_ITEMS_MESSAGE_RE.test(issue.message)
+      )
+    ).toBe(true);
   });
 
   it("rejects workflow node syntax without a workflow field", () => {
@@ -1440,9 +1532,7 @@ workflows:
 
   describe("PIPE-91.3: legacy durability block deprecation", () => {
     it("emits a structured deprecation diagnostic and parses successfully when durability block is present", () => {
-      const warnSpy = vi
-        .spyOn(console, "warn")
-        .mockImplementation(() => undefined);
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
         const config = parseParts({
           pipeline: `${VALID_PIPELINE_YAML}\ndurability:\n  enabled: true\n  dir: .pipeline/journal\n`,
@@ -1463,9 +1553,7 @@ workflows:
     });
 
     it("parses cleanly and emits no warning when no durability block is present", () => {
-      const warnSpy = vi
-        .spyOn(console, "warn")
-        .mockImplementation(() => undefined);
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
         parseParts({ pipeline: VALID_PIPELINE_YAML });
         expect(warnSpy).not.toHaveBeenCalled();
@@ -1476,19 +1564,17 @@ workflows:
   });
 });
 
-describe("execute/quick scheduler integration", () => {
-  function readRepoPipelineYaml(): any {
-    return parse(
-      readFileSync(join(process.cwd(), ".pipeline/pipeline.yaml"), "utf8")
-    );
-  }
+const readRepoPipelineYaml = () =>
+  parseRepoPipelineYaml(
+    readFileSync(join(process.cwd(), ".pipeline/pipeline.yaml"), "utf-8")
+  );
 
+describe("execute/quick scheduler integration", () => {
   it("declares scheduled execute/quick entrypoints and removes legacy entrypoints", () => {
     const config = readRepoPipelineYaml();
-    const entrypoints = config.entrypoints ?? {};
-    const schedules = config.schedules ?? {};
+    const { entrypoints, schedules } = config;
 
-    expect(Object.keys(entrypoints).sort()).toEqual([
+    expect(Object.keys(entrypoints).toSorted()).toEqual([
       "execute",
       "inspect",
       "quick",
@@ -1511,16 +1597,14 @@ describe("execute/quick scheduler integration", () => {
 
   it("declares configurable scheduler node catalogs with model fallback arrays", () => {
     const config = readRepoPipelineYaml();
-    const commands = (config.scheduler?.commands ?? {}) as Record<
-      string,
-      { schedule: string }
-    >;
-    const executeCatalog = config.scheduler?.node_catalogs?.execute as any;
+    const { commands } = config.scheduler;
+    const { execute: executeCatalog, quick: quickCatalog } =
+      config.scheduler.node_catalogs;
 
     expect(
       Object.entries(commands)
         .map(([id, value]) => [id, value.schedule])
-        .sort(([left], [right]) => left.localeCompare(right))
+        .toSorted(([left], [right]) => left.localeCompare(right))
     ).toEqual([
       ["execute", "execute-schedule"],
       ["quick", "quick-schedule"],
@@ -1537,23 +1621,19 @@ describe("execute/quick scheduler integration", () => {
     ] as const) {
       expect(executeCatalog.nodes[nodeId].models).toEqual(expect.any(Array));
     }
-    expect(
-      config.scheduler?.node_catalogs?.quick.nodes["green-implementation"]
-        .models
-    ).toEqual(expect.any(Array));
-    expect(
-      config.scheduler?.node_catalogs?.execute.nodes["red-tests"].models.length
-    ).toBeGreaterThan(1);
-    expect(
-      config.scheduler?.node_catalogs?.execute.nodes["green-backend"].models
-        .length
-    ).toBeGreaterThan(1);
+    expect(quickCatalog.nodes["green-implementation"].models).toEqual(
+      expect.any(Array)
+    );
+    expect(executeCatalog.nodes["red-tests"].models.length).toBeGreaterThan(1);
+    expect(executeCatalog.nodes["green-backend"].models.length).toBeGreaterThan(
+      1
+    );
   });
 
   it("prefers non-Kimi first-choice models for progress-critical scheduler nodes", () => {
     const config = readRepoPipelineYaml();
-    const quickCatalog = config.scheduler?.node_catalogs?.quick as any;
-    const executeCatalog = config.scheduler?.node_catalogs?.execute as any;
+    const { execute: executeCatalog, quick: quickCatalog } =
+      config.scheduler.node_catalogs;
 
     expect(quickCatalog.nodes["green-implementation"].models[0]).not.toBe(
       "kimi-for-coding/k2p6"
@@ -1568,9 +1648,7 @@ describe("execute/quick scheduler integration", () => {
 
   it("keeps legacy epic-router package assets out of the active profile graph", () => {
     const profilesYaml = activePackageProfilesYaml();
-    const profilesConfig = parse(profilesYaml) as {
-      profiles?: Record<string, any>;
-    };
+    const profilesConfig = parseProfilesYaml(profilesYaml);
 
     expect(profilesConfig.profiles?.["moka-epic-router"]).toBeUndefined();
     expect(
@@ -1579,7 +1657,7 @@ describe("execute/quick scheduler integration", () => {
   });
 
   it("ignores pipeline run worktrees", () => {
-    const gitignore = readFileSync(join(process.cwd(), ".gitignore"), "utf8")
+    const gitignore = readFileSync(join(process.cwd(), ".gitignore"), "utf-8")
       .split(LINE_RE)
       .map((line) => line.trim());
 
@@ -1592,12 +1670,12 @@ describe("opencode profile integration", () => {
     const profilesYaml = activePackageProfilesYaml();
     const runnersYaml = readFileSync(
       join(process.cwd(), ".pipeline/runners.yaml"),
-      "utf8"
+      "utf-8"
     );
     const parsed = parsePipelineConfigParts({
       pipeline: readFileSync(
         join(process.cwd(), ".pipeline/pipeline.yaml"),
-        "utf8"
+        "utf-8"
       ),
       profiles: profilesYaml,
       runners: runnersYaml,
@@ -1607,28 +1685,28 @@ describe("opencode profile integration", () => {
     expect(parsed.runners.opencode.capabilities.rules).toBe(true);
     expect(parsed.runners.opencode.capabilities.mcp_servers).toBe(true);
     expect(parsed.profiles["moka-opencode-researcher"]).toMatchObject({
-      runner: "opencode",
       instructions: { path: ".pipeline/prompts/researcher.md" },
+      runner: "opencode",
     });
     expect(parsed.profiles["moka-opencode-code-writer"]).toMatchObject({
+      instructions: { path: ".pipeline/prompts/code-writer.md" },
       runner: "opencode",
       scheduling_roles: ["implementation"],
-      instructions: { path: ".pipeline/prompts/code-writer.md" },
     });
     expect(parsed.profiles["moka-opencode-test-writer"]).toMatchObject({
-      runner: "opencode",
+      instructions: { path: ".pipeline/prompts/test-writer.md" },
       output: {
         format: "json_schema",
         repair: { enabled: true, max_attempts: 1 },
         schema_path: ".pipeline/schemas/implementation.schema.json",
       },
+      runner: "opencode",
       scheduling_roles: ["implementation"],
-      instructions: { path: ".pipeline/prompts/test-writer.md" },
     });
     expect(parsed.profiles["moka-opencode-verifier"]).toMatchObject({
+      instructions: { path: ".pipeline/prompts/verifier.md" },
       runner: "opencode",
       scheduling_roles: ["coverage"],
-      instructions: { path: ".pipeline/prompts/verifier.md" },
     });
   });
 });
@@ -1637,12 +1715,9 @@ describe("final review asset bundle", () => {
   it("declares the installed critique skill and reviewer profile contract", () => {
     const profilesYaml = readFileSync(
       join(process.cwd(), ".pipeline/profiles.yaml"),
-      "utf8"
+      "utf-8"
     );
-    const profilesConfig = parse(profilesYaml) as {
-      skills?: Record<string, { path?: string }>;
-      profiles?: Record<string, any>;
-    };
+    const profilesConfig = parseProfilesYaml(profilesYaml);
 
     expect(profilesConfig.skills?.critique).toEqual({
       path: ".agents/skills/critique/SKILL.md",
@@ -1654,35 +1729,35 @@ describe("final review asset bundle", () => {
       "profiles.moka-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml"
     ).toBeDefined();
     expect(profile).toMatchObject({
-      runner: "opencode",
+      filesystem: {
+        allow: ["**/*"],
+        deny: ["node_modules/**", "dist/**", ".git/**"],
+        mode: "read-only",
+      },
       instructions: {
         path: ".agents/skills/critique/SKILL.md",
       },
-      skills: ["critique"],
       mcp_servers: ["pipeline-gateway"],
-      filesystem: {
-        mode: "read-only",
-        allow: ["**/*"],
-        deny: ["node_modules/**", "dist/**", ".git/**"],
-      },
       network: { mode: "inherit" },
       output: {
         format: "json_schema",
-        schema_path: ".pipeline/schemas/review.schema.json",
         repair: {
           enabled: true,
           max_attempts: 1,
         },
+        schema_path: ".pipeline/schemas/review.schema.json",
       },
+      runner: "opencode",
+      skills: ["critique"],
     });
-    expect(profile.tools).toEqual(["read", "list", "grep", "glob", "bash"]);
+    expect(profile?.tools).toEqual(["read", "list", "grep", "glob", "bash"]);
   });
 
   it("validates the final review output schema contract", () => {
-    const schema = JSON.parse(
+    const schema = parseJsonSchemaValue(
       readFileSync(
         join(process.cwd(), ".pipeline/schemas/review.schema.json"),
-        "utf8"
+        "utf-8"
       )
     );
     const ajv = new Ajv({ allErrors: true, strict: false });
@@ -1690,35 +1765,35 @@ describe("final review asset bundle", () => {
 
     expect(
       validate({
-        verdict: "PASS",
-        summary: "No blocking issues found.",
         findings: [
           {
-            severity: "warn",
-            message: "Documented non-blocking issue.",
             file: "src/index.ts",
             line: 42,
+            message: "Documented non-blocking issue.",
             rule: "scope-discipline",
+            severity: "warn",
           },
         ],
+        summary: "No blocking issues found.",
+        verdict: "PASS",
       }),
       JSON.stringify(validate.errors)
     ).toBe(true);
-    expect(validate({ verdict: "FAIL", findings: [] })).toBe(true);
+    expect(validate({ findings: [], verdict: "FAIL" })).toBe(true);
     expect(validate({ findings: [] }), "verdict is required").toBe(false);
     expect(
-      validate({ verdict: "MAYBE", findings: [] }),
+      validate({ findings: [], verdict: "MAYBE" }),
       "verdict must be PASS or FAIL"
     ).toBe(false);
     expect(validate({ verdict: "FAIL" }), "findings is required").toBe(false);
     expect(
-      validate({ verdict: "FAIL", findings: [{}] }),
+      validate({ findings: [{}], verdict: "FAIL" }),
       "findings require severity and message"
     ).toBe(false);
     expect(
       validate({
+        findings: [{ line: 0, message: "bad", severity: "critical" }],
         verdict: "FAIL",
-        findings: [{ severity: "critical", message: "bad", line: 0 }],
       }),
       "finding line numbers are 1-based"
     ).toBe(false);
@@ -1738,8 +1813,8 @@ describe("final review asset bundle", () => {
   });
 });
 
-const MAX_CONTEXT_PCT_RE = /max_context_pct/i;
-const UNKNOWN_CATEGORY_RE = /unknown node category 'green'/i;
+const MAX_CONTEXT_PCT_RE = /max_context_pct/iu;
+const UNKNOWN_CATEGORY_RE = /unknown node category 'green'/iu;
 
 describe("token_budget", () => {
   it("applies documented defaults when the block is omitted", () => {

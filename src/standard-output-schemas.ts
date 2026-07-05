@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { ticketPlanSchema } from "./tickets/ticket-plan";
 
 const VERDICT_SCHEMA = z.enum(["PASS", "FAIL"]);
@@ -20,8 +21,8 @@ const STANDARD_OUTPUT_SCHEMAS = {
           .object({
             evidence: STRING_ARRAY_SCHEMA,
             id: z.string(),
-            violations: STRING_ARRAY_SCHEMA.optional(),
             verdict: VERDICT_SCHEMA,
+            violations: STRING_ARRAY_SCHEMA.optional(),
           })
           .strict()
       ),
@@ -90,35 +91,32 @@ const STANDARD_OUTPUT_SCHEMAS = {
 export type StandardOutputSchemaName = keyof typeof STANDARD_OUTPUT_SCHEMAS;
 
 const standardOutputSchemaNames = Object.freeze(
-  Object.keys(STANDARD_OUTPUT_SCHEMAS).sort()
+  Object.keys(STANDARD_OUTPUT_SCHEMAS).toSorted()
 ) as readonly StandardOutputSchemaName[];
+const NO_STANDARD_OUTPUT_SCHEMA = null;
 
-export function standardOutputSchemaJson(
+export const standardOutputSchemaJson = (
   name: StandardOutputSchemaName
-): string {
+): string => {
   const schema = STANDARD_OUTPUT_SCHEMAS[name];
-  if (!schema) {
-    throw new Error(`Missing standard output schema registry entry '${name}'`);
-  }
   return JSON.stringify(
     z.toJSONSchema(schema, { target: "draft-07" }),
     null,
     2
   );
-}
+};
 
-function standardOutputSchemaPath(name: StandardOutputSchemaName): string {
-  return `.pipeline/schemas/${name}.schema.json`;
-}
+const standardOutputSchemaPath = (name: StandardOutputSchemaName): string =>
+  `.pipeline/schemas/${name}.schema.json`;
 
-export function standardOutputSchemaNameFromPath(
+export const standardOutputSchemaNameFromPath = (
   schemaPath: string
-): StandardOutputSchemaName | null {
+): StandardOutputSchemaName | typeof NO_STANDARD_OUTPUT_SCHEMA => {
   const normalized = schemaPath.replaceAll("\\", "/");
   for (const name of standardOutputSchemaNames) {
     if (normalized === standardOutputSchemaPath(name)) {
       return name;
     }
   }
-  return null;
-}
+  return NO_STANDARD_OUTPUT_SCHEMA;
+};

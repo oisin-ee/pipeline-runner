@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import { buildRepoMapContext } from "./repo-map";
 
 const dirs: string[] = [];
@@ -12,7 +14,7 @@ afterEach(() => {
   }
 });
 
-function fixture(): string {
+const fixture = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "moka-repomap-"));
   dirs.push(dir);
   writeFileSync(
@@ -28,7 +30,7 @@ function fixture(): string {
     "export function gamma() {\n  return 2;\n}\n"
   );
   return dir;
-}
+};
 
 const byChars = (text: string) => text.length;
 

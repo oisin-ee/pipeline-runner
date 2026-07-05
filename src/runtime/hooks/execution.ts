@@ -25,37 +25,35 @@ const moduleHookModule = {
   kind: "module",
 } satisfies HookKindModule<"module">;
 
-const hookExecutors: Record<HookFunctionKind, HookFunctionExecutor> = {
-  command: forHookKind(commandHookModule.kind, commandHookModule.execute),
-  module: forHookKind(moduleHookModule.kind, moduleHookModule.execute),
-};
+const hasHookKind = <K extends HookFunctionKind>(
+  hookFunction: HookFunctionSpec,
+  kind: K
+): hookFunction is Extract<HookFunctionSpec, { kind: K }> =>
+  hookFunction.kind === kind;
 
-export function executeHookFunction(
-  input: HookExecutionInput
-): ReturnType<HookFunctionExecutor> {
-  return hookExecutors[input.hookFunction.kind](input);
-}
-
-function forHookKind<K extends HookFunctionKind>(
-  kind: K,
-  execute: (
-    hookFunction: Extract<HookFunctionSpec, { kind: K }>,
-    input: HookExecutionInput
-  ) => ReturnType<HookFunctionExecutor>
-): HookFunctionExecutor {
-  return (input) => {
+const forHookKind =
+  <K extends HookFunctionKind>(
+    kind: K,
+    execute: (
+      hookFunction: Extract<HookFunctionSpec, { kind: K }>,
+      input: HookExecutionInput
+    ) => ReturnType<HookFunctionExecutor>
+  ): HookFunctionExecutor =>
+  async (input) => {
     if (!hasHookKind(input.hookFunction, kind)) {
       throw new Error(
         `hook registry mismatch: handler '${kind}' received '${input.hookFunction.kind}'`
       );
     }
-    return execute(input.hookFunction, input);
+    return await execute(input.hookFunction, input);
   };
-}
 
-function hasHookKind<K extends HookFunctionKind>(
-  hookFunction: HookFunctionSpec,
-  kind: K
-): hookFunction is Extract<HookFunctionSpec, { kind: K }> {
-  return hookFunction.kind === kind;
-}
+const hookExecutors: Record<HookFunctionKind, HookFunctionExecutor> = {
+  command: forHookKind(commandHookModule.kind, commandHookModule.execute),
+  module: forHookKind(moduleHookModule.kind, moduleHookModule.execute),
+};
+
+export const executeHookFunction = (
+  input: HookExecutionInput
+): ReturnType<HookFunctionExecutor> =>
+  hookExecutors[input.hookFunction.kind](input);

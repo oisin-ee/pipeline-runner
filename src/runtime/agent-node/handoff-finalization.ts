@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { RunnerLaunchPlan } from "../../runner";
@@ -7,71 +8,29 @@ import type { RuntimeContext } from "../contracts";
 import { emitAgentFinish, emitAgentStart } from "../events";
 import {
   handoffFinalizerPrompt,
-  type NodeHandoff,
   parseHandoff,
   synthesizeMinimalHandoff,
 } from "../handoff";
+import type { NodeHandoff } from "../handoff";
 import { AgentNodeRuntimeService } from "../services/agent-node-runtime-service";
 import { normalizeAgentOutput } from "./output-finalization";
 
-export function maybeDeriveHandoffEffect(
-  context: RuntimeContext,
-  node: PlannedWorkflowNode,
-  rawOutput: string,
-  attempt: number
-): Effect.Effect<NodeHandoff | undefined, unknown, AgentNodeRuntimeService> {
-  if (!context.config.context_handoff?.enabled) {
-    return Effect.succeed(undefined);
-  }
-  const handoff = parseHandoff(rawOutput);
-  return handoff
-    ? Effect.succeed(handoff)
-    : runHandoffFinalizerEffect(context, node, rawOutput, attempt);
-}
+const NO_HANDOFF: Option.Option<NodeHandoff> = Option.none();
 
-function runHandoffFinalizerEffect(
-  context: RuntimeContext,
-  node: PlannedWorkflowNode,
-  rawOutput: string,
-  attempt: number
-): Effect.Effect<NodeHandoff, never, AgentNodeRuntimeService> {
-  return Effect.gen(function* () {
-    const runner = profileRunner(context, node);
-    if (!(runner && rawOutput.trim())) {
-      return synthesizeMinimalHandoff(rawOutput);
-    }
-    const plan = createHandoffFinalizerPlan(context, node, runner, rawOutput);
-    context.agentInvocations.push(plan);
-    emitAgentStart(context, plan, attempt);
-    const service = yield* AgentNodeRuntimeService;
-    const result = yield* service.executeRunner(context.executor, plan, {
-      signal: context.signal,
-    });
-    emitAgentFinish(context, plan, attempt, result);
-    const normalized = normalizeAgentOutput(plan, result.stdout);
-    return (
-      parseHandoff(normalized.output) ?? synthesizeMinimalHandoff(rawOutput)
-    );
-  }).pipe(
-    Effect.catch(() => Effect.succeed(synthesizeMinimalHandoff(rawOutput)))
-  );
-}
-
-function profileRunner(
+const profileRunner = (
   context: RuntimeContext,
   node: PlannedWorkflowNode
-): string | undefined {
-  return node.profile
-    ? context.config.profiles[node.profile]?.runner
-    : undefined;
-}
+): Option.Option<string> =>
+  node.profile === undefined || node.profile.length === 0
+    ? Option.none()
+    : Option.fromUndefinedOr(context.config.profiles[node.profile]?.runner);
 
-function createHandoffFinalizerPlan(
+const createHandoffFinalizerPlan = (
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   runner: string,
   rawOutput: string
-): RunnerLaunchPlan {
+): RunnerLaunchPlan => {
   const finalizerProfileId = `${node.id}:handoff`;
   const finalizerConfig: PipelineConfig = {
     ...context.config,
@@ -95,6 +54,54 @@ function createHandoffFinalizerPlan(
     profileId: finalizerProfileId,
     prompt: handoffFinalizerPrompt(rawOutput),
     worktreePath: context.worktreePath,
-    ...(model ? { model } : {}),
+    ...(model === undefined || model.length === 0 ? {} : { model }),
   });
-}
+};
+
+const runHandoffFinalizerEffect = (
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  rawOutput: string,
+  attempt: number
+): Effect.Effect<NodeHandoff, never, AgentNodeRuntimeService> =>
+  Effect.gen(function* effectBody() {
+    const runner = profileRunner(context, node);
+    const runnerId = Option.getOrUndefined(runner);
+    if (runnerId === undefined || rawOutput.trim().length === 0) {
+      return synthesizeMinimalHandoff(rawOutput);
+    }
+    const plan = createHandoffFinalizerPlan(context, node, runnerId, rawOutput);
+    context.agentInvocations.push(plan);
+    emitAgentStart(context, plan, attempt);
+    const service = yield* AgentNodeRuntimeService;
+    const result = yield* service.executeRunner(context.executor, plan, {
+      signal: context.signal,
+    });
+    emitAgentFinish(context, plan, attempt, result);
+    const normalized = normalizeAgentOutput(plan, result.stdout);
+    const handoff = parseHandoff(normalized.output);
+    return Option.getOrElse(handoff, () => synthesizeMinimalHandoff(rawOutput));
+  }).pipe(
+    Effect.catch(() => Effect.succeed(synthesizeMinimalHandoff(rawOutput)))
+  );
+
+export const maybeDeriveHandoffEffect = (
+  context: RuntimeContext,
+  node: PlannedWorkflowNode,
+  rawOutput: string,
+  attempt: number
+): Effect.Effect<
+  Option.Option<NodeHandoff>,
+  unknown,
+  AgentNodeRuntimeService
+> => {
+  if (context.config.context_handoff?.enabled !== true) {
+    return Effect.succeed(NO_HANDOFF);
+  }
+  const handoff = parseHandoff(rawOutput);
+  return Option.isNone(handoff)
+    ? runHandoffFinalizerEffect(context, node, rawOutput, attempt).pipe(
+        Effect.map(Option.some)
+      )
+    : Effect.succeed(handoff);
+};

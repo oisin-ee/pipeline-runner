@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import type { WorkflowExecutionPlan } from "../../planning/compile";
 import {
   RUNNER_WORKFLOW_ENTRYPOINT,
@@ -194,6 +195,7 @@ const argoWorkflowEnvVarSchema = z.union([
 
 const argoWorkflowTemplateSchema = z
   .object({
+    activeDeadlineSeconds: z.number().int().positive().optional(),
     container: z
       .object({
         args: z.array(z.string().min(1)).min(1),
@@ -243,6 +245,7 @@ const argoWorkflowTemplateSchema = z
       })
       .strict()
       .optional(),
+    name: z.string().min(1),
     outputs: z
       .object({
         artifacts: z.array(argoWorkflowArtifactSchema).optional(),
@@ -250,6 +253,7 @@ const argoWorkflowTemplateSchema = z
       })
       .strict()
       .optional(),
+    retryStrategy: argoWorkflowRetryStrategySchema.optional(),
     steps: z
       .array(
         z.array(
@@ -272,9 +276,6 @@ const argoWorkflowTemplateSchema = z
         )
       )
       .optional(),
-    activeDeadlineSeconds: z.number().int().positive().optional(),
-    name: z.string().min(1),
-    retryStrategy: argoWorkflowRetryStrategySchema.optional(),
   })
   .strict()
   .refine(
@@ -287,8 +288,8 @@ const argoWorkflowTemplateSchema = z
     }
   );
 
-export function createRunnerArgoWorkflowManifestSchema() {
-  return z
+export const createRunnerArgoWorkflowManifestSchema = () =>
+  z
     .object({
       apiVersion: z.literal(ARGO_WORKFLOW_API_VERSION),
       kind: z.literal(ARGO_WORKFLOW_KIND),
@@ -316,6 +317,8 @@ export function createRunnerArgoWorkflowManifestSchema() {
           imagePullSecrets: z
             .array(z.object({ name: kubernetesNameSchema }).strict())
             .optional(),
+          onExit: z.string().min(1).optional(),
+          podGC: argoWorkflowPodGcSchema.optional(),
           podMetadata: z
             .object({
               labels: z.record(z.string().min(1), labelValueSchema).optional(),
@@ -323,16 +326,13 @@ export function createRunnerArgoWorkflowManifestSchema() {
             .strict()
             .optional(),
           serviceAccountName: kubernetesNameSchema,
-          onExit: z.string().min(1).optional(),
           templates: z.array(argoWorkflowTemplateSchema).min(2),
-          podGC: argoWorkflowPodGcSchema.optional(),
           ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
           volumes: z.array(argoWorkflowVolumeSchema).min(1),
         })
         .strict(),
     })
     .strict();
-}
 
 const runnerWorkflowBrokerAuthSchema = z
   .object({

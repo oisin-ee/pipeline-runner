@@ -8,7 +8,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { ensurePipelineWorkspaceIgnore } from "../src/run-control/workspace";
 
 describe("ensurePipelineWorkspaceIgnore", () => {
@@ -27,7 +29,7 @@ describe("ensurePipelineWorkspaceIgnore", () => {
 
     const gitignorePath = join(worktreePath, ".pipeline", ".gitignore");
     expect(existsSync(gitignorePath)).toBe(true);
-    expect(readFileSync(gitignorePath, "utf8")).toBe("*\n");
+    expect(readFileSync(gitignorePath, "utf-8")).toBe("*\n");
   });
 
   it("is idempotent — calling twice leaves the same content", () => {
@@ -35,7 +37,7 @@ describe("ensurePipelineWorkspaceIgnore", () => {
     ensurePipelineWorkspaceIgnore(worktreePath);
 
     const gitignorePath = join(worktreePath, ".pipeline", ".gitignore");
-    expect(readFileSync(gitignorePath, "utf8")).toBe("*\n");
+    expect(readFileSync(gitignorePath, "utf-8")).toBe("*\n");
   });
 
   it("does not overwrite a pre-existing .pipeline/.gitignore with different content", () => {
@@ -46,7 +48,7 @@ describe("ensurePipelineWorkspaceIgnore", () => {
 
     ensurePipelineWorkspaceIgnore(worktreePath);
 
-    expect(readFileSync(gitignorePath, "utf8")).toBe("schedule.yaml\n");
+    expect(readFileSync(gitignorePath, "utf-8")).toBe("schedule.yaml\n");
   });
 
   it("creates .pipeline/ dir if it does not yet exist", () => {

@@ -1,22 +1,32 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { afterAll, describe, expect, it } from "vitest";
-import { type PipelineConfig, parsePipelineConfigParts } from "../src/config";
+import { z } from "zod";
+
+import { parsePipelineConfigParts } from "../src/config";
+import type { PipelineConfig } from "../src/config";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
 import { opencodeAgentName } from "../src/runtime/opencode-agent-name";
 
 const RUN_LIVE = process.env.PIPELINE_LIVE_RUNNERS === "1";
 const describeLive = RUN_LIVE ? describe : describe.skip;
-const FILESYSTEM_MODE_RE = /^(read-only|workspace-write)$/;
+const FILESYSTEM_MODE_RE = /^(read-only|workspace-write)$/u;
 
 const LIVE_HARNESSES = ["opencode"] as const;
 type LiveHarness = (typeof LIVE_HARNESSES)[number];
 
-type OutputFormat = "json" | "json_schema" | "jsonl" | "text";
+const OUTPUT_FORMATS = ["json", "json_schema", "jsonl", "text"] as const;
+type OutputFormat = (typeof OUTPUT_FORMATS)[number];
+
+const LIVE_SMOKE_OUTPUT_SCHEMA = z.object({
+  evidence: z.array(z.string()).optional(),
+  verdict: z.string().optional(),
+});
 
 interface HarnessSmokeSpec {
-  filesystemModes: Array<"read-only" | "workspace-write">;
+  filesystemModes: ("read-only" | "workspace-write")[];
   mcpServers: boolean;
   outputFormats: OutputFormat[];
   rules: boolean;
@@ -35,8 +45,63 @@ const HARNESS_SPECS: Record<LiveHarness, HarnessSmokeSpec> = {
   },
 };
 
+const tempDirs: string[] = [];
+
+afterAll(() => {
+  for (const dir of tempDirs) {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+const isLiveHarness = (value: string): value is LiveHarness =>
+  LIVE_HARNESSES.some((harness) => harness === value);
+
+const isOutputFormat = (value: string): value is OutputFormat =>
+  OUTPUT_FORMATS.some((format) => format === value);
+
+const selectedHarnesses = (): LiveHarness[] => {
+  const raw = process.env.PIPELINE_LIVE_RUNNER_HARNESSES;
+  if (raw === undefined || raw.length === 0) {
+    return [...LIVE_HARNESSES];
+  }
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((item) => {
+      if (!isLiveHarness(item)) {
+        throw new Error(
+          `Unsupported PIPELINE_LIVE_RUNNER_HARNESSES value '${item}'`
+        );
+      }
+      return item;
+    });
+};
+
 const SELECTED_HARNESSES = selectedHarnesses();
+
+const selectedFormats = (): Set<OutputFormat> => {
+  const raw = process.env.PIPELINE_LIVE_RUNNER_FORMATS;
+  if (raw === undefined || raw.length === 0) {
+    return new Set(OUTPUT_FORMATS);
+  }
+  return new Set(
+    raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+      .map((item) => {
+        if (!isOutputFormat(item)) {
+          throw new Error(
+            `Unsupported PIPELINE_LIVE_RUNNER_FORMATS value '${item}'`
+          );
+        }
+        return item;
+      })
+  );
+};
 const SELECTED_FORMATS = selectedFormats();
+
 const MATRIX = SELECTED_HARNESSES.flatMap((harness) =>
   HARNESS_SPECS[harness].outputFormats
     .filter((format) => SELECTED_FORMATS.has(format))
@@ -51,121 +116,115 @@ const MATRIX = SELECTED_HARNESSES.flatMap((harness) =>
     }))
 );
 
-const tempDirs: string[] = [];
+const arrayEquals = (
+  left: readonly string[],
+  right: readonly string[]
+): boolean =>
+  left.length === right.length &&
+  right.every((item, index) => left[index] === item);
 
-afterAll(() => {
-  for (const dir of tempDirs) {
-    rmSync(dir, { recursive: true, force: true });
+const assertSmoke = (
+  condition: boolean,
+  message: string,
+  diagnostic: string
+): void => {
+  if (!condition) {
+    throw new Error(`${message}\n${diagnostic}`);
   }
-});
+};
 
-describeLive("live runner smoke matrix", () => {
-  it.each(
-    MATRIX
-  )("runs $harness with $format output and declared grants", async ({
-    filesystem,
-    format,
-    harness,
-    profileId,
-  }) => {
-    process.env.PIPELINE_AGENT_TIMEOUT_MS ??= "180000";
-    const project = makeProject();
-    const config = liveRunnerConfig(project, {
-      filesystem,
-      format,
-      harness,
-      profileId,
-    });
-
-    const result = await runPipelineFromConfig({
-      config,
-      task: `Return the live smoke PASS object for ${profileId}.`,
-      workflowId: "live",
-      worktreePath: project,
-    });
-    const diagnostic = runtimeDiagnostic(result);
-
-    expect(result.outcome, diagnostic).toBe("PASS");
-    expect(result.nodes, diagnostic).toHaveLength(1);
-
-    const node = result.nodes[0];
-    expect(node?.status, diagnostic).toBe("passed");
-    expect(node?.output, diagnostic).toContain("PASS");
-
-    const parsed = JSON.parse(node?.output ?? "{}") as {
-      evidence?: string[];
-      verdict?: string;
-    };
-    expect(parsed.verdict, diagnostic).toBe("PASS");
-    expect(parsed.evidence, diagnostic).toContain(`${profileId} live smoke`);
-
-    const nodeGates = result.gates.filter(
-      (gate) => gate.nodeId === node?.nodeId
-    );
-    expect(
-      nodeGates.some((gate) => gate.kind === "verdict" && gate.passed),
-      diagnostic
-    ).toBe(true);
-    if (format === "json_schema") {
-      expect(
-        nodeGates.some((gate) => gate.kind === "json_schema" && gate.passed),
-        diagnostic
-      ).toBe(true);
-    }
-
-    expect(result.agentInvocations.length, diagnostic).toBeGreaterThan(0);
-    const plan = result.agentInvocations.at(-1);
-    expect(plan?.type, diagnostic).toBe(harness);
-    expect(plan?.runnerId, diagnostic).toBe(harness);
-    expect(plan?.profileId, diagnostic).toBe(profileId);
-    expect(plan?.outputFormat, diagnostic).toBe(format);
-    assertLaunchPlanContainsGrants(config, profileId, diagnostic);
-  }, 240_000);
-});
-
-function selectedHarnesses(): LiveHarness[] {
-  const raw = process.env.PIPELINE_LIVE_RUNNER_HARNESSES;
-  if (!raw) {
-    return [...LIVE_HARNESSES];
-  }
-  const allowed = new Set<string>(LIVE_HARNESSES);
-  return raw
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      if (!allowed.has(item)) {
-        throw new Error(
-          `Unsupported PIPELINE_LIVE_RUNNER_HARNESSES value '${item}'`
-        );
-      }
-      return item as LiveHarness;
-    });
-}
-
-function selectedFormats(): Set<OutputFormat> {
-  const raw = process.env.PIPELINE_LIVE_RUNNER_FORMATS;
-  if (!raw) {
-    return new Set(["json", "json_schema", "jsonl", "text"]);
-  }
-  const allowed = new Set(["json", "json_schema", "jsonl", "text"]);
-  return new Set(
-    raw
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => {
-        if (!allowed.has(item)) {
-          throw new Error(
-            `Unsupported PIPELINE_LIVE_RUNNER_FORMATS value '${item}'`
-          );
-        }
-        return item as OutputFormat;
-      })
+const assertLaunchPlanContainsGrants = (
+  config: PipelineConfig,
+  profileId: string,
+  diagnostic: string
+): void => {
+  const profile = config.profiles[profileId];
+  const plan = config.workflows.live.nodes[0];
+  assertSmoke(
+    plan.kind === "agent" && plan.profile === profileId,
+    "profile id did not match",
+    diagnostic
   );
-}
+  assertSmoke(
+    arrayEquals(profile.rules ?? [], ["live-rule"]),
+    "rule grant was not attached",
+    diagnostic
+  );
+  assertSmoke(
+    FILESYSTEM_MODE_RE.test(profile.filesystem?.mode ?? ""),
+    "filesystem grant was not attached",
+    diagnostic
+  );
+  assertSmoke(
+    profile.network?.mode === "inherit",
+    "network grant was not attached",
+    diagnostic
+  );
+  assertSmoke(
+    (profile.tools?.length ?? 0) > 0,
+    "tool grants were not attached",
+    diagnostic
+  );
+  if (profile.runner === "opencode") {
+    assertSmoke(
+      arrayEquals(profile.skills ?? [], ["live-skill"]),
+      `${profile.runner} skill grant was not attached`,
+      diagnostic
+    );
+  }
+  if (profile.runner === "opencode") {
+    assertSmoke(
+      arrayEquals(profile.mcp_servers ?? [], ["pipeline-gateway"]),
+      "MCP grant was not attached",
+      diagnostic
+    );
+  }
+};
 
-function makeProject(): string {
+const redactLongPrompt = (args: string[]): string[] =>
+  args.map((arg) =>
+    arg.length > 500 ? `${arg.slice(0, 500)}...<truncated>` : arg
+  );
+
+const runtimeDiagnostic = (
+  result: Awaited<ReturnType<typeof runPipelineFromConfig>>
+): string =>
+  JSON.stringify(
+    {
+      failureDetails: result.failureDetails,
+      gates: result.gates,
+      invocations: result.agentInvocations.map((plan) => ({
+        args: redactLongPrompt(plan.args),
+        env: plan.env,
+        outputFormat: plan.outputFormat,
+        profileId: plan.profileId,
+        runnerId: plan.runnerId,
+        type: plan.type,
+      })),
+      nodes: result.nodes.map((node) => ({
+        evidence: node.evidence,
+        exitCode: node.exitCode,
+        nodeId: node.nodeId,
+        output: node.output,
+        status: node.status,
+      })),
+      outcome: result.outcome,
+    },
+    null,
+    2
+  );
+
+const writeProjectFile = (
+  root: string,
+  path: string,
+  content: string
+): void => {
+  const fullPath = join(root, path);
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, content);
+};
+
+const makeProject = (): string => {
   const project = mkdtempSync(join(tmpdir(), "pipeline-live-runners-"));
   tempDirs.push(project);
   writeProjectFile(project, "package.json", JSON.stringify({ type: "module" }));
@@ -197,9 +256,40 @@ function makeProject(): string {
     "# Live Smoke Skill\n\nReturn the requested JSON object exactly.\n"
   );
   return project;
-}
+};
 
-function liveRunnerConfig(
+const writeLiveOpencodeAgent = (project: string, profileId: string): void => {
+  const agentName = opencodeAgentName(profileId);
+  writeProjectFile(
+    project,
+    `.opencode/agents/${agentName}.md`,
+    [
+      "---",
+      `name: ${agentName}`,
+      `description: Live smoke profile ${profileId}`,
+      "hidden: false",
+      "mode: all",
+      "permission:",
+      "  bash: allow",
+      "  edit: allow",
+      "  glob: allow",
+      "  grep: allow",
+      "  list: allow",
+      "  read: allow",
+      "  write: allow",
+      "  task: allow",
+      "  external_directory: deny",
+      "  skill:",
+      '    "*": deny',
+      "    live-skill: allow",
+      "---",
+      "Return the requested JSON object exactly; no Markdown fences.",
+      "",
+    ].join("\n")
+  );
+};
+
+const liveRunnerConfig = (
   project: string,
   spec: {
     filesystem: "read-only" | "workspace-write";
@@ -207,7 +297,7 @@ function liveRunnerConfig(
     harness: LiveHarness;
     profileId: string;
   }
-): PipelineConfig {
+): PipelineConfig => {
   const { filesystem, format, harness, profileId } = spec;
   const harnessSpec = HARNESS_SPECS[harness];
   const nodeId = `run-${profileId}`;
@@ -294,141 +384,62 @@ runners:
     },
     project
   );
-}
+};
 
-function assertLaunchPlanContainsGrants(
-  config: PipelineConfig,
-  profileId: string,
-  diagnostic: string
-): void {
-  const profile = config.profiles[profileId];
-  const plan = config.workflows.live.nodes[0];
-  assertSmoke(
-    plan?.kind === "agent" && plan.profile === profileId,
-    "profile id did not match",
-    diagnostic
-  );
-  assertSmoke(
-    arrayEquals(profile?.rules, ["live-rule"]),
-    "rule grant was not attached",
-    diagnostic
-  );
-  assertSmoke(
-    FILESYSTEM_MODE_RE.test(profile?.filesystem?.mode ?? ""),
-    "filesystem grant was not attached",
-    diagnostic
-  );
-  assertSmoke(
-    profile?.network?.mode === "inherit",
-    "network grant was not attached",
-    diagnostic
-  );
-  assertSmoke(
-    (profile?.tools?.length ?? 0) > 0,
-    "tool grants were not attached",
-    diagnostic
-  );
-  if (profile?.runner === "opencode") {
-    assertSmoke(
-      arrayEquals(profile.skills, ["live-skill"]),
-      `${profile.runner} skill grant was not attached`,
-      diagnostic
-    );
-  }
-  if (profile?.runner === "opencode") {
-    assertSmoke(
-      arrayEquals(profile?.mcp_servers, ["pipeline-gateway"]),
-      "MCP grant was not attached",
-      diagnostic
-    );
-  }
-}
+describeLive("live runner smoke matrix", () => {
+  it.each(MATRIX)(
+    "runs $harness with $format output and declared grants",
+    async ({ filesystem, format, harness, profileId }) => {
+      process.env.PIPELINE_AGENT_TIMEOUT_MS ??= "180000";
+      const project = makeProject();
+      const config = liveRunnerConfig(project, {
+        filesystem,
+        format,
+        harness,
+        profileId,
+      });
 
-function arrayEquals(left: string[] | undefined, right: string[]): boolean {
-  return (
-    (left?.length ?? 0) === right.length &&
-    right.every((item, index) => left?.[index] === item)
-  );
-}
+      const result = await runPipelineFromConfig({
+        config,
+        task: `Return the live smoke PASS object for ${profileId}.`,
+        workflowId: "live",
+        worktreePath: project,
+      });
+      const diagnostic = runtimeDiagnostic(result);
 
-function assertSmoke(
-  condition: boolean,
-  message: string,
-  diagnostic: string
-): void {
-  if (!condition) {
-    throw new Error(`${message}\n${diagnostic}`);
-  }
-}
+      expect(result.outcome, diagnostic).toBe("PASS");
+      expect(result.nodes, diagnostic).toHaveLength(1);
 
-function runtimeDiagnostic(
-  result: Awaited<ReturnType<typeof runPipelineFromConfig>>
-): string {
-  return JSON.stringify(
-    {
-      failureDetails: result.failureDetails,
-      gates: result.gates,
-      invocations: result.agentInvocations.map((plan) => ({
-        args: redactLongPrompt(plan.args),
-        env: plan.env,
-        outputFormat: plan.outputFormat,
-        profileId: plan.profileId,
-        runnerId: plan.runnerId,
-        type: plan.type,
-      })),
-      nodes: result.nodes.map((node) => ({
-        evidence: node.evidence,
-        exitCode: node.exitCode,
-        nodeId: node.nodeId,
-        output: node.output,
-        status: node.status,
-      })),
-      outcome: result.outcome,
+      const node = result.nodes[0];
+      expect(node.status, diagnostic).toBe("passed");
+      expect(node.output, diagnostic).toContain("PASS");
+
+      const parsed = LIVE_SMOKE_OUTPUT_SCHEMA.parse(JSON.parse(node.output));
+      expect(parsed.verdict, diagnostic).toBe("PASS");
+      expect(parsed.evidence, diagnostic).toContain(`${profileId} live smoke`);
+
+      const nodeGates = result.gates.filter(
+        (gate) => gate.nodeId === node.nodeId
+      );
+      expect(
+        nodeGates.some((gate) => gate.kind === "verdict" && gate.passed),
+        diagnostic
+      ).toBe(true);
+      if (format === "json_schema") {
+        expect(
+          nodeGates.some((gate) => gate.kind === "json_schema" && gate.passed),
+          diagnostic
+        ).toBe(true);
+      }
+
+      expect(result.agentInvocations.length, diagnostic).toBeGreaterThan(0);
+      const plan = result.agentInvocations.at(-1);
+      expect(plan?.type, diagnostic).toBe(harness);
+      expect(plan?.runnerId, diagnostic).toBe(harness);
+      expect(plan?.profileId, diagnostic).toBe(profileId);
+      expect(plan?.outputFormat, diagnostic).toBe(format);
+      assertLaunchPlanContainsGrants(config, profileId, diagnostic);
     },
-    null,
-    2
+    240_000
   );
-}
-
-function redactLongPrompt(args: string[]): string[] {
-  return args.map((arg) =>
-    arg.length > 500 ? `${arg.slice(0, 500)}...<truncated>` : arg
-  );
-}
-
-function writeProjectFile(root: string, path: string, content: string): void {
-  const fullPath = join(root, path);
-  mkdirSync(dirname(fullPath), { recursive: true });
-  writeFileSync(fullPath, content);
-}
-
-function writeLiveOpencodeAgent(project: string, profileId: string): void {
-  const agentName = opencodeAgentName(profileId);
-  writeProjectFile(
-    project,
-    `.opencode/agents/${agentName}.md`,
-    [
-      "---",
-      `name: ${agentName}`,
-      `description: Live smoke profile ${profileId}`,
-      "hidden: false",
-      "mode: all",
-      "permission:",
-      "  bash: allow",
-      "  edit: allow",
-      "  glob: allow",
-      "  grep: allow",
-      "  list: allow",
-      "  read: allow",
-      "  write: allow",
-      "  task: allow",
-      "  external_directory: deny",
-      "  skill:",
-      '    "*": deny',
-      "    live-skill: allow",
-      "---",
-      "Return the requested JSON object exactly; no Markdown fences.",
-      "",
-    ].join("\n")
-  );
-}
+});

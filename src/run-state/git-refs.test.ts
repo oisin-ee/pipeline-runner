@@ -9,7 +9,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import { buildRunnerCommandPayload } from "../runner-command-contract";
 import {
   commitAndPushNodeRef,
@@ -21,11 +23,11 @@ import {
 
 const tempDirs: string[] = [];
 const COMMITTER = { email: "git@oisin.ee", name: "oisin-bot" };
-const SHA_RE = /^[0-9a-f]{40}$/;
+const SHA_RE = /^[0-9a-f]{40}$/u;
 // Mirrors the Conventional Commits subject that a target repo's commit-msg hook
 // (e.g. jalgpall-web's `conventional-commits` lefthook) enforces.
 const CONVENTIONAL_SUBJECT_RE =
-  /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!?: .+/;
+  /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!?: .+/u;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -37,6 +39,42 @@ afterEach(() => {
   delete process.env.GIT_CONFIG_KEY_0;
   delete process.env.GIT_CONFIG_VALUE_0;
 });
+
+const tempDir = (prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+};
+
+const git = (cwd: string, ...args: string[]): string => {
+  mkdirSync(cwd, { recursive: true });
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+};
+
+const configureGit = (cwd: string): void => {
+  git(cwd, "config", "user.name", COMMITTER.name);
+  git(cwd, "config", "user.email", COMMITTER.email);
+};
+
+const seedRemote = (
+  fixture: string,
+  remotePath: string,
+  seedPath: string
+): string => {
+  const remoteUrl = pathToFileURL(remotePath).href;
+  git(fixture, "init", "--bare", "--initial-branch=main", remotePath);
+  git(fixture, "clone", remoteUrl, seedPath);
+  configureGit(seedPath);
+  writeFileSync(join(seedPath, "README.md"), "seed\n");
+  git(seedPath, "add", "README.md");
+  git(seedPath, "commit", "-m", "seed");
+  git(seedPath, "push", "origin", "main");
+  return remoteUrl;
+};
 
 describe("runner Git refs", () => {
   it("pushes node refs, merges dependencies, and promotes the final ref", async () => {
@@ -92,7 +130,7 @@ describe("runner Git refs", () => {
       payload,
       worktreePath: rightPath,
     });
-    expect(readFileSync(join(rightPath, "left.txt"), "utf8")).toBe("left\n");
+    expect(readFileSync(join(rightPath, "left.txt"), "utf-8")).toBe("left\n");
     writeFileSync(join(rightPath, "right.txt"), "right\n");
     const rightSha = await commitAndPushNodeRef({
       committer: COMMITTER,
@@ -116,8 +154,8 @@ describe("runner Git refs", () => {
     expect(leftSha).toMatch(SHA_RE);
     expect(rightSha).toMatch(SHA_RE);
     expect(finalSha).toMatch(SHA_RE);
-    expect(readFileSync(join(checkPath, "left.txt"), "utf8")).toBe("left\n");
-    expect(readFileSync(join(checkPath, "right.txt"), "utf8")).toBe("right\n");
+    expect(readFileSync(join(checkPath, "left.txt"), "utf-8")).toBe("left\n");
+    expect(readFileSync(join(checkPath, "right.txt"), "utf-8")).toBe("right\n");
 
     // Every checkpoint subject on the promoted branch must satisfy a target
     // repo's Conventional Commits commit-msg hook (the bare `pipeline: <node>`
@@ -191,11 +229,11 @@ describe("runner Git refs", () => {
     git(checkPath, "fetch", "origin", retriedNodeRef);
     git(checkPath, "checkout", "FETCH_HEAD");
 
-    expect(readFileSync(join(checkPath, "passed-attempt.txt"), "utf8")).toBe(
+    expect(readFileSync(join(checkPath, "passed-attempt.txt"), "utf-8")).toBe(
       "passed\n"
     );
     expect(() =>
-      readFileSync(join(checkPath, "failed-attempt.txt"), "utf8")
+      readFileSync(join(checkPath, "failed-attempt.txt"), "utf-8")
     ).toThrow();
   });
 
@@ -243,44 +281,8 @@ describe("runner Git refs", () => {
       { workspacePath: worktreePath }
     );
 
-    expect(readFileSync(writablePath, "utf8")).toBe(
+    expect(readFileSync(writablePath, "utf-8")).toBe(
       "https://x-access-token:token%20value@example.test\n"
     );
   });
 });
-
-function tempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
-
-function configureGit(cwd: string): void {
-  git(cwd, "config", "user.name", COMMITTER.name);
-  git(cwd, "config", "user.email", COMMITTER.email);
-}
-
-function seedRemote(
-  fixture: string,
-  remotePath: string,
-  seedPath: string
-): string {
-  const remoteUrl = pathToFileURL(remotePath).href;
-  git(fixture, "init", "--bare", "--initial-branch=main", remotePath);
-  git(fixture, "clone", remoteUrl, seedPath);
-  configureGit(seedPath);
-  writeFileSync(join(seedPath, "README.md"), "seed\n");
-  git(seedPath, "add", "README.md");
-  git(seedPath, "commit", "-m", "seed");
-  git(seedPath, "push", "origin", "main");
-  return remoteUrl;
-}
-
-function git(cwd: string, ...args: string[]): string {
-  mkdirSync(cwd, { recursive: true });
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}

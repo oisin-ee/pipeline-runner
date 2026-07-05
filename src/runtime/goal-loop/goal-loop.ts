@@ -1,5 +1,6 @@
 // fallow-ignore-file unused-file
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { PipelineConfig } from "../../config";
 import type { RunnerLaunchPlan } from "../../runner";
 import { createRunnerLaunchPlan } from "../../runner";
@@ -7,15 +8,17 @@ import {
   goalStateCompletionEvidence,
   goalStateFailureSignature,
   markGoalStateBlocked,
-  type PipelineGoalState,
   recordGoalStateContinuationAttempt,
 } from "../goal-state/goal-state";
+import type { PipelineGoalState } from "../goal-state/goal-state";
 import {
-  type GoalLoopContinuationInput as GoalLoopContinuationInputType,
-  type GoalLoopOptions,
-  type GoalLoopResult,
   GoalLoopService,
   GoalLoopServiceLive,
+} from "../services/goal-loop-service";
+import type {
+  GoalLoopContinuationInput as GoalLoopContinuationInputType,
+  GoalLoopOptions,
+  GoalLoopResult,
 } from "../services/goal-loop-service";
 import {
   exactNextRequirement,
@@ -29,94 +32,250 @@ export type {
   GoalLoopTerminalState,
 } from "../services/goal-loop-service";
 
-export function runBoundedGoalLoop(
-  options: GoalLoopOptions
-): Promise<GoalLoopResult> {
-  return Effect.runPromise(
-    Effect.provide(runBoundedGoalLoopEffect(options), GoalLoopServiceLive)
-  );
-}
+const isValidMaxContinuations = (value: number): boolean =>
+  Number.isInteger(value) && value >= 0;
 
-function runBoundedGoalLoopEffect(
+const assertValidMaxContinuations = (
   options: GoalLoopOptions
-): Effect.Effect<GoalLoopResult, unknown, GoalLoopService> {
-  return Effect.flatMap(validateGoalLoopOptions(options), () =>
-    continueGoalLoop(options, options.initialState, [])
-  );
-}
-
-function validateGoalLoopOptions(
-  options: GoalLoopOptions
-): Effect.Effect<GoalLoopOptions, unknown> {
-  return Effect.try({
-    catch: (error) => error,
-    try: () => assertValidMaxContinuations(options),
-  });
-}
-
-function assertValidMaxContinuations(
-  options: GoalLoopOptions
-): GoalLoopOptions {
+): GoalLoopOptions => {
   if (isValidMaxContinuations(options.maxContinuations)) {
     return options;
   }
   throw new Error("maxContinuations must be a non-negative integer");
-}
+};
 
-function isValidMaxContinuations(value: number): boolean {
-  return Number.isInteger(value) && value >= 0;
-}
-
-function continueGoalLoop(
-  options: GoalLoopOptions,
-  state: PipelineGoalState,
-  prompts: string[]
-): Effect.Effect<GoalLoopResult, unknown, GoalLoopService> {
-  return Effect.gen(function* () {
-    const terminal = terminalResult(state, prompts, options.shouldCancel);
-    if (terminal) {
-      return terminal;
-    }
-    const maxContinuations = maxContinuationsResult(state, prompts, options);
-    if (maxContinuations) {
-      return maxContinuations;
-    }
-    const beforeProgress = progressSignature(state);
-    const nextState = yield* runGoalContinuationEffect(options, state, prompts);
-    const postContinuation = postContinuationResult(
-      nextState,
-      beforeProgress,
-      prompts,
-      options.shouldCancel
-    );
-    return (
-      postContinuation ?? (yield* continueGoalLoop(options, nextState, prompts))
-    );
+const validateGoalLoopOptions = (
+  options: GoalLoopOptions
+): Effect.Effect<GoalLoopOptions, unknown> =>
+  Effect.try({
+    catch: (error) => error,
+    try: () => assertValidMaxContinuations(options),
   });
-}
 
-function maxContinuationsResult(
+const maxContinuationsResult = (
   state: PipelineGoalState,
   prompts: string[],
   options: GoalLoopOptions
-): GoalLoopResult | null {
-  return state.continuationAttempts.length >= options.maxContinuations
-    ? {
+): Option.Option<GoalLoopResult> =>
+  state.continuationAttempts.length >= options.maxContinuations
+    ? Option.some({
         attempts: state.continuationAttempts.length,
         prompts,
         reason: `maximum continuations reached: ${options.maxContinuations}`,
         state,
         terminalState: "max_continuations_reached",
-      }
-    : null;
-}
+      })
+    : Option.none();
 
-function runGoalContinuationEffect(
+const renderGoalContinuationPrompt = (state: PipelineGoalState): string =>
+  renderContinuationPrompt({
+    exactNextRequirement: exactNextRequirement(state),
+    state,
+  });
+
+const noProgressResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => {
+  const reason = "same failure repeated without new changed files or evidence";
+  return {
+    attempts: state.continuationAttempts.length,
+    prompts,
+    reason,
+    state: markGoalStateBlocked(state, reason),
+    terminalState: "no_progress_detected",
+  };
+};
+
+export const createGoalContinuationLaunchPlan = (input: {
+  config: PipelineConfig;
+  nodeId?: string;
+  profileId?: string;
+  prompt: string;
+  worktreePath: string;
+}): RunnerLaunchPlan =>
+  createRunnerLaunchPlan(input.config, {
+    nodeId: input.nodeId ?? "goal-continuation",
+    profileId: input.profileId ?? "moka-code-writer",
+    prompt: input.prompt,
+    worktreePath: input.worktreePath,
+  });
+
+type TerminalResultHandler = (
+  state: PipelineGoalState,
+  prompts: string[]
+) => Option.Option<GoalLoopResult>;
+
+const nullTerminalResult = (): Option.Option<GoalLoopResult> => Option.none();
+
+const missingEvidenceResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => {
+  const reason = "missing deterministic verifier or acceptance evidence";
+  return {
+    attempts: state.continuationAttempts.length,
+    prompts,
+    reason,
+    state: markGoalStateBlocked(state, reason),
+    terminalState: "blocked",
+  };
+};
+
+const passResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => {
+  if (!goalStateCompletionEvidence(state).passed) {
+    return missingEvidenceResult(state, prompts);
+  }
+  return {
+    attempts: state.continuationAttempts.length,
+    prompts,
+    reason: "goal passed",
+    state,
+    terminalState: "passed",
+  };
+};
+
+const blockedResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => ({
+  attempts: state.continuationAttempts.length,
+  prompts,
+  reason: state.blockedReasons.at(-1) ?? "goal blocked",
+  state,
+  terminalState: "blocked",
+});
+
+const cancelledResult = (
+  state: PipelineGoalState,
+  prompts: string[],
+  reason: string
+): GoalLoopResult => ({
+  attempts: state.continuationAttempts.length,
+  prompts,
+  reason,
+  state,
+  terminalState: "cancelled",
+});
+
+const cancellationTerminalResult = (
+  state: PipelineGoalState,
+  prompts: string[],
+  shouldCancel?: () => boolean
+): Option.Option<GoalLoopResult> => {
+  if (shouldCancel?.() === true) {
+    return Option.some(cancelledResult(state, prompts, "goal loop cancelled"));
+  }
+  return Option.none();
+};
+
+const TERMINAL_RESULT_HANDLERS: Partial<
+  Record<
+    NonNullable<PipelineGoalState["terminalOutcome"]>,
+    TerminalResultHandler
+  >
+> = {
+  BLOCKED: (state, prompts) => Option.some(blockedResult(state, prompts)),
+  CANCELLED: (state, prompts) =>
+    Option.some(cancelledResult(state, prompts, "goal cancelled")),
+  PASS: (state, prompts) => Option.some(passResult(state, prompts)),
+};
+
+const terminalResultHandler = (
+  outcome: PipelineGoalState["terminalOutcome"]
+): TerminalResultHandler =>
+  TERMINAL_RESULT_HANDLERS[outcome ?? "FAIL"] ?? nullTerminalResult;
+
+const outcomeTerminalResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): Option.Option<GoalLoopResult> =>
+  terminalResultHandler(state.terminalOutcome)(state, prompts);
+
+const terminalResult = (
+  state: PipelineGoalState,
+  prompts: string[],
+  shouldCancel?: () => boolean
+): Option.Option<GoalLoopResult> => {
+  const cancellation = cancellationTerminalResult(state, prompts, shouldCancel);
+  return Option.isSome(cancellation)
+    ? cancellation
+    : outcomeTerminalResult(state, prompts);
+};
+
+const latestGateReason = (
+  latestGate?: PipelineGoalState["gateFailures"][number]
+): Option.Option<string> => {
+  if (latestGate === undefined) {
+    return Option.none();
+  }
+  return Option.some(latestGate.reason ?? `failed gate ${latestGate.gateId}`);
+};
+
+const verifierReason = (state: PipelineGoalState): Option.Option<string> => {
+  if (state.verifier.verdict !== "FAIL") {
+    return Option.none();
+  }
+  return Option.some(state.verifier.reason ?? "verifier requested remediation");
+};
+
+const continuationReason = (state: PipelineGoalState): string => {
+  const latestGate = state.gateFailures.at(-1);
+  const gateReason = latestGateReason(latestGate);
+  if (Option.isSome(gateReason)) {
+    return gateReason.value;
+  }
+  const verifierFailureReason = verifierReason(state);
+  return Option.isSome(verifierFailureReason)
+    ? verifierFailureReason.value
+    : "goal incomplete";
+};
+
+const promptPathField = (
+  value: Option.Option<string>
+): { promptPath?: string } =>
+  Option.isSome(value) && value.value.length > 0
+    ? { promptPath: value.value }
+    : {};
+
+const verifierNodeIdField = (
+  value: Option.Option<string>
+): { verifierNodeId?: string } =>
+  Option.isSome(value) && value.value.length > 0
+    ? { verifierNodeId: value.value }
+    : {};
+
+const stateWithContinuationAttempt = (
+  state: PipelineGoalState,
+  promptPath: Option.Option<string>
+): PipelineGoalState =>
+  recordGoalStateContinuationAttempt(state, {
+    ...promptPathField(promptPath),
+    reason: continuationReason(state),
+    ...verifierNodeIdField(Option.fromNullishOr(state.verifier.nodeId)),
+  });
+
+const continuationInput = (
+  attempt: number,
+  prompt: string,
+  state: PipelineGoalState,
+  promptPath: Option.Option<string>
+): GoalLoopContinuationInputType => ({
+  attempt,
+  prompt,
+  ...promptPathField(promptPath),
+  state: stateWithContinuationAttempt(state, promptPath),
+});
+
+const runGoalContinuationEffect = (
   options: GoalLoopOptions,
   state: PipelineGoalState,
   prompts: string[]
-): Effect.Effect<PipelineGoalState, unknown, GoalLoopService> {
-  return Effect.gen(function* () {
+): Effect.Effect<PipelineGoalState, unknown, GoalLoopService> =>
+  Effect.gen(function* effectBody() {
     const service = yield* GoalLoopService;
     const attempt = state.continuationAttempts.length + 1;
     const prompt = renderGoalContinuationPrompt(state);
@@ -129,222 +288,9 @@ function runGoalContinuationEffect(
     prompts.push(prompt);
     return yield* service.runContinuation(
       options.runContinuation,
-      continuationInput(attempt, prompt, promptPath, state)
+      continuationInput(attempt, prompt, state, promptPath)
     );
   });
-}
-
-function renderGoalContinuationPrompt(state: PipelineGoalState): string {
-  return renderContinuationPrompt({
-    exactNextRequirement: exactNextRequirement(state),
-    state,
-  });
-}
-
-function continuationInput(
-  attempt: number,
-  prompt: string,
-  promptPath: string | undefined,
-  state: PipelineGoalState
-): GoalLoopContinuationInputType {
-  return {
-    attempt,
-    prompt,
-    ...(promptPath ? { promptPath } : {}),
-    state: stateWithContinuationAttempt(state, promptPath),
-  };
-}
-
-function stateWithContinuationAttempt(
-  state: PipelineGoalState,
-  promptPath: string | undefined
-): PipelineGoalState {
-  return recordGoalStateContinuationAttempt(state, {
-    ...(promptPath ? { promptPath } : {}),
-    reason: continuationReason(state),
-    ...(state.verifier.nodeId ? { verifierNodeId: state.verifier.nodeId } : {}),
-  });
-}
-
-function postContinuationResult(
-  nextState: PipelineGoalState,
-  beforeProgress: ProgressSignature,
-  prompts: string[],
-  shouldCancel: (() => boolean) | undefined
-): GoalLoopResult | null {
-  const terminal = terminalResult(nextState, prompts, shouldCancel);
-  if (terminal) {
-    return terminal;
-  }
-  return isNoProgress(beforeProgress, progressSignature(nextState))
-    ? noProgressResult(nextState, prompts)
-    : null;
-}
-
-function noProgressResult(
-  state: PipelineGoalState,
-  prompts: string[]
-): GoalLoopResult {
-  const reason = "same failure repeated without new changed files or evidence";
-  return {
-    attempts: state.continuationAttempts.length,
-    prompts,
-    reason,
-    state: markGoalStateBlocked(state, reason),
-    terminalState: "no_progress_detected",
-  };
-}
-
-export function createGoalContinuationLaunchPlan(input: {
-  config: PipelineConfig;
-  nodeId?: string;
-  profileId?: string;
-  prompt: string;
-  worktreePath: string;
-}): RunnerLaunchPlan {
-  return createRunnerLaunchPlan(input.config, {
-    nodeId: input.nodeId ?? "goal-continuation",
-    profileId: input.profileId ?? "moka-code-writer",
-    prompt: input.prompt,
-    worktreePath: input.worktreePath,
-  });
-}
-
-function terminalResult(
-  state: PipelineGoalState,
-  prompts: string[],
-  shouldCancel: (() => boolean) | undefined
-): GoalLoopResult | null {
-  return (
-    cancellationTerminalResult(state, prompts, shouldCancel) ??
-    outcomeTerminalResult(state, prompts)
-  );
-}
-
-function cancellationTerminalResult(
-  state: PipelineGoalState,
-  prompts: string[],
-  shouldCancel: (() => boolean) | undefined
-): GoalLoopResult | null {
-  if (shouldCancel?.()) {
-    return cancelledResult(state, prompts, "goal loop cancelled");
-  }
-  return null;
-}
-
-function outcomeTerminalResult(
-  state: PipelineGoalState,
-  prompts: string[]
-): GoalLoopResult | null {
-  return terminalResultHandler(state.terminalOutcome)(state, prompts);
-}
-
-type TerminalResultHandler = (
-  state: PipelineGoalState,
-  prompts: string[]
-) => GoalLoopResult | null;
-
-const TERMINAL_RESULT_HANDLERS: Partial<
-  Record<
-    NonNullable<PipelineGoalState["terminalOutcome"]>,
-    TerminalResultHandler
-  >
-> = {
-  BLOCKED: blockedResult,
-  CANCELLED: (state, prompts) =>
-    cancelledResult(state, prompts, "goal cancelled"),
-  PASS: passResult,
-};
-
-function terminalResultHandler(
-  outcome: PipelineGoalState["terminalOutcome"]
-): TerminalResultHandler {
-  return TERMINAL_RESULT_HANDLERS[outcome ?? "FAIL"] ?? nullTerminalResult;
-}
-
-function nullTerminalResult(): null {
-  return null;
-}
-
-function passResult(
-  state: PipelineGoalState,
-  prompts: string[]
-): GoalLoopResult {
-  if (!goalStateCompletionEvidence(state).passed) {
-    return missingEvidenceResult(state, prompts);
-  }
-  return {
-    attempts: state.continuationAttempts.length,
-    prompts,
-    reason: "goal passed",
-    state,
-    terminalState: "passed",
-  };
-}
-
-function missingEvidenceResult(
-  state: PipelineGoalState,
-  prompts: string[]
-): GoalLoopResult {
-  const reason = "missing deterministic verifier or acceptance evidence";
-  return {
-    attempts: state.continuationAttempts.length,
-    prompts,
-    reason,
-    state: markGoalStateBlocked(state, reason),
-    terminalState: "blocked",
-  };
-}
-
-function blockedResult(
-  state: PipelineGoalState,
-  prompts: string[]
-): GoalLoopResult {
-  return {
-    attempts: state.continuationAttempts.length,
-    prompts,
-    reason: state.blockedReasons.at(-1) ?? "goal blocked",
-    state,
-    terminalState: "blocked",
-  };
-}
-
-function cancelledResult(
-  state: PipelineGoalState,
-  prompts: string[],
-  reason: string
-): GoalLoopResult {
-  return {
-    attempts: state.continuationAttempts.length,
-    prompts,
-    reason,
-    state,
-    terminalState: "cancelled",
-  };
-}
-
-function continuationReason(state: PipelineGoalState): string {
-  const latestGate = state.gateFailures.at(-1);
-  return (
-    latestGateReason(latestGate) ?? verifierReason(state) ?? "goal incomplete"
-  );
-}
-
-function latestGateReason(
-  latestGate: PipelineGoalState["gateFailures"][number] | undefined
-): string | null {
-  if (!latestGate) {
-    return null;
-  }
-  return latestGate.reason ?? `failed gate ${latestGate.gateId}`;
-}
-
-function verifierReason(state: PipelineGoalState): string | null {
-  if (state.verifier.verdict !== "FAIL") {
-    return null;
-  }
-  return state.verifier.reason ?? "verifier requested remediation";
-}
 
 interface ProgressSignature {
   changedFiles: string;
@@ -352,7 +298,7 @@ interface ProgressSignature {
   failure: string;
 }
 
-function progressSignature(state: PipelineGoalState): ProgressSignature {
+const progressSignature = (state: PipelineGoalState): ProgressSignature => {
   const failedAcceptance = state.acceptance.filter(
     (item) => item.verdict === "FAIL"
   );
@@ -365,16 +311,69 @@ function progressSignature(state: PipelineGoalState): ProgressSignature {
     ].join("\0"),
     failure: goalStateFailureSignature(state),
   };
-}
+};
 
-function isNoProgress(
+const isNoProgress = (
   before: ProgressSignature,
   after: ProgressSignature
-): boolean {
-  return (
-    before.failure.length > 0 &&
-    before.failure === after.failure &&
-    before.changedFiles === after.changedFiles &&
-    before.evidence === after.evidence
+): boolean =>
+  before.failure.length > 0 &&
+  before.failure === after.failure &&
+  before.changedFiles === after.changedFiles &&
+  before.evidence === after.evidence;
+
+const postContinuationResult = (
+  nextState: PipelineGoalState,
+  beforeProgress: ProgressSignature,
+  prompts: string[],
+  shouldCancel?: () => boolean
+): Option.Option<GoalLoopResult> => {
+  const terminal = terminalResult(nextState, prompts, shouldCancel);
+  if (Option.isSome(terminal)) {
+    return terminal;
+  }
+  return isNoProgress(beforeProgress, progressSignature(nextState))
+    ? Option.some(noProgressResult(nextState, prompts))
+    : Option.none();
+};
+
+const continueGoalLoop = (
+  options: GoalLoopOptions,
+  state: PipelineGoalState,
+  prompts: string[]
+): Effect.Effect<GoalLoopResult, unknown, GoalLoopService> =>
+  Effect.gen(function* effectBody() {
+    const terminal = terminalResult(state, prompts, options.shouldCancel);
+    if (Option.isSome(terminal)) {
+      return terminal.value;
+    }
+    const maxContinuations = maxContinuationsResult(state, prompts, options);
+    if (Option.isSome(maxContinuations)) {
+      return maxContinuations.value;
+    }
+    const beforeProgress = progressSignature(state);
+    const nextState = yield* runGoalContinuationEffect(options, state, prompts);
+    const postContinuation = postContinuationResult(
+      nextState,
+      beforeProgress,
+      prompts,
+      options.shouldCancel
+    );
+    return Option.isSome(postContinuation)
+      ? postContinuation.value
+      : yield* continueGoalLoop(options, nextState, prompts);
+  });
+
+const runBoundedGoalLoopEffect = (
+  options: GoalLoopOptions
+): Effect.Effect<GoalLoopResult, unknown, GoalLoopService> =>
+  Effect.flatMap(validateGoalLoopOptions(options), () =>
+    continueGoalLoop(options, options.initialState, [])
   );
-}
+
+export const runBoundedGoalLoop = async (
+  options: GoalLoopOptions
+): Promise<GoalLoopResult> =>
+  await Effect.runPromise(
+    Effect.provide(runBoundedGoalLoopEffect(options), GoalLoopServiceLive)
+  );

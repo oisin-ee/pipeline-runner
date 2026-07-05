@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { RuntimeNodeResult } from "./contracts";
 import type { DurableRunStore } from "./durable-store/durable-store";
 import {
@@ -25,42 +26,39 @@ export interface RunJournal {
   resumeCompleted(): RuntimeNodeResult[];
 }
 
-function passedOnly(results: RuntimeNodeResult[]): RuntimeNodeResult[] {
+const passedOnly = (results: RuntimeNodeResult[]): RuntimeNodeResult[] =>
   // Resume only past the last successfully completed node: a failed (or any
   // non-passed) node and everything downstream is re-run, so blocked-descendant
   // and fail-fast handling stay live on replay.
-  return results.filter((result) => result.status === "passed");
-}
+  results.filter((result) => result.status === "passed");
 
-function parseJournalText(text: string | undefined): RuntimeNodeResult[] {
-  if (!text) {
+const parseJournalText = (text: Option.Option<string>): RuntimeNodeResult[] => {
+  if (Option.isNone(text) || text.value.length === 0) {
     return [];
   }
-  return text
+  return text.value
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line) as RuntimeNodeResult);
-}
+};
 
-function recordJournalEffect(
+const recordJournalEffect = (
   path: string,
   result: RuntimeNodeResult
-): Effect.Effect<void, unknown, RunJournalFileService> {
-  return Effect.gen(function* () {
+): Effect.Effect<void, unknown, RunJournalFileService> =>
+  Effect.gen(function* effectBody() {
     const files = yield* RunJournalFileService;
     yield* files.appendLine(path, `${JSON.stringify(result)}\n`);
   });
-}
 
-function resumeCompletedEffect(
+const resumeCompletedEffect = (
   path: string
-): Effect.Effect<RuntimeNodeResult[], unknown, RunJournalFileService> {
-  return Effect.gen(function* () {
+): Effect.Effect<RuntimeNodeResult[], unknown, RunJournalFileService> =>
+  Effect.gen(function* effectBody() {
     const files = yield* RunJournalFileService;
     const text = yield* files.readTextIfExists(path);
     return passedOnly(parseJournalText(text));
   });
-}
 
 /**
  * PIPE-94.7: build the scheduler's RunJournal seam over a DurableRunStore,
@@ -69,28 +67,27 @@ function resumeCompletedEffect(
  * DurableRunStore impls' `toRunJournal` delegate here, so there is exactly one
  * journal-adapter implementation rather than a copy per store.
  */
-export function buildRunJournal(
+export const buildRunJournal = (
   store: DurableRunStore,
   runId: string
-): RunJournal {
-  return {
-    record: (result) => recordNodeResult({ result, runId, store }),
-    resumeCompleted: () => store.resumeCompleted(runId),
-  };
-}
+): RunJournal => ({
+  record: (result) => {
+    recordNodeResult({ result, runId, store });
+  },
+  resumeCompleted: () => store.resumeCompleted(runId),
+});
 
-export function fileRunJournal(path: string): RunJournal {
-  return {
-    record: (result) =>
-      Effect.runSync(
-        Effect.provide(
-          recordJournalEffect(path, result),
-          RunJournalFileServiceLive
-        )
-      ),
-    resumeCompleted: () =>
-      Effect.runSync(
-        Effect.provide(resumeCompletedEffect(path), RunJournalFileServiceLive)
-      ),
-  };
-}
+export const fileRunJournal = (path: string): RunJournal => ({
+  record: (result) => {
+    Effect.runSync(
+      Effect.provide(
+        recordJournalEffect(path, result),
+        RunJournalFileServiceLive
+      )
+    );
+  },
+  resumeCompleted: () =>
+    Effect.runSync(
+      Effect.provide(resumeCompletedEffect(path), RunJournalFileServiceLive)
+    ),
+});

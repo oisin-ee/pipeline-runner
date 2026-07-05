@@ -49,7 +49,7 @@ export interface HookContext {
   results: Record<string, HookResult>;
   task: string;
   taskContext?: {
-    acceptanceCriteria?: Array<{ id: string; text: string }>;
+    acceptanceCriteria?: { id: string; text: string }[];
     description?: string;
     id?: string;
     title?: string;
@@ -63,10 +63,7 @@ export type HookFunction = (
   context: HookContext
 ) => HookResult | Promise<HookResult>;
 
-export function defineHook<T extends HookFunction>(hook: T): T {
-  return hook;
-}
+export const defineHook = <T extends HookFunction>(hook: T): T => hook;
 
-export function parseHookResult(value: unknown): HookResult {
-  return hookResultSchema.parse(value);
-}
+export const parseHookResult = (value: unknown): HookResult =>
+  hookResultSchema.parse(value);

@@ -1,22 +1,24 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
+
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import type {
   MokaRunController,
   MokaRunEvent,
 } from "../src/run-control/contracts";
-import {
-  type CreateRunRequest,
-  fileRunControlStore,
-  type RunControlStore,
+import { fileRunControlStore } from "../src/run-control/run-control-store";
+import type {
+  CreateRunRequest,
+  RunControlStore,
 } from "../src/run-control/run-control-store";
 
-function relativeToWorkspace(workspaceRoot: string, path: string): string {
+const relativeToWorkspace = (workspaceRoot: string, path: string): string => {
   const absolutePath = isAbsolute(path) ? path : join(workspaceRoot, path);
   return relative(workspaceRoot, absolutePath).split(sep).join("/");
-}
+};
 
 describe("RunControlStore filesystem seam", () => {
   let workspaceRoot: string;
@@ -127,7 +129,7 @@ describe("RunControlStore filesystem seam", () => {
       status: ".pipeline/runs/run-status/status.json",
     });
     const statusFile: unknown = JSON.parse(
-      readFileSync(join(workspaceRoot, paths.status), "utf8")
+      readFileSync(join(workspaceRoot, paths.status), "utf-8")
     );
     expect(statusFile).toMatchObject({
       nodes: { writer: { sessionId: "session-123" } },
@@ -177,7 +179,7 @@ describe("RunControlStore filesystem seam", () => {
     expect(relativeToWorkspace(workspaceRoot, artifact.path)).toBe(
       ".pipeline/runs/run-a/nodes/writer/summary.json"
     );
-    expect(readFileSync(join(workspaceRoot, artifact.path), "utf8")).toBe(
+    expect(readFileSync(join(workspaceRoot, artifact.path), "utf-8")).toBe(
       '{"result":"ok"}\n'
     );
 

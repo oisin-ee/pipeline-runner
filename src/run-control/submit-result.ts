@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { Effect } from "effect";
+
 import { loadMokaDbUrl } from "../moka-global-config";
 import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
@@ -31,7 +32,7 @@ export interface SubmitResultInput {
  * gate evaluation must look up the schedule artifact, not this store entry.
  * `inputs` are opaque and `undefined` until a future lane pins the schema.
  */
-export function recordSubmitResult(input: SubmitResultInput): void {
+export const recordSubmitResult = (input: SubmitResultInput): void => {
   const raw: unknown = JSON.parse(input.resultJson);
   const assembled = { nodeId: input.nodeId, result: raw, runId: input.runId };
   const parsed = parseSubmitResult(assembled);
@@ -43,7 +44,32 @@ export function recordSubmitResult(input: SubmitResultInput): void {
     runId: parsed.runId,
     store: input.store,
   });
-}
+};
+
+const submitResultEffect = (
+  runId: string,
+  nodeId: string,
+  resultJson: string
+): Effect.Effect<void, unknown> =>
+  // Scoped so the store's release runs before the process exits: for the
+  // Postgres branch that flushes the enqueued write-through and closes the
+  // connection pool, persisting the record durably. Without that flush the
+  // write is lost at process exit (the PIPE-91.15 dogfood failure).
+  Effect.scoped(
+    Effect.gen(function* effectBody() {
+      const dbUrl = loadMokaDbUrl();
+      const store = yield* resolveDurableStore(dbUrl, runId);
+      yield* Effect.try({
+        catch: (error) => error,
+        try: () => {
+          recordSubmitResult({ nodeId, resultJson, runId, store });
+        },
+      });
+      process.stdout.write(
+        `Recorded result for run ${runId} node ${nodeId}.\n`
+      );
+    })
+  );
 
 /**
  * PIPE-91.7: register `moka submit-result <run-id> <node-id> --json <payload>`.
@@ -52,7 +78,7 @@ export function recordSubmitResult(input: SubmitResultInput): void {
  * string; `(runId, nodeId)` are the positional routing keys — mirroring
  * `moka next node <run-id>` (PIPE-91.6).
  */
-export function registerSubmitResultSubcommand(program: Command): void {
+export const registerSubmitResultSubcommand = (program: Command): void => {
   program
     .command("submit-result")
     .description("Persist a node's terminal result into the durable run store")
@@ -65,28 +91,4 @@ export function registerSubmitResultSubcommand(program: Command): void {
     .action(async (runId: string, nodeId: string, flags: { json: string }) => {
       await Effect.runPromise(submitResultEffect(runId, nodeId, flags.json));
     });
-}
-
-function submitResultEffect(
-  runId: string,
-  nodeId: string,
-  resultJson: string
-): Effect.Effect<void, unknown> {
-  // Scoped so the store's release runs before the process exits: for the
-  // Postgres branch that flushes the enqueued write-through and closes the
-  // connection pool, persisting the record durably. Without that flush the
-  // write is lost at process exit (the PIPE-91.15 dogfood failure).
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const dbUrl = loadMokaDbUrl();
-      const store = yield* resolveDurableStore(dbUrl, runId);
-      yield* Effect.try({
-        catch: (error) => error,
-        try: () => recordSubmitResult({ nodeId, resultJson, runId, store }),
-      });
-      process.stdout.write(
-        `Recorded result for run ${runId} node ${nodeId}.\n`
-      );
-    })
-  );
-}
+};

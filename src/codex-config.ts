@@ -8,29 +8,7 @@ const PIPELINE_GATEWAY_SECTION_HEADERS = [
 const CODEX_FEATURES_SECTION_HEADER = "[features]";
 const CODEX_HOOKS_FEATURE = "hooks";
 
-export function mergeCodexConfig(
-  currentText: string | undefined,
-  projection: string
-): string {
-  const current = currentText ?? "";
-  const currentWithHooks = enableCodexHooksFeature(
-    removePipelineGatewaySections(current).trimEnd()
-  );
-  return ensureTrailingNewline(
-    [currentWithHooks.trimEnd(), projection.trimEnd()]
-      .filter(Boolean)
-      .join("\n\n")
-  );
-}
-
-function removePipelineGatewaySections(content: string): string {
-  return PIPELINE_GATEWAY_SECTION_HEADERS.reduce(
-    (nextContent, header) => removeTomlSection(nextContent, header),
-    content
-  );
-}
-
-function removeTomlSection(content: string, header: string): string {
+const removeTomlSection = (content: string, header: string): string => {
   const lines = content.split("\n");
   const kept: string[] = [];
   let removing = false;
@@ -47,13 +25,34 @@ function removeTomlSection(content: string, header: string): string {
     }
   }
   return kept.join("\n");
-}
+};
 
-function enableCodexHooksFeature(content: string): string {
-  return setTomlFeature(content, CODEX_HOOKS_FEATURE, "true");
-}
+const removePipelineGatewaySections = (content: string): string =>
+  PIPELINE_GATEWAY_SECTION_HEADERS.reduce(
+    (nextContent, header) => removeTomlSection(nextContent, header),
+    content
+  );
 
-function setTomlFeature(content: string, key: string, value: string): string {
+const isTomlSectionHeader = (line: string): boolean => {
+  const trimmed = line.trim();
+  return trimmed.startsWith("[") && trimmed.endsWith("]");
+};
+
+const nextTomlSectionIndex = (lines: string[], startIndex: number): number => {
+  const nextIndex = lines.findIndex(
+    (line, index) => index >= startIndex && isTomlSectionHeader(line)
+  );
+  return nextIndex === -1 ? lines.length : nextIndex;
+};
+
+const tomlKeyPattern = (key: string): RegExp =>
+  new RegExp(`^\\s*${key}\\s*=`, "u");
+
+const setTomlFeature = (
+  content: string,
+  key: string,
+  value: string
+): string => {
   const lines = content.split("\n");
   const sectionStart = lines.findIndex(
     (line) => line.trim() === CODEX_FEATURES_SECTION_HEADER
@@ -73,37 +72,41 @@ function setTomlFeature(content: string, key: string, value: string): string {
   const beforeSection = lines.slice(0, sectionStart + 1);
   const featureLines = lines.slice(sectionStart + 1, sectionEnd);
   const afterSection = lines.slice(sectionEnd);
-  let replaced = false;
-  const mergedFeatureLines = featureLines.flatMap((line) => {
-    if (!tomlKeyPattern(key).test(line)) {
+  const keyPattern = tomlKeyPattern(key);
+  const firstKeyLineIndex = featureLines.findIndex((line) =>
+    keyPattern.test(line)
+  );
+  const mergedFeatureLines = featureLines.flatMap((line, index) => {
+    if (!keyPattern.test(line)) {
       return [line];
     }
-    if (replaced) {
+    if (index !== firstKeyLineIndex) {
       return [];
     }
-    replaced = true;
     return [`${key} = ${value}`];
   });
 
-  if (!replaced) {
+  if (firstKeyLineIndex === -1) {
     mergedFeatureLines.push(`${key} = ${value}`);
   }
 
   return [...beforeSection, ...mergedFeatureLines, ...afterSection].join("\n");
-}
+};
 
-function nextTomlSectionIndex(lines: string[], startIndex: number): number {
-  const nextIndex = lines.findIndex(
-    (line, index) => index >= startIndex && isTomlSectionHeader(line)
+const enableCodexHooksFeature = (content: string): string =>
+  setTomlFeature(content, CODEX_HOOKS_FEATURE, "true");
+
+export const mergeCodexConfig = (
+  currentText = "",
+  projection: string
+): string => {
+  const current = currentText;
+  const currentWithHooks = enableCodexHooksFeature(
+    removePipelineGatewaySections(current).trimEnd()
   );
-  return nextIndex === -1 ? lines.length : nextIndex;
-}
-
-function isTomlSectionHeader(line: string): boolean {
-  const trimmed = line.trim();
-  return trimmed.startsWith("[") && trimmed.endsWith("]");
-}
-
-function tomlKeyPattern(key: string): RegExp {
-  return new RegExp(`^\\s*${key}\\s*=`);
-}
+  return ensureTrailingNewline(
+    [currentWithHooks.trimEnd(), projection.trimEnd()]
+      .filter(Boolean)
+      .join("\n\n")
+  );
+};

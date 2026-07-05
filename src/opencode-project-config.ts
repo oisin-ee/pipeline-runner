@@ -1,4 +1,5 @@
 import type { ParseError } from "jsonc-parser";
+
 import {
   applyJsonEdit,
   ensureTrailingNewline,
@@ -23,58 +24,12 @@ export type OpenCodeProjectConfigMergeResult =
   | { content: string; ok: true }
   | { errors: ParseError[]; ok: false };
 
-export function mergeOpenCodeProjectConfig(
-  currentText: string | undefined,
-  projection: OpenCodeProjectConfigProjection
-): OpenCodeProjectConfigMergeResult {
-  if (currentText === undefined) {
-    return { content: formatJson(projection), ok: true };
-  }
-
-  const parsed = parseJsonRecord(currentText);
-  if (!parsed.ok) {
-    return parsed;
-  }
-
-  return {
-    content: ensureTrailingNewline(
-      applyOpenCodeProjection(currentText, parsed.value, projection)
-    ),
-    ok: true,
-  };
-}
-
-function applyOpenCodeProjection(
-  currentText: string,
-  parsed: Record<string, unknown>,
-  projection: OpenCodeProjectConfigProjection
-): string {
-  return applyProviderProjection(
-    applyPluginProjection(
-      applyMcpProjection(
-        setIfMissing(
-          setIfMissing(currentText, parsed, ["$schema"], projection.$schema),
-          parsed,
-          ["lsp"],
-          projection.lsp
-        ),
-        parsed,
-        projection
-      ),
-      parsed,
-      projection
-    ),
-    parsed,
-    projection
-  );
-}
-
-function applyProviderProjection(
+const applyProviderProjection = (
   content: string,
   parsed: Record<string, unknown>,
   projection: OpenCodeProjectConfigProjection
-): string {
-  return Object.entries(projection.provider ?? {}).reduce(
+): string =>
+  Object.entries(projection.provider ?? {}).reduce(
     (providerContent, [providerId, provider]) =>
       Object.entries(provider.models ?? {}).reduce(
         (modelContent, [modelId, model]) =>
@@ -88,35 +43,38 @@ function applyProviderProjection(
       ),
     content
   );
-}
 
-function applyMcpProjection(
+const applyMcpProjection = (
   content: string,
   parsed: Record<string, unknown>,
   projection: OpenCodeProjectConfigProjection
-): string {
-  return Object.entries(projection.mcp ?? {}).reduce(
+): string =>
+  Object.entries(projection.mcp ?? {}).reduce(
     (nextContent, [name, server]) =>
       setIfMissing(nextContent, parsed, ["mcp", name], server),
     content
   );
-}
 
-function applyPluginProjection(
-  content: string,
-  parsed: Record<string, unknown>,
-  projection: OpenCodeProjectConfigProjection
-): string {
-  const plugins = mergePluginEntries(parsed.plugin, projection.plugin ?? []);
-  return plugins.length > 0
-    ? applyJsonEdit(content, ["plugin"], plugins)
-    : content;
-}
+const pluginName = (specifier: string): string => {
+  const versionSeparator = specifier.indexOf("@", 1);
+  return versionSeparator === -1
+    ? specifier
+    : specifier.slice(0, versionSeparator);
+};
 
-function mergePluginEntries(
+const pluginKey = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string"
+      ? pluginName(value[0])
+      : JSON.stringify(value);
+  }
+  return typeof value === "string" ? pluginName(value) : JSON.stringify(value);
+};
+
+const mergePluginEntries = (
   existing: unknown,
   projected: unknown[]
-): unknown[] {
+): unknown[] => {
   const projectedByKey = new Map(
     projected.map((plugin) => [pluginKey(plugin), plugin])
   );
@@ -136,20 +94,60 @@ function mergePluginEntries(
     seen.add(key);
   }
   return merged;
-}
+};
 
-function pluginKey(value: unknown): string {
-  if (Array.isArray(value)) {
-    return typeof value[0] === "string"
-      ? pluginName(value[0])
-      : JSON.stringify(value);
+const applyPluginProjection = (
+  content: string,
+  parsed: Record<string, unknown>,
+  projection: OpenCodeProjectConfigProjection
+): string => {
+  const plugins = mergePluginEntries(parsed.plugin, projection.plugin ?? []);
+  return plugins.length > 0
+    ? applyJsonEdit(content, ["plugin"], plugins)
+    : content;
+};
+
+const applyOpenCodeProjection = (
+  currentText: string,
+  parsed: Record<string, unknown>,
+  projection: OpenCodeProjectConfigProjection
+): string =>
+  applyProviderProjection(
+    applyPluginProjection(
+      applyMcpProjection(
+        setIfMissing(
+          setIfMissing(currentText, parsed, ["$schema"], projection.$schema),
+          parsed,
+          ["lsp"],
+          projection.lsp
+        ),
+        parsed,
+        projection
+      ),
+      parsed,
+      projection
+    ),
+    parsed,
+    projection
+  );
+
+export const mergeOpenCodeProjectConfig = (
+  currentText = "",
+  projection: OpenCodeProjectConfigProjection
+): OpenCodeProjectConfigMergeResult => {
+  if (currentText === "") {
+    return { content: formatJson(projection), ok: true };
   }
-  return typeof value === "string" ? pluginName(value) : JSON.stringify(value);
-}
 
-function pluginName(specifier: string): string {
-  const versionSeparator = specifier.indexOf("@", 1);
-  return versionSeparator === -1
-    ? specifier
-    : specifier.slice(0, versionSeparator);
-}
+  const parsed = parseJsonRecord(currentText);
+  if (!parsed.ok) {
+    return parsed;
+  }
+
+  return {
+    content: ensureTrailingNewline(
+      applyOpenCodeProjection(currentText, parsed.value, projection)
+    ),
+    ok: true,
+  };
+};

@@ -8,10 +8,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import { prepareOpencodeCredentials } from "./runner";
 
-const BROKER_REQUIRED_RE = /BROKER_API_KEY is required/;
+const BROKER_REQUIRED_RE = /BROKER_API_KEY is required/u;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -20,11 +22,14 @@ afterEach(() => {
   }
 });
 
-function tempDir(): string {
+const tempDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "opencode-creds-"));
   tempDirs.push(dir);
   return dir;
-}
+};
+
+const filePermissionMode = (path: string): string =>
+  (statSync(path).mode % 0o1000).toString(8).padStart(3, "0");
 
 describe("prepareOpencodeCredentials", () => {
   it("writes broker auth + codex provider + opencode baseURL and drops the legacy multi-auth plugin", () => {
@@ -74,16 +79,16 @@ describe("prepareOpencodeCredentials", () => {
       brokerPaths: { codexConfigPath, opencodeAuthPath, opencodeConfigPath },
     });
 
-    expect(result.brokerConfigured.sort()).toEqual(
-      ["auth.json", "config.toml", "opencode.json"].sort()
+    expect(result.brokerConfigured.toSorted()).toEqual(
+      ["auth.json", "config.toml", "opencode.json"].toSorted()
     );
 
-    expect(JSON.parse(readFileSync(opencodeAuthPath, "utf8"))).toEqual({
+    expect(JSON.parse(readFileSync(opencodeAuthPath, "utf-8"))).toEqual({
       openai: { key: "sk-maa-test", type: "api" },
     });
     expect(filePermissionMode(opencodeAuthPath)).toBe("600");
 
-    const codexConfig = readFileSync(codexConfigPath, "utf8");
+    const codexConfig = readFileSync(codexConfigPath, "utf-8");
     expect(codexConfig).toContain('model = "gpt-5.5"');
     expect(codexConfig).toContain('model_provider = "broker"');
     expect(codexConfig).toContain("[model_providers.broker]");
@@ -91,7 +96,9 @@ describe("prepareOpencodeCredentials", () => {
     expect(codexConfig).toContain('env_key = "BROKER_API_KEY"');
     expect(codexConfig).toContain('wire_api = "responses"');
 
-    const opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf8"));
+    const opencodeConfig = JSON.parse(
+      readFileSync(opencodeConfigPath, "utf-8")
+    );
     expect(opencodeConfig.provider.openai.options.baseURL).toBe(
       "https://broker.test/v1"
     );
@@ -114,7 +121,3 @@ describe("prepareOpencodeCredentials", () => {
     }
   });
 });
-
-function filePermissionMode(path: string): string {
-  return (statSync(path).mode % 0o1000).toString(8).padStart(3, "0");
-}

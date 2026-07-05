@@ -1,18 +1,16 @@
 import type { Command } from "commander";
 import { Effect } from "effect";
+
 import { logEffect, withRunControlStore } from "./command-context";
 import { registerNextNodeSubcommand } from "./next-node";
 import { registerResumeSubcommand } from "./resume-command";
 import {
   exportSanitizedRunBundleEffect,
-  type LogsFlags,
   printLogsEffect,
 } from "./run-artifacts-command";
-import {
-  printRunsEffect,
-  printStatusEffect,
-  type StatusFlags,
-} from "./run-query-command";
+import type { LogsFlags } from "./run-artifacts-command";
+import { printRunsEffect, printStatusEffect } from "./run-query-command";
+import type { StatusFlags } from "./run-query-command";
 import { stopRunOrNodeEffect } from "./stop-command";
 import { registerSubmitResultSubcommand } from "./submit-result";
 
@@ -20,7 +18,28 @@ interface ExportFlags {
   sanitize?: boolean;
 }
 
-export function registerRunControlCommands(program: Command): void {
+const exportCommandEffect = (input: {
+  flags: ExportFlags;
+  runId: string;
+  store: Parameters<typeof exportSanitizedRunBundleEffect>[0]["store"];
+  workspaceRoot: string;
+}): Effect.Effect<void, unknown> => {
+  if (input.flags.sanitize !== true) {
+    return Effect.fail(
+      new Error("Run exports must be requested with --sanitize.")
+    );
+  }
+  return exportSanitizedRunBundleEffect({
+    runId: input.runId,
+    store: input.store,
+    workspaceRoot: input.workspaceRoot,
+  }).pipe(
+    Effect.map((bundle) => JSON.stringify(bundle)),
+    Effect.flatMap(logEffect)
+  );
+};
+
+export const registerRunControlCommands = (program: Command): void => {
   program
     .command("runs")
     .description("List known Moka runs, newest first")
@@ -36,13 +55,18 @@ export function registerRunControlCommands(program: Command): void {
     .argument("[run-id]", "run id to inspect; defaults to latest active run")
     .option("--watch", "poll status until the selected run is no longer active")
     .option("--json", "print machine-readable run status")
-    .action(async (runId: string | undefined, flags: StatusFlags) => {
-      await Effect.runPromise(
-        withRunControlStore((store, root) =>
-          printStatusEffect({ flags, runId, store, workspaceRoot: root })
-        )
-      );
-    });
+    .action(
+      async (
+        runId: Parameters<typeof printStatusEffect>[0]["runId"],
+        flags: StatusFlags
+      ) => {
+        await Effect.runPromise(
+          withRunControlStore((store, root) =>
+            printStatusEffect({ flags, runId, store, workspaceRoot: root })
+          )
+        );
+      }
+    );
 
   program
     .command("logs")
@@ -54,7 +78,11 @@ export function registerRunControlCommands(program: Command): void {
       "continue printing appended artifact content while the run is active"
     )
     .action(
-      async (runId: string, nodeId: string | undefined, flags: LogsFlags) => {
+      async (
+        runId: string,
+        nodeId: Parameters<typeof printLogsEffect>[0]["nodeId"],
+        flags: LogsFlags
+      ) => {
         await Effect.runPromise(
           withRunControlStore((store, root) =>
             printLogsEffect({
@@ -109,25 +137,4 @@ export function registerRunControlCommands(program: Command): void {
 
   registerSubmitResultSubcommand(program);
   registerResumeSubcommand(program);
-}
-
-function exportCommandEffect(input: {
-  flags: ExportFlags;
-  runId: string;
-  store: Parameters<typeof exportSanitizedRunBundleEffect>[0]["store"];
-  workspaceRoot: string;
-}): Effect.Effect<void, unknown> {
-  if (!input.flags.sanitize) {
-    return Effect.fail(
-      new Error("Run exports must be requested with --sanitize.")
-    );
-  }
-  return exportSanitizedRunBundleEffect({
-    runId: input.runId,
-    store: input.store,
-    workspaceRoot: input.workspaceRoot,
-  }).pipe(
-    Effect.map((bundle) => JSON.stringify(bundle)),
-    Effect.flatMap(logEffect)
-  );
-}
+};

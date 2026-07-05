@@ -8,21 +8,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterAll, describe, expect, it } from "vitest";
+import { z } from "zod";
+
 import type { SubmitRunnerArgoWorkflowResult } from "../src/argo-submit";
 import { buildCommandScheduleYaml } from "../src/argo-submit";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
-import {
-  type MokaSubmitInput,
-  mokaSubmitOptionsSchema,
-  submitMoka,
-} from "../src/moka-submit";
-import {
-  type PipelineRuntimeEvent,
-  runPipelineFromConfig,
-} from "../src/pipeline-runtime";
+import { mokaSubmitOptionsSchema, submitMoka } from "../src/moka-submit";
+import type { MokaSubmitInput } from "../src/moka-submit";
+import { runPipelineFromConfig } from "../src/pipeline-runtime";
+import type { PipelineRuntimeEvent } from "../src/pipeline-runtime";
 import { parseScheduleArtifact } from "../src/planning/generate";
 import type { RunnerLaunchPlan } from "../src/runner";
+import { parseJson } from "../src/safe-json";
 
 const PROJECT_ROOT = mkdtempSync(join(tmpdir(), "moka-submit-"));
 const CONFIG = loadPipelineConfig(PROJECT_ROOT, {
@@ -40,72 +39,65 @@ type CapturedSubmitOptions = Parameters<
   NonNullable<SubmitMokaDependencies["submitWorkflow"]>
 >[0];
 
-afterAll(() => {
-  rmSync(PROJECT_ROOT, { force: true, recursive: true });
+const submittedPayloadSchema = z.looseObject({
+  delivery: z.unknown().optional(),
+  events: z.unknown().optional(),
+  hookPolicy: z.unknown().optional(),
+  repository: z.looseObject({ url: z.string() }),
+  submission: z.unknown().optional(),
+  workflow: z.looseObject({ id: z.string().optional() }),
 });
 
-function captureSubmitCall(calls: CapturedSubmitOptions[]) {
-  return (
-    input: CapturedSubmitOptions
-  ): Promise<SubmitRunnerArgoWorkflowResult> => {
-    calls.push(input);
-    return Promise.resolve({
-      namespace: input.namespace ?? "test-runners",
-      payloadConfigMapName: "payload",
-      scheduleConfigMapName: "schedule",
-      taskDescriptorConfigMapName: "tasks",
-      workflowName: "wf",
-    });
-  };
-}
-
-function mokaCommandInput(
-  overrides: Partial<
-    Omit<
-      MokaSubmitInput,
-      "commandArgv" | "config" | "eventUrl" | "namespace" | "type"
-    >
-  > = {}
-): MokaSubmitInput {
-  return {
-    commandArgv: ["opencode", "run", "fix"],
-    config: CONFIG,
-    eventUrl: "https://console.example/api/pipeline/runner-events",
-    ...MANAGED_AUTH,
-    namespace: EXPLICIT_NAMESPACE,
-    type: "command",
-    worktreePath: PROJECT_ROOT,
-    ...overrides,
-  };
-}
-
-function mokaCommandDependencies(
-  calls: CapturedSubmitOptions[],
-  runId: string,
-  resolveGitContext: SubmitMokaDependencies["resolveGitContext"] = () =>
-    Promise.resolve(GIT)
-): SubmitMokaDependencies {
-  return {
-    generateRunId: () => runId,
-    resolveGitContext,
-    submitWorkflow: captureSubmitCall(calls),
-  };
-}
-
-function submittedRepositoryUrl(calls: CapturedSubmitOptions[]): string {
+const submittedPayload = (calls: CapturedSubmitOptions[]) => {
   if (calls.length !== 1) {
     throw new Error(
       `Expected one workflow submission, received ${calls.length}`
     );
   }
-  const payload = JSON.parse(calls[0].payloadJson);
-  return payload.repository.url;
-}
+  return submittedPayloadSchema.parse(
+    parseJson(calls[0].payloadJson, "submitted runner payload")
+  );
+};
 
-function submittedScheduleBuiltinCount(
+afterAll(() => {
+  rmSync(PROJECT_ROOT, { force: true, recursive: true });
+});
+
+const captureSubmitCall =
+  (calls: CapturedSubmitOptions[]) =>
+  async (
+    input: CapturedSubmitOptions
+  ): Promise<SubmitRunnerArgoWorkflowResult> => {
+    calls.push(input);
+    return {
+      namespace: input.namespace,
+      payloadConfigMapName: "payload",
+      scheduleConfigMapName: "schedule",
+      taskDescriptorConfigMapName: "tasks",
+      workflowName: "wf",
+    };
+  };
+
+const mokaCommandDependencies = (
+  calls: CapturedSubmitOptions[],
+  runId: string,
+  resolveGitContext: SubmitMokaDependencies["resolveGitContext"] = async () =>
+    GIT
+): SubmitMokaDependencies => ({
+  generateRunId: () => runId,
+  resolveGitContext,
+  submitWorkflow: captureSubmitCall(calls),
+});
+
+const submittedRepositoryUrl = (calls: CapturedSubmitOptions[]): string => {
+  const payload = submittedPayload(calls);
+  return payload.repository.url;
+};
+
+const submittedScheduleBuiltinCount = (
   calls: CapturedSubmitOptions[],
   builtin: string
-): number {
+): number => {
   if (calls.length !== 1 || calls[0].scheduleYaml === undefined) {
     throw new Error("Expected one workflow submission with schedule YAML");
   }
@@ -113,7 +105,7 @@ function submittedScheduleBuiltinCount(
   return artifact.workflows[artifact.root_workflow].nodes.filter(
     (node) => node.kind === "builtin" && node.builtin === builtin
   ).length;
-}
+};
 
 const MANAGED_AUTH = {
   brokerAuth: {
@@ -130,6 +122,24 @@ const MANAGED_AUTH = {
 const MANAGED_EVENT_AUTH_TOKEN_FILE =
   "/etc/pipeline/event-auth/EVENT_AUTH_TOKEN_KEY";
 const EXPLICIT_NAMESPACE = "test-runners";
+
+const mokaCommandInput = (
+  overrides: Partial<
+    Omit<
+      MokaSubmitInput,
+      "commandArgv" | "config" | "eventUrl" | "namespace" | "type"
+    >
+  > = {}
+): MokaSubmitInput => ({
+  commandArgv: ["opencode", "run", "fix"],
+  config: CONFIG,
+  eventUrl: "https://console.example/api/pipeline/runner-events",
+  ...MANAGED_AUTH,
+  namespace: EXPLICIT_NAMESPACE,
+  type: "command",
+  worktreePath: PROJECT_ROOT,
+  ...overrides,
+});
 const MISSING_GIT_CREDENTIALS_RE = /gitCredentialsSecretName is required/u;
 const EXPLICIT_EVENT_SINK = {
   authTokenFile: "/var/run/pipeline/events/token",
@@ -152,7 +162,7 @@ const REMOTE_SUBMIT_MODULES = [
   "service.ts",
 ] as const;
 
-function makeGitWorktree(prefix: string): string {
+const makeGitWorktree = (prefix: string): string => {
   const worktreePath = mkdtempSync(join(tmpdir(), prefix));
   writeFileSync(join(worktreePath, "README.md"), "# submit fixture\n");
   execFileSync("git", ["init", "--initial-branch=main"], {
@@ -184,30 +194,10 @@ function makeGitWorktree(prefix: string): string {
     }
   );
   return worktreePath;
-}
+};
 
-function runtimeConfig() {
-  return parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-    profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-  a:
-    runner: opencode
-    instructions: { inline: Agent A }
-`,
+const runtimeConfig = () =>
+  parsePipelineConfigParts({
     pipeline: `
 version: 1
 default_workflow: direct-hooks
@@ -220,12 +210,29 @@ workflows:
         kind: agent
         profile: a
 `,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+  a:
+    runner: opencode
+    instructions: { inline: Agent A }
+`,
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
   });
-}
 
-function executor(_plan: RunnerLaunchPlan) {
-  return { exitCode: 0, stdout: "ok" };
-}
+const executor = (_plan: RunnerLaunchPlan) => ({ exitCode: 0, stdout: "ok" });
 
 describe("submitMoka", () => {
   it("keeps submit contract, compilation, IO, event/auth, and Argo submission in separate owners", () => {
@@ -235,20 +242,20 @@ describe("submitMoka", () => {
 
     const publicSource = readFileSync(
       join(import.meta.dirname, "..", "src", "moka-submit.ts"),
-      "utf8"
+      "utf-8"
     );
     const compilationSource = readFileSync(
       join(REMOTE_SUBMIT_ROOT, "compilation.ts"),
-      "utf8"
+      "utf-8"
     );
     const eventBoundarySource = readFileSync(
       join(REMOTE_SUBMIT_ROOT, "event-boundary.ts"),
-      "utf8"
+      "utf-8"
     );
-    const ioSource = readFileSync(join(REMOTE_SUBMIT_ROOT, "io.ts"), "utf8");
+    const ioSource = readFileSync(join(REMOTE_SUBMIT_ROOT, "io.ts"), "utf-8");
     const argoSubmissionSource = readFileSync(
       join(REMOTE_SUBMIT_ROOT, "argo-submission.ts"),
-      "utf8"
+      "utf-8"
     );
 
     expect(publicSource).not.toContain("simple-git");
@@ -286,13 +293,13 @@ describe("submitMoka", () => {
         readFile: () => {
           throw new Error("generated schedule should be returned in memory");
         },
-        resolveGitContext: () => Promise.resolve(GIT),
+        resolveGitContext: async () => GIT,
         submitWorkflow: captureSubmitCall(calls),
       }
     );
 
     expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0].payloadJson);
+    const payload = submittedPayload(calls);
     expect(calls[0]).toMatchObject({
       generateName: "moka-full-",
       workflowId: "schedule-run-1-root",
@@ -380,7 +387,7 @@ describe("submitMoka", () => {
     }
 
     expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0].payloadJson);
+    const payload = submittedPayload(calls);
     expect(calls[0]).toMatchObject({
       generateName: "moka-quick-",
       scheduleYaml,
@@ -402,7 +409,7 @@ describe("submitMoka", () => {
     );
 
     expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0].payloadJson);
+    const payload = submittedPayload(calls);
     expect(calls[0]).toMatchObject({
       generateName: "moka-command-",
       scheduleYaml: expect.stringContaining("kind: pipeline-schedule"),
@@ -498,7 +505,7 @@ describe("submitMoka", () => {
     );
 
     expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0].payloadJson);
+    const payload = submittedPayload(calls);
     expect(payload).toMatchObject({
       events: {
         url: "https://console.example/api/pipeline/runner-events",
@@ -513,12 +520,10 @@ describe("submitMoka", () => {
 
     await submitMoka(
       mokaCommandInput(),
-      mokaCommandDependencies(calls, "run-github-ssh", () =>
-        Promise.resolve({
-          ...GIT,
-          url: "git@github.com:oisin-ee/tova.git",
-        })
-      )
+      mokaCommandDependencies(calls, "run-github-ssh", async () => ({
+        ...GIT,
+        url: "git@github.com:oisin-ee/tova.git",
+      }))
     );
 
     expect(submittedRepositoryUrl(calls)).toBe(
@@ -589,9 +594,9 @@ describe("submitMoka", () => {
         brokerAuth: MANAGED_AUTH.brokerAuth,
         commandArgv: ["opencode", "run", "fix"],
         config: CONFIG,
-        eventUrl: "https://console.example/api/pipeline/runner-events",
         eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
         eventAuthSecretName: "event-auth-secret",
+        eventUrl: "https://console.example/api/pipeline/runner-events",
         gitCredentialsSecretName: "flux-style-git-auth",
         namespace: EXPLICIT_NAMESPACE,
         type: "command",
@@ -599,7 +604,7 @@ describe("submitMoka", () => {
       },
       {
         generateRunId: () => "run-git-credentials-secret",
-        resolveGitContext: () => Promise.resolve(GIT),
+        resolveGitContext: async () => GIT,
         submitWorkflow: captureSubmitCall(calls),
       }
     );
@@ -617,9 +622,9 @@ describe("submitMoka", () => {
           brokerAuth: MANAGED_AUTH.brokerAuth,
           commandArgv: ["opencode", "run", "fix"],
           config: CONFIG,
-          eventUrl: "https://console.example/api/pipeline/runner-events",
           eventAuthSecretKey: "EVENT_AUTH_TOKEN_KEY",
           eventAuthSecretName: "event-auth-secret",
+          eventUrl: "https://console.example/api/pipeline/runner-events",
           githubAuthSecretName: "github-auth-secret",
           namespace: EXPLICIT_NAMESPACE,
           type: "command",
@@ -627,11 +632,10 @@ describe("submitMoka", () => {
         },
         {
           generateRunId: () => "run-unsupported-ssh",
-          resolveGitContext: () =>
-            Promise.resolve({
-              ...GIT,
-              url: "https://github.com/oisin-ee/tova.git",
-            }),
+          resolveGitContext: async () => ({
+            ...GIT,
+            url: "https://github.com/oisin-ee/tova.git",
+          }),
           submitWorkflow: captureSubmitCall(calls),
         }
       )
@@ -718,7 +722,7 @@ describe("submitMoka", () => {
     });
     expect(calls[0].scheduleYaml).not.toBe(scheduleYaml);
     expect(submittedScheduleBuiltinCount(calls, "open-pull-request")).toBe(1);
-    const payload = JSON.parse(calls[0].payloadJson);
+    const payload = submittedPayload(calls);
     expect(payload).toMatchObject({
       delivery: { pullRequest: true },
       events: {
@@ -782,6 +786,7 @@ describe("submitMoka", () => {
         brokerAuth: MANAGED_AUTH.brokerAuth,
         config: runtimeConfig(),
         eventSink: EXPLICIT_EVENT_SINK,
+        gitCredentialsSecretName: "console-git-credentials",
         hooks: {
           "node.finish": {
             command: ["node", "-e", publishScript],
@@ -794,7 +799,6 @@ describe("submitMoka", () => {
             where: { node: "a" },
           },
         },
-        gitCredentialsSecretName: "console-git-credentials",
         mode: "quick",
         namespace: EXPLICIT_NAMESPACE,
         repository: {
@@ -872,6 +876,7 @@ describe("submitMoka", () => {
         brokerAuth: MANAGED_AUTH.brokerAuth,
         config: runtimeConfig(),
         eventSink: EXPLICIT_EVENT_SINK,
+        gitCredentialsSecretName: "console-git-credentials",
         hooks: {
           "workflow.start": {
             command: ["node", "-e", "process.exit(0)"],
@@ -880,7 +885,6 @@ describe("submitMoka", () => {
             trusted: true,
           },
         },
-        gitCredentialsSecretName: "console-git-credentials",
         mode: "quick",
         namespace: EXPLICIT_NAMESPACE,
         repository: {
@@ -921,23 +925,6 @@ describe("submitMoka", () => {
 
   it("preserves existing hooks and rejects generated direct hook id conflicts", async () => {
     const config = parsePipelineConfigParts({
-      runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-`,
       pipeline: `
 version: 1
 default_workflow: default
@@ -956,6 +943,23 @@ workflows:
   default:
     nodes: []
 `,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+`,
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
     });
     const calls: CapturedSubmitOptions[] = [];
 
@@ -965,13 +969,14 @@ workflows:
         commandArgv: ["true"],
         config,
         eventSink: EXPLICIT_EVENT_SINK,
+        gitCredentialsSecretName: "console-git-credentials",
         hooks: {
           "node.finish": {
             command: ["true"],
             kind: "command",
           },
         },
-        gitCredentialsSecretName: "console-git-credentials",
+        namespace: EXPLICIT_NAMESPACE,
         repository: {
           baseBranch: "main",
           sha: "fedcba9876543210fedcba9876543210fedcba98",
@@ -981,7 +986,6 @@ workflows:
           id: "run-preserve-hooks",
           project: "pipeline-console",
         },
-        namespace: EXPLICIT_NAMESPACE,
         type: "command",
       },
       { submitWorkflow: captureSubmitCall(calls) }
@@ -999,23 +1003,6 @@ workflows:
     ]);
 
     const conflictingConfig = parsePipelineConfigParts({
-      runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-      profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: opencode
-    instructions: { inline: Orchestrate }
-`,
       pipeline: `
 version: 1
 default_workflow: default
@@ -1030,9 +1017,26 @@ workflows:
   default:
     nodes: []
 `,
+      profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: opencode
+    instructions: { inline: Orchestrate }
+`,
+      runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
     });
 
-    expect(() =>
+    await expect(
       submitMoka({
         brokerAuth: MANAGED_AUTH.brokerAuth,
         commandArgv: ["true"],
@@ -1047,7 +1051,7 @@ workflows:
         namespace: EXPLICIT_NAMESPACE,
         type: "command",
       })
-    ).toThrow("Moka submit hook id already exists in config");
+    ).rejects.toThrow("Moka submit hook id already exists in config");
   });
 
   it("rejects submit input that mixes legacy events with eventSink", () => {
@@ -1092,8 +1096,8 @@ workflows:
   it("rejects invalid public submit inputs with the exported Zod schema", () => {
     const parsed = mokaSubmitOptionsSchema.safeParse({
       brokerAuth: MANAGED_AUTH.brokerAuth,
-      mode: "full",
       eventSink: EXPLICIT_EVENT_SINK,
+      mode: "full",
       repository: {
         baseBranch: "main",
         url: "not a git URL",
@@ -1113,16 +1117,16 @@ workflows:
   // PIPE-94.4: AC1 — pre-submit createRun upsert
   it("calls upsertRunRecord with runId and scheduleYaml before Argo submission (AC1)", async () => {
     const calls: CapturedSubmitOptions[] = [];
-    const runRecords: Array<{
+    const runRecords: {
       plan: { runId: string; scheduleYaml?: string };
-      worktreePath: string | undefined;
-    }> = [];
+      worktreePath: string | void;
+    }[] = [];
 
     await submitMoka(mokaCommandInput(), {
       ...mokaCommandDependencies(calls, "run-upsert-create"),
-      upsertRunRecord: (plan, worktreePath) => {
+      upsertRunRecord: async (plan, worktreePath) => {
         runRecords.push({ plan, worktreePath });
-        return Promise.resolve();
+        return;
       },
     });
 
@@ -1142,8 +1146,9 @@ workflows:
 
     await submitMoka(mokaCommandInput(), {
       ...mokaCommandDependencies(calls, "run-db-down"),
-      upsertRunRecord: () =>
-        Promise.reject(new Error("simulated DB connection refused")),
+      upsertRunRecord: async () => {
+        throw new Error("simulated DB connection refused");
+      },
     });
 
     // Argo workflow submitted despite the upsert failure
@@ -1216,7 +1221,7 @@ workflows:
     );
 
     expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0].payloadJson);
+    const payload = submittedPayload(calls);
     // runner payload carries the workflow id so the runner can match schedule
     expect(payload).toMatchObject({
       submission: { kind: "graph", mode: "full" },
@@ -1252,23 +1257,23 @@ workflows:
         readFile: () => {
           throw new Error("generated schedule should be returned in memory");
         },
-        resolveGitContext: () => Promise.resolve(GIT),
+        resolveGitContext: async () => GIT,
         submitWorkflow: captureSubmitCall(calls),
       }
     );
 
     expect(calls).toHaveLength(1);
-    expect(JSON.parse(calls[0].payloadJson).delivery).toEqual({
+    expect(submittedPayload(calls).delivery).toEqual({
       mode: "create-new-pr",
       pullRequest: true,
     });
   });
 
   it("does not append pull-request delivery to explicit graph schedules when payload delivery is absent or false", async () => {
-    const cases: Array<{
+    const cases: {
       delivery?: MokaSubmitInput["delivery"];
       runId: string;
-    }> = [
+    }[] = [
       { runId: "run-delivery-absent" },
       { delivery: { pullRequest: false }, runId: "run-delivery-false" },
     ];

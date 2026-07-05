@@ -1,8 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { PlannedWorkflowNode } from "../planning/compile";
 import type {
   PipelineRuntimeResult,
   RuntimeContext,
+  RuntimeFailure,
   RuntimeNodeResult,
 } from "./contracts";
 import {
@@ -13,7 +15,8 @@ import {
 import { dispatchHooks } from "./hooks";
 import { acquireRunJournal } from "./journal-acquisition";
 import { parseJsonObject } from "./json-validation";
-import { LocalScheduler, type PipelineScheduler } from "./local-scheduler";
+import { LocalScheduler } from "./local-scheduler";
+import type { PipelineScheduler } from "./local-scheduler";
 import {
   executePlannedNode,
   isCancelled,
@@ -25,57 +28,24 @@ import { workflowRuntimeResult } from "./runtime-results";
 import {
   hydrateDependencyOutputs,
   hydrateScheduledDependencyStates,
-  type ScheduledDependencyOutputs,
 } from "./scheduled-dependencies";
+import type { ScheduledDependencyOutputs } from "./scheduled-dependencies";
 
-export function runPipelineWithContext(
-  context: RuntimeContext,
-  dbUrl: string | undefined
-): Effect.Effect<PipelineRuntimeResult, unknown> {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const journal = yield* acquireRunJournal(context.runId, dbUrl);
-      const scheduler = buildPipelineScheduler(context, journal);
-      const result = yield* Effect.tryPromise(() =>
-        scheduler.runWorkflow(context.plan, context)
-      );
-      return finishRuntime(context, result);
-    })
-  );
-}
-
-export function resumeRunWithContext(
-  context: RuntimeContext,
-  dbUrl: string | undefined
-): Effect.Effect<PipelineRuntimeResult, unknown> {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const journal = yield* acquireRunJournal(context.runId, dbUrl);
-      yield* requireResumableRun(context.runId, journal);
-      const scheduler = buildPipelineScheduler(context, journal);
-      const result = yield* Effect.tryPromise(() =>
-        scheduler.runWorkflow(context.plan, context)
-      );
-      return finishRuntime(context, result);
-    })
-  );
-}
-
-export function executeScheduledWorkflowTaskWithContext(
+export const executeScheduledWorkflowTaskWithContext = (
   context: RuntimeContext,
   nodeId: string,
   dependencyOutputs: ScheduledDependencyOutputs
-): Effect.Effect<RuntimeNodeResult, unknown> {
+): Effect.Effect<RuntimeNodeResult, unknown> => {
   hydrateScheduledDependencyStates(context, nodeId);
   hydrateDependencyOutputs(context, dependencyOutputs);
   markNodeReady(context, nodeId);
   return executePlannedNode(nodeId, context);
-}
+};
 
-function requireResumableRun(
-  runId: string | undefined,
-  journal: RunJournal | undefined
-): Effect.Effect<void, Error> {
+const requireResumableRun = (
+  runId?: string,
+  journal?: RunJournal
+): Effect.Effect<void, Error> => {
   if (journal === undefined) {
     return Effect.fail(
       new Error(
@@ -91,98 +61,145 @@ function requireResumableRun(
     );
   }
   return Effect.void;
-}
+};
 
-function buildPipelineScheduler(
-  context: RuntimeContext,
-  journal: RunJournal | undefined
-): PipelineScheduler {
-  return new LocalScheduler({
-    buildResult: (outcome, nodes, failure) =>
-      workflowRuntimeResult(context, outcome, nodes, failure),
-    emitWorkflowPlanned: (nextContext) => emitWorkflowPlanned(nextContext),
-    emitWorkflowStarted: (nextContext) => emitWorkflowStarted(nextContext),
-    executeNode: (nodeId, nextContext) =>
-      Effect.runPromise(executePlannedNode(nodeId, nextContext)),
-    isCancelled: (nextContext) => isCancelled(nextContext),
-    markNodeReady: (nodeId, nextContext) => markNodeReady(nextContext, nodeId),
-    resolveJournal: () => journal,
-    runWorkflowHook: (event, failure, nextContext) =>
-      Effect.runPromise(dispatchHooksEffect(nextContext, event, failure)),
-    shouldContinueAfterNodeResult: (result, nextContext) =>
-      shouldContinueAfterNodeResult(result, nextContext),
-    skipNode: (nodeId, reason, nextContext) =>
-      recordSkippedNodeState(nextContext, nodeId, reason),
-  });
-}
+const parallelOutputHasChildren = (output: string): boolean =>
+  Object.keys(parseJsonObject(parseJsonObject(output).children)).length > 0;
 
-function shouldContinueAfterNodeResult(
-  result: RuntimeNodeResult,
-  context: RuntimeContext
-): boolean {
-  if (result.status !== "failed") {
-    return true;
-  }
-  const node = context.plan.graph.node(result.nodeId);
-  return isRecoverableParallelFailure(node, result.output, context);
-}
-
-function isRecoverableParallelFailure(
-  node: PlannedWorkflowNode | undefined,
+const isParallelWithChildren = (
   output: string,
-  context: RuntimeContext
-): boolean {
-  if (!isParallelWithChildren(node, output)) {
-    return false;
-  }
-  return hasOnlyDrainMergeDependents(node, context);
-}
-
-function isParallelWithChildren(
-  node: PlannedWorkflowNode | undefined,
-  output: string
-): node is PlannedWorkflowNode {
+  node?: PlannedWorkflowNode
+): node is PlannedWorkflowNode => {
   if (!node) {
     return false;
   }
   return node.kind === "parallel" ? parallelOutputHasChildren(output) : false;
-}
+};
 
-function hasOnlyDrainMergeDependents(
+const isDrainMergeNode = (node?: PlannedWorkflowNode): boolean => {
+  if (!node) {
+    return false;
+  }
+  return node.kind === "builtin" ? node.builtin === "drain-merge" : false;
+};
+
+const hasOnlyDrainMergeDependents = (
   node: PlannedWorkflowNode,
   context: RuntimeContext
-): boolean {
+): boolean => {
   if (node.dependents.length === 0) {
     return false;
   }
   return node.dependents.every((dependentId) =>
     isDrainMergeNode(context.plan.graph.node(dependentId))
   );
-}
+};
 
-function parallelOutputHasChildren(output: string): boolean {
-  return (
-    Object.keys(parseJsonObject(parseJsonObject(output).children)).length > 0
-  );
-}
-
-function isDrainMergeNode(node: PlannedWorkflowNode | undefined): boolean {
-  if (!node) {
+const isRecoverableParallelFailure = (
+  output: string,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): boolean => {
+  if (!isParallelWithChildren(output, node)) {
     return false;
   }
-  return node.kind === "builtin" ? node.builtin === "drain-merge" : false;
-}
+  return hasOnlyDrainMergeDependents(node, context);
+};
 
-function dispatchHooksEffect(
+const shouldContinueAfterNodeResult = (
+  result: RuntimeNodeResult,
+  context: RuntimeContext
+): boolean => {
+  if (result.status !== "failed") {
+    return true;
+  }
+  const node = context.plan.graph.node(result.nodeId);
+  return isRecoverableParallelFailure(result.output, context, node);
+};
+
+const dispatchHooksEffect = (
   ...args: Parameters<typeof dispatchHooks>
-): Effect.Effect<Awaited<ReturnType<typeof dispatchHooks>>, unknown> {
-  return Effect.tryPromise(() => dispatchHooks(...args));
-}
+): Effect.Effect<Option.Option<RuntimeFailure>, unknown> =>
+  Effect.tryPromise(async () => await dispatchHooks(...args)).pipe(
+    Effect.map(Option.fromNullishOr)
+  );
 
-function finishRuntime(
+const buildPipelineScheduler = (
+  context: RuntimeContext,
+  journal?: RunJournal
+): PipelineScheduler =>
+  new LocalScheduler({
+    buildResult: (outcome, nodes, failure) =>
+      workflowRuntimeResult(context, outcome, nodes, failure),
+    emitWorkflowPlanned: (nextContext) => {
+      emitWorkflowPlanned(nextContext);
+    },
+    emitWorkflowStarted: (nextContext) => {
+      emitWorkflowStarted(nextContext);
+    },
+    executeNode: async (nodeId, nextContext) =>
+      await Effect.runPromise(executePlannedNode(nodeId, nextContext)),
+    isCancelled: (nextContext) => isCancelled(nextContext),
+    markNodeReady: (nodeId, nextContext) => {
+      markNodeReady(nextContext, nodeId);
+    },
+    resolveJournal: () => Option.fromUndefinedOr(journal),
+    runWorkflowHook: async (event, nextContext, failure) =>
+      await Effect.runPromise(dispatchHooksEffect(nextContext, event, failure)),
+    shouldContinueAfterNodeResult: (result, nextContext) =>
+      shouldContinueAfterNodeResult(result, nextContext),
+    skipNode: (nodeId, reason, nextContext) => {
+      recordSkippedNodeState(nextContext, nodeId, reason);
+    },
+  });
+
+const finishRuntime = (
   context: RuntimeContext,
   result: PipelineRuntimeResult
-): PipelineRuntimeResult {
+): PipelineRuntimeResult => {
   emitWorkflowFinish(context, result.outcome);
   return result;
-}
+};
+
+export const runPipelineWithContext = (
+  context: RuntimeContext,
+  dbUrl?: string
+): Effect.Effect<PipelineRuntimeResult, unknown> =>
+  Effect.scoped(
+    Effect.gen(function* effectBody() {
+      const journal = yield* acquireRunJournal(
+        Option.fromUndefinedOr(context.runId),
+        Option.fromUndefinedOr(dbUrl)
+      );
+      const scheduler = buildPipelineScheduler(
+        context,
+        Option.getOrUndefined(journal)
+      );
+      const result = yield* Effect.tryPromise(
+        async () => await scheduler.runWorkflow(context.plan, context)
+      );
+      return finishRuntime(context, result);
+    })
+  );
+
+export const resumeRunWithContext = (
+  context: RuntimeContext,
+  dbUrl?: string
+): Effect.Effect<PipelineRuntimeResult, unknown> =>
+  Effect.scoped(
+    Effect.gen(function* effectBody() {
+      const journal = yield* acquireRunJournal(
+        Option.fromUndefinedOr(context.runId),
+        Option.fromUndefinedOr(dbUrl)
+      );
+      yield* requireResumableRun(context.runId, Option.getOrUndefined(journal));
+      const scheduler = buildPipelineScheduler(
+        context,
+        Option.getOrUndefined(journal)
+      );
+      const result = yield* Effect.tryPromise(
+        async () => await scheduler.runWorkflow(context.plan, context)
+      );
+      return finishRuntime(context, result);
+    })
+  );

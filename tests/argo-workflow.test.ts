@@ -921,8 +921,8 @@ describe("runner Argo Workflow manifest", () => {
         entrypoint: pipeline
         imagePullSecrets:
           - name: image-pull-secret
-        serviceAccountName: pipeline-runner
         onExit: pipeline-finalizer
+        serviceAccountName: pipeline-runner
         templates:
           - dag:
               tasks:
@@ -943,7 +943,8 @@ describe("runner Argo Workflow manifest", () => {
                   name: node-three
                   template: task-three
             name: pipeline
-          - container:
+          - activeDeadlineSeconds: 5400
+            container:
               args:
                 - runner-lifecycle
                 - --phase
@@ -1001,14 +1002,14 @@ describe("runner Argo Workflow manifest", () => {
                   name: github-auth
                   readOnly: true
                   subPath: hosts.yml
-            activeDeadlineSeconds: 5400
             name: workflow-start
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
                 lastRetry.exitCode != '1')
               limit: "3"
               retryPolicy: Always
-          - container:
+          - activeDeadlineSeconds: 5400
+            container:
               args:
                 - runner-command
                 - --payload-file
@@ -1068,14 +1069,14 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-one.json
-            activeDeadlineSeconds: 5400
             name: task-one
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
                 lastRetry.exitCode != '1')
               limit: "3"
               retryPolicy: Always
-          - container:
+          - activeDeadlineSeconds: 5400
+            container:
               args:
                 - runner-command
                 - --payload-file
@@ -1135,14 +1136,14 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-two.json
-            activeDeadlineSeconds: 5400
             name: task-two
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
                 lastRetry.exitCode != '1')
               limit: "3"
               retryPolicy: Always
-          - container:
+          - activeDeadlineSeconds: 5400
+            container:
               args:
                 - runner-command
                 - --payload-file
@@ -1202,14 +1203,14 @@ describe("runner Argo Workflow manifest", () => {
                   name: runner-task-descriptor
                   readOnly: true
                   subPath: node-three.json
-            activeDeadlineSeconds: 5400
             name: task-three
             retryStrategy:
               expression: lastRetry.status == 'Error' || (lastRetry.exitCode != '0' &&
                 lastRetry.exitCode != '1')
               limit: "3"
               retryPolicy: Always
-          - container:
+          - activeDeadlineSeconds: 5400
+            container:
               args:
                 - runner-finalize
                 - --payload-file
@@ -1269,7 +1270,6 @@ describe("runner Argo Workflow manifest", () => {
                   name: github-auth
                   readOnly: true
                   subPath: hosts.yml
-            activeDeadlineSeconds: 5400
             name: pipeline-finalizer
         ttlStrategy:
           secondsAfterCompletion: 3600

@@ -19,17 +19,17 @@ const DEFAULT_GIT_CREDENTIALS_DIR = "/etc/pipeline/git-credentials";
  * a URL or argv. No mounted credentials (local dev) -> empty env, so git falls
  * back to ambient auth.
  */
-export function githubGitCredentialEnv(
+export const githubGitCredentialEnv = (
   credentialsDir: string = process.env.PIPELINE_GIT_CREDENTIALS_DIR ??
     DEFAULT_GIT_CREDENTIALS_DIR
-): Record<string, string> {
+): Record<string, string> => {
   const usernamePath = resolve(credentialsDir, "username");
   const passwordPath = resolve(credentialsDir, "password");
   if (!(existsSync(usernamePath) && existsSync(passwordPath))) {
     return {};
   }
-  const username = readFileSync(usernamePath, "utf8").trim();
-  const password = readFileSync(passwordPath, "utf8").trim();
+  const username = readFileSync(usernamePath, "utf-8").trim();
+  const password = readFileSync(passwordPath, "utf-8").trim();
   const storePath = join(
     mkdtempSync(join(tmpdir(), "factory-git-cred-")),
     ".git-credentials"
@@ -45,4 +45,4 @@ export function githubGitCredentialEnv(
     GIT_CONFIG_VALUE_0: `store --file=${storePath}`,
     GIT_TERMINAL_PROMPT: "0",
   };
-}
+};

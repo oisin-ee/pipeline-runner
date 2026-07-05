@@ -1,24 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import {
-  type PipelineConfigParts,
-  parsePipelineConfigParts,
-} from "../src/config";
+import { z } from "zod";
+
+import { parsePipelineConfigParts } from "../src/config";
+import type { PipelineConfigParts } from "../src/config";
 import { resolveRepoLocalBackendSpecs } from "../src/mcp/repo-local-backends";
 import { renderToolHiveVmcpInventory } from "../src/mcp/toolhive-vmcp";
 
 const PARTS: PipelineConfigParts = {
-  runners: `
+  pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    capabilities:
-      mcp_servers: true
-      tools: [read]
-      filesystem: [read-only]
-      network: [inherit]
-      output_formats: [text]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes: []
 `,
   profiles: `
 version: 1
@@ -61,16 +58,31 @@ profiles:
     filesystem: { mode: read-only }
     network: { mode: inherit }
 `,
-  pipeline: `
+  runners: `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes: []
+runners:
+  opencode:
+    type: opencode
+    capabilities:
+      mcp_servers: true
+      tools: [read]
+      filesystem: [read-only]
+      network: [inherit]
+      output_formats: [text]
 `,
 };
+const inventoryYamlSchema = z.object({
+  backends: z.array(
+    z.object({
+      name: z.string(),
+      transport: z.string().optional(),
+      url: z.string().optional(),
+    })
+  ),
+});
+
+const parseInventoryYaml = (source: string) =>
+  inventoryYamlSchema.parse(parse(source));
 
 describe("ToolHive vMCP inventory rendering", () => {
   it("renders deterministic backend config for every declared backend", () => {
@@ -84,9 +96,7 @@ describe("ToolHive vMCP inventory rendering", () => {
     const inventory = renderToolHiveVmcpInventory(config, {
       repoLocalBackends,
     });
-    const parsed = parse(inventory.yaml) as {
-      backends: Array<{ name: string }>;
-    };
+    const parsed = parseInventoryYaml(inventory.yaml);
 
     expect(parsed.backends.map((backend) => backend.name)).toEqual([
       "backlog",
@@ -99,13 +109,13 @@ describe("ToolHive vMCP inventory rendering", () => {
     ]);
     expect(inventory.backends).toContainEqual(
       expect.objectContaining({
-        name: "serena",
-        type: "stdio",
         cwd: "/repo",
         mount: {
           containerPath: "/workspace",
           hostPath: "/repo",
         },
+        name: "serena",
+        type: "stdio",
       })
     );
     expect(inventory.backends).toContainEqual(
@@ -134,9 +144,7 @@ describe("ToolHive vMCP inventory rendering", () => {
         },
       ],
     });
-    const parsed = parse(inventory.yaml) as {
-      backends: Array<{ name: string; transport?: string; url?: string }>;
-    };
+    const parsed = parseInventoryYaml(inventory.yaml);
 
     expect(
       parsed.backends.find((backend) => backend.name === "qdrant")

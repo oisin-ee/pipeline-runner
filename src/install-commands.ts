@@ -15,9 +15,23 @@ export type {
   InstallCommandsResult,
 } from "./install-commands/shared";
 
-export async function installCommands(
+const addInstallPlanSummary = (
+  error: unknown,
+  result: InstallCommandsResult
+): void => {
+  if (!(error instanceof Error)) {
+    return;
+  }
+  const summary = formatInstallCommandsResult(result);
+  if (!summary) {
+    return;
+  }
+  error.message = `${error.message}\n\nPlanned install changes:\n${summary}`;
+};
+
+export const installCommands = async (
   options: InstallCommandsOptions = {}
-): Promise<InstallCommandsResult> {
+): Promise<InstallCommandsResult> => {
   const normalizedOptions = {
     ...options,
     host: parseCommandHost(options.host),
@@ -32,18 +46,4 @@ export async function installCommands(
     throw error;
   }
   return result;
-}
-
-function addInstallPlanSummary(
-  error: unknown,
-  result: InstallCommandsResult
-): void {
-  if (!(error instanceof Error)) {
-    return;
-  }
-  const summary = formatInstallCommandsResult(result);
-  if (!summary) {
-    return;
-  }
-  error.message = `${error.message}\n\nPlanned install changes:\n${summary}`;
-}
+};

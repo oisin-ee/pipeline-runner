@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect } from "effect";
 import postgres from "postgres";
 import {
@@ -13,19 +14,20 @@ import {
   it,
   vi,
 } from "vitest";
+
 import type {
   MokaRunController,
   MokaRunEvent,
 } from "../src/run-control/contracts";
 import {
   migratePostgresRunControlStore,
-  type PostgresRunControlStore,
   postgresRunControlStore,
 } from "../src/run-control/postgres/postgres-run-control-store";
-import {
-  type CreateRunRequest,
-  fileRunControlStore,
-  type RunControlStore,
+import type { PostgresRunControlStore } from "../src/run-control/postgres/postgres-run-control-store";
+import { fileRunControlStore } from "../src/run-control/run-control-store";
+import type {
+  CreateRunRequest,
+  RunControlStore,
 } from "../src/run-control/run-control-store";
 
 /**
@@ -46,11 +48,11 @@ import {
  * the seam promises to every consumer of `RunControlStore`.
  */
 
-const run = <A>(fx: Effect.Effect<A, unknown>): Promise<A> =>
-  Effect.runPromise(fx);
+const run = async <A>(fx: Effect.Effect<A, unknown>): Promise<A> =>
+  await Effect.runPromise(fx);
 
 const DIFFERENT_PUBLISHED_SCHEDULE_ERROR =
-  /already has a different published schedule/;
+  /already has a different published schedule/u;
 
 /**
  * A per-test isolated world over one backend. `make()` opens a FRESH handle over
@@ -73,17 +75,19 @@ interface Backend {
 const fileBackend: Backend = {
   enabled: true,
   name: "file",
-  setupSuite: () => Promise.resolve(),
   openWorld: () => {
     const root = mkdtempSync(join(tmpdir(), "rc-contract-file-"));
     return {
+      cleanup: async () => {
+        await Promise.resolve();
+        rmSync(root, { force: true, recursive: true });
+      },
       make: () => fileRunControlStore(root),
       // The workspace is isolated per test, so a bare label is already unique.
       runId: (label) => label,
-      cleanup: () =>
-        Promise.resolve(rmSync(root, { force: true, recursive: true })),
     };
   },
+  setupSuite: async () => {},
 };
 
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
@@ -91,7 +95,6 @@ const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const postgresBackend: Backend = {
   enabled: Boolean(PG_URL),
   name: "postgres",
-  setupSuite: () => migratePostgresRunControlStore(PG_URL),
   openWorld: () => {
     // Namespace every runId under a per-test prefix so concurrent workers and
     // prior runs never collide on (run_id, node_id); cleanup is a set of
@@ -100,12 +103,6 @@ const postgresBackend: Backend = {
     const prefix = `rccontract-${randomUUID()}`;
     const opened: PostgresRunControlStore[] = [];
     return {
-      make: () => {
-        const store = postgresRunControlStore(PG_URL);
-        opened.push(store);
-        return store;
-      },
-      runId: (label) => `${prefix}-${label}-${randomUUID()}`,
       cleanup: async () => {
         for (const store of opened) {
           await store.close();
@@ -118,7 +115,16 @@ const postgresBackend: Backend = {
         await admin`delete from moka_run_control_run where run_id like ${like}`;
         await admin.end();
       },
+      make: () => {
+        const store = postgresRunControlStore(PG_URL);
+        opened.push(store);
+        return store;
+      },
+      runId: (label) => `${prefix}-${label}-${randomUUID()}`,
     };
+  },
+  setupSuite: async () => {
+    await migratePostgresRunControlStore(PG_URL);
   },
 };
 

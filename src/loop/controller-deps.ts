@@ -1,11 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
+
 import type { PipelineConfig } from "../config";
-import {
-  type MokaSubmitInput,
-  type MokaSubmitResult,
-  submitMoka,
-} from "../moka-submit";
+import { submitMoka } from "../moka-submit";
+import type { MokaSubmitInput, MokaSubmitResult } from "../moka-submit";
 import { runAuthenticatedGit } from "../run-state/git-refs";
 import type { RunnerEventRecord } from "../runner-command-contract";
 import { RUNNER_EVENT_SINK_RETRY_POLICY } from "../runner-event-sink";
@@ -26,12 +25,8 @@ import type {
   SubmitRunResult,
   TerminalPhase,
 } from "./controller";
-import {
-  classifyRequiredChecks,
-  type GhRunner,
-  type PrResolution,
-  resolvePrForRun,
-} from "./gh-checks";
+import { classifyRequiredChecks, resolvePrForRun } from "./gh-checks";
+import type { GhRunner, PrResolution } from "./gh-checks";
 import { createGhRunner } from "./gh-runner";
 import { mergeForClassification } from "./merge";
 
@@ -113,53 +108,17 @@ export interface ControllerDepsSeams {
   ) => Effect.Effect<{ readonly workflowName: string }, Error>;
 }
 
-/**
- * Build the production `ControllerDeps`. `context` carries the static run
- * context; `seams` overrides any external boundary (used by tests to avoid
- * GitHub / k8s / git).
- */
-export function buildControllerDeps(
-  context: LoopControllerContext,
-  seams: ControllerDepsSeams = {}
-): ControllerDeps {
-  const gh = seams.gh ?? createGhRunner();
-  const generateRunId = seams.generateRunId ?? defaultRunId;
-  const submit =
-    seams.submitRun ??
-    defaultSubmitRun(context, seams.submitMoka ?? submitMoka);
-  const loadTasks = seams.loadTasks ?? loadBacklogRecords;
-  const gitRefresh = seams.gitRefresh ?? defaultGitRefresh;
-  const pollPhase = seams.pollPhase ?? defaultPollPhase;
-  const emit = buildEmit(context, seams.postEvent);
-
-  return {
-    classifyChecks: (pr, runner) => classifyMergeSignal(pr, runner),
-    emit,
-    gh,
-    loadGraph: () => loadTasks(context.worktreePath),
-    maxMergePolls: context.maxMergePolls,
-    maxRemediationAttempts: context.maxRemediationAttempts,
-    merge: ({ classification, pr }) =>
-      mergeForClassification({ classification, gh, pr }),
-    pollPhase: (input) =>
-      pollPhase({
-        namespace: context.namespace,
-        runId: input.runId,
-        workflowName: input.workflowName,
-      }),
-    projectId: context.project,
-    refreshBacklog: () =>
-      Effect.tryPromise({
-        catch: refreshError,
-        try: () => gitRefresh(context.worktreePath),
-      }).pipe(Effect.flatMap(() => loadTasks(context.worktreePath))),
-    resolvePr: (runId, runner) => resolvePrForRun(runId, runner),
-    rootId: context.rootId,
-    sleep: (ms) => Effect.sleep(ms),
-    strategy: context.strategy,
-    submitRun: (input) => adaptSubmit(submit, generateRunId, input),
-  };
-}
+const parsePrState = (raw: unknown): Effect.Effect<string, Error> => {
+  if (
+    typeof raw === "object" &&
+    raw !== null &&
+    "state" in raw &&
+    typeof raw.state === "string"
+  ) {
+    return Effect.succeed(raw.state);
+  }
+  return Effect.fail(new Error("gh pr view response missing string `state`"));
+};
 
 // ---------------------------------------------------------------------------
 // classifyChecks — widened seam: MERGED short-circuits, else required checks.
@@ -170,11 +129,11 @@ export function buildControllerDeps(
  * required-check classifier. The PR-state read is a single `gh pr view` json
  * call; an unparsable response is surfaced (never silently treated as merged).
  */
-function classifyMergeSignal(
+const classifyMergeSignal = (
   pr: OpenPr,
   gh: GhRunner
-): Effect.Effect<MergePollSignal, Error> {
-  return gh.json(["pr", "view", String(pr.number), "--json", "state"]).pipe(
+): Effect.Effect<MergePollSignal, Error> =>
+  gh.json(["pr", "view", String(pr.number), "--json", "state"]).pipe(
     Effect.flatMap((raw) => parsePrState(raw)),
     Effect.flatMap((state) =>
       state === "MERGED"
@@ -182,31 +141,18 @@ function classifyMergeSignal(
         : classifyRequiredChecks(pr, gh)
     )
   );
-}
-
-function parsePrState(raw: unknown): Effect.Effect<string, Error> {
-  if (
-    typeof raw === "object" &&
-    raw !== null &&
-    "state" in raw &&
-    typeof raw.state === "string"
-  ) {
-    return Effect.succeed(raw.state);
-  }
-  return Effect.fail(new Error("gh pr view response missing string `state`"));
-}
 
 // ---------------------------------------------------------------------------
 // submitRun — adapt SubmitRunInput → submitMoka, forwarding remediation fields.
 // ---------------------------------------------------------------------------
 
-function adaptSubmit(
+const adaptSubmit = (
   submit: (
     request: LoopSubmitRequest
   ) => Effect.Effect<{ readonly workflowName: string }, Error>,
   generateRunId: () => string,
   input: SubmitRunInput
-): Effect.Effect<SubmitRunResult, Error> {
+): Effect.Effect<SubmitRunResult, Error> => {
   const runId = generateRunId();
   return submit({
     deliveryMode: input.deliveryMode,
@@ -217,48 +163,14 @@ function adaptSubmit(
   }).pipe(
     Effect.map((result) => ({ runId, workflowName: result.workflowName }))
   );
-}
-
-/**
- * Default submit seam: shape a graph submitMoka call. For remediation
- * (`update-existing-pr`) it forwards `delivery.mode`, the PR head sha
- * (`repository.sha`) and the PR branch (`repository.headBranch` =
- * `moka/run/<originalRunId>`) so fix-commits APPEND to the existing PR branch.
- */
-function defaultSubmitRun(
-  context: LoopControllerContext,
-  submit: (input: MokaSubmitInput) => Promise<MokaSubmitResult>
-): (
-  request: LoopSubmitRequest
-) => Effect.Effect<{ readonly workflowName: string }, Error> {
-  return (request) =>
-    Effect.tryPromise({
-      catch: submitError,
-      try: () =>
-        submit({
-          brokerAuth: context.brokerAuth,
-          config: context.config,
-          delivery: { mode: request.deliveryMode, pullRequest: true },
-          eventUrl: context.eventUrl,
-          gitCredentialsSecretName: context.gitCredentialsSecretName,
-          githubAuthSecretName: context.githubAuthSecretName,
-          mode: "full",
-          namespace: context.namespace,
-          repository: submitRepository(context, request),
-          run: { id: request.runId, project: context.project },
-          serviceAccountName: context.serviceAccountName,
-          task: request.task,
-          type: "graph",
-        }),
-    }).pipe(Effect.map((result) => ({ workflowName: result.workflowName })));
-}
+};
 
 /**
  * Repository context for a child submit. Remediation overrides the head sha and
  * head branch so the workspace IS the PR branch; the create path leaves them
  * absent (the runner cuts a fresh `moka/run/<runId>` branch from baseBranch).
  */
-function submitRepository(
+const submitRepository = (
   context: LoopControllerContext,
   request: LoopSubmitRequest
 ): {
@@ -266,14 +178,16 @@ function submitRepository(
   headBranch?: string;
   sha?: string;
   url: string;
-} {
-  return {
-    baseBranch: context.baseBranch,
-    ...(request.headBranch ? { headBranch: request.headBranch } : {}),
-    ...(request.repositorySha ? { sha: request.repositorySha } : {}),
-    url: context.url,
-  };
-}
+} => ({
+  baseBranch: context.baseBranch,
+  ...(request.headBranch !== undefined && request.headBranch.length > 0
+    ? { headBranch: request.headBranch }
+    : {}),
+  ...(request.repositorySha !== undefined && request.repositorySha.length > 0
+    ? { sha: request.repositorySha }
+    : {}),
+  url: context.url,
+});
 
 // ---------------------------------------------------------------------------
 // emit — wrap the envelope (runId/sequence/at) and POST the loop.* record.
@@ -285,6 +199,10 @@ interface Envelope {
   readonly sequence: number;
 }
 
+const unreachable = (event: LoopControllerEvent): never => {
+  throw new Error(`unexpected loop event for builder: ${event.type}`);
+};
+
 /** One owner of LoopControllerEvent → RunnerEventRecord, keyed on event type. */
 const RECORD_BUILDER: Readonly<
   Record<
@@ -292,12 +210,12 @@ const RECORD_BUILDER: Readonly<
     (event: LoopControllerEvent, envelope: Envelope) => RunnerEventRecord
   >
 > = {
-  "loop.start": (event, envelope) =>
-    event.type === "loop.start"
+  "loop.finish": (event, envelope) =>
+    event.type === "loop.finish"
       ? {
           ...envelope,
-          loopStart: { projectId: event.projectId, strategy: event.strategy },
-          type: "loop.start",
+          loopFinish: { blocked: event.blocked, passed: event.passed },
+          type: "loop.finish",
         }
       : unreachable(event),
   "loop.graph.snapshot": (event, envelope) =>
@@ -319,52 +237,27 @@ const RECORD_BUILDER: Readonly<
           type: "loop.node.transition",
         }
       : unreachable(event),
-  "loop.finish": (event, envelope) =>
-    event.type === "loop.finish"
+  "loop.start": (event, envelope) =>
+    event.type === "loop.start"
       ? {
           ...envelope,
-          loopFinish: { blocked: event.blocked, passed: event.passed },
-          type: "loop.finish",
+          loopStart: { projectId: event.projectId, strategy: event.strategy },
+          type: "loop.start",
         }
       : unreachable(event),
 };
-
-function unreachable(event: LoopControllerEvent): never {
-  throw new Error(`unexpected loop event for builder: ${event.type}`);
-}
-
-function buildEmit(
-  context: LoopControllerContext,
-  postEvent: ((record: RunnerEventRecord) => Promise<void>) | undefined
-): (event: LoopControllerEvent) => Effect.Effect<void, never> {
-  const post = postEvent ?? defaultPostEvent(context);
-  let sequence = 0;
-  return (event) =>
-    Effect.promise(() => {
-      sequence += 1;
-      const record = RECORD_BUILDER[event.type](event, {
-        at: new Date().toISOString(),
-        runId: context.runId,
-        sequence,
-      });
-      return post(record);
-    });
-}
 
 /**
  * Default sink: POST the single loop.* record through the authenticated runner
  * event-sink batch endpoint (the same path runtime records use). The records
  * carry the loop.* shapes the console consumes; sequence is monotonic per run.
  */
-function defaultPostEvent(
+const defaultPostEvent = (
   context: LoopControllerContext
-): (record: RunnerEventRecord) => Promise<void> {
-  const fetchImpl = globalThis.fetch?.bind(globalThis);
-  if (!fetchImpl) {
-    throw new Error("Loop controller event sink requires fetch support");
-  }
-  return (record) =>
-    Effect.runPromise(
+): ((record: RunnerEventRecord) => Promise<void>) => {
+  const fetchImpl = globalThis.fetch.bind(globalThis);
+  return async (record) => {
+    await Effect.runPromise(
       Effect.provide(
         Effect.flatMap(RunnerEventSinkHttpService, (service) =>
           service.postBatch({
@@ -380,13 +273,32 @@ function defaultPostEvent(
         RunnerEventSinkHttpServiceLive
       )
     );
-}
+  };
+};
+
+const buildEmit = (
+  context: LoopControllerContext,
+  postEvent: Option.Option<(record: RunnerEventRecord) => Promise<void>>
+): ((event: LoopControllerEvent) => Effect.Effect<void>) => {
+  const post = Option.getOrElse(postEvent, () => defaultPostEvent(context));
+  let sequence = 0;
+  return (event) =>
+    Effect.promise(async () => {
+      sequence += 1;
+      const record = RECORD_BUILDER[event.type](event, {
+        at: new Date().toISOString(),
+        runId: context.runId,
+        sequence,
+      });
+      await post(record);
+    });
+};
 
 // ---------------------------------------------------------------------------
 // Defaults for the remaining seams.
 // ---------------------------------------------------------------------------
 
-async function defaultGitRefresh(worktreePath: string): Promise<void> {
+const defaultGitRefresh = async (worktreePath: string): Promise<void> => {
   // Fetch then fast-forward main through the authenticated git path so the
   // backlog reload sees freshly-landed tickets. --ff-only never creates a merge
   // commit; a divergence fails loudly rather than silently rewriting history.
@@ -397,36 +309,113 @@ async function defaultGitRefresh(worktreePath: string): Promise<void> {
     "origin",
     "main",
   ]);
-}
+};
 
-function defaultPollPhase(input: {
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(messageOf(error));
+
+const defaultPollPhase = (input: {
   readonly namespace: string;
   readonly runId: string;
   readonly workflowName: string;
-}): Effect.Effect<TerminalPhase, Error> {
+}): Effect.Effect<TerminalPhase, Error> =>
   // In-cluster service-account auth (loadFromDefault) — no kubeconfig path.
-  return pollWorkflowPhaseUntilTerminal({
+  pollWorkflowPhaseUntilTerminal({
     namespace: input.namespace,
     workflowName: input.workflowName,
   }).pipe(Effect.mapError(toError));
-}
 
-function defaultRunId(): string {
-  return `loop-${randomBytes(8).toString("hex")}`;
-}
+const submitError = (error: unknown): Error =>
+  new Error(`child run submit failed: ${messageOf(error)}`);
 
-function refreshError(error: unknown): Error {
-  return new Error(`backlog refresh failed: ${messageOf(error)}`);
-}
+/**
+ * Default submit seam: shape a graph submitMoka call. For remediation
+ * (`update-existing-pr`) it forwards `delivery.mode`, the PR head sha
+ * (`repository.sha`) and the PR branch (`repository.headBranch` =
+ * `moka/run/<originalRunId>`) so fix-commits APPEND to the existing PR branch.
+ */
+const defaultSubmitRun =
+  (
+    context: LoopControllerContext,
+    submit: (input: MokaSubmitInput) => Promise<MokaSubmitResult>
+  ): ((
+    request: LoopSubmitRequest
+  ) => Effect.Effect<{ readonly workflowName: string }, Error>) =>
+  (request) =>
+    Effect.tryPromise({
+      catch: submitError,
+      try: async () =>
+        await submit({
+          brokerAuth: context.brokerAuth,
+          config: context.config,
+          delivery: { mode: request.deliveryMode, pullRequest: true },
+          eventUrl: context.eventUrl,
+          gitCredentialsSecretName: context.gitCredentialsSecretName,
+          githubAuthSecretName: context.githubAuthSecretName,
+          mode: "full",
+          namespace: context.namespace,
+          repository: submitRepository(context, request),
+          run: { id: request.runId, project: context.project },
+          serviceAccountName: context.serviceAccountName,
+          task: request.task,
+          type: "graph",
+        }),
+    }).pipe(Effect.map((result) => ({ workflowName: result.workflowName })));
 
-function submitError(error: unknown): Error {
-  return new Error(`child run submit failed: ${messageOf(error)}`);
-}
+const refreshError = (error: unknown): Error =>
+  new Error(`backlog refresh failed: ${messageOf(error)}`);
 
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(messageOf(error));
-}
+const defaultRunId = (): string => `loop-${randomBytes(8).toString("hex")}`;
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/**
+ * Build the production `ControllerDeps`. `context` carries the static run
+ * context; `seams` overrides any external boundary (used by tests to avoid
+ * GitHub / k8s / git).
+ */
+export const buildControllerDeps = (
+  context: LoopControllerContext,
+  seams: ControllerDepsSeams = {}
+): ControllerDeps => {
+  const gh = seams.gh ?? createGhRunner();
+  const generateRunId = seams.generateRunId ?? defaultRunId;
+  const submit =
+    seams.submitRun ??
+    defaultSubmitRun(context, seams.submitMoka ?? submitMoka);
+  const loadTasks = seams.loadTasks ?? loadBacklogRecords;
+  const gitRefresh = seams.gitRefresh ?? defaultGitRefresh;
+  const pollPhase = seams.pollPhase ?? defaultPollPhase;
+  const emit = buildEmit(context, Option.fromNullishOr(seams.postEvent));
+
+  return {
+    classifyChecks: (pr, runner) => classifyMergeSignal(pr, runner),
+    emit,
+    gh,
+    loadGraph: () => loadTasks(context.worktreePath),
+    maxMergePolls: context.maxMergePolls,
+    maxRemediationAttempts: context.maxRemediationAttempts,
+    merge: ({ classification, pr }) =>
+      mergeForClassification({ classification, gh, pr }),
+    pollPhase: (input) =>
+      pollPhase({
+        namespace: context.namespace,
+        runId: input.runId,
+        workflowName: input.workflowName,
+      }),
+    projectId: context.project,
+    refreshBacklog: () =>
+      Effect.tryPromise({
+        catch: refreshError,
+        try: async () => {
+          await gitRefresh(context.worktreePath);
+        },
+      }).pipe(Effect.flatMap(() => loadTasks(context.worktreePath))),
+    resolvePr: (runId, runner) => resolvePrForRun(runId, runner),
+    rootId: context.rootId,
+    sleep: (ms) => Effect.sleep(ms),
+    strategy: context.strategy,
+    submitRun: (input) => adaptSubmit(submit, generateRunId, input),
+  };
+};

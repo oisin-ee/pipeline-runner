@@ -7,8 +7,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer } from "effect";
+
+import { Effect, Layer, Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { CliProgramOptions } from "../src/cli/program";
 import type { RunCommandCall } from "../src/cli/run-command";
 import type { TicketCommandOptions } from "../src/commands/ticket-command";
@@ -17,9 +19,9 @@ import { BacklogService } from "../src/runtime/services/backlog-service";
 
 const tempDirs: string[] = [];
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
-const NO_READY_TICKETS_PATTERN = /no ready tickets/i;
-const REMOTE_READ_ONLY_PATTERN = /--read-only.*--target remote/i;
-const BACKLOG_TOOL_PATTERN = /backlog/i;
+const NO_READY_TICKETS_PATTERN = /no ready tickets/iu;
+const REMOTE_READ_ONLY_PATTERN = /--read-only.*--target remote/iu;
+const BACKLOG_TOOL_PATTERN = /backlog/iu;
 const BACKLOG_DIRECTIVE_84_2 = [
   "## Backlog ticket management",
   "",
@@ -34,7 +36,7 @@ const BACKLOG_DIRECTIVE_84_2 = [
 ].join("\n");
 const SELECTED_START_TASK = `PIPE-84.2 - Graph\n\nGraph description.\n\n${BACKLOG_DIRECTIVE_84_2}`;
 const SELECTED_START_TITLE = "PIPE-84.2 - Graph";
-let logSpy: ReturnType<typeof vi.spyOn> | undefined;
+let logSpy: Option.Option<ReturnType<typeof vi.spyOn>> = Option.none();
 
 type ParseTicketCommandOptions = TicketCommandOptions &
   Pick<CliProgramOptions, "runCommand">;
@@ -45,11 +47,12 @@ interface BacklogCall {
 }
 
 beforeEach(() => {
-  logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  logSpy = Option.some(vi.spyOn(console, "log").mockImplementation(() => {}));
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  logSpy = Option.none();
   if (ORIGINAL_PIPELINE_TARGET_PATH === undefined) {
     delete process.env.PIPELINE_TARGET_PATH;
   } else {
@@ -60,7 +63,51 @@ afterEach(() => {
   }
 });
 
-function makeBacklogFixture(): { root: string; taskFiles: string[] } {
+const writeTask = (
+  root: string,
+  filename: string,
+  input: {
+    dependencies?: readonly string[];
+    id: string;
+    parentTaskId?: string;
+    status: "Done" | "In Progress" | "To Do";
+    title: string;
+  }
+): string => {
+  const path = join(root, "backlog", "tasks", filename);
+  writeFileSync(
+    path,
+    [
+      "---",
+      `id: ${input.id}`,
+      `title: ${input.title}`,
+      `status: ${input.status}`,
+      input.parentTaskId === undefined
+        ? ""
+        : `parent_task_id: ${input.parentTaskId}`,
+      ...(input.dependencies !== undefined && input.dependencies.length > 0
+        ? ["dependencies:", ...input.dependencies.map((id) => `  - ${id}`)]
+        : []),
+      "---",
+      "",
+      "## Description",
+      "<!-- SECTION:DESCRIPTION:BEGIN -->",
+      `${input.title} description.`,
+      "<!-- SECTION:DESCRIPTION:END -->",
+      "",
+      "## Acceptance Criteria",
+      "<!-- AC:BEGIN -->",
+      "- [ ] #1 Has an acceptance criterion.",
+      "<!-- AC:END -->",
+      "",
+    ]
+      .filter((line) => line !== "")
+      .join("\n")
+  );
+  return path;
+};
+
+const makeBacklogFixture = (): { root: string; taskFiles: string[] } => {
   const root = mkdtempSync(join(tmpdir(), "moka-ticket-command-"));
   tempDirs.push(root);
   mkdirSync(join(root, "backlog", "tasks"), { recursive: true });
@@ -85,9 +132,9 @@ function makeBacklogFixture(): { root: string; taskFiles: string[] } {
     }),
   ];
   return { root, taskFiles };
-}
+};
 
-function makeDoneBacklogFixture(): { root: string; taskFiles: string[] } {
+const makeDoneBacklogFixture = (): { root: string; taskFiles: string[] } => {
   const root = mkdtempSync(join(tmpdir(), "moka-ticket-command-"));
   tempDirs.push(root);
   mkdirSync(join(root, "backlog", "tasks"), { recursive: true });
@@ -105,63 +152,16 @@ function makeDoneBacklogFixture(): { root: string; taskFiles: string[] } {
     }),
   ];
   return { root, taskFiles };
-}
+};
 
-function writeTask(
-  root: string,
-  filename: string,
-  input: {
-    dependencies?: readonly string[];
-    id: string;
-    parentTaskId?: string;
-    status: "Done" | "In Progress" | "To Do";
-    title: string;
-  }
-): string {
-  const path = join(root, "backlog", "tasks", filename);
-  writeFileSync(
-    path,
-    [
-      "---",
-      `id: ${input.id}`,
-      `title: ${input.title}`,
-      `status: ${input.status}`,
-      input.parentTaskId ? `parent_task_id: ${input.parentTaskId}` : "",
-      ...(input.dependencies && input.dependencies.length > 0
-        ? ["dependencies:", ...input.dependencies.map((id) => `  - ${id}`)]
-        : []),
-      "---",
-      "",
-      "## Description",
-      "<!-- SECTION:DESCRIPTION:BEGIN -->",
-      `${input.title} description.`,
-      "<!-- SECTION:DESCRIPTION:END -->",
-      "",
-      "## Acceptance Criteria",
-      "<!-- AC:BEGIN -->",
-      "- [ ] #1 Has an acceptance criterion.",
-      "<!-- AC:END -->",
-      "",
-    ]
-      .filter((line) => line !== "")
-      .join("\n")
-  );
-  return path;
-}
+const fileSnapshot = (paths: readonly string[]): Map<string, string> =>
+  new Map(paths.map((path) => [path, readFileSync(path, "utf-8")]));
 
-function fileSnapshot(paths: readonly string[]): Map<string, string> {
-  return new Map(paths.map((path) => [path, readFileSync(path, "utf8")]));
-}
-
-function parseTicketCommand(root: string, args: readonly string[]) {
-  return parseTicketCommandWithOptions(root, args);
-}
-
-async function parseTicketCommandWithOptions(
+const parseTicketCommandWithOptions = async (
   root: string,
   args: readonly string[],
   options: ParseTicketCommandOptions = {}
-) {
+) => {
   process.env.PIPELINE_TARGET_PATH = root;
   const { runCommand, ...ticketCommand } = options;
   const { createCliProgram } = await import("../src/cli/program");
@@ -169,13 +169,17 @@ async function parseTicketCommandWithOptions(
     ["node", "/repo/node_modules/.bin/moka", "ticket", ...args],
     { from: "node" }
   );
-}
+};
 
-function recordingBacklogLayer(
+const parseTicketCommand = async (root: string, args: readonly string[]) => {
+  await parseTicketCommandWithOptions(root, args);
+};
+
+const recordingBacklogLayer = (
   calls: BacklogCall[],
   events?: string[]
-): NonNullable<TicketCommandOptions["backlogLayer"]> {
-  return Layer.succeed(BacklogService, {
+): NonNullable<TicketCommandOptions["backlogLayer"]> =>
+  Layer.succeed(BacklogService, {
     run: (args, cwd) =>
       Effect.sync(() => {
         events?.push("claim");
@@ -183,14 +187,14 @@ function recordingBacklogLayer(
         return "Task PIPE-84.2 - Graph";
       }),
   });
-}
 
-function loggedOutput(): string {
-  if (!logSpy) {
-    throw new Error("console.log spy was not initialized");
-  }
-  return logSpy.mock.calls.map(([line]) => String(line)).join("\n");
-}
+const loggedOutput = (): string =>
+  Option.match(logSpy, {
+    onNone: () => {
+      throw new Error("console.log spy was not initialized");
+    },
+    onSome: (spy) => spy.mock.calls.map(([line]) => String(line)).join("\n"),
+  });
 
 describe("moka ticket read-only commands", () => {
   it("registers graph check, sequence, and next help", async () => {
@@ -249,7 +253,7 @@ describe("moka ticket read-only commands", () => {
   it("claims the deterministic next ready ticket through BacklogService without mutating task markdown", async () => {
     const { root, taskFiles } = makeBacklogFixture();
     const before = fileSnapshot(taskFiles);
-    const backlogCalls: Array<{ args: readonly string[]; cwd: string }> = [];
+    const backlogCalls: { args: readonly string[]; cwd: string }[] = [];
     const backlogLayer = Layer.succeed(BacklogService, {
       run: (args, cwd) =>
         Effect.sync(() => {
@@ -283,7 +287,7 @@ describe("moka ticket read-only commands", () => {
   it("does not call BacklogService when --claim finds no ready tickets", async () => {
     const { root, taskFiles } = makeDoneBacklogFixture();
     const before = fileSnapshot(taskFiles);
-    const backlogCalls: Array<{ args: readonly string[]; cwd: string }> = [];
+    const backlogCalls: { args: readonly string[]; cwd: string }[] = [];
     const backlogLayer = Layer.succeed(BacklogService, {
       run: (args, cwd) =>
         Effect.sync(() => {
@@ -317,7 +321,7 @@ describe("moka ticket read-only commands", () => {
       const { root, taskFiles } = makeBacklogFixture();
       const before = fileSnapshot(taskFiles);
       const backlogCalls: BacklogCall[] = [];
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
       await parseTicketCommandWithOptions(
         root,
@@ -355,7 +359,7 @@ describe("moka ticket read-only commands", () => {
       const backlogCalls: BacklogCall[] = [];
       const runCommand = vi.fn((_: RunCommandCall) => {
         events.push("run");
-        return Promise.resolve();
+        return;
       });
 
       await parseTicketCommandWithOptions(
@@ -382,20 +386,20 @@ describe("moka ticket read-only commands", () => {
         },
       ]);
       expect(runCommand).toHaveBeenCalledTimes(1);
-      const runCall = runCommand.mock.calls[0]?.[0];
-      expect(runCall?.task).toBe(SELECTED_START_TASK);
-      expect(runCall?.descriptionParts).toEqual([SELECTED_START_TASK]);
-      expect(runCall?.descriptionParts.join("\n")).toContain(
+      const runCall = runCommand.mock.calls[0][0];
+      expect(runCall.task).toBe(SELECTED_START_TASK);
+      expect(runCall.descriptionParts).toEqual([SELECTED_START_TASK]);
+      expect(runCall.descriptionParts.join("\n")).toContain(
         SELECTED_START_TITLE
       );
-      expect(runCall?.descriptionParts.join("\n")).toContain(
+      expect(runCall.descriptionParts.join("\n")).toContain(
         "Graph description."
       );
-      expect(runCall?.flags).toMatchObject({
+      expect(runCall.flags).toMatchObject({
         effort: "normal",
         target: "local",
       });
-      expect(runCall?.resolution).toMatchObject({
+      expect(runCall.resolution).toMatchObject({
         effort: "normal",
         execution: { kind: "local-runtime" },
         mode: "write",
@@ -407,7 +411,7 @@ describe("moka ticket read-only commands", () => {
     it("threads ticketId as a typed field on the RunCommandCall", async () => {
       const { root } = makeBacklogFixture();
       const backlogCalls: BacklogCall[] = [];
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
       await parseTicketCommandWithOptions(
         root,
@@ -418,14 +422,14 @@ describe("moka ticket read-only commands", () => {
         }
       );
 
-      const runCall = runCommand.mock.calls[0]?.[0];
-      expect(runCall?.ticketId).toBe("PIPE-84.2");
+      const runCall = runCommand.mock.calls[0][0];
+      expect(runCall.ticketId).toBe("PIPE-84.2");
     });
 
     it("includes a backlog status/AC update directive in the agent instruction", async () => {
       const { root } = makeBacklogFixture();
       const backlogCalls: BacklogCall[] = [];
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
       await parseTicketCommandWithOptions(
         root,
@@ -436,8 +440,8 @@ describe("moka ticket read-only commands", () => {
         }
       );
 
-      const runCall = runCommand.mock.calls[0]?.[0];
-      const instruction = runCall?.task ?? "";
+      const runCall = runCommand.mock.calls[0][0];
+      const instruction = runCall.task;
       // must contain the status-update directive language
       expect(instruction).toContain("In Progress");
       expect(instruction).toContain("Done");
@@ -449,7 +453,7 @@ describe("moka ticket read-only commands", () => {
       const { root, taskFiles } = makeDoneBacklogFixture();
       const before = fileSnapshot(taskFiles);
       const backlogCalls: BacklogCall[] = [];
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
       let thrown: unknown;
 
       try {
@@ -479,7 +483,7 @@ describe("moka ticket read-only commands", () => {
       const { root, taskFiles } = makeBacklogFixture();
       const before = fileSnapshot(taskFiles);
       const backlogCalls: BacklogCall[] = [];
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
       let thrown: unknown;
 
       try {
@@ -562,7 +566,7 @@ describe("moka ticket read-only commands", () => {
       const { root, taskFiles } = makeBacklogFixture();
       const before = fileSnapshot(taskFiles);
       const backlogCalls: BacklogCall[] = [];
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
       await parseTicketCommandWithOptions(
         root,
@@ -583,10 +587,10 @@ describe("moka ticket read-only commands", () => {
         "--plain",
       ]);
       expect(runCommand).toHaveBeenCalledTimes(1);
-      const runCall = runCommand.mock.calls[0]?.[0];
-      expect(runCall?.task).toBe(SELECTED_START_TASK);
-      expect(runCall?.flags).toMatchObject(testCase.expectedFlags);
-      expect(runCall?.resolution).toMatchObject(testCase.expectedResolution);
+      const runCall = runCommand.mock.calls[0][0];
+      expect(runCall.task).toBe(SELECTED_START_TASK);
+      expect(runCall.flags).toMatchObject(testCase.expectedFlags);
+      expect(runCall.resolution).toMatchObject(testCase.expectedResolution);
       expect(fileSnapshot(taskFiles)).toEqual(before);
     });
   });
@@ -594,12 +598,12 @@ describe("moka ticket read-only commands", () => {
   it("renders ticket create dry-run output from a validated scoper result without mutating Backlog", async () => {
     const { root, taskFiles } = makeBacklogFixture();
     const before = fileSnapshot(taskFiles);
-    let launchPlan: RunnerLaunchPlan | undefined;
-    const ticketPlanExecutor = (
+    let launchPlan = Option.none<RunnerLaunchPlan>();
+    const ticketPlanExecutor = async (
       plan: RunnerLaunchPlan
     ): Promise<AgentResult> => {
-      launchPlan = plan;
-      return Promise.resolve({
+      launchPlan = Option.some(plan);
+      return {
         exitCode: 0,
         stdout: JSON.stringify({
           epic: {
@@ -648,7 +652,7 @@ describe("moka ticket read-only commands", () => {
             },
           ],
         }),
-      });
+      };
     };
 
     await parseTicketCommandWithOptions(
@@ -657,12 +661,16 @@ describe("moka ticket read-only commands", () => {
       { ticketPlanExecutor }
     );
 
-    expect(launchPlan?.profileId).toBe("moka-ticket-scoper");
-    expect(launchPlan?.outputFormat).toBe("json_schema");
-    expect(launchPlan?.args.join(" ")).toContain("add ticket dry-run");
-    expect(launchPlan?.args.join(" ")).toContain("acceptance_criteria");
-    expect(launchPlan?.args.join(" ")).toContain("depends_on");
-    expect(launchPlan?.args.join(" ")).toContain("Do not use epics");
+    const plan = Option.getOrThrowWith(
+      launchPlan,
+      () => new Error("Expected ticket create dry-run launch plan")
+    );
+    expect(plan.profileId).toBe("moka-ticket-scoper");
+    expect(plan.outputFormat).toBe("json_schema");
+    expect(plan.args.join(" ")).toContain("add ticket dry-run");
+    expect(plan.args.join(" ")).toContain("acceptance_criteria");
+    expect(plan.args.join(" ")).toContain("depends_on");
+    expect(plan.args.join(" ")).toContain("Do not use epics");
     expect(loggedOutput()).toMatchInlineSnapshot(`
       "# Dry run: no Backlog files were written.
       backlog task create 'Epic: Create tickets' --description 'Create the epic.' --priority high --ac 'Dry-run renders command output.; evidence: CLI test asserts rendered output.' --plan 'Plan the epic.' --ref defaults/profiles.yaml --plain
@@ -675,27 +683,26 @@ describe("moka ticket read-only commands", () => {
   it("applies a validated ticket plan through BacklogService with an existing parent", async () => {
     const { root, taskFiles } = makeBacklogFixture();
     const before = fileSnapshot(taskFiles);
-    const backlogCalls: Array<{ args: readonly string[]; cwd: string }> = [];
-    const ticketPlanExecutor = (): Promise<AgentResult> =>
-      Promise.resolve({
-        exitCode: 0,
-        stdout: JSON.stringify({
-          tickets: [
-            {
-              acceptance_criteria: [
-                {
-                  evidence: "CLI apply test records BacklogService args.",
-                  text: "Apply uses BacklogService.",
-                },
-              ],
-              description: "Apply one child.",
-              key: "child",
-              plan: "Create one child.",
-              title: "Apply one child",
-            },
-          ],
-        }),
-      });
+    const backlogCalls: { args: readonly string[]; cwd: string }[] = [];
+    const ticketPlanExecutor = async (): Promise<AgentResult> => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        tickets: [
+          {
+            acceptance_criteria: [
+              {
+                evidence: "CLI apply test records BacklogService args.",
+                text: "Apply uses BacklogService.",
+              },
+            ],
+            description: "Apply one child.",
+            key: "child",
+            plan: "Create one child.",
+            title: "Apply one child",
+          },
+        ],
+      }),
+    });
     const backlogLayer = Layer.succeed(BacklogService, {
       run: (args, cwd) =>
         Effect.sync(() => {

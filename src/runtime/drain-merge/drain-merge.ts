@@ -1,23 +1,41 @@
 import { Effect } from "effect";
+import {
+  fromUndefinedOr,
+  getOrNull,
+  getOrUndefined,
+  isNone,
+  isSome,
+  none,
+  some,
+  type Option,
+} from "effect/Option";
+
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import { generateRuntimeRunId } from "../context";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
 import { parseJsonObject } from "../json-validation";
 import {
-  type DrainMergeGitClient,
   DrainMergeGitService,
   DrainMergeGitServiceLive,
 } from "../services/drain-merge-git-service";
+import type { DrainMergeGitClient } from "../services/drain-merge-git-service";
 
-const LINE_RE = /\r?\n/;
+const LINE_RE = /\r?\n/u;
 
 type DrainMergeStatus = "FAIL" | "PASS";
 
 interface DrainMergeChildOutput {
-  baseSha: string | null;
-  branch: string | null;
+  baseSha: Option<string>;
+  branch: Option<string>;
   status: DrainMergeStatus;
-  worktreePath: string | null;
+  worktreePath: Option<string>;
+}
+
+interface DrainMergeWorktreeOutput {
+  baseSha: string;
+  branch: string;
+  status: DrainMergeStatus;
+  worktreePath: string;
 }
 
 interface DrainMergeMergeEntry {
@@ -40,30 +58,269 @@ interface DrainMergeConflictEntry {
 }
 
 interface DrainMergeReport {
-  baseSha: string | null;
+  baseSha: Option<string>;
   conflicts: DrainMergeConflictEntry[];
   integrationBranch: string;
   merged: DrainMergeMergeEntry[];
   skipped: DrainMergeSkipEntry[];
 }
 
-export function executeDrainMergeBuiltin(
-  context: RuntimeContext,
-  node?: PlannedWorkflowNode
-): Promise<NodeAttemptResult> {
-  return Effect.runPromise(
-    Effect.provide(drainMergeProgram(context, node), DrainMergeGitServiceLive)
-  );
-}
+const firstNeededNode = (node?: PlannedWorkflowNode): Option<string> =>
+  fromUndefinedOr(node?.needs.at(0));
 
-function drainMergeProgram(
+const runIdForDrainMerge = (context: RuntimeContext): string =>
+  context.runId ?? generateRuntimeRunId();
+
+const drainMergeWorktreeOutput = (
+  output: DrainMergeChildOutput
+): Option<DrainMergeWorktreeOutput> => {
+  const baseSha = getOrUndefined(output.baseSha);
+  const branch = getOrUndefined(output.branch);
+  const worktreePath = getOrUndefined(output.worktreePath);
+  if (
+    baseSha === undefined ||
+    branch === undefined ||
+    worktreePath === undefined
+  ) {
+    return none();
+  }
+  return some({
+    baseSha,
+    branch,
+    status: output.status,
+    worktreePath,
+  });
+};
+
+const drainMergeMergeableChildren = (
+  children: { nodeId: string; output: DrainMergeChildOutput }[],
+  report: DrainMergeReport
+): {
+  nodeId: string;
+  output: DrainMergeWorktreeOutput;
+}[] =>
+  children.flatMap((child) => {
+    if (child.output.status !== "PASS") {
+      report.skipped.push({
+        id: child.nodeId,
+        reason: "failed",
+        status: child.output.status,
+      });
+      return [];
+    }
+    const output = drainMergeWorktreeOutput(child.output);
+    if (isNone(output)) {
+      report.skipped.push({
+        id: child.nodeId,
+        reason: "no-worktree",
+        status: child.output.status,
+      });
+      return [];
+    }
+    return [
+      {
+        nodeId: child.nodeId,
+        output: output.value,
+      },
+    ];
+  });
+
+const divergentDrainMergeChild = (
+  mergeable: {
+    nodeId: string;
+    output: DrainMergeWorktreeOutput;
+  }[],
+  baseSha: string
+) => mergeable.find((child) => child.output.baseSha !== baseSha);
+
+const checkoutDrainMergeIntegrationBranch = (
+  git: DrainMergeGitClient,
+  integrationBranch: string,
+  baseSha: string
+): Effect.Effect<void, unknown> =>
+  git.raw(["rev-parse", "--verify", integrationBranch]).pipe(
+    Effect.flatMap(() => git.raw(["checkout", integrationBranch])),
+    Effect.catch(() => git.raw(["checkout", "-b", integrationBranch, baseSha])),
+    Effect.asVoid
+  );
+
+const drainMergeChild = (
+  git: DrainMergeGitClient,
+  branch: string
+): Effect.Effect<string, unknown> =>
+  git.raw([
+    "merge",
+    "--no-ff",
+    "--no-edit",
+    "-m",
+    "drain-merge: merge",
+    branch,
+  ]);
+
+const recordDrainMergeSuccess = (
+  report: DrainMergeReport,
+  child: {
+    nodeId: string;
+    output: DrainMergeWorktreeOutput;
+  }
+): void => {
+  report.merged.push({
+    branch: child.output.branch,
+    id: child.nodeId,
+    worktreePath: child.output.worktreePath,
+  });
+};
+
+const drainMergeConflictFiles = (
+  git: DrainMergeGitClient
+): Effect.Effect<string[]> =>
+  git.raw(["diff", "--name-only", "--diff-filter=U"]).pipe(
+    Effect.map((output) => output.split(LINE_RE).filter(Boolean)),
+    Effect.catch(() => Effect.succeed([]))
+  );
+
+const abortDrainMerge = (git: DrainMergeGitClient): Effect.Effect<void> =>
+  git.raw(["merge", "--abort"]).pipe(
+    Effect.catch(() => Effect.void),
+    Effect.asVoid
+  );
+
+const recordDrainMergeConflict = (
+  git: DrainMergeGitClient,
+  report: DrainMergeReport,
+  child: {
+    nodeId: string;
+    output: DrainMergeWorktreeOutput;
+  }
+): Effect.Effect<void> =>
+  Effect.gen(function* effectBody() {
+    const files = yield* drainMergeConflictFiles(git);
+    report.conflicts.push({
+      branch: child.output.branch,
+      files,
+      id: child.nodeId,
+      worktreePath: child.output.worktreePath,
+    });
+    yield* abortDrainMerge(git);
+  });
+
+const mergeDrainMergeChild = (
+  git: DrainMergeGitClient,
+  report: DrainMergeReport,
+  child: {
+    nodeId: string;
+    output: DrainMergeWorktreeOutput;
+  }
+): Effect.Effect<void> =>
+  drainMergeChild(git, child.output.branch).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        recordDrainMergeSuccess(report, child);
+      })
+    ),
+    Effect.catch(() => recordDrainMergeConflict(git, report, child))
+  );
+
+const stringFieldOption = (value: unknown): Option<string> =>
+  typeof value === "string" ? some(value) : none();
+
+const drainMergeStatus = (value: unknown): DrainMergeStatus =>
+  value === "PASS" ? "PASS" : "FAIL";
+
+const parseDrainMergeChildOutput = (
+  value: unknown
+): Option<DrainMergeChildOutput> => {
+  const output = parseJsonObject(value);
+  if (Object.keys(output).length === 0) {
+    return none();
+  }
+  return some({
+    baseSha: stringFieldOption(output.baseSha),
+    branch: stringFieldOption(output.branch),
+    status: drainMergeStatus(output.status),
+    worktreePath: stringFieldOption(output.worktreePath),
+  });
+};
+
+const drainMergeChildren = (
+  context: RuntimeContext,
+  upstreamNodeId: Option<string>
+): { nodeId: string; output: DrainMergeChildOutput }[] => {
+  if (isNone(upstreamNodeId)) {
+    return [];
+  }
+  if (context.plan.graph.hasNode(upstreamNodeId.value) === false) {
+    return [];
+  }
+  const upstream = context.plan.graph.node(upstreamNodeId.value);
+  const output = parseJsonObject(
+    context.nodeStateStore.getOutput(upstreamNodeId.value)
+  );
+  const childrenOutput = parseJsonObject(output.children);
+  return (upstream.children ?? []).flatMap((child) => {
+    const childOutput = parseDrainMergeChildOutput(childrenOutput[child.id]);
+    return isSome(childOutput)
+      ? [{ nodeId: child.id, output: childOutput.value }]
+      : [];
+  });
+};
+
+const hasDrainMergeFailure = (
+  report: DrainMergeReport,
+  failed?: boolean
+): boolean => report.conflicts.length > 0 || failed === true;
+
+const drainMergeSummary = (
+  report: DrainMergeReport,
+  hasFailure: boolean
+): string =>
+  hasFailure
+    ? `drain-merge completed with ${report.conflicts.length} conflicts`
+    : `drain-merge merged ${report.merged.length} branches`;
+
+const drainMergeEvidence = (
+  report: DrainMergeReport,
+  hasFailure: boolean,
+  evidence?: string[]
+): string[] => [...(evidence ?? []), drainMergeSummary(report, hasFailure)];
+
+const drainMergeExitCode = (hasFailure: boolean): 0 | 1 => (hasFailure ? 1 : 0);
+
+const drainMergeResult = (
+  report: DrainMergeReport,
+  options: { evidence?: string[]; failed?: boolean } = {}
+): NodeAttemptResult => {
+  const hasFailure = hasDrainMergeFailure(report, options.failed);
+  return {
+    evidence: drainMergeEvidence(report, hasFailure, options.evidence),
+    exitCode: drainMergeExitCode(hasFailure),
+    output: JSON.stringify({
+      ...report,
+      baseSha: getOrNull(report.baseSha),
+    }),
+  };
+};
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const drainMergeSetupErrorResult = (
+  report: DrainMergeReport,
+  error: unknown
+): NodeAttemptResult =>
+  drainMergeResult(report, {
+    evidence: [`drain-merge setup-error: ${errorMessage(error)}`],
+    failed: true,
+  });
+
+const drainMergeProgram = (
   context: RuntimeContext,
   node?: PlannedWorkflowNode
-): Effect.Effect<NodeAttemptResult, never, DrainMergeGitService> {
+): Effect.Effect<NodeAttemptResult, never, DrainMergeGitService> => {
   const upstreamNodeId = firstNeededNode(node);
   const integrationBranch = `runs/integration/${runIdForDrainMerge(context)}`;
   const report: DrainMergeReport = {
-    baseSha: null,
+    baseSha: none(),
     conflicts: [],
     integrationBranch,
     merged: [],
@@ -76,21 +333,21 @@ function drainMergeProgram(
     return Effect.succeed(drainMergeResult(report));
   }
 
-  const baseSha = mergeable[0].output.baseSha;
-  report.baseSha = baseSha;
+  const { baseSha } = mergeable[0].output;
+  report.baseSha = some(baseSha);
   const divergent = divergentDrainMergeChild(mergeable, baseSha);
   if (divergent) {
     return Effect.succeed(
       drainMergeResult(report, {
         evidence: [
-          `drain-merge child '${divergent.nodeId}' baseSha ${divergent.output.baseSha} diverges from ${report.baseSha}`,
+          `drain-merge child '${divergent.nodeId}' baseSha ${divergent.output.baseSha} diverges from ${baseSha}`,
         ],
         failed: true,
       })
     );
   }
 
-  return Effect.gen(function* () {
+  return Effect.gen(function* effectBody() {
     const gitService = yield* DrainMergeGitService;
     const git = yield* gitService.create(context.worktreePath);
     const setup = checkoutDrainMergeIntegrationBranch(
@@ -109,279 +366,12 @@ function drainMergeProgram(
     );
     return drainMergeResult(report);
   });
-}
+};
 
-function firstNeededNode(node?: PlannedWorkflowNode): string | null {
-  return node?.needs.at(0) ?? null;
-}
-
-function runIdForDrainMerge(context: RuntimeContext): string {
-  return context.runId ?? generateRuntimeRunId();
-}
-
-function drainMergeChildren(
+export const executeDrainMergeBuiltin = async (
   context: RuntimeContext,
-  upstreamNodeId: string | null
-): Array<{ nodeId: string; output: DrainMergeChildOutput }> {
-  if (!upstreamNodeId) {
-    return [];
-  }
-  const upstream = context.plan.graph.node(upstreamNodeId);
-  const output = parseJsonObject(
-    context.nodeStateStore.getOutput(upstreamNodeId)
+  node?: PlannedWorkflowNode
+): Promise<NodeAttemptResult> =>
+  await Effect.runPromise(
+    Effect.provide(drainMergeProgram(context, node), DrainMergeGitServiceLive)
   );
-  const childrenOutput = parseJsonObject(output.children);
-  return (upstream?.children ?? []).flatMap((child) => {
-    const childOutput = parseDrainMergeChildOutput(childrenOutput[child.id]);
-    return childOutput ? [{ nodeId: child.id, output: childOutput }] : [];
-  });
-}
-
-function drainMergeMergeableChildren(
-  children: Array<{ nodeId: string; output: DrainMergeChildOutput }>,
-  report: DrainMergeReport
-): Array<{
-  nodeId: string;
-  output: DrainMergeChildOutput & {
-    baseSha: string;
-    branch: string;
-    worktreePath: string;
-  };
-}> {
-  return children.flatMap((child) => {
-    if (child.output.status !== "PASS") {
-      report.skipped.push({
-        id: child.nodeId,
-        reason: "failed",
-        status: child.output.status,
-      });
-      return [];
-    }
-    if (!hasDrainMergeWorktree(child.output)) {
-      report.skipped.push({
-        id: child.nodeId,
-        reason: "no-worktree",
-        status: child.output.status,
-      });
-      return [];
-    }
-    return [
-      {
-        nodeId: child.nodeId,
-        output: {
-          baseSha: child.output.baseSha,
-          branch: child.output.branch,
-          status: child.output.status,
-          worktreePath: child.output.worktreePath,
-        },
-      },
-    ];
-  });
-}
-
-function hasDrainMergeWorktree(
-  output: DrainMergeChildOutput
-): output is DrainMergeChildOutput & {
-  baseSha: string;
-  branch: string;
-  worktreePath: string;
-} {
-  return (
-    Boolean(output.baseSha) &&
-    Boolean(output.branch) &&
-    Boolean(output.worktreePath)
-  );
-}
-
-function divergentDrainMergeChild(
-  mergeable: Array<{
-    nodeId: string;
-    output: DrainMergeChildOutput & {
-      baseSha: string;
-      branch: string;
-      worktreePath: string;
-    };
-  }>,
-  baseSha: string
-) {
-  return mergeable.find((child) => child.output.baseSha !== baseSha);
-}
-
-function checkoutDrainMergeIntegrationBranch(
-  git: DrainMergeGitClient,
-  integrationBranch: string,
-  baseSha: string
-): Effect.Effect<void, unknown> {
-  return git.raw(["rev-parse", "--verify", integrationBranch]).pipe(
-    Effect.flatMap(() => git.raw(["checkout", integrationBranch])),
-    Effect.catch(() => git.raw(["checkout", "-b", integrationBranch, baseSha])),
-    Effect.asVoid
-  );
-}
-
-function mergeDrainMergeChild(
-  git: DrainMergeGitClient,
-  report: DrainMergeReport,
-  child: {
-    nodeId: string;
-    output: DrainMergeChildOutput & {
-      baseSha: string;
-      branch: string;
-      worktreePath: string;
-    };
-  }
-): Effect.Effect<void, never> {
-  return drainMergeChild(git, child.output.branch).pipe(
-    Effect.tap(() => Effect.sync(() => recordDrainMergeSuccess(report, child))),
-    Effect.catch(() => recordDrainMergeConflict(git, report, child))
-  );
-}
-
-function drainMergeChild(
-  git: DrainMergeGitClient,
-  branch: string
-): Effect.Effect<string, unknown> {
-  return git.raw([
-    "merge",
-    "--no-ff",
-    "--no-edit",
-    "-m",
-    "drain-merge: merge",
-    branch,
-  ]);
-}
-
-function recordDrainMergeSuccess(
-  report: DrainMergeReport,
-  child: {
-    nodeId: string;
-    output: DrainMergeChildOutput & {
-      baseSha: string;
-      branch: string;
-      worktreePath: string;
-    };
-  }
-): void {
-  report.merged.push({
-    branch: child.output.branch,
-    id: child.nodeId,
-    worktreePath: child.output.worktreePath,
-  });
-}
-
-function recordDrainMergeConflict(
-  git: DrainMergeGitClient,
-  report: DrainMergeReport,
-  child: {
-    nodeId: string;
-    output: DrainMergeChildOutput & {
-      baseSha: string;
-      branch: string;
-      worktreePath: string;
-    };
-  }
-): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    const files = yield* drainMergeConflictFiles(git);
-    report.conflicts.push({
-      branch: child.output.branch,
-      files,
-      id: child.nodeId,
-      worktreePath: child.output.worktreePath,
-    });
-    yield* abortDrainMerge(git);
-  });
-}
-
-function drainMergeConflictFiles(
-  git: DrainMergeGitClient
-): Effect.Effect<string[], never> {
-  return git.raw(["diff", "--name-only", "--diff-filter=U"]).pipe(
-    Effect.map((output) => output.split(LINE_RE).filter(Boolean)),
-    Effect.catch(() => Effect.succeed([]))
-  );
-}
-
-function abortDrainMerge(git: DrainMergeGitClient): Effect.Effect<void, never> {
-  return git.raw(["merge", "--abort"]).pipe(
-    Effect.catch(() => Effect.void),
-    Effect.asVoid
-  );
-}
-
-function parseDrainMergeChildOutput(
-  value: unknown
-): DrainMergeChildOutput | null {
-  const output = parseJsonObject(value);
-  if (Object.keys(output).length === 0) {
-    return null;
-  }
-  return {
-    baseSha: stringFieldOrNull(output.baseSha),
-    branch: stringFieldOrNull(output.branch),
-    status: drainMergeStatus(output.status),
-    worktreePath: stringFieldOrNull(output.worktreePath),
-  };
-}
-
-function stringFieldOrNull(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function drainMergeStatus(value: unknown): DrainMergeStatus {
-  return value === "PASS" ? "PASS" : "FAIL";
-}
-
-function drainMergeResult(
-  report: DrainMergeReport,
-  options: { evidence?: string[]; failed?: boolean } = {}
-): NodeAttemptResult {
-  const hasFailure = hasDrainMergeFailure(report, options.failed);
-  return {
-    evidence: drainMergeEvidence(report, options.evidence, hasFailure),
-    exitCode: drainMergeExitCode(hasFailure),
-    output: JSON.stringify(report),
-  };
-}
-
-function hasDrainMergeFailure(
-  report: DrainMergeReport,
-  failed?: boolean
-): boolean {
-  return report.conflicts.length > 0 || failed === true;
-}
-
-function drainMergeEvidence(
-  report: DrainMergeReport,
-  evidence: string[] | undefined,
-  hasFailure: boolean
-): string[] {
-  return [...(evidence ?? []), drainMergeSummary(report, hasFailure)];
-}
-
-function drainMergeSummary(
-  report: DrainMergeReport,
-  hasFailure: boolean
-): string {
-  return hasFailure
-    ? `drain-merge completed with ${report.conflicts.length} conflicts`
-    : `drain-merge merged ${report.merged.length} branches`;
-}
-
-function drainMergeExitCode(hasFailure: boolean): 0 | 1 {
-  return hasFailure ? 1 : 0;
-}
-
-function drainMergeSetupErrorResult(
-  report: DrainMergeReport,
-  error: unknown
-): NodeAttemptResult {
-  return drainMergeResult(report, {
-    evidence: [`drain-merge setup-error: ${errorMessage(error)}`],
-    failed: true,
-  });
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

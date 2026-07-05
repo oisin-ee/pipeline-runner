@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
@@ -31,7 +32,7 @@ describe("PIPE-45.10 runtime owner boundaries", () => {
     );
     const runtimeText = readFileSync(
       join(ROOT, "src/pipeline-runtime.ts"),
-      "utf8"
+      "utf-8"
     );
 
     expect(missingOwners).toEqual([]);

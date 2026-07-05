@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
+
 import { RunnerCommandIoService } from "../runtime/services/runner-command-io-service";
 import { parseJson } from "../safe-json";
 
@@ -13,27 +14,23 @@ const runnerTaskDescriptorSchema = z
 
 export type RunnerTaskDescriptor = z.infer<typeof runnerTaskDescriptorSchema>;
 
-export function buildRunnerTaskDescriptor(
+export const buildRunnerTaskDescriptor = (
   nodeId: string
-): RunnerTaskDescriptor {
-  return runnerTaskDescriptorSchema.parse({ nodeId });
-}
+): RunnerTaskDescriptor => runnerTaskDescriptorSchema.parse({ nodeId });
 
-function parseRunnerTaskDescriptor(raw: string): RunnerTaskDescriptor {
-  return runnerTaskDescriptorSchema.parse(
+const parseRunnerTaskDescriptor = (raw: string): RunnerTaskDescriptor =>
+  runnerTaskDescriptorSchema.parse(
     parseJson(raw, "runner task descriptor JSON")
   );
-}
 
-export function readRunnerTaskDescriptorEffect(
+export const readRunnerTaskDescriptorEffect = (
   path = DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH
-): Effect.Effect<RunnerTaskDescriptor, unknown, RunnerCommandIoService> {
-  return Effect.gen(function* () {
+): Effect.Effect<RunnerTaskDescriptor, unknown, RunnerCommandIoService> =>
+  Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     const raw = yield* io.readText(path);
     return yield* Effect.try({
-      try: () => parseRunnerTaskDescriptor(raw),
       catch: (error) => error,
+      try: () => parseRunnerTaskDescriptor(raw),
     });
   });
-}

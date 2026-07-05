@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect } from "effect";
 import postgres from "postgres";
 import {
@@ -14,11 +15,12 @@ import {
   it,
   vi,
 } from "vitest";
+
 import { migratePostgresRunControlStore } from "../src/run-control/postgres/postgres-run-control-store";
-import {
-  type CreateRunRequest,
-  type RunControlStore,
-  resolveRunControlStore,
+import { resolveRunControlStore } from "../src/run-control/run-control-store";
+import type {
+  CreateRunRequest,
+  RunControlStore,
 } from "../src/run-control/run-control-store";
 
 // PIPE-91.12: cutover integration against the REAL cluster Postgres (no
@@ -27,31 +29,32 @@ import {
 // test run stays infra-free. The filesystem-selection case always runs.
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
-const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/;
+const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/u;
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
+const nowIso = (): string => new Date().toISOString();
 
-function createRequest(runId: string, nodeIds: string[]): CreateRunRequest {
-  return { effort: "normal", mode: "write", nodeIds, runId, target: "local" };
-}
+const createRequest = (runId: string, nodeIds: string[]): CreateRunRequest => ({
+  effort: "normal",
+  mode: "write",
+  nodeIds,
+  runId,
+  target: "local",
+});
 
 // Resolve the store through the PIPE-91.12 seam inside a scope so the Postgres
 // connection is acquired and released exactly once per use — the close()
 // lifecycle the cutover owns. Every call is a fresh resolution, modelling a
 // fresh process reading the run back.
-function withStore<A>(
-  dbUrl: string | undefined,
+const withStore = async <A>(
+  dbUrl: Parameters<typeof resolveRunControlStore>[0],
   workspaceRoot: string,
   use: (store: RunControlStore) => Effect.Effect<A, unknown>
-): Promise<A> {
-  return Effect.runPromise(
+): Promise<A> =>
+  await Effect.runPromise(
     Effect.scoped(
       resolveRunControlStore(dbUrl, workspaceRoot).pipe(Effect.flatMap(use))
     )
   );
-}
 
 describe("resolveRunControlStore required DB policy", () => {
   let workspaceRoot: string;
@@ -101,9 +104,8 @@ describe("legacy filesystem run-control adapter (explicit only)", () => {
   });
 
   it("can still be used by explicit legacy/test fixtures (AC3)", async () => {
-    const { fileRunControlStore } = await import(
-      "../src/run-control/run-control-store"
-    );
+    const { fileRunControlStore } =
+      await import("../src/run-control/run-control-store");
     const runId = "run-explicit-file-store";
     const store = fileRunControlStore(workspaceRoot);
     await Effect.runPromise(store.createRun(createRequest(runId, ["only"])));
@@ -111,7 +113,7 @@ describe("legacy filesystem run-control adapter (explicit only)", () => {
     const manifest: unknown = JSON.parse(
       readFileSync(
         join(workspaceRoot, ".pipeline/runs", runId, "manifest.json"),
-        "utf8"
+        "utf-8"
       )
     );
     expect(manifest).toMatchObject({ nodes: { only: "queued" }, runId });
@@ -129,9 +131,8 @@ describePg("resolveRunControlStore Postgres cutover (live cluster PG)", () => {
   let workspaceRoot: string;
   let admin: postgres.Sql;
 
-  function runId(label: string): string {
-    return `${suitePrefix}-${label}-${randomUUID()}`;
-  }
+  const runId = (label: string): string =>
+    `${suitePrefix}-${label}-${randomUUID()}`;
 
   beforeAll(async () => {
     // Every op is a real round-trip over the port-forwarded cluster DB, so the

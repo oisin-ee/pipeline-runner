@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { ArtifactGateSpec } from "../../../contracts";
 import { evaluateArtifactGate } from "./artifact";
 

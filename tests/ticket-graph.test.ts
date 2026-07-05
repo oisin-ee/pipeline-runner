@@ -1,29 +1,27 @@
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { BacklogTaskRecord } from "../src/tickets/backlog-task-store";
 
-function task(
+const task = (
   id: string,
   input: Partial<BacklogTaskRecord> = {}
-): BacklogTaskRecord {
-  return {
-    acceptanceCriteria: [],
-    dependencies: [],
-    filePath: `/tmp/${id}.md`,
-    id,
-    modifiedFiles: [],
-    references: [],
-    status: "To Do",
-    title: id,
-    ...input,
-  };
-}
+): BacklogTaskRecord => ({
+  acceptanceCriteria: [],
+  dependencies: [],
+  filePath: `/tmp/${id}.md`,
+  id,
+  modifiedFiles: [],
+  references: [],
+  status: "To Do",
+  title: id,
+  ...input,
+});
 
 describe("ticket dependency graph", () => {
   it("models dependency edges and parent-child containment", async () => {
-    const { buildTicketGraphEffect } = await import(
-      "../src/tickets/ticket-graph"
-    );
+    const { buildTicketGraphEffect } =
+      await import("../src/tickets/ticket-graph");
 
     const graph = await Effect.runPromise(
       buildTicketGraphEffect([
@@ -43,9 +41,8 @@ describe("ticket dependency graph", () => {
   });
 
   it("retains missing dependencies as non-blocking warnings instead of failing", async () => {
-    const { buildTicketGraphEffect } = await import(
-      "../src/tickets/ticket-graph"
-    );
+    const { buildTicketGraphEffect } =
+      await import("../src/tickets/ticket-graph");
 
     const graph = await Effect.runPromise(
       buildTicketGraphEffect([
@@ -64,9 +61,8 @@ describe("ticket dependency graph", () => {
   });
 
   it("keeps cycles in the Effect error channel", async () => {
-    const { buildTicketGraphEffect } = await import(
-      "../src/tickets/ticket-graph"
-    );
+    const { buildTicketGraphEffect } =
+      await import("../src/tickets/ticket-graph");
 
     const cycleExit = await Effect.runPromiseExit(
       buildTicketGraphEffect([

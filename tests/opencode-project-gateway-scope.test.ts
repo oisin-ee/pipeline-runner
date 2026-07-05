@@ -1,23 +1,21 @@
 import { describe, expect, it } from "vitest";
+
 import type { PipelineConfig } from "../src/config/schemas";
 import { shouldEmbedProjectGateway } from "../src/install-commands/opencode";
 
 // PIPE-83.11: the singleton pipeline gateway can be registered once globally and
 // inherited, instead of being synthesized into every repo's opencode config.
 const gateway = {
-  backends: {},
   authorization_env: "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+  backends: {},
   mode: "hosted" as const,
   provider: "toolhive" as const,
   url: "https://pipeline-mcp.example/mcp/",
   url_env: "PIPELINE_MCP_GATEWAY_URL",
 };
 
-function configWith(
-  mcp_gateway: Record<string, unknown> | undefined
-): PipelineConfig {
-  return { mcp_gateway } as unknown as PipelineConfig;
-}
+const configWith = (mcp_gateway?: Record<string, unknown>): PipelineConfig =>
+  ({ mcp_gateway }) as unknown as PipelineConfig;
 
 describe("shouldEmbedProjectGateway", () => {
   it("embeds the gateway when host_scope is project (the default)", () => {
@@ -37,6 +35,6 @@ describe("shouldEmbedProjectGateway", () => {
   });
 
   it("does not embed a gateway that is not configured", () => {
-    expect(shouldEmbedProjectGateway(configWith(undefined))).toBe(false);
+    expect(shouldEmbedProjectGateway(configWith())).toBe(false);
   });
 });

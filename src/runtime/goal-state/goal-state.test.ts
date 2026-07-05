@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import type { PipelineRuntimeEvent } from "../contracts";
 import {
   applyGoalStateEvent,
@@ -28,6 +30,27 @@ afterEach(() => {
   }
   tempDirs.length = 0;
 });
+
+const baseState = () =>
+  createGoalState({
+    runId: "run-1",
+    task: "Ship PIPE-52",
+    workflowId: "root",
+  });
+
+const applyEvents = (
+  events: PipelineRuntimeEvent[],
+  taskContext?: Parameters<typeof createGoalState>[0]["taskContext"]
+) =>
+  reconstructGoalStateFromEvents(
+    {
+      runId: "run-1",
+      task: "Ship PIPE-52",
+      ...(taskContext ? { taskContext } : {}),
+      workflowId: "root",
+    },
+    events
+  );
 
 describe("pipeline goal state", () => {
   it("creates and validates initial state with task, schedule, and workflow metadata", () => {
@@ -63,6 +86,7 @@ describe("pipeline goal state", () => {
   it("updates node attempts and gate failures from runtime events", () => {
     const state = applyEvents([
       {
+        edges: [],
         nodes: [
           {
             id: "verify",
@@ -72,7 +96,6 @@ describe("pipeline goal state", () => {
             runnerId: "opencode",
           },
         ],
-        edges: [],
         type: "workflow.planned",
         workflowId: "root",
       },
@@ -165,8 +188,8 @@ describe("pipeline goal state", () => {
             {
               evidence: ["AC2 is missing"],
               id: "AC2",
-              violations: ["missing CLI coverage"],
               verdict: "FAIL",
+              violations: ["missing CLI coverage"],
             },
           ],
           evidence: ["acceptance review ran"],
@@ -214,8 +237,8 @@ describe("pipeline goal state", () => {
       violations: ["missing CLI coverage"],
     });
     expect(state.verifier).toMatchObject({
-      violations: ["missing real CLI smoke"],
       verdict: "FAIL",
+      violations: ["missing real CLI smoke"],
     });
     expect(goalStateContinuationInput(state)).toMatchObject({
       currentNodeId: "verify",
@@ -275,8 +298,8 @@ describe("pipeline goal state", () => {
       workflowId: "root",
     });
     expect(goalStateCompletionEvidence(noVerifier)).toMatchObject({
-      passed: false,
       evidence: expect.arrayContaining(["missing passing verifier evidence"]),
+      passed: false,
     });
 
     const withEvidence = applyEvents(
@@ -447,26 +470,3 @@ describe("pipeline goal state", () => {
     expect(() => loadGoalStateFromRunDirectory(dir)).toThrow();
   });
 });
-
-function baseState() {
-  return createGoalState({
-    runId: "run-1",
-    task: "Ship PIPE-52",
-    workflowId: "root",
-  });
-}
-
-function applyEvents(
-  events: PipelineRuntimeEvent[],
-  taskContext?: Parameters<typeof createGoalState>[0]["taskContext"]
-) {
-  return reconstructGoalStateFromEvents(
-    {
-      runId: "run-1",
-      task: "Ship PIPE-52",
-      ...(taskContext ? { taskContext } : {}),
-      workflowId: "root",
-    },
-    events
-  );
-}

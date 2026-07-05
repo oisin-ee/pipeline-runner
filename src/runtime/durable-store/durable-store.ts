@@ -1,5 +1,8 @@
+import { Option } from "effect";
+
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
-import { buildRunJournal, type RunJournal } from "../run-journal";
+import { buildRunJournal } from "../run-journal";
+import type { RunJournal } from "../run-journal";
 
 /**
  * PIPE-91.1: the typed record persisted for each node execution. Carries the
@@ -26,8 +29,8 @@ export interface DurableNodeRecord {
  * each consume this interface as the swappable durability seam.
  */
 export interface DurableRunStore {
-  /** Retrieve the full record for a `(runId, nodeId)` pair, or `undefined` if not yet recorded. */
-  get(runId: string, nodeId: string): DurableNodeRecord | undefined;
+  /** Retrieve the full record for a `(runId, nodeId)` pair, or none if not yet recorded. */
+  get(runId: string, nodeId: string): Option.Option<DurableNodeRecord>;
   /** Durably record a node's terminal result keyed by `(runId, nodeId)`. */
   record(
     runId: string,
@@ -44,17 +47,17 @@ export interface DurableRunStore {
   toRunJournal(runId: string): RunJournal;
 }
 
-function makeBucket(
+const makeBucket = (
   store: Map<string, Map<string, DurableNodeRecord>>,
   runId: string
-): Map<string, DurableNodeRecord> {
+): Map<string, DurableNodeRecord> => {
   let bucket = store.get(runId);
   if (!bucket) {
     bucket = new Map();
     store.set(runId, bucket);
   }
   return bucket;
-}
+};
 
 /**
  * PIPE-91.1: in-memory `DurableRunStore` implementation. Byte-identical to
@@ -63,10 +66,10 @@ function makeBucket(
  * the file journal. The Postgres impl (91.4) will swap this seam without
  * touching the scheduler.
  */
-export function inMemoryDurableRunStore(): DurableRunStore {
+export const inMemoryDurableRunStore = (): DurableRunStore => {
   const store = new Map<string, Map<string, DurableNodeRecord>>();
 
-  function passedResultsForRun(runId: string): RuntimeNodeResult[] {
+  const passedResultsForRun = (runId: string): RuntimeNodeResult[] => {
     const bucket = store.get(runId);
     if (!bucket) {
       return [];
@@ -74,11 +77,11 @@ export function inMemoryDurableRunStore(): DurableRunStore {
     return [...bucket.values()]
       .filter((rec) => rec.result.status === "passed")
       .map((rec) => rec.result);
-  }
+  };
 
   const runStore: DurableRunStore = {
     get(runId, nodeId) {
-      return store.get(runId)?.get(nodeId);
+      return Option.fromUndefinedOr(store.get(runId)?.get(nodeId));
     },
 
     record(runId, nodeId, entry) {
@@ -100,4 +103,4 @@ export function inMemoryDurableRunStore(): DurableRunStore {
     },
   };
   return runStore;
-}
+};

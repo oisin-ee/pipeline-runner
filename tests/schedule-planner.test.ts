@@ -8,32 +8,36 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { stringify } from "yaml";
-import { parsePipelineConfigParts, type SchedulingRole } from "../src/config";
+
+import { parsePipelineConfigParts } from "../src/config";
+import type { SchedulingRole } from "../src/config";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
   generateScheduleArtifactInMemory,
   parseScheduleArtifact,
   pruneOutOfScopeDependencies,
-  type ScheduleArtifact,
   ticketPlanPlanningContext,
 } from "../src/planning/generate";
+import type { ScheduleArtifact } from "../src/planning/generate";
 
-const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/s;
-const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/i;
+const MISSING_WORK_UNIT_RE =
+  /missing assigned backlog work units.*PIPE-41\.8/su;
+const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/iu;
 const WORK_UNIT_DEPENDENCY_RE =
-  /work unit dependency edge.*PC-37\.2.*PC-37\.1/s;
-const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/s;
+  /work unit dependency edge.*PC-37\.2.*PC-37\.1/su;
+const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/su;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
-  /schedule planner 'moka-schedule-planner' failed with exit 1.*planner auth missing.*partial planner output/s;
+  /schedule planner 'moka-schedule-planner' failed with exit 1.*planner auth missing.*partial planner output/su;
 const PLANNER_TIMEOUT_FAILURE_RE =
-  /schedule planner 'moka-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/s;
+  /schedule planner 'moka-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/su;
 const REPAIR_NODE_SCHEMA_RE =
-  /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/s;
+  /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/su;
 const GREEN_AFTER_RED_RE =
-  /id: green-implementation[\s\S]*needs:\s+- red-tests/;
+  /id: green-implementation[\s\S]*needs:\s+- red-tests/u;
 
 const RUNNERS = `
 version: 1
@@ -164,28 +168,27 @@ workflows:
         needs: [acceptance]
 `;
 
-function config() {
-  return parsePipelineConfigParts({
+const config = () =>
+  parsePipelineConfigParts({
     pipeline: PIPELINE,
     profiles: PROFILES,
     runners: RUNNERS,
   });
-}
 
-function compileScheduleArtifactOrThrow(
+const compileScheduleArtifactOrThrow = (
   artifact: ScheduleArtifact,
   worktreePath: string
-): void {
+): void => {
   compileScheduleArtifact(config(), artifact, worktreePath);
-}
+};
 
-function configWithSchedulingRoles(
-  roleProfiles: Array<{
+const configWithSchedulingRoles = (
+  roleProfiles: {
     baseProfileId: keyof ReturnType<typeof config>["profiles"];
     profileId: string;
     roles: SchedulingRole[];
-  }>
-): ReturnType<typeof config> {
+  }[]
+): ReturnType<typeof config> => {
   const parsed = config();
   for (const { baseProfileId, profileId, roles } of roleProfiles) {
     parsed.profiles[profileId] = {
@@ -197,11 +200,11 @@ function configWithSchedulingRoles(
     };
   }
   return parsed;
-}
+};
 
-function removeCoverageSchedulingRoles(
+const removeCoverageSchedulingRoles = (
   parsed: ReturnType<typeof config>
-): ReturnType<typeof config> {
+): ReturnType<typeof config> => {
   for (const profile of Object.values(parsed.profiles)) {
     const roles = profile.scheduling_roles?.filter(
       (role) => role !== "coverage"
@@ -213,15 +216,15 @@ function removeCoverageSchedulingRoles(
     }
   }
   return parsed;
-}
+};
 
-function writeBacklogTask(
+const writeBacklogTask = (
   root: string,
   id: string,
   title: string,
   body: string,
   options: { dependencies?: string[]; parentTaskId?: string } = {}
-): void {
+): void => {
   const path = join(root, "backlog", "tasks", `${id.toLowerCase()} - task.md`);
   const parentTaskId =
     options.parentTaskId ?? (id.includes(".") ? "PIPE-41" : "");
@@ -233,11 +236,11 @@ function writeBacklogTask(
   writeFileSync(
     path,
     `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${parentTaskId}\n${dependencies}---\n\n${body}`,
-    "utf8"
+    "utf-8"
   );
-}
+};
 
-function writePc37CoreTasks(root: string): void {
+const writePc37CoreTasks = (root: string): void => {
   writeBacklogTask(
     root,
     "PC-37",
@@ -259,14 +262,14 @@ function writePc37CoreTasks(root: string): void {
     "## Description\n\nBuild endpoint.",
     { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
   );
-}
+};
 
-function buildScheduleYaml(options: {
+const buildScheduleYaml = (options: {
   generatedAt?: string;
   nodes: string[];
   scheduleId: string;
   task: string;
-}): string {
+}): string => {
   const generatedAt = options.generatedAt ?? "2026-06-03T12:00:00.000Z";
   return [
     "version: 1",
@@ -282,9 +285,9 @@ function buildScheduleYaml(options: {
     ...options.nodes.map((line) => `      ${line}`),
     "",
   ].join("\n");
-}
+};
 
-async function generateScheduleWithPrompt(options: {
+const generateScheduleWithPrompt = async (options: {
   entrypointId?: string;
   runId: string;
   schedule: string;
@@ -293,7 +296,7 @@ async function generateScheduleWithPrompt(options: {
 }): Promise<{
   prompt: string;
   result: Awaited<ReturnType<typeof generateScheduleArtifact>>;
-}> {
+}> => {
   const seenPrompts: string[] = [];
   const result = await generateScheduleArtifact({
     config: config(),
@@ -308,7 +311,7 @@ async function generateScheduleWithPrompt(options: {
     worktreePath: options.worktreePath,
   });
   return { prompt: seenPrompts[0] ?? "", result };
-}
+};
 
 describe("schedule artifacts", () => {
   it("converts a phase TicketPlan into scheduler work units with dependencies and evidence", () => {
@@ -450,7 +453,7 @@ describe("schedule artifacts", () => {
       ).not.toThrow();
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -492,7 +495,7 @@ describe("schedule artifacts", () => {
         )
       ).not.toThrow();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -599,7 +602,7 @@ workflows:
       ).not.toThrow();
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -692,7 +695,7 @@ workflows:
         },
       });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -735,7 +738,7 @@ workflows:
         worktreePath: dir,
       });
 
-      const nodes = artifact.workflows.root.nodes;
+      const { nodes } = artifact.workflows.root;
       const drainMerge = nodes.find(
         (node) => node.kind === "builtin" && node.builtin === "drain-merge"
       );
@@ -744,7 +747,7 @@ workflows:
       const verify = nodes.find((node) => node.id === "verify");
       expect(verify?.needs).toEqual([drainMerge?.id]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -768,7 +771,7 @@ workflows:
         })
       ).rejects.toThrow(PLANNER_FAILURE_WITH_DETAILS_RE);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -793,7 +796,7 @@ workflows:
         })
       ).rejects.toThrow(PLANNER_TIMEOUT_FAILURE_RE);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -901,7 +904,7 @@ workflows:
       expect(existsSync(join(dir, result.path))).toBe(true);
       compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -909,8 +912,6 @@ workflows:
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-red-green-"));
     let prompt = "";
     const schedule = buildScheduleYaml({
-      scheduleId: "run-red-green",
-      task: "Red green contract",
       nodes: [
         "- id: red-tests",
         "  kind: agent",
@@ -932,6 +933,8 @@ workflows:
         "  profile: moka-learner",
         "  needs: [verification]",
       ],
+      scheduleId: "run-red-green",
+      task: "Red green contract",
     });
 
     try {
@@ -963,7 +966,7 @@ workflows:
         ])
       );
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1020,7 +1023,7 @@ workflows:
       expect(prompt).toContain("output: text");
       expect(prompt).toContain("description: Implement production code");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1076,7 +1079,7 @@ workflows:
         worktreePath: dir,
       });
 
-      const generated = readFileSync(join(dir, result.path), "utf8");
+      const generated = readFileSync(join(dir, result.path), "utf-8");
       const parsed = parseScheduleArtifact(generated);
       expect(parsed.schedule_id).toBe("roundtrip-quick");
       expect(parsed.source_entrypoint).toBe("quick");
@@ -1171,7 +1174,7 @@ workflows:
         worktreePath: dir,
       });
 
-      const generated = readFileSync(join(dir, result.path), "utf8");
+      const generated = readFileSync(join(dir, result.path), "utf-8");
       const parsed = parseScheduleArtifact(generated);
       expect(parsed.schedule_id).toBe("roundtrip-execute");
       expect(parsed.source_entrypoint).toBe("execute");
@@ -1281,7 +1284,7 @@ workflows:
       expect(result.path).toBe(".pipeline/runs/run-repair/schedule.yaml");
       expect(existsSync(join(dir, result.path))).toBe(true);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1289,8 +1292,6 @@ workflows:
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-fenced-"));
     const scheduleId = "4d91f075-2d17-499a-9d5a-a07b23648094";
     const schedule = buildScheduleYaml({
-      scheduleId,
-      task: "Accept fenced schedule",
       nodes: [
         "- id: research",
         "  kind: agent",
@@ -1300,6 +1301,8 @@ workflows:
         "  profile: moka-code-writer",
         "  needs: [research]",
       ],
+      scheduleId,
+      task: "Accept fenced schedule",
     });
     const fencedSchedule = [
       "```yaml",
@@ -1335,7 +1338,7 @@ workflows:
       ).toEqual(["research", "implement", "generated-coverage"]);
       expect(result.path).toBe(`.pipeline/runs/${scheduleId}/schedule.yaml`);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1444,7 +1447,7 @@ workflows:
         compileScheduleArtifact(opencodeConfig, result.artifact, dir)
       ).not.toThrow();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1517,7 +1520,7 @@ workflows:
         kind: "builtin",
       });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1563,7 +1566,7 @@ workflows:
       });
       compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1635,7 +1638,7 @@ workflows:
       });
       expect(rootNodes).toHaveLength(3);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1664,7 +1667,7 @@ task: Bad: compact scalar
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1689,8 +1692,6 @@ task: Bad: compact scalar
       "## Description\n\nLoad child tickets.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Work units come from Backlog.\n<!-- AC:END -->"
     );
     const schedule = buildScheduleYaml({
-      scheduleId: "run-epic",
-      task: "PIPE-41",
       nodes: [
         "- id: research",
         "  kind: agent",
@@ -1728,6 +1729,8 @@ task: Bad: compact scalar
         "  profile: moka-thermo-nuclear-reviewer",
         "  needs: [merge]",
       ],
+      scheduleId: "run-epic",
+      task: "PIPE-41",
     });
 
     try {
@@ -1813,7 +1816,7 @@ task: Bad: compact scalar
       );
       compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1829,8 +1832,6 @@ task: Bad: compact scalar
       { parentTaskId: "" }
     );
     const schedule = buildScheduleYaml({
-      scheduleId: "run-jalgpall-2",
-      task: "jalgpall-2",
       nodes: [
         "- id: jalgpall-2-green",
         "  kind: agent",
@@ -1842,6 +1843,8 @@ task: Bad: compact scalar
         "  profile: moka-verifier",
         "  needs: [jalgpall-2-green]",
       ],
+      scheduleId: "run-jalgpall-2",
+      task: "jalgpall-2",
     });
 
     try {
@@ -1877,7 +1880,7 @@ task: Bad: compact scalar
         ])
       );
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -1919,8 +1922,6 @@ task: Bad: compact scalar
       { dependencies: ["PC-37.2", "PC-37.3"], parentTaskId: "PC-37" }
     );
     const schedule = buildScheduleYaml({
-      scheduleId: "run-pc37",
-      task: "PC-37",
       nodes: [
         "- id: research",
         "  kind: agent",
@@ -1954,6 +1955,8 @@ task: Bad: compact scalar
         "  profile: moka-verifier",
         "  needs: [pc-37-4-green]",
       ],
+      scheduleId: "run-pc37",
+      task: "PC-37",
     });
 
     try {
@@ -1974,7 +1977,7 @@ task: Bad: compact scalar
       expect(prompt).toContain("- PC-37.2");
       expect(prompt).toContain("- PC-37.3");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2039,7 +2042,7 @@ workflows:
         })
       ).rejects.toThrow(WORK_UNIT_DEPENDENCY_RE);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2064,8 +2067,6 @@ workflows:
       "## Description\n\nLoad child tickets."
     );
     const schedule = buildScheduleYaml({
-      scheduleId: "run-single",
-      task: "PIPE-41.7",
       nodes: [
         "- id: research",
         "  kind: agent",
@@ -2089,6 +2090,8 @@ workflows:
         "  task_context:",
         "    id: PIPE-41.7",
       ],
+      scheduleId: "run-single",
+      task: "PIPE-41.7",
     });
 
     try {
@@ -2114,7 +2117,7 @@ workflows:
         ])
       );
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2156,8 +2159,6 @@ workflows:
       { parentTaskId: "PIPE-51" }
     );
     const schedule = buildScheduleYaml({
-      scheduleId: "run-multi-epic",
-      task: "Execute PIPE-50 and PIPE-51",
       nodes: [
         "- id: pipe-50-1-green",
         "  kind: agent",
@@ -2180,6 +2181,8 @@ workflows:
         "  profile: moka-verifier",
         "  needs: [pipe-50-1-1-green, pipe-51-1-green]",
       ],
+      scheduleId: "run-multi-epic",
+      task: "Execute PIPE-50 and PIPE-51",
     });
 
     try {
@@ -2197,7 +2200,7 @@ workflows:
         "Only add needs edges for real dependencies, shared constraints, or verification/review fan-in."
       );
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2257,7 +2260,7 @@ workflows:
         })
       ).rejects.toThrow(MISSING_WORK_UNIT_RE);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2293,7 +2296,7 @@ workflows:
         })
       ).rejects.toThrow(DOWNSTREAM_COVERAGE_RE);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2339,7 +2342,7 @@ workflows:
         })
       ).rejects.toThrow(DOWNSTREAM_COVERAGE_RE);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2394,7 +2397,7 @@ workflows:
         },
       });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2460,7 +2463,7 @@ workflows:
         })
       ).rejects.toThrow(WORK_UNIT_DEPENDENCY_RE);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 

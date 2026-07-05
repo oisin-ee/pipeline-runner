@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { runnerEventRecordSchema } from "./runner-event-schema";
 import { loopStateSchema } from "./tickets/ticket-graph-dto";
 
@@ -7,7 +8,7 @@ const ENVELOPE = {
   runId: "run-123",
   sequence: 1,
 };
-const PR_DELIVERY_ACTIONS: Array<"opened" | "updated"> = ["opened", "updated"];
+const PR_DELIVERY_ACTIONS: ("opened" | "updated")[] = ["opened", "updated"];
 
 describe("loop.* event schemas — AC1: round-trip through runnerEventRecordSchema", () => {
   it("loop.start round-trips with projectId, strategy, and optional root", () => {
@@ -112,28 +113,29 @@ describe("loop.* event schemas — AC1: round-trip through runnerEventRecordSche
 });
 
 describe("delivery.pull-request event schema", () => {
-  it.each(
-    PR_DELIVERY_ACTIONS
-  )("round-trips a %s pull-request delivery event", (action) => {
-    const event = {
-      ...ENVELOPE,
-      deliveryPullRequest: {
-        action,
-        url: `https://github.com/owner/repo/pull/${action === "opened" ? "1" : "2"}`,
-      },
-      type: "delivery.pull-request",
-    };
+  it.each(PR_DELIVERY_ACTIONS)(
+    "round-trips a %s pull-request delivery event",
+    (action) => {
+      const event = {
+        ...ENVELOPE,
+        deliveryPullRequest: {
+          action,
+          url: `https://github.com/owner/repo/pull/${action === "opened" ? "1" : "2"}`,
+        },
+        type: "delivery.pull-request",
+      };
 
-    const parsed = runnerEventRecordSchema.parse(event);
+      const parsed = runnerEventRecordSchema.parse(event);
 
-    expect(parsed.type).toBe("delivery.pull-request");
-    if (parsed.type !== "delivery.pull-request") {
-      throw new Error(
-        `Expected delivery.pull-request, received ${parsed.type}`
-      );
+      expect(parsed.type).toBe("delivery.pull-request");
+      if (parsed.type !== "delivery.pull-request") {
+        throw new Error(
+          `Expected delivery.pull-request, received ${parsed.type}`
+        );
+      }
+      expect(parsed.deliveryPullRequest).toEqual(event.deliveryPullRequest);
     }
-    expect(parsed.deliveryPullRequest).toEqual(event.deliveryPullRequest);
-  });
+  );
 });
 
 describe("loopState — AC3: single exported source of truth", () => {

@@ -8,7 +8,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type {
   MokaNodeStatus,
   MokaRunStatus,
@@ -20,11 +22,8 @@ import {
   updateRunStatus,
   writeNodeArtifact,
 } from "./run-control-file-store-helpers";
-import {
-  type CliCapture,
-  restoreEnv,
-  runMokaCliInTarget,
-} from "./run-control-test-helpers";
+import { restoreEnv, runMokaCliInTarget } from "./run-control-test-helpers";
+import type { CliCapture } from "./run-control-test-helpers";
 
 const runtimeState = vi.hoisted(() => ({
   runtimeCalls: [] as unknown[],
@@ -40,9 +39,8 @@ vi.mock("../src/pipeline-runtime", () => ({
 vi.mock("../src/run-control/command-context", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/run-control/command-context")>();
-  const { fileRunControlStore } = await import(
-    "../src/run-control/run-control-store"
-  );
+  const { fileRunControlStore } =
+    await import("../src/run-control/run-control-store");
 
   return {
     ...actual,
@@ -58,12 +56,133 @@ vi.mock("../src/run-control/command-context", async (importOriginal) => {
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
 const ORIGINAL_HOME = process.env.HOME;
 const PROMPT_SESSION_SECRET = "PROMPT_SESSION_BODY_TICKET_6_SECRET";
-const MULTIPLE_ACTIVE_RUNS_RE = /multiple active runs/i;
-const RUN_ID_TIMESTAMP_RE = /run-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/;
+const MULTIPLE_ACTIVE_RUNS_RE = /multiple active runs/iu;
+const RUN_ID_TIMESTAMP_RE = /run-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/u;
 
-interface FileSnapshot {
-  [relativePath: string]: string;
-}
+type FileSnapshot = Record<string, string>;
+
+const runMokaInTarget = async (
+  workspaceRoot: string,
+  args: string[]
+): Promise<CliCapture> => {
+  const buffers: { stderr: string[]; stdout: string[] } = {
+    stderr: [],
+    stdout: [],
+  };
+  const stdoutWrite = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      buffers.stdout.push(String(chunk));
+      return true;
+    });
+  const stderrWrite = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      buffers.stderr.push(String(chunk));
+      return true;
+    });
+  try {
+    return await runMokaCliInTarget({
+      args,
+      buffers,
+      originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
+      workspaceRoot,
+    });
+  } finally {
+    stdoutWrite.mockRestore();
+    stderrWrite.mockRestore();
+  }
+};
+
+const hashText = (value: string): number =>
+  [...value].reduce((hash, char) => hash + (char.codePointAt(0) ?? 0), 0);
+
+const eventTimeFor = (runId: string, salt: string): string => {
+  const timestamp = RUN_ID_TIMESTAMP_RE.exec(runId);
+  if (!timestamp) {
+    return "2026-06-17T00:00:00.000Z";
+  }
+  const [, year, month, day, hour, minute, second] = timestamp;
+  const millis = Math.abs(hashText(salt)) % 1000;
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}.${String(
+    millis
+  ).padStart(3, "0")}Z`;
+};
+
+const seedRun = async (
+  workspaceRoot: string,
+  input: {
+    artifacts?: Record<string, Record<string, string>>;
+    nodeStatuses: Record<string, MokaNodeStatus>;
+    runId: string;
+    status: MokaRunStatus;
+  }
+): Promise<void> => {
+  const nodeIds = Object.keys(input.nodeStatuses);
+  await createRun({
+    effort: "normal",
+    mode: "write",
+    nodeIds,
+    runId: input.runId,
+    target: "local",
+    workspaceRoot,
+  });
+  for (const [nodeId, status] of Object.entries(input.nodeStatuses)) {
+    if (status === "queued") {
+      continue;
+    }
+    await updateNodeStatus({
+      at: eventTimeFor(input.runId, nodeId),
+      nodeId,
+      runId: input.runId,
+      status,
+      workspaceRoot,
+    });
+  }
+  if (input.status !== "queued") {
+    await updateRunStatus({
+      at: eventTimeFor(input.runId, "run"),
+      runId: input.runId,
+      status: input.status,
+      workspaceRoot,
+    });
+  }
+  for (const [nodeId, artifacts] of Object.entries(input.artifacts ?? {})) {
+    for (const [name, content] of Object.entries(artifacts)) {
+      await writeNodeArtifact({
+        content,
+        name,
+        nodeId,
+        runId: input.runId,
+        workspaceRoot,
+      });
+    }
+  }
+};
+
+const snapshotFiles = (root: string, current: string): FileSnapshot => {
+  const snapshot: FileSnapshot = {};
+  for (const entry of readdirSync(current).toSorted()) {
+    const fullPath = join(current, entry);
+    if (statSync(fullPath).isDirectory()) {
+      Object.assign(snapshot, snapshotFiles(root, fullPath));
+      continue;
+    }
+    snapshot[relative(root, fullPath).split(sep).join("/")] = readFileSync(
+      fullPath,
+      "utf-8"
+    );
+  }
+  return snapshot;
+};
+
+const snapshotRunState = (workspaceRoot: string): FileSnapshot => {
+  const runsRoot = join(workspaceRoot, ".pipeline", "runs");
+  if (!existsSync(runsRoot)) {
+    return {};
+  }
+  return snapshotFiles(runsRoot, runsRoot);
+};
 
 describe("moka run-control CLI commands", () => {
   let workspaceRoot: string;
@@ -282,7 +401,7 @@ describe("moka run-control CLI commands", () => {
     expect(snapshotRunState(workspaceRoot)).toEqual(before);
 
     const bundle = JSON.parse(capture.stdout) as {
-      artifacts: Array<{ content?: string; name: string; nodeId: string }>;
+      artifacts: { content?: string; name: string; nodeId: string }[];
       run: { runId: string; status: string };
       version: number;
     };
@@ -343,106 +462,3 @@ describe("moka run-control CLI commands", () => {
     expect(snapshotRunState(workspaceRoot)).toEqual(before);
   });
 });
-
-function runMokaInTarget(
-  workspaceRoot: string,
-  args: string[]
-): Promise<CliCapture> {
-  return runMokaCliInTarget({
-    args,
-    buffers: { stderr: [], stdout: [] },
-    originalPipelineTargetPath: ORIGINAL_PIPELINE_TARGET_PATH,
-    workspaceRoot,
-  });
-}
-
-async function seedRun(
-  workspaceRoot: string,
-  input: {
-    artifacts?: Record<string, Record<string, string>>;
-    nodeStatuses: Record<string, MokaNodeStatus>;
-    runId: string;
-    status: MokaRunStatus;
-  }
-): Promise<void> {
-  const nodeIds = Object.keys(input.nodeStatuses);
-  await createRun({
-    effort: "normal",
-    mode: "write",
-    nodeIds,
-    runId: input.runId,
-    target: "local",
-    workspaceRoot,
-  });
-  for (const [nodeId, status] of Object.entries(input.nodeStatuses)) {
-    if (status === "queued") {
-      continue;
-    }
-    await updateNodeStatus({
-      at: eventTimeFor(input.runId, nodeId),
-      nodeId,
-      runId: input.runId,
-      status,
-      workspaceRoot,
-    });
-  }
-  if (input.status !== "queued") {
-    await updateRunStatus({
-      at: eventTimeFor(input.runId, "run"),
-      runId: input.runId,
-      status: input.status,
-      workspaceRoot,
-    });
-  }
-  for (const [nodeId, artifacts] of Object.entries(input.artifacts ?? {})) {
-    for (const [name, content] of Object.entries(artifacts)) {
-      await writeNodeArtifact({
-        content,
-        name,
-        nodeId,
-        runId: input.runId,
-        workspaceRoot,
-      });
-    }
-  }
-}
-
-function eventTimeFor(runId: string, salt: string): string {
-  const timestamp = runId.match(RUN_ID_TIMESTAMP_RE);
-  if (!timestamp) {
-    return "2026-06-17T00:00:00.000Z";
-  }
-  const [, year, month, day, hour, minute, second] = timestamp;
-  const millis = Math.abs(hashText(salt)) % 1000;
-  return `${year}-${month}-${day}T${hour}:${minute}:${second}.${String(
-    millis
-  ).padStart(3, "0")}Z`;
-}
-
-function hashText(value: string): number {
-  return [...value].reduce((hash, char) => hash + char.charCodeAt(0), 0);
-}
-
-function snapshotRunState(workspaceRoot: string): FileSnapshot {
-  const runsRoot = join(workspaceRoot, ".pipeline", "runs");
-  if (!existsSync(runsRoot)) {
-    return {};
-  }
-  return snapshotFiles(runsRoot, runsRoot);
-}
-
-function snapshotFiles(root: string, current: string): FileSnapshot {
-  const snapshot: FileSnapshot = {};
-  for (const entry of readdirSync(current).sort()) {
-    const fullPath = join(current, entry);
-    if (statSync(fullPath).isDirectory()) {
-      Object.assign(snapshot, snapshotFiles(root, fullPath));
-      continue;
-    }
-    snapshot[relative(root, fullPath).split(sep).join("/")] = readFileSync(
-      fullPath,
-      "utf8"
-    );
-  }
-  return snapshot;
-}

@@ -10,14 +10,14 @@ export interface ArtifactContext {
  * Checks whether the configured artifact path exists in the node's worktree.
  * A missing path or nonexistent file fails the gate.
  */
-export function evaluateArtifactGate(
+export const evaluateArtifactGate = (
   gate: ArtifactGateSpec,
   gateId: string,
   nodeId: string,
   context: ArtifactContext
-): RuntimeGateResult {
-  const path = gate.path ?? "";
-  const passed = Boolean(path) && artifactExists(context.worktreePath, path);
+): RuntimeGateResult => {
+  const path = gate.path;
+  const passed = path.length > 0 && artifactExists(context.worktreePath, path);
   return {
     evidence: [
       passed ? `artifact exists: ${path}` : `missing artifact: ${path}`,
@@ -28,4 +28,4 @@ export function evaluateArtifactGate(
     passed,
     reason: passed ? undefined : `missing artifact '${path}'`,
   };
-}
+};

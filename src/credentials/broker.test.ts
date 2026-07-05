@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  type BrokerCredentials,
-  brokerV1Url,
-  resolveBrokerCredentials,
-} from "./broker";
+
+import { brokerV1Url, resolveBrokerCredentials } from "./broker";
+import type { BrokerCredentials } from "./broker";
 import { applyCodexBrokerProvider } from "./codex-config";
 import {
   applyOpencodeBrokerProvider,
@@ -71,8 +69,8 @@ describe("applyCodexBrokerProvider", () => {
     const once = applyCodexBrokerProvider('model = "gpt-5.5"', CREDS);
     const twice = applyCodexBrokerProvider(once, CREDS);
     expect(twice).toBe(once);
-    expect(twice.match(/\[model_providers\.broker\]/g)).toHaveLength(1);
-    expect(twice.match(/model_provider = "broker"/g)).toHaveLength(1);
+    expect(twice.match(/\[model_providers\.broker\]/gu)).toHaveLength(1);
+    expect(twice.match(/model_provider = "broker"/gu)).toHaveLength(1);
   });
 
   it("creates a config from empty input", () => {

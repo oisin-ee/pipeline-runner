@@ -1,4 +1,6 @@
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { PlannedWorkflowNode } from "../planning/compile";
 import type {
   ChangedFilesSnapshot,
@@ -7,15 +9,13 @@ import type {
 } from "./contracts";
 import { NodeStateStore } from "./node-state-store";
 
-function pendingState(id: string): NodeExecutionState {
-  return {
-    attempts: 0,
-    evidence: [],
-    gates: [],
-    id,
-    status: "pending",
-  };
-}
+const pendingState = (id: string): NodeExecutionState => ({
+  attempts: 0,
+  evidence: [],
+  gates: [],
+  id,
+  status: "pending",
+});
 
 describe("NodeStateStore", () => {
   it("owns mutable node state, snapshots, outputs, inherited output ids, and structured outputs", () => {
@@ -115,8 +115,10 @@ describe("NodeStateStore", () => {
       testNames: [],
     });
 
-    expect(store.handoff("a")?.summary).toBe("did a thing");
-    expect(store.handoff("missing")).toBeUndefined();
+    expect(Option.getOrUndefined(store.handoff("a"))?.summary).toBe(
+      "did a thing"
+    );
+    expect(Option.getOrUndefined(store.handoff("missing"))).toBeUndefined();
   });
 
   it("copies handoffByNode into parallel forks so children do not cross-contaminate", () => {
@@ -135,7 +137,7 @@ describe("NodeStateStore", () => {
 
     // Unlike structuredOutputs (shared by reference), handoffs are copied.
     expect(fork.handoffByNode).not.toBe(parent.handoffByNode);
-    expect(fork.handoff("setup")?.summary).toBe("setup");
+    expect(Option.getOrUndefined(fork.handoff("setup"))?.summary).toBe("setup");
 
     fork.recordHandoff("child-a", {
       artifacts: [],
@@ -145,6 +147,6 @@ describe("NodeStateStore", () => {
       testNames: [],
     });
 
-    expect(parent.handoff("child-a")).toBeUndefined();
+    expect(Option.getOrUndefined(parent.handoff("child-a"))).toBeUndefined();
   });
 });

@@ -1,13 +1,15 @@
 import { fileURLToPath } from "node:url";
-import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
+
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import type { MigrationMeta } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { isSome, none, some, type Option } from "effect/Option";
 import postgres from "postgres";
+
 import { MOKA_POSTGRES_SCHEMA } from "./schema";
 
-const migrationsFolder = fileURLToPath(
-  new URL("./migrations", import.meta.url)
-);
+const migrationsFolder = fileURLToPath(new URL("migrations", import.meta.url));
 
 // drizzle-orm's migrate() has no built-in protection against concurrent
 // execution (drizzle-team/drizzle-orm#874) -- every store resolution (one per
@@ -50,35 +52,43 @@ const LEGACY_MIGRATION_GROUPS: readonly LegacyMigrationGroup[] = [
 type PgClient = postgres.Sql | postgres.TransactionSql;
 type PgRootClient = postgres.Sql;
 
-async function relationExists(
+const firstTextField = (
+  rows: readonly Record<string, unknown>[],
+  field: string
+): Option<string> => {
+  const value = rows.at(0)?.[field];
+  return typeof value === "string" ? some(value) : none();
+};
+
+const relationExists = async (
   client: PgClient,
   schemaName: string,
   relationName: string
-): Promise<boolean> {
-  const rows = await client<{ relation: string | null }[]>`
+): Promise<boolean> => {
+  const rows = await client<Record<string, unknown>[]>`
     select to_regclass(${`${schemaName}.${relationName}`})::text as relation
   `;
-  return rows[0]?.relation !== null && rows[0]?.relation !== undefined;
-}
+  return isSome(firstTextField(rows, "relation"));
+};
 
-async function schemaExists(
+const schemaExists = async (
   client: PgClient,
   schemaName: string
-): Promise<boolean> {
-  const rows = await client<{ schema_name: string | null }[]>`
+): Promise<boolean> => {
+  const rows = await client<Record<string, unknown>[]>`
     select to_regnamespace(${schemaName})::text as schema_name
   `;
-  return rows[0]?.schema_name !== null && rows[0]?.schema_name !== undefined;
-}
+  return isSome(firstTextField(rows, "schema_name"));
+};
 
-async function ensureMokaSchema(client: PgClient): Promise<void> {
+const ensureMokaSchema = async (client: PgClient): Promise<void> => {
   if (await schemaExists(client, MOKA_POSTGRES_SCHEMA)) {
     return;
   }
   await client`create schema ${client(MOKA_POSTGRES_SCHEMA)}`;
-}
+};
 
-async function ensureMokaMigrationLedger(client: PgClient): Promise<void> {
+const ensureMokaMigrationLedger = async (client: PgClient): Promise<void> => {
   await ensureMokaSchema(client);
   await client`
     create table if not exists ${client(MOKA_POSTGRES_SCHEMA)}.${client(DRIZZLE_MIGRATIONS_TABLE)} (
@@ -87,9 +97,9 @@ async function ensureMokaMigrationLedger(client: PgClient): Promise<void> {
       created_at bigint
     )
   `;
-}
+};
 
-async function copyLegacyDrizzleLedger(client: PgClient): Promise<void> {
+const copyLegacyDrizzleLedger = async (client: PgClient): Promise<void> => {
   const legacyLedgerExists = await relationExists(
     client,
     "drizzle",
@@ -109,9 +119,9 @@ async function copyLegacyDrizzleLedger(client: PgClient): Promise<void> {
       where target.created_at = source.created_at
     )
   `;
-}
+};
 
-async function moveLegacyPublicTables(client: PgClient): Promise<void> {
+const moveLegacyPublicTables = async (client: PgClient): Promise<void> => {
   for (const tableName of LEGACY_TABLE_MOVE_ORDER) {
     const sourceExists = await relationExists(client, "public", tableName);
     if (!sourceExists) {
@@ -132,35 +142,36 @@ async function moveLegacyPublicTables(client: PgClient): Promise<void> {
       set schema ${client(MOKA_POSTGRES_SCHEMA)}
     `;
   }
-}
+};
 
-async function groupTablesExist(
+const groupTablesExist = async (
   client: PgClient,
   tableNames: readonly string[]
-): Promise<boolean> {
+): Promise<boolean> => {
   const checks = await Promise.all(
-    tableNames.map((tableName) =>
-      relationExists(client, MOKA_POSTGRES_SCHEMA, tableName)
+    tableNames.map(
+      async (tableName) =>
+        await relationExists(client, MOKA_POSTGRES_SCHEMA, tableName)
     )
   );
-  return checks.every((exists) => exists);
-}
+  return checks.every(Boolean);
+};
 
-function migrationAt(
+const migrationAt = (
   migrations: readonly MigrationMeta[],
   index: number
-): MigrationMeta {
-  const migration = migrations[index];
+): MigrationMeta => {
+  const migration = migrations.at(index);
   if (migration === undefined) {
     throw new Error(`Missing Drizzle migration at journal index ${index}.`);
   }
   return migration;
-}
+};
 
-async function markMigrationApplied(
+const markMigrationApplied = async (
   client: PgClient,
   migration: MigrationMeta
-): Promise<void> {
+): Promise<void> => {
   await client`
     insert into ${client(MOKA_POSTGRES_SCHEMA)}.${client(DRIZZLE_MIGRATIONS_TABLE)} (hash, created_at)
     select ${migration.hash}, ${migration.folderMillis}
@@ -170,11 +181,11 @@ async function markMigrationApplied(
       where created_at = ${migration.folderMillis}
     )
   `;
-}
+};
 
-async function markExistingMokaLayoutMigrations(
+const markExistingMokaLayoutMigrations = async (
   client: PgClient
-): Promise<void> {
+): Promise<void> => {
   const migrations = readMigrationFiles({ migrationsFolder });
   for (const group of LEGACY_MIGRATION_GROUPS) {
     if (await groupTablesExist(client, group.tableNames)) {
@@ -184,16 +195,16 @@ async function markExistingMokaLayoutMigrations(
       );
     }
   }
-}
+};
 
-async function prepareMokaSchema(client: PgRootClient): Promise<void> {
+const prepareMokaSchema = async (client: PgRootClient): Promise<void> => {
   await client.begin(async (tx) => {
     await ensureMokaMigrationLedger(tx);
     await copyLegacyDrizzleLedger(tx);
     await moveLegacyPublicTables(tx);
     await markExistingMokaLayoutMigrations(tx);
   });
-}
+};
 
 /**
  * Apply the Drizzle migrations shared by the run-control and durable stores to
@@ -201,7 +212,9 @@ async function prepareMokaSchema(client: PgRootClient): Promise<void> {
  * schema) and safe under concurrent callers (Postgres advisory lock serializes
  * them). Opens and closes its own single-connection client.
  */
-export async function migratePostgresSubstrate(dbUrl: string): Promise<void> {
+export const migratePostgresSubstrate = async (
+  dbUrl: string
+): Promise<void> => {
   const client = postgres(dbUrl, { max: 1 });
   try {
     await client`select pg_advisory_lock(${MIGRATION_LOCK_KEY}::bigint)`;
@@ -218,4 +231,4 @@ export async function migratePostgresSubstrate(dbUrl: string): Promise<void> {
   } finally {
     await client.end();
   }
-}
+};

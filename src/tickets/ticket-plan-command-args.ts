@@ -5,19 +5,28 @@ export interface TicketCreateArgsOptions {
   readonly parentId?: string;
 }
 
-export function ticketCreateArgs(
+export const formatBacklogCommand = (args: readonly string[]): string =>
+  ["backlog", ...args].join(" ");
+
+const localDependencyKeys = (
+  task: TicketPlanEpic | TicketPlanTask
+): readonly string[] => ("depends_on" in task ? task.depends_on : []);
+
+export const ticketCreateArgs = (
   task: TicketPlanEpic | TicketPlanTask,
   options: TicketCreateArgsOptions = {}
-): string[] {
+): string[] => {
   const dependencyIds = options.dependencyIds ?? localDependencyKeys(task);
   return [
     "task",
     "create",
     task.title,
-    ...(options.parentId ? ["--parent", options.parentId] : []),
+    ...(options.parentId !== undefined && options.parentId.length > 0
+      ? ["--parent", options.parentId]
+      : []),
     "--description",
     task.description,
-    ...(task.priority ? ["--priority", task.priority] : []),
+    ...(task.priority === undefined ? [] : ["--priority", task.priority]),
     ...dependencyIds.flatMap((dependencyId) => ["--dep", dependencyId]),
     ...task.acceptance_criteria.flatMap((criterion) => [
       "--ac",
@@ -29,14 +38,4 @@ export function ticketCreateArgs(
     ...task.likely_files.flatMap((path) => ["--modified-file", path]),
     "--plain",
   ];
-}
-
-export function formatBacklogCommand(args: readonly string[]): string {
-  return ["backlog", ...args].join(" ");
-}
-
-function localDependencyKeys(
-  task: TicketPlanEpic | TicketPlanTask
-): readonly string[] {
-  return "depends_on" in task ? task.depends_on : [];
-}
+};

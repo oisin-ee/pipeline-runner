@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Context, Effect, Layer } from "effect";
+
+import { Context, Effect, Layer, Option } from "effect";
 
 export class RunJournalFileService extends Context.Service<
   RunJournalFileService,
@@ -11,7 +12,7 @@ export class RunJournalFileService extends Context.Service<
     ) => Effect.Effect<void, unknown>;
     readonly readTextIfExists: (
       path: string
-    ) => Effect.Effect<string | undefined, unknown>;
+    ) => Effect.Effect<Option.Option<string>, unknown>;
   }
 >()("RunJournalFileService") {}
 
@@ -27,6 +28,9 @@ export const RunJournalFileServiceLive = Layer.succeed(RunJournalFileService, {
   readTextIfExists: (path) =>
     Effect.try({
       catch: (error) => error,
-      try: () => (existsSync(path) ? readFileSync(path, "utf8") : undefined),
+      try: () =>
+        existsSync(path)
+          ? Option.some(readFileSync(path, "utf-8"))
+          : Option.none(),
     }),
 });

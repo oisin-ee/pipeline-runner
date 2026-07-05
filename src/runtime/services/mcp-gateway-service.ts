@@ -1,5 +1,6 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { execa } from "execa";
+
 import { PipelineMcpGatewayError } from "../../mcp/gateway-error";
 import type { ToolHiveWorkload } from "../../mcp/toolhive-vmcp";
 
@@ -15,41 +16,58 @@ interface GatewayRpcResponse {
   readonly result?: { readonly tools?: unknown };
 }
 
-function gatewayError(message: string): PipelineMcpGatewayError {
-  return new PipelineMcpGatewayError(message);
-}
+const NO_DOCKER_HOST = Option.none<string>();
 
-function execaErrorMessage(error: unknown): string {
+const gatewayError = (message: string): PipelineMcpGatewayError =>
+  new PipelineMcpGatewayError(message);
+
+const execaErrorMessage = (error: unknown): string => {
   const subprocessError = error as { shortMessage?: string; stderr?: string };
   const subprocessMessage =
-    subprocessError.shortMessage || subprocessError.stderr;
-  if (subprocessMessage) {
+    subprocessError.shortMessage ?? subprocessError.stderr;
+  if (subprocessMessage !== undefined && subprocessMessage.length > 0) {
     return subprocessMessage.trim();
   }
   return error instanceof Error ? error.message : String(error);
-}
+};
 
-function execaGatewayError(error: unknown): PipelineMcpGatewayError {
-  return error instanceof PipelineMcpGatewayError
+const execaGatewayError = (error: unknown): PipelineMcpGatewayError =>
+  error instanceof PipelineMcpGatewayError
     ? error
     : gatewayError(execaErrorMessage(error));
-}
 
-function toolHiveWorkloadTransport(
+const toolHiveWorkloadTransport = (
   item: ToolHiveListWorkload
-): string | undefined {
+): Option.Option<string> => {
   if (typeof item.transport_type === "string") {
-    return item.transport_type;
+    return Option.some(item.transport_type);
   }
   if (typeof item.transport === "string") {
-    return item.transport;
+    return Option.some(item.transport);
   }
-  return;
-}
+  return Option.none();
+};
 
-function parseToolHiveWorkloads(stdout: string): ToolHiveWorkload[] {
+const asString = (value: unknown): Option.Option<string> =>
+  typeof value === "string" ? Option.some(value) : Option.none();
+
+const toToolHiveWorkload = (item: ToolHiveListWorkload): ToolHiveWorkload[] => {
+  if (typeof item.name !== "string") {
+    return [];
+  }
+  return [
+    {
+      name: item.name,
+      status: Option.getOrUndefined(asString(item.status)),
+      transport: Option.getOrUndefined(toolHiveWorkloadTransport(item)),
+      url: Option.getOrUndefined(asString(item.url)),
+    },
+  ];
+};
+
+const parseToolHiveWorkloads = (stdout: string): ToolHiveWorkload[] => {
   const trimmed = stdout.trim();
-  if (!trimmed) {
+  if (trimmed.length === 0) {
     return [];
   }
   let parsed: unknown;
@@ -68,67 +86,56 @@ function parseToolHiveWorkloads(stdout: string): ToolHiveWorkload[] {
   return parsed.flatMap((item: ToolHiveListWorkload) =>
     toToolHiveWorkload(item)
   );
-}
+};
 
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
+const isHealthyGatewayStatus = (status: number): boolean =>
+  (status >= 200 && status < 300) || status === 405;
 
-function toToolHiveWorkload(item: ToolHiveListWorkload): ToolHiveWorkload[] {
-  if (!item || typeof item.name !== "string") {
-    return [];
-  }
-  return [
-    {
-      name: item.name,
-      status: asString(item.status),
-      transport: toolHiveWorkloadTransport(item),
-      url: asString(item.url),
+const activeDockerHost = (cwd: string): Effect.Effect<Option.Option<string>> =>
+  Effect.tryPromise({
+    catch: () => {
+      /* empty */
     },
-  ];
-}
-
-function isHealthyGatewayStatus(status: number): boolean {
-  return (status >= 200 && status < 300) || status === 405;
-}
-
-function activeDockerHost(cwd: string): Effect.Effect<string | undefined> {
-  return Effect.tryPromise({
-    catch: () => undefined,
     try: async () => {
       const result = await execa("docker", ["context", "inspect"], {
         cwd,
         stdin: "ignore",
       });
-      const contexts = JSON.parse(result.stdout) as Array<{
+      const contexts = JSON.parse(result.stdout) as {
         Endpoints?: { docker?: { Host?: unknown } };
-      }>;
+      }[];
       const host = contexts[0]?.Endpoints?.docker?.Host;
-      return typeof host === "string" && host.length > 0 ? host : undefined;
+      return typeof host === "string" && host.length > 0
+        ? Option.some(host)
+        : Option.none();
     },
-  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
-}
+  }).pipe(Effect.catch(() => Effect.succeed(NO_DOCKER_HOST)));
 
-function toolhiveEnv(cwd: string): Effect.Effect<NodeJS.ProcessEnv> {
-  if (process.env.DOCKER_HOST) {
+const toolhiveEnv = (cwd: string): Effect.Effect<NodeJS.ProcessEnv> => {
+  if (
+    process.env.DOCKER_HOST !== undefined &&
+    process.env.DOCKER_HOST.length > 0
+  ) {
     return Effect.succeed(process.env);
   }
   return activeDockerHost(cwd).pipe(
     Effect.map((dockerHost) =>
-      dockerHost ? { ...process.env, DOCKER_HOST: dockerHost } : process.env
+      Option.match(dockerHost, {
+        onNone: () => process.env,
+        onSome: (value) => ({ ...process.env, DOCKER_HOST: value }),
+      })
     )
   );
-}
+};
 
-function fetchGateway(
+const fetchGateway = (
   url: string,
   init: RequestInit
-): Effect.Effect<Response, PipelineMcpGatewayError> {
-  return Effect.tryPromise({
+): Effect.Effect<Response, PipelineMcpGatewayError> =>
+  Effect.tryPromise({
     catch: execaGatewayError,
-    try: () => fetch(url, init),
+    try: async () => await fetch(url, init),
   });
-}
 
 export class McpGatewayService extends Context.Service<
   McpGatewayService,
@@ -141,7 +148,7 @@ export class McpGatewayService extends Context.Service<
     readonly firstHealthyGatewayResponse: (
       urls: string[],
       authorization?: string
-    ) => Effect.Effect<Response | undefined, PipelineMcpGatewayError>;
+    ) => Effect.Effect<Option.Option<Response>, PipelineMcpGatewayError>;
     readonly listToolHiveGroupWorkloads: (
       group: string,
       cwd: string
@@ -170,7 +177,9 @@ export const McpGatewayServiceLive = Layer.succeed(McpGatewayService, {
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        ...(authorization ? { Authorization: authorization } : {}),
+        ...(authorization === undefined || authorization.length === 0
+          ? {}
+          : { Authorization: authorization }),
       },
       method: "POST",
     }).pipe(
@@ -182,33 +191,36 @@ export const McpGatewayServiceLive = Layer.succeed(McpGatewayService, {
         }
         return Effect.tryPromise({
           catch: execaGatewayError,
-          try: () => response.json() as Promise<GatewayRpcResponse>,
+          try: async () =>
+            await (response.json() as Promise<GatewayRpcResponse>),
         });
       })
     ),
   firstHealthyGatewayResponse: (urls, authorization) =>
-    Effect.gen(function* () {
+    Effect.gen(function* firstHealthyGatewayResponse() {
       for (const url of urls) {
         const response = yield* fetchGateway(url, {
           headers: {
             Accept: "application/json, text/event-stream",
-            ...(authorization ? { Authorization: authorization } : {}),
+            ...(authorization === undefined || authorization.length === 0
+              ? {}
+              : { Authorization: authorization }),
           },
           method: "GET",
         });
         if (isHealthyGatewayStatus(response.status)) {
-          return response;
+          return Option.some(response);
         }
       }
-      return;
+      return Option.none();
     }),
   listToolHiveGroupWorkloads: (group, cwd) =>
-    Effect.gen(function* () {
+    Effect.gen(function* listToolHiveGroupWorkloads() {
       const env = yield* toolhiveEnv(cwd);
       const result = yield* Effect.tryPromise({
         catch: execaGatewayError,
-        try: () =>
-          execa("thv", ["list", "--group", group, "--format", "json"], {
+        try: async () =>
+          await execa("thv", ["list", "--group", group, "--format", "json"], {
             cwd,
             env,
             stdin: "ignore",
@@ -220,29 +232,30 @@ export const McpGatewayServiceLive = Layer.succeed(McpGatewayService, {
       });
     }),
   localGatewayStatus: (cwd) =>
-    Effect.gen(function* () {
+    Effect.gen(function* localGatewayStatus() {
       const env = yield* toolhiveEnv(cwd);
       const result = yield* Effect.tryPromise({
         catch: execaGatewayError,
-        try: () => execa("thv", ["list"], { cwd, env }),
+        try: async () => await execa("thv", ["list"], { cwd, env }),
       });
       return result.stdout.trim();
     }),
   runToolHiveVersion: (cwd) =>
-    Effect.gen(function* () {
+    Effect.gen(function* runToolHiveVersion() {
       const env = yield* toolhiveEnv(cwd);
       yield* Effect.tryPromise({
         catch: execaGatewayError,
-        try: () => execa("thv", ["version"], { cwd, env, stdin: "ignore" }),
+        try: async () =>
+          await execa("thv", ["version"], { cwd, env, stdin: "ignore" }),
       });
     }),
   serveToolHiveVmcp: (configPath, cwd) =>
-    Effect.gen(function* () {
+    Effect.gen(function* serveToolHiveVmcp() {
       const env = yield* toolhiveEnv(cwd);
       yield* Effect.tryPromise({
         catch: execaGatewayError,
-        try: () =>
-          execa(
+        try: async () =>
+          await execa(
             "thv",
             [
               "vmcp",
@@ -259,12 +272,12 @@ export const McpGatewayServiceLive = Layer.succeed(McpGatewayService, {
       });
     }),
   validateToolHiveVmcp: (configPath, cwd) =>
-    Effect.gen(function* () {
+    Effect.gen(function* validateToolHiveVmcp() {
       const env = yield* toolhiveEnv(cwd);
       yield* Effect.tryPromise({
         catch: execaGatewayError,
-        try: () =>
-          execa("thv", ["vmcp", "validate", "--config", configPath], {
+        try: async () =>
+          await execa("thv", ["vmcp", "validate", "--config", configPath], {
             cwd,
             env,
             stdin: "ignore",

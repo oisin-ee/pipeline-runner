@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
 import { Cause, Context, Effect, Layer, Option } from "effect";
 
 export class FileSystemService extends Context.Service<
@@ -17,24 +18,27 @@ export const FileSystemServiceLive = Layer.succeed(FileSystemService, {
   exists: (path) => Effect.sync(() => existsSync(path)),
   readText: (path) =>
     Effect.try({
-      try: () => readFileSync(path, "utf8"),
       catch: (error) => error,
+      try: () => readFileSync(path, "utf-8"),
     }),
   writeText: (path, contents) =>
     Effect.try({
-      try: () => writeFileSync(path, contents),
       catch: (error) => error,
+      try: () => {
+        writeFileSync(path, contents);
+      },
     }),
 });
 
-export function runFileSystemSync<A, E>(
+export const runFileSystemSync = <A, E>(
   program: Effect.Effect<A, E, FileSystemService>,
   layer: typeof FileSystemServiceLive
-): A {
+): A => {
   const exit = Effect.runSyncExit(Effect.provide(program, layer));
   switch (exit._tag) {
-    case "Success":
+    case "Success": {
       return exit.value;
+    }
     case "Failure": {
       const failure = Cause.findErrorOption(exit.cause);
       if (Option.isSome(failure)) {
@@ -42,7 +46,8 @@ export function runFileSystemSync<A, E>(
       }
       throw Cause.squash(exit.cause);
     }
-    default:
+    default: {
       throw new Error("unreachable Effect exit state");
+    }
   }
-}
+};

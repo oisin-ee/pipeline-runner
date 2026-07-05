@@ -1,4 +1,5 @@
 import type { ParseError } from "jsonc-parser";
+
 import {
   applyJsonEdit,
   ensureTrailingNewline,
@@ -15,11 +16,11 @@ export type ClaudeUserConfigMergeResult =
   | { content: string; ok: true }
   | { errors: ParseError[]; ok: false };
 
-export function mergeClaudeUserConfig(
-  currentText: string | undefined,
+export const mergeClaudeUserConfig = (
+  currentText = "",
   projection: ClaudeUserConfigProjection
-): ClaudeUserConfigMergeResult {
-  if (currentText === undefined) {
+): ClaudeUserConfigMergeResult => {
+  if (currentText === "") {
     return { content: formatJson(projection), ok: true };
   }
 
@@ -38,13 +39,13 @@ export function mergeClaudeUserConfig(
     ),
     ok: true,
   };
-}
+};
 
-export function replaceClaudeUserMcpServers(
-  currentText: string | undefined,
+export const replaceClaudeUserMcpServers = (
+  currentText = "",
   projection: ClaudeUserConfigProjection
-): ClaudeUserConfigMergeResult {
-  if (currentText === undefined) {
+): ClaudeUserConfigMergeResult => {
+  if (currentText === "") {
     return { content: formatJson(projection), ok: true };
   }
 
@@ -59,4 +60,4 @@ export function replaceClaudeUserMcpServers(
     ),
     ok: true,
   };
-}
+};

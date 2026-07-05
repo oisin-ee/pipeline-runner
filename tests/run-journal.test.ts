@@ -1,23 +1,23 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
 import { fileRunJournal } from "../src/runtime/run-journal";
 
-function nodeResult(
+const nodeResult = (
   nodeId: string,
   status: RuntimeNodeResult["status"]
-): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: [],
-    exitCode: status === "passed" ? 0 : 1,
-    nodeId,
-    output: status,
-    status,
-  };
-}
+): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: [],
+  exitCode: status === "passed" ? 0 : 1,
+  nodeId,
+  output: status,
+  status,
+});
 
 describe("fileRunJournal", () => {
   let dir: string;
@@ -27,7 +27,7 @@ describe("fileRunJournal", () => {
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   });
 
   it("returns nothing for a run that has not been journaled", () => {
@@ -54,6 +54,6 @@ describe("fileRunJournal", () => {
     // A new handle (as after a crash/restart) reads the same file.
     const reader = fileRunJournal(path);
     expect(reader.resumeCompleted().map((r) => r.nodeId)).toEqual(["a"]);
-    expect(readFileSync(path, "utf8").trim().split("\n")).toHaveLength(2);
+    expect(readFileSync(path, "utf-8").trim().split("\n")).toHaveLength(2);
   });
 });

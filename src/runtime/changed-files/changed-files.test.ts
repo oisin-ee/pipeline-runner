@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import { diffChangedFiles, snapshotChangedFiles } from "./changed-files";
 
 const tempDirs: string[] = [];
@@ -13,15 +15,15 @@ afterEach(() => {
   }
 });
 
-function tempProject(): string {
+const tempProject = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "pipeline-changed-files-"));
   tempDirs.push(dir);
   return dir;
-}
+};
 
-function git(dir: string, args: string[]): void {
+const git = (dir: string, args: string[]): void => {
   execFileSync("git", args, { cwd: dir, stdio: "ignore" });
-}
+};
 
 describe("changed file snapshots", () => {
   it("returns an empty snapshot outside a git worktree", () => {
@@ -43,9 +45,9 @@ describe("changed file snapshots", () => {
     git(dir, ["commit", "-m", "initial"]);
 
     writeFileSync(join(dir, "app.ts"), "export const value = 2;\n");
-    const before = await snapshotChangedFiles(dir);
+    const before = snapshotChangedFiles(dir);
     writeFileSync(join(dir, "app.ts"), "export const value = 3;\n");
-    const after = await snapshotChangedFiles(dir);
+    const after = snapshotChangedFiles(dir);
 
     expect(diffChangedFiles(before, after, dir).files).toEqual(
       new Set(["app.ts"])

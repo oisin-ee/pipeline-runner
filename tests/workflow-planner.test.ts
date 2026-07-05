@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { alg } from "@dagrejs/graphlib";
 import { afterAll, describe, expect, it } from "vitest";
+
 import type { PipelineConfig } from "../src/config";
 import { loadPipelineConfig } from "../src/config";
 import {
@@ -23,47 +25,44 @@ afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });
 });
 
-function capturePlannerError(action: () => unknown): WorkflowPlannerError {
+const capturePlannerError = (action: () => unknown): WorkflowPlannerError => {
   try {
     action();
-  } catch (err) {
-    if (err instanceof WorkflowPlannerError) {
-      return err;
+  } catch (error) {
+    if (error instanceof WorkflowPlannerError) {
+      return error;
     }
-    throw err;
+    throw error;
   }
   throw new Error("Expected WorkflowPlannerError");
-}
+};
 
-function cloneConfig(config: PipelineConfig = DEFAULT_CONFIG): PipelineConfig {
-  return structuredClone(config);
-}
+const cloneConfig = (config: PipelineConfig = DEFAULT_CONFIG): PipelineConfig =>
+  structuredClone(config);
 
-function genericWorkflowConfig(): PipelineConfig {
+const commandNode = (
+  id: string,
+  needs?: string[]
+): PipelineConfig["workflows"][string]["nodes"][number] => ({
+  command: ["echo", id],
+  id,
+  kind: "command",
+  ...(needs ? { needs } : {}),
+});
+
+const genericWorkflowConfig = (): PipelineConfig => {
   const config = cloneConfig();
   config.default_workflow = "scratch";
   config.workflows.scratch = {
     nodes: [commandNode("start")],
   };
   return config;
-}
+};
 
-function commandNode(
-  id: string,
-  needs?: string[]
-): PipelineConfig["workflows"][string]["nodes"][number] {
-  return {
-    command: ["echo", id],
-    id,
-    kind: "command",
-    ...(needs ? { needs } : {}),
-  };
-}
-
-function deterministicDagNodes(
+const deterministicDagNodes = (
   size: number,
   seed: number
-): PipelineConfig["workflows"][string]["nodes"] {
+): PipelineConfig["workflows"][string]["nodes"] => {
   let state = seed;
   const random = () => {
     state = (state * 1_664_525 + 1_013_904_223) % 2 ** 32;
@@ -78,34 +77,31 @@ function deterministicDagNodes(
     }
     return commandNode(`node-${index}`, needs.length > 0 ? needs : undefined);
   });
-}
+};
 
-function batchIds(plan: ReturnType<typeof compileWorkflowPlan>): string[][] {
-  return plan.parallelBatches.map((batch) => batch.map((node) => node.id));
-}
+const batchIds = (plan: ReturnType<typeof compileWorkflowPlan>): string[][] =>
+  plan.parallelBatches.map((batch) => batch.map((node) => node.id));
 
-function dependentIds(
+const dependentIds = (
   plan: ReturnType<typeof compileWorkflowPlan>
-): Record<string, string[]> {
-  return Object.fromEntries(
+): Record<string, string[]> =>
+  Object.fromEntries(
     plan.topologicalOrder.map((node) => [node.id, node.dependents])
   );
-}
 
-function graphlibSuccessorIds(
+const graphlibSuccessorIds = (
   plan: ReturnType<typeof compileWorkflowPlan>
-): Record<string, string[]> {
-  return Object.fromEntries(
+): Record<string, string[]> =>
+  Object.fromEntries(
     plan.topologicalOrder.map((node) => [
       node.id,
       plan.graph.successors(node.id) ?? [],
     ])
   );
-}
 
-function graphlibReferenceBatchIds(
+const graphlibReferenceBatchIds = (
   plan: ReturnType<typeof compileWorkflowPlan>
-): string[][] {
+): string[][] => {
   const completed = new Set<string>();
   const remaining = [...plan.topologicalOrder];
   const batches: string[][] = [];
@@ -125,13 +121,11 @@ function graphlibReferenceBatchIds(
   }
 
   return batches;
-}
+};
 
-function graphlibReferenceTopologicalOrder(
+const graphlibReferenceTopologicalOrder = (
   plan: ReturnType<typeof compileWorkflowPlan>
-): string[] {
-  return alg.topsort(plan.graph);
-}
+): string[] => alg.topsort(plan.graph);
 
 describe("compileWorkflowPlan", () => {
   it("compiles the package default inspect workflow into stable topological order", () => {
@@ -180,11 +174,11 @@ describe("compileWorkflowPlan", () => {
             kind: "agent",
             profile: "moka-researcher",
             task_context: {
-              id: "PIPE-41.8",
-              title: "Branch context",
               acceptance_criteria: [
                 { id: "1", text: "Preserve child branch context." },
               ],
+              id: "PIPE-41.8",
+              title: "Branch context",
             },
           },
         ],
@@ -194,9 +188,9 @@ describe("compileWorkflowPlan", () => {
     const plan = compileWorkflowPlan(config, "scratch");
 
     expect(plan.topologicalOrder[0].children?.[0]?.taskContext).toEqual({
+      acceptanceCriteria: [{ id: "1", text: "Preserve child branch context." }],
       id: "PIPE-41.8",
       title: "Branch context",
-      acceptanceCriteria: [{ id: "1", text: "Preserve child branch context." }],
     });
   });
 
@@ -324,10 +318,10 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("matches graphlib-derived batches and dependents for representative DAG shapes", () => {
-    const cases: Array<{
+    const cases: {
       name: string;
       nodes: PipelineConfig["workflows"][string]["nodes"];
-    }> = [
+    }[] = [
       {
         name: "diamond fanout/fanin",
         nodes: [
@@ -375,10 +369,10 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("matches graphlib topological order for representative DAG shapes", () => {
-    const cases: Array<{
+    const cases: {
       name: string;
       nodes: PipelineConfig["workflows"][string]["nodes"];
-    }> = [
+    }[] = [
       {
         name: "diamond fanout/fanin",
         nodes: [

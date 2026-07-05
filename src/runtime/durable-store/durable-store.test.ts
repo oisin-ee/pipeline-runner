@@ -1,29 +1,27 @@
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
 import type { RunJournal } from "../run-journal";
 import { inMemoryDurableRunStore } from "./durable-store";
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
-function failedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 1"],
-    exitCode: 1,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "failed",
-  };
-}
+const failedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 1"],
+  exitCode: 1,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "failed",
+});
 
 describe("inMemoryDurableRunStore", () => {
   describe("record + get — AC1 round-trip by (runId, nodeId)", () => {
@@ -37,16 +35,16 @@ describe("inMemoryDurableRunStore", () => {
 
       store.record("run-1", "build", { criteria, inputs, result });
 
-      const retrieved = store.get("run-1", "build");
-      expect(retrieved?.result).toEqual(result);
-      expect(retrieved?.criteria).toEqual(criteria);
-      expect(retrieved?.inputs).toEqual(inputs);
-      expect(typeof retrieved?.recordedAt).toBe("string");
+      const retrieved = Option.getOrThrow(store.get("run-1", "build"));
+      expect(retrieved.result).toEqual(result);
+      expect(retrieved.criteria).toEqual(criteria);
+      expect(retrieved.inputs).toEqual(inputs);
+      expect(typeof retrieved.recordedAt).toBe("string");
     });
 
     it("returns undefined for an unrecorded (runId, nodeId) pair", () => {
       const store = inMemoryDurableRunStore();
-      expect(store.get("run-x", "missing")).toBeUndefined();
+      expect(Option.isNone(store.get("run-x", "missing"))).toBe(true);
     });
 
     it("isolates records across different runIds", () => {
@@ -56,7 +54,7 @@ describe("inMemoryDurableRunStore", () => {
         inputs: undefined,
         result: passedResult("node"),
       });
-      expect(store.get("run-B", "node")).toBeUndefined();
+      expect(Option.isNone(store.get("run-B", "node"))).toBe(true);
     });
 
     it("overwrites an existing record when recorded again", () => {
@@ -78,7 +76,9 @@ describe("inMemoryDurableRunStore", () => {
         result: second,
       });
 
-      expect(store.get("run-1", "node")?.result.output).toBe("second run");
+      expect(Option.getOrThrow(store.get("run-1", "node")).result.output).toBe(
+        "second run"
+      );
     });
   });
 
@@ -104,7 +104,7 @@ describe("inMemoryDurableRunStore", () => {
       const resumed = store.resumeCompleted("run-1");
 
       expect(resumed).toHaveLength(2);
-      expect(resumed.map((r) => r.nodeId).sort()).toEqual(["a", "b"]);
+      expect(resumed.map((r) => r.nodeId).toSorted()).toEqual(["a", "b"]);
       expect(resumed.every((r) => r.status === "passed")).toBe(true);
     });
 
@@ -171,7 +171,7 @@ describe("inMemoryDurableRunStore", () => {
 
       journal.record(result);
 
-      expect(store.get("run-2", "x")?.result).toEqual(result);
+      expect(Option.getOrThrow(store.get("run-2", "x")).result).toEqual(result);
     });
 
     it("store.record() writes are visible through journal.resumeCompleted()", () => {

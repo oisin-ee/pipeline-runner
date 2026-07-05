@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createCliProgram } from "../cli/program";
 
 describe("loop command registration", () => {

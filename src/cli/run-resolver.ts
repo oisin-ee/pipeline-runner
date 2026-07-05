@@ -24,7 +24,7 @@ export interface LocalRuntimeExecution {
 }
 
 export interface RemoteSubmitExecution {
-  command?: boolean;
+  command: boolean;
   kind: "remote-submit";
   mode: "full" | "quick";
   schedule?: string;
@@ -37,51 +37,27 @@ export interface RunResolution {
   target: MokaRunTarget;
 }
 
-export function resolveMokaRun(input: {
-  flags?: RunResolverFlags;
-  task: string;
-}): RunResolution {
-  const flags = input.flags ?? {};
-  const effort = flags.effort ?? "normal";
-  const target = flags.target ?? "local";
-  const mode = flags.readOnly ? "read" : "write";
-
-  assertFlagTargetCompatibility(flags, target);
-
-  return {
-    effort,
-    execution:
-      target === "remote"
-        ? resolveRemoteSubmit(flags, effort)
-        : resolveLocalRuntime(flags, effort),
-    mode,
-    target,
-  };
-}
-
-function assertFlagTargetCompatibility(
+const assertFlagTargetCompatibility = (
   flags: RunResolverFlags,
   target: MokaRunTarget
-): void {
-  if (flags.command && target !== "remote") {
+): void => {
+  if (flags.command === true && target !== "remote") {
     throw new Error("--command requires --target remote");
   }
-  if (flags.detach && target !== "local") {
+  if (flags.detach === true && target !== "local") {
     throw new Error("--detach requires --target local");
   }
-}
+};
 
-function resolveRemoteSubmit(
+const resolveRemoteSubmit = (
   flags: RunResolverFlags,
   effort: MokaRunEffort
-): RemoteSubmitExecution {
-  return {
-    command: flags.command,
-    kind: "remote-submit",
-    mode: effort === "quick" ? "quick" : "full",
-    schedule: flags.schedule,
-  };
-}
+): RemoteSubmitExecution => ({
+  command: flags.command === true,
+  kind: "remote-submit",
+  mode: effort === "quick" ? "quick" : "full",
+  schedule: flags.schedule,
+});
 
 // Precedence-ordered resolvers: the first that applies wins. Expressing the
 // selection as a table keeps each branch trivial (and the whole resolver under
@@ -89,21 +65,23 @@ function resolveRemoteSubmit(
 type LocalRuntimeResolver = (
   flags: RunResolverFlags,
   effort: MokaRunEffort
-) => LocalRuntimeExecution | undefined;
+) => LocalRuntimeExecution | void;
 
 const LOCAL_RUNTIME_RESOLVERS: LocalRuntimeResolver[] = [
   (flags) =>
-    flags.schedule
+    flags.schedule !== undefined && flags.schedule !== ""
       ? { kind: "local-runtime", schedule: flags.schedule }
       : undefined,
   (flags) =>
-    flags.workflow
+    flags.workflow !== undefined && flags.workflow !== ""
       ? { kind: "local-runtime", workflow: flags.workflow }
       : undefined,
   (flags) =>
-    flags.readOnly ? { kind: "local-runtime", workflow: "inspect" } : undefined,
+    flags.readOnly === true
+      ? { kind: "local-runtime", workflow: "inspect" }
+      : undefined,
   (flags) =>
-    flags.entrypoint
+    flags.entrypoint !== undefined && flags.entrypoint !== ""
       ? { entrypoint: flags.entrypoint, kind: "local-runtime" }
       : undefined,
   (_flags, effort) =>
@@ -116,15 +94,37 @@ const LOCAL_RUNTIME_RESOLVERS: LocalRuntimeResolver[] = [
       : undefined,
 ];
 
-function resolveLocalRuntime(
+const resolveLocalRuntime = (
   flags: RunResolverFlags,
   effort: MokaRunEffort
-): LocalRuntimeExecution {
+): LocalRuntimeExecution => {
   for (const resolve of LOCAL_RUNTIME_RESOLVERS) {
     const resolved = resolve(flags, effort);
-    if (resolved) {
+    if (resolved !== undefined) {
       return resolved;
     }
   }
   return { kind: "local-runtime" };
-}
+};
+
+export const resolveMokaRun = (input: {
+  flags?: RunResolverFlags;
+  task: string;
+}): RunResolution => {
+  const flags = input.flags ?? {};
+  const effort = flags.effort ?? "normal";
+  const target = flags.target ?? "local";
+  const mode = flags.readOnly === true ? "read" : "write";
+
+  assertFlagTargetCompatibility(flags, target);
+
+  return {
+    effort,
+    execution:
+      target === "remote"
+        ? resolveRemoteSubmit(flags, effort)
+        : resolveLocalRuntime(flags, effort),
+    mode,
+    target,
+  };
+};

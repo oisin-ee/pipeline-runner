@@ -9,14 +9,14 @@ const OPENCODE_EXCLUDES = [
   "build/",
   "coverage/",
 ];
-const LINE_RE = /\r?\n/;
+const LINE_RE = /\r?\n/u;
 
-export function ensureOpencodeGitExcludes(worktreePath: string): void {
+export const ensureOpencodeGitExcludes = (worktreePath: string): void => {
   const excludePath = join(worktreePath, ".git", "info", "exclude");
   if (!existsSync(excludePath)) {
     return;
   }
-  const existing = readFileSync(excludePath, "utf8");
+  const existing = readFileSync(excludePath, "utf-8");
   const missing = OPENCODE_EXCLUDES.filter(
     (entry) => !existing.split(LINE_RE).includes(entry)
   );
@@ -28,4 +28,4 @@ export function ensureOpencodeGitExcludes(worktreePath: string): void {
     excludePath,
     `${existing.endsWith("\n") ? "" : "\n"}# oisin-pipeline opencode excludes\n${missing.join("\n")}\n`
   );
-}
+};

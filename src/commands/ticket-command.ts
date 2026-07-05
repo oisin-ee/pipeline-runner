@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+
 import { registerCompleteSubcommand } from "./ticket/complete";
 import { registerCreateSubcommand } from "./ticket/create";
 import { registerGraphCheckSubcommand } from "./ticket/graph-check";
@@ -23,14 +24,14 @@ const SUBCOMMAND_REGISTRARS: readonly SubcommandRegistrar[] = [
   registerCompleteSubcommand,
 ];
 
-export function registerTicketCommand(
+export const registerTicketCommand = (
   program: Command,
   options: TicketCommandOptions = {}
-): void {
+): void => {
   const ticketCommand = program
     .command("ticket")
     .description("Scope, inspect, and select Backlog tickets for moka runs");
   for (const registrar of SUBCOMMAND_REGISTRARS) {
     registrar(ticketCommand, options);
   }
-}
+};

@@ -1,4 +1,5 @@
 import type { Effect } from "effect";
+
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { CommandExecutionContext } from "../command-executor";
 import type {
@@ -90,12 +91,10 @@ export interface GateKindModule {
  * union when `kind` is a type parameter, so this guard carries the narrowing
  * without a type assertion.
  */
-function hasKind<K extends GateKind>(
+const hasKind = <K extends GateKind>(
   gate: GateSpec,
   kind: K
-): gate is Extract<GateSpec, { kind: K }> {
-  return gate.kind === kind;
-}
+): gate is Extract<GateSpec, { kind: K }> => gate.kind === kind;
 
 /**
  * Binds one gate kind to its narrowly-typed evaluator and adapts it to the
@@ -104,19 +103,19 @@ function hasKind<K extends GateKind>(
  * wired to the wrong key, surfacing the bug instead of silently evaluating the
  * wrong gate.
  */
-export function forKind<K extends GateKind>(
-  kind: K,
-  evaluate: (
-    gate: Extract<GateSpec, { kind: K }>,
-    input: GateEvaluationInput
-  ) => ReturnType<GateEvaluator>
-): GateEvaluator {
-  return (input) => {
+export const forKind =
+  <K extends GateKind>(
+    kind: K,
+    evaluate: (
+      gate: Extract<GateSpec, { kind: K }>,
+      input: GateEvaluationInput
+    ) => ReturnType<GateEvaluator>
+  ): GateEvaluator =>
+  async (input) => {
     if (!hasKind(input.gate, kind)) {
       throw new Error(
         `gate registry mismatch: handler '${kind}' received '${input.gate.kind}'`
       );
     }
-    return evaluate(input.gate, input);
+    return await evaluate(input.gate, input);
   };
-}

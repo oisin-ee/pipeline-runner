@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildEvalReport,
-  type EvalRunResult,
-  renderEvalReport,
-} from "./eval-report";
+
+import { buildEvalReport, renderEvalReport } from "./eval-report";
+import type { EvalRunResult } from "./eval-report";
 
 const results: EvalRunResult[] = [
   {

@@ -1,3 +1,5 @@
+import { Option } from "effect";
+
 import type { PlannedWorkflowNode } from "../planning/compile";
 import type {
   ChangedFilesSnapshot,
@@ -5,6 +7,23 @@ import type {
   RuntimeStructuredOutput,
 } from "./contracts";
 import type { NodeHandoff } from "./handoff";
+
+interface NodeStateStoreInput {
+  handoffByNode?: Map<string, NodeHandoff>;
+  inheritedOutputNodeIds?: Set<string>;
+  lastOutputByNode?: Map<string, string>;
+  nodeSnapshots?: Map<string, ChangedFilesSnapshot>;
+  nodeStates?: Map<string, NodeExecutionState>;
+  structuredOutputs?: RuntimeStructuredOutput[];
+}
+
+const pendingNodeState = (id: string): NodeExecutionState => ({
+  attempts: 0,
+  evidence: [],
+  gates: [],
+  id,
+  status: "pending",
+});
 
 export class NodeStateStore {
   readonly handoffByNode: Map<string, NodeHandoff>;
@@ -16,11 +35,13 @@ export class NodeStateStore {
 
   // fallow-ignore-next-line complexity
   constructor(input: NodeStateStoreInput = {}) {
-    this.handoffByNode = input.handoffByNode ?? new Map();
-    this.inheritedOutputNodeIds = input.inheritedOutputNodeIds ?? new Set();
-    this.lastOutputByNode = input.lastOutputByNode ?? new Map();
-    this.nodeSnapshots = input.nodeSnapshots ?? new Map();
-    this.nodeStates = input.nodeStates ?? new Map();
+    this.handoffByNode = input.handoffByNode ?? new Map<string, NodeHandoff>();
+    this.inheritedOutputNodeIds =
+      input.inheritedOutputNodeIds ?? new Set<string>();
+    this.lastOutputByNode = input.lastOutputByNode ?? new Map<string, string>();
+    this.nodeSnapshots =
+      input.nodeSnapshots ?? new Map<string, ChangedFilesSnapshot>();
+    this.nodeStates = input.nodeStates ?? new Map<string, NodeExecutionState>();
     this.structuredOutputs = input.structuredOutputs ?? [];
   }
 
@@ -41,7 +62,7 @@ export class NodeStateStore {
   // fallow-ignore-next-line unused-class-member
   changedFiles(nodeId: string): string[] {
     const snapshot = this.nodeSnapshots.get(nodeId);
-    return snapshot ? [...snapshot.files] : [];
+    return snapshot === undefined ? [] : [...snapshot.files];
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -52,18 +73,18 @@ export class NodeStateStore {
   }
 
   // fallow-ignore-next-line unused-class-member
-  getNodeState(nodeId: string): NodeExecutionState | undefined {
-    return this.nodeStates.get(nodeId);
+  getNodeState(nodeId: string): Option.Option<NodeExecutionState> {
+    return Option.fromUndefinedOr(this.nodeStates.get(nodeId));
   }
 
   // fallow-ignore-next-line unused-class-member
-  getOutput(nodeId: string): string | undefined {
-    return this.lastOutputByNode.get(nodeId);
+  getOutput(nodeId: string): Option.Option<string> {
+    return Option.fromUndefinedOr(this.lastOutputByNode.get(nodeId));
   }
 
   // fallow-ignore-next-line unused-class-member
-  handoff(nodeId: string): NodeHandoff | undefined {
-    return this.handoffByNode.get(nodeId);
+  handoff(nodeId: string): Option.Option<NodeHandoff> {
+    return Option.fromUndefinedOr(this.handoffByNode.get(nodeId));
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -72,8 +93,8 @@ export class NodeStateStore {
   }
 
   // fallow-ignore-next-line unused-class-member
-  getSnapshot(nodeId: string): ChangedFilesSnapshot | undefined {
-    return this.nodeSnapshots.get(nodeId);
+  getSnapshot(nodeId: string): Option.Option<ChangedFilesSnapshot> {
+    return Option.fromUndefinedOr(this.nodeSnapshots.get(nodeId));
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -90,8 +111,8 @@ export class NodeStateStore {
   }
 
   // fallow-ignore-next-line unused-class-member
-  recordHandoff(nodeId: string, handoff: NodeHandoff | undefined): void {
-    if (handoff) {
+  recordHandoff(nodeId: string, handoff?: NodeHandoff): void {
+    if (handoff !== undefined) {
       this.handoffByNode.set(nodeId, handoff);
     }
   }
@@ -104,7 +125,7 @@ export class NodeStateStore {
   // fallow-ignore-next-line unused-class-member
   recordSessionId(nodeId: string, sessionId: string): void {
     const existing = this.nodeStates.get(nodeId);
-    if (existing) {
+    if (existing !== undefined) {
       this.nodeStates.set(nodeId, { ...existing, sessionId });
     }
   }
@@ -135,31 +156,11 @@ export class NodeStateStore {
   }
 }
 
-interface NodeStateStoreInput {
-  handoffByNode?: Map<string, NodeHandoff>;
-  inheritedOutputNodeIds?: Set<string>;
-  lastOutputByNode?: Map<string, string>;
-  nodeSnapshots?: Map<string, ChangedFilesSnapshot>;
-  nodeStates?: Map<string, NodeExecutionState>;
-  structuredOutputs?: RuntimeStructuredOutput[];
-}
-
-export function initialNodeStateStore(plan: {
+export const initialNodeStateStore = (plan: {
   topologicalOrder: Pick<PlannedWorkflowNode, "id">[];
-}): NodeStateStore {
-  return new NodeStateStore({
+}): NodeStateStore =>
+  new NodeStateStore({
     nodeStates: new Map(
       plan.topologicalOrder.map((node) => [node.id, pendingNodeState(node.id)])
     ),
   });
-}
-
-function pendingNodeState(id: string): NodeExecutionState {
-  return {
-    attempts: 0,
-    evidence: [],
-    gates: [],
-    id,
-    status: "pending",
-  };
-}

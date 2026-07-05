@@ -1,11 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+
 import {
   MOKA_NODE_STATUSES,
   MOKA_RUN_STATUSES,
-  type MokaNodeStatus,
-  type MokaRunEvent,
-  type MokaRunManifest,
-  type MokaRunStatus,
   mokaNodeStatusSchema,
   mokaRunEffortSchema,
   mokaRunEventSchema,
@@ -23,9 +20,6 @@ import {
   RUN_EFFORTS,
   RUN_MODES,
   RUN_TARGETS,
-  type RunEffort,
-  type RunMode,
-  type RunTarget,
   runEffortSchema,
   runModeSchema,
   runTargetSchema,
@@ -36,6 +30,15 @@ import {
   safeParseRunEffort,
   safeParseRunMode,
   safeParseRunTarget,
+} from "../src/run-control/contracts";
+import type {
+  MokaNodeStatus,
+  MokaRunEvent,
+  MokaRunManifest,
+  MokaRunStatus,
+  RunEffort,
+  RunMode,
+  RunTarget,
 } from "../src/run-control/contracts";
 
 describe("run-control contracts", () => {

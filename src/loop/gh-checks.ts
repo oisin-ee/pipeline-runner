@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -99,36 +99,57 @@ const COMMIT_STATUS_CLASS_TABLE: Readonly<Record<string, CheckClassification>> =
  */
 const CLASS_PRIORITY: Readonly<Record<CheckClassification, number>> = {
   fixable: 2,
-  "infra-down": 1,
   indeterminate: 0,
+  "infra-down": 1,
 };
 
-function higherPriority(
+const higherPriority = (
   a: CheckClassification,
   b: CheckClassification
-): CheckClassification {
-  return CLASS_PRIORITY[a] >= CLASS_PRIORITY[b] ? a : b;
-}
+): CheckClassification => (CLASS_PRIORITY[a] >= CLASS_PRIORITY[b] ? a : b);
 
-/** Map one required check-run to its classification signal (or null if not applicable). */
-function checkRunSignal(
+/** Map one required check-run to its classification signal. */
+const checkRunSignal = (
   run: z.infer<typeof checkRunSchema>
-): CheckClassification | null {
+): Option.Option<CheckClassification> => {
   if (!run.required || run.conclusion === null) {
-    return null;
+    return Option.none();
   }
-  return CONCLUSION_CLASS_TABLE[run.conclusion] ?? null;
-}
+  return Option.fromNullishOr(CONCLUSION_CLASS_TABLE[run.conclusion]);
+};
 
-/** Map one required commit status to its classification signal (or null if not applicable). */
-function commitStatusSignal(
+/** Map one required commit status to its classification signal. */
+const commitStatusSignal = (
   status: z.infer<typeof commitStatusSchema>
-): CheckClassification | null {
+): Option.Option<CheckClassification> => {
   if (!status.required) {
-    return null;
+    return Option.none();
   }
-  return COMMIT_STATUS_CLASS_TABLE[status.state] ?? null;
-}
+  return Option.fromNullishOr(COMMIT_STATUS_CLASS_TABLE[status.state]);
+};
+
+const parsePrList = (
+  raw: unknown
+): Effect.Effect<z.infer<typeof prListSchema>, Error> => {
+  const result = prListSchema.safeParse(raw);
+  if (!result.success) {
+    return Effect.fail(
+      new Error(`gh pr list response parse failed: ${result.error.message}`)
+    );
+  }
+  return Effect.succeed(result.data);
+};
+
+const toPrResolution = (items: z.infer<typeof prListSchema>): PrResolution =>
+  Option.match(Option.fromNullishOr(items.at(0)), {
+    onNone: () => ({ found: false }),
+    onSome: (pr) => ({
+      found: true,
+      headRefName: pr.headRefName,
+      number: pr.number,
+      url: pr.url,
+    }),
+  });
 
 // ---------------------------------------------------------------------------
 // resolvePrForRun
@@ -138,10 +159,10 @@ function commitStatusSignal(
  * Locate the open PR whose head branch is `moka/run/<runId>`.
  * Returns a typed not-found result (never throws on absence).
  */
-export function resolvePrForRun(
+export const resolvePrForRun = (
   runId: string,
   gh: GhRunner
-): Effect.Effect<PrResolution, Error> {
+): Effect.Effect<PrResolution, Error> => {
   const headBranch = `moka/run/${runId}`;
   const args = [
     "pr",
@@ -156,32 +177,37 @@ export function resolvePrForRun(
     Effect.flatMap((raw) => parsePrList(raw)),
     Effect.map((items) => toPrResolution(items))
   );
-}
+};
 
-function parsePrList(
+const parseChecksResponse = (
   raw: unknown
-): Effect.Effect<z.infer<typeof prListSchema>, Error> {
-  const result = prListSchema.safeParse(raw);
+): Effect.Effect<z.infer<typeof checksResponseSchema>, Error> => {
+  const result = checksResponseSchema.safeParse(raw);
   if (!result.success) {
     return Effect.fail(
-      new Error(`gh pr list response parse failed: ${result.error.message}`)
+      new Error(`gh pr checks response parse failed: ${result.error.message}`)
     );
   }
   return Effect.succeed(result.data);
-}
+};
 
-function toPrResolution(items: z.infer<typeof prListSchema>): PrResolution {
-  const pr = items[0];
-  if (pr === undefined) {
-    return { found: false };
-  }
-  return {
-    found: true,
-    headRefName: pr.headRefName,
-    number: pr.number,
-    url: pr.url,
-  };
-}
+const classifyChecks = (
+  checks: z.infer<typeof checksResponseSchema>
+): CheckClassification => {
+  // Collect signals from both check-runs and commit statuses, filter nulls,
+  // then reduce by priority (fixable > infra-down > indeterminate).
+  const signals: CheckClassification[] = [
+    ...checks.checkRuns.map(checkRunSignal),
+    ...checks.statuses.map(commitStatusSignal),
+  ].flatMap((signal) =>
+    Option.match(signal, {
+      onNone: () => [],
+      onSome: (value) => [value],
+    })
+  );
+
+  return signals.reduce<CheckClassification>(higherPriority, "indeterminate");
+};
 
 // ---------------------------------------------------------------------------
 // classifyRequiredChecks
@@ -197,10 +223,10 @@ function toPrResolution(items: z.infer<typeof prListSchema>): PrResolution {
  *      infra-down.
  *   3. Otherwise → indeterminate (stuck in_progress / queued / no verdict).
  */
-export function classifyRequiredChecks(
+export const classifyRequiredChecks = (
   pr: Extract<PrResolution, { found: true }>,
   gh: GhRunner
-): Effect.Effect<CheckClassification, Error> {
+): Effect.Effect<CheckClassification, Error> => {
   const args = [
     "pr",
     "checks",
@@ -213,29 +239,4 @@ export function classifyRequiredChecks(
     Effect.flatMap((raw) => parseChecksResponse(raw)),
     Effect.map((checks) => classifyChecks(checks))
   );
-}
-
-function parseChecksResponse(
-  raw: unknown
-): Effect.Effect<z.infer<typeof checksResponseSchema>, Error> {
-  const result = checksResponseSchema.safeParse(raw);
-  if (!result.success) {
-    return Effect.fail(
-      new Error(`gh pr checks response parse failed: ${result.error.message}`)
-    );
-  }
-  return Effect.succeed(result.data);
-}
-
-function classifyChecks(
-  checks: z.infer<typeof checksResponseSchema>
-): CheckClassification {
-  // Collect signals from both check-runs and commit statuses, filter nulls,
-  // then reduce by priority (fixable > infra-down > indeterminate).
-  const signals: CheckClassification[] = [
-    ...checks.checkRuns.map(checkRunSignal),
-    ...checks.statuses.map(commitStatusSignal),
-  ].filter((s): s is CheckClassification => s !== null);
-
-  return signals.reduce<CheckClassification>(higherPriority, "indeterminate");
-}
+};

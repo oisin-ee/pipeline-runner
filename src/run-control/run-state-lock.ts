@@ -24,7 +24,7 @@ let chain: Promise<void> = Promise.resolve();
  * once (use `withRunStateLock` unless you must span non-promise boundaries, as
  * the builtin hide/restore does).
  */
-export function acquireRunStateLock(): Promise<() => void> {
+export const acquireRunStateLock = async (): Promise<() => void> => {
   const previous = chain;
   let release: () => void = () => {
     // replaced synchronously below
@@ -32,15 +32,15 @@ export function acquireRunStateLock(): Promise<() => void> {
   chain = new Promise<void>((resolve) => {
     release = resolve;
   });
-  return previous.then(() => release);
-}
+  return await previous.then(() => release);
+};
 
 /** Run `fn` while holding the run-state lock, releasing on success or failure. */
-export async function withRunStateLock<T>(fn: () => Promise<T>): Promise<T> {
+export const withRunStateLock = async <T>(fn: () => Promise<T>): Promise<T> => {
   const release = await acquireRunStateLock();
   try {
     return await fn();
   } finally {
     release();
   }
-}
+};

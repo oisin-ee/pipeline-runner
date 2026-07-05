@@ -4,10 +4,11 @@ title: Complete Biome->oxc + strict + Effect lint migration (@oisin-ee/oxlint-co
 status: To Do
 assignee: []
 created_date: '2026-07-01 19:57'
-updated_date: '2026-07-04 19:42'
+updated_date: '2026-07-05 18:34'
 labels:
   - migration
-dependencies: []
+dependencies:
+  - PIPE-95.14
 ordinal: 332000
 ---
 
@@ -41,3 +42,12 @@ AC#2 UNMET/UNVERIFIED (ultracite check --type-aware passes 0 errors; tsc passes)
 
 REMAINING: (1) add oxfmt.config.ts (import ultracite/oxfmt); (2) add effect preset scoped to Effect code (effectMigration on any frontend); (3) remove biome.jsonc + @biomejs/biome, confirm ultracite check uses the oxlint provider; (4) update check script to --type-aware if that's the intended gate; (5) run the gate green + tsc. Kept To Do.
 <!-- SECTION:NOTES:END -->
+
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 PIPE-95.1 through PIPE-95.14 complete with per-ticket AC/DoD evidence recorded.
+- [ ] #2 nub run check exits 0.
+- [ ] #3 nub run typecheck exits 0.
+- [ ] #4 nub run test exits 0.
+- [ ] #5 Biome absence scan exits 1 for @biomejs/biome, ultracite/biome, biome-ignore, and biome lint references.
+<!-- DOD:END -->

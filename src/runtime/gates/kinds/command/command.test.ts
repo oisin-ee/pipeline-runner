@@ -1,20 +1,19 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { CommandExecutionContext } from "../../../command-executor";
 import type { CommandGateSpec } from "../../../contracts";
 import type { CommandExecutorService } from "../../contract";
 import { evaluateCommandGate } from "./command";
 
-function stubExecutor(exitCode: number): CommandExecutorService {
-  return {
-    execute: () =>
-      Effect.succeed({ evidence: [`exit ${exitCode}`], exitCode, output: "" }),
-  };
-}
+const stubExecutor = (exitCode: number): CommandExecutorService => ({
+  execute: () =>
+    Effect.succeed({ evidence: [`exit ${exitCode}`], exitCode, output: "" }),
+});
 
 const ctx: CommandExecutionContext = { worktreePath: process.cwd() };
 const gate: CommandGateSpec = { command: ["echo", "hi"], kind: "command" };
-const EXIT_MISMATCH_RE = /expected exit 0, got 1/;
+const EXIT_MISMATCH_RE = /expected exit 0, got 1/u;
 
 describe("evaluateCommandGate", () => {
   it("passes when exit code matches expected (default 0)", async () => {

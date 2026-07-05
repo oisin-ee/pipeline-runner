@@ -8,13 +8,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import {
   formatCodexAuthSyncResult,
   syncLocalCodexAuth,
 } from "../src/credentials/local-codex-auth-sync";
 
-const BROKER_REQUIRED_RE = /BROKER_API_KEY is required/;
+const BROKER_REQUIRED_RE = /BROKER_API_KEY is required/u;
 
 describe("syncLocalCodexAuth", () => {
   let dir: string;
@@ -24,8 +26,29 @@ describe("syncLocalCodexAuth", () => {
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   });
+
+  it("fails when BROKER_API_KEY is absent (no bespoke multi-auth path remains)", () => {
+    const previous = process.env.BROKER_API_KEY;
+    delete process.env.BROKER_API_KEY;
+    try {
+      const result = syncLocalCodexAuth({ root: dir });
+      expect(result.ok).toBe(false);
+      expect(result.items[0]?.action).toBe("error");
+      expect(result.items[0]?.message).toMatch(BROKER_REQUIRED_RE);
+    } finally {
+      if (previous !== undefined) {
+        process.env.BROKER_API_KEY = previous;
+      }
+    }
+  });
+
+  const gitRepo = (name: string): string => {
+    const repo = join(dir, name);
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    return repo;
+  };
 
   it("points each repo's opencode openai provider at the broker and never declares the multi-auth plugin", () => {
     const repo = gitRepo("app");
@@ -49,7 +72,7 @@ describe("syncLocalCodexAuth", () => {
     ]);
 
     const projectConfig = JSON.parse(
-      readFileSync(join(repo, ".opencode/opencode.json"), "utf8")
+      readFileSync(join(repo, ".opencode/opencode.json"), "utf-8")
     );
     expect(projectConfig.provider.openai.options.baseURL).toBe(
       "https://broker.test/v1"
@@ -67,7 +90,7 @@ describe("syncLocalCodexAuth", () => {
     });
 
     const projectConfig = JSON.parse(
-      readFileSync(join(repo, ".opencode/opencode.json"), "utf8")
+      readFileSync(join(repo, ".opencode/opencode.json"), "utf-8")
     );
     expect(projectConfig.provider.openai.options.baseURL).toBe(
       "https://broker.test/v1"
@@ -103,25 +126,4 @@ describe("syncLocalCodexAuth", () => {
 
     expect(formatCodexAuthSyncResult(result)).not.toContain("sk-maa-secret");
   });
-
-  it("fails when BROKER_API_KEY is absent (no bespoke multi-auth path remains)", () => {
-    const previous = process.env.BROKER_API_KEY;
-    delete process.env.BROKER_API_KEY;
-    try {
-      const result = syncLocalCodexAuth({ root: dir });
-      expect(result.ok).toBe(false);
-      expect(result.items[0]?.action).toBe("error");
-      expect(result.items[0]?.message).toMatch(BROKER_REQUIRED_RE);
-    } finally {
-      if (previous !== undefined) {
-        process.env.BROKER_API_KEY = previous;
-      }
-    }
-  });
-
-  function gitRepo(name: string): string {
-    const repo = join(dir, name);
-    mkdirSync(join(repo, ".git"), { recursive: true });
-    return repo;
-  }
 });

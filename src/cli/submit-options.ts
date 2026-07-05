@@ -1,10 +1,10 @@
-import { type Command, Option } from "commander";
+import { Option } from "commander";
+import type { Command } from "commander";
+
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config";
-import {
-  loadMokaGlobalConfig,
-  type MokaGlobalConfig,
-} from "../moka-global-config";
+import { loadMokaGlobalConfig } from "../moka-global-config";
+import type { MokaGlobalConfig } from "../moka-global-config";
 import { submitMoka } from "../moka-submit";
 
 interface ArgoCommandOptionOptions {
@@ -43,27 +43,32 @@ interface SecretRefFlags {
   skip?: boolean;
 }
 
-type SecretRef = { secretKey?: string; secretName: string } | undefined;
+interface SecretRef {
+  secretKey?: string;
+  secretName: string;
+}
 
 // Same override precedence as kubeContext/kubeconfigPath: CLI flag wins, then
 // global config, then absent. dbAuth/mcpGatewayAuth were previously read
 // unconditionally from global config with no per-invocation override, which
 // breaks the moment you target a cluster that doesn't have that secret name.
-function resolveOptionalSecretRef(
+const resolveOptionalSecretRef = (
   flags: SecretRefFlags,
-  fromGlobalConfig: SecretRef
-): SecretRef {
-  if (flags.skip) {
+  fromGlobalConfig?: SecretRef
+) => {
+  if (flags.skip === true) {
     return;
   }
-  if (flags.secretName) {
+  if (flags.secretName !== undefined && flags.secretName !== "") {
     return {
       secretName: flags.secretName,
-      ...(flags.secretKey ? { secretKey: flags.secretKey } : {}),
+      ...(flags.secretKey !== undefined && flags.secretKey !== ""
+        ? { secretKey: flags.secretKey }
+        : {}),
     };
   }
   return fromGlobalConfig;
-}
+};
 
 interface SecretNameFlags {
   secretName?: string;
@@ -74,15 +79,15 @@ interface SecretNameFlags {
 // field with no separate key -- the mounted key is fixed (see
 // appendNpmRegistryAuthStorage), so there is nothing for a "secret key" flag to
 // override.
-function resolveOptionalSecretName(
+const resolveOptionalSecretName = (
   flags: SecretNameFlags,
-  fromGlobalConfig: string | undefined
-): string | undefined {
-  if (flags.skip) {
+  fromGlobalConfig?: string
+) => {
+  if (flags.skip === true) {
     return;
   }
   return flags.secretName ?? fromGlobalConfig;
-}
+};
 
 type MokaSubmitInput = Parameters<typeof submitMoka>[0];
 type MokaSubmitCommonOptions = Omit<
@@ -90,8 +95,87 @@ type MokaSubmitCommonOptions = Omit<
   "commandArgv" | "mode" | "schedulePath" | "task" | "type"
 >;
 
-export function addMokaSubmitOptions(command: Command): Command {
-  return addRunnerArgoOptions(
+const resolveMokaEventUrl = (
+  flags: MokaSubmitFlags,
+  globalConfig?: MokaGlobalConfig
+) => flags.eventUrl ?? globalConfig?.momokaya.submit.eventUrl;
+
+const resolveMokaBrokerAuth = (
+  globalConfig?: MokaGlobalConfig
+): MokaSubmitCommonOptions["brokerAuth"] => {
+  const brokerAuth = globalConfig?.momokaya.submit.brokerAuth;
+  if (brokerAuth === undefined) {
+    throw new Error("momokaya.submit.brokerAuth is required for remote submit");
+  }
+  return brokerAuth;
+};
+
+const submitMokaCommandInput = (
+  input: string[],
+  flags: MokaSubmitFlags,
+  commonOptions: MokaSubmitCommonOptions
+): MokaSubmitInput => {
+  if (
+    flags.quick === true ||
+    (flags.schedule !== undefined && flags.schedule !== "")
+  ) {
+    throw new Error("--command cannot be combined with --quick or --schedule");
+  }
+  if (input.length === 0) {
+    throw new Error("Command argv is required when --command is set");
+  }
+  return {
+    ...commonOptions,
+    commandArgv: input,
+    task: flags.task,
+    type: "command",
+  };
+};
+
+const submitMokaGraphInput = (
+  input: string[],
+  flags: MokaSubmitFlags,
+  commonOptions: MokaSubmitCommonOptions
+): MokaSubmitInput => {
+  const task = input.join(" ").trim();
+  if (task === "") {
+    throw new Error("Task description is required");
+  }
+  return {
+    ...commonOptions,
+    mode: flags.quick === true ? "quick" : "full",
+    schedulePath: flags.schedule,
+    task,
+    type: "graph",
+  };
+};
+
+const addRunnerArgoOptions = (
+  command: Command,
+  options: ArgoCommandOptionOptions = {}
+): Command => {
+  command
+    .option("--name <name>", "Workflow metadata.name")
+    .option("--generate-name <prefix>", "Workflow metadata.generateName")
+    .option("--namespace <namespace>", "Workflow namespace");
+  if (options.kubeconfig === true) {
+    command
+      .option("--kubeconfig <path>", "kubeconfig path")
+      .option("--kube-context <name>", "kubeconfig context to target");
+  }
+  return command
+    .option("--service-account <name>", "Workflow service account")
+    .option("--image <image>", "runner image")
+    .addOption(
+      new Option("--image-pull-policy <policy>", "runner image pull policy")
+        .choices(["Always", "IfNotPresent", "Never"])
+        .default("Always")
+    )
+    .option("--image-pull-secret <name>", "imagePullSecret name");
+};
+
+export const addMokaSubmitOptions = (command: Command): Command =>
+  addRunnerArgoOptions(
     command
       .option("--quick", "submit the compact graph")
       .option("--command", "treat input after -- as explicit argv")
@@ -138,56 +222,23 @@ export function addMokaSubmitOptions(command: Command): Command {
       kubeconfig: true,
     }
   );
-}
 
-export function runMokaSubmitFromCli(
-  input: string[],
-  flags: MokaSubmitFlags
-): ReturnType<typeof submitMoka> {
-  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-  const config = loadPipelineConfig(cwd, {
-    allowMissingLintFileReferences: true,
-  });
-  const globalConfig = loadMokaGlobalConfig();
-  return submitMoka(
-    buildMokaSubmitInputFromCli({ config, cwd, flags, globalConfig, input })
-  );
-}
-
-export function buildMokaSubmitInputFromCli(input: {
-  config: PipelineConfig;
-  cwd: string;
-  flags: MokaSubmitFlags;
-  globalConfig?: MokaGlobalConfig | null;
-  input: string[];
-}): MokaSubmitInput {
-  const commonOptions = mokaCommonSubmitOptions({
-    config: input.config,
-    cwd: input.cwd,
-    eventUrl: resolveMokaEventUrl(input.flags, input.globalConfig),
-    flags: input.flags,
-    globalConfig: input.globalConfig,
-  });
-  if (input.flags.command) {
-    return submitMokaCommandInput(input.input, input.flags, commonOptions);
+export const parseImagePullPolicy = (
+  value?: string
+): "Always" | "IfNotPresent" | "Never" => {
+  if (value === "IfNotPresent" || value === "Never") {
+    return value;
   }
-  return submitMokaGraphInput(input.input, input.flags, commonOptions);
-}
+  return "Always";
+};
 
-function resolveMokaEventUrl(
-  flags: MokaSubmitFlags,
-  globalConfig?: MokaGlobalConfig | null
-): string | undefined {
-  return flags.eventUrl ?? globalConfig?.momokaya.submit.eventUrl;
-}
-
-function mokaCommonSubmitOptions(input: {
+const mokaCommonSubmitOptions = (input: {
   config: PipelineConfig;
   cwd: string;
   eventUrl?: string;
   flags: MokaSubmitFlags;
-  globalConfig?: MokaGlobalConfig | null;
-}): MokaSubmitCommonOptions {
+  globalConfig?: MokaGlobalConfig;
+}): MokaSubmitCommonOptions => {
   const momokaya = input.globalConfig?.momokaya;
   return {
     brokerAuth: resolveMokaBrokerAuth(input.globalConfig),
@@ -200,18 +251,10 @@ function mokaCommonSubmitOptions(input: {
       },
       momokaya?.submit.dbAuth
     ),
-    mcpGatewayAuth: resolveOptionalSecretRef(
-      {
-        secretKey: input.flags.mcpGatewayAuthSecretKey,
-        secretName: input.flags.mcpGatewayAuthSecretName,
-        skip: input.flags.skipMcpGatewayAuth,
-      },
-      momokaya?.submit.mcpGatewayAuth
-    ),
     delivery: { pullRequest: input.flags.openPr === true },
-    eventUrl: input.eventUrl,
     eventAuthSecretKey: momokaya?.submit.eventAuthSecretKey,
     eventAuthSecretName: momokaya?.submit.eventAuthSecretName,
+    eventUrl: input.eventUrl,
     generateName: input.flags.generateName,
     gitCredentialsSecretName: momokaya?.submit.gitCredentialsSecretName,
     githubAuthSecretName: momokaya?.submit.githubAuthSecretName,
@@ -221,6 +264,14 @@ function mokaCommonSubmitOptions(input: {
       input.flags.imagePullSecret ?? momokaya?.submit.imagePullSecretName,
     kubeContext: input.flags.kubeContext ?? momokaya?.kubernetes.context,
     kubeconfigPath: input.flags.kubeconfig ?? momokaya?.kubernetes.kubeconfig,
+    mcpGatewayAuth: resolveOptionalSecretRef(
+      {
+        secretKey: input.flags.mcpGatewayAuthSecretKey,
+        secretName: input.flags.mcpGatewayAuthSecretName,
+        skip: input.flags.skipMcpGatewayAuth,
+      },
+      momokaya?.submit.mcpGatewayAuth
+    ),
     name: input.flags.name,
     namespace: input.flags.namespace ?? momokaya?.kubernetes.namespace,
     npmRegistryAuthSecretName: resolveOptionalSecretName(
@@ -234,84 +285,38 @@ function mokaCommonSubmitOptions(input: {
       input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
     worktreePath: input.cwd,
   };
-}
+};
 
-function resolveMokaBrokerAuth(
-  globalConfig: MokaGlobalConfig | null | undefined
-): MokaSubmitCommonOptions["brokerAuth"] {
-  const brokerAuth = globalConfig?.momokaya.submit.brokerAuth;
-  if (!brokerAuth) {
-    throw new Error("momokaya.submit.brokerAuth is required for remote submit");
+export const buildMokaSubmitInputFromCli = (input: {
+  config: PipelineConfig;
+  cwd: string;
+  flags: MokaSubmitFlags;
+  globalConfig?: MokaGlobalConfig;
+  input: string[];
+}): MokaSubmitInput => {
+  const commonOptions = mokaCommonSubmitOptions({
+    config: input.config,
+    cwd: input.cwd,
+    eventUrl: resolveMokaEventUrl(input.flags, input.globalConfig),
+    flags: input.flags,
+    globalConfig: input.globalConfig,
+  });
+  if (input.flags.command === true) {
+    return submitMokaCommandInput(input.input, input.flags, commonOptions);
   }
-  return brokerAuth;
-}
+  return submitMokaGraphInput(input.input, input.flags, commonOptions);
+};
 
-function submitMokaCommandInput(
+export const runMokaSubmitFromCli = async (
   input: string[],
-  flags: MokaSubmitFlags,
-  commonOptions: MokaSubmitCommonOptions
-): MokaSubmitInput {
-  if (flags.quick || flags.schedule) {
-    throw new Error("--command cannot be combined with --quick or --schedule");
-  }
-  if (input.length === 0) {
-    throw new Error("Command argv is required when --command is set");
-  }
-  return {
-    ...commonOptions,
-    commandArgv: input,
-    task: flags.task,
-    type: "command",
-  };
-}
-
-function submitMokaGraphInput(
-  input: string[],
-  flags: MokaSubmitFlags,
-  commonOptions: MokaSubmitCommonOptions
-): MokaSubmitInput {
-  const task = input.join(" ").trim();
-  if (!task) {
-    throw new Error("Task description is required");
-  }
-  return {
-    ...commonOptions,
-    mode: flags.quick ? "quick" : "full",
-    schedulePath: flags.schedule,
-    task,
-    type: "graph",
-  };
-}
-
-function addRunnerArgoOptions(
-  command: Command,
-  options: ArgoCommandOptionOptions = {}
-): Command {
-  command
-    .option("--name <name>", "Workflow metadata.name")
-    .option("--generate-name <prefix>", "Workflow metadata.generateName")
-    .option("--namespace <namespace>", "Workflow namespace");
-  if (options.kubeconfig) {
-    command
-      .option("--kubeconfig <path>", "kubeconfig path")
-      .option("--kube-context <name>", "kubeconfig context to target");
-  }
-  return command
-    .option("--service-account <name>", "Workflow service account")
-    .option("--image <image>", "runner image")
-    .addOption(
-      new Option("--image-pull-policy <policy>", "runner image pull policy")
-        .choices(["Always", "IfNotPresent", "Never"])
-        .default("Always")
-    )
-    .option("--image-pull-secret <name>", "imagePullSecret name");
-}
-
-export function parseImagePullPolicy(
-  value: string | undefined
-): "Always" | "IfNotPresent" | "Never" {
-  if (value === "IfNotPresent" || value === "Never") {
-    return value;
-  }
-  return "Always";
-}
+  flags: MokaSubmitFlags
+): ReturnType<typeof submitMoka> => {
+  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+  const config = loadPipelineConfig(cwd, {
+    allowMissingLintFileReferences: true,
+  });
+  const globalConfig = loadMokaGlobalConfig() ?? undefined;
+  return await submitMoka(
+    buildMokaSubmitInputFromCli({ config, cwd, flags, globalConfig, input })
+  );
+};

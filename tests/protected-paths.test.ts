@@ -9,10 +9,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect } from "effect";
 import matter from "gray-matter";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+
 import { parsePipelineConfigParts } from "../src/config.ts";
 import { opencodeAdapter } from "../src/install-commands/opencode.ts";
 import type { RunnerLaunchPlan } from "../src/runner";
@@ -22,7 +24,7 @@ import { createProtectedPathGuard } from "../src/runtime/protected-paths/protect
 import { RepoIoServiceLive } from "../src/runtime/services/repo-io-service.ts";
 import { loadBacklogTaskStoreEffect } from "../src/tickets/backlog-task-store.ts";
 
-const VIOLATION_RE = /Protected-path violation/;
+const VIOLATION_RE = /Protected-path violation/u;
 const AC_FILE = "backlog/tasks/PIPE-1.md";
 const TEST_FILE = "tests/foo.test.ts";
 const PROTECTED = ["backlog/tasks/**", "tests/**"] as const;
@@ -56,7 +58,7 @@ afterEach(() => {
   }
 });
 
-function makeWorktree(): string {
+const makeWorktree = (): string => {
   const root = mkdtempSync(join(tmpdir(), "moka-protected-"));
   tempDirs.push(root);
   mkdirSync(join(root, "backlog", "tasks"), { recursive: true });
@@ -64,29 +66,26 @@ function makeWorktree(): string {
   writeFileSync(join(root, AC_FILE), AC_CONTENT);
   writeFileSync(join(root, TEST_FILE), TEST_CONTENT);
   return root;
-}
+};
 
-function shellPlan(
+const shellPlan = (
   cwd: string,
   script: string,
-  protectedPaths: readonly string[] | undefined
-): RunnerLaunchPlan {
-  return {
-    args: ["-c", script],
-    command: "bash",
-    cwd,
-    env: {},
-    nodeId: "node",
-    outputFormat: "text",
-    ...(protectedPaths ? { protectedPaths } : {}),
-    runnerId: "shell",
-    type: "command",
-  };
-}
+  protectedPaths: readonly string[] | void
+): RunnerLaunchPlan => ({
+  args: ["-c", script],
+  command: "bash",
+  cwd,
+  env: {},
+  nodeId: "node",
+  outputFormat: "text",
+  ...(protectedPaths ? { protectedPaths } : {}),
+  runnerId: "shell",
+  type: "command",
+});
 
-function read(root: string, rel: string): string {
-  return readFileSync(join(root, rel), "utf8");
-}
+const read = (root: string, rel: string): string =>
+  readFileSync(join(root, rel), "utf-8");
 
 const ORIGINAL: Record<string, string> = {
   [AC_FILE]: AC_CONTENT,
@@ -95,11 +94,11 @@ const ORIGINAL: Record<string, string> = {
 
 // Run a tampering script in a fresh guarded worktree and return the outcome for
 // the caller to assert on.
-async function runTamper(script: string) {
+const runTamper = async (script: string) => {
   const root = makeWorktree();
   const result = await runLaunchPlan(shellPlan(root, script, PROTECTED));
   return { result, root };
-}
+};
 
 describe("protected-path guard module", () => {
   it("detects and reverts a modified protected file", () => {
@@ -126,7 +125,7 @@ describe("protected-path guard module", () => {
 
   it("is a no-op when no protected patterns are configured", () => {
     const root = makeWorktree();
-    const guard = createProtectedPathGuard(root, undefined);
+    const guard = createProtectedPathGuard(root);
     writeFileSync(join(root, AC_FILE), "freely edited");
 
     expect(guard.verifyAndRestore()).toEqual([]);
@@ -162,13 +161,16 @@ describe("runLaunchPlan — CLI/runner transport enforcement", () => {
       `ln -s "$PWD/${TEST_FILE}" evil-link && printf 'HACK' > evil-link`,
       TEST_FILE,
     ],
-  ])("rejects %s — file unchanged, node failed", async (_name, script, target) => {
-    const { result, root } = await runTamper(script);
+  ])(
+    "rejects %s — file unchanged, node failed",
+    async (_name, script, target) => {
+      const { result, root } = await runTamper(script);
 
-    expect(read(root, target)).toBe(ORIGINAL[target]);
-    expect(result.stderr).toMatch(VIOLATION_RE);
-    expect(result.exitCode).not.toBe(0);
-  });
+      expect(read(root, target)).toBe(ORIGINAL[target]);
+      expect(result.stderr).toMatch(VIOLATION_RE);
+      expect(result.exitCode).not.toBe(0);
+    }
+  );
 
   it("AC#7: reverts a symlink substituted for the protected path itself", async () => {
     const script = `rm -f ${TEST_FILE} && ln -s /etc/hosts ${TEST_FILE}`;
@@ -195,20 +197,17 @@ describe("runLaunchPlan — CLI/runner transport enforcement", () => {
   });
 });
 
-function protectedConfig() {
-  return parsePipelineConfigParts({
-    runners: `
+const protectedConfig = () =>
+  parsePipelineConfigParts({
+    pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    model: openai/gpt-5.5
-    capabilities:
-      native_subagents: true
-      output_formats: [text, json]
-      tools: [read, edit, write, bash]
-      filesystem: [read-only, workspace-write]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - { id: run, kind: agent, profile: code-writer }
 `,
     profiles: `
 version: 1
@@ -225,24 +224,26 @@ profiles:
       mode: workspace-write
       protected: ["backlog/tasks/**", "tests/**"]
 `,
-    pipeline: `
+    runners: `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - { id: run, kind: agent, profile: code-writer }
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.5
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json]
+      tools: [read, edit, write, bash]
+      filesystem: [read-only, workspace-write]
 `,
   });
-}
 
 describe("filesystem.protected wiring", () => {
   it("AC#5: createRunnerLaunchPlan copies filesystem.protected onto the plan", () => {
     const plan = createRunnerLaunchPlan(protectedConfig(), {
-      profileId: "code-writer",
       nodeId: "run",
+      profileId: "code-writer",
       prompt: "do work",
       worktreePath: "/tmp/wt",
     });

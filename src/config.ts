@@ -1,4 +1,3 @@
-// biome-ignore lint/performance/noBarrelFile: Public config API intentionally remains a stable barrel after the mechanical split.
 export {
   DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST,
   OPENCODE_ECOSYSTEM_MANIFEST_PATH,

@@ -1,13 +1,18 @@
-import { type Command, Option } from "commander";
+import { Option } from "commander";
+import type { Command } from "commander";
 import { Effect } from "effect";
+import { fromUndefinedOr, isNone, some } from "effect/Option";
+
 import type { RunCommand } from "../../cli/run-command";
 import {
   MOKA_RUN_EFFORTS,
   MOKA_RUN_TARGETS,
-  type MokaRunEffort,
-  type MokaRunTarget,
-  type RunResolverFlags,
   resolveMokaRun,
+} from "../../cli/run-resolver";
+import type {
+  MokaRunEffort,
+  MokaRunTarget,
+  RunResolverFlags,
 } from "../../cli/run-resolver";
 import type { BacklogService } from "../../runtime/services/backlog-service";
 import { BacklogServiceLive } from "../../runtime/services/backlog-service";
@@ -54,22 +59,25 @@ its acceptance criteria through the backlog tools:
 
 Use backlog tools on your working branch. Do not hand-edit the task markdown file.`;
 
-function ticketRunTask(ticket: BacklogTaskRecord): TicketRunDescriptor {
-  const title = formatNextTicket(ticket);
+const ticketRunTask = (ticket: BacklogTaskRecord): TicketRunDescriptor => {
+  const title = formatNextTicket(some(ticket));
   const description = ticket.description?.trim();
-  const body = description ? `${title}\n\n${description}` : title;
+  const body =
+    description !== undefined && description.length > 0
+      ? `${title}\n\n${description}`
+      : title;
   const directive = BACKLOG_STATUS_DIRECTIVE.replaceAll(
     "<TICKET_ID>",
     ticket.id
   );
   const task = `${body}\n\n${directive}`;
   return { task, ticketId: ticket.id };
-}
+};
 
-function validateTicketStartFlagsEffect(
+const validateTicketStartFlagsEffect = (
   flags: TicketStartFlags
-): Effect.Effect<void, TicketCommandError> {
-  return flags.readOnly && flags.target === "remote"
+): Effect.Effect<void, TicketCommandError> =>
+  flags.readOnly === true && flags.target === "remote"
     ? Effect.fail(
         new TicketCommandError({
           message:
@@ -77,50 +85,44 @@ function validateTicketStartFlagsEffect(
         })
       )
     : Effect.void;
-}
 
-function ticketStartRunFlags(flags: TicketStartFlags): RunResolverFlags {
-  return {
-    effort: flags.effort ?? "normal",
-    readOnly: flags.readOnly,
-    target: flags.target ?? "local",
-  };
-}
+const ticketStartRunFlags = (flags: TicketStartFlags): RunResolverFlags => ({
+  effort: flags.effort ?? "normal",
+  readOnly: flags.readOnly,
+  target: flags.target ?? "local",
+});
 
-function ticketStartRunFlagsEffect(
+const ticketStartRunFlagsEffect = (
   flags: TicketStartFlags
-): Effect.Effect<RunResolverFlags, TicketCommandError> {
-  return Effect.gen(function* () {
+): Effect.Effect<RunResolverFlags, TicketCommandError> =>
+  Effect.gen(function* effectBody() {
     yield* validateTicketStartFlagsEffect(flags);
     return ticketStartRunFlags(flags);
   });
-}
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
+const shellQuote = (value: string): string =>
+  `'${value.replaceAll("'", "'\\''")}'`;
 
-function formatTicketStartDryRun(
+const formatTicketStartDryRun = (
   flags: RunResolverFlags,
   task: string
-): string {
-  return [
+): string =>
+  [
     "moka run",
     `--effort ${flags.effort ?? "normal"}`,
     `--target ${flags.target ?? "local"}`,
-    flags.readOnly ? "--read-only" : "",
+    flags.readOnly === true ? "--read-only" : "",
     shellQuote(task),
   ]
-    .filter(Boolean)
+    .filter((part) => part.length > 0)
     .join(" ");
-}
 
-function startTicketEffect(
+const startTicketEffect = (
   worktreePath: string,
   flags: TicketStartFlags,
-  runCommand: RunCommand | undefined
-): Effect.Effect<void, unknown, RepoIoService | BacklogService> {
-  return Effect.gen(function* () {
+  runCommand: ReturnType<typeof some<RunCommand>>
+): Effect.Effect<void, unknown, RepoIoService | BacklogService> =>
+  Effect.gen(function* effectBody() {
     const { loaded, selectionOptions } = yield* loadTicketSelectionEffect(
       worktreePath,
       flags
@@ -140,12 +142,14 @@ function startTicketEffect(
       try: () => resolveMokaRun({ flags: runFlags, task }),
     });
 
-    yield* writeLineEffect(`Selected ticket: ${formatNextTicket(selected)}`);
-    if (flags.dryRun) {
+    yield* writeLineEffect(
+      `Selected ticket: ${formatNextTicket(some(selected))}`
+    );
+    if (flags.dryRun === true) {
       yield* writeLineEffect(formatTicketStartDryRun(runFlags, task));
       return;
     }
-    if (!runCommand) {
+    if (isNone(runCommand)) {
       return yield* Effect.fail(
         new TicketCommandError({
           message: "Could not start moka run: no run dispatcher configured.",
@@ -160,7 +164,7 @@ function startTicketEffect(
           message: `Could not start moka run for ticket '${selected.id}': ${errorMessage(error)}`,
         }),
       try: async () => {
-        await runCommand({
+        await runCommand.value({
           descriptionParts,
           flags: runFlags,
           resolution,
@@ -170,12 +174,11 @@ function startTicketEffect(
       },
     });
   });
-}
 
-export function registerStartSubcommand(
+export const registerStartSubcommand = (
   ticketCommand: Command,
   options: TicketCommandOptions
-): void {
+): void => {
   ticketCommand
     .command("start")
     .description("Claim the next ready Backlog ticket and run moka")
@@ -197,10 +200,14 @@ export function registerStartSubcommand(
         .default("local")
     )
     .option("--read-only", "run the read-only inspect workflow")
-    .action((flags: TicketStartFlags) =>
-      runTicketProgramWithBacklog(
-        startTicketEffect(currentWorktreePath(), flags, options.runCommand),
+    .action(async (flags: TicketStartFlags) => {
+      await runTicketProgramWithBacklog(
+        startTicketEffect(
+          currentWorktreePath(),
+          flags,
+          fromUndefinedOr(options.runCommand)
+        ),
         options.backlogLayer ?? BacklogServiceLive
-      )
-    );
-}
+      );
+    });
+};

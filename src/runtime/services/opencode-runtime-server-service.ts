@@ -1,9 +1,10 @@
 import { Context, Effect, Layer } from "effect";
+
 import {
-  type OpencodeServerHandle,
   OpencodeServerStartupError,
   openOpencodeServer,
 } from "../opencode-server";
+import type { OpencodeServerHandle } from "../opencode-server";
 
 export type OpenOpencodeRuntimeServer = (opts: {
   signal?: AbortSignal;
@@ -21,30 +22,13 @@ export class OpencodeRuntimeServerService extends Context.Service<
   }
 >()("OpencodeRuntimeServerService") {}
 
-export const OpencodeRuntimeServerServiceLive = Layer.succeed(
-  OpencodeRuntimeServerService,
-  {
-    open: (input) =>
-      Effect.tryPromise({
-        catch: (error) => error,
-        try: () => openRuntimeServer(input),
-      }),
-  }
-);
+const startupMessage = (error: OpencodeServerStartupError): string =>
+  `${error.message}. Confirm the opencode binary is installed and recent enough to expose 'opencode serve', or set OPENCODE_SERVER_URL to an already-running server.`;
 
-function openRuntimeServer(input: {
-  openServer?: OpenOpencodeRuntimeServer;
+const startServer = async (input: {
   signal?: AbortSignal;
   worktreePath: string;
-}): Promise<OpencodeServerHandle> {
-  const openServer = input.openServer ?? startServer;
-  return openServer(input);
-}
-
-async function startServer(input: {
-  signal?: AbortSignal;
-  worktreePath: string;
-}): Promise<OpencodeServerHandle> {
+}): Promise<OpencodeServerHandle> => {
   try {
     return await openOpencodeServer({
       directory: input.worktreePath,
@@ -58,8 +42,24 @@ async function startServer(input: {
     }
     throw error;
   }
-}
+};
 
-function startupMessage(error: OpencodeServerStartupError): string {
-  return `${error.message}. Confirm the opencode binary is installed and recent enough to expose 'opencode serve', or set OPENCODE_SERVER_URL to an already-running server.`;
-}
+const openRuntimeServer = async (input: {
+  openServer?: OpenOpencodeRuntimeServer;
+  signal?: AbortSignal;
+  worktreePath: string;
+}): Promise<OpencodeServerHandle> => {
+  const openServer = input.openServer ?? startServer;
+  return await openServer(input);
+};
+
+export const OpencodeRuntimeServerServiceLive = Layer.succeed(
+  OpencodeRuntimeServerService,
+  {
+    open: (input) =>
+      Effect.tryPromise({
+        catch: (error) => error,
+        try: async () => await openRuntimeServer(input),
+      }),
+  }
+);

@@ -1,5 +1,6 @@
 import { parse } from "jsonc-parser";
 import { describe, expect, it } from "vitest";
+
 import { mergeOpenCodeProjectConfig } from "../src/opencode-project-config";
 
 const projection = {

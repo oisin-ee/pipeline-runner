@@ -1,12 +1,14 @@
 // fallow-ignore-file complexity
 import { basename } from "node:path";
+
 import { Effect } from "effect";
+import type { Option } from "effect/Option";
+import { isNone, isSome, none, some } from "effect/Option";
 import matter from "gray-matter";
-import {
-  DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST,
-  type OpenCodeEcosystemManifest,
-  type PipelineConfig,
-} from "../config";
+import { z } from "zod";
+
+import { DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST } from "../config";
+import type { OpenCodeEcosystemManifest, PipelineConfig } from "../config";
 import { renderOpenCodeGatewayConfig } from "../mcp/host-renderers";
 import { mergeOpenCodeProjectConfig } from "../opencode-project-config";
 import { resolvePackageAssetPath } from "../package-assets";
@@ -17,28 +19,31 @@ import {
   RepoIoService,
   runRepoIoSync,
 } from "../runtime/services/repo-io-service";
+import { parseJson } from "../safe-json";
 import {
-  type ActiveCommandHost,
   AGENTS_MD_END,
   AGENTS_MD_START,
   COMMAND_HOSTS,
-  type CommandDefinition,
   commandIdForHost,
   compactLines,
   entrypointDescription,
   entrypointEntries,
   GENERATED_MARKER,
   GENERATED_TS_MARKER,
-  type HostAdapter,
   instructionsPointer,
   invocationForHost,
-  type MergeDefinitionResult,
   OPENCODE_PROJECT_CONFIG_PATH,
   OWNER_MARKER_PREFIX,
   OWNER_TS_MARKER_PREFIX,
-  type ProfileEntry,
   profileEntries,
   SINGLE_OPENCODE_PLUGIN_ARRAY_RE,
+} from "./shared";
+import type {
+  ActiveCommandHost,
+  CommandDefinition,
+  HostAdapter,
+  MergeDefinitionResult,
+  ProfileEntry,
 } from "./shared";
 
 const OPENCODE_ORCHESTRATOR_AGENT_ID = "MoKa Orchestrator";
@@ -46,8 +51,23 @@ type ActorConfig = PipelineConfig["profiles"][string];
 type EcosystemCode = OpenCodeEcosystemManifest["ecosystem_code"][number];
 
 interface OpencodePermissionOptions {
-  allowedTaskAgents?: string[];
+  allowedTaskAgents: string[];
 }
+
+const openCodeProjectConfigProjectionSchema = z.object({
+  $schema: z.string().optional(),
+  lsp: z.unknown().optional(),
+  mcp: z.record(z.string(), z.unknown()).optional(),
+  plugin: z.array(z.unknown()).optional(),
+  provider: z
+    .record(
+      z.string(),
+      z.object({
+        models: z.record(z.string(), z.unknown()).optional(),
+      })
+    )
+    .optional(),
+});
 
 type DispatchKind = "cli" | "native-model-agent" | "native-named-agent";
 
@@ -62,99 +82,141 @@ export interface AgentDispatchRoute {
   runnerId: string;
 }
 
-export function header(host: ActiveCommandHost): string {
-  return [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join(
-    "\n"
-  );
-}
+export const header = (host: ActiveCommandHost): string =>
+  [GENERATED_MARKER, `${OWNER_MARKER_PREFIX}host=${host} -->`, ""].join("\n");
 
-export function markdown(data: Record<string, unknown>, body: string): string {
-  return `${matter.stringify(body.trimEnd(), data).trimEnd()}\n`;
-}
+export const markdown = (data: Record<string, unknown>, body: string): string =>
+  `${matter.stringify(body.trimEnd(), data).trimEnd()}\n`;
 
-function entrypointCommandDefinitions(
+const entrypointCommandDefinitions = (
   _host: ActiveCommandHost,
   config: PipelineConfig,
   makeDefinition: (
     id: string,
     entrypoint: PipelineConfig["entrypoints"][string]
   ) => CommandDefinition
-): CommandDefinition[] {
-  return entrypointEntries(config).map(([id, entrypoint]) =>
+): CommandDefinition[] =>
+  entrypointEntries(config).map(([id, entrypoint]) =>
     makeDefinition(id, entrypoint)
   );
-}
 
-function nativeProfileEntries(
-  host: ActiveCommandHost,
-  config: PipelineConfig
-): ProfileEntry[] {
-  return profileEntries(config).filter(
-    ([id, profile]) =>
-      id !== config.orchestrator?.profile && canRunNatively(host, profile)
-  );
-}
-
-function orchestratorProfile(config: PipelineConfig): ActorConfig | undefined {
-  if (!config.orchestrator) {
-    return;
+const orchestratorProfile = (config: PipelineConfig): Option<ActorConfig> => {
+  if (config.orchestrator === undefined) {
+    return none();
   }
-  const profile = config.profiles[config.orchestrator.profile];
-  if (!profile) {
+  if (!Object.hasOwn(config.profiles, config.orchestrator.profile)) {
     throw new Error(
       `Orchestrator profile '${config.orchestrator.profile}' is not declared.`
     );
   }
-  return {
+  const profile = config.profiles[config.orchestrator.profile];
+  return some({
     ...profile,
-  };
-}
+  });
+};
 
-export function resolvedHostModel(
+export const resolvedHostModel = (
   config: PipelineConfig,
   host: ActiveCommandHost,
   profile: PipelineConfig["profiles"][string]
-): string | undefined {
-  const runner = config.runners[profile.runner];
-  const hostRunner = config.runners[host];
-  if (profile.host_models?.[host]) {
-    return profile.host_models[host];
+): string => {
+  const runner = Object.hasOwn(config.runners, profile.runner)
+    ? config.runners[profile.runner]
+    : undefined;
+  const hostRunner = Object.hasOwn(config.runners, host)
+    ? config.runners[host]
+    : undefined;
+  const profileHostModel = profile.host_models?.[host];
+  if (profileHostModel !== undefined && profileHostModel !== "") {
+    return profileHostModel;
   }
-  if (runner?.host_models?.[host]) {
-    return runner.host_models[host];
+  const runnerHostModel =
+    runner === undefined ? undefined : runner.host_models?.[host];
+  if (runnerHostModel !== undefined && runnerHostModel !== "") {
+    return runnerHostModel;
   }
   if (profile.runner === host) {
-    return profile.model ?? runner?.model;
+    return profile.model ?? runner?.model ?? "";
   }
-  return hostRunner?.model;
-}
+  return hostRunner?.model ?? "";
+};
 
-function canRunNatively(
+const isModelRunner = (runnerId: string): boolean =>
+  COMMAND_HOSTS.some((host) => host === runnerId);
+
+const canRunNatively = (
   host: ActiveCommandHost,
   profile: PipelineConfig["profiles"][string]
-): boolean {
+): boolean => {
   if (profile.runner === host) {
     return true;
   }
   return host === "opencode" && isModelRunner(profile.runner);
-}
+};
 
-function isModelRunner(runnerId: string): boolean {
-  return COMMAND_HOSTS.some((host) => host === runnerId);
-}
+const nativeProfileEntries = (
+  host: ActiveCommandHost,
+  config: PipelineConfig
+): ProfileEntry[] =>
+  profileEntries(config).filter(
+    ([id, profile]) =>
+      id !== config.orchestrator?.profile && canRunNatively(host, profile)
+  );
 
-export function agentDispatchRoutes(
+const nativeAgentIdForHost = (
+  host: ActiveCommandHost,
+  profileId: string
+): string => (host === "opencode" ? opencodeAgentName(profileId) : profileId);
+
+const dispatchRouteForAgent = (
+  host: ActiveCommandHost,
+  config: PipelineConfig,
+  route: Pick<AgentDispatchRoute, "needs" | "nodeId" | "profile" | "profileId">
+): AgentDispatchRoute => {
+  const runnerId = route.profile.runner;
+  if (runnerId === host) {
+    const model = resolvedHostModel(config, host, route.profile);
+    return {
+      ...route,
+      kind: "native-named-agent",
+      ...(model === "" ? {} : { model }),
+      nativeAgentId: nativeAgentIdForHost(host, route.profileId),
+      runnerId,
+    };
+  }
+  if (host === "opencode" && isModelRunner(runnerId)) {
+    const model = resolvedHostModel(config, host, route.profile);
+    return {
+      ...route,
+      kind: "native-model-agent",
+      ...(model === "" ? {} : { model }),
+      nativeAgentId: nativeAgentIdForHost(host, route.profileId),
+      runnerId,
+    };
+  }
+  return {
+    ...route,
+    kind: "cli",
+    runnerId,
+  };
+};
+
+export const agentDispatchRoutes = (
   host: ActiveCommandHost,
   config: PipelineConfig,
   workflowId = config.default_workflow
-): AgentDispatchRoute[] {
+): AgentDispatchRoute[] => {
   const plan = compileWorkflowPlan(config, workflowId);
   return plan.topologicalOrder.flatMap((node) => {
-    if (!(node.kind === "agent" && node.profile)) {
+    if (
+      node.kind !== "agent" ||
+      node.profile === undefined ||
+      node.profile === ""
+    ) {
       return [];
     }
     const profile = config.profiles[node.profile];
-    if (!profile) {
+    if (!Object.hasOwn(config.profiles, node.profile)) {
       return [];
     }
     return [
@@ -166,51 +228,11 @@ export function agentDispatchRoutes(
       }),
     ];
   });
-}
+};
 
-function dispatchRouteForAgent(
-  host: ActiveCommandHost,
-  config: PipelineConfig,
-  route: Pick<AgentDispatchRoute, "needs" | "nodeId" | "profile" | "profileId">
-): AgentDispatchRoute {
-  const runnerId = route.profile.runner;
-  if (runnerId === host) {
-    const model = resolvedHostModel(config, host, route.profile);
-    return {
-      ...route,
-      kind: "native-named-agent",
-      ...(model ? { model } : {}),
-      nativeAgentId: nativeAgentIdForHost(host, route.profileId),
-      runnerId,
-    };
-  }
-  if (host === "opencode" && isModelRunner(runnerId)) {
-    const model = resolvedHostModel(config, host, route.profile);
-    return {
-      ...route,
-      kind: "native-model-agent",
-      ...(model ? { model } : {}),
-      nativeAgentId: nativeAgentIdForHost(host, route.profileId),
-      runnerId,
-    };
-  }
-  return {
-    ...route,
-    kind: "cli",
-    runnerId,
-  };
-}
-
-function nativeAgentIdForHost(
-  host: ActiveCommandHost,
-  profileId: string
-): string {
-  return host === "opencode" ? opencodeAgentName(profileId) : profileId;
-}
-
-export function grants(actor: ActorConfig): string {
-  const listGrant = (values: string[] | undefined): string =>
-    (values ?? []).join(", ") || "none";
+export const grants = (actor: ActorConfig): string => {
+  const listGrant = (values: readonly string[] = []): string =>
+    values.join(", ") || "none";
 
   return [
     `model: ${actor.model ?? "default"}`,
@@ -222,60 +244,31 @@ export function grants(actor: ActorConfig): string {
     `network: ${actor.network?.mode ?? "default"}`,
     ...("output" in actor ? [`output: ${actor.output?.format ?? "text"}`] : []),
   ].join("\n");
-}
+};
 
-function orchestratorBlock(config: PipelineConfig): string {
+const orchestratorBlock = (config: PipelineConfig): string => {
   const profile = orchestratorProfile(config);
-  if (!profile) {
+  if (isNone(profile)) {
     return "Configured orchestrator: none";
   }
   return [
     "Configured orchestrator:",
-    grants(profile),
+    grants(profile.value),
     `hooks: ${Object.keys(config.hooks.functions).join(", ") || "none"}`,
     "",
-    instructionsPointer(profile),
+    instructionsPointer(profile.value),
   ].join("\n");
-}
+};
 
-export function entrypointDispatchBlock(
-  _host: ActiveCommandHost,
-  _config: PipelineConfig,
+const entrypointTargetId = (
+  entrypoint: PipelineConfig["entrypoints"][string]
+): string =>
+  "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule;
+
+const canonicalLocalRunFlags = (
   id: string,
   entrypoint: PipelineConfig["entrypoints"][string]
-): string | undefined {
-  const command = canonicalLocalRunCommand(id, entrypoint);
-  return [
-    `Run \`${command}\` for local supervised execution.`,
-    `Configured entrypoint target: ${entrypointTargetId(entrypoint)}.`,
-    "This compatibility slash command delegates to the canonical `moka run` supervisor instead of reimplementing orchestration in the host.",
-    "The supervisor owns schedule generation, node execution, run state, and configured gates.",
-    "Keep reporting clear that this path is CLI/supervised runtime, not host-native Task execution.",
-  ].join("\n");
-}
-
-function entrypointTargetId(
-  entrypoint: PipelineConfig["entrypoints"][string]
-): string {
-  return "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule;
-}
-
-function canonicalLocalRunCommand(
-  id: string,
-  entrypoint: PipelineConfig["entrypoints"][string]
-): string {
-  return [
-    "moka",
-    "run",
-    ...canonicalLocalRunFlags(id, entrypoint),
-    "<task description>",
-  ].join(" ");
-}
-
-function canonicalLocalRunFlags(
-  id: string,
-  entrypoint: PipelineConfig["entrypoints"][string]
-): string[] {
+): string[] => {
   if (id === "quick") {
     return ["--effort", "quick"];
   }
@@ -289,15 +282,41 @@ function canonicalLocalRunFlags(
     return ["--workflow", entrypoint.workflow];
   }
   return ["--entrypoint", id];
-}
+};
 
-function localRosterAgentIds(config: PipelineConfig): string[] {
-  return nativeProfileEntries("opencode", config).map(([id]) =>
+const canonicalLocalRunCommand = (
+  id: string,
+  entrypoint: PipelineConfig["entrypoints"][string]
+): string =>
+  [
+    "moka",
+    "run",
+    ...canonicalLocalRunFlags(id, entrypoint),
+    "<task description>",
+  ].join(" ");
+
+export const entrypointDispatchBlock = (
+  _host: ActiveCommandHost,
+  _config: PipelineConfig,
+  id: string,
+  entrypoint: PipelineConfig["entrypoints"][string]
+): string => {
+  const command = canonicalLocalRunCommand(id, entrypoint);
+  return [
+    `Run \`${command}\` for local supervised execution.`,
+    `Configured entrypoint target: ${entrypointTargetId(entrypoint)}.`,
+    "This compatibility slash command delegates to the canonical `moka run` supervisor instead of reimplementing orchestration in the host.",
+    "The supervisor owns schedule generation, node execution, run state, and configured gates.",
+    "Keep reporting clear that this path is CLI/supervised runtime, not host-native Task execution.",
+  ].join("\n");
+};
+
+const localRosterAgentIds = (config: PipelineConfig): string[] =>
+  nativeProfileEntries("opencode", config).map(([id]) =>
     nativeAgentIdForHost("opencode", id)
   );
-}
 
-function localOrchestratorDispatchBlock(config: PipelineConfig): string {
+const localOrchestratorDispatchBlock = (config: PipelineConfig): string => {
   const roster = localRosterAgentIds(config);
   return [
     "Orchestrate through the canonical local `moka run` supervisor. Load and follow the `orchestrate` skill.",
@@ -309,7 +328,7 @@ function localOrchestratorDispatchBlock(config: PipelineConfig): string {
     "",
     "Report the supervisor's evidence and configured-gate results; do not invent extra gates.",
   ].join("\n");
-}
+};
 
 const OPENCODE_PERMISSION_TOOLS = [
   "bash",
@@ -323,21 +342,6 @@ const OPENCODE_PERMISSION_TOOLS = [
 
 const PROTECTED_FILE_TOOLS = ["edit", "write"] as const;
 
-function opencodePermission(
-  actor: ActorConfig,
-  options: OpencodePermissionOptions = {}
-): Record<string, string | Record<string, string>> {
-  const allowed = new Set(actor.tools ?? []);
-  return {
-    ...opencodeToolPermissions(allowed),
-    ...opencodeProtectedFilePermissions(allowed, actor.filesystem?.protected),
-    external_directory: "deny",
-    lsp: "allow",
-    skill: opencodeSkillPermission(actor.skills ?? []),
-    task: opencodeTaskPermission(allowed, options.allowedTaskAgents ?? []),
-  };
-}
-
 /**
  * PIPE-90.12: overlay per-path `deny` rules for the profile's protected set onto
  * the file-mutating tools so an allowed `edit`/`write` still cannot touch the
@@ -345,11 +349,11 @@ function opencodePermission(
  * last-match-wins, so `"*": "allow"` precedes the protected denies. Tools the
  * profile never granted stay fully denied by {@link opencodeToolPermissions}.
  */
-function opencodeProtectedFilePermissions(
+const opencodeProtectedFilePermissions = (
   allowed: Set<string>,
-  protectedPaths: readonly string[] | undefined
-): Record<string, Record<string, string>> {
-  if (!protectedPaths || protectedPaths.length === 0) {
+  protectedPaths: readonly string[] = []
+): Record<string, Record<string, string>> => {
+  if (protectedPaths.length === 0) {
     return {};
   }
   const overlay = protectedPermissionOverlay(protectedPaths);
@@ -359,48 +363,62 @@ function opencodeProtectedFilePermissions(
       { "*": "allow", ...overlay },
     ])
   );
-}
+};
 
-function opencodeToolPermissions(
+const opencodeToolPermissions = (
   allowed: Set<string>
-): Record<(typeof OPENCODE_PERMISSION_TOOLS)[number], string> {
-  return Object.fromEntries(
-    OPENCODE_PERMISSION_TOOLS.map((tool) => [
-      tool,
-      allowed.has(tool) ? "allow" : "deny",
-    ])
-  ) as Record<(typeof OPENCODE_PERMISSION_TOOLS)[number], string>;
-}
+): Record<(typeof OPENCODE_PERMISSION_TOOLS)[number], string> => ({
+  bash: allowed.has("bash") ? "allow" : "deny",
+  edit: allowed.has("edit") ? "allow" : "deny",
+  glob: allowed.has("glob") ? "allow" : "deny",
+  grep: allowed.has("grep") ? "allow" : "deny",
+  list: allowed.has("list") ? "allow" : "deny",
+  read: allowed.has("read") ? "allow" : "deny",
+  write: allowed.has("write") ? "allow" : "deny",
+});
 
-function opencodeSkillPermission(
-  skills: string[]
-): string | Record<string, string> {
-  return namedOpencodePermissionMap(skills);
-}
-
-function opencodeTaskPermission(
-  allowed: Set<string>,
-  allowedTaskAgents: string[]
-): string | Record<string, string> {
-  return allowedTaskAgents.length > 0
-    ? namedOpencodePermissionMap(allowedTaskAgents)
-    : toolPermission(allowed, "task");
-}
-
-function namedOpencodePermissionMap(
+const namedOpencodePermissionMap = (
   names: string[]
-): string | Record<string, string> {
-  return names.length > 0
+): string | Record<string, string> =>
+  names.length > 0
     ? {
         "*": "deny",
         ...Object.fromEntries(names.map((name) => [name, "allow"])),
       }
     : "deny";
-}
 
-function toolPermission(allowed: Set<string>, tool: string): string {
-  return allowed.has(tool) ? "allow" : "deny";
-}
+const opencodeSkillPermission = (
+  skills: string[]
+): string | Record<string, string> => namedOpencodePermissionMap(skills);
+
+const toolPermission = (allowed: Set<string>, tool: string): string =>
+  allowed.has(tool) ? "allow" : "deny";
+
+const opencodeTaskPermission = (
+  allowed: Set<string>,
+  allowedTaskAgents: string[]
+): string | Record<string, string> =>
+  allowedTaskAgents.length > 0
+    ? namedOpencodePermissionMap(allowedTaskAgents)
+    : toolPermission(allowed, "task");
+
+const opencodePermission = (
+  actor: ActorConfig,
+  options: OpencodePermissionOptions = { allowedTaskAgents: [] }
+): Record<string, string | Record<string, string>> => {
+  const allowed = new Set(actor.tools ?? []);
+  return {
+    ...opencodeToolPermissions(allowed),
+    ...opencodeProtectedFilePermissions(
+      allowed,
+      actor.filesystem?.protected ?? []
+    ),
+    external_directory: "deny",
+    lsp: "allow",
+    skill: opencodeSkillPermission(actor.skills ?? []),
+    task: opencodeTaskPermission(allowed, options.allowedTaskAgents),
+  };
+};
 
 /**
  * PIPE-83.11: whether to synthesize the singleton pipeline gateway into this
@@ -408,72 +426,55 @@ function toolPermission(allowed: Set<string>, tool: string): string {
  * once in the global opencode config (via `moka gateway configure-host
  * --scope global`) and inherited, so it is not embedded per project.
  */
-export function shouldEmbedProjectGateway(config: PipelineConfig): boolean {
-  return (
-    config.mcp_gateway !== undefined &&
-    config.mcp_gateway.host_scope !== "global"
-  );
-}
+export const shouldEmbedProjectGateway = (config: PipelineConfig): boolean =>
+  config.mcp_gateway !== undefined &&
+  config.mcp_gateway.host_scope !== "global";
 
-function renderOpenCodeProjectConfig(config: PipelineConfig): string {
+const npmPluginPackage = (item: EcosystemCode): string[] => {
+  if (item.plugin?.kind === "npm") {
+    return [item.plugin.package];
+  }
+  return [];
+};
+
+const opencodePluginConfig = (): { plugin?: string[] } => {
+  const plugins = DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST.ecosystem_code
+    .flatMap((item) => npmPluginPackage(item))
+    .toSorted((a, b) => a.localeCompare(b));
+  return plugins.length > 0 ? { plugin: plugins } : {};
+};
+
+const formatOpenCodeProjectJson = (value: Record<string, unknown>): string =>
+  `${JSON.stringify(value, null, 2).replace(
+    SINGLE_OPENCODE_PLUGIN_ARRAY_RE,
+    '\n  "plugin": [$1]'
+  )}\n`;
+
+const parseOpenCodeProjectConfigProjection = (source: string) =>
+  openCodeProjectConfigProjectionSchema.parse(
+    parseJson(source, "OpenCode project config projection")
+  );
+
+const renderOpenCodeProjectConfig = (config: PipelineConfig): string => {
   const base = shouldEmbedProjectGateway(config)
-    ? (JSON.parse(renderOpenCodeGatewayConfig(config)) as Record<
-        string,
-        unknown
-      >)
+    ? parseOpenCodeProjectConfigProjection(renderOpenCodeGatewayConfig(config))
     : { $schema: "https://opencode.ai/config.json" };
   return formatOpenCodeProjectJson({
     ...base,
     lsp: true,
     ...opencodePluginConfig(),
   });
-}
+};
 
-function opencodePluginConfig(): { plugin?: string[] } {
-  const plugins = DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST.ecosystem_code
-    .flatMap((item) => npmPluginPackage(item))
-    .sort((a, b) => a.localeCompare(b));
-  return plugins.length > 0 ? { plugin: plugins } : {};
-}
-
-function npmPluginPackage(item: EcosystemCode): string[] {
-  if (item.plugin?.kind === "npm") {
-    return [item.plugin.package];
-  }
-  return [];
-}
-
-function formatOpenCodeProjectJson(value: Record<string, unknown>): string {
-  return `${JSON.stringify(value, null, 2).replace(
-    SINGLE_OPENCODE_PLUGIN_ARRAY_RE,
-    '\n  "plugin": [$1]'
-  )}\n`;
-}
-
-function localPluginDefinitionsEffect(): Effect.Effect<
-  CommandDefinition[],
-  unknown,
-  RepoIoService
-> {
-  return Effect.gen(function* () {
-    const definitions = yield* Effect.all(
-      DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST.ecosystem_code.map(
-        localPluginDefinitionEffect
-      )
-    );
-    return definitions.flat();
-  });
-}
-
-function localPluginDefinitionEffect(
+const localPluginDefinitionEffect = (
   item: EcosystemCode
-): Effect.Effect<CommandDefinition[], unknown, RepoIoService> {
+): Effect.Effect<CommandDefinition[], unknown, RepoIoService> => {
   const pluginConfig = item.plugin;
   if (pluginConfig?.kind !== "local") {
     return Effect.succeed([]);
   }
   const source = resolvePackageAssetPath(pluginConfig.source_path);
-  return Effect.gen(function* () {
+  return Effect.gen(function* effectBody() {
     const service = yield* RepoIoService;
     const plugin = (yield* service.readText(source)).trimEnd();
     return [
@@ -491,104 +492,26 @@ function localPluginDefinitionEffect(
       },
     ];
   });
-}
+};
 
-function opencodeDefinitionsEffect(
-  config: PipelineConfig,
-  cwd: string
-): Effect.Effect<CommandDefinition[], unknown, RepoIoService> {
-  return Effect.gen(function* () {
-    const orchestrator = orchestratorProfile(config);
-    const pluginDefinitions = yield* localPluginDefinitionsEffect();
-    return [
-      ...entrypointCommandDefinitions("opencode", config, (id, entrypoint) => ({
-        content: markdown(
-          {
-            ...(orchestrator ? { agent: OPENCODE_ORCHESTRATOR_AGENT_ID } : {}),
-            description: entrypointDescription(id, entrypoint),
-          },
-          compactLines([
-            header("opencode").trimEnd(),
-            "",
-            `Invoke this command with \`${invocationForHost("opencode", id)}\`.`,
-            "",
-            orchestratorBlock(config),
-            "",
-            entrypointDispatchBlock("opencode", config, id, entrypoint),
-          ]).join("\n")
-        ),
-        host: "opencode",
-        invocation: invocationForHost("opencode", id),
-        path: `.opencode/commands/${commandIdForHost("opencode", id)}.md`,
-      })),
-      {
-        content: renderOpenCodeProjectConfig(config),
-        host: "opencode" as const,
-        invocation: invocationForHost("opencode"),
-        path: ".opencode/opencode.json",
-      },
-      ...(orchestrator
-        ? [
-            {
-              content: markdown(
-                {
-                  description:
-                    "Orchestrate the configured pipeline and enforce gates.",
-                  mode: "primary",
-                  name: OPENCODE_ORCHESTRATOR_AGENT_ID,
-                  permission: opencodePermission(orchestrator, {
-                    allowedTaskAgents: localRosterAgentIds(config),
-                  }),
-                },
-                compactLines([
-                  header("opencode").trimEnd(),
-                  "",
-                  orchestratorBlock(config),
-                  "",
-                  localOrchestratorDispatchBlock(config),
-                ]).join("\n")
-              ),
-              host: "opencode" as const,
-              invocation: invocationForHost("opencode"),
-              path: `.opencode/agents/${OPENCODE_ORCHESTRATOR_AGENT_ID}.md`,
-            },
-          ]
-        : []),
-      ...nativeProfileEntries("opencode", config).map(([id, profile]) => ({
-        content: markdown(
-          {
-            name: nativeAgentIdForHost("opencode", id),
-            description: profile.description ?? id,
-            hidden: false,
-            mode: "all",
-            ...opencodeModelProjection(config, profile),
-            permission: opencodePermission(profile),
-          },
-          [
-            header("opencode").trimEnd(),
-            "",
-            profile.description ?? id,
-            "",
-            "Configured grants:",
-            grants(profile),
-            "",
-            instructionsPointer(profile),
-          ].join("\n")
-        ),
-        host: "opencode" as const,
-        invocation: invocationForHost("opencode"),
-        path: `.opencode/agents/${nativeAgentIdForHost("opencode", id)}.md`,
-      })),
-      ...pluginDefinitions,
-      projectAgentsMdDefinition(cwd, "opencode"),
-    ];
+const localPluginDefinitionsEffect = (): Effect.Effect<
+  CommandDefinition[],
+  unknown,
+  RepoIoService
+> =>
+  Effect.gen(function* effectBody() {
+    const definitions = yield* Effect.all(
+      DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST.ecosystem_code.map(
+        localPluginDefinitionEffect
+      )
+    );
+    return definitions.flat();
   });
-}
 
-export function projectAgentsMdDefinition(
+export const projectAgentsMdDefinition = (
   cwd: string,
   host: ActiveCommandHost
-): CommandDefinition {
+): CommandDefinition => {
   const repoName = basename(cwd);
   return {
     block: {
@@ -626,49 +549,139 @@ export function projectAgentsMdDefinition(
     invocation: invocationForHost(host),
     path: "AGENTS.md",
   };
-}
+};
 
-function opencodeModelProjection(
+const opencodeModelProjection = (
   config: PipelineConfig,
   profile: PipelineConfig["profiles"][string]
-): Record<string, string> {
+): Record<string, string> => {
   const model = resolvedHostModel(config, "opencode", profile);
-  return model ? { model } : {};
-}
+  return model === "" ? {} : { model };
+};
+
+const opencodeDefinitionsEffect = (
+  config: PipelineConfig,
+  cwd: string
+): Effect.Effect<CommandDefinition[], unknown, RepoIoService> =>
+  Effect.gen(function* effectBody() {
+    const orchestrator = orchestratorProfile(config);
+    const pluginDefinitions = yield* localPluginDefinitionsEffect();
+    return [
+      ...entrypointCommandDefinitions("opencode", config, (id, entrypoint) => ({
+        content: markdown(
+          {
+            ...(isSome(orchestrator)
+              ? { agent: OPENCODE_ORCHESTRATOR_AGENT_ID }
+              : {}),
+            description: entrypointDescription(id, entrypoint),
+          },
+          compactLines([
+            header("opencode").trimEnd(),
+            "",
+            `Invoke this command with \`${invocationForHost("opencode", id)}\`.`,
+            "",
+            orchestratorBlock(config),
+            "",
+            entrypointDispatchBlock("opencode", config, id, entrypoint),
+          ]).join("\n")
+        ),
+        host: "opencode",
+        invocation: invocationForHost("opencode", id),
+        path: `.opencode/commands/${commandIdForHost("opencode", id)}.md`,
+      })),
+      {
+        content: renderOpenCodeProjectConfig(config),
+        host: "opencode" as const,
+        invocation: invocationForHost("opencode"),
+        path: ".opencode/opencode.json",
+      },
+      ...(isSome(orchestrator)
+        ? [
+            {
+              content: markdown(
+                {
+                  description:
+                    "Orchestrate the configured pipeline and enforce gates.",
+                  mode: "primary",
+                  name: OPENCODE_ORCHESTRATOR_AGENT_ID,
+                  permission: opencodePermission(orchestrator.value, {
+                    allowedTaskAgents: localRosterAgentIds(config),
+                  }),
+                },
+                compactLines([
+                  header("opencode").trimEnd(),
+                  "",
+                  orchestratorBlock(config),
+                  "",
+                  localOrchestratorDispatchBlock(config),
+                ]).join("\n")
+              ),
+              host: "opencode" as const,
+              invocation: invocationForHost("opencode"),
+              path: `.opencode/agents/${OPENCODE_ORCHESTRATOR_AGENT_ID}.md`,
+            },
+          ]
+        : []),
+      ...nativeProfileEntries("opencode", config).map(([id, profile]) => ({
+        content: markdown(
+          {
+            description: profile.description ?? id,
+            hidden: false,
+            mode: "all",
+            name: nativeAgentIdForHost("opencode", id),
+            ...opencodeModelProjection(config, profile),
+            permission: opencodePermission(profile),
+          },
+          [
+            header("opencode").trimEnd(),
+            "",
+            profile.description ?? id,
+            "",
+            "Configured grants:",
+            grants(profile),
+            "",
+            instructionsPointer(profile),
+          ].join("\n")
+        ),
+        host: "opencode" as const,
+        invocation: invocationForHost("opencode"),
+        path: `.opencode/agents/${nativeAgentIdForHost("opencode", id)}.md`,
+      })),
+      ...pluginDefinitions,
+      projectAgentsMdDefinition(cwd, "opencode"),
+    ];
+  });
 
 /**
  * The opencode HostAdapter. Encapsulates all opencode-specific command
  * generation, resource roots, and config-merge behaviour.
  */
 export const opencodeAdapter: HostAdapter = {
+  definitions(config: PipelineConfig, cwd: string): CommandDefinition[] {
+    return runRepoIoSync(opencodeDefinitionsEffect(config, cwd));
+  },
   host: "opencode",
+  isAlwaysForced(definition: CommandDefinition): boolean {
+    return definition.path === OPENCODE_PROJECT_CONFIG_PATH;
+  },
+  mergeDefinition(
+    definition: CommandDefinition,
+    existingContent: string
+  ): Option<MergeDefinitionResult> {
+    if (definition.path !== OPENCODE_PROJECT_CONFIG_PATH) {
+      return none();
+    }
+    const projection = parseOpenCodeProjectConfigProjection(definition.content);
+    const merged = mergeOpenCodeProjectConfig(existingContent, projection);
+    if (!merged.ok) {
+      return some({ content: definition.content, ok: false });
+    }
+    return some({ content: merged.content, ok: true });
+  },
   resourceRoots: [
     ".opencode/commands",
     ".opencode/agents",
     ".opencode/plugins",
     ".opencode/skills",
   ],
-  definitions(config: PipelineConfig, cwd: string): CommandDefinition[] {
-    return runRepoIoSync(opencodeDefinitionsEffect(config, cwd));
-  },
-  mergeDefinition(
-    definition: CommandDefinition,
-    existingContent: string
-  ): MergeDefinitionResult | undefined {
-    if (definition.path !== OPENCODE_PROJECT_CONFIG_PATH) {
-      return;
-    }
-    const projection = JSON.parse(definition.content) as Record<
-      string,
-      unknown
-    >;
-    const merged = mergeOpenCodeProjectConfig(existingContent, projection);
-    if (!merged.ok) {
-      return { ok: false, content: definition.content };
-    }
-    return { ok: true, content: merged.content };
-  },
-  isAlwaysForced(definition: CommandDefinition): boolean {
-    return definition.path === OPENCODE_PROJECT_CONFIG_PATH;
-  },
 };

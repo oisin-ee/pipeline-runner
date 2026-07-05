@@ -1,8 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
-import { type PipelineConfig, parsePipelineConfigParts } from "../src/config";
+
+import { parsePipelineConfigParts } from "../src/config";
+import type { PipelineConfig } from "../src/config";
 import { resumeRun } from "../src/pipeline-runtime";
 import type { RunnerLaunchPlan } from "../src/runner";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
@@ -16,16 +19,16 @@ import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
 
-const NO_STORE_ERROR = /no durable store is configured/;
-const NO_PERSISTED_STATE_ERROR = /no persisted node results were found/;
+const NO_STORE_ERROR = /no durable store is configured/u;
+const NO_PERSISTED_STATE_ERROR = /no persisted node results were found/u;
 
 const tempDirs: string[] = [];
 
-function tempProject(): string {
+const tempProject = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "moka-resume-"));
   tempDirs.push(dir);
   return dir;
-}
+};
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -35,17 +38,23 @@ afterEach(() => {
 
 // A two-node sequential workflow (a -> b): the smallest graph that proves the
 // resume seed skips a completed node while still running its dependent.
-function twoNodeConfig(): PipelineConfig {
-  return parsePipelineConfigParts({
-    runners: `
+const twoNodeConfig = (): PipelineConfig =>
+  parsePipelineConfigParts({
+    pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: a
+        kind: agent
+        profile: a
+      - id: b
+        kind: agent
+        profile: b
+        needs: [a]
 `,
     profiles: `
 version: 1
@@ -63,60 +72,49 @@ profiles:
     instructions: { inline: Agent B }
     output: { format: text }
 `,
-    pipeline: `
+    runners: `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: a
-        kind: agent
-        profile: a
-      - id: b
-        kind: agent
-        profile: b
-        needs: [a]
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
 `,
   });
-}
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
 // A recording executor: every spawned node id is captured so the test can assert
 // exactly which nodes the resumed run actually re-ran.
-function recordingExecutor(ran: string[]) {
-  return (plan: RunnerLaunchPlan) => {
-    ran.push(plan.nodeId);
-    return { exitCode: 0, stdout: `output of ${plan.nodeId}` };
-  };
-}
+const recordingExecutor = (ran: string[]) => (plan: RunnerLaunchPlan) => {
+  ran.push(plan.nodeId);
+  return { exitCode: 0, stdout: `output of ${plan.nodeId}` };
+};
 
 // Seed a node's terminal result into the cluster Postgres for `runId`, then close
 // the store so the write is flushed — the exact state a process that journaled
 // the node and then died leaves behind.
-async function seedPersistedNodes(
+const seedPersistedNodes = async (
   dbUrl: string,
   runId: string,
   nodeIds: string[]
-): Promise<void> {
+): Promise<void> => {
   const store = await postgresDurableRunStore(dbUrl, runId);
   const journal = store.toRunJournal(runId);
   for (const nodeId of nodeIds) {
     journal.record(passedResult(nodeId));
   }
   await store.close();
-}
+};
 
 describe("resumeRun (no infra)", () => {
   it("rejects resume when no durable store is configured (AC2)", async () => {
@@ -157,7 +155,7 @@ describePg("moka resume against the live cluster Postgres", () => {
     });
 
     expect({
-      completed: result.nodes.map((node) => node.nodeId).sort(),
+      completed: result.nodes.map((node) => node.nodeId).toSorted(),
       outcome: result.outcome,
       ran,
     }).toEqual({

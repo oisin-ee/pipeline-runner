@@ -1,9 +1,9 @@
 // fallow-ignore-file unused-export complexity
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Effect } from "effect";
+import { join } from "node:path";
+
+import { Effect, Option } from "effect";
 
 export interface StartDetachedRunControllerInput {
   entrypoint?: string;
@@ -20,16 +20,77 @@ export interface DetachedRunControllerLaunch {
   startedAt: string;
 }
 
-export function startDetachedRunController(
-  input: StartDetachedRunControllerInput
-): Promise<DetachedRunControllerLaunch> {
-  return Effect.runPromise(startDetachedRunControllerEffect(input));
-}
+const optionalOption = (name: string, value: Option.Option<string>): string[] =>
+  Option.match(value, {
+    onNone: () => [],
+    onSome: (definedValue) => [name, definedValue],
+  });
 
-export function startDetachedRunControllerEffect(
+const pathExistsEffect = (path: string): Effect.Effect<boolean, unknown> =>
+  Effect.sync(() => existsSync(path));
+
+const cliEntrypointPathEffect = (): Effect.Effect<string, unknown> =>
+  Effect.gen(function* effectBody() {
+    const envEntrypoint = process.env.MOKA_CLI_ENTRYPOINT;
+    if (envEntrypoint !== undefined && envEntrypoint.length > 0) {
+      return envEntrypoint;
+    }
+
+    const moduleDir = import.meta.dirname;
+    const compiledEntrypoint = join(moduleDir, "..", "index.js");
+    if (yield* pathExistsEffect(compiledEntrypoint)) {
+      return compiledEntrypoint;
+    }
+
+    const sourceEntrypoint = join(moduleDir, "..", "index.ts");
+    if (yield* pathExistsEffect(sourceEntrypoint)) {
+      return sourceEntrypoint;
+    }
+
+    return process.argv[1] ?? compiledEntrypoint;
+  });
+
+const controllerArgsEffect = (
   input: StartDetachedRunControllerInput
-): Effect.Effect<DetachedRunControllerLaunch, unknown> {
-  return Effect.gen(function* () {
+): Effect.Effect<string[], unknown> =>
+  Effect.gen(function* effectBody() {
+    const entrypoint = yield* cliEntrypointPathEffect();
+    return [
+      entrypoint,
+      "run-controller",
+      "--run-id",
+      input.runId,
+      ...optionalOption("--schedule", Option.fromNullishOr(input.schedule)),
+      ...optionalOption("--entrypoint", Option.fromNullishOr(input.entrypoint)),
+      ...optionalOption("--workflow", Option.fromNullishOr(input.workflow)),
+      "--",
+      input.task,
+    ];
+  });
+
+const waitForControllerSpawnEffect = (
+  child: ReturnType<typeof spawn>
+): Effect.Effect<void, unknown> =>
+  Effect.callback<void, unknown>((resume) => {
+    const onSpawn = (): void => {
+      resume(Effect.void);
+    };
+    const onError = (error: unknown): void => {
+      resume(Effect.fail(error));
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+
+    return Effect.sync(() => {
+      child.off("spawn", onSpawn);
+      child.off("error", onError);
+    });
+  });
+
+export const startDetachedRunControllerEffect = (
+  input: StartDetachedRunControllerInput
+): Effect.Effect<DetachedRunControllerLaunch, unknown> =>
+  Effect.gen(function* effectBody() {
     const command = process.execPath;
     const args = yield* controllerArgsEffect(input);
     const child = yield* Effect.sync(() =>
@@ -44,14 +105,16 @@ export function startDetachedRunControllerEffect(
       })
     );
 
-    if (!child.pid) {
+    if (child.pid === undefined || child.pid === 0) {
       return yield* Effect.fail(
         new Error("Detached run controller did not expose a process id.")
       );
     }
 
     yield* waitForControllerSpawnEffect(child);
-    yield* Effect.sync(() => child.unref());
+    yield* Effect.sync(() => {
+      child.unref();
+    });
 
     return {
       argv: [command, ...args],
@@ -59,69 +122,8 @@ export function startDetachedRunControllerEffect(
       startedAt: new Date().toISOString(),
     };
   });
-}
 
-function controllerArgsEffect(
+export const startDetachedRunController = async (
   input: StartDetachedRunControllerInput
-): Effect.Effect<string[], unknown> {
-  return Effect.gen(function* () {
-    const entrypoint = yield* cliEntrypointPathEffect();
-    return [
-      entrypoint,
-      "run-controller",
-      "--run-id",
-      input.runId,
-      ...optionalOption("--schedule", input.schedule),
-      ...optionalOption("--entrypoint", input.entrypoint),
-      ...optionalOption("--workflow", input.workflow),
-      "--",
-      input.task,
-    ];
-  });
-}
-
-function optionalOption(name: string, value: string | undefined): string[] {
-  return value ? [name, value] : [];
-}
-
-function cliEntrypointPathEffect(): Effect.Effect<string, unknown> {
-  return Effect.gen(function* () {
-    const envEntrypoint = process.env.MOKA_CLI_ENTRYPOINT;
-    if (envEntrypoint) {
-      return envEntrypoint;
-    }
-
-    const moduleDir = dirname(fileURLToPath(import.meta.url));
-    const compiledEntrypoint = join(moduleDir, "..", "index.js");
-    if (yield* pathExistsEffect(compiledEntrypoint)) {
-      return compiledEntrypoint;
-    }
-
-    const sourceEntrypoint = join(moduleDir, "..", "index.ts");
-    if (yield* pathExistsEffect(sourceEntrypoint)) {
-      return sourceEntrypoint;
-    }
-
-    return process.argv[1] ?? compiledEntrypoint;
-  });
-}
-
-function pathExistsEffect(path: string): Effect.Effect<boolean, unknown> {
-  return Effect.sync(() => existsSync(path));
-}
-
-function waitForControllerSpawnEffect(
-  child: ReturnType<typeof spawn>
-): Effect.Effect<void, unknown> {
-  return Effect.callback<void, unknown>((resume) => {
-    const onSpawn = (): void => resume(Effect.void);
-    const onError = (error: unknown): void => resume(Effect.fail(error));
-    child.once("spawn", onSpawn);
-    child.once("error", onError);
-
-    return Effect.sync(() => {
-      child.off("spawn", onSpawn);
-      child.off("error", onError);
-    });
-  });
-}
+): Promise<DetachedRunControllerLaunch> =>
+  await Effect.runPromise(startDetachedRunControllerEffect(input));

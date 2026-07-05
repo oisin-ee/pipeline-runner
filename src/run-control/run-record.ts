@@ -38,9 +38,9 @@ export interface RemoteRunRecordOptions {
  * this builder, whichever wins first persists a complete node list — the upsert
  * is lossless regardless of order.
  */
-export function buildRemoteRunCreateRequest(
+export const buildRemoteRunCreateRequest = (
   options: RemoteRunRecordOptions
-): CreateRunRequest {
+): CreateRunRequest => {
   const { plan } = compileScheduleArtifact(
     options.config,
     parseScheduleArtifact(options.scheduleYaml, "schedule.yaml"),
@@ -58,4 +58,4 @@ export function buildRemoteRunCreateRequest(
     schedule: options.scheduleYaml,
     target: "remote",
   };
-}
+};

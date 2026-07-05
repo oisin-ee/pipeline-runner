@@ -17,7 +17,7 @@ export const DrainMergeGitServiceLive = Layer.succeed(DrainMergeGitService, {
     Effect.sync(() => {
       const git = simpleGit({ baseDir });
       return {
-        raw: (args) => Effect.tryPromise(() => git.raw(args)),
+        raw: (args) => Effect.tryPromise(async () => await git.raw(args)),
       } satisfies DrainMergeGitClient;
     }),
 });

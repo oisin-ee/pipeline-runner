@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
+
 import {
   ConfigIoService,
   parseConfigYamlAs,
@@ -17,15 +18,15 @@ const DEFAULT_PACKAGE_DEFAULTS_ROOT = new URL(
   import.meta.url
 );
 
-function loadDefaultYaml(filename: string): string {
-  const program = Effect.gen(function* () {
+const loadDefaultYaml = (filename: string): string => {
+  const program = Effect.gen(function* program() {
     const configIo = yield* ConfigIoService;
     return yield* configIo.readText(
       new URL(filename, DEFAULT_PACKAGE_DEFAULTS_ROOT)
     );
   });
   return runConfigIoSync(program);
-}
+};
 
 export const PACKAGE_DEFAULT_RUNNERS_YAML: string =
   loadDefaultYaml("runners.yaml");
@@ -150,20 +151,20 @@ export type OpenCodeEcosystemManifest = z.infer<
   typeof openCodeEcosystemManifestSchema
 >;
 
-export function parseOpenCodeEcosystemManifest(
+export const parseOpenCodeEcosystemManifest = (
   source: string,
   sourcePath = OPENCODE_ECOSYSTEM_MANIFEST_PATH
-): OpenCodeEcosystemManifest {
+): OpenCodeEcosystemManifest => {
   const program = parseConfigYamlAs(
     source,
     sourcePath,
     openCodeEcosystemManifestSchema
   );
   return runConfigIoSync(program);
-}
+};
 
-function loadDefaultOpenCodeEcosystemManifest(): OpenCodeEcosystemManifest {
-  const program = Effect.gen(function* () {
+const loadDefaultOpenCodeEcosystemManifest = (): OpenCodeEcosystemManifest => {
+  const program = Effect.gen(function* program() {
     const configIo = yield* ConfigIoService;
     const source = yield* configIo.readText(
       DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL
@@ -175,7 +176,7 @@ function loadDefaultOpenCodeEcosystemManifest(): OpenCodeEcosystemManifest {
     );
   });
   return runConfigIoSync(program);
-}
+};
 
 export const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST =
   loadDefaultOpenCodeEcosystemManifest();

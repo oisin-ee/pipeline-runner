@@ -7,12 +7,88 @@ import type {
   RuntimeStructuredOutput,
 } from "./contracts";
 
-export function workflowRuntimeResult(
+const workflowRuntimeFailure = (): RuntimeFailure => ({
+  evidence: ["workflow failed without a specific failure"],
+  gate: "workflow",
+  reason: "workflow failed",
+});
+
+export const nodeRuntimeFailure = (
+  node: RuntimeNodeResult
+): RuntimeFailure => ({
+  evidence: node.evidence,
+  gate: node.nodeId,
+  nodeId: node.nodeId,
+  reason: `node '${node.nodeId}' failed`,
+});
+
+export const cancelledFailure = (): RuntimeFailure => ({
+  evidence: ["pipeline cancelled by AbortSignal"],
+  gate: "cancelled",
+  reason: "pipeline cancelled",
+});
+
+const runtimeNodeStates = (
+  context: RuntimeContext
+): Record<string, NodeExecutionState> =>
+  context.nodeStateStore.toNodeStateRecord();
+
+const runtimeStructuredOutputs = (
+  context: RuntimeContext
+): RuntimeStructuredOutput[] => context.nodeStateStore.structuredOutputList();
+
+const passedRuntimeResult = (
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): PipelineRuntimeResult => ({
+  agentInvocations: context.agentInvocations,
+  failureDetails: [],
+  gates: context.gates,
+  hookFailures: context.hookFailures,
+  nodeStates: runtimeNodeStates(context),
+  nodes,
+  outcome: "PASS",
+  plan: context.plan,
+  structuredOutputs: runtimeStructuredOutputs(context),
+});
+
+const failedRuntimeResult = (
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[],
+  failure: RuntimeFailure
+): PipelineRuntimeResult => ({
+  agentInvocations: context.agentInvocations,
+  failureDetails: [failure],
+  gates: context.gates,
+  hookFailures: context.hookFailures,
+  nodeStates: runtimeNodeStates(context),
+  nodes,
+  outcome: "FAIL",
+  plan: context.plan,
+  structuredOutputs: runtimeStructuredOutputs(context),
+});
+
+const cancelledRuntimeResult = (
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): PipelineRuntimeResult => ({
+  agentInvocations: context.agentInvocations,
+  failureDetails: [cancelledFailure()],
+  gates: context.gates,
+  hookFailures: context.hookFailures,
+  nodeStates: runtimeNodeStates(context),
+  nodes,
+  outcome: "CANCELLED",
+  plan: context.plan,
+  structuredOutputs: runtimeStructuredOutputs(context),
+});
+
+export const workflowRuntimeResult = (
   context: RuntimeContext,
   outcome: PipelineRuntimeResult["outcome"],
   nodes: RuntimeNodeResult[],
   failure?: RuntimeFailure
-): PipelineRuntimeResult {
+): PipelineRuntimeResult => {
   if (outcome === "CANCELLED") {
     return cancelledRuntimeResult(context, nodes);
   }
@@ -24,93 +100,4 @@ export function workflowRuntimeResult(
     );
   }
   return passedRuntimeResult(context, nodes);
-}
-
-function passedRuntimeResult(
-  context: RuntimeContext,
-  nodes: RuntimeNodeResult[]
-): PipelineRuntimeResult {
-  return {
-    agentInvocations: context.agentInvocations,
-    failureDetails: [],
-    gates: context.gates,
-    hookFailures: context.hookFailures,
-    nodeStates: runtimeNodeStates(context),
-    nodes,
-    outcome: "PASS",
-    plan: context.plan,
-    structuredOutputs: runtimeStructuredOutputs(context),
-  };
-}
-
-function failedRuntimeResult(
-  context: RuntimeContext,
-  nodes: RuntimeNodeResult[],
-  failure: RuntimeFailure
-): PipelineRuntimeResult {
-  return {
-    agentInvocations: context.agentInvocations,
-    failureDetails: [failure],
-    gates: context.gates,
-    hookFailures: context.hookFailures,
-    nodeStates: runtimeNodeStates(context),
-    nodes,
-    outcome: "FAIL",
-    plan: context.plan,
-    structuredOutputs: runtimeStructuredOutputs(context),
-  };
-}
-
-function cancelledRuntimeResult(
-  context: RuntimeContext,
-  nodes: RuntimeNodeResult[]
-): PipelineRuntimeResult {
-  return {
-    agentInvocations: context.agentInvocations,
-    failureDetails: [cancelledFailure()],
-    gates: context.gates,
-    hookFailures: context.hookFailures,
-    nodeStates: runtimeNodeStates(context),
-    nodes,
-    outcome: "CANCELLED",
-    plan: context.plan,
-    structuredOutputs: runtimeStructuredOutputs(context),
-  };
-}
-
-function workflowRuntimeFailure(): RuntimeFailure {
-  return {
-    evidence: ["workflow failed without a specific failure"],
-    gate: "workflow",
-    reason: "workflow failed",
-  };
-}
-
-export function nodeRuntimeFailure(node: RuntimeNodeResult): RuntimeFailure {
-  return {
-    evidence: node.evidence,
-    gate: node.nodeId,
-    nodeId: node.nodeId,
-    reason: `node '${node.nodeId}' failed`,
-  };
-}
-
-export function cancelledFailure(): RuntimeFailure {
-  return {
-    evidence: ["pipeline cancelled by AbortSignal"],
-    gate: "cancelled",
-    reason: "pipeline cancelled",
-  };
-}
-
-function runtimeNodeStates(
-  context: RuntimeContext
-): Record<string, NodeExecutionState> {
-  return context.nodeStateStore.toNodeStateRecord();
-}
-
-function runtimeStructuredOutputs(
-  context: RuntimeContext
-): RuntimeStructuredOutput[] {
-  return context.nodeStateStore.structuredOutputList();
-}
+};

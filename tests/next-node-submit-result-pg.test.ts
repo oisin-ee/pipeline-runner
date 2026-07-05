@@ -2,15 +2,17 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Command } from "commander";
 import { Effect } from "effect";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
 import {
   buildNextNodeEnvelope,
-  type NodeEnvelopeMetadata,
   registerNextNodeSubcommand,
 } from "../src/run-control/next-node";
+import type { NodeEnvelopeMetadata } from "../src/run-control/next-node";
 import {
   migratePostgresRunControlStore,
   postgresRunControlStore,
@@ -32,7 +34,7 @@ import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 // suite; unset skips it so the default test run stays infra-free.
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
-const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/;
+const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/u;
 
 vi.mock("../src/moka-global-config", async (importOriginal) => {
   const actual =
@@ -54,38 +56,35 @@ const nodeMetadata: ReadonlyMap<string, NodeEnvelopeMetadata> = new Map([
   ["implement", { criteria: [], prompt: "Implement" }],
 ]);
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
 // Run one unit of work inside a freshly-resolved durable store scope. The store
 // is acquired and (for the Postgres branch) flushed + closed when this Effect's
 // scope exits — exactly the per-process lifecycle a `moka next node` / `moka
 // submit-result` invocation has.
-function withStore<A>(
+const withStore = async <A>(
   dbUrl: string | undefined,
   runId: string,
   use: (store: DurableRunStore) => A
-): Promise<A> {
-  return Effect.runPromise(
+): Promise<A> =>
+  await Effect.runPromise(
     Effect.scoped(
-      Effect.gen(function* () {
+      Effect.gen(function* effectBody() {
         const store = yield* resolveDurableStore(dbUrl, runId);
         return use(store);
       })
     )
   );
-}
 
-function scheduleYaml(): string {
-  return [
+const scheduleYaml = (): string =>
+  [
     "kind: pipeline-schedule",
     "version: 1",
     "schedule_id: db-next-node",
@@ -109,24 +108,22 @@ function scheduleYaml(): string {
     "          description: Implement",
     "",
   ].join("\n");
-}
 
-function makeGitWorktree(prefix: string): string {
+const makeGitWorktree = (prefix: string): string => {
   const worktreePath = mkdtempSync(join(tmpdir(), prefix));
   execFileSync("git", ["init", "--quiet"], { cwd: worktreePath });
   return worktreePath;
-}
+};
 
-function gitStatusPorcelain(worktreePath: string): string[] {
-  return execFileSync("git", ["status", "--porcelain"], {
+const gitStatusPorcelain = (worktreePath: string): string[] =>
+  execFileSync("git", ["status", "--porcelain"], {
     cwd: worktreePath,
-    encoding: "utf8",
+    encoding: "utf-8",
   })
     .split("\n")
     .filter(Boolean);
-}
 
-async function captureStdout<T>(run: () => Promise<T>): Promise<string> {
+const captureStdout = async <T>(run: () => Promise<T>): Promise<string> => {
   let stdout = "";
   const writeSpy = vi
     .spyOn(process.stdout, "write")
@@ -140,30 +137,33 @@ async function captureStdout<T>(run: () => Promise<T>): Promise<string> {
   } finally {
     writeSpy.mockRestore();
   }
-}
+};
 
-function nextNodeProgram(): Command {
+const nextNodeProgram = (): Command => {
   const program = new Command("moka").exitOverride();
   const nextCommand = program.command("next");
   registerNextNodeSubcommand(nextCommand);
   return program;
-}
+};
 
-function submitResultProgram(): Command {
+const submitResultProgram = (): Command => {
   const program = new Command("moka").exitOverride();
   registerSubmitResultSubcommand(program);
   return program;
-}
+};
 
-async function runNextNodeCommand(
+const runNextNodeCommand = async (
   runId: string,
   worktreePath: string
-): Promise<string> {
+): Promise<string> => {
   const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
   try {
     process.env.PIPELINE_TARGET_PATH = worktreePath;
-    return await captureStdout(() =>
-      nextNodeProgram().parseAsync(["next", "node", runId], { from: "user" })
+    return await captureStdout(
+      async () =>
+        await nextNodeProgram().parseAsync(["next", "node", runId], {
+          from: "user",
+        })
     );
   } finally {
     if (originalTargetPath === undefined) {
@@ -172,20 +172,21 @@ async function runNextNodeCommand(
       process.env.PIPELINE_TARGET_PATH = originalTargetPath;
     }
   }
-}
+};
 
-async function runSubmitResultCommand(
+const runSubmitResultCommand = async (
   runId: string,
   nodeId: string,
   result: RuntimeNodeResult
-): Promise<void> {
-  await captureStdout(() =>
-    submitResultProgram().parseAsync(
-      ["submit-result", runId, nodeId, "--json", JSON.stringify(result)],
-      { from: "user" }
-    )
+): Promise<void> => {
+  await captureStdout(
+    async () =>
+      await submitResultProgram().parseAsync(
+        ["submit-result", runId, nodeId, "--json", JSON.stringify(result)],
+        { from: "user" }
+      )
   );
-}
+};
 
 describe("resolveDurableStore selection (no infra)", () => {
   it("fails fast when db.url is absent instead of selecting the in-memory store", async () => {
@@ -204,12 +205,12 @@ describePg(
     const createdRunIds: string[] = [];
     let admin: postgres.Sql | undefined;
 
-    function adminClient(): postgres.Sql {
+    const adminClient = (): postgres.Sql => {
       if (!admin) {
         throw new Error("Postgres admin client was not initialised.");
       }
       return admin;
-    }
+    };
 
     beforeAll(async () => {
       await migratePostgresRunControlStore(dbUrl);
@@ -243,14 +244,14 @@ describePg(
 
       // Process 2 — submit-result for "plan": the scope exit flushes the
       // write-through and closes the client, persisting the record to Postgres.
-      await withStore(dbUrl, id, (store) =>
+      await withStore(dbUrl, id, (store) => {
         recordSubmitResult({
           nodeId: "plan",
           resultJson: JSON.stringify(passedResult("plan")),
           runId: id,
           store,
-        })
-      );
+        });
+      });
 
       // Process 3 — next node again: a brand-new store hydrates from Postgres and
       // must read back "plan" as settled, advancing to the dependent "implement"

@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+
 import { Effect } from "effect";
+
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config";
 import {
@@ -7,10 +9,8 @@ import {
   resolveRunnerEventSinkAuthToken,
 } from "../runner-command-contract";
 import { runLoopController } from "./controller";
-import {
-  buildControllerDeps,
-  type LoopControllerContext,
-} from "./controller-deps";
+import { buildControllerDeps } from "./controller-deps";
+import type { LoopControllerContext } from "./controller-deps";
 import type { LoopFlags } from "./loop-command";
 
 // ===========================================================================
@@ -37,34 +37,26 @@ interface ControllerSecretEnv {
   readonly serviceAccountName?: string;
 }
 
-export function runLoopControllerEntrypoint(
-  options: LoopControllerEntrypointOptions
-): Promise<void> {
-  const payload = parseRunnerCommandPayload(
-    readFileSync(options.payloadFile, "utf8")
-  );
-  const config = loadPipelineConfig(options.worktreePath, {
-    allowMissingLintFileReferences: true,
-  });
-  const context = buildContext({
-    config,
-    flags: options.flags,
-    payload,
-    secrets: requireSecretEnv(process.env),
-    worktreePath: options.worktreePath,
-  });
-  return Effect.runPromise(
-    runLoopController(buildControllerDeps(context)).pipe(Effect.asVoid)
-  );
-}
+const DEFAULT_MAX_MERGE_POLLS = 60;
+const DEFAULT_MAX_REMEDIATION_ATTEMPTS = 2;
 
-function buildContext(input: {
+const requireEnv = (env: NodeJS.ProcessEnv, name: string): string => {
+  const value = env[name];
+  if (value === undefined || value.trim() === "") {
+    throw new Error(
+      `moka loop-controller requires the ${name} environment variable`
+    );
+  }
+  return value;
+};
+
+const buildContext = (input: {
   config: PipelineConfig;
   flags: LoopFlags;
   payload: ReturnType<typeof parseRunnerCommandPayload>;
   secrets: ControllerSecretEnv;
   worktreePath: string;
-}): LoopControllerContext {
+}): LoopControllerContext => {
   const { payload } = input;
   return {
     baseBranch: payload.repository.baseBranch,
@@ -93,30 +85,33 @@ function buildContext(input: {
     url: payload.repository.url,
     worktreePath: input.worktreePath,
   };
-}
+};
 
-const DEFAULT_MAX_MERGE_POLLS = 60;
-const DEFAULT_MAX_REMEDIATION_ATTEMPTS = 2;
+const requireSecretEnv = (env: NodeJS.ProcessEnv): ControllerSecretEnv => ({
+  brokerSecretKey: requireEnv(env, "PIPELINE_BROKER_SECRET_KEY"),
+  brokerSecretName: requireEnv(env, "PIPELINE_BROKER_SECRET_NAME"),
+  gitCredentialsSecretName: requireEnv(env, "PIPELINE_GIT_CREDENTIALS_SECRET"),
+  githubAuthSecretName: env.PIPELINE_GITHUB_AUTH_SECRET,
+  serviceAccountName: env.PIPELINE_SERVICE_ACCOUNT,
+});
 
-function requireSecretEnv(env: NodeJS.ProcessEnv): ControllerSecretEnv {
-  return {
-    brokerSecretKey: requireEnv(env, "PIPELINE_BROKER_SECRET_KEY"),
-    brokerSecretName: requireEnv(env, "PIPELINE_BROKER_SECRET_NAME"),
-    gitCredentialsSecretName: requireEnv(
-      env,
-      "PIPELINE_GIT_CREDENTIALS_SECRET"
-    ),
-    githubAuthSecretName: env.PIPELINE_GITHUB_AUTH_SECRET,
-    serviceAccountName: env.PIPELINE_SERVICE_ACCOUNT,
-  };
-}
-
-function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
-  const value = env[name];
-  if (value === undefined || value.trim() === "") {
-    throw new Error(
-      `moka loop-controller requires the ${name} environment variable`
-    );
-  }
-  return value;
-}
+export const runLoopControllerEntrypoint = async (
+  options: LoopControllerEntrypointOptions
+): Promise<void> => {
+  const payload = parseRunnerCommandPayload(
+    readFileSync(options.payloadFile, "utf-8")
+  );
+  const config = loadPipelineConfig(options.worktreePath, {
+    allowMissingLintFileReferences: true,
+  });
+  const context = buildContext({
+    config,
+    flags: options.flags,
+    payload,
+    secrets: requireSecretEnv(process.env),
+    worktreePath: options.worktreePath,
+  });
+  await Effect.runPromise(
+    runLoopController(buildControllerDeps(context)).pipe(Effect.asVoid)
+  );
+};

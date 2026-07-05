@@ -2,84 +2,82 @@
 
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+
 import { CommanderError } from "commander";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
+
 import { runCliEffect } from "./cli/program";
 import { PipelineConfigError } from "./config";
 import { formatConfigError } from "./pipeline-runtime";
 
-// biome-ignore lint/performance/noBarrelFile: CLI package entrypoint intentionally re-exports the program API.
 export { runDoctor } from "./cli/doctor";
-export {
-  createCliProgram,
-  runCli,
-} from "./cli/program";
+export { createCliProgram, runCli } from "./cli/program";
 export { execute, quick } from "./cli/run-service";
 
-const PATH_SEPARATOR_RE = /[\\/]/;
+const PATH_SEPARATOR_RE = /[\\/]/u;
 
-function scriptName(argv: string[]): string {
-  return argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
-}
+const scriptName = (argv: string[]): string =>
+  argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
 
-export function isCliEntrypoint(argv: string[]): boolean {
+const normalizeEntrypointPath = (
+  path: Option.Option<string>
+): Option.Option<string> => {
+  if (Option.isNone(path) || path.value.length === 0) {
+    return Option.none();
+  }
+  const resolved = resolve(path.value);
+  return Option.some(existsSync(resolved) ? realpathSync(resolved) : resolved);
+};
+
+export const isCliEntrypoint = (argv: string[]): boolean => {
   const name = scriptName(argv);
-  const entrypoint = normalizeEntrypointPath(argv[1]);
-  const modulePath = normalizeEntrypointPath(fileURLToPath(import.meta.url));
-  return entrypoint === modulePath || name === "moka";
-}
+  const entrypoint = normalizeEntrypointPath(Option.fromUndefinedOr(argv[1]));
+  const modulePath = normalizeEntrypointPath(Option.some(import.meta.filename));
+  return (
+    (Option.isSome(entrypoint) &&
+      Option.isSome(modulePath) &&
+      entrypoint.value === modulePath.value) ||
+    name === "moka"
+  );
+};
 
-function normalizeEntrypointPath(path: string | undefined): string | undefined {
-  if (!path) {
-    return;
+const cliErrorMessage = (err: unknown): Option.Option<string> => {
+  if (err instanceof CommanderError) {
+    return Option.none();
   }
-  const resolved = resolve(path);
-  return existsSync(resolved) ? realpathSync(resolved) : resolved;
-}
-
-// Single Effect runMain boundary: the whole CLI runs as one Effect and its Exit
-// is matched here — the only place the process maps a failure to an exit code.
-if (isCliEntrypoint(process.argv)) {
-  Effect.runPromiseExit(runCliEffect(process.argv)).then((exit) => {
-    if (Exit.isFailure(exit)) {
-      handleCliFailure(Cause.squash(exit.cause));
-    }
-  });
-}
-
-function handleCliFailure(err: unknown): never {
-  const message = cliErrorMessage(err);
-  if (message) {
-    console.error(message);
+  if (err instanceof PipelineConfigError) {
+    return Option.some(formatConfigError(err));
   }
-  process.exit(cliErrorCode(err));
-}
+  if (err instanceof Error) {
+    return Option.some(err.message);
+  }
+  return Option.some(String(err));
+};
 
-function cliErrorCode(err: unknown): number {
+const hasExitCode = (err: unknown): err is Error & { exitCode: number } =>
+  err instanceof Error &&
+  "exitCode" in err &&
+  typeof (err as { exitCode?: unknown }).exitCode === "number";
+
+const cliErrorCode = (err: unknown): number => {
   if (err instanceof CommanderError || hasExitCode(err)) {
     return err.exitCode;
   }
   return 1;
-}
+};
 
-function cliErrorMessage(err: unknown): string | undefined {
-  if (err instanceof CommanderError) {
-    return;
-  }
-  if (err instanceof PipelineConfigError) {
-    return formatConfigError(err);
-  }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return String(err);
-}
+const handleCliFailure = (err: unknown): never => {
+  const message = cliErrorMessage(err);
 
-function hasExitCode(err: unknown): err is Error & { exitCode: number } {
-  return (
-    err instanceof Error &&
-    "exitCode" in err &&
-    typeof (err as { exitCode?: unknown }).exitCode === "number"
-  );
+  process.exit(cliErrorCode(err));
+};
+
+// Single Effect runMain boundary: the whole CLI runs as one Effect and its Exit
+// is matched here — the only place the process maps a failure to an exit code.
+if (isCliEntrypoint(process.argv)) {
+  void Effect.runPromiseExit(runCliEffect(process.argv)).then((exit) => {
+    if (Exit.isFailure(exit)) {
+      handleCliFailure(Cause.squash(exit.cause));
+    }
+  });
 }

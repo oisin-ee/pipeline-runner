@@ -7,33 +7,52 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from "node:http";
+import { createServer } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+
 import type { MokaRunManifest } from "../src/run-control/contracts";
 import type {
   CreateRunRequest,
   ReadRunRequest,
   RunControlStore,
 } from "../src/run-control/run-control-store";
+import { parseJson } from "../src/safe-json";
 
 interface CapturedCreateRun {
   input: CreateRunRequest;
   workspaceRoot: string;
 }
 
-vi.mock("execa", () => ({
-  execa: vi.fn(),
-}));
+interface MockExecaOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+  stdin?: string;
+}
 
-import { execa } from "execa";
+interface MockExecaResult {
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+}
+
+type MockExeca = (
+  command: string,
+  args?: string[],
+  options?: MockExecaOptions
+) => MockExecaResult | Promise<MockExecaResult>;
+
+const mockExeca = vi.hoisted(() => vi.fn<MockExeca>());
+
+vi.mock("execa", () => ({
+  execa: mockExeca,
+}));
 
 const runControlMock = vi.hoisted<{
   createRunInputs: CapturedCreateRun[];
@@ -50,7 +69,7 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
     >();
   const { Effect } = await import("effect");
 
-  function memoryRunControlStore(workspaceRoot: string): RunControlStore {
+  const memoryRunControlStore = (workspaceRoot: string): RunControlStore => {
     const runManifests = new Map<string, MokaRunManifest>();
 
     return {
@@ -66,7 +85,9 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
           mode: input.mode,
           nodes,
           runId: input.runId,
-          ...(input.schedule ? { schedule: input.schedule } : {}),
+          ...(input.schedule !== undefined && input.schedule !== ""
+            ? { schedule: input.schedule }
+            : {}),
           status: "queued",
           target: input.target,
         };
@@ -113,7 +134,7 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
       writeNodeArtifact: (input) =>
         Effect.succeed({ path: `.memory/runs/${input.runId}/${input.name}` }),
     };
-  }
+  };
 
   return {
     ...actual,
@@ -132,21 +153,20 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
   };
 });
 
-const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
-const DESCRIPTION_RE = /description/i;
+const DESCRIPTION_RE = /description/iu;
 const FAILURE_DETAILS_RE =
-  /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/;
-const COMMAND_CONTINUATION_RE = /^ {20,}\S/;
-const COMMAND_SUMMARY_RE = /^ {2}([a-z][\w-]*)(?:\s|$)(.*)$/;
-const NON_CANONICAL_ENTRYPOINT_RE = /\b(?:alias|preset|compatibility)\b/i;
-const PRIMARY_COMMAND_RE = /\bprimary\b/i;
+  /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/u;
+const COMMAND_CONTINUATION_RE = /^ {20,}\S/u;
+const COMMAND_SUMMARY_RE = /^ {2}([a-z][\w-]*)(?:\s|$)(.*)$/u;
+const NON_CANONICAL_ENTRYPOINT_RE = /\b(?:alias|preset|compatibility)\b/iu;
+const PRIMARY_COMMAND_RE = /\bprimary\b/iu;
 
-const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/i;
-const SCHEDULE_GENERATED_RE = /Schedule generated in memory/;
-const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/;
-const PIPELINE_RUNTIME_STATUS_RE = /^.. \.pipeline(?:\/|$)/;
-const NO_REPO_COPY_RE = /clone|copy|mirror/i;
-const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/;
+const PIPELINE_YAML_SOURCE_RE = /from pipeline\.yaml/iu;
+const SCHEDULE_GENERATED_RE = /Schedule generated in memory/u;
+const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/u;
+const PIPELINE_RUNTIME_STATUS_RE = /^.. \.pipeline(?:\/|$)/u;
+const NO_REPO_COPY_RE = /clone|copy|mirror/iu;
+const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/u;
 const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const ORIGINAL_PIPELINE_TEST_COMMAND = process.env.PIPELINE_TEST_COMMAND;
@@ -154,23 +174,76 @@ const CLAUDE_GATEWAY_AUTH_HEADER = [
   "$",
   "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
 ].join("");
+const opencodePromptBodySchema = z.object({
+  agent: z.string().optional(),
+  model: z.object({ modelID: z.string(), providerID: z.string() }).optional(),
+  parts: z.array(z.object({ text: z.string(), type: z.string() })),
+  variant: z.string().optional(),
+});
+const packageJsonVersionSchema = z.object({
+  version: z.string(),
+});
+const packageJsonPublicApiSchema = z.object({
+  bin: z.record(z.string(), z.string()).optional(),
+  exports: z.record(z.string(), z.unknown()).optional(),
+  name: z.string(),
+  publishConfig: z.object({ access: z.string() }).optional(),
+});
+const gatewayMcpServerSchema = z.object({
+  enabled: z.boolean().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  oauth: z.boolean().optional(),
+  type: z.string(),
+  url: z.string(),
+});
+const opencodeGatewayFileSchema = z.object({
+  mcp: z.record(z.string(), gatewayMcpServerSchema),
+});
+const claudeGatewayFileSchema = z.object({
+  mcpServers: z.record(z.string(), gatewayMcpServerSchema),
+});
 
-function initGitRepo(worktreePath: string): void {
+const parseOpencodePromptBody = (source: string) => {
+  const parsed = opencodePromptBodySchema.safeParse(
+    parseJson(source, "OpenCode prompt body")
+  );
+  return parsed.success ? parsed.data : { parts: [] };
+};
+
+const parsePackageJsonVersion = (source: string) =>
+  packageJsonVersionSchema.parse(parseJson(source, "package.json"));
+
+const parsePackageJsonPublicApi = (source: string) =>
+  packageJsonPublicApiSchema.parse(parseJson(source, "package.json"));
+
+const parseOpencodeGatewayFile = (source: string) =>
+  opencodeGatewayFileSchema.parse(parseJson(source, "OpenCode gateway JSON"));
+
+const parseClaudeGatewayFile = (source: string) =>
+  claudeGatewayFileSchema.parse(parseJson(source, "Claude gateway JSON"));
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+const closeServer = async (server: Server): Promise<void> => {
+  const close = promisify(server.close.bind(server));
+  await close();
+};
+
+const initGitRepo = (worktreePath: string): void => {
   execFileSync("git", ["init", "--quiet"], { cwd: worktreePath });
-}
+};
 
-function gitStatusPorcelain(worktreePath: string): string[] {
-  return execFileSync("git", ["status", "--porcelain"], {
+const gitStatusPorcelain = (worktreePath: string): string[] =>
+  execFileSync("git", ["status", "--porcelain"], {
     cwd: worktreePath,
-    encoding: "utf8",
+    encoding: "utf-8",
   })
     .split("\n")
     .filter(Boolean);
-}
 
-function pipelineRuntimeStatusEntries(entries: string[]): string[] {
-  return entries.filter((entry) => PIPELINE_RUNTIME_STATUS_RE.test(entry));
-}
+const pipelineRuntimeStatusEntries = (entries: string[]): string[] =>
+  entries.filter((entry) => PIPELINE_RUNTIME_STATUS_RE.test(entry));
 
 const DEFAULT_TEST_SKILLS = [
   "add-dark-mode",
@@ -217,9 +290,9 @@ const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
       prompt.includes("moka-acceptance-reviewer") ||
       prompt.includes("acceptance reviewer"),
     response: {
-      verdict: "PASS",
+      acceptance: [{ evidence: ["accepted"], id: "1", verdict: "PASS" }],
       evidence: ["acceptance passed"],
-      acceptance: [{ id: "1", verdict: "PASS", evidence: ["accepted"] }],
+      verdict: "PASS",
       violations: [],
     },
   },
@@ -227,16 +300,16 @@ const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
     matches: (prompt) =>
       prompt.includes("moka-verifier") || prompt.includes("verifier"),
     response: {
-      verdict: "PASS",
       evidence: ["verified by CLI fixture"],
+      verdict: "PASS",
     },
   },
   {
     matches: (prompt) =>
       prompt.includes("moka-learner") || prompt.includes("LEARN phase"),
     response: {
-      qdrant: { attempted: true, succeeded: true },
       evidence: ["stored lesson"],
+      qdrant: { attempted: true, succeeded: true },
     },
   },
   {
@@ -260,7 +333,7 @@ const DEFAULT_MOCK_AGENT_RESPONSE = {
   verification: ["CLI fixture verified"],
 };
 
-function mockAgentStdout(command: string, args?: string[]): string {
+const mockAgentStdout = (command: string, args?: string[]): string => {
   if (command !== "opencode") {
     return "";
   }
@@ -287,7 +360,7 @@ function mockAgentStdout(command: string, args?: string[]): string {
     MOCK_AGENT_RESPONSES.find(({ matches }) => matches(prompt))?.response ??
       DEFAULT_MOCK_AGENT_RESPONSE
   );
-}
+};
 
 /**
  * Minimal opencode serve stub used by CLI tests that exercise the SDK transport
@@ -300,35 +373,35 @@ function mockAgentStdout(command: string, args?: string[]): string {
  * stop() in afterEach to close the server.
  */
 interface OpencodeStub {
-  promptBodies: Array<{
+  promptBodies: {
     agent?: string;
     model?: { modelID: string; providerID: string };
-    parts: Array<{ text: string; type: string }>;
+    parts: { text: string; type: string }[];
     variant?: string;
-  }>;
+  }[];
   stop(): Promise<void>;
   url: string;
 }
 
-function startOpencodeStub(): Promise<OpencodeStub> {
+const startOpencodeStub = async (): Promise<OpencodeStub> => {
   const promptBodies: OpencodeStub["promptBodies"] = [];
 
-  function respond(
+  const respond = (
     res: ServerResponse,
     status: number,
     body: unknown,
     contentType = "application/json"
-  ): void {
+  ): void => {
     const payload = JSON.stringify(body);
     res.writeHead(status, {
-      "Content-Type": contentType,
       "Content-Length": Buffer.byteLength(payload),
+      "Content-Type": contentType,
     });
     res.end(payload);
-  }
+  };
 
-  function readBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
+  const readBody = async (req: IncomingMessage): Promise<string> =>
+    await new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => {
         chunks.push(chunk);
@@ -338,7 +411,6 @@ function startOpencodeStub(): Promise<OpencodeStub> {
       });
       req.on("error", reject);
     });
-  }
 
   const server: Server = createServer(
     async (req: IncomingMessage, res: ServerResponse) => {
@@ -358,9 +430,9 @@ function startOpencodeStub(): Promise<OpencodeStub> {
       // GET /event — empty SSE stream (no events; closes immediately)
       if (method === "GET" && url.startsWith("/event")) {
         res.writeHead(200, {
-          "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
+          "Content-Type": "text/event-stream",
         });
         res.end();
         return;
@@ -369,18 +441,13 @@ function startOpencodeStub(): Promise<OpencodeStub> {
       // POST /session/{id}/message — agent prompt
       if (method === "POST" && url.includes("/message")) {
         const raw = await readBody(req);
-        let body: OpencodeStub["promptBodies"][number] = { parts: [] };
-        try {
-          body = JSON.parse(raw) as typeof body;
-        } catch {
-          // ignore parse error, use empty body
-        }
+        const body = parseOpencodePromptBody(raw);
         promptBodies.push(body);
 
         const promptText = body.parts.map((p) => p.text).join("\n");
         const text = mockAgentStdout("opencode", [promptText]);
         respond(res, 200, {
-          parts: [{ type: "text", text, sessionID: "stub-session-1" }],
+          parts: [{ sessionID: "stub-session-1", text, type: "text" }],
         });
         return;
       }
@@ -389,34 +456,33 @@ function startOpencodeStub(): Promise<OpencodeStub> {
     }
   );
 
-  return new Promise((resolve, reject) => {
+  return await new Promise((resolve, reject) => {
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
-      if (!addr || typeof addr === "string") {
+      if (addr === null || typeof addr === "string") {
         reject(new Error("Failed to get stub server address"));
         return;
       }
       const url = `http://127.0.0.1:${addr.port}`;
       resolve({
         promptBodies,
-        stop: () =>
-          new Promise<void>((res, rej) =>
-            server.close((err) => (err ? rej(err) : res()))
-          ),
+        stop: async () => {
+          await closeServer(server);
+        },
         url,
       });
     });
     server.on("error", reject);
   });
-}
+};
 
-function restoreEnv(key: string, value: string | undefined): void {
+const restoreEnv = (key: string, value: NodeJS.ProcessEnv[string]): void => {
   if (value === undefined) {
-    delete process.env[key];
+    Reflect.deleteProperty(process.env, key);
     return;
   }
   process.env[key] = value;
-}
+};
 
 const HOST_CONFIG_ENV_KEYS = [
   "CLAUDE_CONFIG_DIR",
@@ -428,8 +494,8 @@ const HOST_CONFIG_ENV_KEYS = [
   "HOME",
 ];
 
-function redirectHostConfig(root: string): Record<string, string | undefined> {
-  const saved: Record<string, string | undefined> = {};
+const redirectHostConfig = (root: string): NodeJS.ProcessEnv => {
+  const saved: NodeJS.ProcessEnv = {};
   for (const key of HOST_CONFIG_ENV_KEYS) {
     saved[key] = process.env[key];
   }
@@ -439,16 +505,16 @@ function redirectHostConfig(root: string): Record<string, string | undefined> {
   process.env.GEMINI_CONFIG_DIR = join(root, ".gemini");
   process.env.HOME = root;
   return saved;
-}
+};
 
-function restoreHostConfig(saved: Record<string, string | undefined>): void {
+const restoreHostConfig = (saved: NodeJS.ProcessEnv): void => {
   for (const [key, value] of Object.entries(saved)) {
     restoreEnv(key, value);
   }
-}
+};
 
 type ConsoleSpy = ReturnType<typeof vi.spyOn>;
-type RunCli = typeof import("../src/index")["runCli"];
+type RunCli = (typeof import("../src/index"))["runCli"];
 
 interface CliTargetFixture {
   error: ConsoleSpy;
@@ -487,55 +553,59 @@ const GATEWAY_DOCTOR_ARGV = [
   "doctor",
 ];
 
-function spyOutput(spy: ConsoleSpy): string {
-  return spy.mock.calls.map(([message]) => String(message)).join("\n");
-}
+const spyOutput = (spy: ConsoleSpy): string =>
+  spy.mock.calls.map(([message]) => String(message)).join("\n");
 
-function topLevelCommandSummaries(help: string): Map<string, string> {
+const topLevelCommandSummaries = (help: string): Map<string, string> => {
   const summaries = new Map<string, string>();
-  let currentCommand: string | null = null;
+  let currentCommand = "";
   for (const line of help.split("\n")) {
-    const commandLine = line.match(COMMAND_SUMMARY_RE);
+    const commandLine = COMMAND_SUMMARY_RE.exec(line);
     if (commandLine) {
       currentCommand = commandLine[1];
-      summaries.set(currentCommand, line.trim().replace(/\s+/g, " "));
+      summaries.set(currentCommand, line.trim().replaceAll(/\s+/gu, " "));
       continue;
     }
-    if (currentCommand && COMMAND_CONTINUATION_RE.test(line)) {
+    if (currentCommand !== "" && COMMAND_CONTINUATION_RE.test(line)) {
       summaries.set(
         currentCommand,
-        `${summaries.get(currentCommand) ?? ""} ${line.trim()}`.replace(
-          /\s+/g,
+        `${summaries.get(currentCommand) ?? ""} ${line.trim()}`.replaceAll(
+          /\s+/gu,
           " "
         )
       );
     }
   }
   return summaries;
-}
+};
 
-function kubectlCalls(): string[][] {
-  return mockExeca.mock.calls
-    .filter(([command]) => command === "kubectl")
-    .map(([, args]) => args as string[]);
-}
+const kubectlCalls = (): string[][] =>
+  mockExeca.mock.calls.flatMap(([command, args]) =>
+    command === "kubectl" && isStringArray(args) ? [args] : []
+  );
 
-function clusterDoctorExecaResult(command: string, args: string[]) {
+const stripKubectlContext = (args: string[]): string[] =>
+  args[0] === "--context" ? args.slice(2) : args;
+
+const clusterDoctorExecaResult = async (
+  command: string,
+  args: string[] = []
+) => {
   if (command !== "kubectl") {
-    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "ok" });
+    return { exitCode: 0, stderr: "", stdout: "ok" };
   }
   const kubectlArgs = stripKubectlContext(args);
   if (
     kubectlArgs.join(" ") ===
     "auth can-i create workflows.argoproj.io -n test-ns"
   ) {
-    return Promise.resolve({ exitCode: 0, stderr: "", stdout: "no" });
+    return { exitCode: 0, stderr: "", stdout: "no" };
   }
   if (kubectlArgs.includes("pipeline-runner-event-auth")) {
-    return Promise.reject({ stderr: "not found" });
+    throw Object.assign(new Error("not found"), { stderr: "not found" });
   }
   if (kubectlArgs.join(" ") === "get clustersecretstore openbao -o json") {
-    return Promise.resolve({
+    return {
       exitCode: 0,
       stderr: "",
       stdout: JSON.stringify({
@@ -549,42 +619,35 @@ function clusterDoctorExecaResult(command: string, args: string[]) {
           ],
         },
       }),
-    });
+    };
   }
   if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
-    return Promise.resolve({
+    return {
       exitCode: 0,
       stderr: "",
       stdout: JSON.stringify({
         status: { conditions: [{ status: "True", type: "Ready" }] },
       }),
-    });
+    };
   }
-  return Promise.resolve({ exitCode: 0, stderr: "", stdout: "present" });
-}
+  return { exitCode: 0, stderr: "", stdout: "present" };
+};
 
-function stripKubectlContext(args: string[]): string[] {
-  return args[0] === "--context" ? args.slice(2) : args;
-}
-
-function readPackageVersion(): string {
-  const packageJson = JSON.parse(
-    readFileSync(join(process.cwd(), "package.json"), "utf8")
-  ) as { version?: unknown };
-  if (typeof packageJson.version !== "string") {
-    throw new Error("Expected package.json to define a string version");
-  }
+const readPackageVersion = (): string => {
+  const packageJson = parsePackageJsonVersion(
+    readFileSync(join(process.cwd(), "package.json"), "utf-8")
+  );
   return packageJson.version;
-}
+};
 
-async function withCliTarget(
+const withCliTarget = async (
   targetPath: string,
   run: (fixture: CliTargetFixture) => Promise<void>
-): Promise<void> {
+): Promise<void> => {
   const { runCli } = await import("../src/index");
   const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-  const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
     process.env.PIPELINE_TARGET_PATH = targetPath;
     await run({
@@ -599,14 +662,189 @@ async function withCliTarget(
     error.mockRestore();
     restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
   }
-}
+};
 
-async function withCliTempDir(
+const withDirectInitDir = async (
+  prefix: string,
+  run: (fixture: { dir: string; runCli: RunCli }) => Promise<void>
+): Promise<void> => {
+  const { runCli } = await import("../src/index");
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
+  const savedHostEnv: NodeJS.ProcessEnv = {};
+  const hostEnvKeys = [
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "OPENCODE_CONFIG_DIR",
+    "GEMINI_CONFIG_DIR",
+  ];
+  try {
+    process.env.PIPELINE_TARGET_PATH = dir;
+    for (const key of hostEnvKeys) {
+      savedHostEnv[key] = process.env[key];
+    }
+    process.env.CLAUDE_CONFIG_DIR = join(dir, ".claude");
+    process.env.CODEX_HOME = join(dir, ".codex");
+    process.env.OPENCODE_CONFIG_DIR = join(dir, ".opencode");
+    process.env.GEMINI_CONFIG_DIR = join(dir, ".gemini");
+    await run({ dir, runCli });
+  } finally {
+    for (const [key, value] of Object.entries(savedHostEnv)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+    restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
+    rmSync(dir, { force: true, recursive: true });
+  }
+};
+
+const generatedHostFilesExist = (root: string, paths: string[]): boolean =>
+  paths.every((relativePath) => existsSync(join(root, relativePath)));
+
+const hasMcpmRegistration = (): boolean =>
+  mockExeca.mock.calls.some(
+    ([command, args]) =>
+      command === "uvx" && Array.isArray(args) && args.includes("mcpm")
+  );
+
+const executeShipIt = async (runCli: RunCli): Promise<void> => {
+  await runCli(EXECUTE_SHIP_IT_ARGV);
+};
+
+const runGatewayDoctor = async (runCli: RunCli): Promise<void> => {
+  await runCli(GATEWAY_DOCTOR_ARGV);
+};
+
+const prepareGatewayWorkspace = async (
+  runCli: RunCli,
+  dir: string,
+  options: { init?: boolean } = {}
+): Promise<void> => {
+  if (options.init === true) {
+    await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+  }
+  mkdirSync(join(dir, ".serena"), { recursive: true });
+  writeFileSync(join(dir, ".serena/project.yml"), "name: test\n");
+  mkdirSync(join(dir, "backlog"), { recursive: true });
+  writeFileSync(join(dir, "package.json"), "{}\n");
+};
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  if (ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION === undefined) {
+    delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+  } else {
+    process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
+      ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+  }
+  restoreEnv("PIPELINE_TEST_COMMAND", ORIGINAL_PIPELINE_TEST_COMMAND);
+});
+
+const isAgentRepoClone = (args: string[]): boolean =>
+  args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent";
+
+const writeFileAt = (root: string, path: string, content: string): void => {
+  const target = join(root, path);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, content);
+};
+
+const installMockAgentRepo = (target: string): void => {
+  writeFileAt(
+    target,
+    "hooks/claude-code/hooks/check.sh",
+    "#!/bin/sh\necho claude\n"
+  );
+  writeFileAt(target, "hooks/codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
+  writeFileAt(
+    target,
+    "hooks/opencode/plugin/agent-hooks.ts",
+    "export const AgentHooks = async () => ({})\n"
+  );
+  writeFileAt(target, "rules/00-test.md", "# Test Rule\n");
+};
+
+const installMockAgentRepoIfRequested = (
+  command: string,
+  args: string[] | void
+): void => {
+  if (command === "gh" && Array.isArray(args) && isAgentRepoClone(args)) {
+    installMockAgentRepo(args[3]);
+  }
+};
+
+const installMockRulesyncOutputIfRequested = (
+  command: string,
+  args: string[] | void,
+  options: { env?: Record<string, string> } | void
+): void => {
+  if (
+    command !== "npx" ||
+    !Array.isArray(args) ||
+    !args.includes("rulesync@8.30.1") ||
+    !args.includes("generate") ||
+    args.includes("--dry-run")
+  ) {
+    return;
+  }
+  const home = options?.env?.HOME_DIR;
+  if (home === undefined || home === "") {
+    throw new Error("Mock rulesync expected HOME_DIR.");
+  }
+  writeFileAt(home, ".claude/CLAUDE.md", "claude rules\n");
+  writeFileAt(home, ".codex/AGENTS.md", "codex rules\n");
+  writeFileAt(home, ".gemini/GEMINI.md", "gemini rules\n");
+  writeFileAt(home, ".config/opencode/AGENTS.md", "opencode rules\n");
+};
+
+const writeMockSkillFile = (
+  cwd: string,
+  relativePath: string,
+  skill: string
+): void => {
+  const path = join(cwd, relativePath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
+  );
+};
+
+const writeMockSkills = (
+  skills: string[],
+  cwd: string,
+  agents: string[] = ["opencode", "codex", "claude-code"],
+  copy = true
+): void => {
+  const lockSkills: Record<string, unknown> = {};
+  const lock: Record<string, unknown> = { skills: lockSkills, version: 1 };
+  for (const skill of skills) {
+    writeMockSkillFile(
+      cwd,
+      join(".agents", "skills", skill, "SKILL.md"),
+      skill
+    );
+    if (copy && agents.includes("claude-code")) {
+      writeMockSkillFile(
+        cwd,
+        join(".claude", "skills", skill, "SKILL.md"),
+        skill
+      );
+    }
+    lockSkills[skill] = { source: "mock" };
+  }
+  writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
+};
+
+const withCliTempDir = async (
   prefix: string,
   run: (fixture: CliTempFixture) => Promise<void>
-): Promise<void> {
+): Promise<void> => {
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  const savedHostEnv: Record<string, string | undefined> = {};
+  const savedHostEnv: NodeJS.ProcessEnv = {};
   const hostEnvKeys = [
     "CLAUDE_CONFIG_DIR",
     "CODEX_HOME",
@@ -628,152 +866,23 @@ async function withCliTempDir(
     process.env.OPENCODE_CONFIG_DIR = join(dir, ".opencode");
     process.env.GEMINI_CONFIG_DIR = join(dir, ".gemini");
     process.env.HOME = dir;
-    await withCliTarget(dir, (fixture) => run({ ...fixture, dir }));
+    await withCliTarget(dir, async (fixture) => {
+      await run({ ...fixture, dir });
+    });
   } finally {
     for (const [key, value] of Object.entries(savedHostEnv)) {
       if (value === undefined) {
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       } else {
         process.env[key] = value;
       }
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   }
-}
-
-async function withDirectInitDir(
-  prefix: string,
-  run: (fixture: { dir: string; runCli: RunCli }) => Promise<void>
-): Promise<void> {
-  const { runCli } = await import("../src/index");
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-  const savedHostEnv: Record<string, string | undefined> = {};
-  const hostEnvKeys = [
-    "CLAUDE_CONFIG_DIR",
-    "CODEX_HOME",
-    "OPENCODE_CONFIG_DIR",
-    "GEMINI_CONFIG_DIR",
-  ];
-  try {
-    process.env.PIPELINE_TARGET_PATH = dir;
-    for (const key of hostEnvKeys) {
-      savedHostEnv[key] = process.env[key];
-    }
-    process.env.CLAUDE_CONFIG_DIR = join(dir, ".claude");
-    process.env.CODEX_HOME = join(dir, ".codex");
-    process.env.OPENCODE_CONFIG_DIR = join(dir, ".opencode");
-    process.env.GEMINI_CONFIG_DIR = join(dir, ".gemini");
-    await run({ dir, runCli });
-  } finally {
-    for (const [key, value] of Object.entries(savedHostEnv)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-function generatedHostFilesExist(root: string, paths: string[]): boolean {
-  return paths.every((relativePath) => existsSync(join(root, relativePath)));
-}
-
-function hasMcpmRegistration(): boolean {
-  return mockExeca.mock.calls.some(
-    ([command, args]) =>
-      command === "uvx" && Array.isArray(args) && args.includes("mcpm")
-  );
-}
-
-function executeShipIt(runCli: RunCli): Promise<void> {
-  return runCli(EXECUTE_SHIP_IT_ARGV);
-}
-
-function runGatewayDoctor(runCli: RunCli): Promise<void> {
-  return runCli(GATEWAY_DOCTOR_ARGV);
-}
-
-async function prepareGatewayWorkspace(
-  runCli: RunCli,
-  dir: string,
-  options: { init?: boolean } = {}
-): Promise<void> {
-  if (options.init) {
-    await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
-  }
-  mkdirSync(join(dir, ".serena"), { recursive: true });
-  writeFileSync(join(dir, ".serena/project.yml"), "name: test\n");
-  mkdirSync(join(dir, "backlog"), { recursive: true });
-  writeFileSync(join(dir, "package.json"), "{}\n");
-}
-
-async function validateCliLintFixture(
-  fixture: CliTempFixture,
-  parts: Parameters<typeof writeCliValidateLintConfig>[1]
-): Promise<CliOutputCapture> {
-  writeCliValidateLintConfig(fixture.dir, parts);
-  await fixture.runCli([
-    "node",
-    "/repo/node_modules/.bin/oisin-pipeline",
-    "validate",
-  ]);
-  return {
-    stderr: fixture.stderr(),
-    stdout: fixture.output(),
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  runControlMock.createRunInputs.length = 0;
-  runControlMock.mode = "file";
-  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-basic-payload";
-  mockExeca.mockImplementation(((
-    command: string,
-    args?: string[],
-    options?: { cwd?: string; env?: Record<string, string> }
-  ) => {
-    if (options?.env?.PIPELINE_HOOK_RESULT) {
-      writeFileSync(
-        options.env.PIPELINE_HOOK_RESULT,
-        JSON.stringify({ status: "pass", summary: command })
-      );
-    }
-    if (
-      command === "npx" &&
-      Array.isArray(args) &&
-      args.includes("skills") &&
-      args.includes("add")
-    ) {
-      installMockSkills(args, (options as { cwd?: string } | undefined)?.cwd);
-    }
-    installMockRulesyncOutputIfRequested(command, args, options);
-    installMockAgentRepoIfRequested(command, args);
-    return Promise.resolve({
-      exitCode: 0,
-      stderr: "",
-      stdout: mockAgentStdout(command, args),
-    }) as any;
-  }) as any);
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  if (ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION === undefined) {
-    delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
-  } else {
-    process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
-      ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION;
-  }
-  restoreEnv("PIPELINE_TEST_COMMAND", ORIGINAL_PIPELINE_TEST_COMMAND);
-});
-function installMockSkills(args: string[], cwd = process.cwd()): void {
+};
+const installMockSkills = (args: string[], cwd = process.cwd()): void => {
   const skillIndex = args.indexOf("--skill");
-  if (skillIndex < 0) {
+  if (skillIndex === -1) {
     return;
   }
   const requestedSkills = args
@@ -786,133 +895,62 @@ function installMockSkills(args: string[], cwd = process.cwd()): void {
     arg === "--agent" && args[index + 1] ? [args[index + 1]] : []
   );
   writeMockSkills(skills, cwd, agents, args.includes("--copy"));
-}
+};
 
-function isAgentRepoClone(args: string[]): boolean {
-  return args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent";
-}
-
-function installMockAgentRepoIfRequested(
-  command: string,
-  args: string[] | undefined
-): void {
-  if (command === "gh" && Array.isArray(args) && isAgentRepoClone(args)) {
-    installMockAgentRepo(args[3]);
-  }
-}
-
-function installMockAgentRepo(target: string): void {
-  writeFileAt(
-    target,
-    "hooks/claude-code/hooks/check.sh",
-    "#!/bin/sh\necho claude\n"
-  );
-  writeFileAt(target, "hooks/codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
-  writeFileAt(
-    target,
-    "hooks/opencode/plugin/agent-hooks.ts",
-    "export const AgentHooks = async () => ({})\n"
-  );
-  writeFileAt(target, "rules/00-test.md", "# Test Rule\n");
-}
-
-function installMockRulesyncOutputIfRequested(
-  command: string,
-  args: string[] | undefined,
-  options: { env?: Record<string, string> } | undefined
-): void {
-  if (
-    command !== "npx" ||
-    !Array.isArray(args) ||
-    !args.includes("rulesync@8.30.1") ||
-    !args.includes("generate") ||
-    args.includes("--dry-run")
-  ) {
-    return;
-  }
-  const home = options?.env?.HOME_DIR;
-  if (!home) {
-    throw new Error("Mock rulesync expected HOME_DIR.");
-  }
-  writeFileAt(home, ".claude/CLAUDE.md", "claude rules\n");
-  writeFileAt(home, ".codex/AGENTS.md", "codex rules\n");
-  writeFileAt(home, ".gemini/GEMINI.md", "gemini rules\n");
-  writeFileAt(home, ".config/opencode/AGENTS.md", "opencode rules\n");
-}
-
-function writeFileAt(root: string, path: string, content: string): void {
-  const target = join(root, path);
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, content);
-}
-
-function writeMockSkills(
-  skills: string[],
-  cwd: string,
-  agents: string[] = ["opencode", "codex", "claude-code"],
-  copy = true
-): void {
-  const lock: Record<string, unknown> = { skills: {}, version: 1 };
-  for (const skill of skills) {
-    writeMockSkillFile(
-      cwd,
-      join(".agents", "skills", skill, "SKILL.md"),
-      skill
-    );
-    if (copy && agents.includes("claude-code")) {
-      writeMockSkillFile(
-        cwd,
-        join(".claude", "skills", skill, "SKILL.md"),
-        skill
-      );
+beforeEach(() => {
+  vi.clearAllMocks();
+  runControlMock.createRunInputs.length = 0;
+  runControlMock.mode = "file";
+  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-basic-payload";
+  mockExeca.mockImplementation(
+    async (command: string, args?: string[], options?: MockExecaOptions) => {
+      const hookResultPath = options?.env?.PIPELINE_HOOK_RESULT;
+      if (hookResultPath !== undefined && hookResultPath !== "") {
+        writeFileSync(
+          hookResultPath,
+          JSON.stringify({ status: "pass", summary: command })
+        );
+      }
+      if (
+        command === "npx" &&
+        Array.isArray(args) &&
+        args.includes("skills") &&
+        args.includes("add")
+      ) {
+        installMockSkills(args, options?.cwd);
+      }
+      installMockRulesyncOutputIfRequested(command, args, options);
+      installMockAgentRepoIfRequested(command, args);
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: mockAgentStdout(command, args),
+      };
     }
-    (lock.skills as Record<string, unknown>)[skill] = { source: "mock" };
-  }
-  writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
-}
-
-function writeMockSkillFile(
-  cwd: string,
-  relativePath: string,
-  skill: string
-): void {
-  const path = join(cwd, relativePath);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(
-    path,
-    `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
   );
-}
+});
 
-function writeCliProjectFile(
+const writeCliProjectFile = (
   root: string,
   path: string,
   content: string
-): void {
+): void => {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
-}
+};
 
-function writeCliEntrypointConfig(root: string): void {
+const writeProjectFileSet = (
+  root: string,
+  files: Record<string, string>
+): void => {
+  for (const [path, content] of Object.entries(files)) {
+    writeCliProjectFile(root, path, content.trimStart());
+  }
+};
+
+const writeCliEntrypointConfig = (root: string): void => {
   writeProjectFileSet(root, {
-    ".pipeline/runners.yaml": `
-version: 1
-runners:
-  local:
-    type: command
-    command: node
-    capabilities:
-      native_subagents: false
-      output_formats: [text]
-`,
-    ".pipeline/profiles.yaml": `
-version: 1
-profiles:
-  orchestrator:
-    runner: local
-    instructions: { inline: Orchestrate }
-`,
     ".pipeline/pipeline.yaml": `
 version: 1
 default_workflow: default
@@ -981,33 +1019,50 @@ workflows:
         kind: command
         command: [validate-entrypoint-bin]
 `,
-  });
-}
-
-function writeScheduledCliConfig(root: string): void {
-  writeProjectFileSet(root, {
+    ".pipeline/profiles.yaml": `
+version: 1
+profiles:
+  orchestrator:
+    runner: local
+    instructions: { inline: Orchestrate }
+`,
     ".pipeline/runners.yaml": `
 version: 1
 runners:
   local:
     type: command
-    command: scheduled-runner
+    command: node
     capabilities:
       native_subagents: false
       output_formats: [text]
-  opencode:
-    type: opencode
-    command: opencode
-    model: openai/gpt-5.4-mini
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: true
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash, edit, write]
-      filesystem: [read-only, workspace-write]
-      network: [inherit]
-      output_formats: [text, json]
+`,
+  });
+};
+
+const writeScheduledCliConfig = (root: string): void => {
+  writeProjectFileSet(root, {
+    ".pipeline/pipeline.yaml": `
+version: 1
+default_workflow: inspect
+entrypoints:
+  execute:
+    schedule: execute-schedule
+    description: Generated execute schedule
+  inspect:
+    workflow: inspect
+    description: Inspect static workflow
+orchestrator:
+  profile: orchestrator
+schedules:
+  execute-schedule:
+    baseline: execute
+    planner_profile: moka-schedule-planner
+workflows:
+  inspect:
+    nodes:
+      - id: inspect
+        kind: command
+        command: [inspect-bin]
 `,
     ".pipeline/profiles.yaml": `
 version: 1
@@ -1041,34 +1096,42 @@ profiles:
     runner: local
     instructions: { inline: Plan schedule }
 `,
-    ".pipeline/pipeline.yaml": `
+    ".pipeline/runners.yaml": `
 version: 1
-default_workflow: inspect
-entrypoints:
-  execute:
-    schedule: execute-schedule
-    description: Generated execute schedule
-  inspect:
-    workflow: inspect
-    description: Inspect static workflow
-orchestrator:
-  profile: orchestrator
-schedules:
-  execute-schedule:
-    baseline: execute
-    planner_profile: moka-schedule-planner
-workflows:
-  inspect:
-    nodes:
-      - id: inspect
-        kind: command
-        command: [inspect-bin]
+runners:
+  local:
+    type: command
+    command: scheduled-runner
+    capabilities:
+      native_subagents: false
+      output_formats: [text]
+  opencode:
+    type: opencode
+    command: opencode
+    model: openai/gpt-5.4-mini
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash, edit, write]
+      filesystem: [read-only, workspace-write]
+      network: [inherit]
+      output_formats: [text, json]
 `,
   });
-}
+};
 
-function writeMalformedCliConfig(root: string): void {
+const writeMalformedCliConfig = (root: string): void => {
   writeProjectFileSet(root, {
+    ".pipeline/pipeline.yaml": "version: [\n",
+    ".pipeline/profiles.yaml": `
+version: 1
+profiles:
+  orchestrator:
+    runner: local
+    instructions: { inline: Orchestrate }
+`,
     ".pipeline/runners.yaml": `
 version: 1
 runners:
@@ -1079,35 +1142,37 @@ runners:
       native_subagents: false
       output_formats: [text]
 `,
-    ".pipeline/profiles.yaml": `
-version: 1
-profiles:
-  orchestrator:
-    runner: local
-    instructions: { inline: Orchestrate }
-`,
-    ".pipeline/pipeline.yaml": "version: [\n",
   });
-}
+};
 
-function writeCliValidateLintConfig(
+const writeCliValidateLintConfig = (
   root: string,
   options: {
     pipeline?: string;
     profiles?: string;
   } = {}
-): void {
+): void => {
   writeProjectFileSet(root, {
-    ".pipeline/runners.yaml": `
+    ".agents/skills/present/SKILL.md": `
+---
+name: present
+---
+
+# Present
+`,
+    ".pipeline/pipeline.yaml":
+      options.pipeline ??
+      `
 version: 1
-runners:
-  local:
-    type: command
-    command: node
-    capabilities:
-      native_subagents: false
-      output_formats: [text, json_schema]
-      skills: true
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: task
+        kind: command
+        command: [node, --version]
 `,
     ".pipeline/profiles.yaml":
       options.profiles ??
@@ -1126,135 +1191,123 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/orchestrator.schema.json
 `,
-    ".pipeline/pipeline.yaml":
-      options.pipeline ??
-      `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: task
-        kind: command
-        command: [node, --version]
-`,
-    ".agents/skills/present/SKILL.md": `
----
-name: present
----
-
-# Present
-`,
     ".pipeline/prompts/orchestrator.md": "Orchestrate\n",
+    ".pipeline/runners.yaml": `
+version: 1
+runners:
+  local:
+    type: command
+    command: node
+    capabilities:
+      native_subagents: false
+      output_formats: [text, json_schema]
+      skills: true
+`,
     ".pipeline/schemas/orchestrator.schema.json": `{"type":"object"}\n`,
   });
-}
+};
 
-function writeProjectFileSet(
-  root: string,
-  files: Record<string, string>
-): void {
-  for (const [path, content] of Object.entries(files)) {
-    writeCliProjectFile(root, path, content.trimStart());
-  }
-}
+const validateCliLintFixture = async (
+  fixture: CliTempFixture,
+  parts: Parameters<typeof writeCliValidateLintConfig>[1]
+): Promise<CliOutputCapture> => {
+  writeCliValidateLintConfig(fixture.dir, parts);
+  await fixture.runCli([
+    "node",
+    "/repo/node_modules/.bin/oisin-pipeline",
+    "validate",
+  ]);
+  return {
+    stderr: fixture.stderr(),
+    stdout: fixture.output(),
+  };
+};
 
-function mockToolHiveWorkloads(names: string[]): void {
-  mockExeca.mockImplementation(((
-    command: string,
-    args?: string[],
-    options?: { cwd?: string; env?: Record<string, string> }
-  ) => {
-    const result = toolHiveListResult(command, args, names);
-    writeHookResult(command, options);
-    installSkillsForCommand(command, args, options);
-    installMockRulesyncOutputIfRequested(command, args, options);
-    installMockAgentRepoIfRequested(command, args);
-    return Promise.resolve(result ?? emptyExecaResult()) as any;
-  }) as any);
-}
-
-function toolHiveListResult(
+const isToolHiveListCommand = (
   command: string,
-  args: string[] | undefined,
+  args: string[] | void
+): boolean =>
+  command === "thv" &&
+  Array.isArray(args) &&
+  args.includes("list") &&
+  args.includes("--format") &&
+  args.includes("json");
+
+const toolHiveWorkload = (name: string): Record<string, string> => ({
+  group: "default",
+  name,
+  status: "running",
+  transport_type: "streamable-http",
+  url: `http://127.0.0.1/${name}/mcp/`,
+});
+
+const toolHiveListResult = (
+  command: string,
+  args: string[] | void,
   names: string[]
-): { exitCode: number; stderr: string; stdout: string } | undefined {
-  return isToolHiveListCommand(command, args)
+): { exitCode: number; stderr: string; stdout: string } | void =>
+  isToolHiveListCommand(command, args)
     ? {
         exitCode: 0,
         stderr: "",
         stdout: JSON.stringify(names.map(toolHiveWorkload)),
       }
     : undefined;
-}
 
-function isToolHiveListCommand(
+const writeHookResult = (
   command: string,
-  args: string[] | undefined
-): boolean {
-  return (
-    command === "thv" &&
-    Array.isArray(args) &&
-    args.includes("list") &&
-    args.includes("--format") &&
-    args.includes("json")
-  );
-}
-
-function toolHiveWorkload(name: string): Record<string, string> {
-  return {
-    group: "default",
-    name,
-    status: "running",
-    transport_type: "streamable-http",
-    url: `http://127.0.0.1/${name}/mcp/`,
-  };
-}
-
-function writeHookResult(
-  command: string,
-  options: { env?: Record<string, string> } | undefined
-): void {
+  options: { env?: Record<string, string> } | void
+): void => {
   const resultPath = options?.env?.PIPELINE_HOOK_RESULT;
-  if (resultPath) {
+  if (resultPath !== undefined && resultPath !== "") {
     writeFileSync(
       resultPath,
       JSON.stringify({ status: "pass", summary: command })
     );
   }
-}
+};
 
-function installSkillsForCommand(
+const isSkillsInstallCommand = (
   command: string,
-  args: string[] | undefined,
-  options: { cwd?: string } | undefined
-): void {
+  args: string[] | void
+): args is string[] =>
+  command === "npx" &&
+  Array.isArray(args) &&
+  args.includes("skills") &&
+  args.includes("add");
+
+const installSkillsForCommand = (
+  command: string,
+  args: string[] | void,
+  options: { cwd?: string } | void
+): void => {
   if (isSkillsInstallCommand(command, args)) {
     installMockSkills(args, options?.cwd);
   }
-}
+};
 
-function isSkillsInstallCommand(
-  command: string,
-  args: string[] | undefined
-): args is string[] {
-  return (
-    command === "npx" &&
-    Array.isArray(args) &&
-    args.includes("skills") &&
-    args.includes("add")
-  );
-}
-
-function emptyExecaResult(): {
+const emptyExecaResult = (): {
   exitCode: number;
   stderr: string;
   stdout: string;
-} {
-  return { exitCode: 0, stderr: "", stdout: "" };
-}
+} => ({ exitCode: 0, stderr: "", stdout: "" });
+
+const mockToolHiveWorkloads = (names: string[]): void => {
+  mockExeca.mockImplementation(
+    async (
+      command: string,
+      args?: string[],
+      options?: { cwd?: string; env?: Record<string, string> }
+    ) => {
+      const result = toolHiveListResult(command, args, names);
+      writeHookResult(command, options);
+      installSkillsForCommand(command, args, options);
+      installMockRulesyncOutputIfRequested(command, args, options);
+      installMockAgentRepoIfRequested(command, args);
+      return result ?? emptyExecaResult();
+    }
+  );
+};
 
 const COMPLETE_TOOLHIVE_WORKLOADS = [
   "backlog",
@@ -1266,25 +1319,22 @@ const COMPLETE_TOOLHIVE_WORKLOADS = [
   "uidotsh",
 ];
 
-function writeThermoNuclearReviewValidateFixture(
+const writeThermoNuclearReviewValidateFixture = (
   root: string,
   options: { includeSkill: boolean }
-): void {
+): void => {
   writeProjectFileSet(root, {
-    ".pipeline/runners.yaml": `
+    ".pipeline/pipeline.yaml": `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      skills: true
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash]
-      filesystem: [read-only]
-      network: [inherit]
-      output_formats: [text, json_schema]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: review
+        kind: agent
+        profile: moka-thermo-nuclear-reviewer
 `,
     ".pipeline/profiles.yaml": `
 version: 1
@@ -1323,17 +1373,20 @@ profiles:
         enabled: true
         max_attempts: 1
 `,
-    ".pipeline/pipeline.yaml": `
+    ".pipeline/runners.yaml": `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: review
-        kind: agent
-        profile: moka-thermo-nuclear-reviewer
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash]
+      filesystem: [read-only]
+      network: [inherit]
+      output_formats: [text, json_schema]
 `,
     ".pipeline/schemas/review.schema.json": `{"type":"object"}\n`,
   });
@@ -1345,11 +1398,10 @@ workflows:
       "---\nname: thermo-nuclear-code-quality-review\n---\n\n# Thermo-Nuclear Code Quality Review\n"
     );
   }
-}
+};
 
-function execaCommands(): string[] {
-  return mockExeca.mock.calls.map(([command]) => String(command));
-}
+const execaCommands = (): string[] =>
+  mockExeca.mock.calls.map(([command]) => String(command));
 
 // ─── CLI entry ────────────────────────────────────────────────────────────────
 
@@ -1414,21 +1466,19 @@ describe("execute", () => {
       async ({ runCli }) => {
         process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
           "Basic test-basic-payload";
-        mockExeca.mockImplementation(((
+        const initExeca: MockExeca = async (
           command: string,
           args?: string[],
-          options?: { cwd?: string; env?: Record<string, string> }
+          options?: MockExecaOptions
         ) => {
           if (isSkillsInstallCommand(command, args)) {
-            installMockSkills(
-              args,
-              (options as { cwd?: string } | undefined)?.cwd
-            );
+            installMockSkills(args, options?.cwd);
           }
           installMockRulesyncOutputIfRequested(command, args, options);
           installMockAgentRepoIfRequested(command, args);
-          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
-        }) as any);
+          return { exitCode: 0, stderr: "", stdout: "" };
+        };
+        mockExeca.mockImplementation(initExeca);
 
         await runCli([
           "node",
@@ -1483,8 +1533,8 @@ describe("execute", () => {
         existsSync(join(dir, ".opencode", "commands", "moka-quick.md"))
       ).toBe(true);
       expect(existsSync(join(dir, ".opencode", "opencode.json"))).toBe(true);
-      const opencode = JSON.parse(
-        readFileSync(join(dir, ".opencode", "opencode.json"), "utf8")
+      const opencode = parseOpencodeGatewayFile(
+        readFileSync(join(dir, ".opencode", "opencode.json"), "utf-8")
       );
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         type: "remote",
@@ -1497,7 +1547,7 @@ describe("execute", () => {
 
   it("does not expose a hook source override flag", async () => {
     const { runCli } = await import("../src/index");
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       await expect(
         runCli([
@@ -1525,12 +1575,9 @@ describe("execute", () => {
   });
 
   it("declares installable binaries and typed subpath exports", () => {
-    const pkg = JSON.parse(
-      readFileSync(join(process.cwd(), "package.json"), "utf8")
-    ) as {
-      bin?: Record<string, string>;
-      exports?: Record<string, unknown>;
-    };
+    const pkg = parsePackageJsonPublicApi(
+      readFileSync(join(process.cwd(), "package.json"), "utf-8")
+    );
 
     expect(pkg).toMatchObject({
       name: "@oisincoveney/pipeline",
@@ -1577,12 +1624,10 @@ describe("execute", () => {
 
   it("renders local run progress and agent output live to stdout", async () => {
     const { execute } = await import("../src/index");
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const pipelineRunner = vi.fn().mockImplementation(({ reporter }) => {
+    const pipelineRunner = vi.fn().mockImplementation(async ({ reporter }) => {
       reporter?.({
         nodeIds: ["inspect"],
         type: "workflow.start",
@@ -1644,9 +1689,8 @@ describe("execute", () => {
         type: "workflow.finish",
         workflowId: "custom",
       });
-      return Promise.resolve({
+      return {
         agentInvocations: [],
-        outcome: "PASS",
         failureDetails: [],
         gates: [],
         hookFailures: [],
@@ -1660,12 +1704,13 @@ describe("execute", () => {
             status: "passed",
           },
         ],
+        outcome: "PASS",
         plan: {
-          workflowId: "custom",
           parallelBatches: [],
           topologicalOrder: [],
+          workflowId: "custom",
         },
-      });
+      };
     });
 
     let finalOutput = "";
@@ -1718,10 +1763,8 @@ describe("execute", () => {
 
   it("passes entrypoint ids through the CLI runner", async () => {
     const { execute } = await import("../src/index");
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const pipelineRunner = vi.fn().mockResolvedValue({
       agentInvocations: [],
       failureDetails: [],
@@ -1730,9 +1773,9 @@ describe("execute", () => {
       nodes: [],
       outcome: "PASS",
       plan: {
-        workflowId: "default",
         parallelBatches: [],
         topologicalOrder: [],
+        workflowId: "default",
       },
     });
 
@@ -2031,7 +2074,7 @@ workflows:
       const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
 
-      expect(help.replace(/\s+/g, " ")).toContain(
+      expect(help.replaceAll(/\s+/gu, " ")).toContain(
         "package-owned @oisincoveney/pipeline config"
       );
       expect(help).not.toContain(".pipeline/pipeline.yaml");
@@ -2151,7 +2194,7 @@ workflows:
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const savedHostEnv = redirectHostConfig(initDir);
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       process.env.PIPELINE_TARGET_PATH = initDir;
@@ -2176,8 +2219,8 @@ workflows:
         process.env.PIPELINE_TARGET_PATH = originalTargetPath;
       }
       restoreHostConfig(savedHostEnv);
-      rmSync(initDir, { recursive: true, force: true });
-      rmSync(doctorDir, { recursive: true, force: true });
+      rmSync(initDir, { force: true, recursive: true });
+      rmSync(doctorDir, { force: true, recursive: true });
     }
   });
 
@@ -2185,7 +2228,7 @@ workflows:
     const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-bootstrap-refresh-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const savedHostEnv: Record<string, string | undefined> = {};
+    const savedHostEnv: NodeJS.ProcessEnv = {};
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
@@ -2201,25 +2244,19 @@ workflows:
       process.env.CODEX_HOME = join(dir, ".codex");
       process.env.OPENCODE_CONFIG_DIR = join(dir, ".opencode");
       process.env.GEMINI_CONFIG_DIR = join(dir, ".gemini");
-      mockExeca.mockImplementation(((
+      const initExeca: MockExeca = async (
         command: string,
         args?: string[],
-        options?: {
-          cwd?: string;
-          env?: Record<string, string>;
-          reject?: boolean;
-        }
+        options?: MockExecaOptions
       ) => {
         if (isSkillsInstallCommand(command, args)) {
-          installMockSkills(
-            args,
-            (options as { cwd?: string } | undefined)?.cwd
-          );
+          installMockSkills(args, options?.cwd);
         }
         installMockRulesyncOutputIfRequested(command, args, options);
         installMockAgentRepoIfRequested(command, args);
-        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "true\n" });
-      }) as any);
+        return { exitCode: 0, stderr: "", stdout: "true\n" };
+      };
+      mockExeca.mockImplementation(initExeca);
 
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
@@ -2245,7 +2282,7 @@ workflows:
     } finally {
       for (const [key, value] of Object.entries(savedHostEnv)) {
         if (value === undefined) {
-          delete process.env[key];
+          Reflect.deleteProperty(process.env, key);
         } else {
           process.env[key] = value;
         }
@@ -2255,7 +2292,7 @@ workflows:
       } else {
         process.env.PIPELINE_TARGET_PATH = originalTargetPath;
       }
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2424,21 +2461,17 @@ profiles:
       "pipeline-cli-lint-epic-router-",
       async ({ dir, output, runCli, stderr }) => {
         writeProjectFileSet(dir, {
-          ".pipeline/runners.yaml": `
+          ".pipeline/pipeline.yaml": `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      rules: true
-      skills: true
-      mcp_servers: true
-      tools: [read, list, grep, glob, bash]
-      filesystem: [read-only]
-      network: [inherit]
-      output_formats: [text, json_schema]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: task
+        kind: command
+        command: [node, --version]
 `,
           ".pipeline/profiles.yaml": `
 version: 1
@@ -2476,17 +2509,21 @@ profiles:
         enabled: true
         max_attempts: 1
 `,
-          ".pipeline/pipeline.yaml": `
+          ".pipeline/runners.yaml": `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: task
-        kind: command
-        command: [node, --version]
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      rules: true
+      skills: true
+      mcp_servers: true
+      tools: [read, list, grep, glob, bash]
+      filesystem: [read-only]
+      network: [inherit]
+      output_formats: [text, json_schema]
 `,
         });
         for (const assetPath of [
@@ -2498,7 +2535,7 @@ workflows:
             writeCliProjectFile(
               dir,
               assetPath,
-              readFileSync(sourcePath, "utf8")
+              readFileSync(sourcePath, "utf-8")
             );
           }
         }
@@ -2692,12 +2729,15 @@ profiles:
     await withCliTempDir("pipeline-cli-doctor-", async ({ dir, runCli }) => {
       const { runDoctor } = await import("../src/index");
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
-      mockExeca.mockImplementation(((command: string) => {
+      const doctorExeca: MockExeca = async (command: string) => {
         if (command === "opencode") {
-          return Promise.reject({ shortMessage: "opencode missing" });
+          throw Object.assign(new Error("opencode missing"), {
+            shortMessage: "opencode missing",
+          });
         }
-        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
-      }) as any);
+        return { exitCode: 0, stderr: "", stdout: "" };
+      };
+      mockExeca.mockImplementation(doctorExeca);
 
       const result = await runDoctor(dir);
 
@@ -2715,7 +2755,7 @@ profiles:
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-cluster-doctor-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalHome = process.env.HOME;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
@@ -2770,7 +2810,7 @@ profiles:
       log.mockRestore();
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("HOME", originalHome);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2781,40 +2821,49 @@ profiles:
     );
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalHome = process.env.HOME;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
       process.env.HOME = dir;
       process.env.PIPELINE_TARGET_PATH = dir;
-      mockExeca.mockImplementation(((command: string, args: string[]) => {
+      const doctorExeca: MockExeca = async (
+        command: string,
+        args: string[] = []
+      ) => {
         if (command !== "kubectl") {
-          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "ok" });
+          return { exitCode: 0, stderr: "", stdout: "ok" };
         }
         const kubectlArgs = stripKubectlContext(args);
         if (kubectlArgs.includes("pipeline-runner-event-auth")) {
-          return Promise.reject({
-            stderr:
-              'Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden',
-          });
+          throw Object.assign(
+            new Error(
+              'Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden'
+            ),
+            {
+              stderr:
+                'Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden',
+            }
+          );
         }
         if (
           kubectlArgs.join(" ") ===
           "auth can-i create workflows.argoproj.io -n test-ns"
         ) {
-          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "yes" });
+          return { exitCode: 0, stderr: "", stdout: "yes" };
         }
         if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
-          return Promise.resolve({
+          return {
             exitCode: 0,
             stderr: "",
             stdout: JSON.stringify({
               status: { conditions: [{ status: "True", type: "Ready" }] },
             }),
-          });
+          };
         }
-        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "present" });
-      }) as any);
+        return { exitCode: 0, stderr: "", stdout: "present" };
+      };
+      mockExeca.mockImplementation(doctorExeca);
 
       await expect(
         runCli([
@@ -2838,7 +2887,7 @@ profiles:
       log.mockRestore();
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("HOME", originalHome);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2876,28 +2925,32 @@ profiles:
       writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
       process.env.HOME = dir;
       process.env.PIPELINE_TARGET_PATH = dir;
-      mockExeca.mockImplementation(((command: string, args: string[]) => {
+      const doctorExeca: MockExeca = async (
+        command: string,
+        args: string[] = []
+      ) => {
         if (command !== "kubectl") {
-          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "ok" });
+          return { exitCode: 0, stderr: "", stdout: "ok" };
         }
         const kubectlArgs = stripKubectlContext(args);
         if (
           kubectlArgs.join(" ") ===
           "auth can-i create workflows.argoproj.io -n configured-ns"
         ) {
-          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "yes" });
+          return { exitCode: 0, stderr: "", stdout: "yes" };
         }
         if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
-          return Promise.resolve({
+          return {
             exitCode: 0,
             stderr: "",
             stdout: JSON.stringify({
               status: { conditions: [{ status: "True", type: "Ready" }] },
             }),
-          });
+          };
         }
-        return Promise.resolve({ exitCode: 0, stderr: "", stdout: "present" });
-      }) as any);
+        return { exitCode: 0, stderr: "", stdout: "present" };
+      };
+      mockExeca.mockImplementation(doctorExeca);
 
       await runCli([
         "node",
@@ -2921,7 +2974,7 @@ profiles:
     } finally {
       restoreEnv("HOME", originalHome);
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -2932,7 +2985,7 @@ profiles:
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
     const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
     const savedHostEnv = redirectHostConfig(dir);
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
@@ -2953,8 +3006,8 @@ profiles:
         "configure-host",
       ]);
 
-      const opencode = JSON.parse(
-        readFileSync(join(dir, ".opencode/opencode.json"), "utf8")
+      const opencode = parseOpencodeGatewayFile(
+        readFileSync(join(dir, ".opencode/opencode.json"), "utf-8")
       );
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         enabled: true,
@@ -2963,7 +3016,9 @@ profiles:
         url: "https://gateway.example/mcp",
       });
       expect(opencode.mcp.legacy).toBeUndefined();
-      const claude = JSON.parse(readFileSync(join(dir, ".mcp.json"), "utf8"));
+      const claude = parseClaudeGatewayFile(
+        readFileSync(join(dir, ".mcp.json"), "utf-8")
+      );
       expect(claude.mcpServers["pipeline-gateway"]).toMatchObject({
         type: "http",
         url: "https://gateway.example/mcp",
@@ -2971,7 +3026,7 @@ profiles:
       expect(claude.mcpServers["pipeline-gateway"].headers).toEqual({
         Authorization: CLAUDE_GATEWAY_AUTH_HEADER,
       });
-      const codex = readFileSync(join(dir, ".codex/config.toml"), "utf8");
+      const codex = readFileSync(join(dir, ".codex/config.toml"), "utf-8");
       expect(codex).toContain("[mcp_servers.pipeline-gateway]");
       expect(codex).toContain('url = "https://gateway.example/mcp"');
       expect(codex).toContain(
@@ -2991,7 +3046,7 @@ profiles:
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
       restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", originalGatewayToken);
       restoreHostConfig(savedHostEnv);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -3003,13 +3058,13 @@ profiles:
     const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
     const originalFetch = global.fetch;
     const savedHostEnv = redirectHostConfig(dir);
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
       process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
-      global.fetch = vi.fn().mockResolvedValue({ status: 200 }) as any;
+      global.fetch = vi.fn(async () => new Response(null, { status: 200 }));
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
       writeFileSync(
         join(dir, ".mcp.json"),
@@ -3031,7 +3086,7 @@ profiles:
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
       restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", originalGatewayToken);
       restoreHostConfig(savedHostEnv);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -3042,26 +3097,24 @@ profiles:
     const originalGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
     const originalGatewayToken = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
     const originalFetch = global.fetch;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
       process.env.PIPELINE_MCP_GATEWAY_URL = "http://127.0.0.1:4483/mcp";
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
-      global.fetch = vi.fn((input: RequestInfo | URL) => {
+      global.fetch = vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith("/health")) {
-          return Promise.resolve(new Response(null, { status: 200 }));
+          return new Response(null, { status: 200 });
         }
-        return Promise.resolve(
-          Response.json({
-            jsonrpc: "2.0",
-            id: 2,
-            result: {
-              tools: [{ name: "context7_query_docs" }],
-            },
-          })
-        );
+        return Response.json({
+          id: 2,
+          jsonrpc: "2.0",
+          result: {
+            tools: [{ name: "context7_query_docs" }],
+          },
+        });
       });
 
       await expect(runGatewayDoctor(runCli)).rejects.toThrow(
@@ -3078,7 +3131,7 @@ profiles:
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreEnv("PIPELINE_MCP_GATEWAY_URL", originalGatewayUrl);
       restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", originalGatewayToken);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -3086,7 +3139,7 @@ profiles:
     const { runCli } = await import("../src/index");
     const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-reconcile-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       mockToolHiveWorkloads(COMPLETE_TOOLHIVE_WORKLOADS);
@@ -3115,7 +3168,10 @@ profiles:
       expect(Array.isArray(args)).toBe(true);
       const filePath = Array.isArray(args) ? args.at(-1) : undefined;
       expect(filePath).toBeTruthy();
-      const rendered = readFileSync(filePath as string, "utf8");
+      if (typeof filePath !== "string") {
+        throw new TypeError("expected ToolHive config path");
+      }
+      const rendered = readFileSync(filePath, "utf-8");
       expect(rendered).toContain("name: backlog");
       expect(rendered).toContain("name: context7");
       expect(rendered).toContain("name: fallow");
@@ -3135,7 +3191,7 @@ profiles:
     } finally {
       log.mockRestore();
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -3190,7 +3246,7 @@ profiles:
     } finally {
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreHostConfig(savedHostEnv);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -3226,7 +3282,7 @@ profiles:
     } finally {
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
       restoreHostConfig(savedHostEnv);
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -3257,9 +3313,9 @@ profiles:
       ],
       outcome: "FAIL",
       plan: {
-        workflowId: "default",
         parallelBatches: [],
         topologicalOrder: [],
+        workflowId: "default",
       },
     });
 

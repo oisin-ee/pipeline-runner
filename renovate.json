@@ -6,7 +6,7 @@
     {
       "groupName": "dev tooling",
       "matchDepTypes": ["devDependencies"],
-      "matchPackageNames": ["@biomejs/biome", "jscpd", "tsdown", "vitest"]
+      "matchPackageNames": ["jscpd", "tsdown", "vitest"]
     },
     {
       "groupName": "runtime libraries",

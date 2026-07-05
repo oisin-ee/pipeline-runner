@@ -1,24 +1,20 @@
 import { describe, expect, it } from "vitest";
-import {
-  type PipelineConfigParts,
-  parsePipelineConfigParts,
-} from "../src/config";
+
+import { parsePipelineConfigParts } from "../src/config";
+import type { PipelineConfigParts } from "../src/config";
 import { resolveRepoLocalBackendSpecs } from "../src/mcp/repo-local-backends";
 
-const NO_REPO_COPY_COMMAND_RE = /clone|copy|mirror|git\s+clone/i;
+const NO_REPO_COPY_COMMAND_RE = /clone|copy|mirror|git\s+clone/iu;
 
 const PARTS: PipelineConfigParts = {
-  runners: `
+  pipeline: `
 version: 1
-runners:
-  opencode:
-    type: opencode
-    capabilities:
-      mcp_servers: true
-      tools: [read]
-      filesystem: [read-only]
-      network: [inherit]
-      output_formats: [text]
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes: []
 `,
   profiles: `
 version: 1
@@ -48,14 +44,17 @@ profiles:
     filesystem: { mode: read-only }
     network: { mode: inherit }
 `,
-  pipeline: `
+  runners: `
 version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes: []
+runners:
+  opencode:
+    type: opencode
+    capabilities:
+      mcp_servers: true
+      tools: [read]
+      filesystem: [read-only]
+      network: [inherit]
+      output_formats: [text]
 `,
 };
 
@@ -82,11 +81,11 @@ describe("repo-local MCP backend specs", () => {
     });
     expect(specs).toContainEqual(
       expect.objectContaining({
-        id: "serena",
         cwd: "/workspace/prepared",
         env: expect.objectContaining({
           PIPELINE_TARGET_PATH: "/workspace/prepared",
         }),
+        id: "serena",
         mount: {
           containerPath: "/workspace",
           hostPath: "/workspace/prepared",

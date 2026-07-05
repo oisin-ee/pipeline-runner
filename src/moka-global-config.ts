@@ -1,7 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
 import { z } from "zod";
+
 import { PipelineConfigError } from "./config";
 import { configIssuesFromZodError, validationError } from "./config/schemas";
 import { brokerAuthOptionSchema } from "./credentials/broker";
@@ -48,16 +50,16 @@ const mokaSubmitGlobalConfigSchema = z
     // into the runner workflow (same dbAuth the console threads programmatically).
     // Absent → no MOKA_DB_URL, submission still works.
     dbAuth: dbAuthOptionSchema.optional(),
-    // Optional secret ref so `moka submit` emits PIPELINE_MCP_GATEWAY_AUTHORIZATION
-    // into the runner workflow (same option the console threads programmatically).
-    // Absent → no gateway header, submission still works.
-    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     eventAuthSecretKey: z.string().min(1),
     eventAuthSecretName: z.string().min(1),
     eventUrl: z.string().url(),
     gitCredentialsSecretName: z.string().min(1),
     githubAuthSecretName: z.string().min(1),
     imagePullSecretName: z.string().min(1),
+    // Optional secret ref so `moka submit` emits PIPELINE_MCP_GATEWAY_AUTHORIZATION
+    // into the runner workflow (same option the console threads programmatically).
+    // Absent → no gateway header, submission still works.
+    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
     // Optional secret ref for an .npmrc mounted at /root/.npmrc in runner pods so
     // .moka/bootstrap.sh's dependency install (e.g. nub ci) can authenticate to
     // private-scoped package registries, e.g. GitHub Packages. When not set,
@@ -89,10 +91,10 @@ export const mokaGlobalConfigSchema = z
   .strict();
 
 export type MokaGlobalConfig = z.infer<typeof mokaGlobalConfigSchema>;
+type OptionalString = NodeJS.ProcessEnv[string];
 
-export function mokaGlobalConfigPath(homeDir = homedir()): string {
-  return join(homeDir, MOKA_GLOBAL_CONFIG_PATH);
-}
+export const mokaGlobalConfigPath = (homeDir = homedir()): string =>
+  join(homeDir, MOKA_GLOBAL_CONFIG_PATH);
 
 export class MokaDbUrlRequiredError extends Error {
   readonly code = "db.url-required";
@@ -106,14 +108,14 @@ export class MokaDbUrlRequiredError extends Error {
   }
 }
 
-export function requireMokaDbUrl(
-  dbUrl: string | undefined
-): Effect.Effect<string, MokaDbUrlRequiredError> {
+export const requireMokaDbUrl = (
+  dbUrl: OptionalString
+): Effect.Effect<string, MokaDbUrlRequiredError> => {
   if (dbUrl === undefined) {
     return Effect.fail(new MokaDbUrlRequiredError());
   }
   return Effect.succeed(dbUrl);
-}
+};
 
 // PIPE-91.12: a NARROW read of just the durable-substrate toggle
 // (`momokaya.db.url`) for the run-control store cutover. Non-strict by design so
@@ -137,7 +139,7 @@ const mokaDbUrlReadSchema = z.object({
  * to stderr and returns `undefined`; the required-DB policy then fails at the
  * runtime-state boundary with `db.url-required`.
  */
-export function loadMokaDbUrl(): string | undefined {
+export const loadMokaDbUrl = (): OptionalString => {
   // PIPE-94.3: env override — runner pods inject MOKA_DB_URL via secretKeyRef
   // rather than mounting a config file. Check the env var first; fall through to
   // the YAML read for the local-operator path.
@@ -154,13 +156,13 @@ export function loadMokaDbUrl(): string | undefined {
   }
 
   const configPath = mokaGlobalConfigPath();
-  const program = Effect.gen(function* () {
+  const program = Effect.gen(function* program() {
     const configIo = yield* ConfigIoService;
     const source = yield* configIo.readOptionalText(configPath);
-    if (source === null) {
+    if (Option.isNone(source)) {
       return;
     }
-    const yaml = yield* configIo.parseYaml(source, configPath);
+    const yaml = yield* configIo.parseYaml(source.value, configPath);
     const parsed = mokaDbUrlReadSchema.safeParse(yaml);
     if (!parsed.success) {
       return yield* Effect.fail(
@@ -177,37 +179,17 @@ export function loadMokaDbUrl(): string | undefined {
     );
     return;
   }
-}
+};
 
-export function loadMokaGlobalConfig(): MokaGlobalConfig | null {
-  const configPath = mokaGlobalConfigPath();
-  const program = Effect.gen(function* () {
-    const configIo = yield* ConfigIoService;
-    const source = yield* configIo.readOptionalText(configPath);
-    return source === null
-      ? null
-      : yield* parseMokaGlobalConfigEffect(source, configPath);
-  });
-  return runConfigIoSync(program);
-}
-
-export function parseMokaGlobalConfig(
-  source: string,
-  sourcePath: string
-): MokaGlobalConfig {
-  const program = parseMokaGlobalConfigEffect(source, sourcePath);
-  return runConfigIoSync(program);
-}
-
-function parseMokaGlobalConfigEffect(source: string, sourcePath: string) {
-  return Effect.gen(function* () {
+const parseMokaGlobalConfigEffect = (source: string, sourcePath: string) =>
+  Effect.gen(function* effectBody() {
     const configIo = yield* ConfigIoService;
     const yaml = yield* configIo.parseYaml(source, sourcePath);
     const parsed = mokaGlobalConfigSchema.safeParse(yaml);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
         message: issue.message,
+        path: issue.path.join("."),
       }));
       return yield* Effect.fail(
         new PipelineConfigError(
@@ -227,4 +209,23 @@ function parseMokaGlobalConfigEffect(source: string, sourcePath: string) {
 
     return parsed.data;
   });
-}
+
+export const loadMokaGlobalConfig = () => {
+  const configPath = mokaGlobalConfigPath();
+  const program = Effect.gen(function* program() {
+    const configIo = yield* ConfigIoService;
+    const source = yield* configIo.readOptionalText(configPath);
+    return Option.isNone(source)
+      ? null
+      : yield* parseMokaGlobalConfigEffect(source.value, configPath);
+  });
+  return runConfigIoSync(program);
+};
+
+export const parseMokaGlobalConfig = (
+  source: string,
+  sourcePath: string
+): MokaGlobalConfig => {
+  const program = parseMokaGlobalConfigEffect(source, sourcePath);
+  return runConfigIoSync(program);
+};

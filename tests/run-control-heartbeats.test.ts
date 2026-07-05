@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type {
   PipelineRuntimeEvent,
   PipelineRuntimeOptions,
@@ -40,43 +42,38 @@ interface RunControlContractsModule {
 const RUN_CONTROL_SUPERVISOR_MODULE_PATH = "../src/run-control/supervisor";
 const RUN_CONTROL_CONTRACTS_MODULE_PATH = "../src/run-control/contracts";
 
-async function loadSupervisor(): Promise<RunControlSupervisorModule> {
-  return (await import(
+const loadSupervisor = async (): Promise<RunControlSupervisorModule> =>
+  (await import(
     RUN_CONTROL_SUPERVISOR_MODULE_PATH
   )) as RunControlSupervisorModule;
-}
 
-async function loadContracts(): Promise<RunControlContractsModule> {
-  return (await import(
+const loadContracts = async (): Promise<RunControlContractsModule> =>
+  (await import(
     RUN_CONTROL_CONTRACTS_MODULE_PATH
   )) as RunControlContractsModule;
-}
 
-function readRunControlEvents(workspaceRoot: string, runId: string) {
-  return readJsonl(runPath(workspaceRoot, runId, "events.jsonl")).filter(
-    isRecord
-  );
-}
-
-function heartbeatEvents(workspaceRoot: string, runId: string) {
-  return readRunControlEvents(workspaceRoot, runId).filter(
-    (event) => event.type === "run.heartbeat"
-  );
-}
-
-function positiveNamedDefault(value: unknown): number {
+const positiveNamedDefault = (value: unknown): number => {
   if (typeof value !== "number") {
-    throw new Error("Expected run-control default to be exported as a number.");
+    throw new TypeError(
+      "Expected run-control default to be exported as a number."
+    );
   }
   if (!(Number.isInteger(value) && value > 0)) {
     throw new Error("Expected run-control default to be a positive integer.");
   }
   return value;
-}
+};
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const readRunControlEvents = (workspaceRoot: string, runId: string) =>
+  readJsonl(runPath(workspaceRoot, runId, "events.jsonl")).filter(isRecord);
+
+const heartbeatEvents = (workspaceRoot: string, runId: string) =>
+  readRunControlEvents(workspaceRoot, runId).filter(
+    (event) => event.type === "run.heartbeat"
+  );
 
 describe("run-control heartbeats and stale detection", () => {
   let workspaceRoot: string;

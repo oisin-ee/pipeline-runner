@@ -1,22 +1,20 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const FIND_PLANNED_NODE_DECLARATION_RE = /function findPlannedNode\b/g;
-const TOML_IMPORT_RE = /from ["'](?:\.\/|\.\.\/)toml["']/;
-const UNIQUE_STRINGS_DECLARATION_RE = /function uniqueStrings\b/g;
+const FIND_PLANNED_NODE_DECLARATION_RE =
+  /(?:function findPlannedNode\b|const findPlannedNode\s*=)/gu;
+const TOML_IMPORT_RE = /from ["'](?:\.\/|\.\.\/)toml["']/u;
+const UNIQUE_STRINGS_DECLARATION_RE =
+  /(?:function uniqueStrings\b|const uniqueStrings\s*=)/gu;
 
-function readProjectFile(path: string): string {
-  return readFileSync(join(ROOT, path), "utf8");
-}
+const readProjectFile = (path: string): string =>
+  readFileSync(join(ROOT, path), "utf-8");
 
-function sourceFilePaths(): string[] {
-  return walkSourceFiles(join(ROOT, "src"));
-}
-
-function walkSourceFiles(dir: string): string[] {
-  return readdirSync(dir)
+const walkSourceFiles = (dir: string): string[] =>
+  readdirSync(dir)
     .flatMap((entry) => {
       const fullPath = join(dir, entry);
       if (statSync(fullPath).isDirectory()) {
@@ -27,8 +25,9 @@ function walkSourceFiles(dir: string): string[] {
         ? [projectPath]
         : [];
     })
-    .sort();
-}
+    .toSorted();
+
+const sourceFilePaths = (): string[] => walkSourceFiles(join(ROOT, "src"));
 
 describe("PIPE-58 cleanup contracts", () => {
   it("removes the legacy TOML helper from source and package surfaces", () => {
@@ -60,7 +59,7 @@ describe("PIPE-58 cleanup contracts", () => {
     };
 
     expect(declarations).toEqual(["src/planned-node.ts"]);
-    expect(Object.keys(pkg.exports).sort()).toEqual([
+    expect(Object.keys(pkg.exports).toSorted()).toEqual([
       ".",
       "./argo-submit",
       "./argo-workflow",

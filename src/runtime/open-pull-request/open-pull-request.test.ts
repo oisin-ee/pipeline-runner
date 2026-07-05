@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../planning/compile";
 import type {
@@ -25,26 +26,38 @@ interface FakeGitOptions {
 
 type GitEffect = Effect.Effect<string, unknown>;
 
-function fakeSymbolicRef(
+const fakeSymbolicRef = (
   opts: FakeGitOptions,
   defaultBranch: string
-): GitEffect {
-  if (opts.symbolicRefFails) {
+): GitEffect => {
+  if (opts.symbolicRefFails === true) {
     return Effect.fail(new Error("no symbolic ref"));
   }
   return Effect.succeed(`origin/${defaultBranch}`);
-}
+};
 
-function fakeStatusPorcelain(cleanTree: boolean): GitEffect {
-  return Effect.succeed(cleanTree ? "" : "M file.ts");
-}
+const fakeStatusPorcelain = (cleanTree: boolean): GitEffect =>
+  Effect.succeed(cleanTree ? "" : "M file.ts");
 
-function fakeGitRaw(
+const fakeGitRawSimple = (args: string[], cmd: string): GitEffect => {
+  if (args[0] === "checkout" && args[1] === "-B") {
+    return Effect.succeed("");
+  }
+  if (args[0] === "config" || args[0] === "commit" || args[0] === "push") {
+    return Effect.succeed("");
+  }
+  if (cmd === "add -A") {
+    return Effect.succeed("");
+  }
+  return Effect.fail(new Error(`unexpected git command: ${cmd}`));
+};
+
+const fakeGitRaw = (
   args: string[],
   opts: FakeGitOptions,
   defaultBranch: string,
   cleanTree: boolean
-): GitEffect {
+): GitEffect => {
   const cmd = args.join(" ");
   if (cmd === "symbolic-ref --short refs/remotes/origin/HEAD") {
     return fakeSymbolicRef(opts, defaultBranch);
@@ -56,30 +69,17 @@ function fakeGitRaw(
     return Effect.succeed(defaultBranch);
   }
   return fakeGitRawSimple(args, cmd);
-}
+};
 
-function fakeGitRawSimple(args: string[], cmd: string): GitEffect {
-  if (args[0] === "checkout" && args[1] === "-B") {
-    return Effect.succeed("");
-  }
-  if (args[0] === "config" || args[0] === "commit" || args[0] === "push") {
-    return Effect.succeed("");
-  }
-  if (cmd === "add -A") {
-    return Effect.succeed("");
-  }
-  return Effect.fail(new Error(`unexpected git command: ${cmd}`));
-}
-
-function buildFakeGitClient(
+const buildFakeGitClient = (
   opts: FakeGitOptions = {}
-): OpenPullRequestGitClient {
+): OpenPullRequestGitClient => {
   const defaultBranch = opts.defaultBranch ?? "main";
   const cleanTree = opts.cleanTree ?? true;
   return {
     raw: (args: string[]) => fakeGitRaw(args, opts, defaultBranch, cleanTree),
   };
-}
+};
 
 // ---------------------------------------------------------------------------
 // Recorded calls tracker
@@ -89,14 +89,14 @@ interface RecordedCall {
   args: string[];
 }
 
-function buildRecordingCommandExecutor(
+const buildRecordingCommandExecutor = (
   exitCode = 0,
   output = "https://github.com/owner/repo/pull/1",
   existingPrOutput = ""
 ): {
   layer: Layer.Layer<CommandExecutor>;
   calls: RecordedCall[];
-} {
+} => {
   const calls: RecordedCall[] = [];
   const layer = Layer.succeed(CommandExecutor, {
     execute: (command: string[]) => {
@@ -132,36 +132,19 @@ function buildRecordingCommandExecutor(
     },
   });
   return { calls, layer };
-}
+};
 
 // ---------------------------------------------------------------------------
 // Context factory
 // ---------------------------------------------------------------------------
 
-function contextForOpenPr(
+const contextForOpenPr = (
   task = "Fix bug\n\nMore detail",
   headBranch?: string,
   mode?: "create-new-pr" | "update-existing-pr",
   reporter?: RuntimeContext["reporter"]
-): RuntimeContext {
+): RuntimeContext => {
   const config = parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-    profiles: `
-version: 1
-profiles:
-  a:
-    runner: opencode
-    instructions: { inline: A }
-`,
     pipeline: `
 version: 1
 default_workflow: default
@@ -173,6 +156,23 @@ workflows:
       - id: pr
         kind: builtin
         builtin: open-pull-request
+`,
+    profiles: `
+version: 1
+profiles:
+  a:
+    runner: opencode
+    instructions: { inline: A }
+`,
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
 `,
   });
   const configWithDelivery: typeof config =
@@ -212,31 +212,31 @@ workflows:
     workflowId: "default",
     worktreePath: process.cwd(),
   };
-}
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildFakeGitLayer(
+const buildFakeGitLayer = (
   opts: FakeGitOptions = {}
-): Layer.Layer<OpenPullRequestGitService> {
+): Layer.Layer<OpenPullRequestGitService> => {
   const client = buildFakeGitClient(opts);
   return Layer.succeed(OpenPullRequestGitService, {
     create: (_baseDir) => Effect.succeed(client),
   });
-}
+};
 
-function runWithLayers(
+const runWithLayers = async (
   context: RuntimeContext,
   gitLayer: Layer.Layer<OpenPullRequestGitService>,
   executorLayer: Layer.Layer<CommandExecutor>
-): Promise<NodeAttemptResult> {
+): Promise<NodeAttemptResult> => {
   const merged = Layer.merge(gitLayer, executorLayer);
-  return Effect.runPromise(
+  return await Effect.runPromise(
     Effect.provide(openPullRequestProgram(context), merged)
   );
-}
+};
 
 // ---------------------------------------------------------------------------
 // Tests

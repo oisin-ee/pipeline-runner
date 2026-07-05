@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+
 import { createSerializedWriteQueue } from "./serialized-write-queue";
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const tick = async () => await new Promise((resolve) => setTimeout(resolve, 0));
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
+const deferred = (): { promise: Promise<void>; resolve: () => void } => {
   let resolve: () => void = () => {
     // replaced synchronously below
   };
@@ -11,7 +12,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
     resolve = done;
   });
   return { promise, resolve };
-}
+};
 
 describe("serialized write queue", () => {
   it("runs enqueued writes in FIFO order", async () => {

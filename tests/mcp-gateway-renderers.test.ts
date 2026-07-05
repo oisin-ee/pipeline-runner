@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  type PipelineConfigParts,
-  parsePipelineConfigParts,
-} from "../src/config";
+import { z } from "zod";
+
+import { parsePipelineConfigParts } from "../src/config";
+import type { PipelineConfigParts } from "../src/config";
 import {
   gatewayServerForProfile,
   renderGatewayConfig,
@@ -12,6 +12,7 @@ import {
   renderCodexGatewayConfig,
   renderOpenCodeGatewayConfig,
 } from "../src/mcp/host-renderers";
+import { parseJson } from "../src/safe-json";
 
 const PARTS: PipelineConfigParts = {
   pipeline: `
@@ -61,12 +62,45 @@ const CLAUDE_GATEWAY_AUTH_HEADER = [
   "$",
   "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
 ].join("");
+const gatewayHeaderConfigSchema = z.object({
+  Authorization: z.string(),
+});
+const openCodeGatewayConfigSchema = z.object({
+  mcp: z.record(
+    z.string(),
+    z.object({
+      enabled: z.boolean(),
+      headers: gatewayHeaderConfigSchema,
+      oauth: z.boolean(),
+      type: z.string(),
+      url: z.string(),
+    })
+  ),
+});
+const claudeGatewayConfigSchema = z.object({
+  mcpServers: z.record(
+    z.string(),
+    z.object({
+      headers: gatewayHeaderConfigSchema,
+      type: z.string(),
+      url: z.string(),
+    })
+  ),
+});
+
+const parseOpenCodeGatewayJson = (source: string) =>
+  openCodeGatewayConfigSchema.parse(parseJson(source, "OpenCode gateway JSON"));
+
+const parseClaudeGatewayJson = (source: string) =>
+  claudeGatewayConfigSchema.parse(parseJson(source, "Claude gateway JSON"));
 
 describe("MCP gateway pure renderers", () => {
   it("renders host gateway configs without filesystem or process IO", () => {
     const config = parsePipelineConfigParts(PARTS);
 
-    const opencode = JSON.parse(renderOpenCodeGatewayConfig(config, ENV));
+    const opencode = parseOpenCodeGatewayJson(
+      renderOpenCodeGatewayConfig(config, ENV)
+    );
     expect(opencode.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
       headers: {
@@ -77,7 +111,9 @@ describe("MCP gateway pure renderers", () => {
       url: "https://gateway.example/mcp",
     });
 
-    const claude = JSON.parse(renderClaudeGatewayUserConfig(config, ENV));
+    const claude = parseClaudeGatewayJson(
+      renderClaudeGatewayUserConfig(config, ENV)
+    );
     expect(claude.mcpServers["pipeline-gateway"]).toEqual({
       headers: {
         Authorization: CLAUDE_GATEWAY_AUTH_HEADER,

@@ -1,5 +1,6 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { execa } from "execa";
+
 import type { GhRunner, GhTextOptions } from "./gh-checks";
 
 // ===========================================================================
@@ -25,63 +26,66 @@ export type GhExec = (
 ) => Promise<{ readonly stdout: string }>;
 
 /** Default exec: invoke the real `gh` binary via execa, extending the parent env. */
-const defaultGhExec: GhExec = (args, options) =>
-  execa("gh", [...args], {
-    // extendEnv defaults to true, so secretEnv values are MERGED onto the
-    // inherited environment for this child only — never persisted, never in argv.
-    ...(options.env ? { env: options.env } : {}),
-  });
+const defaultGhExec: GhExec = async (args, options) =>
+  await execa(
+    "gh",
+    [...args],
+    options.env === undefined ? {} : { env: options.env }
+  );
 
 export interface GhRunnerOptions {
   /** Subprocess seam; defaults to the real `gh` execa runner. */
   readonly exec?: GhExec;
 }
 
-/**
- * Build a production `GhRunner`. `json` parses the `--json` stdout; `text`
- * returns raw stdout and routes any `secretEnv` into the child ENV.
- */
-export function createGhRunner(options: GhRunnerOptions = {}): GhRunner {
-  const exec = options.exec ?? defaultGhExec;
-  return {
-    json: (args) =>
-      runGh(exec, args).pipe(Effect.flatMap((stdout) => parseGhJson(stdout))),
-    text: (args, textOptions) => runGh(exec, args, textOptions),
-  };
-}
-
-function runGh(
-  exec: GhExec,
-  args: readonly string[],
-  options?: GhTextOptions
-): Effect.Effect<string, Error> {
-  return Effect.tryPromise({
-    catch: (error) => ghError(args, error),
-    try: () => exec(args, envOption(options)),
-  }).pipe(Effect.map((result) => result.stdout));
-}
-
 /** Translate GhTextOptions.secretEnv into the execa env channel (never argv). */
-function envOption(options: GhTextOptions | undefined): {
+const envOption = (
+  options: Option.Option<GhTextOptions>
+): {
   env?: Readonly<Record<string, string>>;
-} {
-  if (!options?.secretEnv) {
+} => {
+  const secretEnv = Option.flatMap(options, (value) =>
+    Option.fromNullishOr(value.secretEnv)
+  );
+  if (Option.isNone(secretEnv)) {
     return {};
   }
-  return { env: options.secretEnv };
-}
+  return { env: secretEnv.value };
+};
 
-function parseGhJson(stdout: string): Effect.Effect<unknown, Error> {
-  return Effect.try({
+const parseGhJson = (stdout: string): Effect.Effect<unknown, Error> =>
+  Effect.try({
     catch: (error) =>
       new Error(
         `gh JSON parse failed: ${error instanceof Error ? error.message : String(error)}`
       ),
     try: (): unknown => JSON.parse(stdout),
   });
-}
 
-function ghError(args: readonly string[], error: unknown): Error {
+const ghError = (args: readonly string[], error: unknown): Error => {
   const detail = error instanceof Error ? error.message : String(error);
   return new Error(`gh ${args.join(" ")} failed: ${detail}`);
-}
+};
+
+const runGh = (
+  exec: GhExec,
+  args: readonly string[],
+  options?: GhTextOptions
+): Effect.Effect<string, Error> =>
+  Effect.tryPromise({
+    catch: (error) => ghError(args, error),
+    try: async () => await exec(args, envOption(Option.fromNullishOr(options))),
+  }).pipe(Effect.map((result) => result.stdout));
+
+/**
+ * Build a production `GhRunner`. `json` parses the `--json` stdout; `text`
+ * returns raw stdout and routes any `secretEnv` into the child ENV.
+ */
+export const createGhRunner = (options: GhRunnerOptions = {}): GhRunner => {
+  const exec = options.exec ?? defaultGhExec;
+  return {
+    json: (args) =>
+      runGh(exec, args).pipe(Effect.flatMap((stdout) => parseGhJson(stdout))),
+    text: (args, textOptions) => runGh(exec, args, textOptions),
+  };
+};

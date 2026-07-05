@@ -1,7 +1,9 @@
 import { Effect } from "effect";
 import { z } from "zod";
+
 import { graphEdgeIds } from "../planning/graph";
-import { sequenceTicketBatchesEffect, type TicketGraph } from "./ticket-graph";
+import { sequenceTicketBatchesEffect } from "./ticket-graph";
+import type { TicketGraph } from "./ticket-graph";
 
 /*
  * Wire DTO for TicketGraph — consumed cross-repo by pipeline-console.
@@ -71,10 +73,10 @@ const EMPTY_BATCHES: string[][] = [];
  * fail on a graph that cannot be topologically sorted, which should never
  * happen for a well-formed backlog but must be handled explicitly).
  */
-export function serializeTicketGraph(
+export const serializeTicketGraph = (
   graph: TicketGraph
-): Effect.Effect<TicketGraphDto, never> {
-  return Effect.gen(function* () {
+): Effect.Effect<TicketGraphDto> =>
+  Effect.gen(function* effectBody() {
     const batches = yield* sequenceTicketBatchesEffect(graph).pipe(
       Effect.catch(() => Effect.succeed(EMPTY_BATCHES))
     );
@@ -95,4 +97,3 @@ export function serializeTicketGraph(
 
     return { batches, dangling, edges, nodes };
   });
-}

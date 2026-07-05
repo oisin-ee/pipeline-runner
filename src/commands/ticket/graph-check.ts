@@ -1,5 +1,6 @@
 import type { Command } from "commander";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { TicketCommandOptions } from "./shared";
 import {
   currentWorktreePath,
@@ -12,9 +13,12 @@ interface TicketRootFlags {
   root?: string;
 }
 
-function checkTicketGraphEffect(worktreePath: string, flags: TicketRootFlags) {
-  return Effect.gen(function* () {
-    const loaded = yield* loadTicketGraphEffect(worktreePath, flags.root);
+const checkTicketGraphEffect = (worktreePath: string, flags: TicketRootFlags) =>
+  Effect.gen(function* effectBody() {
+    const loaded = yield* loadTicketGraphEffect(
+      worktreePath,
+      Option.fromUndefinedOr(flags.root)
+    );
     const dangling = loaded.graph.danglingDependencies;
     yield* writeLineEffect(
       `OK: ticket graph valid (${loaded.scopedIds.length} tickets)`
@@ -27,12 +31,11 @@ function checkTicketGraphEffect(worktreePath: string, flags: TicketRootFlags) {
       );
     }
   });
-}
 
-export function registerGraphCheckSubcommand(
+export const registerGraphCheckSubcommand = (
   ticketCommand: Command,
   _options: TicketCommandOptions
-): void {
+): void => {
   const graphCommand = ticketCommand
     .command("graph")
     .description("Inspect the Backlog ticket dependency graph");
@@ -41,7 +44,9 @@ export function registerGraphCheckSubcommand(
     .command("check")
     .description("Validate Backlog ticket dependency references and cycles")
     .option("--root <ticket-id>", "limit validation summary to one ticket tree")
-    .action((flags: TicketRootFlags) =>
-      runTicketProgram(checkTicketGraphEffect(currentWorktreePath(), flags))
-    );
-}
+    .action(async (flags: TicketRootFlags) => {
+      await runTicketProgram(
+        checkTicketGraphEffect(currentWorktreePath(), flags)
+      );
+    });
+};

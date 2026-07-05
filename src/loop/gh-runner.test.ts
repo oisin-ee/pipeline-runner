@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { createGhRunner, type GhExec } from "./gh-runner";
+
+import { createGhRunner } from "./gh-runner";
+import type { GhExec } from "./gh-runner";
 
 // ---------------------------------------------------------------------------
 // Recording exec stub — captures the args and env each call received so the
@@ -12,17 +14,19 @@ interface ExecCall {
   readonly env?: Readonly<Record<string, string>>;
 }
 
-function recordingExec(stdout: string): {
+const recordingExec = (
+  stdout: string
+): {
   exec: GhExec;
   calls: ExecCall[];
-} {
+} => {
   const calls: ExecCall[] = [];
-  const exec: GhExec = (args, options) => {
+  const exec: GhExec = async (args, options) => {
     calls.push({ args: [...args], env: options.env });
-    return Promise.resolve({ stdout });
+    return await Promise.resolve({ stdout });
   };
-  return { exec, calls };
-}
+  return { calls, exec };
+};
 
 // ---------------------------------------------------------------------------
 // AC3 — text() routes secretEnv to the child ENV, never into argv.
@@ -39,12 +43,15 @@ describe("createGhRunner — secretEnv channel", () => {
     );
 
     expect(calls).toHaveLength(1);
-    const call = calls[0];
+    const call = calls.at(0);
+    if (call === undefined) {
+      throw new Error("expected one gh call");
+    }
     // ENV channel carries the token.
-    expect(call?.env).toEqual({ GH_TOKEN: "s3cr3t-admin-token" });
+    expect(call.env).toEqual({ GH_TOKEN: "s3cr3t-admin-token" });
     // argv carries exactly the provided args and NEVER the secret value.
-    expect(call?.args).toEqual(args);
-    expect(call?.args.join(" ")).not.toContain("s3cr3t-admin-token");
+    expect(call.args).toEqual(args);
+    expect(call.args.join(" ")).not.toContain("s3cr3t-admin-token");
   });
 
   it("omits env entirely when no secretEnv is provided", async () => {
@@ -66,11 +73,13 @@ describe("createGhRunner — secretEnv channel", () => {
       gh.json(["pr", "list", "--json", "number,headRefName"])
     );
 
-    expect(parsed).toEqual([{ number: 7, headRefName: "moka/run/x" }]);
+    expect(parsed).toEqual([{ headRefName: "moka/run/x", number: 7 }]);
   });
 
   it("surfaces a gh failure as a typed Error (no silent swallow)", async () => {
-    const exec: GhExec = () => Promise.reject(new Error("gh: not mergeable"));
+    const exec: GhExec = () => {
+      throw new Error("gh: not mergeable");
+    };
     const gh = createGhRunner({ exec });
 
     const exit = await Effect.runPromiseExit(gh.text(["pr", "merge", "3"]));

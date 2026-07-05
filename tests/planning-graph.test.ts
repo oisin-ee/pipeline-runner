@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   createDependencyGraph,
   dependencyBatches,
@@ -7,11 +8,11 @@ import {
   findDependencyCycles,
   findNode,
   flattenNodes,
-  type GraphNode,
   hasReachableDependent,
   terminalDependencyItems,
   topologicalDependencyOrder,
 } from "../src/planning/graph";
+import type { GraphNode } from "../src/planning/graph";
 
 interface TestNode extends GraphNode {
   children?: TestNode[];
@@ -34,11 +35,11 @@ describe("flattenNodes", () => {
   it("flattens nested parallel/workflow children depth-first, parents first", () => {
     const nodes: TestNode[] = [
       {
-        id: "p1",
         children: [
           { id: "c1" },
-          { id: "p2", children: [{ id: "c2" }, { id: "c3" }] },
+          { children: [{ id: "c2" }, { id: "c3" }], id: "p2" },
         ],
+        id: "p1",
       },
       { id: "tail" },
     ];
@@ -86,7 +87,7 @@ describe("dependentsByNeed + hasReachableDependent", () => {
 describe("findNode", () => {
   it("finds a node nested inside parallel children", () => {
     const nodes: TestNode[] = [
-      { id: "p", children: [{ id: "deep", children: [{ id: "leaf" }] }] },
+      { children: [{ children: [{ id: "leaf" }], id: "deep" }], id: "p" },
     ];
     expect(findNode(nodes, "leaf", childrenOf)?.id).toBe("leaf");
     expect(findNode(nodes, "absent", childrenOf)).toBeUndefined();
@@ -110,7 +111,7 @@ describe("findDependencyCycles", () => {
     ];
     const cycles = findDependencyCycles(nodes);
     expect(cycles).toHaveLength(1);
-    expect([...(cycles[0] ?? [])].sort()).toEqual(["a", "b"]);
+    expect([...(cycles[0] ?? [])].toSorted()).toEqual(["a", "b"]);
   });
 
   it("detects a multi-node cycle and ignores undeclared needs", () => {
@@ -121,7 +122,7 @@ describe("findDependencyCycles", () => {
     ];
     const cycles = findDependencyCycles(nodes);
     expect(cycles).toHaveLength(1);
-    expect([...(cycles[0] ?? [])].sort()).toEqual(["a", "b", "c"]);
+    expect([...(cycles[0] ?? [])].toSorted()).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -151,7 +152,7 @@ describe("graphlib-backed DAG helpers", () => {
       dependencyBatches(graph, graph.nodes(), (left, right) => {
         const leftNode = graph.node(left);
         const rightNode = graph.node(right);
-        return (leftNode?.index ?? 0) - (rightNode?.index ?? 0);
+        return leftNode.index - rightNode.index;
       })
     ).toEqual([["root"], ["right", "left"], ["join"]]);
   });
@@ -180,7 +181,10 @@ describe("graphlib-backed DAG helpers", () => {
         { id: "PIPE-1.2", parentId: "PIPE-1" },
       ],
       {
-        dependenciesOf: (node) => (node.parentId ? [node.parentId] : []),
+        dependenciesOf: (node) =>
+          node.parentId === undefined || node.parentId.length === 0
+            ? []
+            : [node.parentId],
         valueOf: (node) => node,
       }
     );

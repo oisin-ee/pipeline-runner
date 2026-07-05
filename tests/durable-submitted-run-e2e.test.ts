@@ -23,7 +23,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
 import {
   afterAll,
   afterEach,
@@ -33,24 +34,26 @@ import {
   it,
   vi,
 } from "vitest";
+
 import { loadPipelineConfig } from "../src/config";
-import { type MokaSubmitOutput, submitMoka } from "../src/moka-submit";
+import { submitMoka } from "../src/moka-submit";
+import type { MokaSubmitOutput } from "../src/moka-submit";
 import { resumeRunByOrigin } from "../src/pipeline-runtime";
 import { buildNextNodeEnvelopeFromRunStore } from "../src/run-control/next-node";
-import {
-  fileRunControlStore,
-  type RunControlStore,
-} from "../src/run-control/run-control-store";
+import { fileRunControlStore } from "../src/run-control/run-control-store";
+import type { RunControlStore } from "../src/run-control/run-control-store";
 import { buildRemoteRunCreateRequest } from "../src/run-control/run-record";
 import { runRunnerCommand } from "../src/runner-command/run";
 import type {
   PipelineRuntimeEvent,
   RuntimeNodeResult,
 } from "../src/runtime/contracts";
-import {
-  type DurableRunStore,
-  inMemoryDurableRunStore,
-} from "../src/runtime/durable-store/durable-store";
+import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
+import type { DurableRunStore } from "../src/runtime/durable-store/durable-store";
+
+const { resolvedVoid } = vi.hoisted((): { readonly resolvedVoid: void } => ({
+  resolvedVoid: undefined,
+}));
 
 // ---------------------------------------------------------------------------
 // Module-level config (shared; no project files needed — package defaults).
@@ -74,15 +77,14 @@ interface RunnerMocks {
   runScheduledWorkflowTask: ReturnType<typeof vi.fn>;
 }
 
-function mockState(): RunnerMocks {
-  return (globalThis as typeof globalThis & { __e2eDurableMocks: RunnerMocks })
+const mockState = (): RunnerMocks =>
+  (globalThis as typeof globalThis & { __e2eDurableMocks: RunnerMocks })
     .__e2eDurableMocks;
-}
 
-function installMocks(dir: string): RunnerMocks {
+const installMocks = (dir: string): RunnerMocks => {
   const mocks: RunnerMocks = {
-    commitAndPushNodeRef: vi.fn().mockResolvedValue(undefined),
-    mergeDependencyRefs: vi.fn().mockResolvedValue(undefined),
+    commitAndPushNodeRef: vi.fn().mockResolvedValue(resolvedVoid),
+    mergeDependencyRefs: vi.fn().mockResolvedValue(resolvedVoid),
     prepareRunnerGitWorkspace: vi.fn().mockResolvedValue(dir),
     runScheduledWorkflowTask: vi.fn(),
   };
@@ -90,7 +92,7 @@ function installMocks(dir: string): RunnerMocks {
     globalThis as typeof globalThis & { __e2eDurableMocks: RunnerMocks }
   ).__e2eDurableMocks = mocks;
   return mocks;
-}
+};
 
 // Preserve all pipeline-runtime exports (including resumeRunByOrigin) and only
 // intercept runScheduledWorkflowTask so runner pods are simulated without
@@ -114,11 +116,11 @@ vi.mock("../src/run-state/git-refs", () => ({
     mockState().prepareRunnerGitWorkspace(...args),
   // promoteFinalRef is imported by RunnerCommandIoServiceLive but not called
   // in the main runner command path — stub so the import resolves.
-  promoteFinalRef: vi.fn().mockResolvedValue(undefined),
+  promoteFinalRef: vi.fn().mockResolvedValue(resolvedVoid),
 }));
 
 vi.mock("execa", () => ({
-  execa: vi.fn(async () => ({ exitCode: 0 })),
+  execa: vi.fn(() => ({ exitCode: 0 })),
 }));
 
 vi.mock("../src/credentials/runner", () => ({
@@ -156,45 +158,48 @@ const SCHEDULE_YAML = [
   "",
 ].join("\n");
 
-function passedResult(nodeId: string): RuntimeNodeResult {
-  return {
-    attempts: 1,
-    evidence: ["exit 0"],
-    exitCode: 0,
-    nodeId,
-    output: `output of ${nodeId}`,
-    status: "passed",
-  };
-}
+const passedResult = (nodeId: string): RuntimeNodeResult => ({
+  attempts: 1,
+  evidence: ["exit 0"],
+  exitCode: 0,
+  nodeId,
+  output: `output of ${nodeId}`,
+  status: "passed",
+});
 
 // Guard helpers — keep the undefined-checks out of the test body so the scenario
 // reads as a linear sequence of non-optional assertions (and stays under the
 // per-function complexity budget).
-async function requireRun(store: RunControlStore, runId: string) {
+const requireRun = async (store: RunControlStore, runId: string) => {
   const manifest = await Effect.runPromise(store.readRun({ runId }));
   if (manifest === undefined) {
     throw new Error(`expected run ${runId} to exist in the run-control store`);
   }
   return manifest;
-}
+};
 
-function requireRecord(store: DurableRunStore, runId: string, nodeId: string) {
+const requireRecord = (
+  store: DurableRunStore,
+  runId: string,
+  nodeId: string
+) => {
   const record = store.get(runId, nodeId);
-  if (record === undefined) {
+  if (Option.isNone(record)) {
     throw new Error(`expected ${nodeId} to be recorded in the durable store`);
   }
-  return record;
-}
+  return record.value;
+};
 
 // runScheduledWorkflowTask mock: faithfully emits node.start + node.finish
 // events (the real executor's contract) and resolves with a passed result whose
 // nodeId matches the node being executed. This mirrors executeEmittingResult in
 // runner-command-persistence.test.ts.
-function buildExecutorMock(): (options: {
-  nodeId: string;
-  reporter?: (event: PipelineRuntimeEvent) => void;
-}) => Promise<RuntimeNodeResult> {
-  return (options) => {
+const buildExecutorMock =
+  (): ((options: {
+    nodeId: string;
+    reporter?: (event: PipelineRuntimeEvent) => void;
+  }) => Promise<RuntimeNodeResult>) =>
+  async (options) => {
     const result = passedResult(options.nodeId);
     options.reporter?.({
       attempt: 1,
@@ -208,9 +213,8 @@ function buildExecutorMock(): (options: {
       status: "passed",
       type: "node.finish",
     });
-    return Promise.resolve(result);
+    return result;
   };
-}
 
 const FAKE_SUBMISSION: MokaSubmitOutput = {
   namespace: "test-runners",
@@ -263,11 +267,13 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
 
   // Write per-node runner fixtures into `dir`. The schedule file and event
   // token are shared (same content); payload + task descriptor are per-node.
-  function writeNodeFixture(nodeId: string): {
+  const writeNodeFixture = (
+    nodeId: string
+  ): {
     descriptorPath: string;
     payloadPath: string;
     schedulePath: string;
-  } {
+  } => {
     const eventTokenPath = join(dir, "event-token");
     const schedulePath = join(dir, "schedule.yaml");
     const descriptorPath = join(dir, `${nodeId}-task.json`);
@@ -299,24 +305,24 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
     );
 
     return { descriptorPath, payloadPath, schedulePath };
-  }
+  };
 
   // Drive runRunnerCommand for a single node with the shared in-memory stores.
-  function runNode(nodeId: string): Promise<number> {
+  const runNode = async (nodeId: string): Promise<number> => {
     const { descriptorPath, payloadPath, schedulePath } =
       writeNodeFixture(nodeId);
-    return runRunnerCommand({
+    return await runRunnerCommand({
       cwd: dir,
       fetch: async () => new Response(null, { status: 202 }),
       payloadFile: payloadPath,
       resolvePersistence: () =>
-        Effect.succeed({ durableStore, runControlStore }),
+        Effect.succeed(Option.some({ durableStore, runControlStore })),
       scheduleFile: schedulePath,
       stderr: { write: () => true },
       stdout: { write: () => true },
       taskDescriptorFile: descriptorPath,
     });
-  }
+  };
 
   it("submit → execute-A → inspect DB-backed state → resume drains B (AC1, AC2)", async () => {
     // -----------------------------------------------------------------------
@@ -380,7 +386,7 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
     expect(requireRecord(durableStore, RUN_ID, "node-a").result.status).toBe(
       "passed"
     );
-    expect(durableStore.get(RUN_ID, "node-b")).toBeUndefined();
+    expect(Option.isNone(durableStore.get(RUN_ID, "node-b"))).toBe(true);
 
     // -----------------------------------------------------------------------
     // Phase 3 — KILL / INSPECT  (AC1)
@@ -436,7 +442,11 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
       {
         // Inject readManifest so no live Postgres is needed.
         readManifest: async (opts) =>
-          Effect.runPromise(runControlStore.readRun({ runId: opts.runId })),
+          Option.fromUndefinedOr(
+            await Effect.runPromise(
+              runControlStore.readRun({ runId: opts.runId })
+            )
+          ),
         // Inject resubmit: simulates Argo re-running all pods (same schedule,
         // same runId). Passed nodes are skipped in-pod from the durable store.
         resubmit: async (input) => {

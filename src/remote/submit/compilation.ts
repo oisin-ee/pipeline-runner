@@ -1,4 +1,6 @@
+import { Option } from "effect";
 import { stringify } from "yaml";
+
 import { buildCommandScheduleYaml } from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
 import type {
@@ -8,9 +10,9 @@ import type {
 } from "../../moka-submit";
 import {
   compileScheduleArtifact,
-  type generateScheduleArtifactInMemory,
   parseScheduleArtifact,
 } from "../../planning/generate";
+import type { generateScheduleArtifactInMemory } from "../../planning/generate";
 import type { MokaSubmission, RunnerTask } from "../../runner-command-contract";
 import {
   appendPullRequestDelivery,
@@ -34,47 +36,105 @@ export interface CompiledMokaSubmitPlan {
   workflowId: string;
 }
 
-export function compileMokaSubmitPlan(input: {
-  dependencies: MokaSubmitCompilationDependencies;
-  options: ParsedMokaSubmitOptions;
-  runId: string;
-}): Promise<CompiledMokaSubmitPlan> {
-  const plan =
-    input.options.type === "command"
-      ? compileMokaCommandSubmitPlan(input.options, input.runId)
-      : compileMokaGraphSubmitPlan(
-          input.options,
-          input.dependencies,
-          input.runId
-        );
-  return Promise.resolve(plan);
-}
+const readRawExplicitGraphScheduleYaml = (
+  options: ParsedMokaGraphOptions,
+  dependencies: MokaSubmitCompilationDependencies
+): Option.Option<string> => {
+  if (options.scheduleYaml !== undefined && options.scheduleYaml.length > 0) {
+    return Option.some(options.scheduleYaml);
+  }
+  if (options.schedulePath !== undefined && options.schedulePath.length > 0) {
+    return Option.some(readScheduleFile(dependencies, options.schedulePath));
+  }
+  return Option.none();
+};
 
-function compileMokaGraphSubmitPlan(
+const graphScheduleYamlWithDelivery = (
+  options: ParsedMokaGraphOptions,
+  scheduleYaml: string
+): string => {
+  const artifact = parseScheduleArtifact(scheduleYaml, "schedule.yaml");
+  const transformed = appendPullRequestDelivery(
+    shouldAppendPullRequestDelivery({
+      config: options.config,
+      requested: options.delivery.pullRequest,
+    }),
+    artifact
+  );
+  return transformed === artifact ? scheduleYaml : stringify(transformed);
+};
+
+const readExplicitGraphScheduleYaml = (
+  options: ParsedMokaGraphOptions,
+  dependencies: MokaSubmitCompilationDependencies
+): Option.Option<string> => {
+  const scheduleYaml = readRawExplicitGraphScheduleYaml(options, dependencies);
+  return Option.map(scheduleYaml, (source) =>
+    graphScheduleYamlWithDelivery(options, source)
+  );
+};
+
+const scheduleWorkflowId = (
+  options: { config: PipelineConfig; worktreePath?: string },
+  scheduleYaml: string
+): string =>
+  compileScheduleArtifact(
+    options.config,
+    parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
+    options.worktreePath
+  ).workflowId;
+
+const dynamicWorkflowId = (runId: string): string => `schedule-${runId}-root`;
+
+const normalizeTask = (task: string | RunnerTask): RunnerTask => {
+  if (typeof task === "string") {
+    return { kind: "prompt", prompt: task };
+  }
+  return task;
+};
+
+const compileMokaGraphSubmitPlan = (
   options: ParsedMokaGraphOptions,
   dependencies: MokaSubmitCompilationDependencies,
   runId: string
-): CompiledMokaSubmitPlan {
+): CompiledMokaSubmitPlan => {
   const task = normalizeTask(options.task);
   const scheduleYaml = readExplicitGraphScheduleYaml(options, dependencies);
+  const hasScheduleYaml = Option.isSome(scheduleYaml);
   return {
     config: options.config,
-    dynamicScheduling: !scheduleYaml,
+    dynamicScheduling: !hasScheduleYaml,
     generateName: options.generateName ?? `moka-${options.mode}-`,
     runId,
-    ...(scheduleYaml ? { scheduleYaml } : {}),
+    ...(hasScheduleYaml ? { scheduleYaml: scheduleYaml.value } : {}),
     submission: { kind: "graph", mode: options.mode },
     task,
-    workflowId: scheduleYaml
-      ? scheduleWorkflowId(options, scheduleYaml)
+    workflowId: hasScheduleYaml
+      ? scheduleWorkflowId(options, scheduleYaml.value)
       : dynamicWorkflowId(runId),
   };
-}
+};
 
-function compileMokaCommandSubmitPlan(
+const commandTask = (options: ParsedMokaCommandOptions): RunnerTask => {
+  if (options.task !== undefined) {
+    return normalizeTask(options.task);
+  }
+  return normalizeTask(options.commandArgv.join(" "));
+};
+
+const taskDescription = (task: RunnerTask): string => {
+  if (task.kind === "prompt") {
+    return task.prompt;
+  }
+  return task.title !== undefined && task.title.length > 0
+    ? `${task.id} ${task.title}`
+    : task.id;
+};
+
+const compileMokaCommandSubmitPlan = (
   options: ParsedMokaCommandOptions,
   runId: string
-): CompiledMokaSubmitPlan {
+): CompiledMokaSubmitPlan => {
   const task = commandTask(options);
   const scheduleYaml = buildCommandScheduleYaml({
     command: options.commandArgv,
@@ -92,78 +152,20 @@ function compileMokaCommandSubmitPlan(
     task,
     workflowId: scheduleWorkflowId(options, scheduleYaml),
   };
-}
+};
 
-function commandTask(options: ParsedMokaCommandOptions): RunnerTask {
-  if (options.task) {
-    return normalizeTask(options.task);
-  }
-  return normalizeTask(options.commandArgv.join(" "));
-}
-
-function readExplicitGraphScheduleYaml(
-  options: ParsedMokaGraphOptions,
-  dependencies: MokaSubmitCompilationDependencies
-): string | null {
-  const scheduleYaml = readRawExplicitGraphScheduleYaml(options, dependencies);
-  return scheduleYaml
-    ? graphScheduleYamlWithDelivery(options, scheduleYaml)
-    : null;
-}
-
-function readRawExplicitGraphScheduleYaml(
-  options: ParsedMokaGraphOptions,
-  dependencies: MokaSubmitCompilationDependencies
-): string | null {
-  if (options.scheduleYaml) {
-    return options.scheduleYaml;
-  }
-  if (options.schedulePath) {
-    return readScheduleFile(dependencies, options.schedulePath);
-  }
-  return null;
-}
-
-function graphScheduleYamlWithDelivery(
-  options: ParsedMokaGraphOptions,
-  scheduleYaml: string
-): string {
-  const artifact = parseScheduleArtifact(scheduleYaml, "schedule.yaml");
-  const transformed = appendPullRequestDelivery(
-    shouldAppendPullRequestDelivery({
-      config: options.config,
-      requested: options.delivery.pullRequest,
-    }),
-    artifact
-  );
-  return transformed === artifact ? scheduleYaml : stringify(transformed);
-}
-
-function scheduleWorkflowId(
-  options: { config: PipelineConfig; worktreePath?: string },
-  scheduleYaml: string
-): string {
-  return compileScheduleArtifact(
-    options.config,
-    parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
-    options.worktreePath
-  ).workflowId;
-}
-
-function dynamicWorkflowId(runId: string): string {
-  return `schedule-${runId}-root`;
-}
-
-function normalizeTask(task: string | RunnerTask): RunnerTask {
-  if (typeof task === "string") {
-    return { kind: "prompt", prompt: task };
-  }
-  return task;
-}
-
-function taskDescription(task: RunnerTask): string {
-  if (task.kind === "prompt") {
-    return task.prompt;
-  }
-  return task.title ? `${task.id} ${task.title}` : task.id;
-}
+export const compileMokaSubmitPlan = (input: {
+  dependencies: MokaSubmitCompilationDependencies;
+  options: ParsedMokaSubmitOptions;
+  runId: string;
+}): CompiledMokaSubmitPlan => {
+  const plan =
+    input.options.type === "command"
+      ? compileMokaCommandSubmitPlan(input.options, input.runId)
+      : compileMokaGraphSubmitPlan(
+          input.options,
+          input.dependencies,
+          input.runId
+        );
+  return plan;
+};

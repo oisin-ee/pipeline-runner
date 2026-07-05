@@ -40,50 +40,10 @@ export interface RunCommandDispatchDependencies {
   readonly runRemoteSubmit: (input: RemoteSubmitDispatchInput) => Promise<void>;
 }
 
-export async function dispatchMokaRunCommand(
-  call: RunCommandCall,
-  dependencies: RunCommandDispatchDependencies
-): Promise<void> {
-  if (dependencies.runCommand) {
-    await dependencies.runCommand(call);
-    return;
-  }
-  await dispatchResolvedMokaRunCommand(call, dependencies);
-}
-
-async function dispatchResolvedMokaRunCommand(
-  call: RunCommandCall,
-  dependencies: RunCommandDispatchDependencies
-): Promise<void> {
-  const { resolution } = call;
-  const { execution } = resolution;
-  if (execution.kind === "remote-submit") {
-    await dependencies.runRemoteSubmit({
-      descriptionParts: call.descriptionParts,
-      execution,
-    });
-    return;
-  }
-  await dispatchLocalMokaRunCommand(call, execution, dependencies);
-}
-
-async function dispatchLocalMokaRunCommand(
-  call: RunCommandCall,
-  execution: LocalRuntimeExecution,
-  dependencies: RunCommandDispatchDependencies
-): Promise<void> {
-  const localDispatchInput = localRunDispatchInput(call, execution);
-  if (call.flags.detach) {
-    await dependencies.runDetached(localDispatchInput);
-    return;
-  }
-  await dependencies.runLocal(localDispatchInput);
-}
-
-function localRunDispatchInput(
+const localRunDispatchInput = (
   call: RunCommandCall,
   execution: LocalRuntimeExecution
-): LocalRunDispatchInput {
+): LocalRunDispatchInput => {
   const { resolution, task } = call;
   return {
     execution,
@@ -94,4 +54,44 @@ function localRunDispatchInput(
     },
     task,
   };
-}
+};
+
+const dispatchLocalMokaRunCommand = async (
+  call: RunCommandCall,
+  execution: LocalRuntimeExecution,
+  dependencies: RunCommandDispatchDependencies
+): Promise<void> => {
+  const localDispatchInput = localRunDispatchInput(call, execution);
+  if (call.flags.detach === true) {
+    await dependencies.runDetached(localDispatchInput);
+    return;
+  }
+  await dependencies.runLocal(localDispatchInput);
+};
+
+const dispatchResolvedMokaRunCommand = async (
+  call: RunCommandCall,
+  dependencies: RunCommandDispatchDependencies
+): Promise<void> => {
+  const { resolution } = call;
+  const { execution } = resolution;
+  if (execution.kind === "remote-submit") {
+    await dependencies.runRemoteSubmit({
+      descriptionParts: call.descriptionParts,
+      execution,
+    });
+    return;
+  }
+  await dispatchLocalMokaRunCommand(call, execution, dependencies);
+};
+
+export const dispatchMokaRunCommand = async (
+  call: RunCommandCall,
+  dependencies: RunCommandDispatchDependencies
+): Promise<void> => {
+  if (dependencies.runCommand) {
+    await dependencies.runCommand(call);
+    return;
+  }
+  await dispatchResolvedMokaRunCommand(call, dependencies);
+};

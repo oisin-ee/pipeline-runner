@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import { createChildWorktree, gcParallelWorktrees } from "./parallel-worktrees";
 
 const repos: string[] = [];
@@ -13,7 +15,7 @@ afterEach(() => {
   }
 });
 
-function tempRepo(): string {
+const tempRepo = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "moka-wt-"));
   repos.push(dir);
   const g = (args: string[]) => execFileSync("git", args, { cwd: dir });
@@ -24,11 +26,11 @@ function tempRepo(): string {
   g(["add", "-A"]);
   g(["commit", "-q", "-m", "base"]);
   return dir;
-}
+};
 
-function gitIn(cwd: string, args: string[]): void {
+const gitIn = (cwd: string, args: string[]): void => {
   execFileSync("git", args, { cwd });
-}
+};
 
 describe("parallel-worktrees", () => {
   it("creates a worktree on an auto-named branch with the base checkout", () => {
@@ -105,7 +107,7 @@ describe("parallel-worktrees", () => {
     });
     writeFileSync(join(dirty.path, "x.txt"), "y\n");
 
-    const states = gcParallelWorktrees(repo).sort();
+    const states = gcParallelWorktrees(repo).toSorted();
 
     expect(states).toContain("removed");
     expect(states).toContain("retained-dirty");

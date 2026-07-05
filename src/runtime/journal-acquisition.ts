@@ -1,4 +1,6 @@
-import { Effect, type Scope } from "effect";
+import { Effect, Option } from "effect";
+import type { Scope } from "effect";
+
 import { loadPipelineConfig } from "../config";
 import {
   compileScheduleArtifact,
@@ -14,29 +16,15 @@ export interface ResumeRuntimeOptions extends PipelineRuntimeOptions {
   runId: string;
 }
 
-export function resolveResumeRuntimeOptions(
-  options: ResumeRuntimeOptions,
-  dbUrl: string | undefined
-): Effect.Effect<PipelineRuntimeOptions, unknown, Scope.Scope> {
-  if (dbUrl === undefined) {
-    return Effect.succeed(options);
-  }
-  const worktreePath = options.worktreePath ?? process.cwd();
-  return resolveRunControlStore(dbUrl, worktreePath).pipe(
-    Effect.flatMap((store) => store.readRun({ runId: options.runId })),
-    Effect.map((manifest) =>
-      applyPersistedSchedule(options, manifest, worktreePath)
-    )
-  );
-}
-
-function applyPersistedSchedule(
+const applyPersistedSchedule = (
   options: PipelineRuntimeOptions,
-  manifest: MokaRunManifest | undefined,
-  worktreePath: string
-): PipelineRuntimeOptions {
-  const schedule = manifest?.schedule;
-  if (!schedule) {
+  worktreePath: string,
+  manifest: Option.Option<MokaRunManifest>
+): PipelineRuntimeOptions => {
+  const schedule = Option.isSome(manifest)
+    ? manifest.value.schedule
+    : undefined;
+  if (schedule === undefined || schedule.length === 0) {
     return options;
   }
   const baseConfig = options.config ?? loadPipelineConfig(worktreePath);
@@ -50,16 +38,36 @@ function applyPersistedSchedule(
     config: compiled.config,
     workflowId: compiled.workflowId,
   };
-}
+};
 
-export function acquireRunJournal(
-  runId: string | undefined,
-  dbUrl: string | undefined
-): Effect.Effect<RunJournal | undefined, unknown, Scope.Scope> {
-  if (runId === undefined || dbUrl === undefined) {
-    return Effect.succeed(undefined);
+export const resolveResumeRuntimeOptions = (
+  options: ResumeRuntimeOptions,
+  dbUrl: Option.Option<string>
+): Effect.Effect<PipelineRuntimeOptions, unknown, Scope.Scope> => {
+  if (Option.isNone(dbUrl)) {
+    return Effect.succeed(options);
   }
-  return resolveDurableStore(dbUrl, runId).pipe(
-    Effect.map((store) => store.toRunJournal(runId))
+  const worktreePath = options.worktreePath ?? process.cwd();
+  return resolveRunControlStore(dbUrl.value, worktreePath).pipe(
+    Effect.flatMap((store) => store.readRun({ runId: options.runId })),
+    Effect.map((manifest) =>
+      applyPersistedSchedule(
+        options,
+        worktreePath,
+        Option.fromUndefinedOr(manifest)
+      )
+    )
   );
-}
+};
+
+export const acquireRunJournal = (
+  runId: Option.Option<string>,
+  dbUrl: Option.Option<string>
+): Effect.Effect<Option.Option<RunJournal>, unknown, Scope.Scope> => {
+  if (Option.isNone(runId) || Option.isNone(dbUrl)) {
+    return Effect.succeed(Option.none());
+  }
+  return resolveDurableStore(dbUrl.value, runId.value).pipe(
+    Effect.map((store) => Option.some(store.toRunJournal(runId.value)))
+  );
+};

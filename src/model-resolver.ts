@@ -38,42 +38,11 @@ export interface ModelCandidates {
   skipped: string[];
 }
 
-export function selectNodeModelCandidates(
-  node: PlannedWorkflowNode,
-  options?: ModelSelectionOptions
-): ModelCandidates {
-  const models = node.models ?? [];
-  if (models.length === 0) {
-    return {
-      models: [],
-      reason: "node declares no model fallback array",
-      skipped: [],
-    };
-  }
-  const disabled = disabledModels();
-  const available = options?.available;
-  const enabled = models.filter(
-    (candidate) => !disabled.has(candidate) && isAvailable(candidate, available)
-  );
-  const baseSkipped = models.filter(
-    (candidate) => disabled.has(candidate) || !isAvailable(candidate, available)
-  );
-  const sizing = sizingFromOptions(options);
-  if (!sizing) {
-    return {
-      models: enabled,
-      reason: selectionReason(enabled[0]),
-      skipped: baseSkipped,
-    };
-  }
-  return sizedCandidates(enabled, baseSkipped, sizing);
-}
-
-function sizedCandidates(
+const sizedCandidates = (
   enabled: string[],
   baseSkipped: string[],
   options: ModelSizingOptions
-): ModelCandidates {
+): ModelCandidates => {
   const { estimatedTokens, budget } = options;
   const required = estimatedTokens / (budget.max_context_pct / 100);
   const fits: string[] = [];
@@ -92,36 +61,65 @@ function sizedCandidates(
     ? `selected '${head}' (window ${budget.model_context_windows[head] ?? budget.default_context_window}) — holds estimated ${estimatedTokens} tokens within the ${budget.max_context_pct}% context cap`
     : `estimated context ${estimatedTokens} tokens exceeds ${budget.max_context_pct}% of every available model window`;
   return { models: fits, reason, skipped: [...baseSkipped, ...tooSmall] };
-}
+};
 
-function isAvailable(
+const isAvailable = (
   candidate: string,
-  available: ReadonlySet<string> | undefined
-): boolean {
-  return available ? available.has(candidate) : true;
-}
+  available?: ReadonlySet<string>
+): boolean => (available === undefined ? true : available.has(candidate));
 
-function sizingFromOptions(
-  options: ModelSelectionOptions | undefined
-): ModelSizingOptions | undefined {
-  if (options?.budget && typeof options.estimatedTokens === "number") {
+const sizingFromOptions = (options?: ModelSelectionOptions) => {
+  if (
+    options?.budget !== undefined &&
+    typeof options.estimatedTokens === "number"
+  ) {
     return { budget: options.budget, estimatedTokens: options.estimatedTokens };
   }
   return;
-}
+};
 
-function selectionReason(model: string | undefined): string {
-  if (model) {
+const selectionReason = (model?: string): string => {
+  if (model !== undefined && model !== "") {
     return "selected first enabled model from node fallback array";
   }
   return `all configured node models are disabled by ${DISABLED_MODELS_ENV}`;
-}
+};
 
-function disabledModels(): Set<string> {
-  return new Set(
+const disabledModels = (): Set<string> =>
+  new Set(
     (process.env[DISABLED_MODELS_ENV] ?? "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean)
   );
-}
+
+export const selectNodeModelCandidates = (
+  node: PlannedWorkflowNode,
+  options?: ModelSelectionOptions
+): ModelCandidates => {
+  const models = node.models ?? [];
+  if (models.length === 0) {
+    return {
+      models: [],
+      reason: "node declares no model fallback array",
+      skipped: [],
+    };
+  }
+  const disabled = disabledModels();
+  const available = options?.available;
+  const enabled = models.filter(
+    (candidate) => !disabled.has(candidate) && isAvailable(candidate, available)
+  );
+  const baseSkipped = models.filter(
+    (candidate) => disabled.has(candidate) || !isAvailable(candidate, available)
+  );
+  const sizing = sizingFromOptions(options);
+  if (sizing === undefined) {
+    return {
+      models: enabled,
+      reason: selectionReason(enabled[0]),
+      skipped: baseSkipped,
+    };
+  }
+  return sizedCandidates(enabled, baseSkipped, sizing);
+};

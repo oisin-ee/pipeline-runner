@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const repoRoot = join(import.meta.dirname, "..");
@@ -53,11 +54,10 @@ const expectedSchedulePassOrder = [
   "references",
 ] as const;
 
-function importFromTestFile(
+const importFromTestFile = async (
   importPath: string
-): Promise<Record<string, unknown>> {
-  return import(importPath) as Promise<Record<string, unknown>>;
-}
+): Promise<Record<string, unknown>> =>
+  await (import(importPath) as Promise<Record<string, unknown>>);
 
 describe("schedule planner module boundaries", () => {
   it("keeps src/planning/generate as the stable public schedule barrel", async () => {

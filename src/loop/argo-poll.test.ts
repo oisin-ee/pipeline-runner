@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+
 import type { WorkflowReadApi } from "./argo-poll";
 import {
   ARGO_PENDING_PHASE,
@@ -7,24 +8,27 @@ import {
 } from "./argo-poll";
 
 // Minimal fake: returns phases in order, one per call.
-function fakeWorkflowReadApi(phases: Array<string | Error>): {
+const fakeWorkflowReadApi = (
+  phases: (string | Error)[]
+): {
   api: WorkflowReadApi;
   callCount: () => number;
-} {
+} => {
   let calls = 0;
   const remaining = [...phases];
   const api: WorkflowReadApi = {
-    getNamespacedCustomObject: vi.fn(() => {
-      calls++;
+    getNamespacedCustomObject: vi.fn(async () => {
+      calls += 1;
       const next = remaining.shift();
+      await Promise.resolve();
       if (next instanceof Error) {
-        return Promise.reject(next);
+        throw next;
       }
-      return Promise.resolve({ status: { phase: next ?? ARGO_PENDING_PHASE } });
+      return { status: { phase: next ?? ARGO_PENDING_PHASE } };
     }),
   };
   return { api, callCount: () => calls };
-}
+};
 
 describe("pollWorkflowPhaseUntilTerminal", () => {
   it("AC1: polls Running→Running→Succeeded and resolves with Succeeded", async () => {
@@ -32,11 +36,11 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
 
     const result = await Effect.runPromise(
       pollWorkflowPhaseUntilTerminal({
+        maxRetries: 3,
         namespace: "default",
+        pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-        pollIntervalMs: 0,
-        maxRetries: 3,
       })
     );
 
@@ -48,11 +52,11 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
 
     const result = await Effect.runPromise(
       pollWorkflowPhaseUntilTerminal({
+        maxRetries: 3,
         namespace: "default",
+        pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-        pollIntervalMs: 0,
-        maxRetries: 3,
       })
     );
 
@@ -64,11 +68,11 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
 
     const result = await Effect.runPromise(
       pollWorkflowPhaseUntilTerminal({
+        maxRetries: 3,
         namespace: "default",
+        pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-        pollIntervalMs: 0,
-        maxRetries: 3,
       })
     );
 
@@ -85,13 +89,13 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
 
     const result = await Effect.runPromise(
       pollWorkflowPhaseUntilTerminal({
-        namespace: "default",
-        workflowName: "wf-abc",
-        workflowReadApi: api,
-        pollIntervalMs: 0,
         maxRetries: 3,
+        namespace: "default",
         onTransientError: (err, attempt) =>
           logged.push(`attempt=${attempt} err=${String(err)}`),
+        pollIntervalMs: 0,
+        workflowName: "wf-abc",
+        workflowReadApi: api,
       })
     );
 
@@ -115,11 +119,11 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
     await expect(
       Effect.runPromise(
         pollWorkflowPhaseUntilTerminal({
+          maxRetries: 2,
           namespace: "default",
+          pollIntervalMs: 0,
           workflowName: "wf-abc",
           workflowReadApi: api,
-          pollIntervalMs: 0,
-          maxRetries: 2,
         })
       )
     ).rejects.toThrow("network timeout");
@@ -136,11 +140,11 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
 
     const result = await Effect.runPromise(
       pollWorkflowPhaseUntilTerminal({
+        maxRetries: 3,
         namespace: "default",
+        pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-        pollIntervalMs: 0,
-        maxRetries: 3,
       })
     );
 

@@ -1,4 +1,6 @@
-import { type Command, Option } from "commander";
+import { Option } from "commander";
+import type { Command } from "commander";
+
 import { loadPipelineConfig } from "../config";
 import { renderGatewayConfig } from "../mcp/gateway-config";
 import { runGatewayDoctor } from "../mcp/gateway-doctor";
@@ -7,10 +9,10 @@ import {
   reconcileGateway,
   startLocalGateway,
 } from "../mcp/gateway-reconcile";
-import {
-  configureGatewayHosts,
-  type GatewayHostScope,
-  type GatewayHostSelection,
+import { configureGatewayHosts } from "../mcp/host-config";
+import type {
+  GatewayHostScope,
+  GatewayHostSelection,
 } from "../mcp/host-config";
 import { formatDoctorResult } from "./format";
 
@@ -23,7 +25,21 @@ interface GatewayLocalStartFlags {
   detach?: boolean;
 }
 
-export function registerMcpGatewayCommands(program: Command): void {
+const parseGatewayHostScope = (value: string): GatewayHostScope => {
+  if (value === "project" || value === "global") {
+    return value;
+  }
+  throw new Error("scope must be project or global");
+};
+
+const parseGatewayHost = (value: string): GatewayHostSelection => {
+  if (value === "all" || value === "opencode") {
+    return value;
+  }
+  throw new Error("host must be all or opencode");
+};
+
+export const registerMcpGatewayCommands = (program: Command): void => {
   const gatewayCommand = program
     .command("mcp")
     .description("Manage the hosted-first MCP gateway")
@@ -88,7 +104,9 @@ export function registerMcpGatewayCommands(program: Command): void {
           .map((item) =>
             [
               `${item.host}: ${item.path}`,
-              item.backupPath ? `backup=${item.backupPath}` : "backup=none",
+              item.backupPath !== undefined && item.backupPath !== ""
+                ? `backup=${item.backupPath}`
+                : "backup=none",
             ].join(" ")
           )
           .join("\n")
@@ -121,7 +139,7 @@ export function registerMcpGatewayCommands(program: Command): void {
     .description("Start a local ToolHive vMCP gateway for local mode")
     .option("--detach", "reserved for future background startup", false)
     .action(async (flags: GatewayLocalStartFlags) => {
-      if (flags.detach) {
+      if (flags.detach === true) {
         throw new Error("Detached local gateway startup is not implemented.");
       }
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
@@ -138,18 +156,4 @@ export function registerMcpGatewayCommands(program: Command): void {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       console.log(await localGatewayStatus(cwd));
     });
-}
-
-function parseGatewayHostScope(value: string): GatewayHostScope {
-  if (value === "project" || value === "global") {
-    return value;
-  }
-  throw new Error("scope must be project or global");
-}
-
-function parseGatewayHost(value: string): GatewayHostSelection {
-  if (value === "all" || value === "opencode") {
-    return value;
-  }
-  throw new Error("host must be all or opencode");
-}
+};

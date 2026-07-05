@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../planning/compile";
 import type { PipelineRuntimeEvent, RuntimeContext } from "../contracts";
@@ -11,30 +12,10 @@ import {
   runtimeNodeActorDescriptor,
 } from "./events";
 
-function runtimeContextForEvents(
+const runtimeContextForEvents = (
   reporter: (event: PipelineRuntimeEvent) => void
-): RuntimeContext {
+): RuntimeContext => {
   const config = parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text, json, json_schema]
-`,
-    profiles: `
-version: 1
-profiles:
-  structured:
-    runner: opencode
-    instructions: { inline: Structured }
-    output:
-      format: json_schema
-      schema_path: schema.json
-`,
     pipeline: `
 version: 1
 default_workflow: default
@@ -50,6 +31,26 @@ workflows:
         kind: command
         needs: [a]
         command: ["node", "-e", "console.log('ok')"]
+`,
+    profiles: `
+version: 1
+profiles:
+  structured:
+    runner: opencode
+    instructions: { inline: Structured }
+    output:
+      format: json_schema
+      schema_path: schema.json
+`,
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text, json, json_schema]
 `,
   });
   const plan = compileWorkflowPlan(config);
@@ -75,7 +76,7 @@ workflows:
     workflowId: "default",
     worktreePath: process.cwd(),
   };
-}
+};
 
 describe("runtime events", () => {
   it("emits planned workflow nodes with runner metadata", () => {
@@ -168,11 +169,11 @@ describe("runtime events", () => {
 
     emit({
       actor,
+      attempt: 3,
       nodeId: "node-a",
       reason: "gate_failure",
       timestamp: "2026-06-04T00:00:00.000Z",
       type: "runtime.retry.exhausted",
-      attempt: 3,
     });
 
     expect(events).toEqual([

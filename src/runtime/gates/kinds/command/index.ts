@@ -3,14 +3,16 @@ import { forKind } from "../../contract";
 import { evaluateCommandGate } from "./command";
 
 export const commandModule: GateKindModule = {
-  kind: "command",
-  evaluate: forKind("command", (gate, input) =>
-    evaluateCommandGate(
-      gate,
-      input.gateId,
-      input.nodeId,
-      input.context,
-      input.executor
-    )
+  evaluate: forKind(
+    "command",
+    async (gate, input) =>
+      await evaluateCommandGate(
+        gate,
+        input.gateId,
+        input.nodeId,
+        input.context,
+        input.executor
+      )
   ),
+  kind: "command",
 };

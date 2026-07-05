@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
+
 import { Context, Effect, Layer, Schedule } from "effect";
 import { execa } from "execa";
 import type { z } from "zod";
+
 import { prepareOpencodeCredentials } from "../../credentials/runner";
 import { runScheduledWorkflowTask } from "../../pipeline-runtime";
 import {
@@ -32,10 +34,10 @@ export interface RunnerCommandEventSinkOptions {
   payload: ReturnType<typeof parseRunnerCommandPayload>;
 }
 
-export function createRunnerCommandEventSink({
+export const createRunnerCommandEventSink = ({
   fetch,
   payload,
-}: RunnerCommandEventSinkOptions): ReturnType<typeof createRunnerEventSink> {
+}: RunnerCommandEventSinkOptions): ReturnType<typeof createRunnerEventSink> => {
   const authToken = resolveRunnerEventSinkAuthToken({
     authTokenFile: payload.events.authTokenFile,
   });
@@ -46,43 +48,24 @@ export function createRunnerCommandEventSink({
     runId: payload.run.id,
     url: payload.events.url,
   });
-}
+};
 
-function flushRunnerCommandSink(
-  sink: FlushableSink,
-  reportError: (message: string) => void
-): Effect.Effect<void, never, RunnerCommandIoService> {
-  return Effect.gen(function* () {
-    const io = yield* RunnerCommandIoService;
-    const result = yield* Effect.result(
-      flushSinkWithTerminalRetry(io.flushSink, sink)
-    );
-    if (result._tag === "Success") {
-      return;
-    }
-    reportError(errorMessage(result.failure));
-  });
-}
+const terminalFlushRetrySchedule = () =>
+  Schedule.spaced(TERMINAL_FLUSH_RETRY_DELAY).pipe(
+    Schedule.both(Schedule.recurs(TERMINAL_FLUSH_RETRY_LIMIT))
+  );
 
-function flushSinkWithTerminalRetry(
+const flushSinkWithTerminalRetry = (
   flushSink: (sink: FlushableSink) => Effect.Effect<void, unknown>,
   sink: FlushableSink
-): Effect.Effect<void, unknown> {
-  return flushSink(sink).pipe(
+): Effect.Effect<void, unknown> =>
+  flushSink(sink).pipe(
     Effect.retry(terminalFlushRetrySchedule()),
     Effect.timeout(TERMINAL_FLUSH_TIMEOUT)
   );
-}
 
-function terminalFlushRetrySchedule() {
-  return Schedule.spaced(TERMINAL_FLUSH_RETRY_DELAY).pipe(
-    Schedule.both(Schedule.recurs(TERMINAL_FLUSH_RETRY_LIMIT))
-  );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 export class RunnerCommandIoService extends Context.Service<
   RunnerCommandIoService,
@@ -121,63 +104,82 @@ export class RunnerCommandIoService extends Context.Service<
   }
 >()("RunnerCommandIoService") {}
 
+const flushRunnerCommandSink = (
+  sink: FlushableSink,
+  reportError: (message: string) => void
+): Effect.Effect<void, never, RunnerCommandIoService> =>
+  Effect.gen(function* effectBody() {
+    const io = yield* RunnerCommandIoService;
+    const result = yield* Effect.result(
+      flushSinkWithTerminalRetry(io.flushSink, sink)
+    );
+    if (result._tag === "Success") {
+      return;
+    }
+    reportError(errorMessage(result.failure));
+  });
+
 export const RunnerCommandIoServiceLive = Layer.succeed(
   RunnerCommandIoService,
   {
     commitAndPushNodeRef: (options) =>
       Effect.tryPromise({
-        try: () => commitAndPushNodeRef(options),
         catch: (error) => error,
+        try: async () => await commitAndPushNodeRef(options),
       }),
     exists: (path) =>
       Effect.try({
-        try: () => existsSync(path),
         catch: (error) => error,
+        try: () => existsSync(path),
       }),
     flushSink: (sink) =>
       Effect.tryPromise({
-        try: () => sink.flush(),
         catch: (error) => error,
+        try: async () => {
+          await sink.flush();
+        },
       }),
     mergeDependencyRefs: (options) =>
       Effect.tryPromise({
-        try: () => mergeDependencyRefs(options),
         catch: (error) => error,
+        try: async () => {
+          await mergeDependencyRefs(options);
+        },
       }),
     prepareOpencodeCredentials: () =>
       Effect.try({
-        try: () => prepareOpencodeCredentials(),
         catch: (error) => error,
+        try: () => prepareOpencodeCredentials(),
       }),
     prepareRunnerGitWorkspace: (payload, options) =>
       Effect.tryPromise({
-        try: () => prepareRunnerGitWorkspace(payload, options),
         catch: (error) => error,
+        try: async () => await prepareRunnerGitWorkspace(payload, options),
       }),
     promoteFinalRef: (options) =>
       Effect.tryPromise({
-        try: () => promoteFinalRef(options),
         catch: (error) => error,
+        try: async () => await promoteFinalRef(options),
       }),
     readText: (path) =>
       Effect.try({
-        try: () => readFileSync(path, "utf8"),
         catch: (error) => error,
+        try: () => readFileSync(path, "utf-8"),
       }),
     runScheduledWorkflowTask: (options) =>
       Effect.tryPromise({
-        try: () => runScheduledWorkflowTask(options),
         catch: (error) => error,
+        try: async () => await runScheduledWorkflowTask(options),
       }),
     runSetupCommand: (command, args, options) =>
       Effect.tryPromise({
-        try: () =>
-          execa(command, args, {
+        catch: (error) => error,
+        try: async () =>
+          await execa(command, args, {
             cwd: options.cwd,
             env: options.env,
             reject: false,
           }),
-        catch: (error) => error,
       }),
   }
 );
@@ -188,43 +190,39 @@ export interface OutputStream {
   write(chunk: string | Uint8Array): boolean;
 }
 
-export function isOutputStream(value: unknown): value is OutputStream {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "write" in value &&
-    typeof value.write === "function"
-  );
-}
+export const isOutputStream = (value: unknown): value is OutputStream =>
+  typeof value === "object" &&
+  value !== null &&
+  "write" in value &&
+  typeof value.write === "function";
 
-export function flushAndReport(
+export const flushAndReport = (
   sink: FlushableSink,
   stderr: OutputStream
-): Effect.Effect<void, never, RunnerCommandIoService> {
-  return flushRunnerCommandSink(sink, (message) =>
+): Effect.Effect<void, never, RunnerCommandIoService> =>
+  flushRunnerCommandSink(sink, (message) =>
     stderr.write(`runner event flush failed: ${message}\n`)
   );
-}
 
 // Shared validate-then-run boundary for the runner-command facades: parse the
 // raw options, write a validation error to stderr (exit 64), otherwise run the
 // command's Effect under the live IO layer. Keeps the exit-code contract in one
 // place so finalize/lifecycle don't duplicate it.
-export function runValidatedRunnerCommand<O>(
+export const runValidatedRunnerCommand = async <O>(
   schema: z.ZodType<O>,
   rawOptions: { stderr?: OutputStream },
   toEffect: (
     options: O,
     stderr: OutputStream
   ) => Effect.Effect<number, never, RunnerCommandIoService>
-): Promise<number> {
+): Promise<number> => {
   const parsed = schema.safeParse(rawOptions);
   const stderr = rawOptions.stderr ?? process.stderr;
   if (parsed.success) {
-    return Effect.runPromise(
+    return await Effect.runPromise(
       Effect.provide(toEffect(parsed.data, stderr), RunnerCommandIoServiceLive)
     );
   }
   stderr.write(`${parsed.error.message}\n`);
-  return Promise.resolve(EXIT_VALIDATION);
-}
+  return EXIT_VALIDATION;
+};

@@ -1,4 +1,6 @@
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
+
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
@@ -6,12 +8,12 @@ import type { RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { executeAgentNode } from "./agent-node";
 
-const EXCEEDS_BUDGET_RE = /exceeds 50% of every available/i;
+const EXCEEDS_BUDGET_RE = /exceeds 50% of every available/iu;
 
-function agentExecutionContext(
+const agentExecutionContext = (
   node: PlannedWorkflowNode,
   executor: RuntimeContext["executor"]
-): RuntimeContext {
+): RuntimeContext => {
   const topologicalOrder = [node];
   return {
     agentInvocations: [],
@@ -70,10 +72,10 @@ function agentExecutionContext(
     workflowId: "wf",
     worktreePath: process.cwd(),
   };
-}
+};
 
-function agentNode(): PlannedWorkflowNode {
-  return {
+const agentNode = (): PlannedWorkflowNode =>
+  ({
     children: [],
     dependents: [],
     id: "writer",
@@ -81,20 +83,29 @@ function agentNode(): PlannedWorkflowNode {
     kind: "agent",
     needs: [],
     profile: "moka-code-writer",
-  } as unknown as PlannedWorkflowNode;
-}
+  }) as unknown as PlannedWorkflowNode;
 
-function openPullRequestNode(): PlannedWorkflowNode {
-  return {
-    builtin: "open-pull-request",
-    children: [],
-    dependents: [],
-    id: "open-pr",
-    index: 1,
-    kind: "builtin",
-    needs: ["writer"],
-  };
-}
+const openPullRequestNode = (): PlannedWorkflowNode => ({
+  builtin: "open-pull-request",
+  children: [],
+  dependents: [],
+  id: "open-pr",
+  index: 1,
+  kind: "builtin",
+  needs: ["writer"],
+});
+
+const opencodeText = (text: string): string =>
+  JSON.stringify({ part: { text, type: "text" } });
+
+const promptFromPlan = (plan: RunnerLaunchPlan): string => {
+  const dirIndex = plan.args.indexOf("--dir");
+  const prompt = plan.args[dirIndex + 2];
+  if (dirIndex === -1 || !prompt) {
+    throw new Error("runner launch plan did not include an OpenCode prompt");
+  }
+  return prompt;
+};
 
 describe("runtime agent node", () => {
   it("records the opencode session id returned by the executor on node state", async () => {
@@ -112,9 +123,10 @@ describe("runtime agent node", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe("done");
-    expect(context.nodeStateStore.getNodeState("writer")?.sessionId).toBe(
-      "ses_writer"
-    );
+    expect(
+      Option.getOrUndefined(context.nodeStateStore.getNodeState("writer"))
+        ?.sessionId
+    ).toBe("ses_writer");
   });
 
   it("does not set a session id when the executor omits one", async () => {
@@ -128,7 +140,8 @@ describe("runtime agent node", () => {
     await executeAgentNode(node, context, 1);
 
     expect(
-      context.nodeStateStore.getNodeState("writer")?.sessionId
+      Option.getOrUndefined(context.nodeStateStore.getNodeState("writer"))
+        ?.sessionId
     ).toBeUndefined();
   });
 
@@ -267,19 +280,6 @@ describe("runtime agent node", () => {
   });
 });
 
-function opencodeText(text: string): string {
-  return JSON.stringify({ part: { text, type: "text" } });
-}
-
-function promptFromPlan(plan: RunnerLaunchPlan): string {
-  const dirIndex = plan.args.indexOf("--dir");
-  const prompt = plan.args[dirIndex + 2];
-  if (dirIndex < 0 || !prompt) {
-    throw new Error("runner launch plan did not include an OpenCode prompt");
-  }
-  return prompt;
-}
-
 describe("executeAgentNode handoff derivation (PIPE-83.1)", () => {
   it("derives no handoff when context_handoff is disabled (default)", async () => {
     const node = agentNode();
@@ -301,7 +301,7 @@ describe("executeAgentNode handoff derivation (PIPE-83.1)", () => {
     let calls = 0;
     const executor = (plan: RunnerLaunchPlan): AgentResult => {
       calls += 1;
-      if (plan.profileId?.endsWith(":handoff")) {
+      if (plan.profileId?.endsWith(":handoff") === true) {
         return {
           exitCode: 0,
           stdout: opencodeText('{"summary":"did work","decisions":["x"]}'),
@@ -340,7 +340,9 @@ describe("executeAgentNode handoff derivation (PIPE-83.1)", () => {
     const executor = (plan: RunnerLaunchPlan): AgentResult => ({
       exitCode: 0,
       stdout: opencodeText(
-        plan.profileId?.endsWith(":handoff") ? "not json" : "real work happened"
+        plan.profileId?.endsWith(":handoff") === true
+          ? "not json"
+          : "real work happened"
       ),
     });
     const context = agentExecutionContext(node, executor);
@@ -352,8 +354,8 @@ describe("executeAgentNode handoff derivation (PIPE-83.1)", () => {
   });
 });
 
-function budgetNode(models: string[]): PlannedWorkflowNode {
-  return {
+const budgetNode = (models: string[]): PlannedWorkflowNode =>
+  ({
     dependents: [],
     id: "green-impl",
     index: 0,
@@ -361,20 +363,17 @@ function budgetNode(models: string[]): PlannedWorkflowNode {
     models,
     needs: [],
     profile: "moka-code-writer",
-  } as unknown as PlannedWorkflowNode;
-}
+  }) as unknown as PlannedWorkflowNode;
 
-function tokenBudget(
+const tokenBudget = (
   windows: Record<string, number>,
   defaultWindow = 200_000
-): PipelineConfig["token_budget"] {
-  return {
-    default_context_window: defaultWindow,
-    fan_out_width: { by_category: {}, default: 4 },
-    max_context_pct: 50,
-    model_context_windows: windows,
-  };
-}
+): PipelineConfig["token_budget"] => ({
+  default_context_window: defaultWindow,
+  fan_out_width: { by_category: {}, default: 4 },
+  max_context_pct: 50,
+  model_context_windows: windows,
+});
 
 describe("executeAgentNode token budget enforcement", () => {
   it("fails an over-budget node with evidence and does not dispatch", async () => {
@@ -415,9 +414,9 @@ const INFRA_EXIT = 70;
 describe("executeAgentNode model fallback", () => {
   it("falls back to the next model when a session fails with an infra error", async () => {
     const node = budgetNode(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
-    const tried: (string | undefined)[] = [];
+    const tried: Option.Option<string>[] = [];
     const executor = (plan: RunnerLaunchPlan): AgentResult => {
-      tried.push(plan.model);
+      tried.push(Option.fromUndefinedOr(plan.model));
       if (plan.model === "opencode-go/qwen3.7-max") {
         return {
           exitCode: INFRA_EXIT,
@@ -431,7 +430,10 @@ describe("executeAgentNode model fallback", () => {
 
     const result = await executeAgentNode(node, context, 1);
 
-    expect(tried).toEqual(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
+    expect(tried).toEqual([
+      Option.some("opencode-go/qwen3.7-max"),
+      Option.some("openai/gpt-5.5"),
+    ]);
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe("implemented");
     expect(result.evidence.join("\n")).toContain(
@@ -444,24 +446,24 @@ describe("executeAgentNode model fallback", () => {
 
   it("does not fall back on a genuine agent-task error (the model ran)", async () => {
     const node = budgetNode(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
-    const tried: (string | undefined)[] = [];
+    const tried: Option.Option<string>[] = [];
     const executor = (plan: RunnerLaunchPlan): AgentResult => {
-      tried.push(plan.model);
+      tried.push(Option.fromUndefinedOr(plan.model));
       return { exitCode: 1, stdout: opencodeText("tried but failed") };
     };
     const context = agentExecutionContext(node, executor);
 
     const result = await executeAgentNode(node, context, 1);
 
-    expect(tried).toEqual(["opencode-go/qwen3.7-max"]);
+    expect(tried).toEqual([Option.some("opencode-go/qwen3.7-max")]);
     expect(result.exitCode).toBe(1);
   });
 
   it("surfaces the infra failure when every candidate's session fails", async () => {
     const node = budgetNode(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
-    const tried: (string | undefined)[] = [];
+    const tried: Option.Option<string>[] = [];
     const executor = (plan: RunnerLaunchPlan): AgentResult => {
-      tried.push(plan.model);
+      tried.push(Option.fromUndefinedOr(plan.model));
       return {
         exitCode: INFRA_EXIT,
         stderr: "opencode session failed: {}",
@@ -472,7 +474,10 @@ describe("executeAgentNode model fallback", () => {
 
     const result = await executeAgentNode(node, context, 1);
 
-    expect(tried).toEqual(["opencode-go/qwen3.7-max", "openai/gpt-5.5"]);
+    expect(tried).toEqual([
+      Option.some("opencode-go/qwen3.7-max"),
+      Option.some("openai/gpt-5.5"),
+    ]);
     expect(result.exitCode).toBe(INFRA_EXIT);
   });
 });

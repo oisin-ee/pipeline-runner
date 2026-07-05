@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
+
 import type { Command } from "commander";
+import { Option } from "effect";
+
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config";
 import { formatConfigLintWarning, lintPipelineConfig } from "../config/lint";
-import {
-  compileWorkflowPlan,
-  type PlannedWorkflowNode,
-} from "../planning/compile";
+import { compileWorkflowPlan } from "../planning/compile";
+import type { PlannedWorkflowNode } from "../planning/compile";
 import {
   compileScheduleArtifact,
   parseScheduleArtifact,
@@ -38,29 +39,79 @@ interface SelectedWorkflowPlan {
   plan: WorkflowPlan;
 }
 
-export function registerPlanCommands(program: Command): void {
-  program
-    .command("validate")
-    .description(
-      "Validate package-owned @oisincoveney/pipeline config and compile the workflow plan"
+const loadPlanConfigContext = (): PlanConfigContext => {
+  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+  const config = loadPipelineConfig(cwd, {
+    allowMissingLintFileReferences: true,
+  });
+  return { config, cwd };
+};
+
+const scheduledWorkflowPlan = (
+  context: PlanConfigContext,
+  schedulePath: string
+): SelectedWorkflowPlan => {
+  const compiled = compileScheduleArtifact(
+    context.config,
+    parseScheduleArtifact(readFileSync(schedulePath, "utf-8"), schedulePath),
+    context.cwd
+  );
+  return { config: compiled.config, plan: compiled.plan };
+};
+
+const configuredWorkflowPlan = (
+  context: PlanConfigContext,
+  flags: ValidateFlags
+): SelectedWorkflowPlan => ({
+  config: context.config,
+  plan: compileWorkflowPlan(
+    context.config,
+    Option.getOrUndefined(
+      resolveWorkflowSelection(context.config, flags.workflow, flags.entrypoint)
     )
-    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
-    .option("--schedule <schedule>", "approved schedule YAML to validate")
-    .option("--strict", "fail when validation lint warnings are emitted")
-    .option("--no-lint", "skip validation lint warnings")
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action((flags: ValidateFlags) => runValidateCommand(flags));
+  ),
+});
 
-  program
-    .command("explain-plan")
-    .description("Explain nodes, runners, gates, hooks, and artifacts")
-    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
-    .option("--schedule <schedule>", "approved schedule YAML to explain")
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action((flags: ValidateFlags) => runExplainPlanCommand(flags));
-}
+const selectWorkflowPlan = (
+  context: PlanConfigContext,
+  flags: ValidateFlags
+): SelectedWorkflowPlan => {
+  if (flags.schedule !== undefined && flags.schedule !== "") {
+    return scheduledWorkflowPlan(context, flags.schedule);
+  }
+  return configuredWorkflowPlan(context, flags);
+};
 
-function runValidateCommand(flags: ValidateFlags): void {
+const lintWarnings = (
+  context: PlanConfigContext,
+  flags: ValidateFlags
+): ConfigLintWarning[] =>
+  flags.lint === false ? [] : lintPipelineConfig(context.config, context.cwd);
+
+const emitLintWarnings = (warnings: ConfigLintWarning[]): void => {
+  for (const warning of warnings) {
+    console.error(formatConfigLintWarning(warning));
+  }
+};
+
+const warningNoun = (count: number): string =>
+  count === 1 ? "warning" : "warnings";
+
+const assertStrictLintPass = (
+  flags: ValidateFlags,
+  warnings: ConfigLintWarning[]
+): void => {
+  if (flags.strict === true && warnings.length > 0) {
+    throw new Error(
+      `Validation failed with ${warnings.length} ${warningNoun(warnings.length)}.`
+    );
+  }
+};
+
+const formatValidationResult = (plan: WorkflowPlan): string =>
+  `OK: ${plan.workflowId} (${plan.topologicalOrder.length} nodes)`;
+
+const runValidateCommand = (flags: ValidateFlags): void => {
   const context = loadPlanConfigContext();
   const selected = selectWorkflowPlan(context, flags);
   const warnings = lintWarnings(context, flags);
@@ -68,221 +119,81 @@ function runValidateCommand(flags: ValidateFlags): void {
   emitLintWarnings(warnings);
   assertStrictLintPass(flags, warnings);
   console.log(formatValidationResult(selected.plan));
-}
+};
 
-function runExplainPlanCommand(flags: ValidateFlags): void {
-  const context = loadPlanConfigContext();
-  const selected = selectWorkflowPlan(context, flags);
-  console.log(
-    formatCompiledWorkflowPlan(selected.config, context.cwd, selected.plan)
-  );
-}
+const formatParallelBatch = (batch: PlannedWorkflowNode[]): string =>
+  `[${batch.map((node) => node.id).join(", ")}]`;
 
-function loadPlanConfigContext(): PlanConfigContext {
-  const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-  const config = loadPipelineConfig(cwd, {
-    allowMissingLintFileReferences: true,
-  });
-  return { config, cwd };
-}
+const formatParallelBatches = (plan: WorkflowPlan): string =>
+  `Batches: ${plan.parallelBatches.map(formatParallelBatch).join(" -> ")}`;
 
-function selectWorkflowPlan(
-  context: PlanConfigContext,
-  flags: ValidateFlags
-): SelectedWorkflowPlan {
-  if (flags.schedule) {
-    return scheduledWorkflowPlan(context, flags.schedule);
-  }
-  return configuredWorkflowPlan(context, flags);
-}
-
-function scheduledWorkflowPlan(
-  context: PlanConfigContext,
-  schedulePath: string
-): SelectedWorkflowPlan {
-  const compiled = compileScheduleArtifact(
-    context.config,
-    parseScheduleArtifact(readFileSync(schedulePath, "utf8"), schedulePath),
-    context.cwd
-  );
-  return { config: compiled.config, plan: compiled.plan };
-}
-
-function configuredWorkflowPlan(
-  context: PlanConfigContext,
-  flags: ValidateFlags
-): SelectedWorkflowPlan {
-  return {
-    config: context.config,
-    plan: compileWorkflowPlan(
-      context.config,
-      resolveWorkflowSelection(context.config, flags.workflow, flags.entrypoint)
-    ),
-  };
-}
-
-function lintWarnings(
-  context: PlanConfigContext,
-  flags: ValidateFlags
-): ConfigLintWarning[] {
-  return flags.lint === false
-    ? []
-    : lintPipelineConfig(context.config, context.cwd);
-}
-
-function emitLintWarnings(warnings: ConfigLintWarning[]): void {
-  for (const warning of warnings) {
-    console.error(formatConfigLintWarning(warning));
-  }
-}
-
-function assertStrictLintPass(
-  flags: ValidateFlags,
-  warnings: ConfigLintWarning[]
-): void {
-  if (flags.strict && warnings.length > 0) {
-    throw new Error(
-      `Validation failed with ${warnings.length} ${warningNoun(warnings.length)}.`
-    );
-  }
-}
-
-function warningNoun(count: number): string {
-  return count === 1 ? "warning" : "warnings";
-}
-
-function formatValidationResult(plan: WorkflowPlan): string {
-  return `OK: ${plan.workflowId} (${plan.topologicalOrder.length} nodes)`;
-}
-
-function formatCompiledWorkflowPlan(
-  config: PipelineConfig,
-  worktreePath: string,
-  plan: WorkflowPlan
-): string {
-  return [
-    `Workflow: ${plan.workflowId}`,
-    formatOrchestratorPlan(config, worktreePath),
-    formatParallelBatches(plan),
-    ...formatWorkflowNodes(plan, config, worktreePath),
-    ...formatWorkflowHooks(config, plan.workflowId),
-  ].join("\n");
-}
-
-function formatParallelBatches(plan: WorkflowPlan): string {
-  return `Batches: ${plan.parallelBatches.map(formatParallelBatch).join(" -> ")}`;
-}
-
-function formatParallelBatch(batch: PlannedWorkflowNode[]): string {
-  return `[${batch.map((node) => node.id).join(", ")}]`;
-}
-
-function formatWorkflowNodes(
-  plan: WorkflowPlan,
-  config: PipelineConfig,
-  worktreePath: string
-): string[] {
-  return plan.topologicalOrder.flatMap((node) =>
-    formatWorkflowNodeLines(node, config, worktreePath)
-  );
-}
-
-function formatWorkflowNodeLines(
-  node: PlannedWorkflowNode,
-  config: PipelineConfig,
-  worktreePath: string
-): string[] {
-  return [
-    formatParallelChildrenLine(node),
-    formatWorkflowPlanNode(node, config, worktreePath),
-  ].filter(isNonEmptyString);
-}
-
-function formatParallelChildrenLine(node: PlannedWorkflowNode): string {
-  if (node.kind !== "parallel" || !node.children?.length) {
+const formatParallelChildrenLine = (node: PlannedWorkflowNode): string => {
+  if (
+    node.kind !== "parallel" ||
+    node.children === undefined ||
+    node.children.length === 0
+  ) {
     return "";
   }
   return `${node.id}(parallel: ${node.children.map((child) => child.id).join(", ")})`;
-}
+};
 
-function formatWorkflowHooks(
+const workflowHookIds = (
   config: PipelineConfig,
   workflowId: string
-): string[] {
-  const hooks = workflowHookIds(config, workflowId);
-  return hooks.length > 0 ? [`Workflow hooks: ${hooks.join(", ")}`] : [];
-}
-
-function workflowHookIds(config: PipelineConfig, workflowId: string): string[] {
-  return Object.entries(config.hooks.on).flatMap(([event, bindings]) =>
+): string[] =>
+  Object.entries(config.hooks.on).flatMap(([event, bindings]) =>
     bindings
       .filter((binding) => binding.where?.workflow === workflowId)
       .map((binding) => `${event}:${binding.id}`)
   );
-}
 
-function formatWorkflowPlanNode(
+const formatWorkflowHooks = (
+  config: PipelineConfig,
+  workflowId: string
+): string[] => {
+  const hooks = workflowHookIds(config, workflowId);
+  return hooks.length > 0 ? [`Workflow hooks: ${hooks.join(", ")}`] : [];
+};
+
+const formatNeeds = (node: PlannedWorkflowNode): string =>
+  `needs=${node.needs.join(",") || "none"}`;
+
+const formatRunner = (
   node: PlannedWorkflowNode,
   config: PipelineConfig,
   worktreePath: string
-): string {
-  return [
-    `- ${node.id}`,
-    `kind=${node.kind}`,
-    formatNeeds(node),
-    formatRunner(node, config, worktreePath),
-    formatGateCount(node),
-    formatArtifacts(node),
-  ]
-    .filter(isNonEmptyString)
-    .join(" ");
-}
-
-function formatNeeds(node: PlannedWorkflowNode): string {
-  return `needs=${node.needs.join(",") || "none"}`;
-}
-
-function formatRunner(
-  node: PlannedWorkflowNode,
-  config: PipelineConfig,
-  worktreePath: string
-): string {
-  const launch = runnerLaunchPlan(node, config, worktreePath);
-  return launch ? `runner=${launch.runnerId}` : "";
-}
-
-function runnerLaunchPlan(
-  node: PlannedWorkflowNode,
-  config: PipelineConfig,
-  worktreePath: string
-): ReturnType<typeof createRunnerLaunchPlan> | null {
-  if (!node.profile) {
-    return null;
+): string => {
+  if (
+    node.profile === undefined ||
+    !Object.hasOwn(config.profiles, node.profile)
+  ) {
+    return "";
   }
-  if (!config.profiles[node.profile]) {
-    return null;
-  }
-  return createRunnerLaunchPlan(config, {
+  const launch = createRunnerLaunchPlan(config, {
     nodeId: node.id,
     profileId: node.profile,
     prompt: "<task>",
     worktreePath,
   });
-}
+  return `runner=${launch.runnerId}`;
+};
 
-function formatGateCount(node: PlannedWorkflowNode): string {
-  return `gates=${node.gates?.length ?? 0}`;
-}
+const formatGateCount = (node: PlannedWorkflowNode): string =>
+  `gates=${node.gates?.length ?? 0}`;
 
-function formatArtifacts(node: PlannedWorkflowNode): string {
+const formatArtifacts = (node: PlannedWorkflowNode): string => {
   const paths = node.artifacts?.map((artifact) => artifact.path) ?? [];
   return paths.length > 0 ? `artifacts=${paths.join(",")}` : "artifacts=none";
-}
+};
 
-function formatOrchestratorPlan(
+const formatList = (label: string, items: readonly string[] = []): string =>
+  items.length > 0 ? `${label}=${items.join(",")}` : "";
+
+const formatOrchestratorPlan = (
   config: PipelineConfig,
   worktreePath: string
-): string {
+): string => {
   if (!config.orchestrator) {
     return "Orchestrator: not configured";
   }
@@ -294,20 +205,98 @@ function formatOrchestratorPlan(
   });
   return [
     `Orchestrator: runner=${launch.runnerId}`,
-    orchestrator.model ? `model=${orchestrator.model}` : "",
-    formatList("rules", orchestrator.rules),
-    formatList("skills", orchestrator.skills),
-    formatList("mcp_servers", orchestrator.mcp_servers),
+    orchestrator.model !== undefined && orchestrator.model !== ""
+      ? `model=${orchestrator.model}`
+      : "",
+    formatList("rules", orchestrator.rules ?? []),
+    formatList("skills", orchestrator.skills ?? []),
+    formatList("mcp_servers", orchestrator.mcp_servers ?? []),
     formatList("hooks", Object.keys(config.hooks.functions)),
   ]
-    .filter(Boolean)
+    .filter(isNonEmptyString)
     .join(" ");
-}
+};
 
-function formatList(label: string, items: string[] | undefined): string {
-  return items?.length ? `${label}=${items.join(",")}` : "";
-}
+const isNonEmptyString = (value: string): boolean => value.length > 0;
 
-function isNonEmptyString(value: string): boolean {
-  return value.length > 0;
-}
+const formatWorkflowPlanNode = (
+  node: PlannedWorkflowNode,
+  config: PipelineConfig,
+  worktreePath: string
+): string =>
+  [
+    `- ${node.id}`,
+    `kind=${node.kind}`,
+    formatNeeds(node),
+    formatRunner(node, config, worktreePath),
+    formatGateCount(node),
+    formatArtifacts(node),
+  ]
+    .filter(isNonEmptyString)
+    .join(" ");
+
+const formatWorkflowNodeLines = (
+  node: PlannedWorkflowNode,
+  config: PipelineConfig,
+  worktreePath: string
+): string[] =>
+  [
+    formatParallelChildrenLine(node),
+    formatWorkflowPlanNode(node, config, worktreePath),
+  ].filter(isNonEmptyString);
+
+const formatWorkflowNodes = (
+  plan: WorkflowPlan,
+  config: PipelineConfig,
+  worktreePath: string
+): string[] =>
+  plan.topologicalOrder.flatMap((node) =>
+    formatWorkflowNodeLines(node, config, worktreePath)
+  );
+
+const formatCompiledWorkflowPlan = (
+  config: PipelineConfig,
+  worktreePath: string,
+  plan: WorkflowPlan
+): string =>
+  [
+    `Workflow: ${plan.workflowId}`,
+    formatOrchestratorPlan(config, worktreePath),
+    formatParallelBatches(plan),
+    ...formatWorkflowNodes(plan, config, worktreePath),
+    ...formatWorkflowHooks(config, plan.workflowId),
+  ].join("\n");
+
+const runExplainPlanCommand = (flags: ValidateFlags): void => {
+  const context = loadPlanConfigContext();
+  const selected = selectWorkflowPlan(context, flags);
+  console.log(
+    formatCompiledWorkflowPlan(selected.config, context.cwd, selected.plan)
+  );
+};
+
+export const registerPlanCommands = (program: Command): void => {
+  program
+    .command("validate")
+    .description(
+      "Validate package-owned @oisincoveney/pipeline config and compile the workflow plan"
+    )
+    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
+    .option("--schedule <schedule>", "approved schedule YAML to validate")
+    .option("--strict", "fail when validation lint warnings are emitted")
+    .option("--no-lint", "skip validation lint warnings")
+    .option("--workflow <workflow>", "workflow id from package config")
+    .action((flags: ValidateFlags) => {
+      runValidateCommand(flags);
+    });
+
+  program
+    .command("explain-plan")
+    .description("Explain nodes, runners, gates, hooks, and artifacts")
+    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
+    .option("--schedule <schedule>", "approved schedule YAML to explain")
+    .option("--workflow <workflow>", "workflow id from package config")
+    .action((flags: ValidateFlags) => {
+      runExplainPlanCommand(flags);
+    });
+};

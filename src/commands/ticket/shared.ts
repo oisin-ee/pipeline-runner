@@ -1,4 +1,6 @@
-import { Data, Effect, type Layer } from "effect";
+import { Data, Effect, Option } from "effect";
+import type { Layer } from "effect";
+
 import type { RunCommand } from "../../cli/run-command";
 import type {
   AgentResult,
@@ -6,21 +8,18 @@ import type {
   RunnerLaunchPlan,
 } from "../../runner";
 import { BacklogService } from "../../runtime/services/backlog-service";
-import {
-  type RepoIoService,
-  RepoIoServiceLive,
-} from "../../runtime/services/repo-io-service";
-import {
-  type BacklogTaskRecord,
-  type BacklogTaskStoreError,
-  loadBacklogTaskStoreEffect,
+import { RepoIoServiceLive } from "../../runtime/services/repo-io-service";
+import type { RepoIoService } from "../../runtime/services/repo-io-service";
+import { loadBacklogTaskStoreEffect } from "../../tickets/backlog-task-store";
+import type {
+  BacklogTaskRecord,
+  BacklogTaskStoreError,
 } from "../../tickets/backlog-task-store";
 import {
   buildTicketGraphEffect,
   scopedTicketIds,
-  type TicketGraph,
-  type TicketGraphError,
 } from "../../tickets/ticket-graph";
+import type { TicketGraph, TicketGraphError } from "../../tickets/ticket-graph";
 import type {
   TicketSelectionOptions,
   TicketSelectionStrategy,
@@ -52,43 +51,41 @@ export class TicketCommandError extends Data.TaggedError("TicketCommandError")<{
   readonly message: string;
 }> {}
 
-const TICKET_SELECTION_STRATEGY_NAMES: readonly string[] = [
-  "priority",
-  "bfs",
-  "dfs",
-];
+const TICKET_SELECTION_STRATEGY_NAMES = new Set(["priority", "bfs", "dfs"]);
 
-export function currentWorktreePath(): string {
-  return process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-}
+export const currentWorktreePath = (): string =>
+  process.env.PIPELINE_TARGET_PATH ?? process.cwd();
 
-export function writeLineEffect(line: string): Effect.Effect<void> {
-  return Effect.sync(() => console.log(line));
-}
+export const writeLineEffect = (line: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    console.log(line);
+  });
 
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
-export function formatNextTicket(
-  ticket: BacklogTaskRecord | undefined
-): string {
-  return ticket ? `${ticket.id} - ${ticket.title}` : "No ready tickets.";
-}
+export const formatNextTicket = (
+  ticket: Option.Option<BacklogTaskRecord>
+): string =>
+  Option.match(ticket, {
+    onNone: () => "No ready tickets.",
+    onSome: (resolved) => `${resolved.id} - ${resolved.title}`,
+  });
 
-export function readyTicketEffect(
-  ticket: BacklogTaskRecord | undefined
-): Effect.Effect<BacklogTaskRecord, TicketCommandError> {
-  return ticket
-    ? Effect.succeed(ticket)
-    : Effect.fail(new TicketCommandError({ message: "No ready tickets." }));
-}
+export const readyTicketEffect = (
+  ticket: Option.Option<BacklogTaskRecord>
+): Effect.Effect<BacklogTaskRecord, TicketCommandError> =>
+  Option.match(ticket, {
+    onNone: () =>
+      Effect.fail(new TicketCommandError({ message: "No ready tickets." })),
+    onSome: (resolved) => Effect.succeed(resolved),
+  });
 
-export function claimTicketEffect(
+export const claimTicketEffect = (
   worktreePath: string,
   ticket: BacklogTaskRecord
-): Effect.Effect<void, TicketCommandError, BacklogService> {
-  return Effect.gen(function* () {
+): Effect.Effect<void, TicketCommandError, BacklogService> =>
+  Effect.gen(function* effectBody() {
     const backlog = yield* BacklogService;
     yield* backlog
       .run(
@@ -104,82 +101,93 @@ export function claimTicketEffect(
         )
       );
   });
-}
 
-export function loadTicketGraphEffect(
+export const loadTicketGraphEffect = (
   worktreePath: string,
-  rootId: string | undefined
+  rootId: Option.Option<string>
 ): Effect.Effect<
   LoadedTicketGraph,
   BacklogTaskStoreError | TicketGraphError | TicketCommandError,
   RepoIoService
-> {
-  return Effect.gen(function* () {
+> =>
+  Effect.gen(function* effectBody() {
     const store = yield* loadBacklogTaskStoreEffect(worktreePath);
     const graph = yield* buildTicketGraphEffect(store.tasks);
-    const scopedIds = scopedTicketIds(graph, rootId);
-    if (rootId && scopedIds.length === 0) {
+    const scopedIds = Option.match(rootId, {
+      onNone: () => scopedTicketIds(graph),
+      onSome: (resolved) => scopedTicketIds(graph, resolved),
+    });
+    if (Option.isSome(rootId) && scopedIds.length === 0) {
       return yield* Effect.fail(
         new TicketCommandError({
-          message: `Unknown Backlog ticket '${rootId}'`,
+          message: `Unknown Backlog ticket '${rootId.value}'`,
         })
       );
     }
     return { graph, scopedIds };
   });
-}
 
-export function loadTicketSelectionEffect(
+const isTicketSelectionStrategy = (
+  strategy: string
+): strategy is TicketSelectionStrategy =>
+  TICKET_SELECTION_STRATEGY_NAMES.has(strategy);
+
+const parseSelectionStrategyEffect = (
+  strategy: Option.Option<string>
+): Effect.Effect<
+  Option.Option<TicketSelectionStrategy>,
+  TicketCommandError
+> => {
+  if (Option.isNone(strategy)) {
+    return Effect.succeed(Option.none());
+  }
+  return isTicketSelectionStrategy(strategy.value)
+    ? Effect.succeed(Option.some(strategy.value))
+    : Effect.fail(
+        new TicketCommandError({
+          message: `Unknown ticket selection strategy '${strategy.value}'; expected priority, bfs, or dfs`,
+        })
+      );
+};
+
+export const loadTicketSelectionEffect = (
   worktreePath: string,
   flags: TicketSelectionFlags
 ): Effect.Effect<
   { loaded: LoadedTicketGraph; selectionOptions: TicketSelectionOptions },
   BacklogTaskStoreError | TicketGraphError | TicketCommandError,
   RepoIoService
-> {
-  return Effect.gen(function* () {
-    const strategy = yield* parseSelectionStrategyEffect(flags.strategy);
-    const loaded = yield* loadTicketGraphEffect(worktreePath, flags.root);
+> =>
+  Effect.gen(function* effectBody() {
+    const rootId = Option.fromUndefinedOr(flags.root);
+    const strategy = yield* parseSelectionStrategyEffect(
+      Option.fromUndefinedOr(flags.strategy)
+    );
+    const loaded = yield* loadTicketGraphEffect(worktreePath, rootId);
     return {
       loaded,
       selectionOptions: {
         includeParents: flags.includeParents,
-        rootId: flags.root,
-        strategy,
+        ...Option.match(rootId, {
+          onNone: () => ({}),
+          onSome: (resolved) => ({ rootId: resolved }),
+        }),
+        ...Option.match(strategy, {
+          onNone: () => ({}),
+          onSome: (resolved) => ({ strategy: resolved }),
+        }),
       },
     };
   });
-}
 
-function parseSelectionStrategyEffect(
-  strategy: string | undefined
-): Effect.Effect<TicketSelectionStrategy | undefined, TicketCommandError> {
-  return strategy === undefined || isTicketSelectionStrategy(strategy)
-    ? Effect.succeed(strategy)
-    : Effect.fail(
-        new TicketCommandError({
-          message: `Unknown ticket selection strategy '${strategy}'; expected priority, bfs, or dfs`,
-        })
-      );
-}
-
-function isTicketSelectionStrategy(
-  strategy: string
-): strategy is TicketSelectionStrategy {
-  return TICKET_SELECTION_STRATEGY_NAMES.includes(strategy);
-}
-
-export function runTicketProgram<A, E>(
+export const runTicketProgram = async <A, E>(
   program: Effect.Effect<A, E, RepoIoService>
-) {
-  return Effect.runPromise(Effect.provide(program, RepoIoServiceLive));
-}
+) => await Effect.runPromise(Effect.provide(program, RepoIoServiceLive));
 
-export function runTicketProgramWithBacklog<A, E>(
+export const runTicketProgramWithBacklog = async <A, E>(
   program: Effect.Effect<A, E, RepoIoService | BacklogService>,
   backlogLayer: Layer.Layer<BacklogService>
-) {
-  return Effect.runPromise(
+) =>
+  await Effect.runPromise(
     Effect.provide(Effect.provide(program, RepoIoServiceLive), backlogLayer)
   );
-}

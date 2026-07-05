@@ -7,13 +7,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Effect, Exit } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+
 import { RepoIoServiceLive } from "../src/runtime/services/repo-io-service";
 import { loadBacklogTaskStoreEffect } from "../src/tickets/backlog-task-store";
 
 const DUPLICATE_ID_RE =
-  /Duplicate Backlog task id PIPE-41\.7.*pipe-41\.7 - (?:Duplicate|One)\.md.*pipe-41\.7 - (?:Duplicate|One)\.md/s;
+  /Duplicate Backlog task id PIPE-41\.7.*pipe-41\.7 - (?:Duplicate|One)\.md.*pipe-41\.7 - (?:Duplicate|One)\.md/su;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -22,30 +24,28 @@ afterEach(() => {
   }
 });
 
-function makeBacklog(): string {
+const makeBacklog = (): string => {
   const root = mkdtempSync(join(tmpdir(), "moka-ticket-store-"));
   tempDirs.push(root);
   mkdirSync(join(root, "backlog", "tasks"), { recursive: true });
   return root;
-}
+};
 
-function writeTask(root: string, filename: string, source: string): string {
+const writeTask = (root: string, filename: string, source: string): string => {
   const path = join(root, "backlog", "tasks", filename);
   writeFileSync(path, source);
   return path;
-}
+};
 
-async function loadStore(root: string) {
-  return await Effect.runPromise(
+const loadStore = async (root: string) =>
+  await Effect.runPromise(
     Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive)
   );
-}
 
-async function loadStoreExit(root: string) {
-  return await Effect.runPromiseExit(
+const loadStoreExit = async (root: string) =>
+  await Effect.runPromiseExit(
     Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive)
   );
-}
 
 describe("Backlog task store", () => {
   it("loads typed task records through the repository IO boundary", async () => {
@@ -82,7 +82,7 @@ describe("Backlog task store", () => {
         "",
       ].join("\n")
     );
-    const before = readFileSync(filePath, "utf8");
+    const before = readFileSync(filePath, "utf-8");
 
     const store = await loadStore(root);
 
@@ -105,7 +105,7 @@ describe("Backlog task store", () => {
       title: "Build reusable Backlog task store",
     });
     expect(store.tasksById.get("PIPE-84.1")).toBe(store.tasks[0]);
-    expect(readFileSync(filePath, "utf8")).toBe(before);
+    expect(readFileSync(filePath, "utf-8")).toBe(before);
   });
 
   it("keeps expected parse failures in the Effect error channel", async () => {

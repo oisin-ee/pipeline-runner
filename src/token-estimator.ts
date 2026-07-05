@@ -1,4 +1,6 @@
-import { getEncoding, type Tiktoken } from "js-tiktoken";
+import { Option } from "effect";
+import { getEncoding } from "js-tiktoken";
+import type { Tiktoken } from "js-tiktoken";
 
 /**
  * Token estimation for node sizing. Uses the `o200k_base` BPE as a
@@ -10,16 +12,20 @@ import { getEncoding, type Tiktoken } from "js-tiktoken";
  * budget/routing decisions only. For exact counts on Anthropic runners, use the
  * Anthropic `count_tokens` API.
  */
-let encoder: Tiktoken | undefined;
+let encoder: Option.Option<Tiktoken> = Option.none();
 
-function encoding(): Tiktoken {
-  encoder ??= getEncoding("o200k_base");
-  return encoder;
-}
+const encoding = (): Tiktoken => {
+  if (Option.isNone(encoder)) {
+    const resolved = getEncoding("o200k_base");
+    encoder = Option.some(resolved);
+    return resolved;
+  }
+  return encoder.value;
+};
 
-export function estimateTokens(text: string): number {
+export const estimateTokens = (text: string): number => {
   if (text.length === 0) {
     return 0;
   }
   return encoding().encode(text).length;
-}
+};

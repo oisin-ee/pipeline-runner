@@ -1,6 +1,8 @@
 import { join } from "node:path";
+
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import type { CreateRunRequest } from "../src/run-control/run-control-store";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
 import { runRunnerLifecycle } from "../src/runner-command/lifecycle";
@@ -25,7 +27,7 @@ vi.mock("execa", () => ({
 
 vi.mock("../src/run-state/git-refs", () => ({
   prepareRunnerGitWorkspace: vi.fn(
-    async (_payload: unknown, options?: { cwd?: string }) =>
+    (_payload: unknown, options?: { cwd?: string }) =>
       options?.cwd ?? "/workspace"
   ),
 }));
@@ -115,11 +117,11 @@ describe("runner-lifecycle workflow.start", () => {
       expect(exitCode).toBe(0);
       expect(captured).toHaveLength(1);
       const request = captured[0];
-      expect(request?.runId).toBe("run-pipe945");
+      expect(request.runId).toBe("run-pipe945");
       // The complete request carries the real, non-empty node list (not []).
-      expect(request?.nodeIds).toEqual(["command"]);
+      expect(request.nodeIds).toEqual(["command"]);
       // The raw schedule is persisted so `moka resume` can rebuild the graph.
-      expect(request?.schedule).toContain("schedule_id: run-pipe945");
+      expect(request.schedule).toContain("schedule_id: run-pipe945");
       // The persisted manifest's node map is built FROM nodeIds — real nodes.
       const manifest = await Effect.runPromise(
         store.readRun({ runId: "run-pipe945" })
@@ -169,7 +171,7 @@ describe("runner-lifecycle workflow.start", () => {
 
       expect(exitCode).toBe(0);
       // The lifecycle's request also carries real nodeIds (no nodeIds: []).
-      expect(captured[0]?.nodeIds).toEqual(["command"]);
+      expect(captured[0].nodeIds).toEqual(["command"]);
       // Exactly one manifest survives, with the real node list intact.
       const runs = await Effect.runPromise(store.listRuns());
       expect(runs).toHaveLength(1);

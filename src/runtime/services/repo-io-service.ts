@@ -1,19 +1,15 @@
-import {
-  type Dirent,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import type { Dirent } from "node:fs";
+
 import { Cause, Context, Effect, Layer, Option } from "effect";
 import { Language, Parser } from "web-tree-sitter";
 
 let parserInitPromise: Promise<void> | null = null;
 
-function initializeParser(): Promise<void> {
+const initializeParser = async (): Promise<void> => {
   parserInitPromise ??= Parser.init();
-  return parserInitPromise;
-}
+  await parserInitPromise;
+};
 
 export class RepoIoService extends Context.Service<
   RepoIoService,
@@ -26,6 +22,9 @@ export class RepoIoService extends Context.Service<
     readonly readText: (path: string) => Effect.Effect<string, unknown>;
   }
 >()("RepoIoService") {}
+
+const direntCompare = (a: Dirent, b: Dirent): number =>
+  a.name.localeCompare(b.name);
 
 export const RepoIoServiceLive = Layer.succeed(RepoIoService, {
   createParser: () =>
@@ -45,7 +44,7 @@ export const RepoIoServiceLive = Layer.succeed(RepoIoService, {
   loadLanguage: (path) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: () => Language.load(path),
+      try: async () => await Language.load(path),
     }),
   readDir: (path) =>
     Effect.try({
@@ -55,17 +54,13 @@ export const RepoIoServiceLive = Layer.succeed(RepoIoService, {
   readText: (path) =>
     Effect.try({
       catch: (error) => error,
-      try: () => readFileSync(path, "utf8"),
+      try: () => readFileSync(path, "utf-8"),
     }),
 });
 
-function direntCompare(a: Dirent, b: Dirent): number {
-  return a.name.localeCompare(b.name);
-}
-
-export function runRepoIoSync<A, E>(
+export const runRepoIoSync = <A, E>(
   program: Effect.Effect<A, E, RepoIoService>
-): A {
+): A => {
   const exit = Effect.runSyncExit(Effect.provide(program, RepoIoServiceLive));
   if (exit._tag === "Success") {
     return exit.value;
@@ -73,8 +68,8 @@ export function runRepoIoSync<A, E>(
   const originalError = Option.getOrUndefined(
     Cause.findErrorOption(exit.cause)
   );
-  if (originalError) {
+  if (originalError !== undefined) {
     throw originalError;
   }
   throw Cause.squash(exit.cause);
-}
+};

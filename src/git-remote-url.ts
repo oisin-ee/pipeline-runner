@@ -1,19 +1,35 @@
 import parseGitUrl from "git-url-parse";
+
 import type { RunnerRepositoryContext } from "./runner-command-contract";
 
 const GITHUB_SOURCE = "github.com";
 
-export function normalizeRunnerRepositoryForSubmit(
-  repository: RunnerRepositoryContext
-): RunnerRepositoryContext {
-  const url = normalizeRepositoryUrlForSubmit(repository.url);
-  if (url === repository.url) {
-    return repository;
+const requiredGitHubPathSegment = (
+  value: string,
+  remoteUrl: string
+): string => {
+  const segment = value.trim();
+  if (segment.length > 0) {
+    return segment;
   }
-  return { ...repository, url };
-}
+  throw new Error(
+    `GitHub SSH git remote ${remoteUrl} must include an owner and repository name`
+  );
+};
 
-function normalizeRepositoryUrlForSubmit(remoteUrl: string): string {
+const gitHubRepositoryPath = (
+  parsed: ReturnType<typeof parseGitUrl>,
+  remoteUrl: string
+): string => {
+  const owner = requiredGitHubPathSegment(parsed.owner, remoteUrl);
+  const name = requiredGitHubPathSegment(parsed.name, remoteUrl);
+  return `${owner}/${name}.git`;
+};
+
+const isSshRemote = (parsed: ReturnType<typeof parseGitUrl>): boolean =>
+  parsed.protocols.includes("ssh");
+
+const normalizeRepositoryUrlForSubmit = (remoteUrl: string): string => {
   const parsed = parseGitUrl(remoteUrl);
   if (!isSshRemote(parsed)) {
     return remoteUrl;
@@ -24,27 +40,14 @@ function normalizeRepositoryUrlForSubmit(remoteUrl: string): string {
     );
   }
   return `https://${GITHUB_SOURCE}/${gitHubRepositoryPath(parsed, remoteUrl)}`;
-}
+};
 
-function gitHubRepositoryPath(
-  parsed: ReturnType<typeof parseGitUrl>,
-  remoteUrl: string
-): string {
-  const owner = requiredGitHubPathSegment(parsed.owner, remoteUrl);
-  const name = requiredGitHubPathSegment(parsed.name, remoteUrl);
-  return `${owner}/${name}.git`;
-}
-
-function requiredGitHubPathSegment(value: string, remoteUrl: string): string {
-  const segment = value.trim();
-  if (segment.length > 0) {
-    return segment;
+export const normalizeRunnerRepositoryForSubmit = (
+  repository: RunnerRepositoryContext
+): RunnerRepositoryContext => {
+  const url = normalizeRepositoryUrlForSubmit(repository.url);
+  if (url === repository.url) {
+    return repository;
   }
-  throw new Error(
-    `GitHub SSH git remote ${remoteUrl} must include an owner and repository name`
-  );
-}
-
-function isSshRemote(parsed: ReturnType<typeof parseGitUrl>): boolean {
-  return parsed.protocols.includes("ssh");
-}
+  return { ...repository, url };
+};

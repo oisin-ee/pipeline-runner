@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import {
   parseJsonObject,
   parseRuntimeOutput,
@@ -16,11 +18,11 @@ afterEach(() => {
   }
 });
 
-function tempProject(): string {
+const tempProject = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "pipeline-json-validation-"));
   tempDirs.push(dir);
   return dir;
-}
+};
 
 describe("json validation runtime helpers", () => {
   it("parses JSON and JSONL runtime output formats", () => {
@@ -110,7 +112,7 @@ describe("json validation runtime helpers", () => {
   it("parses objects defensively for runtime aggregate outputs", () => {
     expect(parseJsonObject('{"children":{}}')).toEqual({ children: {} });
     expect(parseJsonObject("[]")).toEqual({});
-    expect(parseJsonObject(undefined)).toEqual({});
+    expect(parseJsonObject()).toEqual({});
     expect(parseJsonObject("not json")).toEqual({});
   });
 });

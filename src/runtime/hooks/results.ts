@@ -1,5 +1,8 @@
+import { Option } from "effect";
+
 import type { HookEvent } from "../../config";
-import { type HookResult, parseHookResult } from "../../hooks";
+import { parseHookResult } from "../../hooks";
+import type { HookResult } from "../../hooks";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type {
   HookBinding,
@@ -18,118 +21,190 @@ type HookResultRuntimeEvent = Extract<
   { type: "hook.result" }
 >;
 
-export function runtimeHookFailure(
+export const runtimeHookFailure = (
   binding: HookBinding,
   reason: string,
   evidence: string[],
   node?: PlannedWorkflowNode
-): RuntimeFailure {
-  return {
-    evidence,
-    gate: binding.id,
-    nodeId: node?.id,
-    reason,
-  };
-}
+): RuntimeFailure => ({
+  evidence,
+  gate: binding.id,
+  nodeId: node?.id,
+  reason,
+});
 
-export function recordHookResult(
-  context: RuntimeContext,
-  event: HookEvent,
-  binding: HookBinding,
-  result: HookResult,
-  node?: PlannedWorkflowNode,
-  gateId?: string
-): void {
-  saveHookResult(context, binding, result);
-  publishHookResult(context, event, binding, result, node, gateId);
-}
-
-function saveHookResult(
+const saveHookResult = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookResult
-): void {
-  if (binding.result?.save_as) {
-    context.hookResults.set(binding.result.save_as, result);
+): void => {
+  const saveAs = binding.result?.save_as;
+  if (saveAs !== undefined && saveAs.length > 0) {
+    context.hookResults.set(saveAs, result);
   }
-}
+};
 
-function publishHookResult(
+const hookResultArtifacts = (
+  result: HookResult
+): Pick<HookResultRuntimeEvent, "artifacts"> | EmptyObject =>
+  result.artifacts ? { artifacts: result.artifacts } : {};
+
+const hookResultGate = (
+  gateId?: string
+): Pick<HookResultRuntimeEvent, "gateId"> | EmptyObject =>
+  gateId === undefined || gateId.length === 0 ? {} : { gateId };
+
+const hookResultNode = (
+  node?: PlannedWorkflowNode
+): Pick<HookResultRuntimeEvent, "nodeId"> | EmptyObject =>
+  node ? { nodeId: node.id } : {};
+
+const hookResultOutputs = (
+  result: HookResult
+): Pick<HookResultRuntimeEvent, "outputs"> | EmptyObject =>
+  result.outputs ? { outputs: result.outputs } : {};
+
+const hookResultSummary = (
+  result: HookResult
+): Pick<HookResultRuntimeEvent, "summary"> | EmptyObject =>
+  result.summary === undefined || result.summary.length === 0
+    ? {}
+    : { summary: result.summary };
+
+const hookResultEvent = (
   context: RuntimeContext,
   event: HookEvent,
   binding: HookBinding,
   result: HookResult,
   node?: PlannedWorkflowNode,
   gateId?: string
-): void {
+): HookResultRuntimeEvent => ({
+  event,
+  functionId: binding.function,
+  hookId: binding.id,
+  status: result.status,
+  type: "hook.result",
+  workflowId: context.workflowId,
+  ...hookResultArtifacts(result),
+  ...hookResultGate(gateId),
+  ...hookResultNode(node),
+  ...hookResultOutputs(result),
+  ...hookResultSummary(result),
+});
+
+const publishHookResult = (
+  context: RuntimeContext,
+  event: HookEvent,
+  binding: HookBinding,
+  result: HookResult,
+  node?: PlannedWorkflowNode,
+  gateId?: string
+): void => {
   if (binding.result?.publish === true) {
     emit(
       context,
       hookResultEvent(context, event, binding, result, node, gateId)
     );
   }
-}
+};
 
-function hookResultEvent(
+export const recordHookResult = (
   context: RuntimeContext,
   event: HookEvent,
   binding: HookBinding,
   result: HookResult,
   node?: PlannedWorkflowNode,
   gateId?: string
-): HookResultRuntimeEvent {
-  return {
-    event,
-    functionId: binding.function,
-    hookId: binding.id,
-    status: result.status,
-    type: "hook.result",
-    workflowId: context.workflowId,
-    ...hookResultArtifacts(result),
-    ...hookResultGate(gateId),
-    ...hookResultNode(node),
-    ...hookResultOutputs(result),
-    ...hookResultSummary(result),
-  };
-}
+): void => {
+  saveHookResult(context, binding, result);
+  publishHookResult(context, event, binding, result, node, gateId);
+};
 
-function hookResultArtifacts(
-  result: HookResult
-): Pick<HookResultRuntimeEvent, "artifacts"> | EmptyObject {
-  return result.artifacts ? { artifacts: result.artifacts } : {};
-}
-
-function hookResultGate(
-  gateId?: string
-): Pick<HookResultRuntimeEvent, "gateId"> | EmptyObject {
-  return gateId ? { gateId } : {};
-}
-
-function hookResultNode(
+const validateHookResultAgainstSchema = (
+  result: HookResult,
+  binding: HookBinding,
+  schema: string,
+  context: RuntimeContext,
   node?: PlannedWorkflowNode
-): Pick<HookResultRuntimeEvent, "nodeId"> | EmptyObject {
-  return node ? { nodeId: node.id } : {};
-}
+): Option.Option<RuntimeFailure> => {
+  const validation = validateJsonSchemaSource(
+    JSON.stringify(result),
+    schema,
+    context.worktreePath
+  );
+  return validation.passed
+    ? Option.none()
+    : Option.some(
+        runtimeHookFailure(
+          binding,
+          validation.reason ?? "hook result schema validation failed",
+          validation.evidence,
+          node
+        )
+      );
+};
 
-function hookResultOutputs(
-  result: HookResult
-): Pick<HookResultRuntimeEvent, "outputs"> | EmptyObject {
-  return result.outputs ? { outputs: result.outputs } : {};
-}
+const hookResultSchemaFailure = (
+  result: HookResult,
+  binding: HookBinding,
+  hookFunction: HookFunctionSpec,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): Option.Option<RuntimeFailure> => {
+  const schema = hookFunction.returns?.schema;
+  return schema === undefined || schema.length === 0
+    ? Option.none()
+    : validateHookResultAgainstSchema(result, binding, schema, context, node);
+};
 
-function hookResultSummary(
-  result: HookResult
-): Pick<HookResultRuntimeEvent, "summary"> | EmptyObject {
-  return result.summary ? { summary: result.summary } : {};
-}
+const hookResultFailure = (
+  binding: HookBinding,
+  result: HookResult,
+  node?: PlannedWorkflowNode
+): Option.Option<RuntimeFailure> => {
+  if (result.status !== "fail") {
+    return Option.none();
+  }
+  return Option.some(
+    runtimeHookFailure(
+      binding,
+      result.summary ?? `hook '${binding.id}' failed`,
+      [result.summary ?? `hook '${binding.id}' returned fail`],
+      node
+    )
+  );
+};
 
-export function parseAndValidateHookResult(
+const validatedHookResult = (
+  result: HookResult,
+  binding: HookBinding,
+  hookFunction: HookFunctionSpec,
+  context: RuntimeContext,
+  node?: PlannedWorkflowNode
+): RuntimeHookInvocationResult => {
+  const schemaFailure = hookResultSchemaFailure(
+    result,
+    binding,
+    hookFunction,
+    context,
+    node
+  );
+  const failure = Option.orElse(schemaFailure, () =>
+    hookResultFailure(binding, result, node)
+  );
+  return {
+    failure: Option.getOrUndefined(failure),
+    hookResult: result,
+  };
+};
+
+export const parseAndValidateHookResult = (
   value: unknown,
   binding: HookBinding,
   hookFunction: HookFunctionSpec,
   context: RuntimeContext,
   node?: PlannedWorkflowNode
-): RuntimeHookInvocationResult {
+): RuntimeHookInvocationResult => {
   try {
     return validatedHookResult(
       parseHookResult(value),
@@ -138,85 +213,14 @@ export function parseAndValidateHookResult(
       context,
       node
     );
-  } catch (err) {
+  } catch (error) {
     return {
       failure: runtimeHookFailure(
         binding,
         "hook result validation failed",
-        [err instanceof Error ? err.message : String(err)],
+        [error instanceof Error ? error.message : String(error)],
         node
       ),
     };
   }
-}
-
-function validatedHookResult(
-  result: HookResult,
-  binding: HookBinding,
-  hookFunction: HookFunctionSpec,
-  context: RuntimeContext,
-  node?: PlannedWorkflowNode
-): RuntimeHookInvocationResult {
-  const schemaFailure = hookResultSchemaFailure(
-    result,
-    binding,
-    hookFunction,
-    context,
-    node
-  );
-  return {
-    failure: schemaFailure ?? hookResultFailure(binding, result, node),
-    hookResult: result,
-  };
-}
-
-function hookResultSchemaFailure(
-  result: HookResult,
-  binding: HookBinding,
-  hookFunction: HookFunctionSpec,
-  context: RuntimeContext,
-  node?: PlannedWorkflowNode
-): RuntimeFailure | undefined {
-  const schema = hookFunction.returns?.schema;
-  return schema
-    ? validateHookResultAgainstSchema(result, binding, schema, context, node)
-    : undefined;
-}
-
-function validateHookResultAgainstSchema(
-  result: HookResult,
-  binding: HookBinding,
-  schema: string,
-  context: RuntimeContext,
-  node?: PlannedWorkflowNode
-): RuntimeFailure | undefined {
-  const validation = validateJsonSchemaSource(
-    JSON.stringify(result),
-    schema,
-    context.worktreePath
-  );
-  return validation.passed
-    ? undefined
-    : runtimeHookFailure(
-        binding,
-        validation.reason ?? "hook result schema validation failed",
-        validation.evidence,
-        node
-      );
-}
-
-function hookResultFailure(
-  binding: HookBinding,
-  result: HookResult,
-  node?: PlannedWorkflowNode
-): RuntimeFailure | undefined {
-  if (result.status !== "fail") {
-    return;
-  }
-  return runtimeHookFailure(
-    binding,
-    result.summary ?? `hook '${binding.id}' failed`,
-    [result.summary ?? `hook '${binding.id}' returned fail`],
-    node
-  );
-}
+};

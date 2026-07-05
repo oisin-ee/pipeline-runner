@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import {
   MCP_GATEWAY_BACKEND_LOCALITIES,
   MCP_GATEWAY_WORKSPACE_PATH_SOURCES,
@@ -129,6 +130,10 @@ const mcpGatewayBackendSchema = z
 
 export const mcpGatewaySchema = z
   .object({
+    authorization_env: z
+      .string()
+      .min(1)
+      .default("PIPELINE_MCP_GATEWAY_AUTHORIZATION"),
     backends: z.record(z.string(), mcpGatewayBackendSchema).default({}),
     default_profile: z.string().min(1).optional(),
     // PIPE-83.11: where the singleton pipeline gateway is registered. "project"
@@ -138,10 +143,6 @@ export const mcpGatewaySchema = z
     host_scope: z.enum(["project", "global"]).default("project"),
     mode: z.enum(["hosted", "local"]),
     provider: z.literal("toolhive"),
-    authorization_env: z
-      .string()
-      .min(1)
-      .default("PIPELINE_MCP_GATEWAY_AUTHORIZATION"),
     url: z
       .string()
       .url()

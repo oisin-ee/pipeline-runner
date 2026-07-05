@@ -1,10 +1,13 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+
 import { committerConfigArgs } from "./create-experiment";
-import { type FactorySeams, resolveFactorySeams } from "./exec";
+import { resolveFactorySeams } from "./exec";
+import type { FactorySeams } from "./exec";
 import { githubGitCredentialEnv } from "./git-credentials";
 import { isStampOf, parseCopierAnswers } from "./stamp-answers";
 
@@ -56,62 +59,18 @@ export interface TemplateUpdateResult {
   readonly results: readonly TemplateUpdateRepoResult[];
 }
 
-export function summarizeTemplateUpdate(
+export const summarizeTemplateUpdate = (
   results: readonly TemplateUpdateRepoResult[]
-): { readonly failed: number; readonly opened: number } {
-  return {
-    failed: results.filter((entry) => entry.status === "error").length,
-    opened: results.filter((entry) => entry.status === "pr-opened").length,
-  };
-}
+): { readonly failed: number; readonly opened: number } => ({
+  failed: results.filter((entry) => entry.status === "error").length,
+  opened: results.filter((entry) => entry.status === "pr-opened").length,
+});
 
-export async function runTemplateUpdate(
-  options: TemplateUpdateOptions
-): Promise<TemplateUpdateResult> {
-  const seams = resolveFactorySeams(options);
-  const { log } = seams;
-  const org = options.org ?? DEFAULT_ORG;
-  const templateMatch = options.templateMatch ?? DEFAULT_TEMPLATE_MATCH;
-  const workRoot =
-    options.workRoot ?? mkdtempSync(join(tmpdir(), "template-update-"));
-
-  const repos =
-    options.repos && options.repos.length > 0
-      ? [...options.repos]
-      : await discoverRegistryRepos({
-          git: seams.git,
-          infraRepoUrl: options.infraRepoUrl ?? DEFAULT_INFRA_REPO_URL,
-          workRoot,
-        });
-  log(`template-update: candidates [${repos.join(", ")}]`);
-
-  const results: TemplateUpdateRepoResult[] = [];
-  for (const repo of repos) {
-    results.push(
-      await updateRepo({
-        org,
-        repo,
-        seams,
-        ...(options.templateRef ? { templateRef: options.templateRef } : {}),
-        templateMatch,
-        workRoot,
-      })
-    );
-  }
-
-  for (const entry of results) {
-    log(
-      `template-update: ${entry.repo} -> ${entry.status}${entry.prUrl ? ` ${entry.prUrl}` : ""}${entry.message ? ` (${entry.message})` : ""}`
-    );
-  }
-  return { results };
-}
-
-async function discoverRegistryRepos(input: {
+const discoverRegistryRepos = async (input: {
   readonly git: NonNullable<FactorySeams["git"]>;
   readonly infraRepoUrl: string;
   readonly workRoot: string;
-}): Promise<string[]> {
+}): Promise<string[]> => {
   const infraDir = resolve(input.workRoot, "infra-discovery");
   await input.git(input.workRoot, [
     "clone",
@@ -126,21 +85,30 @@ async function discoverRegistryRepos(input: {
     .filter((file) => file.endsWith(".yaml"))
     .map((file) => {
       const entry = registryEntryRepoSchema.parse(
-        parseYaml(readFileSync(join(registryDir, file), "utf8"))
+        parseYaml(readFileSync(join(registryDir, file), "utf-8"))
       );
       return entry.repo;
     });
-  return [...new Set(repos)].sort((left, right) => left.localeCompare(right));
-}
+  return [...new Set(repos)].toSorted((left, right) =>
+    left.localeCompare(right)
+  );
+};
 
-async function updateRepo(input: {
+const listRejectFiles = (cloneDir: string, porcelainStatus: string): string[] =>
+  porcelainStatus
+    .split("\n")
+    .map((line) => line.slice(3).trim())
+    .filter((file) => file.endsWith(".rej") && existsSync(join(cloneDir, file)))
+    .map((file) => basename(file));
+
+const updateRepo = async (input: {
   readonly org: string;
   readonly repo: string;
   readonly seams: ReturnType<typeof resolveFactorySeams>;
   readonly templateMatch: string;
   readonly templateRef?: string;
   readonly workRoot: string;
-}): Promise<TemplateUpdateRepoResult> {
+}): Promise<TemplateUpdateRepoResult> => {
   const { exec, git } = input.seams;
   const { repo } = input;
   try {
@@ -155,7 +123,7 @@ async function updateRepo(input: {
     if (!existsSync(answersPath)) {
       return { repo, status: "not-stamped" };
     }
-    const receipt = parseCopierAnswers(readFileSync(answersPath, "utf8"));
+    const receipt = parseCopierAnswers(readFileSync(answersPath, "utf-8"));
     if (!isStampOf(receipt, input.templateMatch)) {
       return {
         message: `stamped from ${receipt.srcPath ?? "unknown"}, not ${input.templateMatch}`,
@@ -171,7 +139,9 @@ async function updateRepo(input: {
         "update",
         "--trust",
         "--defaults",
-        ...(input.templateRef ? ["--vcs-ref", input.templateRef] : []),
+        ...(input.templateRef !== undefined && input.templateRef.length > 0
+          ? ["--vcs-ref", input.templateRef]
+          : []),
       ],
       // copier re-fetches the private template with its own git subprocess.
       { cwd: cloneDir, env: githubGitCredentialEnv() }
@@ -186,7 +156,7 @@ async function updateRepo(input: {
       };
     }
 
-    const updated = parseCopierAnswers(readFileSync(answersPath, "utf8"));
+    const updated = parseCopierAnswers(readFileSync(answersPath, "utf-8"));
     const version = updated.commit ?? "unknown";
     const branch = `chore/template-update-${version}`;
     const rejects = listRejectFiles(cloneDir, status);
@@ -234,12 +204,48 @@ async function updateRepo(input: {
       status: "error",
     };
   }
-}
+};
 
-function listRejectFiles(cloneDir: string, porcelainStatus: string): string[] {
-  return porcelainStatus
-    .split("\n")
-    .map((line) => line.slice(3).trim())
-    .filter((file) => file.endsWith(".rej") && existsSync(join(cloneDir, file)))
-    .map((file) => basename(file));
-}
+export const runTemplateUpdate = async (
+  options: TemplateUpdateOptions
+): Promise<TemplateUpdateResult> => {
+  const seams = resolveFactorySeams(options);
+  const { log } = seams;
+  const org = options.org ?? DEFAULT_ORG;
+  const templateMatch = options.templateMatch ?? DEFAULT_TEMPLATE_MATCH;
+  const workRoot =
+    options.workRoot ?? mkdtempSync(join(tmpdir(), "template-update-"));
+
+  const repos =
+    options.repos !== undefined && options.repos.length > 0
+      ? [...options.repos]
+      : await discoverRegistryRepos({
+          git: seams.git,
+          infraRepoUrl: options.infraRepoUrl ?? DEFAULT_INFRA_REPO_URL,
+          workRoot,
+        });
+  log(`template-update: candidates [${repos.join(", ")}]`);
+
+  const results: TemplateUpdateRepoResult[] = [];
+  for (const repo of repos) {
+    results.push(
+      await updateRepo({
+        org,
+        repo,
+        seams,
+        ...(options.templateRef !== undefined && options.templateRef.length > 0
+          ? { templateRef: options.templateRef }
+          : {}),
+        templateMatch,
+        workRoot,
+      })
+    );
+  }
+
+  for (const entry of results) {
+    log(
+      `template-update: ${entry.repo} -> ${entry.status}${entry.prUrl !== undefined && entry.prUrl.length > 0 ? ` ${entry.prUrl}` : ""}${entry.message !== undefined && entry.message.length > 0 ? ` (${entry.message})` : ""}`
+    );
+  }
+  return { results };
+};

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+
 import type { MokaRunManifest } from "../src/run-control/contracts";
 import {
   createRunEffect,
@@ -24,46 +25,47 @@ import type {
   WriteNodeArtifactInput,
 } from "../src/run-control/store-types";
 
-export function createRun(input: CreateRunInput): Promise<MokaRunManifest> {
-  return Effect.runPromise(createRunEffect(input));
-}
+export const createRun = async (
+  input: CreateRunInput
+): Promise<MokaRunManifest> => await Effect.runPromise(createRunEffect(input));
 
-export function updateRunController(
+export const updateRunController = async (
   input: UpdateRunControllerInput
-): Promise<MokaRunManifest> {
-  return Effect.runPromise(updateRunControllerEffect(input));
-}
+): Promise<MokaRunManifest> =>
+  await Effect.runPromise(updateRunControllerEffect(input));
 
-export function recordEvent(input: RecordEventInput): Promise<void> {
-  return Effect.runPromise(recordEventEffect(input));
-}
+export const recordEvent = async (input: RecordEventInput): Promise<void> => {
+  await Effect.runPromise(recordEventEffect(input));
+};
 
-export function updateRunStatus(input: UpdateRunStatusInput): Promise<void> {
-  return Effect.runPromise(updateRunStatusEffect(input));
-}
+export const updateRunStatus = async (
+  input: UpdateRunStatusInput
+): Promise<void> => {
+  await Effect.runPromise(updateRunStatusEffect(input));
+};
 
-export function updateNodeStatus(input: UpdateNodeStatusInput): Promise<void> {
-  return Effect.runPromise(updateNodeStatusEffect(input));
-}
+export const updateNodeStatus = async (
+  input: UpdateNodeStatusInput
+): Promise<void> => {
+  await Effect.runPromise(updateNodeStatusEffect(input));
+};
 
-export function updateNodeSession(
+export const updateNodeSession = async (
   input: UpdateNodeSessionInput
-): Promise<void> {
-  return Effect.runPromise(updateNodeSessionEffect(input));
-}
+): Promise<void> => {
+  await Effect.runPromise(updateNodeSessionEffect(input));
+};
 
-export function writeNodeArtifact(
+export const writeNodeArtifact = async (
   input: WriteNodeArtifactInput
-): Promise<NodeArtifactReference> {
-  return Effect.runPromise(writeNodeArtifactEffect(input));
-}
+): Promise<NodeArtifactReference> =>
+  await Effect.runPromise(writeNodeArtifactEffect(input));
 
-export function readRun(
+export const readRun = async (
   input: ReadRunInput
-): Promise<MokaRunManifest | undefined> {
-  return Effect.runPromise(readRunEffect(input));
-}
+): Promise<MokaRunManifest | undefined> =>
+  await Effect.runPromise(readRunEffect(input));
 
-export function listRuns(input: StoreContext): Promise<MokaRunManifest[]> {
-  return Effect.runPromise(listRunsEffect(input));
-}
+export const listRuns = async (
+  input: StoreContext
+): Promise<MokaRunManifest[]> => await Effect.runPromise(listRunsEffect(input));

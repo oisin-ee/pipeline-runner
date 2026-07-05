@@ -1,8 +1,13 @@
+import type { Option } from "effect/Option";
+import { none, some } from "effect/Option";
+import { z } from "zod";
+
+import type { ClaudeSettingsProjection } from "../claude-settings-config";
 import { mergeClaudeSettings } from "../claude-settings-config";
 import type { PipelineConfig } from "../config";
 import { opencodeAgentName } from "../runtime/opencode-agent-name";
+import { parseJson } from "../safe-json";
 import {
-  type AgentDispatchRoute,
   agentDispatchRoutes,
   entrypointDispatchBlock,
   grants,
@@ -11,18 +16,21 @@ import {
   projectAgentsMdDefinition,
   resolvedHostModel,
 } from "./opencode";
+import type { AgentDispatchRoute } from "./opencode";
 import {
-  type ActiveCommandHost,
   CLAUDE_PROJECT_CONFIG_PATH,
-  type CommandDefinition,
   commandIdForHost,
   compactLines,
   entrypointDescription,
   entrypointEntries,
-  type HostAdapter,
   instructionsPointer,
   invocationForHost,
-  type MergeDefinitionResult,
+} from "./shared";
+import type {
+  ActiveCommandHost,
+  CommandDefinition,
+  HostAdapter,
+  MergeDefinitionResult,
 } from "./shared";
 
 const CLAUDE_CODE_HOST: ActiveCommandHost = "claude-code";
@@ -30,23 +38,33 @@ const CLAUDE_ALLOWED_TOOLS = "Bash(moka run *)";
 const CLAUDE_AGENT_TOOLS = "Bash, Read";
 const MOKA_PROFILE_PREFIX = "moka-";
 
+const claudeSettingsProjectionSchema = z.object({
+  mcpServers: z.record(z.string(), z.unknown()).optional(),
+  permissions: z.object({ allow: z.array(z.string()).optional() }).optional(),
+});
+
 type ProfileConfig = PipelineConfig["profiles"][string];
 
-function claudeAgentNameForProfile(profileId: string): string {
-  return profileId.startsWith(MOKA_PROFILE_PREFIX)
+const parseClaudeSettingsProjection = (
+  source: string
+): ClaudeSettingsProjection =>
+  claudeSettingsProjectionSchema.parse(
+    parseJson(source, "Claude settings projection")
+  );
+
+const claudeAgentNameForProfile = (profileId: string): string =>
+  profileId.startsWith(MOKA_PROFILE_PREFIX)
     ? profileId
     : `${MOKA_PROFILE_PREFIX}${profileId}`;
-}
 
-function cliRoutesForConfig(config: PipelineConfig): AgentDispatchRoute[] {
-  return entrypointEntries(config).flatMap(([, entrypoint]) =>
+const cliRoutesForConfig = (config: PipelineConfig): AgentDispatchRoute[] =>
+  entrypointEntries(config).flatMap(([, entrypoint]) =>
     "workflow" in entrypoint
       ? agentDispatchRoutes(CLAUDE_CODE_HOST, config, entrypoint.workflow)
       : []
   );
-}
 
-function distinctCliProfiles(config: PipelineConfig): AgentDispatchRoute[] {
+const distinctCliProfiles = (config: PipelineConfig): AgentDispatchRoute[] => {
   const seen = new Set<string>();
   const profiles: AgentDispatchRoute[] = [];
   for (const route of cliRoutesForConfig(config)) {
@@ -56,25 +74,21 @@ function distinctCliProfiles(config: PipelineConfig): AgentDispatchRoute[] {
     seen.add(route.profileId);
     profiles.push(route);
   }
-  return profiles.sort((a, b) => a.profileId.localeCompare(b.profileId));
-}
+  return profiles.toSorted((a, b) => a.profileId.localeCompare(b.profileId));
+};
 
-function commandDispatchBody(
+const commandDispatchBody = (
   config: PipelineConfig,
   id: string,
   entrypoint: PipelineConfig["entrypoints"][string]
-): string {
-  return (
-    entrypointDispatchBlock(CLAUDE_CODE_HOST, config, id, entrypoint) ?? ""
-  );
-}
+): string => entrypointDispatchBlock(CLAUDE_CODE_HOST, config, id, entrypoint);
 
-function commandDefinitions(config: PipelineConfig): CommandDefinition[] {
-  return entrypointEntries(config).map(([id, entrypoint]) => ({
+const commandDefinitions = (config: PipelineConfig): CommandDefinition[] =>
+  entrypointEntries(config).map(([id, entrypoint]) => ({
     content: markdown(
       {
-        "argument-hint": "<task description>",
         "allowed-tools": CLAUDE_ALLOWED_TOOLS,
+        "argument-hint": "<task description>",
         description: entrypointDescription(id, entrypoint),
       },
       compactLines([
@@ -91,26 +105,25 @@ function commandDefinitions(config: PipelineConfig): CommandDefinition[] {
     invocation: invocationForHost(CLAUDE_CODE_HOST, id),
     path: `.claude/commands/${commandIdForHost(CLAUDE_CODE_HOST, id)}.md`,
   }));
-}
 
-function agentModelProjection(
+const agentModelProjection = (
   config: PipelineConfig,
   profile: ProfileConfig
-): Record<string, string> {
+): Record<string, string> => {
   const model = resolvedHostModel(config, CLAUDE_CODE_HOST, profile);
-  return model ? { model } : {};
-}
+  return model === "" ? {} : { model };
+};
 
-function agentDefinitions(config: PipelineConfig): CommandDefinition[] {
-  return distinctCliProfiles(config).map((route) => {
-    const profile = route.profile;
+const agentDefinitions = (config: PipelineConfig): CommandDefinition[] =>
+  distinctCliProfiles(config).map((route) => {
+    const { profile } = route;
     const agentName = claudeAgentNameForProfile(route.profileId);
     const displayName = opencodeAgentName(route.profileId);
     return {
       content: markdown(
         {
-          name: agentName,
           description: profile.description ?? route.profileId,
+          name: agentName,
           tools: CLAUDE_AGENT_TOOLS,
           ...agentModelProjection(config, profile),
         },
@@ -135,9 +148,8 @@ function agentDefinitions(config: PipelineConfig): CommandDefinition[] {
       path: `.claude/agents/${agentName}.md`,
     };
   });
-}
 
-function settingsDefinition(): CommandDefinition[] {
+const settingsDefinition = (): CommandDefinition[] => {
   const settings: Record<string, unknown> = {
     permissions: {
       allow: ["Bash(moka run *)"],
@@ -151,51 +163,43 @@ function settingsDefinition(): CommandDefinition[] {
       path: CLAUDE_PROJECT_CONFIG_PATH,
     },
   ];
-}
+};
 
-function claudeCodeDefinitions(
+const claudeCodeDefinitions = (
   config: PipelineConfig,
   cwd: string
-): CommandDefinition[] {
-  return [
-    ...commandDefinitions(config),
-    ...agentDefinitions(config),
-    ...settingsDefinition(),
-    projectAgentsMdDefinition(cwd, CLAUDE_CODE_HOST),
-  ];
-}
+): CommandDefinition[] => [
+  ...commandDefinitions(config),
+  ...agentDefinitions(config),
+  ...settingsDefinition(),
+  projectAgentsMdDefinition(cwd, CLAUDE_CODE_HOST),
+];
 
 /**
  * The claude-code HostAdapter. Encapsulates all Claude Code-specific command
  * generation, resource roots, and settings-merge behaviour.
  */
 export const claudeCodeAdapter: HostAdapter = {
-  host: "claude-code",
-  resourceRoots: [".claude/commands", ".claude/agents"],
   definitions(config: PipelineConfig, cwd: string): CommandDefinition[] {
     return claudeCodeDefinitions(config, cwd);
+  },
+  host: "claude-code",
+  isAlwaysForced(definition: CommandDefinition): boolean {
+    return definition.path === CLAUDE_PROJECT_CONFIG_PATH;
   },
   mergeDefinition(
     definition: CommandDefinition,
     existingContent: string
-  ): MergeDefinitionResult | undefined {
+  ): Option<MergeDefinitionResult> {
     if (definition.path !== CLAUDE_PROJECT_CONFIG_PATH) {
-      return;
+      return none();
     }
-    const projection = JSON.parse(definition.content) as Record<
-      string,
-      unknown
-    >;
-    const merged = mergeClaudeSettings(
-      existingContent,
-      projection as Parameters<typeof mergeClaudeSettings>[1]
-    );
+    const projection = parseClaudeSettingsProjection(definition.content);
+    const merged = mergeClaudeSettings(existingContent, projection);
     if (!merged.ok) {
-      return { ok: false, content: definition.content };
+      return some({ content: definition.content, ok: false });
     }
-    return { ok: true, content: merged.content };
+    return some({ content: merged.content, ok: true });
   },
-  isAlwaysForced(definition: CommandDefinition): boolean {
-    return definition.path === CLAUDE_PROJECT_CONFIG_PATH;
-  },
+  resourceRoots: [".claude/commands", ".claude/agents"],
 };

@@ -1,9 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { Command } from "commander";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../src/config";
 import {
   buildNextNodeEnvelope,
@@ -16,33 +18,29 @@ import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-st
 import type { WorkflowScheduleNode } from "../src/runtime/scheduler";
 import { computeReadyNodeIds } from "../src/runtime/scheduler";
 
-const MISSING_PERSISTED_SCHEDULE_RE = /persisted schedule.*moka next node/i;
-const UNKNOWN_SCHEDULE_FILE_OPTION_RE = /unknown option '--schedule-file'/i;
-const SCHEDULE_FILE_MIGRATION_RE = /remove --schedule-file.*Moka DB/i;
+const MISSING_PERSISTED_SCHEDULE_RE = /persisted schedule.*moka next node/iu;
+const UNKNOWN_SCHEDULE_FILE_OPTION_RE = /unknown option '--schedule-file'/iu;
+const SCHEDULE_FILE_MIGRATION_RE = /remove --schedule-file.*Moka DB/iu;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function node(
+const node = (
   id: string,
   index: number,
   needs: string[] = [],
   dependents: string[] = []
-): WorkflowScheduleNode {
-  return { dependents, id, index, needs };
-}
+): WorkflowScheduleNode => ({ dependents, id, index, needs });
 
-function passedResult(nodeId: string, output = `output-of-${nodeId}`) {
-  return {
-    attempts: 1,
-    evidence: [],
-    exitCode: 0,
-    nodeId,
-    output,
-    status: "passed" as const,
-  };
-}
+const passedResult = (nodeId: string, output = `output-of-${nodeId}`) => ({
+  attempts: 1,
+  evidence: [],
+  exitCode: 0,
+  nodeId,
+  output,
+  status: "passed" as const,
+});
 
 // ---------------------------------------------------------------------------
 // computeReadyNodeIds (pure unit tests)
@@ -236,6 +234,97 @@ describe("buildNextNodeEnvelope", () => {
   });
 });
 
+describe("registerNextNodeSubcommand", () => {
+  it("hides and rejects the legacy --schedule-file flag with migration guidance", async () => {
+    const program = new Command("moka").exitOverride();
+    const stderr: string[] = [];
+    program.configureOutput({ writeErr: (chunk) => stderr.push(chunk) });
+    const next = program.command("next");
+    registerNextNodeSubcommand(next);
+
+    const nodeCommand = next.commands.find(
+      (command) => command.name() === "node"
+    );
+    expect(nodeCommand?.helpInformation()).not.toContain("--schedule-file");
+
+    await expect(
+      program.parseAsync(
+        [
+          "next",
+          "node",
+          "run-with-schedule",
+          "--schedule-file",
+          "schedule.yaml",
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow(UNKNOWN_SCHEDULE_FILE_OPTION_RE);
+    expect(stderr.join("")).toMatch(SCHEDULE_FILE_MIGRATION_RE);
+  });
+});
+
+const manifestScheduleConfig = () =>
+  parsePipelineConfigParts({
+    pipeline: `
+version: 1
+default_workflow: default
+orchestrator:
+  profile: orchestrator
+workflows:
+  default:
+    nodes:
+      - id: pkg-default
+        kind: command
+        command: ["node", "-e", "console.log('wrong graph')"]
+`,
+    profiles: `
+version: 1
+profiles:
+  orchestrator:
+    runner: command
+    instructions: { inline: Orchestrate }
+    tools: []
+`,
+    runners: `
+version: 1
+runners:
+  command:
+    type: command
+    command: node
+    args: ["-e", "{{prompt}}"]
+    capabilities:
+      native_subagents: false
+      output_formats: [text]
+`,
+  });
+
+const persistedScheduleYaml = (): string =>
+  [
+    "kind: pipeline-schedule",
+    "version: 1",
+    "schedule_id: persisted-next",
+    "generated_at: 2026-06-27T00:00:00.000Z",
+    "source_entrypoint: quick",
+    "root_workflow: root",
+    'task: "persisted next node"',
+    "workflows:",
+    "  root:",
+    "    nodes:",
+    "      - id: plan",
+    "        kind: command",
+    '        command: ["node", "-e", "console.log(\'plan\')"]',
+    "        task_context:",
+    "          description: Plan from persisted schedule",
+    "          acceptance_criteria:",
+    "            - id: ac-plan",
+    "              text: Plan ready",
+    "      - id: implement",
+    "        kind: command",
+    '        command: ["node", "-e", "console.log(\'implement\')"]',
+    "        needs: [plan]",
+    "",
+  ].join("\n");
+
 describe("buildNextNodeEnvelopeFromRunStore", () => {
   it("reads the persisted manifest schedule by runId and emits the first node", async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "next-node-run-store-"));
@@ -306,96 +395,3 @@ describe("buildNextNodeEnvelopeFromRunStore", () => {
     }
   });
 });
-
-describe("registerNextNodeSubcommand", () => {
-  it("hides and rejects the legacy --schedule-file flag with migration guidance", async () => {
-    const program = new Command("moka").exitOverride();
-    const stderr: string[] = [];
-    program.configureOutput({ writeErr: (chunk) => stderr.push(chunk) });
-    const next = program.command("next");
-    registerNextNodeSubcommand(next);
-
-    const nodeCommand = next.commands.find(
-      (command) => command.name() === "node"
-    );
-    expect(nodeCommand?.helpInformation()).not.toContain("--schedule-file");
-
-    await expect(
-      program.parseAsync(
-        [
-          "next",
-          "node",
-          "run-with-schedule",
-          "--schedule-file",
-          "schedule.yaml",
-        ],
-        { from: "user" }
-      )
-    ).rejects.toThrow(UNKNOWN_SCHEDULE_FILE_OPTION_RE);
-    expect(stderr.join("")).toMatch(SCHEDULE_FILE_MIGRATION_RE);
-  });
-});
-
-function manifestScheduleConfig() {
-  return parsePipelineConfigParts({
-    pipeline: `
-version: 1
-default_workflow: default
-orchestrator:
-  profile: orchestrator
-workflows:
-  default:
-    nodes:
-      - id: pkg-default
-        kind: command
-        command: ["node", "-e", "console.log('wrong graph')"]
-`,
-    profiles: `
-version: 1
-profiles:
-  orchestrator:
-    runner: command
-    instructions: { inline: Orchestrate }
-    tools: []
-`,
-    runners: `
-version: 1
-runners:
-  command:
-    type: command
-    command: node
-    args: ["-e", "{{prompt}}"]
-    capabilities:
-      native_subagents: false
-      output_formats: [text]
-`,
-  });
-}
-
-function persistedScheduleYaml(): string {
-  return [
-    "kind: pipeline-schedule",
-    "version: 1",
-    "schedule_id: persisted-next",
-    "generated_at: 2026-06-27T00:00:00.000Z",
-    "source_entrypoint: quick",
-    "root_workflow: root",
-    'task: "persisted next node"',
-    "workflows:",
-    "  root:",
-    "    nodes:",
-    "      - id: plan",
-    "        kind: command",
-    '        command: ["node", "-e", "console.log(\'plan\')"]',
-    "        task_context:",
-    "          description: Plan from persisted schedule",
-    "          acceptance_criteria:",
-    "            - id: ac-plan",
-    "              text: Plan ready",
-    "      - id: implement",
-    "        kind: command",
-    '        command: ["node", "-e", "console.log(\'implement\')"]',
-    "        needs: [plan]",
-    "",
-  ].join("\n");
-}

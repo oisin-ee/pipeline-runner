@@ -8,31 +8,33 @@ type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
  * implementation/coverage role policy used by schedule generation and
  * validation.
  */
-function hasSchedulingRole(
+const hasSchedulingRole = (
   config: PipelineConfig,
   node: WorkflowNode,
   role: SchedulingRole
-): boolean {
+): boolean => {
   if (node.kind !== "agent") {
     return false;
   }
   const profile = config.profiles[node.profile];
-  return profile?.scheduling_roles?.includes(role) ?? false;
-}
+  return (profile.scheduling_roles ?? []).includes(role);
+};
 
-export function isImplementationNode(
+export const isImplementationNode = (
   config: PipelineConfig,
   node: WorkflowNode
-): boolean {
-  return hasSchedulingRole(config, node, "implementation");
-}
+): boolean => hasSchedulingRole(config, node, "implementation");
 
-export function isCoverageNode(
+export const isCoverageNode = (
   config: PipelineConfig,
   node: WorkflowNode
-): boolean {
-  return hasSchedulingRole(config, node, "coverage");
-}
+): boolean => hasSchedulingRole(config, node, "coverage");
+
+const isWorkspaceWriteProfile = (
+  config: PipelineConfig,
+  profileId: string
+): boolean =>
+  config.profiles[profileId]?.filesystem?.mode === "workspace-write";
 
 /**
  * Whether a parallel child mutates the workspace, and therefore must not share a
@@ -42,10 +44,10 @@ export function isCoverageNode(
  * when any descendant is. Single source of truth for both schedule normalization
  * (the drain-merge integration pass) and validation.
  */
-export function isWriteCapableParallelChild(
+export const isWriteCapableParallelChild = (
   config: PipelineConfig,
   node: WorkflowNode
-): boolean {
+): boolean => {
   if (node.kind === "command") {
     return true;
   }
@@ -58,11 +60,4 @@ export function isWriteCapableParallelChild(
     return isWorkspaceWriteProfile(config, node.profile);
   }
   return false;
-}
-
-function isWorkspaceWriteProfile(
-  config: PipelineConfig,
-  profileId: string
-): boolean {
-  return config.profiles[profileId]?.filesystem?.mode === "workspace-write";
-}
+};

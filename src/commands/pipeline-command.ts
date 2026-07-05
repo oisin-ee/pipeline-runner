@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { Context, Effect, Layer } from "effect";
+
 import type { PipelineConfig } from "../config";
 
 export const BUILTIN_PIPE_COMMANDS = new Set([
@@ -50,7 +51,9 @@ const createEntrypointCommandServiceLive = (runEntrypoint: EntrypointRunner) =>
     runEntrypoint: (entrypoint, task, opts) =>
       Effect.tryPromise({
         catch: (error) => error,
-        try: () => runEntrypoint(entrypoint, task, opts),
+        try: async () => {
+          await runEntrypoint(entrypoint, task, opts);
+        },
       }),
   });
 
@@ -59,7 +62,7 @@ const runConfiguredEntrypointCommand = (
   descriptionParts: string[],
   flags: EntrypointCommandFlags
 ) =>
-  Effect.gen(function* () {
+  Effect.gen(function* runConfiguredEntrypointCommand() {
     const service = yield* EntrypointCommandService;
     yield* service.runEntrypoint(entrypoint, descriptionParts.join(" "), flags);
   });
@@ -102,21 +105,23 @@ const registerEntrypointAction = (
   id: string,
   serviceLive: ReturnType<typeof createEntrypointCommandServiceLive>
 ): void => {
-  command.action((descriptionParts: string[], flags: EntrypointCommandFlags) =>
-    Effect.runPromise(
-      Effect.provide(
-        runConfiguredEntrypointCommand(id, descriptionParts, flags),
-        serviceLive
-      )
-    )
+  command.action(
+    async (descriptionParts: string[], flags: EntrypointCommandFlags) => {
+      await Effect.runPromise(
+        Effect.provide(
+          runConfiguredEntrypointCommand(id, descriptionParts, flags),
+          serviceLive
+        )
+      );
+    }
   );
 };
 
-export function registerConfiguredEntrypointCommands(
+export const registerConfiguredEntrypointCommands = (
   program: Command,
   config: PipelineConfig,
   runEntrypoint: EntrypointRunner
-): Set<string> {
+): Set<string> => {
   const registered = new Set<string>();
   const serviceLive = createEntrypointCommandServiceLive(runEntrypoint);
 
@@ -133,4 +138,4 @@ export function registerConfiguredEntrypointCommands(
     reservedCommands.add(id);
   }
   return registered;
-}
+};

@@ -1,14 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
+
 import { Cause, Context, Effect, Layer, Option } from "effect";
 import { parseDocument } from "yaml";
 import type { z } from "zod";
+
 import {
   configIssuesFromZodError,
   PipelineConfigError,
   validationError,
 } from "../../config/schemas";
 
-function parseYamlSource(source: string, sourcePath: string) {
+const parseYamlSource = (source: string, sourcePath: string) => {
   const document = parseDocument(source, {
     prettyErrors: false,
     uniqueKeys: true,
@@ -21,7 +23,7 @@ function parseYamlSource(source: string, sourcePath: string) {
     );
   }
   return document.toJS();
-}
+};
 
 export class ConfigIoService extends Context.Service<
   ConfigIoService,
@@ -30,7 +32,9 @@ export class ConfigIoService extends Context.Service<
       source: string,
       sourcePath: string
     ) => Effect.Effect<unknown, PipelineConfigError>;
-    readonly readOptionalText: (path: string) => Effect.Effect<string | null>;
+    readonly readOptionalText: (
+      path: string
+    ) => Effect.Effect<Option.Option<string>>;
     readonly readText: (path: string | URL) => Effect.Effect<string>;
   }
 >()("ConfigIoService") {}
@@ -38,20 +42,24 @@ export class ConfigIoService extends Context.Service<
 const ConfigIoServiceLive = Layer.succeed(ConfigIoService, {
   parseYaml: (source, sourcePath) =>
     Effect.try({
-      try: () => parseYamlSource(source, sourcePath),
       catch: (error) => error as PipelineConfigError,
+      try: () => parseYamlSource(source, sourcePath),
     }),
   readOptionalText: (path) =>
-    Effect.sync(() => (existsSync(path) ? readFileSync(path, "utf8") : null)),
-  readText: (path) => Effect.sync(() => readFileSync(path, "utf8")),
+    Effect.sync(() =>
+      existsSync(path)
+        ? Option.some(readFileSync(path, "utf-8"))
+        : Option.none()
+    ),
+  readText: (path) => Effect.sync(() => readFileSync(path, "utf-8")),
 });
 
-export function parseConfigYamlAs<T extends z.ZodTypeAny>(
+export const parseConfigYamlAs = <T extends z.ZodTypeAny>(
   source: string,
   sourcePath: string,
   schema: T
-): Effect.Effect<z.infer<T>, PipelineConfigError, ConfigIoService> {
-  return Effect.gen(function* () {
+): Effect.Effect<z.infer<T>, PipelineConfigError, ConfigIoService> =>
+  Effect.gen(function* effectBody() {
     const configIo = yield* ConfigIoService;
     const yaml = yield* configIo.parseYaml(source, sourcePath);
     const parsed = schema.safeParse(yaml);
@@ -62,11 +70,10 @@ export function parseConfigYamlAs<T extends z.ZodTypeAny>(
     }
     return parsed.data;
   });
-}
 
-export function runConfigIoSync<A, E>(
+export const runConfigIoSync = <A, E>(
   program: Effect.Effect<A, E, ConfigIoService>
-): A {
+): A => {
   const exit = Effect.runSyncExit(Effect.provide(program, ConfigIoServiceLive));
   if (exit._tag === "Success") {
     return exit.value;
@@ -76,4 +83,4 @@ export function runConfigIoSync<A, E>(
     throw failure.value;
   }
   throw Cause.squash(exit.cause);
-}
+};

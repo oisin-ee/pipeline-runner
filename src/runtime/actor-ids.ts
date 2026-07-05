@@ -27,10 +27,10 @@ export interface RuntimeActorIdParts {
   workflowId?: string;
 }
 
-export function runtimeActorId(
+export const runtimeActorId = (
   kind: RuntimeActorKind,
   parts: RuntimeActorIdParts
-): string {
+): string => {
   const scoped = [
     parts.runId,
     parts.workflowId,
@@ -41,7 +41,7 @@ export function runtimeActorId(
     .filter((part): part is string => Boolean(part))
     .join(".");
   return scoped ? `pipeline.${kind}.${scoped}` : `pipeline.${kind}`;
-}
+};
 
 export interface RuntimeActorDescriptor {
   id: string;

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const JS_SUFFIX_RE = /\.js$/u;
@@ -7,11 +8,11 @@ const JS_SUFFIX_RE = /\.js$/u;
 const readPipelineFile = (path: string): string => {
   const distPath = join(import.meta.dirname, "..", "dist", path);
   if (existsSync(distPath)) {
-    return readFileSync(distPath, "utf8");
+    return readFileSync(distPath, "utf-8");
   }
   return readFileSync(
     join(import.meta.dirname, "..", "src", path.replace(JS_SUFFIX_RE, ".ts")),
-    "utf8"
+    "utf-8"
   );
 };
 
@@ -34,9 +35,7 @@ describe("scheduler and install command contracts", () => {
   it("renders local orchestrator dispatch in the install command artifact", () => {
     const installCommands = readPipelineFile("install-commands/opencode.js");
 
-    expect(installCommands).toContain(
-      "function localOrchestratorDispatchBlock"
-    );
+    expect(installCommands).toContain("localOrchestratorDispatchBlock");
     expect(installCommands).toContain("localOrchestratorDispatchBlock(config)");
   });
 });

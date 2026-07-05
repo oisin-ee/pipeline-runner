@@ -1,12 +1,14 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { restoreEnv, runMokaCliInTarget } from "./run-control-test-helpers";
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
-const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/;
+const DB_URL_REQUIRED_RE = /db\.url-required.*momokaya\.db\.url/u;
 
 const mockState = vi.hoisted(() => ({
   runtimeCalls: 0,
@@ -14,9 +16,9 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/pipeline-runtime", () => ({
-  runPipelineFromConfig: vi.fn(() => {
+  runPipelineFromConfig: vi.fn(async () => {
     mockState.runtimeCalls += 1;
-    return Promise.resolve({
+    return {
       agentInvocations: [],
       failureDetails: [],
       gates: [],
@@ -28,7 +30,7 @@ vi.mock("../src/pipeline-runtime", () => ({
         topologicalOrder: [],
         workflowId: "execute",
       },
-    });
+    };
   }),
 }));
 
@@ -38,9 +40,9 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
 
   return {
     ...actual,
-    generateScheduleArtifactInMemory: vi.fn(() => {
+    generateScheduleArtifactInMemory: vi.fn(async () => {
       mockState.scheduleCalls += 1;
-      return Promise.resolve({
+      return {
         yaml: [
           "version: 1",
           "kind: pipeline-schedule",
@@ -57,7 +59,7 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
           "        command: [node, -e, \"console.log('scheduled')\"]",
           "",
         ].join("\n"),
-      });
+      };
     }),
   };
 });

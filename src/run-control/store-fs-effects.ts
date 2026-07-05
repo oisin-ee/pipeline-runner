@@ -7,35 +7,28 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { Effect } from "effect";
+
+import { Effect, Option } from "effect";
+
 import { isNotFound } from "./file-errors";
 
-export function readDirectoryEntriesEffect(
+const MISSING_FILE_CONTENT = Option.none<string>();
+
+export const readDirectoryEntriesEffect = (
   path: string
-): Effect.Effect<Dirent[], unknown> {
-  return Effect.tryPromise({
+): Effect.Effect<Dirent[], unknown> =>
+  Effect.tryPromise({
     catch: (error) => error,
-    try: () => readdir(path, { withFileTypes: true }),
+    try: async () => await readdir(path, { withFileTypes: true }),
   });
-}
 
-export function readOptionalFileEffect(
-  path: string
-): Effect.Effect<string | undefined, unknown> {
-  return readFileUtf8Effect(path).pipe(
-    Effect.catch((error) =>
-      isNotFound(error) ? Effect.succeed(undefined) : Effect.fail(error)
-    )
-  );
-}
-
-export function ensureRunExistsEffect(
+export const ensureRunExistsEffect = (
   manifestPath: string,
   runId: string
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
+): Effect.Effect<void, unknown> =>
+  Effect.tryPromise({
     catch: (error) => error,
-    try: () => stat(manifestPath),
+    try: async () => await stat(manifestPath),
   }).pipe(
     Effect.asVoid,
     Effect.catch((error) =>
@@ -44,50 +37,60 @@ export function ensureRunExistsEffect(
         : Effect.fail(error)
     )
   );
-}
 
-export function readFileUtf8Effect(
+export const readFileUtf8Effect = (
   path: string
-): Effect.Effect<string, unknown> {
-  return Effect.tryPromise({
+): Effect.Effect<string, unknown> =>
+  Effect.tryPromise({
     catch: (error) => error,
-    try: () => readFile(path, "utf8"),
+    try: async () => await readFile(path, "utf-8"),
   });
-}
 
-export function writeJsonEffect(
+export const readOptionalFileEffect = (
+  path: string
+): Effect.Effect<Option.Option<string>, unknown> =>
+  readFileUtf8Effect(path).pipe(
+    Effect.map(Option.some),
+    Effect.catch((error) =>
+      isNotFound(error)
+        ? Effect.succeed(MISSING_FILE_CONTENT)
+        : Effect.fail(error)
+    )
+  );
+
+export const writeFileUtf8Effect = (
+  path: string,
+  content: string
+): Effect.Effect<void, unknown> =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: async () => {
+      await writeFile(path, content, "utf-8");
+    },
+  });
+
+export const writeJsonEffect = (
   path: string,
   value: unknown
-): Effect.Effect<void, unknown> {
-  return writeFileUtf8Effect(path, `${JSON.stringify(value, null, 2)}\n`);
-}
+): Effect.Effect<void, unknown> =>
+  writeFileUtf8Effect(path, `${JSON.stringify(value, null, 2)}\n`);
 
-export function writeFileUtf8Effect(
+export const appendFileUtf8Effect = (
   path: string,
   content: string
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
+): Effect.Effect<void, unknown> =>
+  Effect.tryPromise({
     catch: (error) => error,
-    try: () => writeFile(path, content, "utf8"),
+    try: async () => {
+      await appendFile(path, content, "utf-8");
+    },
   });
-}
 
-export function appendFileUtf8Effect(
-  path: string,
-  content: string
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
-    catch: (error) => error,
-    try: () => appendFile(path, content, "utf8"),
-  });
-}
-
-export function mkdirEffect(
+export const mkdirEffect = (
   path: string,
   options: Parameters<typeof mkdir>[1]
-): Effect.Effect<void, unknown> {
-  return Effect.tryPromise({
+): Effect.Effect<void, unknown> =>
+  Effect.tryPromise({
     catch: (error) => error,
-    try: () => mkdir(path, options),
+    try: async () => await mkdir(path, options),
   }).pipe(Effect.asVoid);
-}

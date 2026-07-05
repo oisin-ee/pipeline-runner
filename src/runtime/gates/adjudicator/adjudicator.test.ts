@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+
 import {
   baseGateRuntimeFields,
   gateNodeStateStore,
@@ -17,7 +18,7 @@ import type { GateEvaluationInput } from "../contract";
 import type { DeterministicGate } from "./index";
 import { adjudicate } from "./index";
 
-function runtimeContext(): RuntimeContext {
+const runtimeContext = (): RuntimeContext => {
   const config = parsePipelineConfigParts(
     {
       pipeline:
@@ -38,18 +39,18 @@ function runtimeContext(): RuntimeContext {
     workflowId: "smoke",
     worktreePath: process.cwd(),
   };
-}
+};
 
 const noopExecutor = {
   execute: () => Effect.succeed({ evidence: [], exitCode: 0, output: "" }),
 };
 
 /** A deterministic acceptance gate evaluated over `criteria` with `report` as stdout. */
-function acceptanceGate(
+const acceptanceGate = (
   criteria: AcceptanceCriterion[],
   report: unknown,
   covers: string[]
-): DeterministicGate {
+): DeterministicGate => {
   const input: GateEvaluationInput = {
     attempt: { evidence: [], exitCode: 0, output: JSON.stringify(report) },
     context: {
@@ -62,10 +63,10 @@ function acceptanceGate(
     nodeId: "node-a",
   };
   return { covers, input };
-}
+};
 
 /** A binary (non-criterion-aware) deterministic gate that fails: denies any .md change. */
-function denyMarkdownGate(covers: string[]): DeterministicGate {
+const denyMarkdownGate = (covers: string[]): DeterministicGate => {
   const gate: ChangedFilesGateSpec = {
     changed_files: { deny: ["**/*.md"] },
     id: "changed:node-a",
@@ -80,39 +81,32 @@ function denyMarkdownGate(covers: string[]): DeterministicGate {
     nodeId: "node-a",
   };
   return { covers, input };
-}
+};
 
 /** A deterministic acceptance gate whose single criterion reports a FAIL verdict. */
-function failingAcceptanceGate(
+const failingAcceptanceGate = (
   criterion: AcceptanceCriterion
-): DeterministicGate {
-  return acceptanceGate(
+): DeterministicGate =>
+  acceptanceGate(
     [criterion],
     { acceptance: [{ evidence: ["nope"], id: criterion.id, verdict: "FAIL" }] },
     [criterion.id]
   );
-}
 
-function passReport(...ids: string[]): unknown {
-  return {
-    acceptance: ids.map((id) => ({ evidence: ["ok"], id, verdict: "PASS" })),
-  };
-}
+const passReport = (...ids: string[]): unknown => ({
+  acceptance: ids.map((id) => ({ evidence: ["ok"], id, verdict: "PASS" })),
+});
 
-function verdict(overrides: Partial<LlmJudgeVerdict>): LlmJudgeVerdict {
-  return {
-    citedEvidence: [],
-    rationale: "stub",
-    satisfied: false,
-    ...overrides,
-  };
-}
+const verdict = (overrides: Partial<LlmJudgeVerdict>): LlmJudgeVerdict => ({
+  citedEvidence: [],
+  rationale: "stub",
+  satisfied: false,
+  ...overrides,
+});
 
-function completeClaim(...ids: string[]): CompletionClaim {
-  return {
-    criteria: ids.map((id) => ({ criterion: id, evidence: [`${id} works`] })),
-  };
-}
+const completeClaim = (...ids: string[]): CompletionClaim => ({
+  criteria: ids.map((id) => ({ criterion: id, evidence: [`${id} works`] })),
+});
 
 const A: AcceptanceCriterion = { id: "A", text: "Alpha" };
 const B: AcceptanceCriterion = { id: "B", text: "Beta" };
@@ -235,12 +229,12 @@ describe("adjudicate — aggregation across layers (AC#2)", () => {
     const judge: LlmJudge = (input) =>
       input.criterion.id === "C"
         ? verdict({
-            satisfied: false,
             citedEvidence: ["acceptance coverage passed"],
+            satisfied: false,
           })
         : verdict({
-            satisfied: true,
             citedEvidence: ["acceptance coverage passed"],
+            satisfied: true,
           });
     const result = await adjudicate({
       // A: deterministic-fail. B: missing from claim (structured). C: judge refuses.
@@ -250,7 +244,7 @@ describe("adjudicate — aggregation across layers (AC#2)", () => {
       judge,
     });
     expect(result.passed).toBe(false);
-    expect(result.unmet.map((u) => u.criterion).sort()).toEqual([
+    expect(result.unmet.map((u) => u.criterion).toSorted()).toEqual([
       "A",
       "B",
       "C",

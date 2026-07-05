@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
+
 import { Effect } from "effect";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
 import { MOKA_POSTGRES_SCHEMA } from "../../runtime/durable-store/postgres/schema";
 import type { CreateRunRequest } from "../run-control-store";
 import {
   migratePostgresRunControlStore,
-  type PostgresRunControlStore,
   postgresRunControlStore,
 } from "./postgres-run-control-store";
+import type { PostgresRunControlStore } from "./postgres-run-control-store";
 
 // PIPE-91.11: integration test against the REAL cluster Postgres (no
 // testcontainer, no tunnel). Set MOKA_PG_TEST_URL to the (port-forwarded)
@@ -17,16 +19,18 @@ import {
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
 
-const RUN_MISSING = /does not exist/;
-const NODE_MISSING = /does not exist in run/;
+const RUN_MISSING = /does not exist/u;
+const NODE_MISSING = /does not exist in run/u;
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
+const nowIso = (): string => new Date().toISOString();
 
-function createRequest(runId: string, nodeIds: string[]): CreateRunRequest {
-  return { effort: "normal", mode: "write", nodeIds, runId, target: "local" };
-}
+const createRequest = (runId: string, nodeIds: string[]): CreateRunRequest => ({
+  effort: "normal",
+  mode: "write",
+  nodeIds,
+  runId,
+  target: "local",
+});
 
 describePg("postgresRunControlStore (live cluster PG)", () => {
   const dbUrl = PG_URL;
@@ -37,15 +41,14 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
   const openStores: PostgresRunControlStore[] = [];
   let admin: postgres.Sql;
 
-  function runId(label: string): string {
-    return `${suitePrefix}-${label}-${randomUUID()}`;
-  }
+  const runId = (label: string): string =>
+    `${suitePrefix}-${label}-${randomUUID()}`;
 
-  function newStore(): PostgresRunControlStore {
+  const newStore = (): PostgresRunControlStore => {
     const store = postgresRunControlStore(dbUrl);
     openStores.push(store);
     return store;
-  }
+  };
 
   beforeAll(async () => {
     // Every op is a real round-trip over the port-forwarded cluster DB, so the
@@ -257,7 +260,10 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
       })
     );
     const rows = await admin<
-      { content: string; content_type: string | null }[]
+      ({ content: string } & (
+        | { content_type: string }
+        | { content_type: null }
+      ))[]
     >`
       select content, content_type
       from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_artifact

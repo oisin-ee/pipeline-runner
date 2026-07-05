@@ -1,69 +1,26 @@
 {
-  "dependencies": {
-    "@dagrejs/graphlib": "^4.0.1",
-    "@kubernetes/client-node": "^1.4.0",
-    "@opencode-ai/sdk": "1.17.4",
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
-    "commander": "^14.0.3",
-    "drizzle-orm": "0.45.2",
-    "effect": "^4.0.0-beta.90",
-    "execa": "^9.5.2",
-    "git-url-parse": "^16.1.0",
-    "graphology": "0.26.0",
-    "graphology-metrics": "2.4.0",
-    "graphology-types": "0.24.8",
-    "gray-matter": "^4.0.3",
-    "js-tiktoken": "^1.0.21",
-    "jsonc-parser": "^3.3.1",
-    "ky": "^2.0.2",
-    "micromatch": "^4.0.8",
-    "package-manager-detector": "^1.6.0",
-    "pino": "^10.3.1",
-    "postgres": "3.4.9",
-    "secure-json-parse": "^4.1.0",
-    "simple-git": "^3.36.0",
-    "tree-sitter-javascript": "0.25.0",
-    "tree-sitter-typescript": "0.23.2",
-    "web-tree-sitter": "0.26.9",
-    "yaml": "^2.9.0",
-    "zod": "^4.4.3"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.4.15",
-    "@effect/vitest": "^4.0.0-beta.90",
-    "@mpsuesser/oxlint-plugin-effect": "0.3.0",
-    "@oisin-ee/oxlint-config": "1.0.0",
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/exec": "^7.1.0",
-    "@semantic-release/github": "^12.0.8",
-    "@semantic-release/npm": "^13.1.5",
-    "@semantic-release/release-notes-generator": "^14.1.1",
-    "@types/micromatch": "^4.0.10",
-    "@types/node": "^25.9.1",
-    "@typescript/native-preview": "7.0.0-dev.20260629.1",
-    "drizzle-kit": "0.31.10",
-    "jscpd": "^4.0.5",
-    "oxfmt": "^0.56.0",
-    "oxlint": "^1.71.0",
-    "oxlint-tsgolint": "^0.23.0",
-    "semantic-release": "^25.0.3",
-    "tsdown": "^0.22.0",
-    "typescript": "rc",
-    "ultracite": "7.7.0",
-    "vitest": "^3.2.0"
-  },
   "name": "@oisincoveney/pipeline",
+  "version": "0.0.0-development",
+  "description": "Config-driven multi-agent pipeline runner for repository work",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oisin-ee/pipeline-runner.git"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "bin": {
     "moka": "dist/index.js"
   },
+  "files": [
+    "defaults",
+    "dist",
+    "docs",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -126,12 +83,9 @@
       "import": "./dist/planning/generate.js"
     }
   },
-  "files": [
-    "defaults",
-    "dist",
-    "docs",
-    "README.md"
-  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build:cli": "tsdown",
     "test": "vitest run",
@@ -141,22 +95,63 @@
     "local-orbstack:migrate": "nub scripts/local-orbstack/migrate-postgres.ts",
     "typecheck": "tsc --noEmit",
     "build": "nub run build:cli",
-    "check": "ultracite check",
+    "check": "ultracite check --type-aware src tests package.json lock.yaml renovate.json oxlint.config.ts oxfmt.config.ts",
     "fix": "ultracite fix",
     "prepack": "nub run build:cli"
   },
-  "type": "module",
-  "version": "0.0.0-development",
-  "description": "Config-driven multi-agent pipeline runner for repository work",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "engines": {
-    "node": ">=22.13.0"
+  "dependencies": {
+    "@dagrejs/graphlib": "^4.0.1",
+    "@kubernetes/client-node": "^1.4.0",
+    "@opencode-ai/sdk": "1.17.4",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^14.0.3",
+    "drizzle-orm": "0.45.2",
+    "effect": "^4.0.0-beta.90",
+    "execa": "^9.5.2",
+    "git-url-parse": "^16.1.0",
+    "graphology": "0.26.0",
+    "graphology-metrics": "2.4.0",
+    "graphology-types": "0.24.8",
+    "gray-matter": "^4.0.3",
+    "js-tiktoken": "^1.0.21",
+    "jsonc-parser": "^3.3.1",
+    "ky": "^2.0.2",
+    "micromatch": "^4.0.8",
+    "package-manager-detector": "^1.6.0",
+    "pino": "^10.3.1",
+    "postgres": "3.4.9",
+    "secure-json-parse": "^4.1.0",
+    "simple-git": "^3.36.0",
+    "tree-sitter-javascript": "0.25.0",
+    "tree-sitter-typescript": "0.23.2",
+    "web-tree-sitter": "0.26.9",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
-  "packageManager": "nub@0.2.7",
+  "devDependencies": {
+    "@effect/vitest": "^4.0.0-beta.90",
+    "@mpsuesser/oxlint-plugin-effect": "0.3.0",
+    "@oisin-ee/oxlint-config": "1.0.0",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/github": "^12.0.8",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "@types/micromatch": "^4.0.10",
+    "@types/node": "^25.9.1",
+    "@typescript/native-preview": "7.0.0-dev.20260629.1",
+    "drizzle-kit": "0.31.10",
+    "jscpd": "^4.0.5",
+    "oxfmt": "^0.56.0",
+    "oxlint": "^1.71.0",
+    "oxlint-tsgolint": "^0.23.0",
+    "semantic-release": "^25.0.3",
+    "tsdown": "^0.22.0",
+    "typescript": "rc",
+    "ultracite": "7.7.0",
+    "vitest": "^3.2.0"
+  },
   "devEngines": {
     "packageManager": {
       "name": "nub",
@@ -164,6 +159,10 @@
       "onFail": "warn"
     }
   },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "packageManager": "nub@0.2.7",
   "allowBuilds": {
     "tree-sitter-typescript": false,
     "msgpackr-extract": false

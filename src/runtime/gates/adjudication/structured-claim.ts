@@ -1,3 +1,5 @@
+import { Option } from "effect";
+
 import type {
   AcceptanceCriterion,
   CompletionClaim,
@@ -17,7 +19,7 @@ import type {
  */
 interface CompletenessRule {
   reason: (id: string) => string;
-  test: (entry: CriterionEvidence | undefined) => boolean;
+  test: (entry: Option.Option<CriterionEvidence>) => boolean;
 }
 
 /**
@@ -28,36 +30,38 @@ interface CompletenessRule {
 const COMPLETENESS_RULES: readonly CompletenessRule[] = [
   {
     reason: (id) => `no claim entry for criterion '${id}'`,
-    test: (entry) => entry === undefined,
+    test: Option.isNone,
   },
   {
     reason: (id) => `empty evidence for criterion '${id}'`,
-    test: (entry) => entry !== undefined && entry.evidence.length === 0,
+    test: (entry) => Option.isSome(entry) && entry.value.evidence.length === 0,
   },
   {
     reason: (id) => `blank evidence for criterion '${id}'`,
     test: (entry) =>
-      entry !== undefined &&
-      entry.evidence.length > 0 &&
-      entry.evidence.every((s) => !s.trim()),
+      Option.isSome(entry) &&
+      entry.value.evidence.length > 0 &&
+      entry.value.evidence.every((s) => s.trim().length === 0),
   },
 ];
 
-function criterionUnmet(
+const criterionUnmet = (
   criterion: AcceptanceCriterion,
   claim: CompletionClaim
-): UnmetCriterion | null {
-  const entry = claim.criteria.find((e) => e.criterion === criterion.id);
+): Option.Option<UnmetCriterion> => {
+  const entry = Option.fromUndefinedOr(
+    claim.criteria.find((e) => e.criterion === criterion.id)
+  );
   const rule = COMPLETENESS_RULES.find((r) => r.test(entry));
   if (rule === undefined) {
-    return null;
+    return Option.none();
   }
-  return {
+  return Option.some({
     criterion: criterion.id,
-    evidence: entry?.evidence ?? [],
+    evidence: Option.isSome(entry) ? entry.value.evidence : [],
     reason: rule.reason(criterion.id),
-  };
-}
+  });
+};
 
 /**
  * Structured-claim adjudication layer (PIPE-90.7): deterministic, pure
@@ -73,12 +77,11 @@ function criterionUnmet(
  * entry. Returns an empty array when the claim covers all declared
  * criteria. Pure — no I/O, no LLM, deterministic.
  */
-export function structuredClaimUnmet(
+export const structuredClaimUnmet = (
   criteria: readonly AcceptanceCriterion[],
   claim: CompletionClaim
-): UnmetCriterion[] {
-  return criteria.flatMap((criterion) => {
+): UnmetCriterion[] =>
+  criteria.flatMap((criterion) => {
     const unmet = criterionUnmet(criterion, claim);
-    return unmet === null ? [] : [unmet];
+    return Option.isSome(unmet) ? [unmet.value] : [];
   });
-}

@@ -1,26 +1,10 @@
 import { describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../../config";
 import { createRuntimeContext, resolveWorkflowSelection } from "./context";
 
-function configWithWorkflow(extraWorkflow = "") {
-  return parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-    profiles: `
-version: 1
-profiles:
-  a:
-    runner: opencode
-    instructions: { inline: A }
-`,
+const configWithWorkflow = (extraWorkflow = "") =>
+  parsePipelineConfigParts({
     pipeline: `
 version: 1
 default_workflow: default
@@ -42,8 +26,24 @@ ${extraWorkflow}
         kind: agent
         profile: a
 `,
+    profiles: `
+version: 1
+profiles:
+  a:
+    runner: opencode
+    instructions: { inline: A }
+`,
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
   });
-}
 
 describe("runtime context", () => {
   it("resolves workflow entrypoints and rejects schedule entrypoints", () => {

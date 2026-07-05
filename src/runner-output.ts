@@ -11,10 +11,21 @@ export interface RunnerTextCandidate {
   output: string;
 }
 
-export function normalizeRunnerOutput(
+export const runnerTextCandidates = (
   plan: RunnerLaunchPlan,
   stdout: string
-): NormalizedRunnerOutput {
+): RunnerTextCandidate[] => {
+  if (plan.type === "opencode") {
+    return opencodeSdkRuntimeAdapter.outputCandidates(stdout);
+  }
+
+  return [];
+};
+
+export const normalizeRunnerOutput = (
+  plan: RunnerLaunchPlan,
+  stdout: string
+): NormalizedRunnerOutput => {
   const candidates = runnerTextCandidates(plan, stdout);
   const latest = candidates.at(-1);
   if (latest) {
@@ -25,15 +36,4 @@ export function normalizeRunnerOutput(
   }
 
   return { evidence: [], output: stdout };
-}
-
-export function runnerTextCandidates(
-  plan: RunnerLaunchPlan,
-  stdout: string
-): RunnerTextCandidate[] {
-  if (plan.type === "opencode") {
-    return opencodeSdkRuntimeAdapter.outputCandidates(stdout);
-  }
-
-  return [];
-}
+};

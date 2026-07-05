@@ -1,9 +1,9 @@
+import { Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
+
 import type { MokaSubmitOutput } from "../src/moka-submit";
-import {
-  type ResumeRunOptions,
-  resumeRunByOrigin,
-} from "../src/pipeline-runtime";
+import { resumeRunByOrigin } from "../src/pipeline-runtime";
+import type { ResumeRunOptions } from "../src/pipeline-runtime";
 import type { MokaRunManifest, RunTarget } from "../src/run-control/contracts";
 
 // PIPE-94.8: origin-aware resume. `moka resume` reads the run's origin from the
@@ -13,30 +13,28 @@ import type { MokaRunManifest, RunTarget } from "../src/run-control/contracts";
 // tests inject the routing seams so the dispatch is proven without Postgres or a
 // live Argo cluster.
 
-function manifest(target: RunTarget, schedule?: string): MokaRunManifest {
-  return {
-    effort: "normal",
-    events: [],
-    mode: "write",
-    nodes: { a: "passed", b: "queued" },
-    runId: "run-origin",
-    ...(schedule ? { schedule } : {}),
-    status: "running",
-    target,
-  };
-}
+const manifest = (target: RunTarget, schedule?: string): MokaRunManifest => ({
+  effort: "normal",
+  events: [],
+  mode: "write",
+  nodes: { a: "passed", b: "queued" },
+  runId: "run-origin",
+  ...(schedule !== undefined && schedule.length > 0 ? { schedule } : {}),
+  status: "running",
+  target,
+});
 
-function options(overrides: Partial<ResumeRunOptions> = {}): ResumeRunOptions {
-  return {
-    dbUrl: "postgres://stub",
-    runId: "run-origin",
-    task: "drain the remaining nodes",
-    worktreePath: "/tmp/resume-origin",
-    ...overrides,
-  };
-}
+const options = (
+  overrides: Partial<ResumeRunOptions> = {}
+): ResumeRunOptions => ({
+  dbUrl: "postgres://stub",
+  runId: "run-origin",
+  task: "drain the remaining nodes",
+  worktreePath: "/tmp/resume-origin",
+  ...overrides,
+});
 
-const NO_SCHEDULE_ERROR = /no schedule to rebuild the Argo workflow/;
+const NO_SCHEDULE_ERROR = /no schedule to rebuild the Argo workflow/u;
 
 const SUBMISSION: MokaSubmitOutput = {
   namespace: "moka",
@@ -48,12 +46,12 @@ const SUBMISSION: MokaSubmitOutput = {
 
 describe("resumeRunByOrigin", () => {
   it("re-submits a remote-origin run to Argo with the persisted schedule (AC1)", async () => {
-    const resubmit = vi.fn(async () => SUBMISSION);
+    const resubmit = vi.fn(async () => await Promise.resolve(SUBMISSION));
     const runLocal = vi.fn();
 
     const result = await resumeRunByOrigin(options(), {
       readManifest: async () =>
-        manifest("remote", "schedule_id: persisted-graph"),
+        Option.some(manifest("remote", "schedule_id: persisted-graph")),
       resubmit,
       runLocal,
     });
@@ -72,11 +70,14 @@ describe("resumeRunByOrigin", () => {
 
   it("continues a local-origin run in-process, never re-submitting (AC2)", async () => {
     const resubmit = vi.fn();
-    const runLocal = vi.fn(() => Promise.reject(new Error("LOCAL_PATH_TAKEN")));
+    const runLocal = vi.fn(() => {
+      throw new Error("LOCAL_PATH_TAKEN");
+    });
 
     await expect(
       resumeRunByOrigin(options(), {
-        readManifest: async () => manifest("local", "schedule_id: local-graph"),
+        readManifest: async () =>
+          Option.some(manifest("local", "schedule_id: local-graph")),
         resubmit,
         runLocal,
       })
@@ -89,7 +90,9 @@ describe("resumeRunByOrigin", () => {
   it("falls back to local when db.url is absent (origin unknowable, AC2)", async () => {
     const readManifest = vi.fn();
     const resubmit = vi.fn();
-    const runLocal = vi.fn(() => Promise.reject(new Error("LOCAL_PATH_TAKEN")));
+    const runLocal = vi.fn(() => {
+      throw new Error("LOCAL_PATH_TAKEN");
+    });
 
     await expect(
       resumeRunByOrigin(options({ dbUrl: undefined }), {
@@ -110,7 +113,7 @@ describe("resumeRunByOrigin", () => {
 
     await expect(
       resumeRunByOrigin(options(), {
-        readManifest: async () => manifest("remote"),
+        readManifest: async () => Option.some(manifest("remote")),
         resubmit,
         runLocal,
       })

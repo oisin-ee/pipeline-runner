@@ -1,18 +1,15 @@
 import type { Command } from "commander";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import { loadPipelineConfig } from "../../config";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
 import { createRunnerLaunchPlan } from "../../runner";
-import { runLaunchPlan } from "../../runner/subprocess";
 import { normalizeRunnerOutput } from "../../runner-output";
-import {
-  type BacklogService,
-  BacklogServiceLive,
-} from "../../runtime/services/backlog-service";
-import {
-  type AppliedTicketPlan,
-  applyTicketPlanEffect,
-} from "../../tickets/apply-ticket-plan";
+import { runLaunchPlan } from "../../runner/subprocess";
+import { BacklogServiceLive } from "../../runtime/services/backlog-service";
+import type { BacklogService } from "../../runtime/services/backlog-service";
+import { applyTicketPlanEffect } from "../../tickets/apply-ticket-plan";
+import type { AppliedTicketPlan } from "../../tickets/apply-ticket-plan";
 import { parseTicketPlanEffect } from "../../tickets/ticket-plan";
 import { renderTicketPlanDryRun } from "../../tickets/ticket-plan-render";
 import type { TicketCommandOptions, TicketPlanExecutor } from "./shared";
@@ -43,36 +40,44 @@ const TICKET_CREATE_FLAG_RULES: readonly {
   readonly message: string;
 }[] = [
   {
-    invalid: (flags) => Boolean(flags.dryRun && flags.apply),
+    invalid: (flags) => flags.dryRun === true && flags.apply === true,
     message: "moka ticket create accepts only one of --dry-run or --apply",
   },
   {
-    invalid: (flags) => !(flags.dryRun || flags.apply),
+    invalid: (flags) => flags.dryRun !== true && flags.apply !== true,
     message: "moka ticket create requires --dry-run or --apply",
   },
   {
-    invalid: (flags) => Boolean(flags.parent && !flags.apply),
+    invalid: (flags) =>
+      flags.parent !== undefined &&
+      flags.parent.length > 0 &&
+      flags.apply !== true,
     message: "moka ticket create --parent is only valid with --apply",
   },
 ];
 
-function ticketCreateFlagErrorMessage(
+const ticketCreateFlagErrorMessage = (
   flags: TicketCreateFlags
-): string | undefined {
-  return TICKET_CREATE_FLAG_RULES.find((rule) => rule.invalid(flags))?.message;
-}
+): Option.Option<string> => {
+  const rule = TICKET_CREATE_FLAG_RULES.find((candidate) =>
+    candidate.invalid(flags)
+  );
+  return rule === undefined ? Option.none() : Option.some(rule.message);
+};
 
-function validateTicketCreateFlagsEffect(
+const validateTicketCreateFlagsEffect = (
   flags: TicketCreateFlags
-): Effect.Effect<void, TicketCommandError> {
+): Effect.Effect<void, TicketCommandError> => {
   const message = ticketCreateFlagErrorMessage(flags);
-  return message
-    ? Effect.fail(new TicketCommandError({ message }))
-    : Effect.void;
-}
+  return Option.match(message, {
+    onNone: () => Effect.void,
+    onSome: (resolved) =>
+      Effect.fail(new TicketCommandError({ message: resolved })),
+  });
+};
 
-function ticketPlanPrompt(request: string): string {
-  return [
+const ticketPlanPrompt = (request: string): string =>
+  [
     "Use the scope skill contract to produce a complete Backlog ticket plan.",
     "Return only JSON matching this exact snake_case shape. Do not emit Markdown.",
     '{"epic":{"key":"epic","title":"...","description":"...","priority":"high|medium|low","acceptance_criteria":[{"text":"...","evidence":"..."}],"likely_files":["path"],"references":["path-or-url"],"plan":"..."},"tickets":[{"key":"local-key","title":"...","description":"...","priority":"high|medium|low","depends_on":["other-local-key"],"acceptance_criteria":[{"text":"...","evidence":"..."}],"likely_files":["path"],"references":["path-or-url"],"plan":"..."}]}',
@@ -84,13 +89,12 @@ function ticketPlanPrompt(request: string): string {
     "Task request:",
     request,
   ].join("\n");
-}
 
-function ticketScoperLaunchPlanEffect(
+const ticketScoperLaunchPlanEffect = (
   worktreePath: string,
   request: string
-): Effect.Effect<RunnerLaunchPlan, TicketCommandError> {
-  return Effect.gen(function* () {
+): Effect.Effect<RunnerLaunchPlan, TicketCommandError> =>
+  Effect.gen(function* effectBody() {
     const config = yield* Effect.try({
       catch: (error) =>
         new TicketCommandError({
@@ -115,62 +119,76 @@ function ticketScoperLaunchPlanEffect(
         }),
     });
   });
-}
 
-function labelledOutput(
+const labelledOutput = (
   label: string,
-  value: string | undefined
-): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? `${label}:\n${trimmed}` : undefined;
-}
+  value: Option.Option<string>
+): Option.Option<string> =>
+  Option.match(value, {
+    onNone: () => Option.none(),
+    onSome: (source) => {
+      const trimmed = source.trim();
+      return trimmed.length > 0
+        ? Option.some(`${label}:\n${trimmed}`)
+        : Option.none();
+    },
+  });
 
-function appendDetail(details: string[], detail: string | undefined): void {
-  if (detail) {
-    details.push(detail);
-  }
-}
+const appendDetail = (
+  details: string[],
+  detail: Option.Option<string>
+): void => {
+  Option.match(detail, {
+    onNone: () => {},
+    onSome: (resolved) => details.push(resolved),
+  });
+};
 
-function runnerFailureDetails(
+const runnerFailureDetails = (
   timeoutMessage: string,
   result: RunnerFailureResult
-): string[] {
+): string[] => {
   const details: string[] = [];
-  appendDetail(details, result.timedOut ? timeoutMessage : undefined);
-  appendDetail(details, labelledOutput("stderr", result.stderr));
-  appendDetail(details, labelledOutput("stdout", result.stdout));
+  appendDetail(
+    details,
+    result.timedOut === true ? Option.some(timeoutMessage) : Option.none()
+  );
+  appendDetail(
+    details,
+    labelledOutput("stderr", Option.fromUndefinedOr(result.stderr))
+  );
+  appendDetail(details, labelledOutput("stdout", Option.some(result.stdout)));
   return details;
-}
+};
 
-function runnerFailureMessage(
+const runnerFailureMessage = (
   label: string,
   timeoutMessage: string,
   result: RunnerFailureResult
-): string {
+): string => {
   const details = runnerFailureDetails(timeoutMessage, result);
   const message = `${label} failed with exit ${result.exitCode}`;
   return details.length === 0 ? message : `${message}\n${details.join("\n")}`;
-}
+};
 
-function ticketScoperFailureMessage(result: AgentResult): string {
-  return runnerFailureMessage(
+const ticketScoperFailureMessage = (result: AgentResult): string =>
+  runnerFailureMessage(
     `ticket scoper '${TICKET_SCOPER_PROFILE}'`,
     "timed out waiting for ticket scoper",
     result
   );
-}
 
-function runTicketScoperEffect(
+const runTicketScoperEffect = (
   launchPlan: RunnerLaunchPlan,
   executor: TicketPlanExecutor
-): Effect.Effect<string, TicketCommandError> {
-  return Effect.gen(function* () {
+): Effect.Effect<string, TicketCommandError> =>
+  Effect.gen(function* effectBody() {
     const result = yield* Effect.tryPromise({
       catch: (error) =>
         new TicketCommandError({
           message: `Ticket scoper failed: ${errorMessage(error)}`,
         }),
-      try: () => executor(launchPlan, {}),
+      try: async () => await executor(launchPlan, {}),
     });
     if (result.exitCode !== 0) {
       return yield* Effect.fail(
@@ -181,24 +199,22 @@ function runTicketScoperEffect(
     }
     return normalizeRunnerOutput(launchPlan, result.stdout).output.trim();
   });
-}
 
-function formatAppliedTicketPlan(applied: AppliedTicketPlan): string {
-  return [
+const formatAppliedTicketPlan = (applied: AppliedTicketPlan): string =>
+  [
     "Created tickets:",
     ...Object.entries(applied.taskIdsByKey).map(
       ([key, taskId]) => `  ${key}: ${taskId}`
     ),
   ].join("\n");
-}
 
-function printTicketCreateEffect(
+const printTicketCreateEffect = (
   worktreePath: string,
   request: string,
   flags: TicketCreateFlags,
   executor: TicketPlanExecutor
-): Effect.Effect<void, unknown, BacklogService> {
-  return Effect.gen(function* () {
+): Effect.Effect<void, unknown, BacklogService> =>
+  Effect.gen(function* effectBody() {
     yield* validateTicketCreateFlagsEffect(flags);
     const launchPlan = yield* ticketScoperLaunchPlanEffect(
       worktreePath,
@@ -206,7 +222,7 @@ function printTicketCreateEffect(
     );
     const rawPlan = yield* runTicketScoperEffect(launchPlan, executor);
     const ticketPlan = yield* parseTicketPlanEffect(rawPlan);
-    if (flags.dryRun) {
+    if (flags.dryRun === true) {
       yield* writeLineEffect(renderTicketPlanDryRun(ticketPlan));
       return;
     }
@@ -215,12 +231,11 @@ function printTicketCreateEffect(
     });
     yield* writeLineEffect(formatAppliedTicketPlan(applied));
   });
-}
 
-export function registerCreateSubcommand(
+export const registerCreateSubcommand = (
   ticketCommand: Command,
   options: TicketCommandOptions
-): void {
+): void => {
   ticketCommand
     .command("create")
     .description("Create a validated Backlog ticket plan")
@@ -228,8 +243,8 @@ export function registerCreateSubcommand(
     .option("--dry-run", "render Backlog commands without writing tasks")
     .option("--apply", "apply the validated ticket plan through Backlog")
     .option("--parent <task-id>", "existing parent task for applied children")
-    .action((requestParts: string[], flags: TicketCreateFlags) =>
-      Effect.runPromise(
+    .action(async (requestParts: string[], flags: TicketCreateFlags) => {
+      await Effect.runPromise(
         Effect.provide(
           printTicketCreateEffect(
             currentWorktreePath(),
@@ -239,6 +254,6 @@ export function registerCreateSubcommand(
           ),
           options.backlogLayer ?? BacklogServiceLive
         )
-      )
-    );
-}
+      );
+    });
+};

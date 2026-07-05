@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { z } from "zod";
+
 import {
   ConfigIoService,
   parseConfigYamlAs,
@@ -15,13 +16,15 @@ import {
 } from "./defaults";
 import {
   configIssuesFromZodError,
-  type PipelineConfig,
-  type PipelineConfigParts,
-  type PipelineConfigValidationOptions,
   pipelineFileSchema,
   profilesFileSchema,
   runnersFileSchema,
   validationError,
+} from "./schemas";
+import type {
+  PipelineConfig,
+  PipelineConfigParts,
+  PipelineConfigValidationOptions,
 } from "./schemas";
 import { validatePipelineConfig } from "./validate";
 
@@ -34,15 +37,14 @@ interface PipelineDeprecationDiagnostic {
 
 type PlainObject = Record<string, unknown>;
 
-function isPlainObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const isPlainObject = (value: unknown): value is PlainObject =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 // Returns a diagnostic for each pipeline.yaml key that has been removed.
 // Must run against the raw parsed YAML object BEFORE strict schema validation.
-function detectLegacyPipelineFields(
+const detectLegacyPipelineFields = (
   raw: unknown
-): PipelineDeprecationDiagnostic[] {
+): PipelineDeprecationDiagnostic[] => {
   if (!isPlainObject(raw)) {
     return [];
   }
@@ -55,13 +57,13 @@ function detectLegacyPipelineFields(
     });
   }
   return diagnostics;
-}
+};
 
 // Strips legacy fields from the raw YAML object so the strict schema parse succeeds.
-function stripLegacyPipelineFields(
+const stripLegacyPipelineFields = (
   raw: unknown,
   deprecations: PipelineDeprecationDiagnostic[]
-): unknown {
+): unknown => {
   if (deprecations.length === 0 || !isPlainObject(raw)) {
     return raw;
   }
@@ -70,62 +72,14 @@ function stripLegacyPipelineFields(
     delete stripped[field];
   }
   return stripped;
-}
-
-export function loadPipelineConfig(
-  projectRoot: string,
-  options: PipelineConfigValidationOptions = {}
-): PipelineConfig {
-  return loadPackagePipelineConfig(projectRoot, options);
-}
-
-export function loadPackagePipelineConfig(
-  projectRoot: string,
-  options: PipelineConfigValidationOptions = {}
-): PipelineConfig {
-  const program = parsePipelineConfigPartsEffect(
-    {
-      pipeline: PACKAGE_DEFAULT_PIPELINE_YAML,
-      profiles: PACKAGE_DEFAULT_PROFILES_YAML,
-      runners: PACKAGE_DEFAULT_RUNNERS_YAML,
-    },
-    projectRoot,
-    {
-      pipeline: "@oisincoveney/pipeline/defaults/pipeline.yaml",
-      profiles: "@oisincoveney/pipeline/defaults/profiles.yaml",
-      runners: "@oisincoveney/pipeline/defaults/runners.yaml",
-    },
-    options
-  );
-  return runConfigIoSync(program);
-}
-
-export function parsePipelineConfigYaml(
-  source: string,
-  sourcePath = PIPELINE_CONFIG_PATH,
-  projectRoot?: string
-): PipelineConfig {
-  return parsePipelineConfigParts(
-    {
-      pipeline: source,
-      profiles: "version: 1\nprofiles: {}\n",
-      runners: "version: 1\nrunners: {}\n",
-    },
-    projectRoot,
-    {
-      pipeline: sourcePath,
-      profiles: PROFILES_CONFIG_PATH,
-      runners: RUNNERS_CONFIG_PATH,
-    }
-  );
-}
+};
 
 // PIPE-83: thread the opt-in architecture-hardening blocks from pipeline.yaml
 // into the resolved config so real runs (not just injected-config tests) honour
 // them. Without this they were unreachable from a normal config load.
-function pipe83Fields(
+const pipe83Fields = (
   pipeline: z.infer<typeof pipelineFileSchema>
-): Partial<PipelineConfig> {
+): Partial<PipelineConfig> => {
   const keys = [
     "context_handoff",
     "delivery",
@@ -140,34 +94,15 @@ function pipe83Fields(
     }
   }
   return out as Partial<PipelineConfig>;
-}
+};
 
-export function parsePipelineConfigParts(
+const parsePipelineConfigPartsEffect = (
   sources: PipelineConfigParts,
-  projectRoot?: string,
-  sourcePaths: PipelineConfigParts = {
-    pipeline: PIPELINE_CONFIG_PATH,
-    profiles: PROFILES_CONFIG_PATH,
-    runners: RUNNERS_CONFIG_PATH,
-  },
-  options: PipelineConfigValidationOptions = {}
-): PipelineConfig {
-  const program = parsePipelineConfigPartsEffect(
-    sources,
-    projectRoot,
-    sourcePaths,
-    options
-  );
-  return runConfigIoSync(program);
-}
-
-function parsePipelineConfigPartsEffect(
-  sources: PipelineConfigParts,
-  projectRoot: string | undefined,
+  projectRoot = "",
   sourcePaths: PipelineConfigParts,
   options: PipelineConfigValidationOptions
-) {
-  return Effect.gen(function* () {
+) =>
+  Effect.gen(function* effectBody() {
     const configIo = yield* ConfigIoService;
     const runners = yield* parseConfigYamlAs(
       sources.runners,
@@ -204,8 +139,11 @@ function parsePipelineConfigPartsEffect(
     const pipeline = pipelineParsed.data;
     return validatePipelineConfig(
       {
+        ...(pipeline.context_handoff
+          ? { context_handoff: pipeline.context_handoff }
+          : {}),
         default_workflow: pipeline.default_workflow,
-        ...pipe83Fields(pipeline),
+        ...(pipeline.delivery ? { delivery: pipeline.delivery } : {}),
         entrypoints: pipeline.entrypoints,
         hooks: pipeline.hooks,
         ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
@@ -213,9 +151,13 @@ function parsePipelineConfigPartsEffect(
         ...(pipeline.orchestrator
           ? { orchestrator: pipeline.orchestrator }
           : {}),
+        ...(pipeline.parallel_worktrees
+          ? { parallel_worktrees: pipeline.parallel_worktrees }
+          : {}),
         profiles: profiles.profiles,
-        runner_command: pipeline.runner_command,
+        ...(pipeline.repo_map ? { repo_map: pipeline.repo_map } : {}),
         rules: profiles.rules,
+        runner_command: pipeline.runner_command,
         runners: runners.runners,
         scheduler: pipeline.scheduler,
         schedules: pipeline.schedules,
@@ -231,4 +173,67 @@ function parsePipelineConfigPartsEffect(
       options
     );
   });
-}
+
+export const loadPackagePipelineConfig = (
+  projectRoot: string,
+  options: PipelineConfigValidationOptions = {}
+): PipelineConfig => {
+  const program = parsePipelineConfigPartsEffect(
+    {
+      pipeline: PACKAGE_DEFAULT_PIPELINE_YAML,
+      profiles: PACKAGE_DEFAULT_PROFILES_YAML,
+      runners: PACKAGE_DEFAULT_RUNNERS_YAML,
+    },
+    projectRoot,
+    {
+      pipeline: "@oisincoveney/pipeline/defaults/pipeline.yaml",
+      profiles: "@oisincoveney/pipeline/defaults/profiles.yaml",
+      runners: "@oisincoveney/pipeline/defaults/runners.yaml",
+    },
+    options
+  );
+  return runConfigIoSync(program);
+};
+
+export const loadPipelineConfig = (
+  projectRoot: string,
+  options: PipelineConfigValidationOptions = {}
+): PipelineConfig => loadPackagePipelineConfig(projectRoot, options);
+
+export const parsePipelineConfigParts = (
+  sources: PipelineConfigParts,
+  projectRoot?: string,
+  sourcePaths: PipelineConfigParts = {
+    pipeline: PIPELINE_CONFIG_PATH,
+    profiles: PROFILES_CONFIG_PATH,
+    runners: RUNNERS_CONFIG_PATH,
+  },
+  options: PipelineConfigValidationOptions = {}
+): PipelineConfig => {
+  const program = parsePipelineConfigPartsEffect(
+    sources,
+    projectRoot,
+    sourcePaths,
+    options
+  );
+  return runConfigIoSync(program);
+};
+
+export const parsePipelineConfigYaml = (
+  source: string,
+  sourcePath = PIPELINE_CONFIG_PATH,
+  projectRoot?: string
+): PipelineConfig =>
+  parsePipelineConfigParts(
+    {
+      pipeline: source,
+      profiles: "version: 1\nprofiles: {}\n",
+      runners: "version: 1\nrunners: {}\n",
+    },
+    projectRoot,
+    {
+      pipeline: sourcePath,
+      profiles: PROFILES_CONFIG_PATH,
+      runners: RUNNERS_CONFIG_PATH,
+    }
+  );

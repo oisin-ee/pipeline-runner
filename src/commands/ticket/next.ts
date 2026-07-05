@@ -1,5 +1,6 @@
 import type { Command } from "commander";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import { BacklogServiceLive } from "../../runtime/services/backlog-service";
 import type { BacklogTaskRecord } from "../../tickets/backlog-task-store";
 import {
@@ -25,54 +26,53 @@ interface TicketNextFlags {
   strategy?: string;
 }
 
-function ticketJson(ticket: BacklogTaskRecord | undefined) {
-  if (!ticket) {
-    return null;
-  }
-  return {
-    acceptanceCriteria: ticket.acceptanceCriteria,
-    dependencies: ticket.dependencies,
-    description: ticket.description,
-    id: ticket.id,
-    modifiedFiles: ticket.modifiedFiles,
-    ordinal: ticket.ordinal,
-    parentTaskId: ticket.parentTaskId,
-    priority: ticket.priority,
-    references: ticket.references,
-    status: ticket.status,
-    title: ticket.title,
-  };
-}
+const ticketJson = (ticket: BacklogTaskRecord) => ({
+  acceptanceCriteria: ticket.acceptanceCriteria,
+  dependencies: ticket.dependencies,
+  description: ticket.description,
+  id: ticket.id,
+  modifiedFiles: ticket.modifiedFiles,
+  ordinal: ticket.ordinal,
+  parentTaskId: ticket.parentTaskId,
+  priority: ticket.priority,
+  references: ticket.references,
+  status: ticket.status,
+  title: ticket.title,
+});
 
-function printNextTicketEffect(worktreePath: string, flags: TicketNextFlags) {
-  return Effect.gen(function* () {
+const printNextTicketEffect = (worktreePath: string, flags: TicketNextFlags) =>
+  Effect.gen(function* effectBody() {
     const { loaded, selectionOptions } = yield* loadTicketSelectionEffect(
       worktreePath,
       flags
     );
     const selected = selectNextTicket(loaded.graph, selectionOptions);
-    if (flags.claim) {
+    if (flags.claim === true) {
       const ticket = yield* readyTicketEffect(selected);
       yield* claimTicketEffect(worktreePath, ticket);
-      yield* writeLineEffect(`Claimed ${formatNextTicket(ticket)}`);
+      yield* writeLineEffect(
+        `Claimed ${formatNextTicket(Option.some(ticket))}`
+      );
       return;
     }
     const ready = selectReadyTickets(loaded.graph, selectionOptions);
     yield* writeLineEffect(
-      flags.json
+      flags.json === true
         ? JSON.stringify({
             ready: ready.map(ticketJson),
-            selected: ticketJson(selected),
+            selected: Option.match(selected, {
+              onNone: () => null,
+              onSome: (ticket) => ticketJson(ticket),
+            }),
           })
         : formatNextTicket(selected)
     );
   });
-}
 
-export function registerNextSubcommand(
+export const registerNextSubcommand = (
   ticketCommand: Command,
   options: TicketCommandOptions
-): void {
+): void => {
   ticketCommand
     .command("next")
     .description("Select the next ready Backlog ticket deterministically")
@@ -84,10 +84,10 @@ export function registerNextSubcommand(
       "--strategy <strategy>",
       "selection strategy: priority, bfs, or dfs"
     )
-    .action((flags: TicketNextFlags) =>
-      runTicketProgramWithBacklog(
+    .action(async (flags: TicketNextFlags) => {
+      await runTicketProgramWithBacklog(
         printNextTicketEffect(currentWorktreePath(), flags),
         options.backlogLayer ?? BacklogServiceLive
-      )
-    );
-}
+      );
+    });
+};

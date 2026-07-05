@@ -1,17 +1,10 @@
-import {
-  type CommandHostSelection,
-  INSTALL_HOSTS,
-  type InstallHost,
-} from "./shared";
+import { INSTALL_HOSTS } from "./shared";
+import type { CommandHostSelection, InstallHost } from "./shared";
 
-function isInstallHost(host: string): host is InstallHost {
-  return INSTALL_HOSTS.some((candidate) => candidate === host);
-}
+const isInstallHost = (host: string): host is InstallHost =>
+  INSTALL_HOSTS.some((candidate) => candidate === host);
 
-export function parseCommandHost(
-  value: string | undefined
-): CommandHostSelection {
-  const host = value ?? "all";
+export const parseCommandHost = (host = "all"): CommandHostSelection => {
   if (host === "all") {
     return host;
   }
@@ -21,4 +14,4 @@ export function parseCommandHost(
   throw new Error(
     `Unsupported host "${host}". Supported values: all, ${INSTALL_HOSTS.join(", ")}.`
   );
-}
+};

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { runRunnerCommand } from "../src/runner-command/run";
 import { createRunnerEventSink } from "../src/runner-event-sink";
 import {
@@ -13,6 +14,8 @@ import {
   writeRunnerCommandFixture,
 } from "./runner-command-fixture";
 
+const RESOLVED_VOID: void = undefined;
+
 interface RunnerCommandPolicyMocks {
   commitAndPushNodeRef: ReturnType<typeof vi.fn>;
   mergeDependencyRefs: ReturnType<typeof vi.fn>;
@@ -20,15 +23,14 @@ interface RunnerCommandPolicyMocks {
   runScheduledWorkflowTask: ReturnType<typeof vi.fn>;
 }
 
-function mockState(): RunnerCommandPolicyMocks {
-  return (
+const mockState = (): RunnerCommandPolicyMocks =>
+  (
     globalThis as typeof globalThis & {
       __runnerCommandPolicyMocks: RunnerCommandPolicyMocks;
     }
   ).__runnerCommandPolicyMocks;
-}
 
-function installMockState(): RunnerCommandPolicyMocks {
+const installMockState = (): RunnerCommandPolicyMocks => {
   const state = {
     commitAndPushNodeRef: vi.fn(),
     mergeDependencyRefs: vi.fn(),
@@ -41,7 +43,7 @@ function installMockState(): RunnerCommandPolicyMocks {
     }
   ).__runnerCommandPolicyMocks = state;
   return state;
-}
+};
 
 vi.mock("../src/pipeline-runtime", () => ({
   runScheduledWorkflowTask: (...args: unknown[]) =>
@@ -49,7 +51,7 @@ vi.mock("../src/pipeline-runtime", () => ({
 }));
 
 vi.mock("execa", () => ({
-  execa: vi.fn(async () => ({ exitCode: 0 })),
+  execa: vi.fn(() => ({ exitCode: 0 })),
 }));
 
 // The runner authenticates through the central broker; credential prep writes
@@ -80,23 +82,57 @@ afterEach(() => {
   cleanupRunnerCommandFixtures();
 });
 
+const captureOutput = (): {
+  stream: { write: (chunk: string | Uint8Array) => boolean };
+  text: () => string;
+} => {
+  let value = "";
+  return {
+    stream: {
+      write: (chunk) => {
+        value +=
+          typeof chunk === "string"
+            ? chunk
+            : Buffer.from(chunk).toString("utf-8");
+        return true;
+      },
+    },
+    text: () => value,
+  };
+};
+
+const logRecords = (content: string): Record<string, unknown>[] =>
+  content
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+const logPhases = (content: string): string[] =>
+  logRecords(content)
+    .filter(
+      (record): record is { phase: string; status: string } =>
+        typeof record.phase === "string" && typeof record.status === "string"
+    )
+    .map((record) => `${record.phase}:${record.status}`);
+
 describe("runner-command hook policy", () => {
   it("retries terminal event flush before reporting failure", async () => {
     vi.useFakeTimers();
     const batches: unknown[][] = [];
     let attempts = 0;
     const capture = captureEventBatches(batches);
-    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      attempts += 1;
-      if (attempts <= 2) {
-        return Promise.resolve(
-          new Response("console unavailable", {
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        attempts += 1;
+        if (attempts <= 2) {
+          return new Response("console unavailable", {
             status: 503,
-          })
-        );
+          });
+        }
+        return await capture(input, init);
       }
-      return capture(input, init);
-    });
+    );
     const sink = createRunnerEventSink({
       authToken: "console-token",
       fetch,
@@ -136,9 +172,11 @@ describe("runner-command hook policy", () => {
       status: "passed",
     });
     mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
-    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
-    const fetch = vi.fn(async () => new Response(null, { status: 202 }));
+    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VOID);
+    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VOID);
+    const fetch = vi.fn(
+      async () => await Promise.resolve(new Response(null, { status: 202 }))
+    );
     const stdout = captureOutput();
     const stderr = captureOutput();
 
@@ -175,9 +213,11 @@ describe("runner-command hook policy", () => {
       status: "passed",
     });
     mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
-    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
-    const fetch = vi.fn(async () => new Response(null, { status: 202 }));
+    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VOID);
+    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VOID);
+    const fetch = vi.fn(
+      async () => await Promise.resolve(new Response(null, { status: 202 }))
+    );
     const stdout = captureOutput();
     const stderr = captureOutput();
 
@@ -218,9 +258,11 @@ describe("runner-command hook policy", () => {
       status: "failed",
     });
     mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(undefined);
-    mocks.commitAndPushNodeRef.mockResolvedValue(undefined);
-    const fetch = vi.fn(async () => new Response(null, { status: 202 }));
+    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VOID);
+    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VOID);
+    const fetch = vi.fn(
+      async () => await Promise.resolve(new Response(null, { status: 202 }))
+    );
     const stdout = captureOutput();
     const stderr = captureOutput();
 
@@ -249,38 +291,3 @@ describe("runner-command hook policy", () => {
     );
   });
 });
-
-function captureOutput(): {
-  stream: { write: (chunk: string | Uint8Array) => boolean };
-  text: () => string;
-} {
-  let value = "";
-  return {
-    stream: {
-      write: (chunk) => {
-        value +=
-          typeof chunk === "string"
-            ? chunk
-            : Buffer.from(chunk).toString("utf8");
-        return true;
-      },
-    },
-    text: () => value,
-  };
-}
-
-function logPhases(content: string): string[] {
-  return logRecords(content)
-    .filter((record): record is { phase: string; status: string } =>
-      Boolean(record.phase && record.status)
-    )
-    .map((record) => `${record.phase}:${record.status}`);
-}
-
-function logRecords(content: string): Record<string, unknown>[] {
-  return content
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
-}

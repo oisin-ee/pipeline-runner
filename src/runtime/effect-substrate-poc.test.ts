@@ -1,6 +1,9 @@
 import { Effect, Schedule, Semaphore } from "effect";
 import { describe, expect, it } from "vitest";
 
+const runEffect = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
+  await Effect.runPromise(effect);
+
 /**
  * PIPE-83.8: de-risking PoC for the chosen runtime substrate (Effect, per the
  * PIPE-83.8 spike). Proves Effect delivers moka's two load-bearing
@@ -16,15 +19,15 @@ import { describe, expect, it } from "vitest";
  * Bun's runner directly.
  */
 describe("Effect substrate PoC (PIPE-83.8)", () => {
-  it("enforces a per-category concurrency cap with a Semaphore", () =>
-    runEffect(
-      Effect.gen(function* () {
+  it("enforces a per-category concurrency cap with a Semaphore", async () => {
+    await runEffect(
+      Effect.gen(function* effectBody() {
         // token_budget.fan_out_width.by_category.green = 2
         const greenCap = yield* Semaphore.make(2);
         let active = 0;
         let maxActive = 0;
         const candidate = greenCap.withPermits(1)(
-          Effect.gen(function* () {
+          Effect.gen(function* candidate() {
             active += 1;
             maxActive = Math.max(maxActive, active);
             yield* Effect.sleep("5 millis");
@@ -40,11 +43,12 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
         );
         expect(maxActive).toBeLessThanOrEqual(2);
       })
-    ));
+    );
+  });
 
-  it("retries a transient failure with exponential jittered backoff", () =>
-    runEffect(
-      Effect.gen(function* () {
+  it("retries a transient failure with exponential jittered backoff", async () => {
+    await runEffect(
+      Effect.gen(function* effectBody() {
         let attempts = 0;
         const flaky = Effect.suspend(() => {
           attempts += 1;
@@ -60,20 +64,18 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
         const result = yield* Effect.retry(flaky, policy);
         expect(result).toBe(3);
       })
-    ));
+    );
+  });
 
-  it("propagates a typed error channel and recovers it", () =>
-    runEffect(
-      Effect.gen(function* () {
+  it("propagates a typed error channel and recovers it", async () => {
+    await runEffect(
+      Effect.gen(function* effectBody() {
         const failing = Effect.fail({ _tag: "OverBudget" as const });
         const recovered = yield* failing.pipe(
           Effect.catch((error) => Effect.succeed(error._tag))
         );
         expect(recovered).toBe("OverBudget");
       })
-    ));
+    );
+  });
 });
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
-}

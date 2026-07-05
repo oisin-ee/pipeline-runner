@@ -10,13 +10,13 @@ import type {
  * Context must satisfy {@link RuntimeContext} since {@link executeBuiltin} uses
  * the full runtime context (cwd, signal, store, etc.).
  */
-export async function evaluateBuiltinGate(
+export const evaluateBuiltinGate = async (
   gate: BuiltinGateSpec,
   gateId: string,
   nodeId: string,
   context: RuntimeContext
-): Promise<RuntimeGateResult> {
-  const result = await executeBuiltin(gate.builtin ?? "", context);
+): Promise<RuntimeGateResult> => {
+  const result = await executeBuiltin(gate.builtin, context);
   return {
     evidence: result.evidence,
     gateId,
@@ -24,8 +24,6 @@ export async function evaluateBuiltinGate(
     nodeId,
     passed: result.exitCode === 0,
     reason:
-      result.exitCode === 0
-        ? undefined
-        : `builtin '${gate.builtin ?? ""}' failed`,
+      result.exitCode === 0 ? undefined : `builtin '${gate.builtin}' failed`,
   };
-}
+};

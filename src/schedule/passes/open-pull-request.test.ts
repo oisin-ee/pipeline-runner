@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { parsePipelineConfigParts } from "../../config";
 import type { ScheduleArtifact } from "../../planning/generate";
 import {
@@ -11,29 +12,12 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function baseConfig(deliveryEnabled?: boolean, label?: string) {
+const baseConfig = (deliveryEnabled?: boolean, label?: string) => {
   const deliveryYaml =
     deliveryEnabled === undefined
       ? ""
-      : `delivery:\n  pull_request:\n    enabled: ${deliveryEnabled}${label ? `\n    label: ${label}` : ""}`;
+      : `delivery:\n  pull_request:\n    enabled: ${deliveryEnabled}${label !== undefined && label.length > 0 ? `\n    label: ${label}` : ""}`;
   return parsePipelineConfigParts({
-    runners: `
-version: 1
-runners:
-  opencode:
-    type: opencode
-    command: opencode
-    capabilities:
-      native_subagents: true
-      output_formats: [text]
-`,
-    profiles: `
-version: 1
-profiles:
-  a:
-    runner: opencode
-    instructions: { inline: A }
-`,
     pipeline: `
 version: 1
 default_workflow: root
@@ -44,25 +28,40 @@ workflows:
   root:
     nodes: []
 `,
+    profiles: `
+version: 1
+profiles:
+  a:
+    runner: opencode
+    instructions: { inline: A }
+`,
+    runners: `
+version: 1
+runners:
+  opencode:
+    type: opencode
+    command: opencode
+    capabilities:
+      native_subagents: true
+      output_formats: [text]
+`,
   });
-}
+};
 
-function artifactWithNodes(
+const artifactWithNodes = (
   nodes: ScheduleArtifact["workflows"]["root"]["nodes"]
-): ScheduleArtifact {
-  return {
-    generated_at: "2026-06-18T00:00:00.000Z",
-    kind: "pipeline-schedule",
-    root_workflow: "root",
-    schedule_id: "test-run",
-    source_entrypoint: "execute",
-    task: "test task",
-    version: 1,
-    workflows: {
-      root: { nodes },
-    },
-  };
-}
+): ScheduleArtifact => ({
+  generated_at: "2026-06-18T00:00:00.000Z",
+  kind: "pipeline-schedule",
+  root_workflow: "root",
+  schedule_id: "test-run",
+  source_entrypoint: "execute",
+  task: "test task",
+  version: 1,
+  workflows: {
+    root: { nodes },
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -70,7 +69,7 @@ function artifactWithNodes(
 
 describe("appendPullRequestDelivery pass", () => {
   it("treats payload delivery.pullRequest=true as pull-request delivery opt-in without config", () => {
-    const config = baseConfig(undefined);
+    const config = baseConfig();
 
     expect(
       shouldAppendPullRequestDelivery({
@@ -115,7 +114,7 @@ describe("appendPullRequestDelivery pass", () => {
   });
 
   it("returns artifact unchanged when delivery config is absent", () => {
-    const config = baseConfig(undefined);
+    const config = baseConfig();
     const artifact = artifactWithNodes([
       { id: "impl", kind: "agent", profile: "a" },
     ]);
@@ -132,8 +131,8 @@ describe("appendPullRequestDelivery pass", () => {
     const config = baseConfig(true);
     const artifact = artifactWithNodes([
       { id: "research", kind: "agent", profile: "a" },
-      { id: "implement", kind: "agent", profile: "a", needs: ["research"] },
-      { id: "verify", kind: "agent", profile: "a", needs: ["implement"] },
+      { id: "implement", kind: "agent", needs: ["research"], profile: "a" },
+      { id: "verify", kind: "agent", needs: ["implement"], profile: "a" },
     ]);
 
     const result = appendPullRequestDelivery(
@@ -166,7 +165,7 @@ describe("appendPullRequestDelivery pass", () => {
       (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
     );
     expect(prNode).toBeDefined();
-    expect(prNode?.needs?.sort()).toEqual(["branch-a", "branch-b"]);
+    expect(prNode?.needs?.toSorted()).toEqual(["branch-a", "branch-b"]);
   });
 
   it("is idempotent — running twice produces no duplicate PR node", () => {

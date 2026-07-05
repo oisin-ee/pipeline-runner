@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { Effect } from "effect";
+
 import type { CompletionClaim, UnmetCriterion } from "../../runtime/contracts";
 import type { BacklogService } from "../../runtime/services/backlog-service";
 import { BacklogServiceLive } from "../../runtime/services/backlog-service";
@@ -8,8 +9,8 @@ import {
   backlogTicketCompletionStoreEffect,
   completeTicket,
   conservativeLayerAJudge,
-  type TicketCompletionOutcome,
 } from "../../tickets/completion/complete-ticket";
+import type { TicketCompletionOutcome } from "../../tickets/completion/complete-ticket";
 import type { TicketCommandOptions } from "./shared";
 import {
   currentWorktreePath,
@@ -28,13 +29,14 @@ interface EvidenceEntry {
   readonly text: string;
 }
 
-function collectEvidence(value: string, previous: string[]): string[] {
-  return [...previous, value];
-}
+const collectEvidence = (value: string, previous: string[]): string[] => [
+  ...previous,
+  value,
+];
 
-function parseEvidenceEntryEffect(
+const parseEvidenceEntryEffect = (
   raw: string
-): Effect.Effect<EvidenceEntry, TicketCommandError> {
+): Effect.Effect<EvidenceEntry, TicketCommandError> => {
   const separator = raw.indexOf("=");
   if (separator <= 0) {
     return Effect.fail(
@@ -47,11 +49,11 @@ function parseEvidenceEntryEffect(
     id: raw.slice(0, separator).trim(),
     text: raw.slice(separator + 1),
   });
-}
+};
 
-function buildCompletionClaim(
+const buildCompletionClaim = (
   entries: readonly EvidenceEntry[]
-): CompletionClaim {
+): CompletionClaim => {
   const evidenceById = new Map<string, string[]>();
   for (const entry of entries) {
     const evidence = evidenceById.get(entry.id) ?? [];
@@ -64,22 +66,21 @@ function buildCompletionClaim(
       evidence,
     })),
   };
-}
+};
 
-function formatUnmet(unmet: readonly UnmetCriterion[]): string {
-  return unmet
+const formatUnmet = (unmet: readonly UnmetCriterion[]): string =>
+  unmet
     .map((entry) => {
       const evidence =
         entry.evidence.length > 0 ? entry.evidence.join("; ") : "(none)";
       return `  - [${entry.criterion}] ${entry.reason}\n      evidence: ${evidence}`;
     })
     .join("\n");
-}
 
-function formatOutcome(
+const formatOutcome = (
   outcome: TicketCompletionOutcome,
-  json: boolean | undefined
-): string {
+  json = false
+): string => {
   if (json) {
     return JSON.stringify(outcome);
   }
@@ -89,14 +90,14 @@ function formatOutcome(
   const count = outcome.unmet.length;
   const header = `Ticket ${outcome.ticketId} NOT completed: ${count} acceptance criteri${count === 1 ? "on" : "a"} unmet.`;
   return [header, formatUnmet(outcome.unmet)].join("\n");
-}
+};
 
-function completeTicketCommandEffect(
+const completeTicketCommandEffect = (
   worktreePath: string,
   ticketId: string,
   flags: TicketCompleteFlags
-): Effect.Effect<void, unknown, RepoIoService | BacklogService> {
-  return Effect.gen(function* () {
+): Effect.Effect<void, unknown, RepoIoService | BacklogService> =>
+  Effect.gen(function* effectBody() {
     const entries = yield* Effect.all(
       (flags.evidence ?? []).map(parseEvidenceEntryEffect)
     );
@@ -107,19 +108,18 @@ function completeTicketCommandEffect(
       store,
       ticketId,
     });
-    yield* writeLineEffect(formatOutcome(outcome, flags.json));
+    yield* writeLineEffect(formatOutcome(outcome, flags.json === true));
     if (outcome.status === "refused") {
       yield* Effect.sync(() => {
         process.exitCode = 1;
       });
     }
   });
-}
 
-export function registerCompleteSubcommand(
+export const registerCompleteSubcommand = (
   ticketCommand: Command,
   options: TicketCommandOptions
-): void {
+): void => {
   ticketCommand
     .command("complete")
     .description(
@@ -133,10 +133,10 @@ export function registerCompleteSubcommand(
       []
     )
     .option("--json", "print machine-readable completion outcome")
-    .action((ticketId: string, flags: TicketCompleteFlags) =>
-      runTicketProgramWithBacklog(
+    .action(async (ticketId: string, flags: TicketCompleteFlags) => {
+      await runTicketProgramWithBacklog(
         completeTicketCommandEffect(currentWorktreePath(), ticketId, flags),
         options.backlogLayer ?? BacklogServiceLive
-      )
-    );
-}
+      );
+    });
+};

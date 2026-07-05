@@ -11,17 +11,17 @@ import { parseGateJson } from "../../gates";
  * Checks that a named field in the node's JSON output (or artifact) equals an
  * expected string value — defaults to `field="verdict"` and `equals="PASS"`.
  */
-export function evaluateVerdictGate(
+export const evaluateVerdictGate = (
   gate: VerdictGateSpec,
   gateId: string,
   nodeId: string,
   context: JsonSourceContext,
   attempt: NodeAttemptResult
-): RuntimeGateResult {
+): RuntimeGateResult => {
   const parsed = parseGateJson(gate, context, attempt);
   const field = gate.field ?? "verdict";
   const expected = gate.equals ?? "PASS";
-  if (parsed.evidence) {
+  if (parsed.evidence !== undefined && parsed.evidence.length > 0) {
     return {
       evidence: [parsed.evidence],
       gateId,
@@ -45,4 +45,4 @@ export function evaluateVerdictGate(
     passed,
     reason: passed ? undefined : "verdict requirement failed",
   };
-}
+};

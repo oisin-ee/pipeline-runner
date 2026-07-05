@@ -1,11 +1,10 @@
 import { readFileSync } from "node:fs";
+
 import type { Command } from "commander";
 import { Context, Effect, Layer } from "effect";
-import {
-  buildEvalReport,
-  type EvalRunResult,
-  renderEvalReport,
-} from "../bench/eval-report";
+
+import { buildEvalReport, renderEvalReport } from "../bench/eval-report";
+import type { EvalRunResult } from "../bench/eval-report";
 
 class BenchCommandService extends Context.Service<
   BenchCommandService,
@@ -19,13 +18,15 @@ class BenchCommandService extends Context.Service<
 
 const BenchCommandServiceLive = Layer.succeed(BenchCommandService, {
   readResults: (path) =>
-    Effect.try(() => JSON.parse(readFileSync(path, "utf8")) as EvalRunResult[]),
+    Effect.try(
+      () => JSON.parse(readFileSync(path, "utf-8")) as EvalRunResult[]
+    ),
   writeReport: (report) =>
     Effect.try(() => process.stdout.write(`${report}\n`)),
 });
 
 const runBenchCommand = (options: { results: string }) =>
-  Effect.gen(function* () {
+  Effect.gen(function* runBenchCommand() {
     const service = yield* BenchCommandService;
     const records = yield* service.readResults(options.results);
     const report = renderEvalReport(buildEvalReport(records));
@@ -39,7 +40,7 @@ const runBenchCommand = (options: { results: string }) =>
  * one EvalRunResult per task+variant; this command turns those records into the
  * comparison report.
  */
-export function registerBenchCommand(program: Command): void {
+export const registerBenchCommand = (program: Command): void => {
   program
     .command("bench")
     .description(
@@ -49,9 +50,9 @@ export function registerBenchCommand(program: Command): void {
       "--results <path>",
       "JSON file: array of { task, variant, resolved, costTokens, wallMs }"
     )
-    .action((options: { results: string }) =>
-      Effect.runPromise(
+    .action(async (options: { results: string }) => {
+      await Effect.runPromise(
         Effect.provide(runBenchCommand(options), BenchCommandServiceLive)
-      )
-    );
-}
+      );
+    });
+};

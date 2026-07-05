@@ -22,14 +22,14 @@ interface RunResolverModule {
   }): RunResolution;
 }
 
-async function resolveMokaRun(input: {
+const resolveMokaRun = async (input: {
   flags?: RunResolverFlags;
   task?: string;
-}): Promise<RunResolution> {
+}): Promise<RunResolution> => {
   const modulePath = "../src/cli/run-resolver";
   const mod = (await import(modulePath)) as RunResolverModule;
   return mod.resolveMokaRun({ task: input.task ?? "Ship it", ...input });
-}
+};
 
 describe("resolveMokaRun", () => {
   it("defaults bare moka run to local normal write mode", async () => {
@@ -54,14 +54,19 @@ describe("resolveMokaRun", () => {
   it.each([
     ["quick", "quick"],
     ["thorough", "execute"],
-  ] as const)("maps --effort %s to the %s scheduled entrypoint", async (effort, entrypoint) => {
-    await expect(resolveMokaRun({ flags: { effort } })).resolves.toMatchObject({
-      effort,
-      execution: { entrypoint, kind: "local-runtime" },
-      mode: "write",
-      target: "local",
-    });
-  });
+  ] as const)(
+    "maps --effort %s to the %s scheduled entrypoint",
+    async (effort, entrypoint) => {
+      await expect(
+        resolveMokaRun({ flags: { effort } })
+      ).resolves.toMatchObject({
+        effort,
+        execution: { entrypoint, kind: "local-runtime" },
+        mode: "write",
+        target: "local",
+      });
+    }
+  );
 
   it("keeps --workflow as an advanced local runtime override", async () => {
     await expect(

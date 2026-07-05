@@ -1,4 +1,4 @@
-export const ID_RE = /^[a-z][a-z0-9-]*$/;
+export const ID_RE = /^[a-z][a-z0-9-]*$/u;
 
 // Reasoning effort is carried as data on the role (node/profile/runner) and
 // applied at runtime as the opencode model variant for the selected model,

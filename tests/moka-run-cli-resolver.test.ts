@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 interface RuntimeCall {
@@ -41,9 +42,9 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/pipeline-runtime", () => ({
-  runPipelineFromConfig: vi.fn((input: RuntimeCall) => {
+  runPipelineFromConfig: vi.fn(async (input: RuntimeCall) => {
     mockState.runtimeCalls.push(input);
-    return Promise.resolve({
+    return {
       agentInvocations: [],
       failureDetails: [],
       gates: [],
@@ -55,7 +56,7 @@ vi.mock("../src/pipeline-runtime", () => ({
         topologicalOrder: [],
         workflowId: input.workflowId ?? input.entrypoint ?? "resolved-workflow",
       },
-    });
+    };
   }),
 }));
 
@@ -67,31 +68,8 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
 
   return {
     ...actual,
-    generateScheduleArtifactInMemory: vi.fn(
-      (input: ScheduleCall & { runId: string }) => {
-        mockState.scheduleCalls.push(input);
-        return Promise.resolve({
-          yaml: [
-            "version: 1",
-            "kind: pipeline-schedule",
-            `schedule_id: ${input.runId}`,
-            `source_entrypoint: ${input.entrypointId}`,
-            `task: ${input.task}`,
-            "generated_at: 2026-06-17T00:00:00.000Z",
-            "root_workflow: root",
-            "workflows:",
-            "  root:",
-            "    nodes:",
-            "      - id: scheduled",
-            "        kind: command",
-            "        command: [node, -e, \"console.log('scheduled')\"]",
-            "",
-          ].join("\n"),
-        });
-      }
-    ),
     generateScheduleArtifact: vi.fn(
-      (input: ScheduleCall & { runId: string }) => {
+      async (input: ScheduleCall & { runId: string }) => {
         mockState.scheduleCalls.push(input);
         const schedulePath = `.pipeline/runs/${input.runId}/schedule.yaml`;
         const fullPath = path.join(input.worktreePath, schedulePath);
@@ -115,7 +93,30 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
             "",
           ].join("\n")
         );
-        return Promise.resolve({ path: schedulePath });
+        return { path: schedulePath };
+      }
+    ),
+    generateScheduleArtifactInMemory: vi.fn(
+      async (input: ScheduleCall & { runId: string }) => {
+        mockState.scheduleCalls.push(input);
+        return {
+          yaml: [
+            "version: 1",
+            "kind: pipeline-schedule",
+            `schedule_id: ${input.runId}`,
+            `source_entrypoint: ${input.entrypointId}`,
+            `task: ${input.task}`,
+            "generated_at: 2026-06-17T00:00:00.000Z",
+            "root_workflow: root",
+            "workflows:",
+            "  root:",
+            "    nodes:",
+            "      - id: scheduled",
+            "        kind: command",
+            "        command: [node, -e, \"console.log('scheduled')\"]",
+            "",
+          ].join("\n"),
+        };
       }
     ),
   };
@@ -144,12 +145,12 @@ vi.mock("../src/cli/submit-options", async (importOriginal) => {
   return {
     ...actual,
     runMokaSubmitFromCli: vi.fn(
-      (input: string[], flags: Record<string, unknown>) => {
+      async (input: string[], flags: Record<string, unknown>) => {
         mockState.submitCalls.push({ flags, input });
-        return Promise.resolve({
+        return {
           namespace: "test-runners",
           workflowName: "submitted-run",
-        });
+        };
       }
     ),
   };
@@ -172,7 +173,7 @@ afterEach(() => {
   }
 });
 
-async function withCliTarget(
+const withCliTarget = async (
   run: (input: {
     dir: string;
     parseMoka: (
@@ -184,7 +185,7 @@ async function withCliTarget(
       programOptions?: Record<string, unknown>
     ) => Promise<void>;
   }) => Promise<void>
-): Promise<void> {
+): Promise<void> => {
   const dir = mkdtempSync(join(tmpdir(), "moka-run-resolver-cli-"));
   process.env.PIPELINE_TARGET_PATH = dir;
   try {
@@ -199,17 +200,19 @@ async function withCliTarget(
         from: "node",
       });
     };
-    const parseRun = (
+    const parseRun = async (
       args: string[],
       programOptions?: Record<string, unknown>
-    ) => parseMoka(["run", ...args], programOptions);
+    ) => {
+      await parseMoka(["run", ...args], programOptions);
+    };
     await run({ dir, parseMoka, parseRun });
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
-}
+};
 
-function writeSchedule(root: string, relativePath: string): string {
+const writeSchedule = (root: string, relativePath: string): string => {
   const fullPath = join(root, relativePath);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(
@@ -232,12 +235,12 @@ function writeSchedule(root: string, relativePath: string): string {
     ].join("\n")
   );
   return fullPath;
-}
+};
 
 describe("moka run CLI flag resolver wiring", () => {
   it("passes a resolved local read-only run to the injected runCommand dispatcher", async () => {
     await withCliTarget(async ({ parseRun }) => {
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
       await parseRun(["--read-only", "Inspect", "the", "repo"], {
         runCommand,
@@ -272,7 +275,7 @@ describe("moka run CLI flag resolver wiring", () => {
 
   it("passes a resolved remote quick run to the injected runCommand dispatcher", async () => {
     await withCliTarget(async ({ parseRun }) => {
-      const runCommand = vi.fn((_: RunCommandCall) => Promise.resolve());
+      const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
       await parseRun(
         ["--target", "remote", "--effort", "quick", "Ship", "remote"],
@@ -322,19 +325,22 @@ describe("moka run CLI flag resolver wiring", () => {
   it.each([
     ["quick", "quick"],
     ["thorough", "execute"],
-  ] as const)("routes --effort %s to the %s scheduled entrypoint locally", async (effort, entrypointId) => {
-    await withCliTarget(async ({ parseRun }) => {
-      await parseRun(["--effort", effort, "Ship", "it"]);
+  ] as const)(
+    "routes --effort %s to the %s scheduled entrypoint locally",
+    async (effort, entrypointId) => {
+      await withCliTarget(async ({ parseRun }) => {
+        await parseRun(["--effort", effort, "Ship", "it"]);
 
-      expect(mockState.submitCalls).toEqual([]);
-      expect(mockState.scheduleCalls).toHaveLength(1);
-      expect(mockState.scheduleCalls[0]).toMatchObject({
-        entrypointId,
-        task: "Ship it",
+        expect(mockState.submitCalls).toEqual([]);
+        expect(mockState.scheduleCalls).toHaveLength(1);
+        expect(mockState.scheduleCalls[0]).toMatchObject({
+          entrypointId,
+          task: "Ship it",
+        });
+        expect(mockState.runtimeCalls).toHaveLength(1);
       });
-      expect(mockState.runtimeCalls).toHaveLength(1);
-    });
-  });
+    }
+  );
 
   it("lets --workflow override effort routing for advanced local runs", async () => {
     await withCliTarget(async ({ parseRun }) => {
@@ -363,7 +369,7 @@ describe("moka run CLI flag resolver wiring", () => {
 
       await parseRun(["--schedule", schedulePath, "Use", "approved"]);
 
-      expect(readFileSync(schedulePath, "utf8")).toContain(
+      expect(readFileSync(schedulePath, "utf-8")).toContain(
         "schedule_id: approved-run"
       );
       expect(mockState.submitCalls).toEqual([]);

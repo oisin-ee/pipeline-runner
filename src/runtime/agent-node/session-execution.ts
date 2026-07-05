@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
 import { createRunnerLaunchPlan } from "../../runner";
@@ -11,15 +12,33 @@ export interface ModelAttemptOutcome {
   result: AgentResult;
 }
 
-export function runModelAttemptEffect(inputs: {
+const agentOutputRecorder =
+  (context: RuntimeContext, node: PlannedWorkflowNode, attempt: number) =>
+  (event: { chunk: string; stream: "stderr" | "stdout" }) => {
+    if (event.stream !== "stdout") {
+      return;
+    }
+    emit(context, {
+      attempt,
+      format: "text",
+      nodeId: node.id,
+      output: event.chunk,
+      ...(node.profile === undefined || node.profile.length === 0
+        ? {}
+        : { profile: node.profile }),
+      type: "node.output.recorded",
+    });
+  };
+
+export const runModelAttemptEffect = (inputs: {
   attempt: number;
   context: RuntimeContext;
-  model: string | undefined;
+  model?: string;
   node: PlannedWorkflowNode;
   profileId: string;
   prompt: string;
-}): Effect.Effect<ModelAttemptOutcome, unknown, AgentNodeRuntimeService> {
-  return Effect.gen(function* () {
+}): Effect.Effect<ModelAttemptOutcome, unknown, AgentNodeRuntimeService> =>
+  Effect.gen(function* effectBody() {
     const { attempt, context, model, node, profileId, prompt } = inputs;
     const service = yield* AgentNodeRuntimeService;
     const plan = createRunnerLaunchPlan(context.config, {
@@ -30,7 +49,7 @@ export function runModelAttemptEffect(inputs: {
       reasoningEffort: node.reasoning_effort,
       worktreePath: context.worktreePath,
     });
-    if (node.timeoutMs) {
+    if (node.timeoutMs !== undefined && node.timeoutMs !== 0) {
       plan.timeoutMs = node.timeoutMs;
     }
     context.agentInvocations.push(plan);
@@ -40,29 +59,8 @@ export function runModelAttemptEffect(inputs: {
       signal: context.signal,
     });
     emitAgentFinish(context, plan, attempt, result);
-    if (result.sessionId) {
+    if (result.sessionId !== undefined && result.sessionId.length > 0) {
       context.nodeStateStore.recordSessionId(node.id, result.sessionId);
     }
     return { plan, result };
   });
-}
-
-function agentOutputRecorder(
-  context: RuntimeContext,
-  node: PlannedWorkflowNode,
-  attempt: number
-) {
-  return (event: { chunk: string; stream: "stderr" | "stdout" }) => {
-    if (event.stream !== "stdout") {
-      return;
-    }
-    emit(context, {
-      attempt,
-      format: "text",
-      nodeId: node.id,
-      output: event.chunk,
-      ...(node.profile ? { profile: node.profile } : {}),
-      type: "node.output.recorded",
-    });
-  };
-}

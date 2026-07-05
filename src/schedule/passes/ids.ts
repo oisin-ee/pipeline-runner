@@ -6,40 +6,10 @@ import { uniqueGeneratedId } from "../../strings";
 type Workflow = PipelineConfig["workflows"][string];
 type WorkflowNode = Workflow["nodes"][number];
 
-export function canonicalizeGeneratedScheduleIds(
-  artifact: ScheduleArtifact
-): ScheduleArtifact {
-  return {
-    ...artifact,
-    workflows: Object.fromEntries(
-      Object.entries(artifact.workflows).map(([workflowId, workflow]) => [
-        workflowId,
-        canonicalizeWorkflowNodeIds(workflow),
-      ])
-    ),
-  };
-}
-
-function canonicalizeWorkflowNodeIds(workflow: Workflow): Workflow {
-  const nodeIdMap = new Map<string, string>();
-  const usedNodeIds = new Set<string>();
-  for (const node of flattenNodes(workflow.nodes, (node) =>
-    node.kind === "parallel" ? node.nodes : undefined
-  )) {
-    nodeIdMap.set(node.id, uniqueGeneratedId(node.id, usedNodeIds, "node"));
-  }
-  return {
-    ...workflow,
-    nodes: workflow.nodes.map((node) =>
-      rewriteGeneratedWorkflowNodeIds(node, nodeIdMap)
-    ),
-  };
-}
-
-function rewriteGeneratedWorkflowNodeIds(
+const rewriteGeneratedWorkflowNodeIds = (
   node: WorkflowNode,
   nodeIdMap: Map<string, string>
-): WorkflowNode {
+): WorkflowNode => {
   const rewritten = {
     ...node,
     id: nodeIdMap.get(node.id) ?? node.id,
@@ -55,4 +25,32 @@ function rewriteGeneratedWorkflowNodeIds(
         ),
       }
     : rewritten;
-}
+};
+
+const canonicalizeWorkflowNodeIds = (workflow: Workflow): Workflow => {
+  const nodeIdMap = new Map<string, string>();
+  const usedNodeIds = new Set<string>();
+  for (const node of flattenNodes(workflow.nodes, (node) =>
+    node.kind === "parallel" ? node.nodes : undefined
+  )) {
+    nodeIdMap.set(node.id, uniqueGeneratedId(node.id, usedNodeIds, "node"));
+  }
+  return {
+    ...workflow,
+    nodes: workflow.nodes.map((node) =>
+      rewriteGeneratedWorkflowNodeIds(node, nodeIdMap)
+    ),
+  };
+};
+
+export const canonicalizeGeneratedScheduleIds = (
+  artifact: ScheduleArtifact
+): ScheduleArtifact => ({
+  ...artifact,
+  workflows: Object.fromEntries(
+    Object.entries(artifact.workflows).map(([workflowId, workflow]) => [
+      workflowId,
+      canonicalizeWorkflowNodeIds(workflow),
+    ])
+  ),
+});

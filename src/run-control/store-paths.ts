@@ -1,5 +1,7 @@
 import { join, relative, sep } from "node:path";
+
 import { Effect } from "effect";
+
 import { parseLogicalSegment } from "./logical-segment";
 import type { ReadRunInput, RunControlStatusPaths } from "./store-types";
 
@@ -9,13 +11,7 @@ const STATUS_FILE = "status.json";
 const EVENTS_FILE = "events.jsonl";
 const NODES_DIRECTORY = "nodes";
 
-export function runControlStatusPaths(
-  input: ReadRunInput
-): RunControlStatusPaths {
-  return runStatusPaths(parseLogicalSegment("runId", input.runId));
-}
-
-export function runPaths(workspaceRoot: string, runId: string) {
+export const runPaths = (workspaceRoot: string, runId: string) => {
   const runsRoot = join(workspaceRoot, RUNS_DIRECTORY);
   const runRoot = join(runsRoot, runId);
 
@@ -27,38 +23,40 @@ export function runPaths(workspaceRoot: string, runId: string) {
     runsRoot,
     status: join(runRoot, STATUS_FILE),
   };
-}
+};
 
-export function nonEmptyStringEffect(
-  label: string,
-  value: string
-): Effect.Effect<string, unknown> {
-  return Effect.try({
-    catch: (error) => error,
-    try: () => parseNonEmptyString(label, value),
-  });
-}
-
-export function normalizeWorkspaceRelative(
+export const normalizeWorkspaceRelative = (
   workspaceRoot: string,
   path: string
-): string {
-  return relative(workspaceRoot, path).split(sep).join("/");
-}
+): string => relative(workspaceRoot, path).split(sep).join("/");
 
-function runStatusPaths(runId: string): RunControlStatusPaths {
+const runStatusPaths = (runId: string): RunControlStatusPaths => {
   const runRoot = `${RUNS_DIRECTORY}/${runId}`;
   return {
     events: `${runRoot}/${EVENTS_FILE}`,
     manifest: `${runRoot}/${MANIFEST_FILE}`,
     status: `${runRoot}/${STATUS_FILE}`,
   };
-}
+};
 
-function parseNonEmptyString(label: string, value: string): string {
+export const runControlStatusPaths = (
+  input: ReadRunInput
+): RunControlStatusPaths =>
+  runStatusPaths(parseLogicalSegment("runId", input.runId));
+
+const parseNonEmptyString = (label: string, value: string): string => {
   if (value.length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
   }
 
   return value;
-}
+};
+
+export const nonEmptyStringEffect = (
+  label: string,
+  value: string
+): Effect.Effect<string, unknown> =>
+  Effect.try({
+    catch: (error) => error,
+    try: () => parseNonEmptyString(label, value),
+  });

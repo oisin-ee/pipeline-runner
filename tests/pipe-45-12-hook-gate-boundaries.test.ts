@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
@@ -26,14 +27,12 @@ const GATE_KIND_OWNER_FILES = [
 const HOOKS_ENTRYPOINT_MAX_LINES = 140;
 const SUPPRESSION_MARKERS = [
   ["fallow", "ignore"].join("-"),
-  ["biome", "ignore"].join("-"),
   ["@ts", "expect", "error"].join("-"),
   ["@ts", "ignore"].join("-"),
 ];
 
-function source(path: string): string {
-  return readFileSync(join(ROOT, path), "utf8");
-}
+const source = (path: string): string =>
+  readFileSync(join(ROOT, path), "utf-8");
 
 describe("PIPE-45.12 hook and gate owner boundaries", () => {
   it("keeps hook dispatch thin while policies, results, events, and command IO have owners", () => {

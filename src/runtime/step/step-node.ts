@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
 import type { DurableRunStore } from "../durable-store/durable-store";
 import type { NextNodeEnvelope } from "../node-protocol/node-protocol";
@@ -53,14 +54,13 @@ export interface NextNodeInput {
  * settled — a failed node is not re-emitted as ready, and a failed dependency
  * blocks its dependents via {@link computeReadyNodeIds}'s default check.
  */
-export function collectStoredResults(
+export const collectStoredResults = (
   input: NextNodeInput
-): RuntimeNodeResult[] {
-  return input.nodes.flatMap((node) => {
+): RuntimeNodeResult[] =>
+  input.nodes.flatMap((node) => {
     const record = input.store.get(input.runId, node.id);
-    return record ? [record.result] : [];
+    return Option.isSome(record) ? [record.value.result] : [];
   });
-}
 
 /**
  * Build the {@link NextNodeEnvelope} for a SPECIFIC node — everything that node
@@ -69,13 +69,13 @@ export function collectStoredResults(
  * outputs of the node's direct `needs` — a failed upstream has no meaningful
  * output to hand the next executor. Pure: all store reads come from `input.store`.
  */
-export function buildEnvelopeForNode(
+export const buildEnvelopeForNode = (
   input: NextNodeInput,
   nodeId: string
-): NextNodeEnvelope | undefined {
+): Option.Option<NextNodeEnvelope> => {
   const node = input.nodes.find((candidate) => candidate.id === nodeId);
   if (node === undefined) {
-    return;
+    return Option.none();
   }
   const meta = input.nodeMetadata.get(nodeId);
   const prompt = meta?.prompt ?? "";
@@ -87,10 +87,18 @@ export function buildEnvelopeForNode(
   );
   const upstreamOutputs = node.needs.flatMap((needId) => {
     const result = passedByNodeId.get(needId);
-    return result ? [{ nodeId: needId, output: result.output }] : [];
+    return result !== undefined
+      ? [{ nodeId: needId, output: result.output }]
+      : [];
   });
-  return { criteria, nodeId, prompt, runId: input.runId, upstreamOutputs };
-}
+  return Option.some({
+    criteria,
+    nodeId,
+    prompt,
+    runId: input.runId,
+    upstreamOutputs,
+  });
+};
 
 /**
  * The single durable write path for a node's terminal result, keyed
@@ -105,13 +113,13 @@ export interface RecordNodeResultInput {
   readonly store: DurableRunStore;
 }
 
-export function recordNodeResult(input: RecordNodeResultInput): void {
+export const recordNodeResult = (input: RecordNodeResultInput): void => {
   input.store.record(input.runId, input.result.nodeId, {
     criteria: [],
     inputs: undefined,
     result: input.result,
   });
-}
+};
 
 /**
  * Dependencies for {@link stepNode} / {@link stepRun}: the envelope-build inputs
@@ -132,13 +140,13 @@ export interface StepNodeDeps extends NextNodeInput {
  * loop callers use {@link stepRun}. Fails when `nodeId` is absent from the graph
  * (no envelope can be built), surfacing the error rather than silently skipping.
  */
-export function stepNode(
+export const stepNode = (
   deps: StepNodeDeps,
   nodeId: string
-): Effect.Effect<RuntimeNodeResult, unknown> {
-  return Effect.gen(function* () {
+): Effect.Effect<RuntimeNodeResult, unknown> =>
+  Effect.gen(function* effectBody() {
     const envelope = buildEnvelopeForNode(deps, nodeId);
-    if (envelope === undefined) {
+    if (Option.isNone(envelope)) {
       return yield* Effect.fail(
         new Error(
           `Cannot step node '${nodeId}': it is not present in run ${deps.runId}'s graph.`
@@ -147,12 +155,25 @@ export function stepNode(
     }
     const result = yield* Effect.tryPromise({
       catch: (error) => error,
-      try: () => deps.executeNode(envelope),
+      try: async () => await deps.executeNode(envelope.value),
     });
     recordNodeResult({ result, runId: deps.runId, store: deps.store });
     return result;
   });
-}
+
+const stepReadyNodes = (
+  deps: StepNodeDeps,
+  results: RuntimeNodeResult[]
+): Effect.Effect<readonly RuntimeNodeResult[], unknown> => {
+  const completed = collectStoredResults(deps);
+  const nodeId = computeReadyNodeIds({ completed, nodes: deps.nodes })[0];
+  if (nodeId === undefined) {
+    return Effect.succeed(results);
+  }
+  return Effect.flatMap(stepNode(deps, nodeId), (result) =>
+    stepReadyNodes(deps, [...results, result])
+  );
+};
 
 /**
  * Drive a run to completion for loop callers (manual CLI; could back local run):
@@ -161,18 +182,7 @@ export function stepNode(
  * upstream failure). Selection stays separate from execution so engines that do
  * their own selection (Argo) bypass this and call {@link stepNode} directly.
  */
-export function stepRun(
+export const stepRun = (
   deps: StepNodeDeps
-): Effect.Effect<readonly RuntimeNodeResult[], unknown> {
-  return Effect.gen(function* () {
-    const results: RuntimeNodeResult[] = [];
-    while (true) {
-      const completed = collectStoredResults(deps);
-      const nodeId = computeReadyNodeIds({ completed, nodes: deps.nodes })[0];
-      if (nodeId === undefined) {
-        return results;
-      }
-      results.push(yield* stepNode(deps, nodeId));
-    }
-  });
-}
+): Effect.Effect<readonly RuntimeNodeResult[], unknown> =>
+  stepReadyNodes(deps, []);

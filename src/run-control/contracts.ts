@@ -151,43 +151,33 @@ export type MokaRunHeartbeatEvent = z.infer<typeof mokaRunHeartbeatEventSchema>;
 export type MokaRunControlEvent = z.infer<typeof mokaRunControlEventSchema>;
 export type MokaRunManifest = z.infer<typeof mokaRunManifestSchema>;
 
-export function parseRunTarget(input: unknown): RunTarget {
-  return runTargetSchema.parse(input);
-}
+export const parseRunTarget = (input: unknown): RunTarget =>
+  runTargetSchema.parse(input);
 
-export function parseRunEffort(input: unknown): RunEffort {
-  return runEffortSchema.parse(input);
-}
+export const parseRunEffort = (input: unknown): RunEffort =>
+  runEffortSchema.parse(input);
 
-export function parseRunMode(input: unknown): RunMode {
-  return runModeSchema.parse(input);
-}
+export const parseRunMode = (input: unknown): RunMode =>
+  runModeSchema.parse(input);
 
-export function parseMokaRunStatus(input: unknown): MokaRunStatus {
-  return mokaRunStatusSchema.parse(input);
-}
+export const parseMokaRunStatus = (input: unknown): MokaRunStatus =>
+  mokaRunStatusSchema.parse(input);
 
-export function parseMokaNodeStatus(input: unknown): MokaNodeStatus {
-  return mokaNodeStatusSchema.parse(input);
-}
+export const parseMokaNodeStatus = (input: unknown): MokaNodeStatus =>
+  mokaNodeStatusSchema.parse(input);
 
-export function parseRunControlStaleDetection(
+export const parseRunControlStaleDetection = (
   input: unknown
-): RunControlStaleDetection {
-  return runControlStaleDetectionSchema.parse(input);
-}
+): RunControlStaleDetection => runControlStaleDetectionSchema.parse(input);
 
-export function parseMokaRunController(input: unknown): MokaRunController {
-  return mokaRunControllerSchema.parse(input);
-}
+export const parseMokaRunController = (input: unknown): MokaRunController =>
+  mokaRunControllerSchema.parse(input);
 
-export function parseMokaRunEvent(input: unknown): MokaRunControlEvent {
-  return mokaRunControlEventSchema.parse(input);
-}
+export const parseMokaRunEvent = (input: unknown): MokaRunControlEvent =>
+  mokaRunControlEventSchema.parse(input);
 
-export function parseMokaRunManifest(input: unknown): MokaRunManifest {
-  return mokaRunManifestSchema.parse(input);
-}
+export const parseMokaRunManifest = (input: unknown): MokaRunManifest =>
+  mokaRunManifestSchema.parse(input);
 
 export const safeParseRunTarget = (input: unknown) =>
   runTargetSchema.safeParse(input);

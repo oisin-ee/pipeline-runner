@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+
 import type {
   AcceptanceCriterion,
   CompletionClaim,
@@ -9,10 +10,8 @@ import type { DeterministicGate } from "../../runtime/gates/adjudicator";
 import { adjudicate } from "../../runtime/gates/adjudicator";
 import { BacklogService } from "../../runtime/services/backlog-service";
 import { RepoIoService } from "../../runtime/services/repo-io-service";
-import {
-  type BacklogTaskStore,
-  loadBacklogTaskStoreEffect,
-} from "../backlog-task-store";
+import { loadBacklogTaskStoreEffect } from "../backlog-task-store";
+import type { BacklogTaskStore } from "../backlog-task-store";
 
 /**
  * A failure raised by the ticket-completion use-case: the ticket could not be
@@ -94,42 +93,26 @@ export const conservativeLayerAJudge: LlmJudge = (input) => ({
   satisfied: false,
 });
 
-/**
- * The keystone completion use-case (PIPE-90.11): load the ticket's acceptance
- * criteria, adjudicate the {@link CompletionClaim} through the layered gate, and
- * set the status to Done ONLY on a passing verdict. A refusal returns the
- * structured {@link UnmetCriterion}[] and performs no status write. Pure given
- * the injected store + judge.
- */
-export function completeTicket(
-  input: CompleteTicketInput
-): Effect.Effect<TicketCompletionOutcome, TicketCompletionError> {
-  return Effect.gen(function* () {
-    const target = yield* input.store.loadTarget(input.ticketId);
-    const verdict = yield* Effect.tryPromise({
-      catch: (error) =>
-        new TicketCompletionError({
-          message: `Adjudication failed for ticket '${input.ticketId}': ${errorMessage(error)}`,
-        }),
-      try: () =>
-        adjudicate({
-          claim: input.claim,
-          criteria: target.criteria,
-          deterministicGates: input.deterministicGates,
-          judge: input.judge,
-        }),
-    });
-    if (!verdict.passed) {
-      return {
-        status: "refused",
-        ticketId: input.ticketId,
-        unmet: verdict.unmet,
-      };
-    }
-    yield* input.store.markDone(input.ticketId);
-    return { status: "completed", ticketId: input.ticketId };
+const resolveTargetEffect = (
+  store: BacklogTaskStore,
+  ticketId: string
+): Effect.Effect<TicketCompletionTarget, TicketCompletionError> => {
+  const record = store.tasksById.get(ticketId);
+  if (!record) {
+    return Effect.fail(
+      new TicketCompletionError({
+        message: `Unknown Backlog ticket '${ticketId}'`,
+      })
+    );
+  }
+  return Effect.succeed({
+    criteria: record.acceptanceCriteria.map((text, index) => ({
+      id: String(index + 1),
+      text,
+    })),
+    id: record.id,
   });
-}
+};
 
 /**
  * Builds the live {@link TicketCompletionStore} backed by the Backlog task store
@@ -137,10 +120,14 @@ export function completeTicket(
  * the resolved services so the returned store's methods are service-free,
  * keeping {@link completeTicket} free of an R requirement.
  */
-export function backlogTicketCompletionStoreEffect(
+export const backlogTicketCompletionStoreEffect = (
   worktreePath: string
-): Effect.Effect<TicketCompletionStore, never, RepoIoService | BacklogService> {
-  return Effect.gen(function* () {
+): Effect.Effect<
+  TicketCompletionStore,
+  never,
+  RepoIoService | BacklogService
+> =>
+  Effect.gen(function* effectBody() {
     const repoIo = yield* RepoIoService;
     const backlog = yield* BacklogService;
     return {
@@ -169,29 +156,42 @@ export function backlogTicketCompletionStoreEffect(
           ),
     };
   });
-}
 
-function resolveTargetEffect(
-  store: BacklogTaskStore,
-  ticketId: string
-): Effect.Effect<TicketCompletionTarget, TicketCompletionError> {
-  const record = store.tasksById.get(ticketId);
-  if (!record) {
-    return Effect.fail(
-      new TicketCompletionError({
-        message: `Unknown Backlog ticket '${ticketId}'`,
-      })
-    );
-  }
-  return Effect.succeed({
-    criteria: record.acceptanceCriteria.map((text, index) => ({
-      id: String(index + 1),
-      text,
-    })),
-    id: record.id,
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/**
+ * The keystone completion use-case (PIPE-90.11): load the ticket's acceptance
+ * criteria, adjudicate the {@link CompletionClaim} through the layered gate, and
+ * set the status to Done ONLY on a passing verdict. A refusal returns the
+ * structured {@link UnmetCriterion}[] and performs no status write. Pure given
+ * the injected store + judge.
+ */
+export const completeTicket = (
+  input: CompleteTicketInput
+): Effect.Effect<TicketCompletionOutcome, TicketCompletionError> =>
+  Effect.gen(function* effectBody() {
+    const target = yield* input.store.loadTarget(input.ticketId);
+    const verdict = yield* Effect.tryPromise({
+      catch: (error) =>
+        new TicketCompletionError({
+          message: `Adjudication failed for ticket '${input.ticketId}': ${errorMessage(error)}`,
+        }),
+      try: async () =>
+        await adjudicate({
+          claim: input.claim,
+          criteria: target.criteria,
+          deterministicGates: input.deterministicGates,
+          judge: input.judge,
+        }),
+    });
+    if (!verdict.passed) {
+      return {
+        status: "refused",
+        ticketId: input.ticketId,
+        unmet: verdict.unmet,
+      };
+    }
+    yield* input.store.markDone(input.ticketId);
+    return { status: "completed", ticketId: input.ticketId };
   });
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

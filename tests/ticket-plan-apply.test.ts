@@ -1,5 +1,6 @@
 import { Effect, Exit, Layer } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { BacklogService } from "../src/runtime/services/backlog-service";
 import type { TicketPlan } from "../src/tickets/ticket-plan";
 
@@ -57,7 +58,7 @@ const PLAN: TicketPlan = {
   ],
 };
 
-function backlogLayer(outputs: readonly string[], calls: BacklogCall[]) {
+const backlogLayer = (outputs: readonly string[], calls: BacklogCall[]) => {
   let index = 0;
   return Layer.succeed(BacklogService, {
     run: (args, cwd) =>
@@ -68,13 +69,12 @@ function backlogLayer(outputs: readonly string[], calls: BacklogCall[]) {
         return output ?? "Task PIPE-999 - Unexpected";
       }),
   });
-}
+};
 
 describe("apply ticket plan", () => {
   it("creates an epic parent before children and resolves local dependency keys", async () => {
-    const { applyTicketPlanEffect } = await import(
-      "../src/tickets/apply-ticket-plan"
-    );
+    const { applyTicketPlanEffect } =
+      await import("../src/tickets/apply-ticket-plan");
     const calls: BacklogCall[] = [];
 
     const result = await Effect.runPromise(
@@ -155,9 +155,8 @@ describe("apply ticket plan", () => {
   });
 
   it("uses an existing parent when provided and does not create a new epic", async () => {
-    const { applyTicketPlanEffect } = await import(
-      "../src/tickets/apply-ticket-plan"
-    );
+    const { applyTicketPlanEffect } =
+      await import("../src/tickets/apply-ticket-plan");
     const calls: BacklogCall[] = [];
 
     const result = await Effect.runPromise(
@@ -182,9 +181,8 @@ describe("apply ticket plan", () => {
   });
 
   it("reports created ids, failed command context, and blocker when id parsing fails", async () => {
-    const { applyTicketPlanEffect } = await import(
-      "../src/tickets/apply-ticket-plan"
-    );
+    const { applyTicketPlanEffect } =
+      await import("../src/tickets/apply-ticket-plan");
     const calls: BacklogCall[] = [];
 
     const exit = await Effect.runPromiseExit(
